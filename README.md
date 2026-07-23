@@ -15,6 +15,10 @@ Private product monorepo for the Hive desktop application and its supporting ser
 - Code under `internal/hivecore/` is vendored from `colonyops/hive` at the SHA pinned in `scripts/vendorhive/vendor.lock`. Never edit it here: change hive first, then re-vendor.
 - Releases are signed/notarized in CI and uploaded to Cloudflare R2 behind a stable domain — versioned zips plus a `latest.json` manifest that drives the in-app updater and the landing-page download link. GitHub releases are not user-facing.
 
+## Docs
+
+Architecture and infrastructure decisions are recorded as ADRs in [`docs/decisions/`](docs/decisions/); the concrete distribution setup (bucket, domains, layout, runbook) is in [`docs/distribution.md`](docs/distribution.md). Index: [`docs/README.md`](docs/README.md).
+
 ## Extraction status
 
 The desktop app still lives in `colonyops/hive`; this repo is being stood up ahead of the extraction. The full plan (phases, vendor tool spec, release pipeline, risks) lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.

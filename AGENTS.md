@@ -18,6 +18,11 @@ Private product monorepo: Hive desktop app, future admin server, and landing pag
 
 Release CI signs and notarizes the macOS app, then uploads versioned artifacts plus a `latest.json` manifest (version, URL, sha256) to Cloudflare R2 behind a stable download domain. The in-app updater polls the manifest; the landing page download link resolves through it. Tags use the `desktop-v*` namespace as the version anchor.
 
+## Documentation
+
+- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them.
+- Concrete distribution facts (bucket, domains, manifest schema, publish/rollback runbook, credentials) live in `docs/distribution.md` — keep it current when infra changes.
+
 ## Git standards
 
 - Never push to main; branch and PR (`feat/`, `chore/`, `fix/` prefixes).
