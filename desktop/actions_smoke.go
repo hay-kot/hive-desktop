@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -58,11 +57,12 @@ type actionSmokeState struct {
 	OutputCommands []actionSmokeCommand `json:"outputCommands"`
 }
 
-// desktopSmokeMiddleware composes the two narrow test-only readers without
-// changing the normal asset handler or exposing either route in production.
-func desktopSmokeMiddleware(pipeline *pipelinedb.DB, core *coredb.DB) application.Middleware {
+// desktopSmokeMiddleware composes the narrow test-only routes — the two
+// smoke readers plus the /_e2e/reset harness — without changing the normal
+// asset handler or exposing any of them in production.
+func desktopSmokeMiddleware(pipeline *pipelinedb.DB, core *coredb.DB, reset *stateReset) application.Middleware {
 	return func(next http.Handler) http.Handler {
-		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline)(next))
+		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline)(stateResetMiddleware(reset)(next)))
 	}
 }
 
@@ -216,15 +216,7 @@ func likePrefix(prefix string) string {
 }
 
 func actionSmokeHarnessEnabled() bool {
-	if desktop.MockMode() != "action-smoke" || desktopSmokeRunID() == "" {
-		return false
-	}
-	marker := strings.TrimSpace(os.Getenv(desktop.EnvE2EHarness))
-	if len(marker) != 64 {
-		return false
-	}
-	_, err := hex.DecodeString(marker)
-	return err == nil
+	return desktop.MockMode() == "action-smoke" && desktopSmokeRunID() != "" && e2eHarnessMarkerValid()
 }
 
 func desktopSmokeRunID() string {

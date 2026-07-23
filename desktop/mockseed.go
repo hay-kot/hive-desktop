@@ -82,6 +82,14 @@ var mockInboxItems = []feed.Item{
 // seedMockInboxItems writes deterministic inbox rows directly rather than
 // using the ingestion transaction. This is intentionally fixture-only.
 func seedMockInboxItems(db *pipelinedb.DB) error {
+	return db.WithTx(context.Background(), seedMockInboxItemsTx)
+}
+
+// seedMockInboxItemsTx is the transaction-scoped seed body. Startup seeding
+// wraps it in its own transaction (seedMockInboxItems); the /_e2e/reset
+// harness reuses it inside ResetAllState's wipe transaction so the delete and
+// reseed commit atomically.
+func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
 	base := time.Now().UnixMilli()
 	ctx := context.Background()
 	sourceTopic := "source:" + MockFlowID + "/" + MockSourceNodeID
@@ -92,7 +100,7 @@ func seedMockInboxItems(db *pipelinedb.DB) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: encode item %q: %w", item.ID, err)
 		}
-		row, err := db.Queries().InsertInboxItem(ctx, pipelinedb.InsertInboxItemParams{
+		row, err := q.InsertInboxItem(ctx, pipelinedb.InsertInboxItemParams{
 			ProfileID:   MockFlowID,
 			SourceKind:  "github",
 			SourceScope: "",
@@ -108,14 +116,14 @@ func seedMockInboxItems(db *pipelinedb.DB) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: insert item %q: %w", item.ID, err)
 		}
-		if err := db.Queries().UpsertFeedMembershipClaim(ctx, pipelinedb.UpsertFeedMembershipClaimParams{
+		if err := q.UpsertFeedMembershipClaim(ctx, pipelinedb.UpsertFeedMembershipClaimParams{
 			ProfileID: MockFlowID, FeedID: MockFlowID + "/" + MockFeedNodeID, ItemID: row.ID, SourceID: sourceTopic,
 		}); err != nil {
 			return fmt.Errorf("mock seed: claim item %q: %w", item.ID, err)
 		}
 		snapshot = append(snapshot, pipelinedb.SnapshotItem{Key: item.ID, Payload: payload})
 	}
-	if _, err := db.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
+	if _, err := q.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
 		return fmt.Errorf("mock seed: append source snapshot: %w", err)
 	}
 	return nil

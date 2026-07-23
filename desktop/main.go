@@ -496,6 +496,12 @@ func main() {
 		application.NewService(NewWindowService(focus)),
 	)
 
+	// Test-only /_e2e/reset harness (nil outside the Docker e2e mock modes).
+	// Built this late deliberately: buildActionStore has seeded actions.yml and
+	// mock seeding has run, so the captured config baseline is the post-boot
+	// state a reset must restore.
+	resetHarness := newStateResetHarness(pipelineDB, actionRuntime.db, logger)
+
 	options := application.Options{
 		Name:        "Hive",
 		Description: "Hive desktop application",
@@ -503,7 +509,7 @@ func main() {
 		Services:    services,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
-			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db),
+			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db, resetHarness),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
