@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 )
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to

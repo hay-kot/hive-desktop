@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  GOPRIVATE: github.com/colonyops/hive
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # The pinned wails alpha defaults to the GTK4/WebKitGTK 6.0 stack on
+      # Linux (GTK3 is opt-in via -tags gtk3, which nothing here passes).
+      - name: Install Linux desktop build dependencies
+        uses: awalsh128/cache-apt-pkgs-action@v1.6.3
+        with:
+          packages: libgtk-4-dev libwebkitgtk-6.0-dev
+          version: 1
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Set up mise
+        uses: jdx/mise-action@v4
+
+      - name: Check generated files are up-to-date
+        run: |
+          mise run --force generate
+          git diff --exit-code -- '*_enum.go' 'internal/desktop/pipeline/pipelinedb' || (echo "Generated files are out of date. Run 'mise run generate' and commit the result." && exit 1)
+
+      - name: Check vendored hivecore matches the pinned hive commit
+        run: |
+          go run ./scripts/vendorhive -skip-gomod
+          git diff --exit-code -- internal/hivecore || (echo "internal/hivecore has drifted. Never edit vendored code; run 'mise run vendor' after landing changes in hive." && exit 1)
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.12.2
+          args: --timeout=6m
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test
+        run: go test ./... -race
+
+  desktop-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: desktop/frontend
+        run: npm run build
+
+      - name: Test frontend
+        working-directory: desktop/frontend
+        run: npm test
+
+  desktop-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Run desktop e2e tests
+        run: ./desktop/e2e/scripts/run-docker.sh

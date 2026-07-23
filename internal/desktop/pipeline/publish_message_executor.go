@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 )
 
 type MessagePublisher interface {

@@ -4,7 +4,7 @@ Private product monorepo for the Hive desktop application and its supporting ser
 
 | Component | Path | Status |
 | --------- | ---- | ------ |
-| Desktop app (Wails v3, Vue 3) | `desktop/` + `internal/desktop/` | Arrives via import from `colonyops/hive` (extraction Phase 2) |
+| Desktop app (Wails v3, Vue 3) | `desktop/` + `internal/desktop/` | Imported from `colonyops/hive` — see `desktop/README.md` |
 | Vendored hive core | `internal/hivecore/` | Script-managed by `scripts/vendorhive` — **read-only** |
 | Admin server (analytics, licenses, purchases) | `server/` | Future — nested Go module when built |
 | Landing page | `web/` | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |
@@ -21,4 +21,4 @@ Architecture and infrastructure decisions are recorded as ADRs in [`docs/decisio
 
 ## Extraction status
 
-The desktop app still lives in `colonyops/hive`; this repo is being stood up ahead of the extraction. The full plan (phases, vendor tool spec, release pipeline, risks) lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
+The desktop app is imported (see the import commit for the source SHA); the release pipeline (R2 upload + channel manifests, ADR 0003/0004) is not ported yet, and the desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
