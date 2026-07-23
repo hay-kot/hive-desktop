@@ -1,5 +1,6 @@
-import { expect, test, type Page } from '@playwright/test'
+import { type Page } from '@playwright/test'
 import { readFile, writeFile } from 'node:fs/promises'
+import { expect, resetServerState, test } from './fixtures.js'
 
 type SmokeState = {
   runId: string
@@ -24,12 +25,20 @@ async function select(page: Page, id: string): Promise<void> {
 
 function action(runID: string, suffix: string): string { return `smoke-${runID}-${suffix}` }
 
-// Serial: later tests read durable rows earlier tests create. Retries are
-// disabled for the same reason onboarding disables them: the assertions count
-// exact durable rows (output_commands, messages) on a server that lives for
-// the whole session, so a retry re-observes the prior attempt's rows and
-// fails deterministically rather than absorbing jitter.
-test.describe.configure({ mode: 'serial', retries: 0 })
+// Serial: later tests read durable rows earlier tests create, so this file is
+// one ordered journey. It opts out of the per-test reset (which would sever
+// that chain) in favor of one reset per file execution: a serial-group retry
+// re-runs beforeAll in its fresh worker, so every attempt starts from the
+// server baseline and the exact durable-row counts below (output_commands,
+// messages) hold on retries too — the interim retries: 0 override this file
+// carried is therefore gone.
+test.use({ serverStateReset: 'per-file' })
+test.describe.configure({ mode: 'serial' })
+test.beforeAll(async ({}, testInfo) => {
+  // The action-seed server (seedServer) is only observed read-only by this
+  // file, so the action-smoke project server is the one needing a baseline.
+  await resetServerState(testInfo.project.use.baseURL)
+})
 
 test('first run creates the exact starter catalog when the private file is absent', async ({ page }) => {
   await page.goto(seedServer)

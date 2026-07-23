@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { expect, test } from './fixtures.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const expectedItems = [
@@ -50,6 +50,14 @@ test('updates the detail pane and actions for PRs and issues', async ({ page }) 
 })
 
 test('filters the feed to its remaining unread items', async ({ page }) => {
+  // The per-test reset restores the seeded read state (pr2841, iss1190, and
+  // iss1204 unread), so this test owns its precondition instead of relying on
+  // an earlier test's click: read iss1190 first so the filter narrows a mixed
+  // read/unread feed rather than echoing the seed.
+  const readItem = page.locator('[data-testid="feed-item"][data-id="iss1190"]')
+  await readItem.click()
+  await expect(readItem.getByTestId('unread-dot')).toHaveCount(0)
+
   await page.getByTestId('filter-unread').click()
   const unreadItems = page.getByTestId('feed-item')
   await expect(unreadItems).toHaveCount(2)
