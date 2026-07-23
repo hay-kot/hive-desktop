@@ -17,21 +17,21 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 export function CancelDeviceFlow(): $CancellablePromise<void> {
-    return $Call.ByID(3075658122);
+    return $Call.ByID(2622709662);
 }
 
 export function SetToken(token: string): $CancellablePromise<$models.Status> {
-    return $Call.ByID(4210076915, token);
+    return $Call.ByID(253308431, token);
 }
 
 export function SignOut(): $CancellablePromise<void> {
-    return $Call.ByID(396227837);
+    return $Call.ByID(2986637625);
 }
 
 export function StartDeviceFlow(): $CancellablePromise<$models.DeviceFlowInfo> {
-    return $Call.ByID(1002001464);
+    return $Call.ByID(1619800028);
 }
 
 export function Status(): $CancellablePromise<$models.Status> {
-    return $Call.ByID(1767847776);
+    return $Call.ByID(144283588);
 }

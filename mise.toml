@@ -9,6 +9,12 @@ golangci-lint = "2.12.2"
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
 # commits, and the vendor pin usually is one.
 GOPRIVATE = "github.com/colonyops/hive"
+# Local secrets (release signing/notary/R2). Gitignored; absent in CI.
+_.file = { path = ".env", redact = true }
+
+[tasks."release:desktop"]
+description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
+run = "./scripts/release/release-desktop.sh"
 
 [tasks.vendor]
 description = "Sync internal/hivecore from the pinned hive commit (see scripts/vendorhive)"
