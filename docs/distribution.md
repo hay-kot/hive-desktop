@@ -47,9 +47,21 @@ desktop/
 
 ## Publish flow
 
-1. Tag `desktop-v<semver>` — the first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier fails the workflow).
-2. CI builds, signs, notarizes; uploads the zip + `SHA256SUMS` to `releases/<semver>/`.
-3. CI writes `latest.json` for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
+The pipeline is `scripts/release/release-desktop.sh` — build universal .app, Developer ID sign (ephemeral keychain), notarize + staple, zip + `SHA256SUMS`, upload to `releases/<semver>/`, write channel manifests. Channel routing and cascade per the rules below.
+
+**Local release** (secrets from the gitignored repo-root `.env`, loaded by mise):
+
+```bash
+mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-notarize --skip-upload --force
+git tag desktop-v1.4.0-dev.1 && git push origin desktop-v1.4.0-dev.1
+```
+
+Rules enforced by the script:
+1. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
+2. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
+3. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+
+A CI workflow wrapping the same script (triggered by `desktop-v*` tags) is the follow-up; the repo secrets it needs are already in place.
 
 ## Rollback
 
@@ -62,4 +74,5 @@ Dev builds are pruned by a scheduled job (delete `-dev.` versions older than N d
 ## Credentials
 
 - `CLOUDFLARE_API_TOKEN` (repo secret) — web deploys; Workers edit on the account + `hivedesktop.com` zone. Dashboard-created (OAuth sessions cannot mint API tokens).
-- Release CI additionally needs R2 write credentials for `hive-desktop-releases` — dashboard-created R2 API token; not yet provisioned.
+- `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (repo secrets + local `.env`) — S3 credentials for `hive-desktop-releases`.
+- Local `.env` additionally holds the signing/notary set: `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, `MACOS_SIGN_IDENTITY`, `AC_API_KEY`, `AC_API_KEY_ID`, `AC_API_ISSUER_ID` (same names as the future CI secrets).
