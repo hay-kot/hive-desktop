@@ -363,18 +363,19 @@ function openErrorNode(): void {
 // ── Always-on runtime pump (hc-8ft4yhm6) ─────────────────────────────────────
 // Drives every enabled runtime on each backend log append. The subscription
 // lives here so processing continues with the canvas closed and regardless of
-// profile selection. Commits complete BEFORE useFeedState.refresh() re-reads
-// inbox items and membership claims, so all profile sidebars observe the newly committed work.
+// profile selection. log:appended is a one-shot wake-up, so the session keeps
+// it sticky (level-triggered): a signal landing while a serialized operation
+// is still installing or replacing runtimes is drained by that operation's
+// trailing catch-up pump — never dropped. The feed re-read keys off pumpCount
+// rather than the pump() call so commits complete BEFORE useFeedState.refresh()
+// re-reads inbox items and membership claims, even when the servicing pass was
+// a boot/reload catch-up instead of the pump this event requested.
+watch(session.pumpCount, () => { void refresh() })
 let unsubscribeLog: (() => void) | undefined
 let unsubscribeFlowsRuntime: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 onMounted(() => {
-  unsubscribeLog = Events.On('log:appended', () => {
-    void (async () => {
-      await session.pump()
-      void refresh()
-    })()
-  })
+  unsubscribeLog = Events.On('log:appended', () => { void session.pump() })
   // The app owns this subscription, rather than FlowsView, because deployed
   // graphs must reload even while the canvas is closed. The session keeps an
   // unsaved editor draft private while replacing only its runtime snapshot.
@@ -675,7 +676,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="h-screen w-screen overflow-hidden bg-app text-text">
+  <!-- data-pipeline-ready is the test-visible readiness marker: stamped once
+       the flows session's boot reconcile + trailing catch-up pump completed
+       ("subscribed + caught up"), so e2e tests can gate backend event
+       injection on it. -->
+  <main class="h-screen w-screen overflow-hidden bg-app text-text" :data-pipeline-ready="session.ready.value || undefined">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
         :profile-name="authenticated && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"

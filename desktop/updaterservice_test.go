@@ -77,9 +77,8 @@ func TestUpdaterServiceStatusDefault(t *testing.T) {
 func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{rel: &updater.Release{
-		Version:  "1.3.0",
-		Notes:    "new stuff",
-		Metadata: map[string]any{"github.release.url": "https://example/desktop-v1.3.0"},
+		Version: "1.3.0",
+		Notes:   "new stuff",
 	}}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
 	s.attach(engine)
@@ -88,7 +87,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, info.Available)
 	require.Equal(t, "1.3.0", info.LatestVersion)
-	require.Equal(t, "https://example/desktop-v1.3.0", info.ReleaseURL)
+	require.Equal(t, releaseURL("1.3.0"), info.ReleaseURL)
 	// Status reflects the cached result.
 	require.True(t, s.Status().Available)
 }

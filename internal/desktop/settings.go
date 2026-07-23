@@ -17,6 +17,15 @@ const settingsFileName = "settings.yaml"
 // GitHub's notifications polling contract.
 const MinPollInterval = 60 * time.Second
 
+// Release channels form a closed set (docs/decisions/0004): a version's
+// prerelease identifier routes a build to its channel, and the updater follows
+// exactly one of these.
+const (
+	ChannelStable = "stable"
+	ChannelBeta   = "beta"
+	ChannelDev    = "dev"
+)
+
 // Settings holds user-tunable desktop behavior. Zero-valued fields mean use
 // the application's default.
 type Settings struct {
@@ -36,6 +45,12 @@ type Settings struct {
 	// NotificationSound controls sound for OS notification banners. It defaults
 	// to enabled when absent.
 	NotificationSound *bool `yaml:"notification_sound,omitempty"`
+	// UpdateChannel pins the release channel the updater follows: "stable",
+	// "beta", or "dev" (docs/decisions/0004). An absent key defaults to the
+	// channel implied by the running build's own version, so beta/dev builds
+	// track their channel without configuration. Resolve through
+	// UpdateChannelOrDefault rather than reading the field directly.
+	UpdateChannel string `yaml:"update_channel,omitempty"`
 }
 
 // SettingsPath is the settings.yaml location under the desktop config root.
@@ -115,6 +130,19 @@ func (s Settings) NotificationSoundOrDefault() bool {
 		return true
 	}
 	return *s.NotificationSound
+}
+
+// UpdateChannelOrDefault resolves UpdateChannel against the closed channel
+// set. Absent or unrecognized values fall back to fallback (mirroring
+// PollIntervalOrDefault's tolerance for hand-edited input) so a typo can
+// never mint a channel.
+func (s Settings) UpdateChannelOrDefault(fallback string) string {
+	switch s.UpdateChannel {
+	case ChannelStable, ChannelBeta, ChannelDev:
+		return s.UpdateChannel
+	default:
+		return fallback
+	}
 }
 
 // PollIntervalOrDefault resolves PollInterval. Hand-edited values below the

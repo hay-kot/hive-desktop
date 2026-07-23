@@ -30,11 +30,18 @@ export default defineConfig({
   // state change a retry cannot replay. Set via env so `mise run desktop:e2e`
   // (CI=1 in the image) and ad-hoc local runs differ automatically.
   retries: process.env.CI ? 2 : 0,
+  // The nightly-strict CI lane sets PW_FAIL_ON_FLAKY (forwarded into the
+  // container by run-docker.sh): a test that only passes on retry then fails
+  // the run, feeding the quarantine list instead of hiding as "flaky".
+  failOnFlakyTests: !!process.env.PW_FAIL_ON_FLAKY,
   expect: { timeout: 10_000 },
   outputDir: 'test-results',
   use: {
     baseURL: `http://127.0.0.1:${feedPorts.chromium}`,
     viewport: { width: 1360, height: 864 },
+    // Traces are the only forensic record of a CI flake: run-docker.sh mounts
+    // test-results/ out of the container and CI uploads it on failure.
+    trace: 'retain-on-failure',
   },
   webServer: {
     command: './scripts/serve.sh',

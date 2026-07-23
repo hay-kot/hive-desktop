@@ -2,28 +2,31 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"runtime/debug"
 	"strings"
+
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 )
 
 // Build information for the desktop app. Populated at build time via
 // -ldflags "-X main.version=... -X main.commit=... -X main.date=...". The
-// production build in desktop/build/darwin/Taskfile.yml and the
-// desktop-publish workflow stamp the release version, commit SHA, and build
+// production build in desktop/build/darwin/Taskfile.yml and the release
+// pipeline (scripts/release/release-desktop.sh, wrapped by the
+// desktop-publish workflow) stamp the release version, commit SHA, and build
 // date here so the running app can report exactly what it is.
 //
-// Defaults mirror the CLI's (see the repository-root main.go): a plain source
-// build reports "dev".
+// A plain source build reports "dev".
 var (
 	version = "dev"
 	commit  = "HEAD"
 	date    = "now"
 )
 
-// desktopRepoSlug is the GitHub owner/repo the desktop app is released from.
-// Desktop releases live in their own tag namespace, desktop-v<version>, decoupled
-// from the CLI's v<version> tags (see .github/workflows/desktop-publish.yml).
-const desktopRepoSlug = "colonyops/hive"
+// desktopRepoSlug is the GitHub owner/repo holding the desktop app's source.
+// Release tags use the desktop-v<version> namespace, decoupled from the CLI's
+// v<version> tags in colonyops/hive.
+const desktopRepoSlug = "hay-kot/hive-desktop"
 
 // resolvedBuildInfo returns the effective version, commit, and date for the
 // running binary. When ldflags were not supplied (a plain `go build`/`go run`,
@@ -68,35 +71,41 @@ func repoURL() string {
 	return fmt.Sprintf("https://github.com/%s", desktopRepoSlug)
 }
 
-// releaseURL returns the GitHub release page for a desktop version, or "" when
-// the version has no corresponding published release: dev builds, empty
-// values, and go-module pseudo-versions (v0.0.0-<time>-<sha>) all yield "".
-// Desktop releases are tagged desktop-v<version>.
+// releaseURL returns the GitHub tag page for a published desktop version, or
+// "" when the version has no published release (dev builds, empty values,
+// go-module pseudo-versions). The desktop-v tag is the source-side version
+// anchor and changelog record (docs/decisions/0003); distribution and the
+// updater themselves never read GitHub.
 func releaseURL(version string) string {
 	v := strings.TrimPrefix(strings.TrimSpace(version), "v")
-	if !isReleaseVersion(v) {
+	if _, ok := releaseChannel(v); !ok {
 		return ""
 	}
 	return fmt.Sprintf("https://github.com/%s/releases/tag/desktop-v%s", desktopRepoSlug, v)
 }
 
-// isReleaseVersion reports whether v is a plain released semver core
-// (major.minor.patch, digits only). This intentionally rejects pseudo-versions
-// and "(devel)" so we never link to a release tag that does not exist.
-func isReleaseVersion(v string) bool {
-	nums := strings.Split(v, ".")
-	if len(nums) != 3 {
-		return false
+// releaseVersionRE matches the closed set of publishable versions enforced by
+// scripts/release/release-desktop.sh: X.Y.Z with an optional -dev.N / -beta.N
+// prerelease identifier.
+var releaseVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-(dev|beta)\.[0-9A-Za-z.]+)?$`)
+
+// releaseChannel maps a published desktop version to its release channel
+// (docs/decisions/0004): bare X.Y.Z → stable, X.Y.Z-beta.N → beta,
+// X.Y.Z-dev.N → dev. ok is false for anything else — source builds ("dev"),
+// "(devel)", pseudo-versions, and foreign prerelease identifiers — which also
+// marks the version as unreleased.
+func releaseChannel(version string) (channel string, ok bool) {
+	v := strings.TrimPrefix(strings.TrimSpace(version), "v")
+	m := releaseVersionRE.FindStringSubmatch(v)
+	if m == nil {
+		return "", false
 	}
-	for _, n := range nums {
-		if n == "" {
-			return false
-		}
-		for _, r := range n {
-			if r < '0' || r > '9' {
-				return false
-			}
-		}
+	switch m[1] {
+	case "dev":
+		return desktop.ChannelDev, true
+	case "beta":
+		return desktop.ChannelBeta, true
+	default:
+		return desktop.ChannelStable, true
 	}
-	return true
 }

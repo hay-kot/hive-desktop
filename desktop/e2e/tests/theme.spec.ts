@@ -1,7 +1,7 @@
-import { expect, test } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { expect, test } from './fixtures.js'
 
 const here = dirname(fileURLToPath(import.meta.url))
 const themes = ['light', 'midnight', 'gruvbox'] as const

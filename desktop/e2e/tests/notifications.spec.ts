@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures.js'
 
 test('persists notification preferences from application settings', async ({ page }) => {
   await page.goto('/')
@@ -20,13 +20,6 @@ test('persists notification preferences from application settings', async ({ pag
   await page.reload()
   await expect(page.getByTestId('notification-settings')).toBeVisible()
   await expect(page.getByTestId('notification-enable')).toHaveAttribute('aria-checked', 'false')
-
-  // E2E specs share the server configuration, so restore the default before
-  // later notification-action tests run.
-  await page.getByTestId('notification-enable').click()
-  await expect(page.getByTestId('notification-enable')).toHaveAttribute('aria-checked', 'true')
-  await page.reload()
-  await expect(page.getByTestId('notification-enable')).toHaveAttribute('aria-checked', 'true')
 })
 
 test('records focused profile rename feedback in both toast and Activity', async ({ page }) => {
@@ -49,10 +42,4 @@ test('records focused profile rename feedback in both toast and Activity', async
   await expect(page.getByTestId('activity-row')).toHaveCount(beforeRows + 1)
   await expect(page.getByTestId('activity-row').first()).toContainText('Profile renamed')
   await page.getByTestId('activity-close').click()
-
-  // This spec shares a fixture server with the rest of the notification suite.
-  await page.getByTestId('sidebar-open-settings').click()
-  await page.getByTestId('profile-settings-name').fill(originalName!)
-  await page.getByTestId('profile-settings-save-name').click()
-  await expect(page.getByTestId('toast').last()).toContainText('Profile renamed')
 })

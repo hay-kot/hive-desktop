@@ -117,11 +117,18 @@ func (db *DB) AppendIfChanged(ctx context.Context, topic, key string, payload []
 // set. Unlike item events, snapshots are deliberately not deduplicated: each
 // one is an authoritative reconciliation point, including an empty set.
 func (db *DB) AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []SnapshotItem) (int64, error) {
+	return db.queries.AppendSnapshot(ctx, topic, sourceKind, sourceScope, items)
+}
+
+// AppendSnapshot is the Queries-level form of DB.AppendSnapshot, so
+// transactional callers (WithTx) can append a snapshot atomically with other
+// writes.
+func (q *Queries) AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []SnapshotItem) (int64, error) {
 	payload, err := json.Marshal(items)
 	if err != nil {
 		return 0, fmt.Errorf("encoding source snapshot for topic %q: %w", topic, err)
 	}
-	offset, err := db.queries.AppendEvent(ctx, AppendEventParams{
+	offset, err := q.AppendEvent(ctx, AppendEventParams{
 		Topic:      topic,
 		Key:        "",
 		Payload:    payload,

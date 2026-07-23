@@ -11,3 +11,10 @@ dist/
 # Local env
 .env
 .data/
+
+# Vendored embed assets (internal/hivecore/hive/scripts/bin) must stay tracked:
+# go:embed needs them in every fresh checkout, including the e2e Docker build
+# and release builds that never run vendorhive. Directory-only negation so junk
+# files under the vendored tree stay ignored. Keep this rule last — later
+# ignore rules would override it.
+!internal/hivecore/**/bin/

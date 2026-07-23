@@ -496,6 +496,12 @@ func main() {
 		application.NewService(NewWindowService(focus)),
 	)
 
+	// Test-only /_e2e/reset harness (nil outside the Docker e2e mock modes).
+	// Built this late deliberately: buildActionStore has seeded actions.yml and
+	// mock seeding has run, so the captured config baseline is the post-boot
+	// state a reset must restore.
+	resetHarness := newStateResetHarness(pipelineDB, actionRuntime.db, logger)
+
 	options := application.Options{
 		Name:        "Hive",
 		Description: "Hive desktop application",
@@ -503,7 +509,7 @@ func main() {
 		Services:    services,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
-			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db),
+			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db, resetHarness),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
@@ -512,16 +518,15 @@ func main() {
 	}
 	app := application.New(options)
 
-	// Configure self-update only for real release builds: a dev build has no
-	// published release newer than itself, and every release would register as
-	// "newer" against the "dev" sentinel. isReleaseVersion rejects dev and
-	// pseudo-versions, so the engine stays nil there and the service degrades to
-	// Available:false with a no-op ticker.
-	if isReleaseVersion(updaterVersion) {
-		provider, provErr := newDesktopProvider(desktopRepoSlug, "")
-		if provErr != nil {
-			logger.Warn().Err(provErr).Msg("desktop auto-update unavailable; provider init failed")
-		} else if initErr := app.Updater.Init(updater.Config{
+	// Configure self-update only for published release builds: releaseChannel
+	// rejects source builds ("dev") and pseudo-versions, so the engine stays
+	// nil there and the service degrades to Available:false with a no-op
+	// ticker. A published build follows its own channel (a beta build tracks
+	// beta, per docs/decisions/0004) unless settings.yaml's update_channel
+	// overrides it.
+	if channel, ok := releaseChannel(updaterVersion); ok {
+		provider := newManifestProvider(defaultManifestBaseURL, settings.UpdateChannelOrDefault(channel))
+		if initErr := app.Updater.Init(updater.Config{
 			CurrentVersion: updaterVersion,
 			Providers:      []updater.Provider{provider},
 		}); initErr != nil {

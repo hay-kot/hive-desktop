@@ -190,7 +190,7 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 			CurrentVersion: s.currentVersion,
 			LatestVersion:  rel.Version,
 			Notes:          rel.Notes,
-			ReleaseURL:     releaseURLFromMetadata(rel),
+			ReleaseURL:     releaseURL(rel.Version),
 		}
 	}
 
@@ -239,17 +239,6 @@ func (s *UpdaterService) runLoop(ctx context.Context) {
 			_, _ = s.check(ctx)
 		}
 	}
-}
-
-// releaseURLFromMetadata prefers the release HTML URL the provider stashed on
-// the Release, falling back to a computed desktop release URL.
-func releaseURLFromMetadata(rel *updater.Release) string {
-	if rel.Metadata != nil {
-		if u, ok := rel.Metadata["github.release.url"].(string); ok && u != "" {
-			return u
-		}
-	}
-	return releaseURL(rel.Version)
 }
 
 // --- event + settings indirection (overridable in tests) ---

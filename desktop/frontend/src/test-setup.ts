@@ -31,6 +31,23 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
+// Unit tests must never open real sockets. happy-dom's default origin is
+// http://localhost:3000, so an unmocked Wails binding call (@wailsio/runtime
+// POSTs to <origin>/wails/runtime via fetch) otherwise dials a real port —
+// and a refused connection can surface as an uncaught AggregateError outside
+// any promise chain, failing a CI run whose tests all passed. A synthetic 503
+// keeps the callers on the same rejected-promise path they already handle,
+// with no socket involved. Specs that need a different fetch can still stub
+// their own (the property stays writable).
+Object.defineProperty(globalThis, 'fetch', {
+  value: () => Promise.resolve(new Response('{"error":"network disabled in unit tests"}', {
+    status: 503,
+    headers: { 'Content-Type': 'application/json' },
+  })),
+  writable: true,
+  configurable: true,
+})
+
 beforeEach(() => {
   localStorage.clear()
 })
