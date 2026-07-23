@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/colonyops/hive/internal/desktop/activity"
-	"github.com/colonyops/hive/internal/desktop/feed"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 

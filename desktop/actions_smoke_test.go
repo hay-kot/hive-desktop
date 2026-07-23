@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/core/messaging"
-	"github.com/colonyops/hive/internal/core/session"
-	coredb "github.com/colonyops/hive/internal/data/db"
-	"github.com/colonyops/hive/internal/data/stores"
-	"github.com/colonyops/hive/internal/desktop"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func TestActionSmokeMiddlewareUnavailableOutsideDedicatedHarness(t *testing.T) {

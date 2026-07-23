@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/github"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // authAPIServer fakes the two GitHub endpoints liveAuth touches: /user for

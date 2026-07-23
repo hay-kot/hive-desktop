@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/desktop/jobs"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func TestJobService_ListAndListActive(t *testing.T) {

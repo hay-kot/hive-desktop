@@ -11,11 +11,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/desktop"
-	"github.com/colonyops/hive/internal/desktop/feed"
-	"github.com/colonyops/hive/internal/desktop/pipeline"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
-	"github.com/colonyops/hive/internal/github"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {

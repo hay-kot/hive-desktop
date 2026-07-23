@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/internal/desktop/feed"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // MockFlowID, MockSourceNodeID, and MockFeedNodeID identify the fixture graph

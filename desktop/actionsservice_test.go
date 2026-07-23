@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
-	"github.com/colonyops/hive/internal/desktop/pipeline/flow"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func serviceAction(id string) actions.EditableAction {

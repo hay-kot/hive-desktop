@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/flow"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // FlowSummary is one flow file's listing row for the flows picker: identity

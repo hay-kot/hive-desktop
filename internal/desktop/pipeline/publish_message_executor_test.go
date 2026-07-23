@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

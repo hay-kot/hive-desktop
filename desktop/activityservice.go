@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/colonyops/hive/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 )
 
 // ActivityService is the Wails service exposing the desktop's activity log to

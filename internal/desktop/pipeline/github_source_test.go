@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/desktop/feed"
-	"github.com/colonyops/hive/internal/desktop/pipeline/flow"
-	"github.com/colonyops/hive/internal/github"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // fakeFlows is an in-memory FlowLister for the source-lister tests.

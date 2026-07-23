@@ -5,7 +5,7 @@ import type { ActionView } from '../../types/action'
 import type { InboxItem } from '../../types/feed'
 
 const item: InboxItem = {
-  id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/colonyops/hive/pull/42',
+  id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
   payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 const actions: ActionView[] = [{ id: 'summarize', label: 'Summarize', type: 'launch-session', showInDetail: true, requiresSessionInput: false }]

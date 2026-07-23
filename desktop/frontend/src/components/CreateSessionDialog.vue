@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import IconPlay from '~icons/lucide/play'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
-import type { SessionLaunchOptions } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/models'
+import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
 import { useAutofocus } from '../composables/useAutofocus'
 
 const props = defineProps<{ actionLabel: string; options: SessionLaunchOptions; busy: boolean; error: string | null }>()

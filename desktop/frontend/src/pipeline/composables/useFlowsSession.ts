@@ -2,13 +2,13 @@
 // draft, while the deployed-runtime manager owns an independent snapshot for
 // every enabled flow. Canvas/profile selection therefore never gates work.
 import { computed, shallowRef, watch, type ComputedRef, type Ref } from 'vue'
-import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/colonyops/hive/desktop/flowsservice'
-import { ActivateReplay, Commit, EventLogTailOffset, ListReplaySourceSnapshots, ListUnarchivedInboxItems, NodeRuns, ReadFrom } from '../../../bindings/github.com/colonyops/hive/desktop/pipelineservice'
+import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
+import { ActivateReplay, Commit, EventLogTailOffset, ListReplaySourceSnapshots, ListUnarchivedInboxItems, NodeRuns, ReadFrom } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import { flowFromWire, type EditorFlow, type WireFlow } from '../lib/wireFlow'
 import { usePipelineEditor, type PipelineEditorClient } from './usePipelineEditor'
 import { usePipelineRuntime, type RuntimeSummary } from './usePipelineRuntime'
 import type { PipelineClient } from '../driver'
-import type { FeedMembershipClaim, InboxItemView, Msg } from '../../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb/models'
+import type { FeedMembershipClaim, InboxItemView, Msg } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
 
 type PipelineEditor = ReturnType<typeof usePipelineEditor>
 type PipelineRuntime = ReturnType<typeof usePipelineRuntime>

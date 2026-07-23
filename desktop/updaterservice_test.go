@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
-	"github.com/colonyops/hive/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 )
 
 // fakeEngine is a test double for the Updater. It records call counts and

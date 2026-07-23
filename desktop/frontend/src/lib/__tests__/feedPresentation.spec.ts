@@ -3,7 +3,7 @@ import { bodySnippet, feedSource, typeLabel } from '../feedPresentation'
 
 describe('feedSource', () => {
   it('resolves items to their source (GitHub today)', () => {
-    expect(feedSource({ url: 'https://github.com/colonyops/hive/pull/42' })).toEqual({ key: 'github', label: 'GitHub' })
+    expect(feedSource({ url: 'https://github.com/hay-kot/hive-desktop/pull/42' })).toEqual({ key: 'github', label: 'GitHub' })
     expect(feedSource()).toEqual({ key: 'github', label: 'GitHub' })
   })
 })

@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/colonyops/hive/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 )
 
 // DecodeGitHubActionItem is the GitHub adapter seam from a persisted inbox

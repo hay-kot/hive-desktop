@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/colonyops/hive/internal/desktop/activity"
-	"github.com/colonyops/hive/internal/desktop/jobs"
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 

@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/colonyops/hive/internal/core/git"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
-	"github.com/colonyops/hive/internal/hive"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 )
 
 // fakeSessionLauncher records every LaunchSession call.

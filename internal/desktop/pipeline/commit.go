@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+import "github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 
 // Sink, Output, Discard, NodeRun, and CommitBatch are pipelinedb's commit
 // protocol structs, re-exported verbatim under package pipeline — the same

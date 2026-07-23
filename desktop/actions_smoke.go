@@ -12,9 +12,9 @@ import (
 	"reflect"
 	"strings"
 
-	coredb "github.com/colonyops/hive/internal/data/db"
-	"github.com/colonyops/hive/internal/desktop"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	_ "modernc.org/sqlite"
 )

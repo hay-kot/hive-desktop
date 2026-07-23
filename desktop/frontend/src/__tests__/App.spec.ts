@@ -67,7 +67,7 @@ const mocks = vi.hoisted(() => ({
   Hide: vi.fn(),
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/flowsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   CreateFlow: mocks.CreateFlow,
@@ -81,14 +81,14 @@ vi.mock('../../bindings/github.com/colonyops/hive/desktop/flowsservice', () => (
   SaveSidebar: mocks.SaveSidebar,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/actionsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({
   ListActions: mocks.ListActions,
   CreateAction: mocks.CreateAction,
   UpdateAction: mocks.UpdateAction,
   DeleteAction: mocks.DeleteAction,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/pipelineservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
   ListInboxItems: mocks.ListInboxItems,
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   FeedCounts: mocks.FeedCounts,
@@ -110,7 +110,7 @@ vi.mock('../../bindings/github.com/colonyops/hive/desktop/pipelineservice', () =
   Commit: mocks.Commit,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/internal/desktop/auth/service', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service', () => ({
   Status: mocks.Status,
   StartDeviceFlow: mocks.StartDeviceFlow,
   CancelDeviceFlow: mocks.CancelDeviceFlow,
@@ -118,24 +118,24 @@ vi.mock('../../bindings/github.com/colonyops/hive/internal/desktop/auth/service'
   SignOut: mocks.SignOut,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/updaterservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice', () => ({
   Status: mocks.UpdaterStatus,
   InstallUpdate: mocks.InstallUpdate,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/settingsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
   NotificationSettings: mocks.NotificationSettings,
   SetNotificationSettings: mocks.SetNotificationSettings,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/notificationservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
   PermissionStatus: mocks.PermissionStatus,
   RequestNotificationPermission: mocks.RequestNotificationPermission,
   Notify: mocks.Notify,
 }))
 
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/windowservice', () => ({ Focused: mocks.Focused }))
-vi.mock('../../bindings/github.com/colonyops/hive/desktop/activityservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/windowservice', () => ({ Focused: mocks.Focused }))
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,
 }))

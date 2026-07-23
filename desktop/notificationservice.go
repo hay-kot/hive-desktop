@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/colonyops/hive/internal/desktop/notify"
+	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
 )
 
 // NotifyInput is the frontend-facing request for a native notification.

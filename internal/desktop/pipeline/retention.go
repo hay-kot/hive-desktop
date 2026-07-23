@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 

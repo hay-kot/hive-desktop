@@ -8,7 +8,7 @@ version: '3'
 info:
   companyName: "ColonyOps"
   productName: "Hive"
-  productIdentifier: "com.colonyops.hive"
+  productIdentifier: "com.hivedesktop.app"
   description: "Hive desktop application"
   copyright: "(c) 2026 ColonyOps"
   comments: ""

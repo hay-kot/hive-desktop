@@ -4,7 +4,7 @@ import FeedListItem from '../FeedListItem.vue'
 import type { InboxItem } from '../../types/feed'
 
 const baseItem: InboxItem = {
-  id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/colonyops/hive/pull/42',
+  id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
   payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 function mountItem(overrides: Partial<InboxItem> = {}, selected = false) { return mount(FeedListItem, { props: { item: { ...baseItem, ...overrides }, selected } }) }

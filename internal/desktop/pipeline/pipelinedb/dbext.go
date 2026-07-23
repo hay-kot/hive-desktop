@@ -16,7 +16,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/colonyops/hive/internal/data/migrate"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/data/migrate"
 
 	_ "modernc.org/sqlite"
 )

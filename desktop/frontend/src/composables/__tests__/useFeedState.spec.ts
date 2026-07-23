@@ -11,8 +11,8 @@ const mocks = vi.hoisted(() => ({
   ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(),
   notify: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/pipelineservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
   ListInboxItems: mocks.ListInboxItems, ListInboxItemsByFeed: mocks.ListInboxItemsByFeed, FeedCounts: mocks.FeedCounts, InboxCounts: mocks.InboxCounts,
   MarkInboxItemUnread: mocks.MarkInboxItemUnread, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
   ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, SessionLaunchOptions: mocks.SessionLaunchOptions,
@@ -32,7 +32,7 @@ beforeEach(() => {
   mocks.ListFlows.mockResolvedValue([{ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true }])
   mocks.GetFlow.mockResolvedValue(flow); mocks.GetSidebar.mockResolvedValue({ items: [] }); mocks.SaveSidebar.mockResolvedValue(undefined)
   mocks.FeedCounts.mockResolvedValue([{ feedId: 'triage/my-prs', total: 3, unread: 2 }]); mocks.InboxCounts.mockResolvedValue({ inboxTotal: 3, inboxUnread: 2 })
-  mocks.ListInboxItems.mockResolvedValue([]); mocks.ListInboxItemsByFeed.mockResolvedValue([]); mocks.ActionViews.mockResolvedValue([]); mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' }); mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [{ name: 'hive', repository: 'https://github.com/colonyops/hive.git' }], defaultRepository: 'https://github.com/colonyops/hive.git', agents: ['claude'], defaultAgent: 'claude' })
+  mocks.ListInboxItems.mockResolvedValue([]); mocks.ListInboxItemsByFeed.mockResolvedValue([]); mocks.ActionViews.mockResolvedValue([]); mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' }); mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' })
   mocks.MarkInboxItemUnread.mockImplementation(async (id: number, revision: number, unread: boolean) => item(id, { revision: revision + 1, unread }))
   mocks.ToggleInboxItemArchived.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, archivedAt: Date.now() }))
   mocks.ToggleInboxItemIgnored.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, ignoredAt: Date.now() }))
@@ -244,8 +244,8 @@ describe('useFeedState', () => {
     expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
     expect(get().sessionLaunchAction.value?.id).toBe('launch')
     mocks.InvokeAction.mockResolvedValueOnce({ commandId: 19, status: 'done', result: { session: { id: 'session-1', name: 'review-pr-7' } } })
-    await get().submitSessionLaunch({ name: 'review-pr-7', repository: 'https://github.com/colonyops/hive.git', agent: 'claude' })
-    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'review-pr-7', repository: 'https://github.com/colonyops/hive.git', agent: 'claude' } })
+    await get().submitSessionLaunch({ name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' })
+    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' } })
     expect(mocks.notify).toHaveBeenCalledWith({ title: 'Created session review-pr-7 (session-1)', severity: 'success', category: 'session' })
   })
 

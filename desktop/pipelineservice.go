@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline"
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // PipelineService is the Wails service exposing the desktop pipeline's

@@ -10,11 +10,11 @@ const mocks = vi.hoisted(() => ({
   RequestNotificationPermission: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/settingsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
   NotificationSettings: mocks.NotificationSettings,
   SetNotificationSettings: mocks.SetNotificationSettings,
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/notificationservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
   PermissionStatus: mocks.PermissionStatus,
   RequestNotificationPermission: mocks.RequestNotificationPermission,
 }))

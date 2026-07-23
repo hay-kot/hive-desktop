@@ -27,7 +27,7 @@ const mocks = vi.hoisted(() => ({
   SetText: vi.fn(),
 }))
 
-vi.mock('../../../../bindings/github.com/colonyops/hive/desktop/flowsservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   GetLayout: mocks.GetLayout,
@@ -35,7 +35,7 @@ vi.mock('../../../../bindings/github.com/colonyops/hive/desktop/flowsservice', (
   SaveLayout: mocks.SaveLayout,
 }))
 
-vi.mock('../../../../bindings/github.com/colonyops/hive/desktop/pipelineservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   ListUnarchivedInboxItems: mocks.ListUnarchivedInboxItems,
   ListReplaySourceSnapshots: mocks.ListReplaySourceSnapshots,

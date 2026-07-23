@@ -13,7 +13,7 @@ import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconLoader from '~icons/lucide/loader'
 import IconArrowUpCircle from '~icons/lucide/arrow-up-circle'
 import JobsPopover from './JobsPopover.vue'
-import type { Job } from '../../bindings/github.com/colonyops/hive/internal/desktop/jobs/models'
+import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/jobs/models'
 
 // The bar is a three-column grid: a left cluster (sidebar toggle), a center
 // cluster (history + command-palette launcher) that stays centered in the

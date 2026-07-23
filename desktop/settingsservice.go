@@ -6,9 +6,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/internal/desktop"
-	"github.com/colonyops/hive/internal/desktop/feed"
-	"github.com/colonyops/hive/internal/desktop/pipeline"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 // SettingsService exposes user-tunable desktop settings to the frontend.

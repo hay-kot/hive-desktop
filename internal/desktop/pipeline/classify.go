@@ -1,6 +1,6 @@
 package pipeline
 
-import "github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+import "github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 
 // Re-export the adapter-neutral contract at the producer boundary. The leaf
 // pipelinedb package owns it because ingestion invokes classifiers in-tx.

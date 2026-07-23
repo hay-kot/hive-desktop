@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/flow"
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

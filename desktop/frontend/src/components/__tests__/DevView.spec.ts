@@ -24,7 +24,7 @@ vi.mock('../../composables/useToasts', () => ({
 vi.mock('../../composables/useNotificationSettings', () => ({
   useNotificationSettings: () => ({ notificationSound: mocks.notificationSound }),
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/notificationservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
   Notify: mocks.Notify,
 }))
 

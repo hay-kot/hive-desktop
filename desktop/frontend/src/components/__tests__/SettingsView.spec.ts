@@ -4,13 +4,13 @@ import { mount } from '@vue/test-utils'
 import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
 
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/settingsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/notificationservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
   RequestNotificationPermission: vi.fn(),
 }))

@@ -7,7 +7,7 @@ const mocks = vi.hoisted(() => ({
   SetGithubSettings: vi.fn(),
 }))
 
-vi.mock('../../../../bindings/github.com/colonyops/hive/desktop/settingsservice', () => mocks)
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => mocks)
 
 function mountDrawer() {
   return mount(GithubIntegrationDrawer, { global: { stubs: { Teleport: true } } })

@@ -9,7 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
-	"github.com/colonyops/hive/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 )
 
 // defaultUpdateCheckInterval is how often the self-managed ticker polls for a

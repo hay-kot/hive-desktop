@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/colonyops/hive/internal/core/messaging"
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/desktop/activity"
-	"github.com/colonyops/hive/internal/hive"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 )
 
 type SessionCreator interface {

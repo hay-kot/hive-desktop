@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   On: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/windowservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/windowservice', () => ({
   Focused: mocks.Focused,
 }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))

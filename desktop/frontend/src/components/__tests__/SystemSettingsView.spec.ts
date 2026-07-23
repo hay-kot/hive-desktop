@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   SetEnabled: vi.fn(),
   CheckNow: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/systemservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/systemservice', () => ({
   Info: mocks.Info,
   Build: mocks.Build,
   OpenPath: mocks.OpenPath,
@@ -31,7 +31,7 @@ vi.mock('../../../bindings/github.com/colonyops/hive/desktop/systemservice', () 
   ClearConfigDir: mocks.ClearConfigDir,
   Quit: mocks.Quit,
 }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/updaterservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice', () => ({
   Status: mocks.Status,
   SetEnabled: mocks.SetEnabled,
   CheckNow: mocks.CheckNow,
@@ -58,8 +58,8 @@ function buildInfo(overrides: Record<string, unknown> = {}) {
     version: '1.4.0',
     commit: 'abc1234',
     date: '2026-07-01T12:00:00Z',
-    repoUrl: 'https://github.com/colonyops/hive',
-    releaseUrl: 'https://github.com/colonyops/hive/releases/tag/desktop-v1.4.0',
+    repoUrl: 'https://github.com/hay-kot/hive-desktop',
+    releaseUrl: 'https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0',
     ...overrides,
   }
 }
@@ -166,10 +166,10 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-build-date"]').text()).toBe('2026-07-01T12:00:00Z')
 
     await wrapper.find('[data-testid="system-build-repo"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/colonyops/hive')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop')
 
     await wrapper.find('[data-testid="system-build-release"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/colonyops/hive/releases/tag/desktop-v1.4.0')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0')
   })
 
   it('keeps the repo link but hides the release link for dev builds', async () => {

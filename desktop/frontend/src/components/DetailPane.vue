@@ -19,7 +19,7 @@ import IconMail from '~icons/lucide/mail'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
-import type { ActionRunView } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/models'
+import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
 
 const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView> }>()
 const emit = defineEmits<{

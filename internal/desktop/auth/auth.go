@@ -13,7 +13,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/colonyops/hive/internal/github"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // Auth states on the wire. Strings, not enums: the frontend narrows them.

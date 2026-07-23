@@ -10,7 +10,7 @@
         <key>CFBundleExecutable</key>
             <string>hive-desktop</string>
         <key>CFBundleIdentifier</key>
-            <string>com.colonyops.hive</string>
+            <string>com.hivedesktop.app</string>
         <key>CFBundleVersion</key>
             <string>0.1.0</string>
         <key>CFBundleShortVersionString</key>

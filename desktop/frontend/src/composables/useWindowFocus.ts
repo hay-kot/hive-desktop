@@ -1,6 +1,6 @@
 import { readonly, ref, type Ref } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { Focused } from '../../bindings/github.com/colonyops/hive/desktop/windowservice'
+import { Focused } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/windowservice'
 
 // useWindowFocus is an app-lifetime singleton. Native focus events are the
 // source of truth once subscribed; the initial RPC only seeds the state before

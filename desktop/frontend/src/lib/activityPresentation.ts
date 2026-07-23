@@ -1,4 +1,4 @@
-import type { Event as ActivityEvent } from '../../bindings/github.com/colonyops/hive/internal/desktop/activity/models'
+import type { Event as ActivityEvent } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/activity/models'
 
 // Pure presentation helpers for the Activity view: which filter pills exist,
 // how an event matches a filter/search, how events group by day, and the style

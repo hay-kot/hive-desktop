@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/colonyops/hive/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 	"github.com/stretchr/testify/require"
 )
 

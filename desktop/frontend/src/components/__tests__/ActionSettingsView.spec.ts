@@ -4,7 +4,7 @@ import ActionSettingsView from '../ActionSettingsView.vue'
 import type { EditableAction } from '../../composables/useActionsSettings'
 
 const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), On: vi.fn() }))
-vi.mock('../../../bindings/github.com/colonyops/hive/desktop/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
 const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }

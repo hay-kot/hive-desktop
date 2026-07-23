@@ -3,7 +3,7 @@ package main
 import (
 	"sync"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/flow"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
 	"github.com/rs/zerolog"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )

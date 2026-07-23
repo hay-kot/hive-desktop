@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   On: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/colonyops/hive/internal/desktop/auth/service', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service', () => ({
   Status: mocks.Status,
   StartDeviceFlow: mocks.StartDeviceFlow,
   CancelDeviceFlow: mocks.CancelDeviceFlow,

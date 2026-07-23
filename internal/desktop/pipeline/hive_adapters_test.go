@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/colonyops/hive/internal/core/config"
-	"github.com/colonyops/hive/internal/core/eventbus"
-	"github.com/colonyops/hive/internal/core/messaging"
-	coredb "github.com/colonyops/hive/internal/data/db"
-	"github.com/colonyops/hive/internal/data/stores"
-	hivesvc "github.com/colonyops/hive/internal/hive"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
+	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
+	hivesvc "github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

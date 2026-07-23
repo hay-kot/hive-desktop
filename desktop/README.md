@@ -40,7 +40,7 @@ from the tray menu.
 
 ## Pinned versions
 
-- Wails CLI and Go module: `github.com/wailsapp/wails/v3 v3.0.0-alpha2.116`
+- Wails CLI and Go module: `github.com/wailsapp/wails/v3 v3.0.0-alpha2.117`
 - npm runtime: `@wailsio/runtime 3.0.0-alpha.97`
 
 `3.0.0-alpha.97` is the runtime version bundled by the pinned Wails Go module.
@@ -51,15 +51,15 @@ From the repository root, `mise install` provisions the matching Wails CLI.
 The manual equivalent is:
 
 ```sh
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.116
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117
 ```
 
 ## Parent-module adaptations
 
 The generated template normally has its own `go.mod`. Hive is a single Go
 module, so `desktop/go.mod` and `desktop/go.sum` were removed. The desktop
-entry point is the `github.com/colonyops/hive/desktop` package within the root
-`github.com/colonyops/hive` module, and the Wails dependency is required by the
+entry point is the `github.com/hay-kot/hive-desktop/desktop` package within the root
+`github.com/hay-kot/hive-desktop` module, and the Wails dependency is required by the
 root `go.mod`.
 
 The Wails Taskfiles still run from `desktop/`, which lets Go discover the

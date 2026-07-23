@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
 // actionsRefs resolves a flow's only remaining cross-file reference — the

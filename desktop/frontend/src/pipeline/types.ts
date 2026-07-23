@@ -7,11 +7,11 @@
 // models.ts, so the graph runtime uses that wire contract without local
 // compatibility aliases. NodeRun is exported there as NodeRunView (see
 // pipeline/commit.go's NodeRun alias comment).
-export type { CommitBatch } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/models'
-export type { Msg, Output, Sink, Discard, FeedSnapshot } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb/models'
-export type { NodeRunView as NodeRun } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb/models'
+export type { CommitBatch } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
+export type { Msg, Output, Sink, Discard, FeedSnapshot } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
+export type { NodeRunView as NodeRun } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
 
-import type { Discard, FeedSnapshot, NodeRunView as NodeRun, Output } from '../../bindings/github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb/models'
+import type { Discard, FeedSnapshot, NodeRunView as NodeRun, Output } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
 
 // Flow model (TS). The engine operates on in-memory Flow objects supplied
 // by the editor/session layer, which adapts the generated Wails flow model

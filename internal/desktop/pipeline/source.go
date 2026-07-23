@@ -8,7 +8,7 @@ package pipeline
 import (
 	"context"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // Msg is the pipeline's generic log record. It is pipelinedb.Msg verbatim —

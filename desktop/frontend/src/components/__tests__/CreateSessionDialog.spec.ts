@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils'
 import CreateSessionDialog from '../CreateSessionDialog.vue'
 
 const options = {
-  repositories: [{ name: 'hive', repository: 'https://github.com/colonyops/hive.git' }],
-  defaultRepository: 'https://github.com/colonyops/hive.git',
+  repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }],
+  defaultRepository: 'https://github.com/hay-kot/hive-desktop.git',
   agents: ['claude', 'pi'],
   defaultAgent: 'claude',
 }

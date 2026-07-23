@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/colonyops/hive/internal/core/session"
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 

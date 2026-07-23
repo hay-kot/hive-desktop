@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/colonyops/hive/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/rs/zerolog"
 )

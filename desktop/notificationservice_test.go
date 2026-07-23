@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/colonyops/hive/internal/desktop/notify"
+	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
 	"github.com/stretchr/testify/require"
 )
 

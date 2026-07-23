@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/colonyops/hive/internal/desktop/activity"
-	"github.com/colonyops/hive/internal/github"
+	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // ErrNotAuthenticated is returned when no GitHub token is available.
