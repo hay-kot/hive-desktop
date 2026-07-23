@@ -1,0 +1,280 @@
+package git
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/colonyops/hive/pkg/executil"
+)
+
+// Executor implements Git using the git command-line tool.
+type Executor struct {
+	gitPath string
+	exec    executil.Executor
+}
+
+// NewExecutor creates a new git executor with the specified git binary path.
+func NewExecutor(gitPath string, exec executil.Executor) *Executor {
+	return &Executor{gitPath: gitPath, exec: exec}
+}
+
+func (e *Executor) Clone(ctx context.Context, url, dest string) error {
+	if _, err := e.exec.Run(ctx, e.gitPath, "clone", url, dest); err != nil {
+		return fmt.Errorf("git clone: %w", err)
+	}
+	return nil
+}
+
+func (e *Executor) Checkout(ctx context.Context, dir, branch string) error {
+	if _, err := e.exec.RunDir(ctx, dir, e.gitPath, "checkout", branch); err != nil {
+		return fmt.Errorf("git checkout %s: %w", branch, err)
+	}
+	return nil
+}
+
+func (e *Executor) Pull(ctx context.Context, dir string) error {
+	if _, err := e.exec.RunDir(ctx, dir, e.gitPath, "pull"); err != nil {
+		return fmt.Errorf("git pull: %w", err)
+	}
+	return nil
+}
+
+func (e *Executor) ResetHard(ctx context.Context, dir string) error {
+	if _, err := e.exec.RunDir(ctx, dir, e.gitPath, "reset", "--hard"); err != nil {
+		return fmt.Errorf("git reset --hard: %w", err)
+	}
+	return nil
+}
+
+func (e *Executor) RemoteURL(ctx context.Context, dir string) (string, error) {
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "remote", "get-url", "origin")
+	if err != nil {
+		return "", fmt.Errorf("git remote get-url: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (e *Executor) IsClean(ctx context.Context, dir string) (bool, error) {
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "status", "--porcelain")
+	if err != nil {
+		return false, fmt.Errorf("git status: %w", err)
+	}
+	return len(strings.TrimSpace(string(out))) == 0, nil
+}
+
+func (e *Executor) Branch(ctx context.Context, dir string) (string, error) {
+	// Try to get branch name first
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "branch", "--show-current")
+	if err != nil {
+		return "", fmt.Errorf("git branch: %w", err)
+	}
+
+	branch := strings.TrimSpace(string(out))
+	if branch != "" {
+		return branch, nil
+	}
+
+	// Empty branch name means detached HEAD - get short commit SHA
+	out, err = e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("git rev-parse: %w", err)
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}
+
+func (e *Executor) DefaultBranch(ctx context.Context, dir string) (string, error) {
+	// Get the default branch from origin's HEAD reference
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "symbolic-ref", "refs/remotes/origin/HEAD", "--short")
+	if err != nil {
+		// Bare clones (worktree sessions) have no refs/remotes/origin/*; the bare
+		// repo's own HEAD tracks the remote default branch, so resolve it via the
+		// common git dir. Only bare repos qualify: in a non-bare repo the common
+		// dir's HEAD is the checked-out branch, not the default branch.
+		commonDir, cerr := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-parse", "--path-format=absolute", "--git-common-dir")
+		if cerr != nil {
+			return "", fmt.Errorf("git symbolic-ref: %w", err)
+		}
+		bareDir := strings.TrimSpace(string(commonDir))
+		bare, berr := e.exec.RunDir(ctx, bareDir, e.gitPath, "--no-optional-locks", "rev-parse", "--is-bare-repository")
+		if berr != nil || strings.TrimSpace(string(bare)) != "true" {
+			return "", fmt.Errorf("git symbolic-ref: %w", err)
+		}
+		head, herr := e.exec.RunDir(ctx, bareDir, e.gitPath, "--no-optional-locks", "symbolic-ref", "HEAD", "--short")
+		if herr != nil {
+			return "", fmt.Errorf("git symbolic-ref: %w", err)
+		}
+		return strings.TrimSpace(string(head)), nil
+	}
+
+	// Output is "origin/main" or "origin/master", strip the "origin/" prefix
+	branch := strings.TrimSpace(string(out))
+	branch = strings.TrimPrefix(branch, "origin/")
+
+	return branch, nil
+}
+
+func (e *Executor) DiffStats(ctx context.Context, dir string) (additions, deletions int, err error) {
+	// Get the default branch to compare against
+	defaultBranch, err := e.DefaultBranch(ctx, dir)
+	if err != nil {
+		// Fallback to comparing against HEAD if we can't determine default branch
+		defaultBranch = "HEAD"
+	}
+
+	var out []byte
+	if defaultBranch == "HEAD" {
+		// Compare working directory against HEAD
+		out, err = e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "diff", "--shortstat", "HEAD")
+	} else {
+		// Compare current branch against default branch (e.g., main...HEAD)
+		out, err = e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "diff", "--shortstat", defaultBranch+"...HEAD")
+	}
+
+	if err != nil {
+		return 0, 0, fmt.Errorf("git diff: %w", err)
+	}
+
+	return parseDiffStats(string(out))
+}
+
+// parseDiffStats parses git diff --shortstat output.
+// Example: " 3 files changed, 10 insertions(+), 5 deletions(-)"
+func parseDiffStats(output string) (additions, deletions int, err error) {
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return 0, 0, nil
+	}
+
+	// Parse insertions
+	if idx := strings.Index(output, "insertion"); idx != -1 {
+		// Find the number before "insertion"
+		start := strings.LastIndex(output[:idx], ",")
+		if start == -1 {
+			start = strings.LastIndex(output[:idx], "changed")
+		}
+		if start != -1 {
+			numStr := strings.TrimSpace(output[start+1 : idx])
+			numStr = strings.Fields(numStr)[0]
+			additions, _ = parseInt(numStr)
+		}
+	}
+
+	// Parse deletions
+	if idx := strings.Index(output, "deletion"); idx != -1 {
+		// Find the number before "deletion"
+		start := strings.LastIndex(output[:idx], ",")
+		if start != -1 {
+			numStr := strings.TrimSpace(output[start+1 : idx])
+			numStr = strings.Fields(numStr)[0]
+			deletions, _ = parseInt(numStr)
+		}
+	}
+
+	return additions, deletions, nil
+}
+
+func parseInt(s string) (int, error) {
+	var n int
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			n = n*10 + int(c-'0')
+		}
+	}
+	return n, nil
+}
+
+func (e *Executor) IsValidRepo(ctx context.Context, dir string) error {
+	gitDir := filepath.Join(dir, ".git")
+	if _, err := os.Stat(gitDir); os.IsNotExist(err) {
+		return fmt.Errorf(".git directory missing")
+	}
+
+	if _, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-parse", "--git-dir"); err != nil {
+		return fmt.Errorf("git rev-parse failed: %w", err)
+	}
+
+	return nil
+}
+
+func (e *Executor) CloneBare(ctx context.Context, url, dest string) error {
+	if _, err := e.exec.Run(ctx, e.gitPath, "clone", "--bare", url, dest); err != nil {
+		return fmt.Errorf("git clone --bare: %w", err)
+	}
+	return nil
+}
+
+func (e *Executor) WorktreeAdd(ctx context.Context, repoDir, path, branch string) error {
+	if _, err := e.exec.RunDir(ctx, repoDir, e.gitPath, "worktree", "add", "-b", branch, path); err != nil {
+		return fmt.Errorf("git worktree add: %w", err)
+	}
+	return nil
+}
+
+func (e *Executor) WorktreeRemove(ctx context.Context, repoDir, path, branch string) error {
+	var errs []string
+	if _, err := e.exec.RunDir(ctx, repoDir, e.gitPath, "worktree", "remove", "--force", path); err != nil {
+		errs = append(errs, fmt.Sprintf("git worktree remove: %v", err))
+	}
+	if branch != "" {
+		if _, err := e.exec.RunDir(ctx, repoDir, e.gitPath, "branch", "-D", branch); err != nil {
+			errs = append(errs, fmt.Sprintf("git branch -D: %v", err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (e *Executor) HasUnpushedCommits(ctx context.Context, dir string) (bool, error) {
+	// Try the upstream tracking branch first (set via "git push -u" or "git branch --set-upstream-to").
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-list", "--count", "@{upstream}..HEAD")
+	if err == nil {
+		n, _ := parseInt(strings.TrimSpace(string(out)))
+		return n > 0, nil
+	}
+
+	// No upstream — fall back to comparing against origin/<default branch>.
+	defaultBranch, err := e.DefaultBranch(ctx, dir)
+	if err != nil {
+		return false, fmt.Errorf("get default branch: %w", err)
+	}
+
+	out, err = e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-list", "--count", "origin/"+defaultBranch+"..HEAD")
+	if err != nil {
+		// Bare clones (worktree sessions) have no refs/remotes/origin/*; their
+		// local default branch mirrors the remote, so compare against it instead.
+		out, err = e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-list", "--count", defaultBranch+"..HEAD")
+		if err != nil {
+			return false, fmt.Errorf("rev-list unpushed: %w", err)
+		}
+	}
+
+	n, _ := parseInt(strings.TrimSpace(string(out)))
+	return n > 0, nil
+}
+
+func (e *Executor) Fetch(ctx context.Context, dir string) error {
+	out, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "rev-parse", "--is-bare-repository")
+	if err != nil {
+		return fmt.Errorf("git rev-parse --is-bare-repository: %w", err)
+	}
+
+	args := []string{"fetch", "origin"}
+	if strings.TrimSpace(string(out)) == "true" {
+		branchOut, err := e.exec.RunDir(ctx, dir, e.gitPath, "--no-optional-locks", "symbolic-ref", "HEAD", "--short")
+		if err != nil {
+			return fmt.Errorf("get bare default branch: %w", err)
+		}
+		branch := strings.TrimSpace(string(branchOut))
+		args = append(args, "+refs/heads/"+branch+":refs/heads/"+branch, "--prune")
+	}
+	if _, err := e.exec.RunDir(ctx, dir, e.gitPath, args...); err != nil {
+		return fmt.Errorf("git fetch: %w", err)
+	}
+	return nil
+}

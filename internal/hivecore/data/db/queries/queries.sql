@@ -1,0 +1,208 @@
+-- name: ListSessions :many
+SELECT * FROM sessions
+ORDER BY created_at DESC;
+
+-- name: GetSession :one
+SELECT * FROM sessions
+WHERE id = ?;
+
+-- name: SaveSession :exec
+INSERT INTO sessions (
+    id, name, slug, path, remote, state, clone_strategy, metadata, tags,
+    created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(id) DO UPDATE SET
+    name = excluded.name,
+    slug = excluded.slug,
+    path = excluded.path,
+    remote = excluded.remote,
+    state = excluded.state,
+    clone_strategy = excluded.clone_strategy,
+    metadata = excluded.metadata,
+    tags = excluded.tags,
+    updated_at = excluded.updated_at;
+
+-- name: DeleteSession :exec
+DELETE FROM sessions WHERE id = ?;
+
+-- name: PublishMessage :exec
+INSERT INTO messages (
+    id, topic, payload, sender, session_id, created_at
+) VALUES (?, ?, ?, ?, ?, ?);
+
+-- name: CountMessagesInTopic :one
+SELECT COUNT(*) FROM messages
+WHERE topic = ?;
+
+-- name: DeleteOldestMessagesInTopic :exec
+DELETE FROM messages
+WHERE id IN (
+    SELECT id FROM messages AS m
+    WHERE m.topic = ?
+    ORDER BY m.created_at ASC
+    LIMIT ?
+);
+
+-- name: SubscribeToTopic :many
+SELECT * FROM messages
+WHERE topic = ? AND created_at > ?
+ORDER BY created_at ASC;
+
+-- name: ListTopics :many
+SELECT name FROM topics
+ORDER BY name ASC;
+
+-- name: PruneMessages :exec
+DELETE FROM messages
+WHERE created_at < ?;
+
+-- name: CountPrunableMessages :one
+SELECT COUNT(*) FROM messages
+WHERE created_at < ?;
+
+-- name: AcknowledgeMessages :exec
+INSERT INTO message_reads (message_id, consumer_id, read_at)
+VALUES (?, ?, ?)
+ON CONFLICT (message_id, consumer_id) DO UPDATE SET
+    read_at = excluded.read_at;
+
+-- name: GetUnreadMessages :many
+SELECT m.id, m.topic, m.payload, m.sender, m.session_id, m.created_at
+FROM messages m
+LEFT JOIN message_reads mr ON mr.message_id = m.id AND mr.consumer_id = ?
+WHERE m.topic = ?
+  AND mr.message_id IS NULL
+ORDER BY m.created_at ASC;
+
+-- name: CreateReviewSession :exec
+INSERT INTO review_sessions (
+    id, document_path, content_hash, created_at, finalized_at
+) VALUES (?, ?, ?, ?, ?);
+
+-- name: GetReviewSessionByDocPath :one
+SELECT * FROM review_sessions
+WHERE document_path = ?
+ORDER BY created_at DESC
+LIMIT 1;
+
+-- name: GetReviewSessionByDocPathAndHash :one
+SELECT * FROM review_sessions
+WHERE document_path = ? AND content_hash = ?;
+
+-- name: FinalizeReviewSession :exec
+UPDATE review_sessions
+SET finalized_at = ?
+WHERE id = ?;
+
+-- name: DeleteReviewSession :exec
+DELETE FROM review_sessions
+WHERE id = ?;
+
+-- name: DeleteReviewSessionsByDocPath :exec
+DELETE FROM review_sessions
+WHERE document_path = ? AND content_hash != ?;
+
+-- name: SaveReviewComment :exec
+INSERT INTO review_comments (
+    id, session_id, start_line, end_line, context_text, comment_text, created_at
+) VALUES (?, ?, ?, ?, ?, ?, ?);
+
+-- name: ListReviewComments :many
+SELECT * FROM review_comments
+WHERE session_id = ?
+ORDER BY start_line ASC;
+
+-- name: UpdateReviewComment :exec
+UPDATE review_comments
+SET comment_text = ?
+WHERE id = ?;
+
+-- name: DeleteReviewComment :exec
+DELETE FROM review_comments
+WHERE id = ?;
+
+-- name: GetAllActiveSessionsWithCounts :many
+SELECT
+    rs.id,
+    rs.document_path,
+    rs.content_hash,
+    rs.created_at,
+    rs.finalized_at,
+    COUNT(rc.id) as comment_count
+FROM review_sessions rs
+LEFT JOIN review_comments rc ON rs.id = rc.session_id
+WHERE rs.finalized_at IS NULL
+GROUP BY rs.id;
+
+-- name: InsertNotification :one
+INSERT INTO notifications (level, message, created_at)
+VALUES (?, ?, ?)
+RETURNING id;
+
+-- name: ListNotifications :many
+SELECT * FROM notifications
+ORDER BY created_at DESC;
+
+-- name: DeleteAllNotifications :exec
+DELETE FROM notifications;
+
+-- name: CountNotifications :one
+SELECT COUNT(*) FROM notifications;
+
+-- name: KVGet :one
+SELECT * FROM kv_store WHERE key = ?;
+
+-- name: KVSet :exec
+INSERT INTO kv_store (key, value, expires_at, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(key) DO UPDATE SET
+    value = excluded.value,
+    expires_at = excluded.expires_at,
+    updated_at = excluded.updated_at;
+
+-- name: KVDelete :exec
+DELETE FROM kv_store WHERE key = ?;
+
+-- name: KVHas :one
+SELECT COUNT(*) FROM kv_store WHERE key = ?;
+
+-- name: KVListKeys :many
+SELECT key FROM kv_store
+WHERE expires_at IS NULL OR expires_at >= ?
+ORDER BY key ASC;
+
+-- name: KVGetRaw :one
+SELECT key, value, expires_at, created_at, updated_at FROM kv_store WHERE key = ?;
+
+-- name: KVSweepExpired :exec
+DELETE FROM kv_store WHERE expires_at IS NOT NULL AND expires_at < ?;
+
+-- Todo Items
+
+-- name: CreateTodoItem :exec
+INSERT INTO todo_items (id, session_id, source, title, uri, status, created_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+
+-- name: GetTodoItem :one
+SELECT * FROM todo_items WHERE id = ?;
+
+-- name: UpdateTodoItemStatus :exec
+UPDATE todo_items SET status = ?, updated_at = ?, completed_at = ? WHERE id = ?;
+
+-- name: ListTodoItems :many
+SELECT * FROM todo_items ORDER BY created_at DESC;
+
+-- name: ListTodoItemsByStatus :many
+SELECT * FROM todo_items WHERE status = ? ORDER BY created_at DESC;
+
+-- name: CountPendingTodoItems :one
+SELECT COUNT(*) FROM todo_items WHERE status = 'pending';
+
+-- name: CountOpenTodoItems :one
+SELECT COUNT(*) FROM todo_items WHERE status IN ('pending', 'acknowledged');
+
+-- name: CountRecentTodoItemsBySession :one
+SELECT COUNT(*) FROM todo_items WHERE session_id = ? AND created_at > ?;
+
+-- name: DeleteTodoItem :exec
+DELETE FROM todo_items WHERE id = ?;

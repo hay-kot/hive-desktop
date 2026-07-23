@@ -1,0 +1,81 @@
+package hive
+
+import (
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/doctor"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/hc"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/kv"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/todo"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/hive/plugins"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/sources"
+	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/rs/zerolog"
+)
+
+// BuildInfo holds build-time metadata set by the main package.
+type BuildInfo struct {
+	Version string
+	Commit  string
+	Date    string
+}
+
+// App is the central entry point for all hive operations.
+// Commands and TUI consume App instead of cherry-picking raw dependencies.
+type App struct {
+	Sessions  *SessionService
+	Messages  *MessageService
+	Context   *ContextService
+	Doctor    *DoctorService
+	Todos     *TodoService
+	Honeycomb *HoneycombService
+
+	Bus        *eventbus.EventBus
+	Terminal   *terminal.Manager
+	Plugins    *plugins.Manager
+	CommandSet *plugins.CommandSet
+	Config     *config.Config
+	DB         *db.DB
+	KV         kv.KV
+	Renderer   *tmpl.Renderer
+	Build      BuildInfo
+	Sources    *sources.Registry
+}
+
+// NewApp constructs an App from explicit dependencies.
+func NewApp(
+	sessions *SessionService,
+	msgStore messaging.Store,
+	todoStore todo.Store,
+	hcStore hc.Store,
+	cfg *config.Config,
+	bus *eventbus.EventBus,
+	termMgr *terminal.Manager,
+	pluginMgr *plugins.Manager,
+	commandSet *plugins.CommandSet,
+	database *db.DB,
+	kvStore kv.KV,
+	renderer *tmpl.Renderer,
+	pluginInfos []doctor.PluginInfo,
+	logger zerolog.Logger,
+) *App {
+	return &App{
+		Sessions:   sessions,
+		Messages:   NewMessageService(msgStore, cfg, bus),
+		Context:    NewContextService(cfg, sessions.git),
+		Doctor:     NewDoctorService(sessions.sessions, cfg, pluginInfos),
+		Todos:      NewTodoService(todoStore, bus, cfg, logger.With().Str("component", "todos").Logger()),
+		Honeycomb:  NewHoneycombService(hcStore, logger.With().Str("component", "honeycomb").Logger()),
+		Bus:        bus,
+		Terminal:   termMgr,
+		Plugins:    pluginMgr,
+		CommandSet: commandSet,
+		Config:     cfg,
+		DB:         database,
+		KV:         kvStore,
+		Renderer:   renderer,
+	}
+}
