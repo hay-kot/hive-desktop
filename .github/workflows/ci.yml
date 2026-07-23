@@ -14,6 +14,11 @@ env:
 jobs:
   go:
     runs-on: ubuntu-latest
+    env:
+      # The wails3 CLI is only needed by local desktop:dev/build/generate
+      # tasks; installing it in CI compiles wails' gtk-dependent packages
+      # for no benefit.
+      MISE_DISABLE_TOOLS: "go:github.com/wailsapp/wails/v3/cmd/wails3"
     steps:
       - uses: actions/checkout@v7
 
@@ -23,7 +28,7 @@ jobs:
         uses: awalsh128/cache-apt-pkgs-action@v1.6.3
         with:
           packages: libgtk-4-dev libwebkitgtk-6.0-dev
-          version: 1
+          version: 2
 
       - name: Set up Go
         uses: actions/setup-go@v6
