@@ -112,6 +112,9 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Free runner disk space
+        run: ./desktop/e2e/scripts/free-ci-disk.sh
+
       # With zero quarantined tests --grep-invert matches everything, so this
       # is the full suite until something gets tagged.
       - name: Run desktop e2e tests (minus @quarantine)
@@ -147,6 +150,10 @@ jobs:
             echo "present=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Free runner disk space
+        if: steps.quarantine.outputs.present == 'true'
+        run: ./desktop/e2e/scripts/free-ci-disk.sh
+
       - name: Run quarantined desktop e2e tests
         if: steps.quarantine.outputs.present == 'true'
         run: ./desktop/e2e/scripts/run-docker.sh --grep @quarantine --pass-with-no-tests
@@ -175,6 +182,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Free runner disk space
+        run: ./desktop/e2e/scripts/free-ci-disk.sh
+
       - name: Burn in changed desktop e2e specs
         run: ./desktop/e2e/scripts/run-docker.sh --only-changed=origin/main --repeat-each 5 --retries=0 --grep-invert onboarding --pass-with-no-tests
 
@@ -198,6 +208,9 @@ jobs:
     continue-on-error: true
     steps:
       - uses: actions/checkout@v7
+
+      - name: Free runner disk space
+        run: ./desktop/e2e/scripts/free-ci-disk.sh
 
       - name: Run desktop e2e tests (strict, fail on flaky)
         run: ./desktop/e2e/scripts/run-docker.sh
