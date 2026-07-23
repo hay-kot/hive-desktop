@@ -76,6 +76,25 @@ func TestAutoUpdateOrDefault(t *testing.T) {
 	}
 }
 
+func TestUpdateChannelOrDefault(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings Settings
+		fallback string
+		want     string
+	}{
+		{name: "unset uses fallback", settings: Settings{}, fallback: ChannelStable, want: ChannelStable},
+		{name: "unset keeps prerelease fallback", settings: Settings{}, fallback: ChannelDev, want: ChannelDev},
+		{name: "explicit beta wins over fallback", settings: Settings{UpdateChannel: ChannelBeta}, fallback: ChannelStable, want: ChannelBeta},
+		{name: "unknown channel uses fallback", settings: Settings{UpdateChannel: "nightly"}, fallback: ChannelStable, want: ChannelStable},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.settings.UpdateChannelOrDefault(tt.fallback))
+		})
+	}
+}
+
 func TestNotificationSettingsOrDefault(t *testing.T) {
 	enabled := true
 	disabled := false

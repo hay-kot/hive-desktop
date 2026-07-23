@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,155 +12,236 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/updater"
+
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 )
 
-// fixtureServer serves a releases list plus a SHA256SUMS body, mirroring the
-// GitHub API shape the provider consumes. The zip's browser_download_url and
-// the SHA256SUMS asset both point back at this server.
-type fixtureServer struct {
+// manifestServer serves a channel latest.json plus the artifact zip it points
+// at, mirroring the bucket layout release-desktop.sh publishes.
+type manifestServer struct {
 	*httptest.Server
-	zipBody      []byte
-	checksumBody string
+	zipBody []byte
 }
 
-func newFixtureServer(t *testing.T, releasesJSON func(base string) string, checksumBody string) *fixtureServer {
+// newManifestServer serves manifestJSON (a func of the server base URL so the
+// artifact URL can point back at the server) for channel and the zip at
+// /desktop/releases/<version>/<zipName>.
+func newManifestServer(t *testing.T, channel string, manifestJSON func(base string) string) *manifestServer {
 	t.Helper()
-	fs := &fixtureServer{zipBody: []byte("PK\x03\x04 fake zip"), checksumBody: checksumBody}
+	ms := &manifestServer{zipBody: []byte("PK\x03\x04 fake zip")}
 	mux := http.NewServeMux()
-	fs.Server = httptest.NewServer(mux)
-	base := fs.URL
-	mux.HandleFunc("/repos/colonyops/hive/releases", func(w http.ResponseWriter, _ *http.Request) {
+	ms.Server = httptest.NewServer(mux)
+	base := ms.URL
+	mux.HandleFunc("/desktop/channels/"+channel+"/latest.json", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = fmt.Fprint(w, releasesJSON(base))
+		_, _ = fmt.Fprint(w, manifestJSON(base))
 	})
-	mux.HandleFunc("/dl/SHA256SUMS", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = fmt.Fprint(w, fs.checksumBody)
+	mux.HandleFunc("/desktop/releases/", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(ms.zipBody)
 	})
-	mux.HandleFunc("/dl/zip", func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = w.Write(fs.zipBody)
-	})
-	t.Cleanup(fs.Close)
-	return fs
+	t.Cleanup(ms.Close)
+	return ms
 }
 
-func newTestProvider(t *testing.T, base string) *desktopProvider {
-	t.Helper()
-	p, err := newDesktopProvider("colonyops/hive", "")
-	require.NoError(t, err)
-	p.base = base
-	return p
-}
-
-// releasesWithMixedTags returns a list containing a newer CLI v* release, an
-// older desktop release, and the newest desktop release, in newest-first
-// order — so the provider must filter by prefix and compare semver rather than
-// trust list order.
-func releasesWithMixedTags(zipName, sumsName string) func(base string) string {
+// stableManifest returns a well-formed stable-channel manifest for version
+// whose artifact URL and sha256 match the server's zip body.
+func stableManifest(zipBody []byte, version string) func(base string) string {
+	sum := sha256.Sum256(zipBody)
 	return func(base string) string {
-		return fmt.Sprintf(`[
-  {"tag_name":"v9.9.9","name":"CLI","draft":false,"prerelease":false,"assets":[]},
-  {"tag_name":"desktop-v0.3.0","name":"Desktop 0.3.0","body":"notes","draft":false,"prerelease":false,"html_url":"https://example/desktop-v0.3.0","assets":[
-    {"name":%q,"size":9,"browser_download_url":%q},
-    {"name":%q,"size":80,"browser_download_url":%q}
-  ]},
-  {"tag_name":"desktop-v0.2.0","name":"Desktop 0.2.0","draft":false,"prerelease":false,"assets":[]},
-  {"tag_name":"desktop-v0.4.0-rc.1","name":"RC","draft":false,"prerelease":true,"assets":[]}
-]`, zipName, base+"/dl/zip", sumsName, base+"/dl/SHA256SUMS")
+		return fmt.Sprintf(`{
+  "channel": "stable",
+  "version": %q,
+  "pub_date": "2026-08-01T00:00:00Z",
+  "platforms": {
+    "darwin-universal": {
+      "url": "%s/desktop/releases/%s/Hive-%s-darwin-universal.zip",
+      "sha256": %q,
+      "size": %d
+    }
+  }
+}`, version, base, version, version, hex.EncodeToString(sum[:]), len(zipBody))
 	}
 }
 
-func checksumFor(body []byte, name string) string {
-	sum := sha256.Sum256(body)
-	return fmt.Sprintf("%s  %s\n", hex.EncodeToString(sum[:]), name)
+func darwinCheck(current string) updater.CheckRequest {
+	return updater.CheckRequest{CurrentVersion: current, Platform: "darwin", Arch: "arm64"}
 }
 
-func TestDesktopProviderCheckNewer(t *testing.T) {
-	zipName := "Hive-desktop-0.3.0-macos-universal.zip"
-	fs := newFixtureServer(t, releasesWithMixedTags(zipName, checksumAssetName), "")
-	fs.checksumBody = checksumFor(fs.zipBody, zipName)
-	p := newTestProvider(t, fs.URL)
+func TestManifestProviderCheckNewer(t *testing.T) {
+	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
 
-	rel, err := p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "0.2.0"})
+	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
 	require.NotNil(t, rel)
-	require.Equal(t, "0.3.0", rel.Version)
-	require.Equal(t, zipName, rel.Artifact.Filename)
-	require.Equal(t, fs.URL+"/dl/zip", rel.Metadata["github.asset.url"])
+	require.Equal(t, "1.4.0", rel.Version)
+	require.Equal(t, desktop.ChannelStable, rel.Channel)
+	require.Equal(t, "Hive-1.4.0-darwin-universal.zip", rel.Artifact.Filename)
+	require.Equal(t, int64(len(ms.zipBody)), rel.Artifact.Size)
+	require.Equal(t, ms.URL+"/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip", rel.Metadata[artifactURLKey])
 	require.NotNil(t, rel.Verification)
 	require.Equal(t, "sha256", rel.Verification.DigestAlgo)
-	want := sha256.Sum256(fs.zipBody)
+	want := sha256.Sum256(ms.zipBody)
 	require.Equal(t, want[:], rel.Verification.Digest)
 }
 
-func TestDesktopProviderCheckUpToDate(t *testing.T) {
-	zipName := "Hive-desktop-0.3.0-macos-universal.zip"
-	fs := newFixtureServer(t, releasesWithMixedTags(zipName, checksumAssetName), checksumFor([]byte("PK\x03\x04 fake zip"), zipName))
-	p := newTestProvider(t, fs.URL)
+func TestManifestProviderCheckUpToDate(t *testing.T) {
+	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
 
-	// Current equals the newest desktop release.
-	rel, err := p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "0.3.0"})
+	// Current equals the manifest version.
+	rel, err := p.Check(context.Background(), darwinCheck("1.4.0"))
 	require.NoError(t, err)
 	require.Nil(t, rel)
 
-	// Current newer than any published desktop release.
-	rel, err = p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "1.0.0"})
+	// Current newer than the manifest version.
+	rel, err = p.Check(context.Background(), darwinCheck("2.0.0"))
 	require.NoError(t, err)
 	require.Nil(t, rel)
 }
 
-func TestDesktopProviderCheckAcceptsDesktopPrefixedCurrent(t *testing.T) {
-	zipName := "Hive-desktop-0.3.0-macos-universal.zip"
-	fs := newFixtureServer(t, releasesWithMixedTags(zipName, checksumAssetName), checksumFor([]byte("PK\x03\x04 fake zip"), zipName))
-	p := newTestProvider(t, fs.URL)
+func TestManifestProviderCheckAcceptsPrefixedCurrent(t *testing.T) {
+	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
 
-	rel, err := p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "desktop-v0.2.0"})
+	rel, err := p.Check(context.Background(), darwinCheck("desktop-v1.3.0"))
 	require.NoError(t, err)
 	require.NotNil(t, rel)
-	require.Equal(t, "0.3.0", rel.Version)
+	require.Equal(t, "1.4.0", rel.Version)
 }
 
-func TestDesktopProviderCheckNoDesktopReleases(t *testing.T) {
-	onlyCLI := func(string) string {
-		return `[{"tag_name":"v9.9.9","draft":false,"prerelease":false,"assets":[]}]`
+// TestManifestProviderPrereleaseOrdering exercises the channel cascade
+// semantics from docs/decisions/0004 on the dev channel: a newer dev build
+// updates a dev user, a cascaded beta manifest never downgrades a dev user of
+// the same base version, and a bare stable version converges everyone.
+func TestManifestProviderPrereleaseOrdering(t *testing.T) {
+	devManifest := func(version string) func(base string) string {
+		body := []byte("PK\x03\x04 fake zip")
+		sum := sha256.Sum256(body)
+		return func(base string) string {
+			return fmt.Sprintf(`{"channel":"dev","version":%q,"pub_date":"2026-08-01T00:00:00Z",
+  "platforms":{"darwin-universal":{"url":"%s/desktop/releases/%s/Hive-%s-darwin-universal.zip","sha256":%q,"size":%d}}}`,
+				version, base, version, version, hex.EncodeToString(sum[:]), len(body))
+		}
 	}
-	fs := newFixtureServer(t, onlyCLI, "")
-	p := newTestProvider(t, fs.URL)
 
-	rel, err := p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "0.1.0"})
+	tests := []struct {
+		name     string
+		manifest string
+		current  string
+		wantsRel bool
+	}{
+		{"newer dev build", "1.4.0-dev.2", "1.4.0-dev.1", true},
+		{"cascaded beta does not downgrade dev", "1.4.0-beta.2", "1.4.0-dev.1", false},
+		{"stable converges dev users", "1.4.0", "1.4.0-dev.3", true},
+		{"same dev build", "1.4.0-dev.1", "1.4.0-dev.1", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := newManifestServer(t, desktop.ChannelDev, devManifest(tt.manifest))
+			p := newManifestProvider(ms.URL, desktop.ChannelDev)
+			rel, err := p.Check(context.Background(), darwinCheck(tt.current))
+			require.NoError(t, err)
+			if tt.wantsRel {
+				require.NotNil(t, rel)
+				require.Equal(t, tt.manifest, rel.Version)
+			} else {
+				require.Nil(t, rel)
+			}
+		})
+	}
+}
+
+func TestManifestProviderChannelMismatch(t *testing.T) {
+	// A beta manifest served from the stable channel path must be rejected.
+	betaOnStablePath := func(string) string {
+		return `{"channel":"beta","version":"1.4.0","platforms":{}}`
+	}
+	ms := newManifestServer(t, desktop.ChannelStable, betaOnStablePath)
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+
+	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not match configured channel")
+}
+
+func TestManifestProviderCheckNoManifest(t *testing.T) {
+	// No channel manifest published yet: the server 404s and the provider
+	// reports up to date.
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	p := newManifestProvider(srv.URL, desktop.ChannelStable)
+
+	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
 	require.Nil(t, rel)
 }
 
-func TestDesktopProviderCheckMissingZip(t *testing.T) {
-	noZip := func(base string) string {
-		return fmt.Sprintf(`[{"tag_name":"desktop-v0.3.0","draft":false,"prerelease":false,"assets":[
-      {"name":%q,"browser_download_url":%q}
-    ]}]`, checksumAssetName, base+"/dl/SHA256SUMS")
+func TestManifestProviderCheckMissingPlatform(t *testing.T) {
+	noDarwin := func(string) string {
+		return `{"channel":"stable","version":"1.4.0","platforms":{"linux-amd64":{"url":"https://example/zip","sha256":"00","size":1}}}`
 	}
-	fs := newFixtureServer(t, noZip, "whatever")
-	p := newTestProvider(t, fs.URL)
+	ms := newManifestServer(t, desktop.ChannelStable, noDarwin)
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
 
-	_, err := p.Check(context.Background(), updater.CheckRequest{CurrentVersion: "0.1.0"})
+	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no .zip asset")
+	require.Contains(t, err.Error(), `no artifact for platform "darwin-universal"`)
 }
 
-func TestParseChecksum(t *testing.T) {
-	body := "abc  other.zip\n" +
-		"0011aa  Hive-desktop-0.3.0-macos-universal.zip\n"
-	digest, err := parseChecksum(body, "Hive-desktop-0.3.0-macos-universal.zip")
+func TestManifestProviderCheckMalformedSHA(t *testing.T) {
+	badSHA := func(base string) string {
+		return fmt.Sprintf(`{"channel":"stable","version":"1.4.0",
+  "platforms":{"darwin-universal":{"url":"%s/desktop/releases/1.4.0/z.zip","sha256":"not-hex","size":1}}}`, base)
+	}
+	ms := newManifestServer(t, desktop.ChannelStable, badSHA)
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+
+	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "sha256")
+}
+
+func TestManifestProviderCheckMalformedVersion(t *testing.T) {
+	badVersion := func(string) string {
+		return `{"channel":"stable","version":"not-a-version","platforms":{}}`
+	}
+	ms := newManifestServer(t, desktop.ChannelStable, badVersion)
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+
+	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "not valid semver")
+}
+
+func TestManifestProviderDownload(t *testing.T) {
+	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+
+	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
-	require.Equal(t, []byte{0x00, 0x11, 0xaa}, digest)
+	require.NotNil(t, rel)
 
-	_, err = parseChecksum(body, "missing.zip")
+	var dst bytes.Buffer
+	var lastWritten, lastTotal int64
+	err = p.Download(context.Background(), rel, &dst, func(written, total int64) {
+		lastWritten, lastTotal = written, total
+	})
+	require.NoError(t, err)
+	require.Equal(t, ms.zipBody, dst.Bytes())
+	require.Equal(t, int64(len(ms.zipBody)), lastWritten)
+	require.Equal(t, int64(len(ms.zipBody)), lastTotal)
+}
+
+func TestManifestProviderDownloadMissingMetadata(t *testing.T) {
+	p := newManifestProvider("https://example.invalid", desktop.ChannelStable)
+	err := p.Download(context.Background(), &updater.Release{}, &bytes.Buffer{}, nil)
 	require.Error(t, err)
 }
 
-func TestPickZipAsset(t *testing.T) {
-	assets := []apiAsset{
-		{Name: checksumAssetName},
-		{Name: "Hive-desktop-0.3.0-macos-universal.zip"},
-	}
-	require.Equal(t, 1, pickZipAsset(assets))
-	require.Equal(t, -1, pickZipAsset([]apiAsset{{Name: "notes.txt"}}))
+func TestPlatformKey(t *testing.T) {
+	require.Equal(t, "darwin-universal", platformKey("darwin", "arm64"))
+	require.Equal(t, "darwin-universal", platformKey("darwin", "amd64"))
+	require.Equal(t, "linux-amd64", platformKey("linux", "amd64"))
+	require.Equal(t, "windows-arm64", platformKey("windows", "arm64"))
 }

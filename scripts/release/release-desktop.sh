@@ -200,7 +200,8 @@ echo "==> packaging $ZIP_NAME"
 (
   cd desktop/bin
   ditto -c -k --keepParent hive-desktop.app "$ZIP_NAME"
-  # SHA256SUMS lists basenames: the updater's checksum parser compares basenames.
+  # SHA256SUMS is a manual-verification/audit sidecar; the in-app updater
+  # verifies the sha256 published in the channel manifest.
   shasum -a 256 "$ZIP_NAME" > SHA256SUMS
   cat SHA256SUMS
 )
@@ -259,7 +260,14 @@ cat <<DONE
 Release $VERSION published to the $CHANNEL channel.
   artifact: $DL_BASE_URL/$RELEASE_PREFIX/$ZIP_NAME
   manifests updated: ${CHANNELS[*]}
+DONE
+
+# In CI the desktop-v tag already exists (it triggered the run); only suggest
+# tagging for local releases that have not been tagged yet.
+if ! git rev-parse -q --verify "refs/tags/desktop-v$VERSION" >/dev/null; then
+  cat <<DONE
 
 Tag the release commit:
   git tag desktop-v$VERSION && git push origin desktop-v$VERSION
 DONE
+fi

@@ -21,4 +21,4 @@ Architecture and infrastructure decisions are recorded as ADRs in [`docs/decisio
 
 ## Extraction status
 
-The desktop app is imported (see the import commit for the source SHA); the release pipeline (R2 upload + channel manifests, ADR 0003/0004) is not ported yet, and the desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
+The desktop app is imported (see the import commit for the source SHA), and the release pipeline is ported: R2 upload + channel manifests (ADR 0003/0004) via `scripts/release/release-desktop.sh`, the tag-triggered publish workflow, and the manifest-polling in-app updater. The desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
