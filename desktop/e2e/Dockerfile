@@ -23,4 +23,11 @@ COPY desktop/e2e/package.json desktop/e2e/package-lock.json ./desktop/e2e/
 RUN cd desktop/e2e && npm ci
 COPY . .
 
+# Build the frontend and the headless server at image-build time rather than
+# inside Playwright's webServer launcher: compile failures surface here with
+# clean attribution instead of as a mysterious "webServer was not able to
+# start", and the webServer timeout then covers server startup alone.
+RUN cd desktop/frontend && npm run build
+RUN CGO_ENABLED=0 go build -tags server -o desktop/bin/hive-desktop-server ./desktop
+
 CMD ["bash", "-ec", "if [[ ! \"${HIVE_DESKTOP_E2E_HARNESS:-}\" =~ ^[[:xdigit:]]{64}$ ]]; then echo 'error: Docker e2e harness marker missing' >&2; exit 1; fi; cd desktop/e2e && npx playwright test"]

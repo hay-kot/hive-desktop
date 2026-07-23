@@ -35,6 +35,9 @@ export default defineConfig({
   use: {
     baseURL: `http://127.0.0.1:${feedPorts.chromium}`,
     viewport: { width: 1360, height: 864 },
+    // Traces are the only forensic record of a CI flake: run-docker.sh mounts
+    // test-results/ out of the container and CI uploads it on failure.
+    trace: 'retain-on-failure',
   },
   webServer: {
     command: './scripts/serve.sh',

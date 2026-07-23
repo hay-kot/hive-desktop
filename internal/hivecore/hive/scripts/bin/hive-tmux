@@ -1,0 +1,67 @@
+#!/bin/bash
+set -eo pipefail
+
+# Hive layout - two windows: agent + shell
+# Usage: hive-tmux [-b] [session-name] [working-dir] [prompt] [window]
+#   -b: background mode (create session without attaching)
+#   window: optional window name to select (for existing sessions)
+# If session exists, switches/attaches. Otherwise creates new.
+# Works both inside and outside tmux.
+#
+# Environment variables:
+#   HIVE_AGENT_COMMAND  - agent CLI binary (default: claude)
+#   HIVE_AGENT_WINDOW   - tmux window name (default: claude)
+#   HIVE_AGENT_FLAGS    - extra flags appended to agent command
+
+AGENT_CMD="${HIVE_AGENT_COMMAND:-claude}"
+AGENT_WINDOW="${HIVE_AGENT_WINDOW:-claude}"
+AGENT_FLAGS="${HIVE_AGENT_FLAGS:-}"
+
+attach_or_switch() {
+    local session=$1
+    local window=${2:-}
+    if [ -n "${TMUX:-}" ]; then
+        tmux switch-client -t "$session"
+        if [ -n "$window" ]; then
+            tmux select-window -t "$session:$window"
+        fi
+    else
+        if [ -n "$window" ]; then
+            tmux attach-session -t "$session:$window"
+        else
+            tmux attach-session -t "$session"
+        fi
+    fi
+}
+
+BACKGROUND=false
+if [ "${1:-}" = "-b" ]; then
+    BACKGROUND=true
+    shift
+fi
+
+SESSION="${1:-hive}"
+WORKDIR="${2:-$PWD}"
+PROMPT="${3:-}"
+WINDOW="${4:-}"
+
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    # Session exists
+    if [ "$BACKGROUND" = false ]; then
+        attach_or_switch "$SESSION" "$WINDOW"
+    fi
+else
+    # Build agent command arguments
+    # shellcheck disable=SC2086
+    if [ -n "$PROMPT" ]; then
+        tmux new-session -d -s "$SESSION" -n "$AGENT_WINDOW" -c "$WORKDIR" -- $AGENT_CMD $AGENT_FLAGS "$PROMPT"
+    else
+        tmux new-session -d -s "$SESSION" -n "$AGENT_WINDOW" -c "$WORKDIR" -- $AGENT_CMD $AGENT_FLAGS
+    fi
+    tmux new-window -t "$SESSION" -n shell -c "$WORKDIR"
+    tmux select-window -t "$SESSION:$AGENT_WINDOW"
+
+    if [ "$BACKGROUND" = false ]; then
+        attach_or_switch "$SESSION"
+    fi
+fi

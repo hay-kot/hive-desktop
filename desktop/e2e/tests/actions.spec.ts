@@ -24,7 +24,12 @@ async function select(page: Page, id: string): Promise<void> {
 
 function action(runID: string, suffix: string): string { return `smoke-${runID}-${suffix}` }
 
-test.describe.configure({ mode: 'serial' })
+// Serial: later tests read durable rows earlier tests create. Retries are
+// disabled for the same reason onboarding disables them: the assertions count
+// exact durable rows (output_commands, messages) on a server that lives for
+// the whole session, so a retry re-observes the prior attempt's rows and
+// fails deterministically rather than absorbing jitter.
+test.describe.configure({ mode: 'serial', retries: 0 })
 
 test('first run creates the exact starter catalog when the private file is absent', async ({ page }) => {
   await page.goto(seedServer)

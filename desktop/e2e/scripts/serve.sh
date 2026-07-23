@@ -10,12 +10,13 @@ if [[ ! "${HIVE_DESKTOP_E2E_HARNESS:-}" =~ ^[[:xdigit:]]{64}$ ]]; then
 fi
 
 cd "$(dirname "$0")/../../.."
-(
-  cd desktop/frontend
-  npm run build
-)
-mkdir -p desktop/bin
-CGO_ENABLED=0 go build -tags server -o desktop/bin/hive-desktop-server ./desktop
+# The frontend and server binary are built at image-build time
+# (desktop/e2e/Dockerfile), so this launcher only starts servers and the
+# Playwright webServer timeout covers startup alone, not compilation.
+if [[ ! -x desktop/bin/hive-desktop-server ]]; then
+  echo "error: desktop/bin/hive-desktop-server missing; the e2e image must prebuild it (desktop/e2e/Dockerfile)" >&2
+  exit 1
+fi
 
 # Each server owns its complete mutable config/data tree. Standard fixture
 # servers receive private fixture copies, while onboarding deliberately uses no
