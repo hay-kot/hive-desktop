@@ -1,0 +1,5 @@
+[tools]
+"go" = "1.26"
+
+# Desktop toolchain (wails3, go-enum, sqlc, golangci-lint, node) and the
+# task set port over from colonyops/hive during extraction Phase 2.
