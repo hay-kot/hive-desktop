@@ -9,6 +9,11 @@ type SmokeState = {
 test('commits Go-appended source messages through the frontend graph', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('profile-tile')).toHaveCount(1)
+  // Gate the append on the app's readiness marker: the root is stamped once
+  // the flows session's boot reconcile + trailing catch-up pump completed, so
+  // this append can no longer race runtime installation (the lost-wakeup bug
+  // this spec used to trip on under load).
+  await expect(page.locator('main[data-pipeline-ready="true"]')).toBeAttached()
   const append = await page.request.post(smokePath)
   expect(append.ok()).toBeTruthy()
   await expect(append.json()).resolves.toEqual({ appended: 2 })

@@ -253,8 +253,10 @@ describe('useFlowsSession', () => {
     const { wrapper } = mountSession({ editorClient, runtimeClient, runtimeFactory })
     await flushPromises()
 
-    expect(order).toEqual(['tail', 'items', 'snapshots', 'recompute', 'activate', 'run', 'read'])
-    expect(readFrom).toHaveBeenCalledOnce()
+    // The second read is the boot reconcile's unconditional trailing
+    // catch-up pump (listen-then-read); it must come after run().
+    expect(order).toEqual(['tail', 'items', 'snapshots', 'recompute', 'activate', 'run', 'read', 'read'])
+    expect(readFrom).toHaveBeenCalledTimes(2)
     expect(commit).not.toHaveBeenCalled()
     expect(replayOutputs).toEqual([expect.objectContaining({ sink: { kind: 'feed', targetId: 'flow-1/feed' }, key: 'item-1', sourceKind: 'github', sourceScope: 'acme/repo' })])
     expect(replayOutputs.some((output) => output.sink.kind === 'action')).toBe(false)
@@ -303,9 +305,10 @@ describe('useFlowsSession', () => {
     await flushPromises()
 
     // run() fires automatically once the flow becomes active — an
-    // immediate pump, exactly like FlowsView's old per-canvas runtime.
+    // immediate pump, exactly like FlowsView's old per-canvas runtime —
+    // followed by the boot reconcile's trailing catch-up pump.
     expect(state.running.value).toBe(true)
-    expect(readFrom).toHaveBeenCalledTimes(1)
+    expect(readFrom).toHaveBeenCalledTimes(2)
     expect(state.lastRun.value).toMatchObject({ batchSize: 0 })
 
     readFrom.mockResolvedValueOnce([msg('1')])
@@ -313,7 +316,7 @@ describe('useFlowsSession', () => {
 
     // The coalescing runtime drains the processed page and then performs its
     // terminating empty read before resolving.
-    expect(readFrom).toHaveBeenCalledTimes(3)
+    expect(readFrom).toHaveBeenCalledTimes(4)
     expect(commit).toHaveBeenCalledTimes(1)
     expect(state.lastRun.value).toMatchObject({ batchSize: 1, outputCount: 1 })
     expect(state.runtimeError.value).toBeNull()
@@ -569,6 +572,110 @@ describe('useFlowsSession', () => {
     await state.reloadDeployed()
 
     expect(getFlow.mock.calls.slice(beforeReload).map(([id]) => id)).toEqual(expect.arrayContaining(['flow-1', 'flow-2']))
+    wrapper.unmount()
+  })
+
+  // ── Level-triggered wake-ups (the log:appended lost-wakeup fix) ──────────
+
+  it('boot ends with one unconditional catch-up pump against the just-installed runtimes', async () => {
+    const readFrom = vi.fn().mockResolvedValue([])
+    const { wrapper } = mountSession({ editorClient: fakeEditorClient(), runtimeClient: { readFrom, commit: vi.fn().mockResolvedValue(undefined) } })
+    await flushPromises()
+
+    // One read from run()'s initial backlog drain, one from the boot
+    // reconcile's trailing catch-up pump (listen-then-read).
+    expect(readFrom.mock.calls.map(([consumer]) => consumer)).toEqual(['flow-1', 'flow-1'])
+    wrapper.unmount()
+  })
+
+  it('a wake-up landing before the flows list resolves is drained once boot installs runtimes', async () => {
+    let resolveList!: (flows: FlowSummary[]) => void
+    const listFlows = vi.fn().mockImplementation(() => new Promise<FlowSummary[]>((resolve) => { resolveList = resolve }))
+    const readFrom = vi.fn().mockResolvedValue([])
+    const commit = vi.fn().mockResolvedValue(undefined)
+    const { state, wrapper } = mountSession({ editorClient: fakeEditorClient({ listFlows }), runtimeClient: { readFrom, commit } })
+    await flushPromises()
+
+    // The backend append's wake-up fires while ListFlows is still in flight —
+    // there is no runtime to read against yet, so the pass is a no-op.
+    const wake = state.pump()
+    await flushPromises()
+    expect(readFrom).not.toHaveBeenCalled()
+
+    readFrom.mockResolvedValueOnce([msg('1')])
+    resolveList([summary('flow-1')])
+    await wake
+
+    // Boot's serialized reconcile + trailing catch-up read the appended page.
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledWith(expect.objectContaining({ consumer: 'flow-1' })))
+    wrapper.unmount()
+  })
+
+  it('a wake-up during the in-flight boot reconcile is serviced by the boot tail, not lost', async () => {
+    let resolveFlow!: (flow: WireFlow) => void
+    const getFlow = vi.fn().mockImplementation(() => new Promise<WireFlow>((resolve) => { resolveFlow = resolve }))
+    const readFrom = vi.fn().mockResolvedValue([])
+    const commit = vi.fn().mockResolvedValue(undefined)
+    const { state, wrapper } = mountSession({ editorClient: fakeEditorClient({ getFlow }), runtimeClient: { readFrom, commit } })
+    await flushPromises() // the boot reconcile is now parked awaiting GetFlow
+
+    readFrom.mockResolvedValueOnce([msg('1')])
+    const wake = state.pump() // the wake-up lands mid-operation
+    await flushPromises()
+    expect(readFrom).not.toHaveBeenCalled() // still queued behind boot
+
+    resolveFlow(wireFlow())
+    await wake
+    await vi.waitFor(() => expect(commit).toHaveBeenCalledWith(expect.objectContaining({ consumer: 'flow-1' })))
+    wrapper.unmount()
+  })
+
+  it('a wake-up landing during an in-flight pump pass re-arms it instead of coalescing away', async () => {
+    const readFrom = vi.fn().mockResolvedValue([])
+    const { state, wrapper } = mountSession({ editorClient: fakeEditorClient(), runtimeClient: { readFrom, commit: vi.fn().mockResolvedValue(undefined) } })
+    await flushPromises() // boot: run() drain + trailing catch-up
+
+    const bootReads = readFrom.mock.calls.length
+    let releaseRead!: (page: Msg[]) => void
+    readFrom.mockImplementationOnce(() => new Promise<Msg[]>((resolve) => { releaseRead = resolve }))
+    const first = state.pump()
+    await flushPromises() // the first pass is now blocked inside its read
+    const second = state.pump() // signal lands while the pass is in flight
+    releaseRead([])
+    await Promise.all([first, second])
+
+    // The second signal ran its own read after the first pass completed. If
+    // the pending flag were cleared at pass end instead of before the read,
+    // the second pass would have been skipped and the signal lost.
+    expect(readFrom.mock.calls.length).toBe(bootReads + 2)
+    wrapper.unmount()
+  })
+
+  it('ready flips only after the loaded flows list has been reconciled and catch-up pumped', async () => {
+    let resolveList!: (flows: FlowSummary[]) => void
+    const listFlows = vi.fn().mockImplementation(() => new Promise<FlowSummary[]>((resolve) => { resolveList = resolve }))
+    const { state, wrapper } = mountSession({ editorClient: fakeEditorClient({ listFlows }), runtimeClient: fakeRuntimeClient() })
+    await flushPromises()
+    expect(state.ready.value).toBe(false) // flows list still loading
+
+    resolveList([summary('flow-1')])
+    await vi.waitFor(() => expect(state.ready.value).toBe(true))
+    wrapper.unmount()
+  })
+
+  it('pumpCount publishes a completed pass only after its commits have landed', async () => {
+    const readFrom = vi.fn().mockResolvedValue([])
+    const commit = vi.fn().mockResolvedValue(undefined)
+    const { state, wrapper } = mountSession({ editorClient: fakeEditorClient(), runtimeClient: { readFrom, commit } })
+    await flushPromises()
+    const bootPasses = state.pumpCount.value
+    expect(bootPasses).toBeGreaterThan(0) // boot's trailing catch-up published
+
+    readFrom.mockResolvedValueOnce([msg('1')])
+    await state.pump()
+
+    expect(state.pumpCount.value).toBe(bootPasses + 1)
+    expect(commit).toHaveBeenCalledTimes(1)
     wrapper.unmount()
   })
 })

@@ -22,6 +22,20 @@ type ReplayClient = PipelineClient & {
 export interface FlowsSession extends Omit<PipelineEditor, 'deploy' | 'replaceDraft'> {
   flowsOpen: Ref<boolean>
   flowFocusNodeId: Ref<string | null>
+  /**
+   * True once the boot reconcile ran with the loaded flows list and its
+   * trailing catch-up pump completed. App.vue stamps this on the app root
+   * (data-pipeline-ready) so tests can gate backend event injection on
+   * "subscribed + caught up" instead of guessing with timeouts.
+   */
+  ready: Ref<boolean>
+  /**
+   * Count of completed pump passes. Incremented only after a pass's commits
+   * have landed, so a watcher re-reads feed state at exactly the right moment
+   * — including when a wake-up was serviced by a boot/deploy/reload trailing
+   * catch-up pass instead of the pump() call it triggered.
+   */
+  pumpCount: Ref<number>
   running: ComputedRef<boolean>
   lastRun: ComputedRef<RuntimeSummary | null>
   runtimeError: ComputedRef<string | null>
@@ -36,7 +50,12 @@ export interface FlowsSession extends Omit<PipelineEditor, 'deploy' | 'replaceDr
   deploy(): Promise<void>
   /** Reconciles every enabled deployed runtime after flows:updated. */
   reloadDeployed(): Promise<void>
-  /** Drains every enabled runtime. */
+  /**
+   * Requests a drain of every enabled runtime. Level-triggered: the request
+   * is sticky, so one arriving while a serialized operation is still
+   * installing or replacing runtimes is serviced by that operation's trailing
+   * catch-up pass rather than dropped.
+   */
   pump(): Promise<void>
   /** Permanently disposes every managed runtime; used on session shutdown. */
   disposeRuntime(): void
@@ -87,6 +106,8 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
 
   const flowsOpen = shallowRef(false)
   const flowFocusNodeId = shallowRef<string | null>(null)
+  const ready = shallowRef(false)
+  const pumpCount = shallowRef(0)
   const selectedProfileId = shallowRef<string | undefined>(undefined)
   const runtimes = shallowRef<Map<string, PipelineRuntime>>(new Map())
   const runtimeLoadErrors = shallowRef<Map<string, string>>(new Map())
@@ -98,6 +119,21 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     const result = operationTail.then(operation, operation)
     operationTail = result.then(() => undefined, () => undefined)
     return result
+  }
+
+  // "log:appended" is a one-shot wake-up, so the session treats it as
+  // level-triggered: a signal landing while a serialized operation is still
+  // installing or replacing runtimes stays pending until a drain has read
+  // against the CURRENT runtimes. Cleared before reading so a signal landing
+  // during an in-flight drain re-arms it instead of coalescing away.
+  let pumpPending = false
+
+  /** Drains every runtime, then publishes the completed pass via pumpCount. */
+  async function drainRuntimes(): Promise<void> {
+    pumpPending = false
+    if (runtimes.value.size === 0) return
+    await Promise.all([...runtimes.value.values()].map(async (runtime) => { await runtime.pump() }))
+    pumpCount.value++
   }
 
   function setRuntime(id: string, runtime: PipelineRuntime): void {
@@ -257,6 +293,15 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     void serialize(async () => {
       await reconcileRuntimes(false)
       if (pendingEditorProfile) await selectBoundEditor(pendingEditorProfile)
+      // Listen-then-read boot ordering: the log:appended subscription is live
+      // before these async reads complete (App.vue registers it at mount), so
+      // one unconditional trailing drain against the just-installed runtimes
+      // closes the boot window a wake-up could otherwise be lost in.
+      await drainRuntimes()
+      // The immediate watch pass runs before the editor's initial ListFlows
+      // settles; readiness means that load landed AND its reconcile plus
+      // catch-up pump completed.
+      if (!editor.loadingFlows.value) ready.value = true
     })
   }, { immediate: true })
 
@@ -280,6 +325,10 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
       if (!wire) return
       if (wire.enabled) await loadRuntime(wire.id)
       else removeRuntime(wire.id)
+      // The replacement's stop() discards any in-flight page, so a wake-up
+      // that raced the swap would otherwise be swallowed — always end a
+      // runtime-replacing operation with a catch-up drain.
+      await drainRuntimes()
     })
   }
 
@@ -299,12 +348,18 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
       await editor.refreshFlows()
       await reconcileRuntimes(true)
       await refreshCleanEditorDraft()
+      // Same trailing catch-up as deploy: every runtime was just replaced.
+      await drainRuntimes()
     })
   }
 
   async function pump(): Promise<void> {
+    pumpPending = true
     await serialize(async () => {
-      await Promise.all([...runtimes.value.values()].map(async (runtime) => { await runtime.pump() }))
+      // A trailing drain inside an earlier queued operation already read past
+      // this signal; skip the redundant pass.
+      if (!pumpPending) return
+      await drainRuntimes()
     })
   }
 
@@ -329,6 +384,8 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     selectFlow,
     flowsOpen,
     flowFocusNodeId,
+    ready,
+    pumpCount,
     running,
     lastRun,
     runtimeError,

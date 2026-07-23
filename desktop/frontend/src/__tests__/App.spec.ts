@@ -876,4 +876,46 @@ describe('App', () => {
 
     wrapper.unmount()
   })
+
+  it('a log:appended landing while the boot reconcile is still in flight is serviced by the boot tail (lost-wakeup regression)', async () => {
+    // Park the boot reconcile mid-operation, exactly where the e2e trace
+    // showed the race: no runtime is installed yet when the event lands.
+    // EventLogTailOffset is only called from the session's replay startup, so
+    // parking it cannot stall any other boot path.
+    let releaseBoot!: (tail: string) => void
+    mocks.EventLogTailOffset.mockImplementationOnce(() => new Promise<string>((resolve) => { releaseBoot = resolve }))
+    const wrapper = await mountApp()
+
+    const callOrder: string[] = []
+    mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
+    mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
+    mocks.InboxCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return { inboxTotal: 0, inboxUnread: 0 } })
+
+    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
+    expect(logHandler).toBeDefined()
+    logHandler?.() // the one-shot wake-up; nothing can read against it yet
+    await flushPromises()
+    expect(mocks.ReadFrom).not.toHaveBeenCalled()
+
+    releaseBoot('0')
+    // The boot operation's trailing catch-up pump commits the appended page,
+    // and the feed re-read runs only after that commit — the wake-up that
+    // raced boot was never lost.
+    await vi.waitFor(() => expect(callOrder).toEqual(['commit', 'refresh']))
+
+    wrapper.unmount()
+  })
+
+  it('stamps data-pipeline-ready on the app root once the boot reconcile + catch-up pump completed', async () => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/')
+    await router.isReady()
+    const wrapper = mount(App, { global: { plugins: [router] } })
+    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBeUndefined()
+
+    await flushPromises()
+
+    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBe('true')
+    wrapper.unmount()
+  })
 })
