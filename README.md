@@ -7,7 +7,7 @@ Private product monorepo for the Hive desktop application and its supporting ser
 | Desktop app (Wails v3, Vue 3) | `desktop/` + `internal/desktop/` | Arrives via import from `colonyops/hive` (extraction Phase 2) |
 | Vendored hive core | `internal/hivecore/` | Script-managed by `scripts/vendorhive` — **read-only** |
 | Admin server (analytics, licenses, purchases) | `server/` | Future — nested Go module when built |
-| Landing page | `web/` | Static HTML, deployed to Cloudflare Pages |
+| Landing page | `web/` | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |
 
 ## Layout & conventions
 

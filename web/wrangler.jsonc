@@ -1,0 +1,13 @@
+{
+  // Static landing page for hivedesktop.com, served as Worker static assets.
+  "name": "hive-desktop-web",
+  "account_id": "bce6b95e4e84d92b1972d3b55b6cfaf6",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./public"
+  },
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "hivedesktop.com", "custom_domain": true }
+  ]
+}
