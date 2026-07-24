@@ -408,11 +408,12 @@ func webhookIdentity(path string, body []byte) (key, title, url string) {
 	return key, title, url
 }
 
-// feedItemFields are the payload fields the feed UI renders directly; see
-// feed.Item and the frontend's feedPresentation.ts. MissingFeedItemFields
-// powers the node editor's non-blocking "will render minimally" hint — it is
-// deliberately not enforced at ingress, because arbitrary payload shapes are
-// fully supported and reshaping is downstream work for function nodes.
+// feedItemFields lists the render-critical subset of the canonical item
+// contract (docs/decisions/0008-canonical-item-contract.md): the fields the
+// feed UI needs for a first-party-quality row. The remaining contract
+// fields (num, author, body, labels, state, updatedAt) are optional
+// enrichment — state notably drives lifecycle — and their absence is not a
+// shape warning. Advisory only — never enforced at ingress.
 var feedItemFields = []string{"id", "kind", "repo", "title", "url"}
 
 // MissingFeedItemFields returns which of the feed-item fields the payload

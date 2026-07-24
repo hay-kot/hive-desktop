@@ -160,9 +160,10 @@ function onCopyPrompt() {
           class="mb-2 rounded-lg border border-strong bg-selection px-3 py-2.5 text-[12px] leading-relaxed text-text-2"
           data-testid="webhook-source-editor-shape-warning"
         >
-          This payload isn't feed-item-shaped (missing <span class="font-mono">{{ missingFields.join(', ') }}</span>).
-          It ingests fine, but will render minimally in feeds — add a <span class="font-mono">function</span> node
-          to reshape it, or copy the LLM prompt below to have one written for you.
+          Missing canonical item fields: <span class="font-mono">{{ missingFields.join(', ') }}</span> — the item
+          still ingests, but renders minimally in feeds (see ADR 0008). Add a <span class="font-mono">function</span>
+          node to reshape it, or copy the LLM prompt below to have one written for you. Adding
+          <span class="font-mono">state</span> also enables auto-archive.
         </div>
         <pre
           class="max-h-48 overflow-auto rounded-lg border border-row bg-app px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-text-2"

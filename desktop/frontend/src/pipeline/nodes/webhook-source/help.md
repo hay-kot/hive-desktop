@@ -11,11 +11,12 @@ A **webhook source** node turns anything that can send an HTTP request into a fl
 
 - POST only, JSON body only (any shape — object, array, or scalar), capped at 1 MiB. Accepted deliveries return `202`.
 - Item identity: a top-level `"id"` (string or number) is the stable key — re-posting the same id updates the same inbox item. Without an `id`, the body's content hash is the key, so exact duplicate deliveries deduplicate and any changed body is a new item.
-- A top-level `"title"` and `"url"` are promoted so the item renders in feeds; everything else stays in the opaque `msg.Payload` for downstream nodes.
+- A top-level `"title"` and `"url"` are promoted so the item renders in feeds; everything else stays in the opaque `msg.Payload` for downstream nodes, decoded against the canonical item contract (docs/decisions/0008) wherever it renders.
+- A top-level `"state"` drives lifecycle: `resolved`, `closed`, and `done` (case-insensitive) system-archive the item with the state as the archive reason; any other or absent state keeps it active. A later delivery whose state leaves one of those terminal values resurfaces the item. A stateless payload behaves exactly as before — manual triage only.
 
 ## Rendering and transformation
 
-Feeds render an item from what was ingested. A payload carrying the feed-item fields (`id`, `kind`, `repo`, `title`, `url`, …) renders like a first-party item; anything else still ingests fine but renders minimally (title + link). The node editor shows the last captured delivery, flags non-feed-shaped payloads, and offers a copyable LLM prompt for authoring a `function` node that reshapes or routes the payload downstream. A function node must only change `msg.Payload` — `msg.Key` and `msg.Topic` are how feed membership resolves.
+Feeds render an item from what was ingested. A payload carrying the canonical item contract's fields (`id`, `kind`, `repo`, `title`, `url`, …; docs/decisions/0008) renders like a first-party item; anything else still ingests fine but renders minimally (title + link). The node editor shows the last captured delivery, flags payloads missing the render-critical fields, and offers a copyable LLM prompt for authoring a `function` node that reshapes or routes the payload downstream. A function node must only change `msg.Payload` — `msg.Key` and `msg.Topic` are how feed membership resolves.
 
 ## Behavior
 

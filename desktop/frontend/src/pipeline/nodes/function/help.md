@@ -17,7 +17,8 @@ A **function** node runs author-trusted JavaScript against every message that re
 ## The msg shape
 
 ```
-msg.Payload   // opaque — shape set by the source (e.g. a PR/issue/notification)
+msg.Payload   // opaque — shape set by the source; reshape it toward the
+              // canonical item contract (docs/decisions/0008) for feed rendering
 msg.Key       // stable item identity (e.g. "colonyops/hive#2841")
 msg.Topic     // "source:<source-id>"
 msg.ID        // unique per log record

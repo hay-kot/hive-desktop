@@ -89,8 +89,8 @@ Only a transition or non-trivial attention classification produces an inbox
 event. This preserves a current item record without turning harmless refreshes
 into user-facing history.
 
-GitHub classification supplies lifecycle and source state. Terminal
-transitions archive an item as a system action; reopening restores a
+Source classifiers supply lifecycle and source state (docs/decisions/0008).
+Terminal transitions archive an item as a system action; reopening restores a
 system-archived item. Manual archive state follows the profile’s resurface
 policy.
 
@@ -104,10 +104,15 @@ from the current flow set. A delivery calls `IngestObservation` under topic
 `source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
 a top-level `id` is the stable key (else the body's SHA-256, deduplicating
 exact duplicate deliveries), and `title`/`url` are promoted for feed
-rendering. After each write the listener appends the topic's complete
-unarchived item set as the authoritative snapshot, so membership replay
-treats webhook sources exactly like polled ones. The last request body per
-topic is kept in `webhook_capture` for the node editor's payload preview,
+rendering — the rest of the canonical item contract (docs/decisions/0008)
+comes from the payload as-is. The webhook classifier maps the canonical
+top-level `state` to lifecycle exactly like GitHub: `resolved`, `closed`, and
+`done` (case-insensitive) are terminal and system-archive the item; any other
+or absent state keeps it active, and a later delivery that leaves a terminal
+state resurfaces it. After each write the listener appends the topic's
+complete unarchived item set as the authoritative snapshot, so membership
+replay treats webhook sources exactly like polled ones. The last request body
+per topic is kept in `webhook_capture` for the node editor's payload preview,
 feed-shape hint, and LLM transform prompt.
 
 ## The `Msg` contract
@@ -262,7 +267,7 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 | Concern | Path |
 | --- | --- |
 | Pipeline database and retention | `internal/desktop/pipeline/pipelinedb/` |
-| Ingestion and GitHub classification | `internal/desktop/pipeline/producer.go`, `github_classify.go` |
+| Ingestion and source classification | `internal/desktop/pipeline/producer.go`, `github_classify.go`, `webhook_source.go` |
 | Flow schema and loader | `internal/desktop/pipeline/flow/` |
 | Wails pipeline API | `desktop/pipelineservice.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |

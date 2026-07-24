@@ -23,7 +23,7 @@ const FEED_ITEM_SHAPE = `{
   "author": "login",               // string, optional
   "body": "longer text",           // string, optional — detail pane snippet
   "labels": ["a", "b"],            // string[], optional
-  "state": "open",                 // string, optional
+  "state": "open" | "resolved" | "closed" | "done" | string, // optional — resolved/closed/done archive the item; a later non-terminal state resurfaces it
   "updatedAt": 1712345678901       // unix milliseconds, optional
 }`
 
@@ -43,7 +43,7 @@ export function buildTransformPrompt(options: TransformPromptOptions): string {
   lines.push('- CRITICAL: never change `msg.Key`, `msg.Topic`, `msg.SourceKind`, or `msg.SourceScope` — feed membership resolves by them, and altering them stalls the flow\'s commit.')
   lines.push('- No network, no imports; plain synchronous JavaScript. It runs in a sandboxed Web Worker with a 5s default timeout.')
   lines.push('')
-  lines.push('Target payload shape (the feed-item form Hive Desktop feeds render richly):')
+  lines.push('Target payload shape — the canonical item contract (docs/decisions/0008) Hive Desktop feeds render richly:')
   lines.push('')
   lines.push('```jsonc')
   lines.push(FEED_ITEM_SHAPE)

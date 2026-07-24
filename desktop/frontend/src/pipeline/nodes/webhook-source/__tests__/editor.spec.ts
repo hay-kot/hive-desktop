@@ -56,8 +56,11 @@ describe('webhook-source editor', () => {
     await flushPromises()
     expect(wrapper.get('[data-testid="webhook-source-editor-capture"]').text()).toContain('"event": "deploy"')
     const warning = wrapper.get('[data-testid="webhook-source-editor-shape-warning"]').text()
+    expect(warning).toContain('Missing canonical item fields')
     expect(warning).toContain('id, kind, repo, title, url')
-    expect(warning).toContain('render minimally')
+    expect(warning).toContain('renders minimally')
+    expect(warning).toContain('ADR 0008')
+    expect(warning).toContain('auto-archive')
   })
 
   it('hides the shape warning for feed-shaped captures', async () => {
