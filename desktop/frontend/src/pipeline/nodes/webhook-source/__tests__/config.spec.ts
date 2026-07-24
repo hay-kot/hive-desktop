@@ -1,11 +1,36 @@
 import { describe, expect, it } from 'vitest'
-import { defaults, role, type, validate, type Config } from '../config'
+import { defaults, freshConfig, randomPath, randomSecret, role, type, validate, type Config } from '../config'
 
 describe('webhook-source config', () => {
   it('is a backend-run source node', () => {
     expect(type).toBe('webhook-source')
     expect(role).toBe('source')
     expect(defaults).toEqual({ path: '' })
+  })
+})
+
+describe('webhook-source generators', () => {
+  it('generates paths that pass validation and differ between calls', () => {
+    const paths = new Set(Array.from({ length: 25 }, () => randomPath()))
+    expect(paths.size).toBe(25)
+    for (const path of paths) {
+      expect(validate({ path })).toEqual([])
+    }
+  })
+
+  it('generates 32-character secrets that pass validation and differ between calls', () => {
+    const secrets = new Set(Array.from({ length: 25 }, () => randomSecret()))
+    expect(secrets.size).toBe(25)
+    for (const secret of secrets) {
+      expect(secret).toHaveLength(32)
+      expect(validate({ path: 'ci', secret })).toEqual([])
+    }
+  })
+
+  it('seeds a fresh node with a generated path and no secret', () => {
+    const seed = freshConfig()
+    expect(validate({ ...defaults, ...seed })).toEqual([])
+    expect(seed).not.toHaveProperty('secret')
   })
 })
 

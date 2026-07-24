@@ -12,6 +12,8 @@ import BaseButton from '../../../components/BaseButton.vue'
 import { useClipboard } from '../../../composables/useClipboard'
 import { defaultWebhookSourceIcon, feedIconOptions } from '../../../lib/feedIcons'
 import { SearchableSelectField, TextField } from '../../fields'
+import IconRefresh from '~icons/lucide/refresh-cw'
+import { randomPath, randomSecret } from './config'
 import type { Config } from './config'
 import { buildTransformPrompt } from './prompt'
 
@@ -70,6 +72,17 @@ function updateSecret(secret: string) {
   emit('update:config', { ...props.config, secret: secret || undefined })
 }
 
+// Regenerating is unconditional — the field is the undo (the flow only
+// persists on save), and a "keep the old one?" prompt for a value nothing
+// depends on yet would be friction.
+function regeneratePath() {
+  updatePath(randomPath())
+}
+
+function regenerateSecret() {
+  updateSecret(randomSecret())
+}
+
 const iconOptions = feedIconOptions.map((o) => ({ value: o.value, label: o.label, icon: o.component }))
 
 function updateIcon(icon: string) {
@@ -115,7 +128,18 @@ function onCopyPrompt() {
       monospace
       testid="webhook-source-editor-path"
       @update:model-value="updatePath"
-    />
+    >
+      <template #trailing>
+        <button
+          type="button"
+          class="field-action"
+          title="Generate a new path"
+          aria-label="Generate a new path"
+          data-testid="webhook-source-editor-path-generate"
+          @click="regeneratePath"
+        ><IconRefresh class="size-[14px]" /></button>
+      </template>
+    </TextField>
     <TextField
       label="Secret"
       :model-value="config.secret ?? ''"
@@ -124,7 +148,18 @@ function onCopyPrompt() {
       monospace
       testid="webhook-source-editor-secret"
       @update:model-value="updateSecret"
-    />
+    >
+      <template #trailing>
+        <button
+          type="button"
+          class="field-action"
+          title="Generate a new secret"
+          aria-label="Generate a new secret"
+          data-testid="webhook-source-editor-secret-generate"
+          @click="regenerateSecret"
+        ><IconRefresh class="size-[14px]" /></button>
+      </template>
+    </TextField>
     <SearchableSelectField
       label="Item icon"
       :model-value="config.icon || defaultWebhookSourceIcon"
@@ -184,3 +219,23 @@ function onCopyPrompt() {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* In-field regenerate affordance: sits inside the input's right padding, so
+   it reads as part of the field rather than a button beside it. */
+.field-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  width: 26px;
+  cursor: pointer;
+  border-radius: 5px;
+  color: var(--color-text-4);
+}
+
+.field-action:hover {
+  background: var(--color-selection);
+  color: var(--color-text-2);
+}
+</style>

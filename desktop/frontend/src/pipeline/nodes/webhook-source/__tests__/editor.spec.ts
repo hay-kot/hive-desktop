@@ -39,6 +39,29 @@ describe('webhook-source editor', () => {
     expect(wrapper.emitted('update:config')).toEqual([[{ path: 'ci' }]])
   })
 
+  it('regenerates the path in place, emitting a valid slug without touching the secret', async () => {
+    const config: Config = { path: 'ci', secret: 'keep-me' }
+    const wrapper = mountEditor(config)
+    await wrapper.get('[data-testid="webhook-source-editor-path-generate"]').trigger('click')
+
+    const emitted = wrapper.emitted('update:config') as [[Config]]
+    expect(emitted[0]![0].path).toMatch(/^hook-[a-z0-9]{8}$/)
+    expect(emitted[0]![0].path).not.toBe('ci')
+    expect(emitted[0]![0].secret).toBe('keep-me')
+    expect(config.path).toBe('ci')
+  })
+
+  it('regenerates the secret in place, emitting a printable value without touching the path', async () => {
+    const config: Config = { path: 'ci' }
+    const wrapper = mountEditor(config)
+    await wrapper.get('[data-testid="webhook-source-editor-secret-generate"]').trigger('click')
+
+    const emitted = wrapper.emitted('update:config') as [[Config]]
+    expect(emitted[0]![0].secret).toMatch(/^[!-~]{32}$/)
+    expect(emitted[0]![0].path).toBe('ci')
+    expect(config.secret).toBeUndefined()
+  })
+
   it('shows the placeholder when nothing was captured yet', async () => {
     const wrapper = mountEditor({ path: 'ci' })
     await flushPromises()

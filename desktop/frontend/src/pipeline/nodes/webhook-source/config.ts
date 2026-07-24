@@ -47,6 +47,39 @@ export const defaults: Config = {
   path: '',
 }
 
+// A fresh node gets a generated path so two webhook sources never silently
+// share an endpoint (every node declaring a path receives its deliveries) and
+// so an endpoint is not guessable from the flow name. The secret stays opt-in
+// — generated on demand from the editor, not imposed on every node.
+export function freshConfig(): Partial<Config> {
+  return { path: randomPath() }
+}
+
+// Both generators draw from crypto.getRandomValues: the secret is a real
+// credential, and sharing one primitive keeps the path unguessable too.
+// Alphabets are chosen so output always satisfies validate() below.
+const PATH_ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789'
+const SECRET_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+
+function randomChars(alphabet: string, length: number): string {
+  const bytes = new Uint8Array(length)
+  crypto.getRandomValues(bytes)
+  // The alphabets divide 256 evenly (36 does not, but the modulo bias over a
+  // 36-symbol alphabet is negligible for an endpoint slug; the 64-symbol
+  // secret alphabet is unbiased).
+  return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
+}
+
+/** A slug-shaped endpoint path, e.g. "hook-k3m9x2qp". */
+export function randomPath(): string {
+  return `hook-${randomChars(PATH_ALPHABET, 8)}`
+}
+
+/** A 32-character shared secret for the X-Hive-Secret header. */
+export function randomSecret(): string {
+  return randomChars(SECRET_ALPHABET, 32)
+}
+
 const SEGMENT = /^[a-z0-9][a-z0-9_-]*$/
 
 /** UX-only — Go's SaveFlow validator is authoritative. */

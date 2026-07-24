@@ -47,14 +47,16 @@ export function genId(type: string): string {
  * Builds a fresh FlowNode for a palette drag/drop. `defaults` is
  * deep-cloned so two instances of the same type never share config (a drag
  * of the same palette entry twice must not have editing one node's fields
- * silently edit the other's).
+ * silently edit the other's), then the type's optional `freshConfig()` seeds
+ * the fields that must differ per node.
  */
 export function instantiate(type: string): FlowNode {
   const def = byType[type]
   if (!def) throw new Error(`pipeline: unknown node type "${type}"`)
+  const config = structuredClone(def.defaults)
   return {
     id: genId(type),
     type,
-    config: structuredClone(def.defaults),
+    config: def.freshConfig ? { ...config, ...def.freshConfig() } : config,
   }
 }

@@ -3,7 +3,7 @@
 // there is no worker-side code for this type.
 import editor from './editor.vue'
 import help from './help.md?raw'
-import { accentToken, category, defaults, glyph, label, role, tint, type, validate } from './config'
+import { accentToken, category, defaults, freshConfig, glyph, label, role, tint, type, validate } from './config'
 import { defineNodeType } from '../../nodeType'
 
 export default defineNodeType({
@@ -15,6 +15,7 @@ export default defineNodeType({
   accentToken,
   tint,
   defaults,
+  freshConfig,
   outputs: 1,
   validate,
   editor,

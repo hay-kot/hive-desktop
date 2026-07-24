@@ -51,6 +51,14 @@ describe('instantiate', () => {
     expect(byType['github-filter']!.defaults).not.toHaveProperty('repos')
   })
 
+  it('seeds per-instance config from freshConfig, leaving defaults untouched', () => {
+    const a = instantiate('webhook-source').config as Record<string, any>
+    const b = instantiate('webhook-source').config as Record<string, any>
+    expect(a.path).toMatch(/^hook-[a-z0-9]{8}$/)
+    expect(a.path).not.toBe(b.path)
+    expect(byType['webhook-source']!.defaults).toEqual({ path: '' })
+  })
+
   it('throws for an unknown type', () => {
     expect(() => instantiate('nope')).toThrow(/unknown node type/)
   })
