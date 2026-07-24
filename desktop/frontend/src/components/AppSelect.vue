@@ -65,6 +65,20 @@ const trigger = computed(() => ({
 }[props.size]))
 const optionText = computed(() => (props.size === 'sm' ? 'text-[12px]' : 'text-[13px]'))
 
+// Two independent signals, following AppMenu/CommandPalette: `bg-hover` is
+// where the keyboard is, the trailing check is what's selected. The check is
+// rendered only on the selected row rather than sitting invisible on every
+// other one — a reserved leading gutter indents every label for the sake of
+// one, which reads badly in a narrow list.
+function optionClass(option: AppSelectOption, index: number): string[] {
+  const isActive = index === active.value && !option.disabled
+  return [
+    optionText.value,
+    isActive ? 'bg-hover' : '',
+    option.value === props.modelValue || isActive ? 'text-text' : 'text-text-2',
+  ]
+}
+
 // Keep the active index in range as the filtered list shrinks/grows.
 watch(visible, (options) => { if (active.value >= options.length) active.value = Math.max(0, options.length - 1) })
 
@@ -253,15 +267,15 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
             <button
               type="button"
               class="flex w-full items-center gap-2 rounded-md px-[9px] py-[7px] text-left disabled:cursor-not-allowed disabled:opacity-40"
-              :class="[optionText, index === active && !option.disabled ? 'bg-hover text-text' : 'text-text-2', option.value === modelValue ? 'text-text' : '']"
+              :class="optionClass(option, index)"
               :data-testid="testid ? `${testid}-option-${option.value}` : undefined"
               :disabled="option.disabled"
               @click="choose(option)"
               @mousemove="active = index"
             >
-              <IconCheck class="size-3.5 shrink-0" :class="option.value === modelValue ? 'text-accent' : 'opacity-0'" :stroke-width="3" />
               <component :is="option.icon" v-if="option.icon" class="size-4 shrink-0 text-text-2" />
               <span class="min-w-0 flex-1 truncate">{{ option.label }}</span>
+              <IconCheck v-if="option.value === modelValue" class="size-3.5 shrink-0 text-accent" :stroke-width="3" />
             </button>
           </li>
         </ul>

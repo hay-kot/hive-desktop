@@ -65,6 +65,17 @@ describe('AppSelect', () => {
     wrapper.unmount()
   })
 
+  // A check reserved on every row indents every label for the sake of one.
+  it('marks the selected row with a trailing check, leaving the others ungutted', async () => {
+    const wrapper = mountSelect()
+    const popover = await openSelect(wrapper, 'action-type')
+    const rows = Array.from(popover.querySelectorAll('[role="option"] button'))
+
+    expect(rows.map((row) => row.querySelectorAll('svg').length)).toEqual([1, 0])
+    expect(rows[0].lastElementChild?.tagName.toLowerCase()).toBe('svg') // trailing, not leading
+    wrapper.unmount()
+  })
+
   it('teleports the popover to the document body so scrolling and modal ancestors cannot clip it', async () => {
     const wrapper = mountSelect()
     const popover = await openSelect(wrapper, 'action-type')
