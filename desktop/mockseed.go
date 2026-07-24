@@ -21,6 +21,21 @@ const (
 	MockFeedNodeID   = "notifications-inbox"
 )
 
+// mockItemAges is how long ago each mockInboxItems entry last saw activity,
+// positionally paired with that slice. Ages must stay strictly increasing —
+// the fixture's newest-first order is the seeded order — and are spread across
+// the feed list's date tiers (today through this/last month, depending on where
+// in the month the app runs) so mock mode exercises the date separators instead
+// of stacking every row under "Today".
+var mockItemAges = []time.Duration{
+	45 * time.Minute,
+	5 * time.Hour,
+	30 * time.Hour,
+	3 * 24 * time.Hour,
+	9 * 24 * time.Hour,
+	23 * 24 * time.Hour,
+}
+
 // mockInboxItems is the deterministic fixture set used by desktop e2e.
 var mockInboxItems = []feed.Item{
 	{
@@ -90,6 +105,9 @@ func seedMockInboxItems(db *pipelinedb.DB) error {
 // harness reuses it inside ResetAllState's wipe transaction so the delete and
 // reseed commit atomically.
 func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
+	if len(mockItemAges) != len(mockInboxItems) {
+		return fmt.Errorf("mock seed: %d ages for %d items", len(mockItemAges), len(mockInboxItems))
+	}
 	base := time.Now().UnixMilli()
 	ctx := context.Background()
 	sourceTopic := "source:" + MockFlowID + "/" + MockSourceNodeID
@@ -100,6 +118,7 @@ func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: encode item %q: %w", item.ID, err)
 		}
+		seenAt := base - mockItemAges[i].Milliseconds()
 		row, err := q.InsertInboxItem(ctx, pipelinedb.InsertInboxItemParams{
 			ProfileID:   MockFlowID,
 			SourceKind:  "github",
@@ -110,8 +129,8 @@ func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
 			Payload:     payload,
 			Unread:      boolToInt64(item.Unread),
 			Lifecycle:   "active",
-			FirstSeenAt: base - int64(i),
-			LastEventAt: base - int64(i),
+			FirstSeenAt: seenAt,
+			LastEventAt: seenAt,
 		})
 		if err != nil {
 			return fmt.Errorf("mock seed: insert item %q: %w", item.ID, err)
