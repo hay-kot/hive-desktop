@@ -2,6 +2,7 @@ package flow
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -84,6 +85,93 @@ func (c *ActionConfig) Validate(refs Refs) error {
 	}
 	if !refsActionHeadlessCapable(refs, c.Action) {
 		return fmt.Errorf("action: action %q requires interactive session input and cannot run in a flow", c.Action)
+	}
+	return nil
+}
+
+// notifySeverities is the closed set a notify node may declare. It is the
+// same vocabulary the app-level notification path already speaks
+// (internal/desktop/notify's Input.Severity), so a flow node and a built-in
+// notification map to the same native interruption level rather than
+// inventing a second urgency scale.
+var notifySeverities = map[string]bool{
+	"info":    true,
+	"success": true,
+	"warning": true,
+	"error":   true,
+}
+
+// NotifySeverityDefault is the severity a notify node uses when it declares
+// none: an ordinary, non-interrupting banner.
+const NotifySeverityDefault = "info"
+
+// notifyTitleMaxLen and notifyBodyMaxLen cap the *templates*, not the
+// rendered result — enough room for a sentence of context each while keeping
+// the persisted YAML bounded. The executor separately bounds what a template
+// actually renders to.
+const (
+	notifyTitleMaxLen = 200
+	notifyBodyMaxLen  = 1000
+)
+
+// NotifyConfig is a notify node: 1 input, 0 outputs (terminal). Every
+// arriving message enqueues an output_command that the notify executor
+// delivers as a native OS notification, with Title/Body rendered as Go
+// text/templates over the message (the same templating story as an action's
+// prompt_template — see internal/desktop/pipeline/actions/launch_session.go).
+//
+// The node cannot override the app's notification settings: the executor
+// checks the global kill switch before every delivery, so "notifications
+// off" always wins over any flow.
+type NotifyConfig struct {
+	// Title renders the notification's headline. Required — a native
+	// notification without a title is rejected by the OS layer.
+	Title string `json:"title" yaml:"title"`
+	// Body renders the notification's message. Optional.
+	Body string `json:"body,omitempty" yaml:"body,omitempty"`
+	// Severity selects the native interruption level (see notifySeverities).
+	// Empty means NotifySeverityDefault.
+	Severity string `json:"severity,omitempty" yaml:"severity,omitempty"`
+	// Sound is a pointer so an absent key ("use the default", which is sound
+	// on) is distinguishable from an explicit `sound: false`. It can only
+	// silence a notification — the global notification-sound setting still
+	// wins when it is off. Resolve through SoundOrDefault.
+	Sound *bool `json:"sound,omitempty" yaml:"sound,omitempty"`
+}
+
+func (c *NotifyConfig) Inputs() int  { return 1 }
+func (c *NotifyConfig) Outputs() int { return 0 }
+
+// SeverityOrDefault resolves Severity, defaulting to NotifySeverityDefault
+// when the node declares none.
+func (c *NotifyConfig) SeverityOrDefault() string {
+	if c.Severity == "" {
+		return NotifySeverityDefault
+	}
+	return c.Severity
+}
+
+// SoundOrDefault resolves Sound, defaulting to true (play the notification
+// sound) when the key is absent.
+func (c *NotifyConfig) SoundOrDefault() bool {
+	if c.Sound == nil {
+		return true
+	}
+	return *c.Sound
+}
+
+func (c *NotifyConfig) Validate(Refs) error {
+	if strings.TrimSpace(c.Title) == "" {
+		return fmt.Errorf("title: title is required")
+	}
+	if utf8.RuneCountInString(c.Title) > notifyTitleMaxLen {
+		return fmt.Errorf("title: must be at most %d characters", notifyTitleMaxLen)
+	}
+	if utf8.RuneCountInString(c.Body) > notifyBodyMaxLen {
+		return fmt.Errorf("body: must be at most %d characters", notifyBodyMaxLen)
+	}
+	if c.Severity != "" && !notifySeverities[c.Severity] {
+		return fmt.Errorf("severity: %q is not a supported severity (info, success, warning, error)", c.Severity)
 	}
 	return nil
 }

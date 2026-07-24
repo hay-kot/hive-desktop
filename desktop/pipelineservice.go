@@ -93,6 +93,13 @@ func (s *PipelineService) ListInboxItemsTrash(profileID string, limit int) ([]pi
 	return s.db.ListInboxItemsTrash(context.Background(), profileID, limit)
 }
 
+// InboxItemFeed returns the feed that holds an item, or "" when no feed
+// claims it (an unrouted item, shown in Trash). The frontend uses it to turn
+// a clicked notification into a feed route that reveals the item.
+func (s *PipelineService) InboxItemFeed(profileID string, itemID int64) (string, error) {
+	return s.db.InboxItemFeedID(context.Background(), profileID, itemID)
+}
+
 func (s *PipelineService) InboxItemEvents(itemID int64, limit int) ([]pipelinedb.InboxEventView, error) {
 	return s.db.InboxItemEvents(context.Background(), itemID, limit)
 }

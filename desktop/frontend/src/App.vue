@@ -37,7 +37,8 @@ import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
-import type { UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
+import type { NotificationActivation, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
 import {
   isApplicationSettingsSection,
   isProfileSettingsSection,
@@ -176,6 +177,19 @@ watch([profilesLoaded, () => route.fullPath], async ([loaded]) => {
   // Unread narrows whichever feed the route selected.
   // selectSidebar clears the flag, so apply it after loading that list.
   if (wantsUnread && !unreadOnly.value) await toggleUnread()
+
+  // ?item reveals one row in whichever list the route just loaded. It is how
+  // a clicked notification lands on its item, so the destination is a normal
+  // route: back/forward traverse it like any other navigation.
+  const wantedItem = Number(route.query.item)
+  if (!Number.isSafeInteger(wantedItem) || wantedItem <= 0) return
+  // An archived row lives in the lazily loaded section below the list, so
+  // expand it before giving up on finding the item.
+  if (!items.value.some((item) => item.id === wantedItem) && !archivedExpanded.value) {
+    await toggleArchivedSection()
+    if (sync !== feedRouteSync || route.name !== 'feed') return
+  }
+  await selectItem(wantedItem)
 }, { immediate: true })
 
 watch([() => route.name, () => route.query.node], ([name, rawNode]) => {
@@ -397,9 +411,34 @@ function openErrorNode(): void {
 // re-reads inbox items and membership claims, even when the servicing pass was
 // a boot/reload catch-up instead of the pump this event requested.
 watch(session.pumpCount, () => { void refresh() })
+// A clicked notification arrives with the workspace and item it was sent
+// about (see the notify node). The window is already raised by the time this
+// fires; routing to a feed route that reveals the item is all that is left.
+// An item id of 0 means the notification had none — land on the workspace.
+async function revealNotification(activation: NotificationActivation): Promise<void> {
+  const profileId = activation.profileId
+  if (!profileId) return
+  const itemId = Number(activation.itemId ?? 0)
+  if (!Number.isSafeInteger(itemId) || itemId <= 0) {
+    openFeed(profileId)
+    return
+  }
+  let feedId = ''
+  try {
+    feedId = (await InboxItemFeed(profileId, itemId)) ?? ''
+  } catch (error) {
+    console.warn('Unable to locate the notified item', error)
+  }
+  const query: Record<string, string> = { item: String(itemId) }
+  if (feedId) query.feed = feedId
+  else query.view = 'trash'
+  void router.push({ name: 'feed', params: { profileId }, query })
+}
+
 let unsubscribeLog: (() => void) | undefined
 let unsubscribeFlowsRuntime: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
+let unsubscribeNotification: (() => void) | undefined
 onMounted(() => {
   unsubscribeLog = Events.On('log:appended', () => { void session.pump() })
   // The app owns this subscription, rather than FlowsView, because deployed
@@ -415,11 +454,16 @@ onMounted(() => {
     const payload = Array.isArray(event.data) ? event.data[0] : event.data
     if (payload) updateInfo.value = payload
   })
+  unsubscribeNotification = Events.On('notification:activated', (event: { data: NotificationActivation | NotificationActivation[] }) => {
+    const payload = Array.isArray(event.data) ? event.data[0] : event.data
+    if (payload) void revealNotification(payload)
+  })
 })
 onUnmounted(() => {
   unsubscribeLog?.()
   unsubscribeFlowsRuntime?.()
   unsubscribeUpdate?.()
+  unsubscribeNotification?.()
   session.disposeRuntime()
 })
 

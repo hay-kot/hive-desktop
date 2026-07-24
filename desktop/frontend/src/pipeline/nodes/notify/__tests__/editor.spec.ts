@@ -1,0 +1,70 @@
+import { describe, expect, it } from 'vitest'
+import { mount } from '@vue/test-utils'
+import Editor from '../editor.vue'
+import { bodyMaxLen, defaults, sink, titleMaxLen, validate } from '../config'
+
+describe('notify editor', () => {
+  it('renders the notify node body with its template and delivery fields', () => {
+    const wrapper = mount(Editor, { props: { config: defaults } })
+    expect(wrapper.get('[data-testid="notify-node-editor"]').text()).toContain('notification settings always win')
+    for (const field of ['title', 'body', 'severity', 'sound']) {
+      expect(wrapper.find(`[data-testid="notify-node-editor-${field}"]`).exists(), field).toBe(true)
+    }
+  })
+
+  it('emits the typed title template', async () => {
+    const wrapper = mount(Editor, { props: { config: defaults } })
+    await wrapper.get('[data-testid="notify-node-editor-title"]').setValue('{{ .Payload.repo }}')
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: '{{ .Payload.repo }}' })
+  })
+
+  it('clears an emptied body back to undefined', async () => {
+    const wrapper = mount(Editor, { props: { config: { title: 'hi', body: 'x' } } })
+    await wrapper.get('[data-testid="notify-node-editor-body"]').setValue('')
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', body: undefined })
+  })
+
+  // Only a non-default choice is persisted, so a flow file stays free of keys
+  // the author never touched.
+  it('stores severity only when it differs from the default', async () => {
+    const wrapper = mount(Editor, { props: { config: { title: 'hi' } } })
+    await wrapper.get('[data-testid="notify-node-editor-severity"]').setValue('warning')
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', severity: 'warning' })
+
+    const warned = mount(Editor, { props: { config: { title: 'hi', severity: 'warning' } } })
+    await warned.get('[data-testid="notify-node-editor-severity"]').setValue('info')
+    expect(warned.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', severity: undefined })
+  })
+
+  it('stores sound only when the node is silenced', async () => {
+    const wrapper = mount(Editor, { props: { config: { title: 'hi' } } })
+    await wrapper.get('[data-testid="notify-node-editor-sound"]').setValue(false)
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', sound: false })
+
+    const silenced = mount(Editor, { props: { config: { title: 'hi', sound: false } } })
+    await silenced.get('[data-testid="notify-node-editor-sound"]').setValue(true)
+    expect(silenced.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', sound: undefined })
+  })
+})
+
+describe('notify config', () => {
+  it('requires a title', () => {
+    expect(validate(defaults)).toHaveLength(1)
+    expect(validate({ title: '   ' })).toHaveLength(1)
+    expect(validate({ title: '{{ .Payload.title }}' })).toEqual([])
+  })
+
+  it('rejects over-long templates', () => {
+    expect(validate({ title: 'x'.repeat(titleMaxLen + 1) })).toHaveLength(1)
+    expect(validate({ title: 'hi', body: 'x'.repeat(bodyMaxLen + 1) })).toHaveLength(1)
+  })
+
+  it('rejects an unsupported severity', () => {
+    expect(validate({ title: 'hi', severity: 'critical' })).toHaveLength(1)
+    expect(validate({ title: 'hi', severity: 'error' })).toEqual([])
+  })
+
+  it('sinks to the flow-qualified node id', () => {
+    expect(sink('triage', 'tell-me')).toEqual({ kind: 'notify', targetId: 'triage/tell-me' })
+  })
+})

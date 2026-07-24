@@ -34,6 +34,7 @@ export type {
     FlowSummary,
     GithubSettings,
     KeybindingSettings,
+    NotificationActivation,
     NotificationSettings,
     NotifyInput,
     PathInfo,

@@ -2,11 +2,14 @@ package pipelinedb
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -14,13 +17,47 @@ import (
 const (
 	SinkKindFeed   = "feed"
 	SinkKindAction = "action"
+	SinkKindNotify = "notify"
 )
 
 // Sink identifies where an Output is committed. Feed outputs claim immutable
-// inbox membership; action outputs enqueue an output_command.
+// inbox membership; action and notify outputs enqueue an output_command.
 type Sink struct {
 	Kind     string `json:"kind"`
 	TargetID string `json:"targetId"`
+}
+
+// NotifyActionPrefix namespaces the synthetic action id a notify terminal
+// enqueues its output_command under, so one queue serves both authored
+// actions.yml actions and inline notify nodes. Authored action ids are slugs
+// (`^[a-z0-9][a-z0-9-]*$`), which can contain neither ":" nor "/", so a
+// synthetic id can never collide with one.
+const NotifyActionPrefix = "notify:"
+
+// NotifyActionID returns the synthetic action id for a notify node, whose
+// target is the flow-qualified node id "<flowId>/<nodeId>".
+func NotifyActionID(target string) string { return NotifyActionPrefix + target }
+
+// NotifyActionTarget inverts NotifyActionID: it returns the flow-qualified
+// node id an action id names, and whether the id is a notify action at all.
+func NotifyActionTarget(actionID string) (string, bool) {
+	target, ok := strings.CutPrefix(actionID, NotifyActionPrefix)
+	return target, ok && target != ""
+}
+
+// NotifyCommand is the durable payload of a notify terminal's
+// output_command. It carries the triggering item's identity alongside its
+// payload: the identity resolves the inbox row a delivered notification
+// links back to (so clicking the banner can select that item), while Item is
+// what the node's title/body templates render over — the same shape an
+// action node's executor sees, so `{{ .Payload.title }}` means the same
+// thing in both.
+type NotifyCommand struct {
+	ProfileID   string          `json:"profileId"`
+	ExternalID  string          `json:"externalId,omitempty"`
+	SourceKind  string          `json:"sourceKind,omitempty"`
+	SourceScope string          `json:"sourceScope,omitempty"`
+	Item        json.RawMessage `json:"item,omitempty"`
 }
 
 // Output is one committed side effect of a flow run.
@@ -134,6 +171,23 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				}); err != nil {
 					return fmt.Errorf("enqueuing output_command %s/%s: %w", out.Sink.TargetID, out.OccurrenceKey, err)
 				}
+			case SinkKindNotify:
+				payload, err := json.Marshal(NotifyCommand{
+					ProfileID:   b.Consumer,
+					ExternalID:  out.Key,
+					SourceKind:  out.SourceKind,
+					SourceScope: out.SourceScope,
+					Item:        out.Payload,
+				})
+				if err != nil {
+					return fmt.Errorf("encoding notify command %s/%s: %w", out.Sink.TargetID, out.Key, err)
+				}
+				key := notifyDedupKey(out)
+				if err := q.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
+					ActionID: NotifyActionID(out.Sink.TargetID), Key: key, Payload: payload, CreatedAt: now,
+				}); err != nil {
+					return fmt.Errorf("enqueuing notify command %s/%s: %w", out.Sink.TargetID, key, err)
+				}
 			default:
 				return fmt.Errorf("commit batch: unknown sink kind %q", out.Sink.Kind)
 			}
@@ -189,6 +243,25 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 
 		return nil
 	})
+}
+
+// notifyDedupKey is the output_command dedup key for a notify output. The
+// classifier's occurrence key is the right one whenever it exists: it changes
+// exactly when something meaningful changed about the item, so a source that
+// re-emits an unchanged item on every poll notifies once, not once per tick.
+//
+// Not every event carries one — a trivial update, or a message a function
+// node synthesized, may have none — and falling back to the empty string
+// would make (action_id, "") unique for the node forever, i.e. it would
+// notify exactly once and then go permanently silent. The fallback is
+// therefore the item plus a digest of its payload: distinct payloads still
+// notify, identical ones still deduplicate.
+func notifyDedupKey(out Output) string {
+	if out.OccurrenceKey != "" {
+		return out.OccurrenceKey
+	}
+	sum := sha256.Sum256(out.Payload)
+	return out.Key + "@" + hex.EncodeToString(sum[:8])
 }
 
 func boolToInt64(b bool) int64 {

@@ -2,6 +2,7 @@ package pipelinedb
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -74,6 +75,111 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 	}
 	require.NoError(t, database.CommitBatch(ctx, batch2))
 	assert.Equal(t, 1, countPending(t), "duplicate (action_id, key) must not enqueue a second command")
+}
+
+func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	notifyOutput := func(occurrence string, payload string) Output {
+		return Output{
+			Sink:          Sink{Kind: SinkKindNotify, TargetID: "flow-1/tell-me"},
+			Key:           "item-1",
+			OccurrenceKey: occurrence,
+			SourceKind:    "github",
+			SourceScope:   "source-a",
+			SourceTopic:   "source:flow-1/source-a",
+			Payload:       []byte(payload),
+		}
+	}
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "1",
+		Outputs: []Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
+	}))
+
+	var actionID, key string
+	var payload []byte
+	require.NoError(t, database.Conn().QueryRowContext(ctx,
+		`SELECT action_id, key, payload FROM output_command`).Scan(&actionID, &key, &payload))
+	assert.Equal(t, NotifyActionID("flow-1/tell-me"), actionID)
+	assert.Equal(t, "item-1@2", key)
+
+	var cmd NotifyCommand
+	require.NoError(t, json.Unmarshal(payload, &cmd))
+	assert.Equal(t, NotifyCommand{
+		ProfileID:   "flow-1",
+		ExternalID:  "item-1",
+		SourceKind:  "github",
+		SourceScope: "source-a",
+		Item:        json.RawMessage(`{"repo":"acme/api"}`),
+	}, cmd)
+
+	// The same occurrence arriving again — a re-emitted, unchanged item —
+	// must not interrupt the user a second time.
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "2",
+		Outputs: []Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
+	}))
+	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
+
+	// A new occurrence for the same item is new information and enqueues.
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "3",
+		Outputs: []Output{notifyOutput("item-1@3", `{"repo":"acme/api"}`)},
+	}))
+	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+}
+
+// Without an occurrence key the dedup key falls back to the payload digest,
+// so an identical message still collapses while a changed one gets through —
+// rather than the node notifying once and then going silent forever.
+func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	notifyOutput := func(payload string) Output {
+		return Output{
+			Sink:    Sink{Kind: SinkKindNotify, TargetID: "flow-1/tell-me"},
+			Key:     "item-1",
+			Payload: []byte(payload),
+		}
+	}
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "1", Outputs: []Output{notifyOutput(`{"v":1}`)},
+	}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "2", Outputs: []Output{notifyOutput(`{"v":1}`)},
+	}))
+	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "3", Outputs: []Output{notifyOutput(`{"v":2}`)},
+	}))
+	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+}
+
+// Two notify nodes fed by the same message are independent destinations.
+func TestCommitBatch_NotifyOutput_IsPerNode(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: "1",
+		Outputs: []Output{
+			{Sink: Sink{Kind: SinkKindNotify, TargetID: "flow-1/tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
+			{Sink: Sink{Kind: SinkKindNotify, TargetID: "flow-1/also-tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
+		},
+	}))
+	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
+}
+
+func countOutputCommands(t *testing.T, database *DB, ctx context.Context) int {
+	t.Helper()
+	var count int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM output_command`).Scan(&count))
+	return count
 }
 
 func TestCommitBatch_InsertsNodeRuns(t *testing.T) {

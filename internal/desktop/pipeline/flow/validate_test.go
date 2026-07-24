@@ -258,7 +258,7 @@ nodes:
 	require.NoError(t, err)
 	found := false
 	for _, w := range warnings {
-		if w == "flow has no terminal node (feed or action)" {
+		if w == "flow has no terminal node (feed, action, or notify)" {
 			found = true
 		}
 	}

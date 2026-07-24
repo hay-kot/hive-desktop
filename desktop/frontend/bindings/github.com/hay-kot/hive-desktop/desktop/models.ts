@@ -71,6 +71,18 @@ export interface KeybindingSettings {
 }
 
 /**
+ * NotificationActivation is the notification:activated payload: which
+ * workspace and inbox item a clicked notification came from. ItemID is 0 when
+ * the notification had no item behind it (an app-level notification, or one
+ * whose item could not be resolved), which the frontend reads as "just raise
+ * the window".
+ */
+export interface NotificationActivation {
+    "profileId": string;
+    "itemId": number;
+}
+
+/**
  * NotificationSettings is the desktop notification configuration resolved
  * from settings.yaml. All fields are explicit booleans for the frontend.
  */

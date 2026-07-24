@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest'
 import { byType, instantiate, palette } from '../registry'
 
 describe('byType', () => {
-  it('discovers exactly the five node types with app modules (index.ts)', () => {
-    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source', 'webhook-source'])
+  it('discovers exactly the node types with app modules (index.ts)', () => {
+    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source', 'notify', 'webhook-source'])
   })
 
   it('every entry carries a `type` matching its registry key and has a glyph/editor/help/defaults', () => {
@@ -30,7 +30,7 @@ describe('palette', () => {
 
     expect(palette.Sources.map((d) => d.type).sort()).toEqual(['github-source', 'webhook-source'])
     expect(palette.Process.map((d) => d.type).sort()).toEqual(['function', 'github-filter'])
-    expect(palette.Destinations.map((d) => d.type).sort()).toEqual(['action', 'feed'])
+    expect(palette.Destinations.map((d) => d.type).sort()).toEqual(['action', 'feed', 'notify'])
   })
 })
 

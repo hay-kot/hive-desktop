@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -79,6 +81,11 @@ func registerEvents() struct{} {
 	// the app is current. The title bar reacts to update:available.
 	application.RegisterEvent[UpdateInfo]("update:available")
 	application.RegisterEvent[UpdateInfo]("update:none")
+	// notification:activated carries the workspace and inbox item behind a
+	// native notification the user clicked. Unlike the wake-up signals above
+	// its payload is the whole message: the window is already being raised by
+	// the time it fires, and the frontend's job is only to route to that item.
+	application.RegisterEvent[NotificationActivation]("notification:activated")
 	return struct{}{}
 }
 
@@ -143,6 +150,40 @@ func emitJobsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("jobs:updated", "changed")
 	}
+}
+
+// emitNotificationActivated tells the frontend which item a clicked
+// notification came from, so it can route to it.
+func emitNotificationActivated(activation NotificationActivation) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("notification:activated", activation)
+	}
+}
+
+// notificationActivation reads the item a clicked notification was sent
+// about out of the payload the notify executor attached to it. The user info
+// makes a native round trip, so its numbers come back in whatever shape the
+// platform's serialization chose — hence the tolerant decode. App-level
+// notifications carry no such payload and report false.
+func notificationActivation(result wailsnotify.NotificationResult) (NotificationActivation, bool) {
+	profileID, _ := result.Response.UserInfo["profileId"].(string)
+	if profileID == "" {
+		return NotificationActivation{}, false
+	}
+	activation := NotificationActivation{ProfileID: profileID}
+	switch id := result.Response.UserInfo["itemId"].(type) {
+	case float64:
+		activation.ItemID = int64(id)
+	case int64:
+		activation.ItemID = id
+	case int:
+		activation.ItemID = int64(id)
+	case json.Number:
+		activation.ItemID, _ = id.Int64()
+	case string:
+		activation.ItemID, _ = strconv.ParseInt(id, 10, 64)
+	}
+	return activation, true
 }
 
 // emitWindowFocus pushes the current focused state to the frontend. Safe to
@@ -335,13 +376,19 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // output commands, but they retain this worker for explicit detail-pane
 // confirmation RPCs. That keeps the configured action path real in e2e while
 // avoiding a background shell action from compromising fixture determinism.
-func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
+//
+// Actions resolve through FlowNotifyActions rather than the store directly:
+// a notify node's config lives in its flow, not in actions.yml, so the
+// worker resolves those ids from the live flow set and everything else from
+// the authored catalog.
+func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
 	dispatcher := pipeline.NewDispatcher(map[string]pipeline.Executor{
 		pipeline.ActionTypeLaunchSession: pipeline.NewLaunchSessionExecutor(launcher),
 		"shell":                          pipeline.NewShellExecutor(logger),
 		"publish-message":                pipeline.NewPublishMessageExecutor(publisher),
+		pipeline.ActionTypeNotify:        pipeline.NewNotifyExecutor(notifier, settingsNotificationGate{logger: logger}, db, logger),
 	})
-	worker := pipeline.NewWorker(db, actionStore, dispatcher, pipeline.DefaultOutputWorkerInterval, logger)
+	worker := pipeline.NewWorker(db, pipeline.NewFlowNotifyActions(flows, actionStore), dispatcher, pipeline.DefaultOutputWorkerInterval, logger)
 	worker.SetRecorder(recorder)
 	worker.SetJobRecorder(jobRecorder)
 	return worker
@@ -424,7 +471,25 @@ func main() {
 	flowsStore, flowsWatcher := buildFlowsStore(actionStore, onFlowsUpdated, logger)
 	actionStore.SetUsageChecker(actionUsageChecker{flows: flowsStore, db: pipelineDB})
 
-	outputWorker := buildOutputWorker(pipelineDB, actionStore, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
+	// Mock/server builds deliberately do not start the native Wails
+	// notification service: E2E verifies preference persistence without an OS
+	// bus, banner, or permission prompt. The frontend still gets a descriptive
+	// unavailable binding through NotificationService. Built before the output
+	// worker because a flow's notify node delivers through the same notifier.
+	notificationService := NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
+	var nativeNotifications *wailsnotify.NotificationService
+	if desktop.MockMode() == "" {
+		nativeNotifications = wailsnotify.New()
+		notifier, err := desktopnotify.New(nativeNotifications, appIcon)
+		if err != nil {
+			logger.Warn().Err(err).Msg("native notifications unavailable")
+			notificationService = NewUnavailableNotificationService(err)
+		} else {
+			notificationService = NewNotificationService(notifier)
+		}
+	}
+
+	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
 	if desktop.MockMode() == "" {
 		outputWorker.Start()
 	}
@@ -482,22 +547,6 @@ func main() {
 	updaterVersion, _, _ := resolvedBuildInfo()
 	updaterService := NewUpdaterService(updaterVersion, settings.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
 	focus := newFocusState()
-	// Mock/server builds deliberately do not start the native Wails
-	// notification service: E2E verifies preference persistence without an OS
-	// bus, banner, or permission prompt. The frontend still gets a descriptive
-	// unavailable binding through NotificationService.
-	notificationService := NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
-	var nativeNotifications *wailsnotify.NotificationService
-	if desktop.MockMode() == "" {
-		nativeNotifications = wailsnotify.New()
-		notifier, err := desktopnotify.New(nativeNotifications, appIcon)
-		if err != nil {
-			logger.Warn().Err(err).Msg("native notifications unavailable")
-			notificationService = NewUnavailableNotificationService(err)
-		} else {
-			notificationService = NewNotificationService(notifier)
-		}
-	}
 
 	services := []application.Service{
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
@@ -584,12 +633,17 @@ func main() {
 		},
 	})
 
-	// This is the sole owner of notification activation: a click only brings
-	// the existing window forward; routing stays out of the notification binding.
+	// This is the sole owner of notification activation: a click brings the
+	// existing window forward, and — for a notification a flow's notify node
+	// sent — publishes which item it came from. Routing to that item stays in
+	// the frontend, and out of the notification binding.
 	if nativeNotifications != nil {
-		nativeNotifications.OnNotificationResponse(func(wailsnotify.NotificationResult) {
+		nativeNotifications.OnNotificationResponse(func(result wailsnotify.NotificationResult) {
 			window.Show()
 			window.Focus()
+			if activation, ok := notificationActivation(result); ok {
+				emitNotificationActivated(activation)
+			}
 		})
 	}
 

@@ -189,6 +189,50 @@ describe('runGraph', () => {
     expect(result.discards).toEqual([{ msgId: '1', nodeId: 'action' }])
   })
 
+  // A notify output needs both halves: the occurrence key the backend
+  // deduplicates on, and the source identity it resolves the inbox row from
+  // so a clicked notification can reveal that item.
+  it('tags a notify terminal with the message payload and its source identity', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'f',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'search', query: 'is:open' } },
+        { id: 'tell-me', type: 'notify', config: { title: '{{ .Payload.repo }}' } },
+      ],
+      wires: [{ from: 'source', to: 'tell-me' }],
+    }
+    const result = await runGraph(flow, [msg('1', { repo: 'acme/api' }, 'source:f/source')], transport)
+    expect(result.outputs).toEqual([{
+      sink: { kind: 'notify', targetId: 'f/tell-me' },
+      key: '1',
+      occurrenceKey: 'occurrence:1',
+      payload: { repo: 'acme/api' },
+      sourceTopic: 'source:f/source',
+      sourceKind: 'github',
+      sourceScope: 'scope',
+    }])
+  })
+
+  // Recomputing a source's current items must never re-interrupt the user
+  // about things they were already told about.
+  it('suppresses snapshot messages at notify terminals', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'f',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'search', query: 'is:open' } },
+        { id: 'tell-me', type: 'notify', config: { title: 'hi' } },
+      ],
+      wires: [{ from: 'source', to: 'tell-me' }],
+    }
+    const snapshot = msg('1', {}, 'source:f/source')
+    snapshot.Snapshot = [{ key: 'item', payload: {} }]
+    const result = await runGraph(flow, [snapshot], transport)
+    expect(result.outputs).toEqual([])
+    expect(result.discards).toEqual([{ msgId: '1', nodeId: 'tell-me' }])
+  })
+
   it('a webhook-source entry ingests only its own flow-qualified topic and passes msgs through', async () => {
     const transport = new InProcessTransport(processorRegistry)
     const flow: Flow = {
