@@ -122,3 +122,23 @@ export interface UpdateInfo {
     "notes": string;
     "releaseUrl": string;
 }
+
+/**
+ * WebhookCaptureView is one webhook-source node's most recent delivery.
+ * ReceivedAt of 0 means no delivery has been captured yet.
+ */
+export interface WebhookCaptureView {
+    "receivedAt": number;
+    "body": string;
+    "feedShaped": boolean;
+    "missingFields": string[] | null;
+}
+
+/**
+ * WebhookInfo describes the local webhook listener for the node editor.
+ */
+export interface WebhookInfo {
+    "running": boolean;
+    "port": number;
+    "baseUrl": string;
+}

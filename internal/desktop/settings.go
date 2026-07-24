@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,6 +17,10 @@ const settingsFileName = "settings.yaml"
 // MinPollInterval is the floor for the configured poll interval. It matches
 // GitHub's notifications polling contract.
 const MinPollInterval = 60 * time.Second
+
+// DefaultWebhookPort is the local webhook listener's default TCP port
+// ("HIVE" on a phone keypad). The listener always binds 127.0.0.1.
+const DefaultWebhookPort = 4483
 
 // Release channels form a closed set (docs/decisions/0004): a version's
 // prerelease identifier routes a build to its channel, and the updater follows
@@ -68,6 +73,10 @@ type Settings struct {
 	// mean "no choice persisted yet". omitempty keeps the section out of
 	// settings.yaml until something is actually set.
 	Appearance Appearance `yaml:"appearance,omitempty"`
+	// WebhookPort is the local webhook listener's TCP port. Absent or
+	// out-of-range values fall back to DefaultWebhookPort; resolve through
+	// WebhookPortOrDefault rather than reading the field directly.
+	WebhookPort int `yaml:"webhook_port,omitempty"`
 }
 
 // SettingsPath is the settings.yaml location under the desktop config root.
@@ -160,6 +169,23 @@ func (s Settings) UpdateChannelOrDefault(fallback string) string {
 	default:
 		return fallback
 	}
+}
+
+// WebhookPortOrDefault resolves WebhookPort, tolerating hand-edited values
+// outside the valid port range by falling back to DefaultWebhookPort. The
+// EnvWebhookPort environment variable, when set to a valid port, wins over
+// the settings file outright (mirroring the EnvFlowsDir-style overrides) so
+// parallel dev/e2e instances can each claim a distinct port.
+func (s Settings) WebhookPortOrDefault() int {
+	if v := os.Getenv(EnvWebhookPort); v != "" {
+		if port, err := strconv.Atoi(v); err == nil && port > 0 && port <= 65535 {
+			return port
+		}
+	}
+	if s.WebhookPort > 0 && s.WebhookPort <= 65535 {
+		return s.WebhookPort
+	}
+	return DefaultWebhookPort
 }
 
 // PollIntervalOrDefault resolves PollInterval. Hand-edited values below the

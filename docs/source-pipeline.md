@@ -65,6 +65,7 @@ All timestamps stored by this database are Unix milliseconds.
 | `event_log` | Append-only transport log used by enabled flow runtimes; their durable offsets are stored separately in `consumer_offset`. | Optional age and per-topic limits are applied by maintenance, while each source topic's newest authoritative snapshot is retained for membership replay. |
 | `consumer_offset` | Last ordinary log offset fully committed by a flow. | A monotonic upsert prevents replay from moving a cursor backward. |
 | `source_head` | Latest source payload for change detection across producer restarts. | Deleted with a profile purge. |
+| `webhook_capture` | Most recent request body per webhook source topic, for the node editor's preview/prompt affordances. | One row per topic, replaced on every delivery. |
 | `output_command` | Durable, deduplicated action work queue. | Terminal command history is bounded; pending and running work is retained. |
 | `node_run` and `activity_event` | Flow diagnostics and the user-facing activity log. | Both are globally bounded diagnostic histories. |
 
@@ -92,6 +93,22 @@ GitHub classification supplies lifecycle and source state. Terminal
 transitions archive an item as a system action; reopening restores a
 system-archived item. Manual archive state follows the profile’s resurface
 policy.
+
+### Webhook ingress
+
+`webhook-source` nodes are push-driven and bypass the producer entirely
+(docs/decisions/0007). `pipeline.WebhookListener` binds `127.0.0.1` (port
+`webhook_port` in settings.yaml, default 4483, env override
+`HIVE_DESKTOP_WEBHOOK_PORT`) and resolves `/hooks/<path>` routes per request
+from the current flow set. A delivery calls `IngestObservation` under topic
+`source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
+a top-level `id` is the stable key (else the body's SHA-256, deduplicating
+exact duplicate deliveries), and `title`/`url` are promoted for feed
+rendering. After each write the listener appends the topic's complete
+unarchived item set as the authoritative snapshot, so membership replay
+treats webhook sources exactly like polled ones. The last request body per
+topic is kept in `webhook_capture` for the node editor's payload preview,
+feed-shape hint, and LLM transform prompt.
 
 ## The `Msg` contract
 
@@ -136,6 +153,7 @@ Supported node types are:
 | Type | Role |
 | --- | --- |
 | `github-source` | Backend source with `kind`, optional search `query`, and optional `limit`. |
+| `webhook-source` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
 | `github-filter` | Frontend processor that passes or rejects GitHub messages by configured attributes. |
 | `function` | Author-provided JavaScript processor with one to sixteen outputs. |
 | `feed` | Terminal membership target. The flow-qualified node id is the feed id. |

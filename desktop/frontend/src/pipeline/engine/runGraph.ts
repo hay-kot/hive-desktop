@@ -10,6 +10,7 @@ import * as actionNode from '../nodes/action/config'
 import * as functionNode from '../nodes/function/config'
 import * as githubFilterNode from '../nodes/github-filter/config'
 import * as githubSourceNode from '../nodes/github-source/config'
+import * as webhookSourceNode from '../nodes/webhook-source/config'
 import * as feedNode from '../nodes/feed/config'
 import { inDegrees, outWiresByPort, topoSort } from './graph'
 import { NodeTimeoutError, type NodeResult, type WorkerTransport } from './transport'
@@ -37,10 +38,13 @@ export interface RunGraphOptions {
 /** Discard.nodeId used when an input msg matched no entry node in the flow (e.g. its Topic belongs to a different flow's source) — still accounted for so the offset can advance past it. */
 export const UNROUTED_NODE_ID = '$unrouted'
 
-// Node types the engine forwards without calling a transport at all: source
-// nodes run on the backend (D1) — the frontend only relays whatever was
-// routed to them on to their wires.
-const PASSTHROUGH_TYPES = new Set<string>([githubSourceNode.type])
+// Node types that run on the backend (D1): the frontend never calls a
+// transport for them — as entry nodes they only ingest their own
+// flow-qualified topic (acceptsEntry), and as graph nodes they relay
+// whatever was routed to them on to their wires. Exported so the replay
+// protocol (useFlowsSession) enumerates the same set when it maps source
+// nodes to their snapshot topics.
+export const BACKEND_SOURCE_TYPES = new Set<string>([githubSourceNode.type, webhookSourceNode.type])
 
 interface TerminalDef {
   sink(flowId: string, nodeId: string, config: any): Sink
@@ -127,7 +131,7 @@ export async function runGraph(flow: Flow, batch: Msg[], transport: WorkerTransp
         continue
       }
 
-      if (PASSTHROUGH_TYPES.has(node.type)) {
+      if (BACKEND_SOURCE_TYPES.has(node.type)) {
         forward(pending, outWires, nodeId, 0, msg, run, discards)
         continue
       }
@@ -210,11 +214,11 @@ export async function runGraph(flow: Flow, batch: Msg[], transport: WorkerTransp
   }
 }
 
-// A github-source entry node only ingests its own flow-qualified topic; any
-// other entry node (a test's bare processor with no upstream source) accepts
-// the whole batch.
+// A backend-source entry node (github-source, webhook-source) only ingests
+// its own flow-qualified topic; any other entry node (a test's bare
+// processor with no upstream source) accepts the whole batch.
 function acceptsEntry(flowId: string, node: FlowNode, msg: Msg): boolean {
-  if (node.type !== githubSourceNode.type) return true
+  if (!BACKEND_SOURCE_TYPES.has(node.type)) return true
   return msg.Topic === `source:${flowId}/${node.id}`
 }
 

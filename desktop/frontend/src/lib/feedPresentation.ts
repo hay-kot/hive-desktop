@@ -1,19 +1,27 @@
-// Adapter-to-presentation seam for the inbox. GitHub is the only adapter
-// today; future sources branch here instead of widening the inbox wire DTO.
+// Adapter-to-presentation seam for the inbox. GitHub and webhook are the
+// adapters today; future sources branch here instead of widening the inbox
+// wire DTO.
 import type { InboxItem } from '../types/feed'
 
-export interface FeedSource { key: 'github'; label: string }
+export interface FeedSource { key: 'github' | 'webhook'; label: string }
 export interface GithubPayload {
   repo: string; num: number; kind: string; author: string; body: string
   branch: string; url: string; labels: string[]; prompt: string; reason?: string
 }
 
-export function feedSource(_item?: { sourceKind?: string; url?: string }): FeedSource {
+export function feedSource(item?: { sourceKind?: string; url?: string }): FeedSource {
+  if (item?.sourceKind === 'webhook') return { key: 'webhook', label: 'Webhook' }
   return { key: 'github', label: 'GitHub' }
 }
 
+// Payload fields render for github items and for webhook items (whose
+// deliveries may carry the same feed-item shape — see webhook-source's
+// help.md); every extraction below is typeof-guarded, so an arbitrary
+// webhook payload degrades to the title/url columns instead of breaking.
+const PAYLOAD_SOURCE_KINDS = new Set(['github', 'webhook'])
+
 export function githubPayload(item: InboxItem): GithubPayload {
-  if (item.sourceKind !== 'github' || !item.payload || typeof item.payload !== 'object') {
+  if (!PAYLOAD_SOURCE_KINDS.has(item.sourceKind ?? '') || !item.payload || typeof item.payload !== 'object') {
     return { repo: '', num: 0, kind: '', author: '', body: '', branch: '', url: item.url, labels: [], prompt: '' }
   }
   const value = item.payload as Record<string, unknown>

@@ -121,3 +121,9 @@ type SourceHead struct {
 	Key     string `json:"key"`
 	Payload []byte `json:"payload"`
 }
+
+type WebhookCapture struct {
+	Topic      string `json:"topic"`
+	ReceivedAt int64  `json:"received_at"`
+	Body       []byte `json:"body"`
+}

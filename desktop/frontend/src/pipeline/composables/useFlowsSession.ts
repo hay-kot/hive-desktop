@@ -4,6 +4,7 @@
 import { computed, shallowRef, watch, type ComputedRef, type Ref } from 'vue'
 import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
 import { ActivateReplay, Commit, EventLogTailOffset, ListReplaySourceSnapshots, ListUnarchivedInboxItems, NodeRuns, ReadFrom } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
+import { BACKEND_SOURCE_TYPES } from '../engine/runGraph'
 import { flowFromWire, type EditorFlow, type WireFlow } from '../lib/wireFlow'
 import { usePipelineEditor, type PipelineEditorClient } from './usePipelineEditor'
 import { usePipelineRuntime, type RuntimeSummary } from './usePipelineRuntime'
@@ -212,7 +213,7 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
 
     const feedIDs = snapshot.nodes.filter((node) => node.type === 'feed').map((node) => `${snapshot.id}/${node.id}`)
     const sourceIDs = snapshot.nodes
-      .filter((node) => node.type === 'github-source' && !node.disabled)
+      .filter((node) => BACKEND_SOURCE_TYPES.has(node.type) && !node.disabled)
       .map((node) => `source:${snapshot.id}/${node.id}`)
       .sort()
     const items = await client.listUnarchivedInboxItems(snapshot.id)

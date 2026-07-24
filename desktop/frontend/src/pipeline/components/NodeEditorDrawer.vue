@@ -20,6 +20,8 @@ import type { FlowNode } from '../types'
 const props = defineProps<{
   node: FlowNode
   def: NodeTypeDefinition
+  /** Owning flow id, forwarded to editors whose affordances need the node's identity (e.g. webhook-source's capture lookup). */
+  flowId?: string
 }>()
 
 const emit = defineEmits<{
@@ -178,6 +180,8 @@ useAutofocus(nameRef)
       :is="def.editor"
       :config="draftConfig"
       :errors="errors"
+      :flow-id="flowId"
+      :node-id="node.id"
       data-testid="node-editor-body"
       @update:config="updateConfig"
     />

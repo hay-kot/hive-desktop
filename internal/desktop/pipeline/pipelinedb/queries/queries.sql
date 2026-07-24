@@ -420,3 +420,19 @@ WHERE id IN (
     ORDER BY id DESC
     LIMIT -1 OFFSET ?
 );
+
+-- name: UpsertWebhookCapture :exec
+INSERT INTO webhook_capture (topic, received_at, body)
+VALUES (?, ?, ?)
+ON CONFLICT (topic) DO UPDATE SET received_at = excluded.received_at, body = excluded.body;
+
+-- name: GetWebhookCapture :one
+SELECT * FROM webhook_capture WHERE topic = ?;
+
+-- name: ListUnarchivedInboxItemsBySource :many
+-- The complete current item set of one source identity, oldest activity
+-- first: the webhook listener builds its per-delivery authoritative
+-- snapshot from these rows.
+SELECT * FROM inbox_item
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND archived_at IS NULL
+ORDER BY last_event_at ASC, id ASC;

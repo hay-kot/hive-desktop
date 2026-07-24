@@ -642,6 +642,17 @@ func (q *Queries) GetUnarchivedInboxItemByID(ctx context.Context, arg GetUnarchi
 	return i, err
 }
 
+const getWebhookCapture = `-- name: GetWebhookCapture :one
+SELECT topic, received_at, body FROM webhook_capture WHERE topic = ?
+`
+
+func (q *Queries) GetWebhookCapture(ctx context.Context, topic string) (WebhookCapture, error) {
+	row := q.db.QueryRowContext(ctx, getWebhookCapture, topic)
+	var i WebhookCapture
+	err := row.Scan(&i.Topic, &i.ReceivedAt, &i.Body)
+	return i, err
+}
+
 const insertInboxEvent = `-- name: InsertInboxEvent :one
 INSERT INTO inbox_event (item_id, kind, transition, attention, occurrence_key, summary, detail, created_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -1445,6 +1456,63 @@ func (q *Queries) ListUnarchivedInboxItemsByProfile(ctx context.Context, profile
 	return items, nil
 }
 
+const listUnarchivedInboxItemsBySource = `-- name: ListUnarchivedInboxItemsBySource :many
+SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND archived_at IS NULL
+ORDER BY last_event_at ASC, id ASC
+`
+
+type ListUnarchivedInboxItemsBySourceParams struct {
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+}
+
+// The complete current item set of one source identity, oldest activity
+// first: the webhook listener builds its per-delivery authoritative
+// snapshot from these rows.
+func (q *Queries) ListUnarchivedInboxItemsBySource(ctx context.Context, arg ListUnarchivedInboxItemsBySourceParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listUnarchivedInboxItemsBySource, arg.ProfileID, arg.SourceKind, arg.SourceScope)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InboxItem{}
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
+			&i.Title,
+			&i.Url,
+			&i.Payload,
+			&i.Revision,
+			&i.Unread,
+			&i.ArchivedAt,
+			&i.ArchivedActor,
+			&i.ArchivedReason,
+			&i.Lifecycle,
+			&i.SourceState,
+			&i.FirstSeenAt,
+			&i.LastEventAt,
+			&i.IgnoredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markOutputCommandDone = `-- name: MarkOutputCommandDone :exec
 UPDATE output_command
 SET status = 'done', last_error = NULL, result_json = ?, stdout = ?, stderr = ?
@@ -2015,5 +2083,22 @@ type UpsertSourceHeadParams struct {
 
 func (q *Queries) UpsertSourceHead(ctx context.Context, arg UpsertSourceHeadParams) error {
 	_, err := q.db.ExecContext(ctx, upsertSourceHead, arg.Topic, arg.Key, arg.Payload)
+	return err
+}
+
+const upsertWebhookCapture = `-- name: UpsertWebhookCapture :exec
+INSERT INTO webhook_capture (topic, received_at, body)
+VALUES (?, ?, ?)
+ON CONFLICT (topic) DO UPDATE SET received_at = excluded.received_at, body = excluded.body
+`
+
+type UpsertWebhookCaptureParams struct {
+	Topic      string `json:"topic"`
+	ReceivedAt int64  `json:"received_at"`
+	Body       []byte `json:"body"`
+}
+
+func (q *Queries) UpsertWebhookCapture(ctx context.Context, arg UpsertWebhookCaptureParams) error {
+	_, err := q.db.ExecContext(ctx, upsertWebhookCapture, arg.Topic, arg.ReceivedAt, arg.Body)
 	return err
 }

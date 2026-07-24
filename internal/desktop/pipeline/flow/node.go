@@ -41,11 +41,12 @@ type nodeFactory func() NodeConfig
 // (and, if it's a terminal or source, nowhere else — Inputs/Outputs are
 // carried by the config type itself).
 var registry = map[string]nodeFactory{
-	"github-source": func() NodeConfig { return &GithubSourceConfig{} },
-	"github-filter": func() NodeConfig { return &GithubFilterConfig{} },
-	"function":      func() NodeConfig { return &FunctionConfig{} },
-	"feed":          func() NodeConfig { return &FeedConfig{} },
-	"action":        func() NodeConfig { return &ActionConfig{} },
+	"github-source":  func() NodeConfig { return &GithubSourceConfig{} },
+	"webhook-source": func() NodeConfig { return &WebhookSourceConfig{} },
+	"github-filter":  func() NodeConfig { return &GithubFilterConfig{} },
+	"function":       func() NodeConfig { return &FunctionConfig{} },
+	"feed":           func() NodeConfig { return &FeedConfig{} },
+	"action":         func() NodeConfig { return &ActionConfig{} },
 }
 
 // nodeHeader is the small set of fields common to every node, decoded first

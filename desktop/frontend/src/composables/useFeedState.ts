@@ -498,7 +498,11 @@ export function useFeedState() {
 
   async function loadActions(item: InboxItem | null) {
     const token = ++actionLoadSeq
-    if (!item) { actions.value = []; return }
+    // Detail-pane actions are GitHub-only: the backend's InvokeAction
+    // resolves the item as a GitHub action item and rejects other source
+    // kinds, so offering them for e.g. webhook items would only render
+    // buttons that fail on click.
+    if (!item || item.sourceKind !== 'github') { actions.value = []; return }
     try {
       const available = (await ActionViews(githubPayload(item).kind)) ?? []
       if (token !== actionLoadSeq || selectedId.value !== item.id) return

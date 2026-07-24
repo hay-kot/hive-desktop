@@ -656,6 +656,7 @@ onBeforeUnmount(() => {
       v-if="selectedNode && selectedDef && drawerOpen"
       :node="selectedNode"
       :def="selectedDef"
+      :flow-id="flow.id"
       @save="onDrawerSave"
       @delete="onDrawerDelete"
       @close="drawerOpen = false"

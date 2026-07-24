@@ -160,5 +160,6 @@ Defined in `internal/desktop/desktop.go` unless noted:
 | `HIVE_DATA_DIR` | App-local state root (shared with the CLI convention) |
 | `HIVE_GITHUB_TOKEN` | Read-only headless auth override |
 | `HIVE_GITHUB_CLIENT_ID` | Override the device-flow OAuth client id |
+| `HIVE_DESKTOP_WEBHOOK_PORT` | Override the local webhook listener port (settings.yaml `webhook_port`, default 4483); in mock modes the listener starts only when this is set |
 | `WAILS_SERVER_PORT` | Server-build port (default 8080) |
 | `WAILS_VITE_PORT` | Dev Vite port (auto-picked free port otherwise) |

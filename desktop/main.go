@@ -443,6 +443,22 @@ func main() {
 		producer.Start()
 	}
 
+	// The webhook listener is the push-driven counterpart to the poll
+	// producer: it serves user-declared webhook-source endpoints on
+	// 127.0.0.1 and ingests deliveries directly. Live mode always starts
+	// it; mock modes only when a port is explicitly claimed via
+	// HIVE_DESKTOP_WEBHOOK_PORT, so parallel e2e server instances never
+	// fight over the default port. A bind failure logs and the app runs on.
+	webhookPort := settings.WebhookPortOrDefault()
+	var webhookListener *pipeline.WebhookListener
+	if desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "" {
+		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
+		webhookListener.SetRecorder(activityStore)
+		if err := webhookListener.Start(); err != nil {
+			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")
+		}
+	}
+
 	// Every auth transition drops the fetch cache before the frontend is
 	// notified: a different account must never be served items fetched with
 	// the previous token.
@@ -486,6 +502,7 @@ func main() {
 		application.NewService(NewJobService(jobStore)),
 		application.NewService(NewSystemService()),
 		application.NewService(NewSettingsService(producer, fetcher, logger)),
+		application.NewService(NewWebhookService(pipelineDB, webhookListener, webhookPort)),
 		application.NewService(updaterService),
 	}
 	if nativeNotifications != nil {
@@ -625,6 +642,9 @@ func main() {
 
 	shutdown := func() {
 		updaterService.stop()
+		if webhookListener != nil {
+			webhookListener.Stop()
+		}
 		maintenance.Stop()
 		actionRuntime.Close()
 		logCloser()

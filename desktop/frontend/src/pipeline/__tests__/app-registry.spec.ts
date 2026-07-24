@@ -3,7 +3,7 @@ import { byType, instantiate, palette } from '../registry'
 
 describe('byType', () => {
   it('discovers exactly the five node types with app modules (index.ts)', () => {
-    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source'])
+    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source', 'webhook-source'])
   })
 
   it('every entry carries a `type` matching its registry key and has a glyph/editor/help/defaults', () => {
@@ -28,7 +28,7 @@ describe('palette', () => {
     const grouped = [...palette.Sources, ...palette.Process, ...palette.Destinations]
     expect(grouped.map((def) => def.type).sort()).toEqual(Object.keys(byType).sort())
 
-    expect(palette.Sources.map((d) => d.type)).toEqual(['github-source'])
+    expect(palette.Sources.map((d) => d.type).sort()).toEqual(['github-source', 'webhook-source'])
     expect(palette.Process.map((d) => d.type).sort()).toEqual(['function', 'github-filter'])
     expect(palette.Destinations.map((d) => d.type).sort()).toEqual(['action', 'feed'])
   })

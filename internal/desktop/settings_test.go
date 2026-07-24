@@ -175,3 +175,26 @@ func TestSettingsAppearanceOmittedWhenUnset(t *testing.T) {
 	require.NoError(t, err)
 	require.NotContains(t, string(contents), "appearance")
 }
+
+func TestWebhookPortOrDefault(t *testing.T) {
+	t.Setenv(EnvWebhookPort, "")
+
+	if got := (Settings{}).WebhookPortOrDefault(); got != DefaultWebhookPort {
+		t.Fatalf("absent port resolved to %d, want default %d", got, DefaultWebhookPort)
+	}
+	if got := (Settings{WebhookPort: 9001}).WebhookPortOrDefault(); got != 9001 {
+		t.Fatalf("configured port resolved to %d, want 9001", got)
+	}
+	if got := (Settings{WebhookPort: 70000}).WebhookPortOrDefault(); got != DefaultWebhookPort {
+		t.Fatalf("out-of-range port resolved to %d, want default %d", got, DefaultWebhookPort)
+	}
+
+	t.Setenv(EnvWebhookPort, "4499")
+	if got := (Settings{WebhookPort: 9001}).WebhookPortOrDefault(); got != 4499 {
+		t.Fatalf("env override resolved to %d, want 4499", got)
+	}
+	t.Setenv(EnvWebhookPort, "not-a-port")
+	if got := (Settings{WebhookPort: 9001}).WebhookPortOrDefault(); got != 9001 {
+		t.Fatalf("invalid env override resolved to %d, want settings value 9001", got)
+	}
+}
