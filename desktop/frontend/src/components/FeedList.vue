@@ -10,6 +10,7 @@ import IconSearch from '~icons/lucide/search'
 import IconSlidersHorizontal from '~icons/lucide/sliders-horizontal'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconArchive from '~icons/lucide/archive'
+import { groupItemsByDate } from '../lib/dateGroups'
 import type { FeedSort, InboxItem } from '../types/feed'
 
 // Presentation-only: the store (useFeedState) owns the search text and the
@@ -55,6 +56,17 @@ const sortOptions: { value: FeedSort; label: string }[] = [
   { value: 'oldest', label: 'Oldest' },
   { value: 'unread', label: 'Unread first' },
 ]
+// Date separators, bucketed on the same timestamp (lastEventAt) the newest and
+// oldest sorts order by — so rows never appear out of order inside a group,
+// and oldest-first simply yields the buckets in reverse. `unread` sort
+// deliberately interleaves dates, so it renders one unlabeled group: real
+// separators there would repeat and read as broken ordering.
+const itemGroups = computed<{ key: string; label: string | null; items: InboxItem[] }[]>(() =>
+  props.sort === 'unread'
+    ? [{ key: 'all', label: null, items: props.visibleItems }]
+    : groupItemsByDate(props.visibleItems),
+)
+
 const viewMenu = ref<HTMLElement | null>(null)
 const viewMenuOpen = ref(false)
 const activeViewOptionCount = computed(() => props.sort === 'newest' ? 0 : 1)
@@ -140,22 +152,25 @@ watch(() => props.selectedId, async (id) => {
         <button class="state-action" @click="emit('refresh')">Retry now</button>
       </div>
       <template v-else>
-        <FeedListItem
-          v-for="item in visibleItems"
-          :key="item.id"
-          :item="item"
-          :trash="trash"
-          :selected="item.id === selectedId"
-          :source-icons="sourceIcons"
-          @select="emit('select', item.id)"
-          @set-unread="(unread) => emit('item-set-unread', item, unread)"
-          @toggle-archive="emit('item-toggle-archive', item)"
-          @toggle-ignored="emit('item-toggle-ignored', item)"
-          @open-browser="emit('item-open-browser', item)"
-          @copy-link="emit('item-copy-link', item)"
-          @copy-contents="emit('item-copy-contents', item)"
-          @run-action="(actionId) => emit('item-run-action', item, actionId)"
-        />
+        <template v-for="group in itemGroups" :key="group.key">
+          <div v-if="group.label" class="date-divider" data-testid="feed-date-divider">{{ group.label }}</div>
+          <FeedListItem
+            v-for="item in group.items"
+            :key="item.id"
+            :item="item"
+            :trash="trash"
+            :selected="item.id === selectedId"
+            :source-icons="sourceIcons"
+            @select="emit('select', item.id)"
+            @set-unread="(unread) => emit('item-set-unread', item, unread)"
+            @toggle-archive="emit('item-toggle-archive', item)"
+            @toggle-ignored="emit('item-toggle-ignored', item)"
+            @open-browser="emit('item-open-browser', item)"
+            @copy-link="emit('item-copy-link', item)"
+            @copy-contents="emit('item-copy-contents', item)"
+            @run-action="(actionId) => emit('item-run-action', item, actionId)"
+          />
+        </template>
         <!-- Archived section: items whose rules still match but whose work is
              done stay in the feed, demoted below the fold. Collapsed by
              default; expanding lazy-loads the rows. -->
@@ -229,6 +244,9 @@ watch(() => props.selectedId, async (id) => {
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
 .view-menu-divider { height: 1px; background: var(--color-row); margin: 4px; }
+/* Sticky so the tier a row belongs to stays visible while scrolling through a
+   long group. z-index clears a hovered row's floating action pill (z-10). */
+.date-divider { position: sticky; top: 0; z-index: 11; padding: 8px 14px 6px; background: var(--color-list); color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
 .archived-divider { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 14px 6px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; border-top: 1px solid var(--color-row); margin-top: 6px; }
 .archived-divider:hover { color: var(--color-text); }
 .state-frame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }

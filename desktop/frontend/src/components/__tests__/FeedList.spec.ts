@@ -79,6 +79,22 @@ describe('FeedList', () => {
     expect(mountList({ loadError: 'offline' }).get('[data-testid="feed-error"]').text()).toContain('offline')
   })
 
+  it('separates rows into date tiers, oldest last', () => {
+    const day = 24 * 60 * 60 * 1000
+    const aged = (id: number, ageMs: number) => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
+    const wrapper = mountList({ visibleItems: [aged(1, 0), aged(2, 21 * day)] })
+    const dividers = wrapper.findAll('[data-testid="feed-date-divider"]')
+    expect(dividers.map((d) => d.text())).toEqual(['Today', 'Older'])
+    // Every row still renders, each under its own separator.
+    expect(wrapper.findAll('[data-testid="feed-item"]')).toHaveLength(2)
+  })
+
+  it('drops the date separators under unread-first sort, which interleaves dates', () => {
+    const wrapper = mountList({ sort: 'unread' })
+    expect(wrapper.find('[data-testid="feed-date-divider"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="feed-item"]')).toHaveLength(2)
+  })
+
   it('anchors keyboard selection by numeric inbox id rather than external source id', async () => {
     const scrollIntoView = vi.fn()
     vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(scrollIntoView)

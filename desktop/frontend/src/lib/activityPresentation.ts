@@ -1,3 +1,4 @@
+import { dayKey } from './dateGroups'
 import type { Event as ActivityEvent } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/activity/models'
 
 // Pure presentation helpers for the Activity view: which filter pills exist,
@@ -95,10 +96,6 @@ export function groupEventsByDay(events: ActivityEvent[], now: Date = new Date()
 // timeLabel is the right-aligned HH:MM:SS stamp on each row.
 export function timeLabel(createdAt: number): string {
   return new Date(createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
-}
-
-function dayKey(date: Date): string {
-  return `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`
 }
 
 function dayLabel(key: string, date: Date, today: string, yesterday: string): string {

@@ -31,6 +31,19 @@ test('renders the mock feed with pr2841 selected by default', async ({ page }) =
   await expect(page.getByTestId('detail-pane')).toContainText('fix/2841-batch-spawn-env')
 })
 
+// The fixture spans 45 minutes to 23 days old, so the list always breaks into
+// several tiers — but which ones depends on the wall clock (a run just after
+// local midnight pushes "45 minutes ago" into Yesterday). Assert the invariants
+// that hold at any hour: known labels, no repeats, newest tier first.
+test('separates the feed into date tiers', async ({ page }) => {
+  const tiers = ['Today', 'Yesterday', 'This week', 'Last week', 'Older']
+  const labels = await page.getByTestId('feed-date-divider').evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  expect(labels.length).toBeGreaterThan(1)
+  expect(labels.filter((label) => tiers.includes(label))).toEqual(labels)
+  expect(new Set(labels).size).toBe(labels.length)
+  expect(labels).toEqual([...labels].sort((a, b) => tiers.indexOf(a) - tiers.indexOf(b)))
+})
+
 test('updates the detail pane and actions for PRs and issues', async ({ page }) => {
   await page.locator('[data-testid="feed-item"][data-id="pr2838"]').click()
   await expect(page.getByTestId('detail-pane')).toContainText('OAuth device flow for in-app GitHub auth')
