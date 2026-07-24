@@ -88,7 +88,10 @@ function openList(): void {
   active.value = current === -1 ? firstEnabled() : current
   measure()
   revealActive()
-  if (props.searchable) void nextTick(() => searchInput.value?.focus())
+  void nextTick(() => {
+    measure() // now that the list has rendered and its natural width is known
+    if (props.searchable) searchInput.value?.focus()
+  })
 }
 
 function close(): void { open.value = false }
@@ -145,7 +148,7 @@ const EDGE = 8
 const MAX_HEIGHT = 320
 const MIN_HEIGHT = 140
 
-const anchor = ref({ left: 0, width: 0, top: 0, bottom: 0, flip: false, maxHeight: MAX_HEIGHT })
+const anchor = ref({ left: 0, minWidth: 0, maxWidth: 0, top: 0, bottom: 0, flip: false, maxHeight: MAX_HEIGHT })
 
 function measure(): void {
   const el = root.value
@@ -155,9 +158,16 @@ function measure(): void {
   const below = viewport - rect.bottom - GAP - EDGE
   const above = rect.top - GAP - EDGE
   const flip = below < MIN_HEIGHT && above > below
+  // The list is at least as wide as the trigger but grows past it rather than
+  // truncating a long label ("succ…"), so it can stick out to the right — and
+  // shifts back left once that would run off the viewport. Measured from the
+  // rendered popover, so opening runs this twice: once to place it, once with
+  // its real width.
+  const width = popover.value?.getBoundingClientRect().width ?? rect.width
   anchor.value = {
-    left: rect.left,
-    width: rect.width,
+    left: Math.max(EDGE, Math.min(rect.left, window.innerWidth - EDGE - width)),
+    minWidth: rect.width,
+    maxWidth: window.innerWidth - EDGE * 2,
     top: rect.bottom + GAP,
     bottom: viewport - rect.top + GAP,
     flip,
@@ -167,7 +177,8 @@ function measure(): void {
 
 const popoverStyle = computed(() => ({
   left: `${anchor.value.left}px`,
-  width: `${anchor.value.width}px`,
+  minWidth: `${anchor.value.minWidth}px`,
+  maxWidth: `${anchor.value.maxWidth}px`,
   maxHeight: `${anchor.value.maxHeight}px`,
   ...(anchor.value.flip ? { bottom: `${anchor.value.bottom}px` } : { top: `${anchor.value.top}px` }),
 }))
@@ -219,12 +230,13 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
       >
         <div v-if="searchable" class="flex shrink-0 items-center gap-2 border-b border-row px-2.5 py-2">
           <IconSearch class="size-3.5 shrink-0 text-text-4" />
+          <!-- w-0: an input's default intrinsic width would otherwise set the popover's width. -->
           <input
             ref="searchInput"
             v-model="query"
             type="text"
             :placeholder="searchPlaceholder ?? 'Search…'"
-            class="min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-text-4"
+            class="w-0 min-w-0 flex-1 bg-transparent text-[13px] text-text outline-none placeholder:text-text-4"
             :data-testid="testid ? `${testid}-search` : undefined"
             @keydown="onKeydown"
           >

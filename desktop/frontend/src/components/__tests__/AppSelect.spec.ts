@@ -52,6 +52,19 @@ describe('AppSelect', () => {
     wrapper.unmount()
   })
 
+  // The trigger is often narrower than its longest option (DevView's severity
+  // picker is 92px wide, "success" is not), and a list that truncates to
+  // "succ…" is unreadable.
+  it('lets the list outgrow the trigger rather than truncating a long label', async () => {
+    const wrapper = mountSelect()
+    const popover = await openSelect(wrapper, 'action-type')
+
+    expect(popover.style.minWidth).toBe('0px') // the trigger's width, zero in a layout-less DOM
+    expect(popover.style.width).toBe('')
+    expect(Number.parseFloat(popover.style.maxWidth)).toBeGreaterThan(0)
+    wrapper.unmount()
+  })
+
   it('teleports the popover to the document body so scrolling and modal ancestors cannot clip it', async () => {
     const wrapper = mountSelect()
     const popover = await openSelect(wrapper, 'action-type')
