@@ -33,8 +33,9 @@ test('renders the mock feed with pr2841 selected by default', async ({ page }) =
 
 // The fixture spans 45 minutes to 23 days old, so the list always breaks into
 // several tiers — but which ones depends on the wall clock (a run just after
-// local midnight pushes "45 minutes ago" into Yesterday). Assert the invariants
-// that hold at any hour: known labels, no repeats, newest tier first.
+// local midnight pushes "45 minutes ago" into Yesterday), and a leading Today
+// renders no separator at all. Assert the invariants that hold at any hour:
+// known labels, no repeats, newest tier first.
 test('separates the feed into date tiers', async ({ page }) => {
   const tiers = ['Today', 'Yesterday', 'This week', 'Last week', 'Older']
   const labels = await page.getByTestId('feed-date-divider').evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))

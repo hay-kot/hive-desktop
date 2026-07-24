@@ -1,11 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount, type VueWrapper } from '@vue/test-utils'
 import FeedList from '../FeedList.vue'
 import type { InboxItem } from '../../types/feed'
 
 function item(id: number, title: string, unread = false): InboxItem {
   return { id, profileId: 'triage', sourceKind: 'github', sourceScope: 'acme/app', externalId: `pr-${id}`, title, url: '', payload: { kind: 'PR', repo: 'acme/app', num: id, author: 'hay', body: 'Body' }, revision: 1, unread, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now() }
 }
+
+const day = 24 * 60 * 60 * 1000
+const aged = (id: number, ageMs: number): InboxItem => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
+const dividerLabels = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="feed-date-divider"]').map((divider) => divider.text())
 
 function mountList(overrides: Partial<{ visibleItems: InboxItem[]; archivedItems: InboxItem[]; archivedCount: number; archivedExpanded: boolean; trash: boolean; trashFilter: 'all' | 'ignored'; selectedId: number | null; unreadOnly: boolean; unreadCount: number; search: string; sort: 'newest' | 'oldest' | 'unread'; loadError: string | null }> = {}) {
   return mount(FeedList, { props: { title: 'Feed', visibleItems: [item(1, 'Unread', true), item(2, 'Read')], archivedItems: [], archivedCount: 0, archivedExpanded: false, trash: false, trashFilter: 'all', selectedId: null, unreadOnly: false, unreadCount: 1, search: '', sort: 'newest', loadError: null, ...overrides } })
@@ -79,14 +83,16 @@ describe('FeedList', () => {
     expect(mountList({ loadError: 'offline' }).get('[data-testid="feed-error"]').text()).toContain('offline')
   })
 
-  it('separates rows into date tiers, oldest last', () => {
-    const day = 24 * 60 * 60 * 1000
-    const aged = (id: number, ageMs: number) => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
+  it('separates rows into date tiers and leaves a leading Today unlabeled', () => {
     const wrapper = mountList({ visibleItems: [aged(1, 0), aged(2, 21 * day)] })
-    const dividers = wrapper.findAll('[data-testid="feed-date-divider"]')
-    expect(dividers.map((d) => d.text())).toEqual(['Today', 'Older'])
-    // Every row still renders, each under its own separator.
+    expect(dividerLabels(wrapper)).toEqual(['Older'])
+    // Both rows still render — suppressing the label drops the separator, not the group.
     expect(wrapper.findAll('[data-testid="feed-item"]')).toHaveLength(2)
+  })
+
+  it('labels Today when oldest-first sort moves it to the bottom', () => {
+    const wrapper = mountList({ sort: 'oldest', visibleItems: [aged(2, 21 * day), aged(1, 0)] })
+    expect(dividerLabels(wrapper)).toEqual(['Older', 'Today'])
   })
 
   it('drops the date separators under unread-first sort, which interleaves dates', () => {

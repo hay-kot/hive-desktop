@@ -61,11 +61,16 @@ const sortOptions: { value: FeedSort; label: string }[] = [
 // and oldest-first simply yields the buckets in reverse. `unread` sort
 // deliberately interleaves dates, so it renders one unlabeled group: real
 // separators there would repeat and read as broken ordering.
-const itemGroups = computed<{ key: string; label: string | null; items: InboxItem[] }[]>(() =>
-  props.sort === 'unread'
-    ? [{ key: 'all', label: null, items: props.visibleItems }]
-    : groupItemsByDate(props.visibleItems),
-)
+const itemGroups = computed<{ key: string; label: string | null; items: InboxItem[] }[]>(() => {
+  if (props.sort === 'unread') return [{ key: 'all', label: null, items: props.visibleItems }]
+  return groupItemsByDate(props.visibleItems).map((group, index) => ({
+    ...group,
+    // A leading "Today" says nothing the top of the list doesn't — newest-first
+    // opens on today by definition. It keeps its label under oldest sort, where
+    // it trails and an unlabeled run would read as part of the tier above.
+    label: index === 0 && group.key === 'today' ? null : group.label,
+  }))
+})
 
 const viewMenu = ref<HTMLElement | null>(null)
 const viewMenuOpen = ref(false)
@@ -244,13 +249,14 @@ watch(() => props.selectedId, async (id) => {
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
 .view-menu-divider { height: 1px; background: var(--color-row); margin: 4px; }
-/* A centered accent chip on a hairline rule, breathing on both sides so tiers
-   read as section breaks rather than another row. Sticky keeps the tier
-   visible while scrolling a long group; z-index clears a hovered row's
-   floating action pill (z-10). */
+/* A centered chip on a hairline rule, breathing on both sides so tiers read as
+   section breaks rather than another row. Deliberately hueless — the rows
+   already carry color (kind pills, unread dots) and a tinted separator
+   competed with them. Sticky keeps the tier visible while scrolling a long
+   group; z-index clears a hovered row's floating action pill (z-10). */
 .date-divider { position: sticky; top: 0; z-index: 11; display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px; background: var(--color-list); }
 .date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-row); }
-.date-badge { flex: none; border-radius: 999px; background: var(--color-accent-tint); padding: 3px 10px; color: var(--color-accent); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.date-badge { flex: none; border-radius: 999px; background: var(--color-chip); padding: 3px 10px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .archived-divider { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 14px 6px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; border-top: 1px solid var(--color-row); margin-top: 6px; }
 .archived-divider:hover { color: var(--color-text); }
 .state-frame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }
