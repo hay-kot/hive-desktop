@@ -11,8 +11,10 @@
   ],
   timezone: "America/Chicago",
 
-  // Weekly batch. Security fixes opt out of this (see vulnerabilityAlerts).
-  schedule: ["before 5am on monday"],
+  // Weekly batch, Monday before 5am. Security fixes opt out (see
+  // vulnerabilityAlerts). Cron rather than the "before 5am on monday" dialect:
+  // that syntax is deprecated and slated for removal in a future major.
+  schedule: ["* 0-4 * * 1"],
   prConcurrentLimit: 5,
   prHourlyLimit: 0,
 
@@ -24,13 +26,28 @@
   minimumReleaseAge: "7 days",
   internalChecksFilter: "strict",
 
+  // ignorePaths is not mergeable, so this REPLACES the list config:recommended
+  // supplies via :ignoreModulesAndTests rather than adding to it — the first
+  // eight entries restore that default and must stay.
+  //
   // internal/hivecore is script-vendored from colonyops/hive at the SHA in
   // scripts/vendorhive/vendor.lock, and CI fails on any drift — it changes
   // only via `mise run vendor`. desktop/build is wails3-generated scaffolding
   // that `wails3 update build-assets` regenerates, so bot edits there would be
   // silently reverted (Dockerfile.cross and Dockerfile.server both parse as
   // Dockerfiles, so without this they would get PRs).
-  ignorePaths: ["internal/hivecore/**", "desktop/build/**"],
+  ignorePaths: [
+    "**/node_modules/**",
+    "**/bower_components/**",
+    "**/vendor/**",
+    "**/examples/**",
+    "**/__tests__/**",
+    "**/test/**",
+    "**/tests/**",
+    "**/__fixtures__/**",
+    "internal/hivecore/**",
+    "desktop/build/**",
+  ],
 
   postUpdateOptions: ["gomodTidy"],
 
@@ -96,7 +113,7 @@
 
   vulnerabilityAlerts: {
     description: "Security fixes bypass the weekly batch, the grouping, and the 7-day age gate — a known CVE is a larger exposure than a fresh release might be.",
-    schedule: ["at any time"],
+    schedule: [],
     minimumReleaseAge: null,
     groupName: null,
     labels: ["security"],
