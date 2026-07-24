@@ -5,12 +5,10 @@ import ItemActionMenu from './ItemActionMenu.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SourceMark from './SourceMark.vue'
 import { useResizablePanel } from '../composables/useResizablePanel'
-import { feedSource, githubPayload } from '../lib/feedPresentation'
+import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kindStyle, presentationFor } from '../lib/itemPresentation'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
-import IconCircleDot from '~icons/lucide/circle-dot'
 import IconExternalLink from '~icons/lucide/external-link'
-import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
@@ -18,7 +16,7 @@ import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
 import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
 
-const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView> }>()
+const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string> }>()
 const emit = defineEmits<{
   'run-action': [actionId: string]
   'open-browser': []
@@ -35,15 +33,29 @@ const itemMenuToggle = ref<HTMLElement | null>(null)
 const itemMenuOpen = ref(false)
 
 // The detail header leads with the item's source badge and type. The badge
-// already identifies the provider, so the adjacent context stays focused on
-// the repository and item number.
-const source = computed(() => feedSource(props.item ?? undefined))
-const github = computed(() => props.item ? githubPayload(props.item) : null)
+// already identifies the provider (via the sourceKind-keyed adapter
+// registry), so the adjacent context stays focused on the repository and
+// item number.
+const presentation = computed(() => presentationFor(props.item?.sourceKind))
+// The github/default adapters never dereference `item`; SourceMark only
+// renders inside the `v-if="item"` branch below, so a null item here is
+// never actually resolved to the webhook adapter (which does).
+const sourceMark = computed(() => presentation.value.mark(props.item!, { sourceIcons: props.sourceIcons }))
+// The kind pill mirrors the feed row's type pill: PR and Issue keep their
+// GitHub styling, anything else (webhook items, custom kinds) is neutral.
+const itemKind = computed(() => (props.item ? kind(props.item) : ''))
+const itemKindLabel = computed(() => (props.item ? kindLabel(props.item) : ''))
+const itemKindStyle = computed(() => (props.item ? kindStyle(props.item) : 'neutral'))
+const itemKindIcon = computed(() => (props.item ? kindIcon(props.item) : undefined))
+const itemContainer = computed(() => (props.item ? container(props.item) : ''))
+const itemContainerLine = computed(() => (props.item ? containerLine(props.item) : ''))
+const itemByline = computed(() => (props.item ? byline(props.item) : ''))
+const actionContextLine = computed(() => (props.item ? presentation.value.actionContextLine(props.item) : ''))
 
 // Issue/PR bodies are GitHub-flavored markdown from untrusted authors;
 // renderGithubMarkdown parses the GFM and escapes raw HTML / unsafe links, so
 // the result is safe to inject with v-html.
-const bodyHtml = computed(() => (github.value ? renderGithubMarkdown(github.value.body) : ''))
+const bodyHtml = computed(() => (props.item ? renderGithubMarkdown(body(props.item)) : ''))
 
 // Links inside the rendered body must open in the user's real browser rather
 // than navigate the webview away from the app. Intercept anchor clicks and
@@ -87,15 +99,14 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
     <template v-if="item">
       <div class="relative border-b border-border px-5 pb-4 pt-[18px]">
         <div class="mb-[11px] flex items-center gap-[9px]">
-          <span class="source-badge" :data-source="source.key" data-testid="source-badge"><SourceMark :source="source" class="size-[15px]" /></span>
-          <span class="kind-pill shrink-0 whitespace-nowrap" :class="github?.kind === 'PR' ? 'kind-pill-pr' : 'kind-pill-issue'">
-            <IconGitPullRequest v-if="github?.kind === 'PR'" class="size-[13px]" />
-            <IconCircleDot v-else class="size-[13px]" />
-            {{ github?.kind === 'PR' ? 'Pull Request' : 'Issue' }}
+          <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" class="size-[15px]" /></span>
+          <span class="kind-pill shrink-0 whitespace-nowrap" :class="'kind-pill-' + itemKindStyle" data-testid="kind-pill">
+            <component :is="itemKindIcon" v-if="itemKindIcon" class="size-[13px]" />
+            {{ itemKindLabel }}
           </span>
-          <span class="min-w-0 truncate font-mono text-xs text-text-3">{{ github?.repo }} #{{ github?.num }}</span>
+          <span v-if="itemContainer" class="min-w-0 truncate font-mono text-xs text-text-3">{{ itemContainerLine }}</span>
           <span class="flex-1" />
-          <button class="open-button shrink-0" @click="emit('open-browser')">open <IconExternalLink class="size-3" /></button>
+          <button v-if="item.url" class="open-button shrink-0" @click="emit('open-browser')">open <IconExternalLink class="size-3" /></button>
           <div class="relative shrink-0">
             <button ref="itemMenuToggle" class="more-button" aria-label="Item actions" aria-haspopup="menu" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsis class="size-4" /></button>
             <ItemActionMenu
@@ -116,7 +127,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
           </div>
         </div>
         <h1 class="text-[17px] font-semibold leading-[1.3] tracking-[-.01em]">{{ item.title }}</h1>
-        <p class="mt-[9px] text-xs text-text-3"><span class="text-text-2">{{ github?.author }}</span> · {{ relativeAge(item.lastEventAt) === 'now' ? 'now' : `${relativeAge(item.lastEventAt)} ago` }}</p>
+        <p class="mt-[9px] text-xs text-text-3"><template v-if="itemByline"><span class="text-text-2">{{ itemByline }}</span> · </template>{{ relativeAge(item.lastEventAt) === 'now' ? 'now' : `${relativeAge(item.lastEventAt)} ago` }}</p>
         <div v-if="bodyHtml" class="markdown-body hive-scroll mt-3 overflow-y-auto text-[14px] leading-[1.65] text-text-2" :style="{ height: bodyHeight + 'px' }" data-testid="detail-body" @click="onBodyClick" v-html="bodyHtml" />
         <!-- The border-b line below is draggable: it sets the description's
              reading-pane height (persisted), so long bodies never bury the actions. -->
@@ -124,17 +135,23 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
       </div>
 
       <div class="px-5 pb-5 pt-4">
-        <div class="mb-[13px] flex items-center gap-2">
-          <span class="font-mono text-[10.5px] tracking-[.12em] text-accent">ACTIONS</span>
-          <span class="font-mono text-[10.5px] text-text-4">· for {{ github?.kind }}</span>
-          <span class="flex-1" />
-          <button class="edit-button" @click="emit('edit')"><IconSettings class="size-3" /> Edit</button>
-        </div>
-        <div class="flex flex-col gap-[9px]">
-          <ActionCard v-for="action in actions" :key="action.id" :action="action" :pending="pendingAction === action.id" :run="actionRuns?.[action.id]" @run="emit('run-action', action.id)" />
-        </div>
-        <div class="action-footer-meta mt-3.5 font-mono text-[11px] text-text-3" data-testid="action-footer-meta"><IconInfo class="mt-0.5 size-3 shrink-0 text-accent" /><div class="min-w-0"><span class="block">Runs headless (batch) on</span><span class="block break-words text-text-2" data-testid="action-footer-branch">{{ github?.branch }}</span></div></div>
-        <div class="mt-1.5 pl-[19px] font-mono text-[11px] text-text-4">Actions defined in desktop actions.yml</div>
+        <!-- Actions are capability-gated, not provider-gated: the block shows
+             whenever the backend offered at least one applicable action
+             (ActionApplicability — applies_to + payload capability), so it
+             never renders an empty header for an item with zero matches. -->
+        <template v-if="actions.length">
+          <div class="mb-[13px] flex items-center gap-2">
+            <span class="font-mono text-[10.5px] tracking-[.12em] text-accent">ACTIONS</span>
+            <span class="font-mono text-[10.5px] text-text-4">· for {{ itemKind }}</span>
+            <span class="flex-1" />
+            <button class="edit-button" @click="emit('edit')"><IconSettings class="size-3" /> Edit</button>
+          </div>
+          <div class="flex flex-col gap-[9px]">
+            <ActionCard v-for="action in actions" :key="action.id" :action="action" :pending="pendingAction === action.id" :run="actionRuns?.[action.id]" @run="emit('run-action', action.id)" />
+          </div>
+          <div v-if="actionContextLine" class="action-footer-meta mt-3.5 font-mono text-[11px] text-text-3" data-testid="action-footer-meta"><IconInfo class="mt-0.5 size-3 shrink-0 text-accent" /><div class="min-w-0"><span class="block">Runs headless (batch) on</span><span class="block break-words text-text-2" data-testid="action-footer-branch">{{ actionContextLine }}</span></div></div>
+          <div class="mt-1.5 pl-[19px] font-mono text-[11px] text-text-4">Actions defined in desktop actions.yml</div>
+        </template>
         <section v-if="(events ?? []).length" class="mt-6 border-t border-border pt-4" data-testid="observed-activity">
           <h2 class="mb-3 font-mono text-[10.5px] tracking-[.12em] text-accent">OBSERVED ACTIVITY</h2>
           <ol class="space-y-2"><li v-for="event in events ?? []" :key="event.id" class="text-xs text-text-3"><span class="text-text-2">{{ event.summary || event.kind }}</span><span v-if="event.summary && event.kind !== 'observed'" class="ml-1 font-mono text-[10px] text-text-4">{{ event.kind.replaceAll('_', ' ') }}</span><span class="ml-2 font-mono text-[10px]">{{ relativeAge(event.createdAt) }}</span></li></ol>
@@ -150,6 +167,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .kind-pill { display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 9px 0 7px; border-radius: 6px; font-size: 11px; font-weight: 600; }
 .kind-pill-pr { background: var(--color-kind-pr-tint); color: var(--color-kind-pr); }
 .kind-pill-issue { background: var(--color-kind-issue-tint); color: var(--color-kind-issue); }
+.kind-pill-neutral { background: var(--color-chip); color: var(--color-text-2); }
 .open-button, .edit-button, .more-button { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--color-card); border-radius: 4px; padding: 2px 7px; color: var(--color-text-2); font-family: var(--font-mono); font-size: 11px; }
 .edit-button { border-radius: 5px; padding: 3px 8px; font-family: var(--font-sans); }
 .more-button { height: 24px; padding: 0 5px; }

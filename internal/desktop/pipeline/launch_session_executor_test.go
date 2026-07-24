@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -68,6 +69,7 @@ func TestLaunchSessionExecutor_RendersPromptAndRepoTemplates(t *testing.T) {
 	data := OutputData{
 		Key:     "item-1",
 		Payload: map[string]any{"title": "Fix the bug", "repo": "colonyops/hive"},
+		Raw:     json.RawMessage(`{"title":"Fix the bug","repo":"colonyops/hive"}`),
 	}
 
 	_, err := exec.Execute(t.Context(), action, data, ActionInvocationInput{})
@@ -88,7 +90,7 @@ func TestLaunchSessionExecutor_RerunUsesUniqueSessionName(t *testing.T) {
 		PromptTemplate: "hi", RepoTemplate: "git@github.com:colonyops/hive.git",
 	}}
 
-	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", CommandID: 42, IsRerun: true, Payload: map[string]any{}}, ActionInvocationInput{Rerun: true})
+	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", CommandID: 42, IsRerun: true, Payload: map[string]any{}, Raw: json.RawMessage(`{}`)}, ActionInvocationInput{Rerun: true})
 	require.NoError(t, err)
 	require.Equal(t, "spawn-review-item-1-rerun-42", launcher.calls[0].Name)
 }
@@ -99,7 +101,7 @@ func TestLaunchSessionExecutor_ConfiguredRepoTemplateIgnoresInteractiveOverride(
 	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
 		PromptTemplate: "hi", RepoTemplate: "git@github.com:colonyops/hive.git", Agent: "configured-agent",
 	}}
-	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", Payload: map[string]any{}}, ActionInvocationInput{Session: &SessionInvocationInput{
+	_, err := exec.Execute(t.Context(), action, OutputData{Key: "item-1", Payload: map[string]any{}, Raw: json.RawMessage(`{}`)}, ActionInvocationInput{Session: &SessionInvocationInput{
 		Name: "frontend-name", Repository: "https://github.com/other/repo.git", Agent: "frontend-agent",
 	}})
 	require.NoError(t, err)

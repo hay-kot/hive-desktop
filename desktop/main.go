@@ -443,6 +443,28 @@ func main() {
 		producer.Start()
 	}
 
+	// The webhook listener is the push-driven counterpart to the poll
+	// producer: it serves user-declared webhook-source endpoints on
+	// 127.0.0.1 and ingests deliveries directly. It starts when settings
+	// enable it (the default) and, in mock modes, only when a port is
+	// explicitly claimed via HIVE_DESKTOP_WEBHOOK_PORT so parallel e2e server
+	// instances never fight over one. The port is drawn at random on first
+	// run and persisted; a failure to find one, like a bind failure, logs and
+	// the app runs on without webhooks.
+	webhookPort, err := desktop.ResolveWebhookPort(settings)
+	if err != nil {
+		logger.Warn().Err(err).Msg("webhook port unavailable")
+	}
+	webhookEnabled := settings.WebhookEnabledOrDefault()
+	var webhookListener *pipeline.WebhookListener
+	if webhookEnabled && webhookPort > 0 && (desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "") {
+		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
+		webhookListener.SetRecorder(activityStore)
+		if err := webhookListener.Start(); err != nil {
+			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")
+		}
+	}
+
 	// Every auth transition drops the fetch cache before the frontend is
 	// notified: a different account must never be served items fetched with
 	// the previous token.
@@ -486,6 +508,7 @@ func main() {
 		application.NewService(NewJobService(jobStore)),
 		application.NewService(NewSystemService()),
 		application.NewService(NewSettingsService(producer, fetcher, logger)),
+		application.NewService(NewWebhookService(pipelineDB, webhookListener, webhookPort)),
 		application.NewService(updaterService),
 	}
 	if nativeNotifications != nil {
@@ -625,6 +648,9 @@ func main() {
 
 	shutdown := func() {
 		updaterService.stop()
+		if webhookListener != nil {
+			webhookListener.Stop()
+		}
 		maintenance.Stop()
 		actionRuntime.Close()
 		logCloser()

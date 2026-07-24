@@ -3,7 +3,7 @@ import { byType, instantiate, palette } from '../registry'
 
 describe('byType', () => {
   it('discovers exactly the five node types with app modules (index.ts)', () => {
-    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source'])
+    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'github-source', 'webhook-source'])
   })
 
   it('every entry carries a `type` matching its registry key and has a glyph/editor/help/defaults', () => {
@@ -28,7 +28,7 @@ describe('palette', () => {
     const grouped = [...palette.Sources, ...palette.Process, ...palette.Destinations]
     expect(grouped.map((def) => def.type).sort()).toEqual(Object.keys(byType).sort())
 
-    expect(palette.Sources.map((d) => d.type)).toEqual(['github-source'])
+    expect(palette.Sources.map((d) => d.type).sort()).toEqual(['github-source', 'webhook-source'])
     expect(palette.Process.map((d) => d.type).sort()).toEqual(['function', 'github-filter'])
     expect(palette.Destinations.map((d) => d.type).sort()).toEqual(['action', 'feed'])
   })
@@ -49,6 +49,14 @@ describe('instantiate', () => {
     ;(a.config as Record<string, any>).repos = ['acme/*']
     expect(b.config).not.toHaveProperty('repos')
     expect(byType['github-filter']!.defaults).not.toHaveProperty('repos')
+  })
+
+  it('seeds per-instance config from freshConfig, leaving defaults untouched', () => {
+    const a = instantiate('webhook-source').config as Record<string, any>
+    const b = instantiate('webhook-source').config as Record<string, any>
+    expect(a.path).toMatch(/^hook-[a-z0-9]{8}$/)
+    expect(a.path).not.toBe(b.path)
+    expect(byType['webhook-source']!.defaults).toEqual({ path: '' })
   })
 
   it('throws for an unknown type', () => {

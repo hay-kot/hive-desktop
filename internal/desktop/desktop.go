@@ -85,6 +85,12 @@ func FlowsDir() string {
 // EnvFlowsDir overrides the flows directory.
 const EnvActionsPath = "HIVE_DESKTOP_ACTIONS"
 
+// EnvWebhookPort overrides the local webhook listener's TCP port (see
+// Settings.WebhookPortOrDefault). In mock modes the listener only starts
+// when this is set, so parallel e2e server instances stay silent unless a
+// lane explicitly claims a port.
+const EnvWebhookPort = "HIVE_DESKTOP_WEBHOOK_PORT"
+
 // ActionsPath is the actions.yml file location: launch-session/shell/
 // publish-message action definitions consumed by the desktop pipeline's
 // output worker and detail-pane action picker (see

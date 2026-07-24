@@ -10,6 +10,7 @@ import * as PipelineService from "./pipelineservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SystemService from "./systemservice.js";
 import * as UpdaterService from "./updaterservice.js";
+import * as WebhookService from "./webhookservice.js";
 import * as WindowService from "./windowservice.js";
 export {
     ActionsService,
@@ -21,6 +22,7 @@ export {
     SettingsService,
     SystemService,
     UpdaterService,
+    WebhookService,
     WindowService
 };
 
@@ -33,5 +35,8 @@ export type {
     NotifyInput,
     PathInfo,
     SystemInfo,
-    UpdateInfo
+    UpdateInfo,
+    WebhookCaptureView,
+    WebhookInfo,
+    WebhookSettings
 } from "./models.js";

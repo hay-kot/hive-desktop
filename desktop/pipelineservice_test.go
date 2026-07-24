@@ -45,9 +45,21 @@ func (l *recordingSessionLauncher) LaunchSession(_ context.Context, req pipeline
 
 func insertActionItem(t *testing.T, db *pipelinedb.DB, id, kind, title string) int64 {
 	t.Helper()
-	payload, err := json.Marshal(map[string]any{"id": id, "kind": kind, "title": title})
+	return insertActionItemSource(t, db, "github", id, kind, title, nil)
+}
+
+// insertActionItemSource inserts an inbox row with the given source kind and
+// an arbitrary payload merged over the canonical id/kind/title fields — used
+// by tests that need a non-GitHub source or extra payload fields (e.g. repo).
+func insertActionItemSource(t *testing.T, db *pipelinedb.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
+	t.Helper()
+	fields := map[string]any{"id": id, "kind": kind, "title": title}
+	for k, v := range extra {
+		fields[k] = v
+	}
+	payload, err := json.Marshal(fields)
 	require.NoError(t, err)
-	row, err := db.Queries().InsertInboxItem(t.Context(), pipelinedb.InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
+	row, err := db.Queries().InsertInboxItem(t.Context(), pipelinedb.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
 	require.NoError(t, err)
 	return row.ID
 }
@@ -64,6 +76,17 @@ actions:
     applies_to: [pr]
     repo_template: "git@example/repo.git"
     prompt_template: "Review {{ .Payload.title }}"
+  - id: deploy-repo
+    label: Deploy
+    type: launch-session
+    show_in_detail: true
+    repo_template: "{{ .Payload.repo }}"
+    prompt_template: "Deploy {{ .Payload.title }}"
+  - id: launch-interactive
+    label: Launch
+    type: launch-session
+    show_in_detail: true
+    prompt_template: "Launch {{ .Payload.title }}"
   - id: triage-any
     label: Triage
     type: shell
@@ -107,10 +130,17 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	issueID := insertActionItem(t, db, "issue-1", "Issue", "")
 	hiddenID := insertActionItem(t, db, "pr-2", "PR", "")
 
+	// deploy-repo (repo_template) is absent: pr-1's payload has no "repo"
+	// field, so the repo_template render errors and the action is
+	// inapplicable. launch-interactive has no repo_template, so it always
+	// applies.
+	views, err := service.ActionViews(prID)
+	require.NoError(t, err)
 	assert.Equal(t, []actions.View{
+		{ID: "launch-interactive", Label: "Launch", Type: "launch-session", ShowInDetail: true, RequiresSessionInput: true},
 		{ID: "review-pr", Label: "Review PR", Type: "launch-session", ShowInDetail: true},
 		{ID: "triage-any", Label: "Triage", Type: "shell", ShowInDetail: true},
-	}, service.ActionViews("PR"))
+	}, views)
 
 	_, err = service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
 	require.NoError(t, err)
@@ -131,19 +161,78 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	assert.ErrorContains(t, err, "not available in the detail pane", "backend must reject a trusted caller bypassing ActionViews")
 }
 
-func TestPipelineService_InvokeActionRejectsUnsupportedSourceKind(t *testing.T) {
+// TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated
+// covers the Phase 2 matrix: capability gating replaces the old
+// SourceKind == "github" gate. (a) a webhook-sourced item with kind/repo in
+// its payload is offered and can run a matching action. (b) a repo_template
+// action is absent from ActionViews when the payload lacks repo, and
+// InvokeAction rejects it with the render reason in the error. (c) an
+// interactive launch-session action (no repo_template) is offered for a
+// webhook item regardless of payload shape. (d) an unknown itemID errors
+// (no panic) from both ActionViews and InvokeAction.
+func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t *testing.T) {
 	store := configuredActionStore(t)
 	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	payload := []byte(`{"id":"slack-1","kind":"PR","title":"Not GitHub"}`)
-	item, err := db.Queries().InsertInboxItem(t.Context(), pipelinedb.InsertInboxItemParams{
-		ProfileID: "p", SourceKind: "slack", ExternalID: "slack-1", Title: "Not GitHub", Payload: payload, Lifecycle: "active",
-	})
-	require.NoError(t, err)
 
-	_, err = NewPipelineService(db, store, nil, nil).InvokeAction("review-pr", item.ID, pipeline.ActionInvocationInput{})
-	require.ErrorContains(t, err, `unsupported action source kind "slack"`)
+	executor := &recordingActionExecutor{}
+	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{
+		"launch-session": executor,
+	}), 0, zerolog.Nop())
+	service := NewPipelineService(db, store, worker, nil)
+
+	t.Run("webhook item with a matching repo_template action gets and runs it", func(t *testing.T) {
+		itemID := insertActionItemSource(t, db, "webhook", "hook-1", "deploy", "Deploy prod", map[string]any{"repo": "acme/site"})
+
+		views, err := service.ActionViews(itemID)
+		require.NoError(t, err)
+		ids := make([]string, len(views))
+		for i, v := range views {
+			ids[i] = v.ID
+		}
+		assert.Contains(t, ids, "deploy-repo")
+
+		_, err = service.InvokeAction("deploy-repo", itemID, pipeline.ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.Equal(t, "hook-1", executor.data.Key)
+	})
+
+	t.Run("repo_template action is absent and rejected with the render reason when the payload lacks repo", func(t *testing.T) {
+		itemID := insertActionItemSource(t, db, "webhook", "hook-2", "deploy", "No repo", nil)
+
+		views, err := service.ActionViews(itemID)
+		require.NoError(t, err)
+		for _, v := range views {
+			assert.NotEqual(t, "deploy-repo", v.ID, "repo_template action must be absent when the payload lacks repo")
+		}
+
+		_, err = service.InvokeAction("deploy-repo", itemID, pipeline.ActionInvocationInput{})
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "repo_template")
+	})
+
+	t.Run("interactive launch-session action is offered for a webhook item", func(t *testing.T) {
+		itemID := insertActionItemSource(t, db, "webhook", "hook-3", "deploy", "Investigate", nil)
+
+		views, err := service.ActionViews(itemID)
+		require.NoError(t, err)
+		var found *actions.View
+		for i := range views {
+			if views[i].ID == "launch-interactive" {
+				found = &views[i]
+			}
+		}
+		require.NotNil(t, found, "interactive launch-session actions demand nothing from the payload")
+		assert.True(t, found.RequiresSessionInput)
+	})
+
+	t.Run("unknown itemID errors from both ActionViews and InvokeAction", func(t *testing.T) {
+		_, err := service.ActionViews(999999)
+		require.Error(t, err)
+		_, err = service.InvokeAction("review-pr", 999999, pipeline.ActionInvocationInput{})
+		require.Error(t, err)
+	})
 }
 
 func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T) {

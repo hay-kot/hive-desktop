@@ -28,6 +28,7 @@ import IconSparkles from '~icons/lucide/sparkles'
 import IconStar from '~icons/lucide/star'
 import IconTag from '~icons/lucide/tag'
 import IconUsers from '~icons/lucide/users'
+import IconWebhook from '~icons/lucide/webhook'
 import IconZap from '~icons/lucide/zap'
 
 export interface FeedIconOption {
@@ -44,6 +45,7 @@ export const feedIconOptions: FeedIconOption[] = [
   { value: 'message-square', label: 'Comments', component: IconMessageSquare },
   { value: 'at-sign', label: 'Mentions', component: IconAtSign },
   { value: 'rss', label: 'Feed', component: IconRss },
+  { value: 'webhook', label: 'Webhook', component: IconWebhook },
   { value: 'bell', label: 'Notifications', component: IconBell },
   { value: 'eye', label: 'Watching', component: IconEye },
   { value: 'star', label: 'Starred', component: IconStar },
@@ -63,6 +65,10 @@ export const feedIconOptions: FeedIconOption[] = [
 // The glyph a feed with no configured icon falls back to — matches the
 // sidebar's historical default before feeds carried an icon.
 export const defaultFeedIcon = 'git-branch'
+
+// The glyph a webhook-source's items fall back to when the node has no
+// configured icon.
+export const defaultWebhookSourceIcon = 'webhook'
 
 const componentByKey = new Map(feedIconOptions.map((o) => [o.value, o.component]))
 

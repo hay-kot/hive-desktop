@@ -37,6 +37,14 @@ export interface NodeTypeDefinition<C = Record<string, any>> {
    */
   tint?: string
   defaults: C
+  /**
+   * Optional per-instantiation seed, merged over `defaults` when a node is
+   * dragged onto the canvas. For config that must differ between two nodes
+   * of the same type — a webhook source's endpoint path — rather than being
+   * a shared constant. `defaults` stays the static, promptable shape (the
+   * flow LLM prompt serializes it); this only fills fields in.
+   */
+  freshConfig?(): Partial<C>
   /** Fixed port count, or a function of config (e.g. the function node's `outputs?`). */
   outputs?: number | ((c: C) => number)
   /** UX-only live validation for the drawer — Go's SaveFlow validator is authoritative. */

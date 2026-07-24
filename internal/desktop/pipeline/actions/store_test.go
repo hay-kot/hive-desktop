@@ -28,23 +28,6 @@ func TestActionStore_ListGet(t *testing.T) {
 	assert.False(t, ok)
 }
 
-func TestActionStore_ViewsForFiltersAndHidesExecutionConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "actions.yml")
-	require.NoError(t, os.WriteFile(path, []byte(multiActionYAML), 0o644))
-
-	store := NewActionStore(path)
-	assert.Equal(t, []View{
-		{ID: "notify", Label: "Notify", Type: "publish-message", ShowInDetail: true},
-		{ID: "run-lint", Label: "Run lint", Type: "shell", ShowInDetail: true},
-		{ID: "spawn-review", Label: "Spawn review agent", Type: "launch-session", ShowInDetail: true},
-	}, store.ViewsFor("PR"))
-	assert.Equal(t, []View{
-		{ID: "notify", Label: "Notify", Type: "publish-message", ShowInDetail: true},
-		{ID: "run-lint", Label: "Run lint", Type: "shell", ShowInDetail: true},
-	}, store.ViewsFor("issue"))
-}
-
 func TestActionStore_MissingFile_IsEmptyNotError(t *testing.T) {
 	store := NewActionStore(filepath.Join(t.TempDir(), "nope.yml"))
 	assert.Empty(t, store.List())

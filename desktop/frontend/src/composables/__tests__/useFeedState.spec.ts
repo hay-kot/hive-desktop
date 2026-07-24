@@ -181,6 +181,14 @@ describe('useFeedState', () => {
     expect(get().actionRuns.value).toEqual({})
   })
 
+  it('loads actions by item id for webhook items now that the GitHub-only guard is gone', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1, { sourceKind: 'webhook', sourceScope: 'hook-source', payload: { id: 'run-1', kind: 'deploy' } })])
+    mocks.ActionViews.mockResolvedValue([{ id: 'deploy', label: 'Deploy', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+    const get = mountState(); await flushPromises()
+    expect(mocks.ActionViews).toHaveBeenCalledWith(1)
+    expect(get().actions.value).toEqual([{ id: 'deploy', label: 'Deploy', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+  })
+
   it('opens the selected item URL in the browser', async () => {
     mocks.ListInboxItemsByFeed.mockResolvedValue([item(3)])
     const get = mountState(); await flushPromises(); await get().openSelectedInBrowser()

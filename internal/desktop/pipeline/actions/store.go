@@ -65,19 +65,6 @@ func (s *ActionStore) List() []Action {
 	return out
 }
 
-func (s *ActionStore) ViewsFor(kind string) []View {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
-	out := make([]View, 0, len(s.actions))
-	for _, a := range s.actions {
-		if a.ShowInDetail && actionAppliesTo(a, kind) {
-			out = append(out, a.View())
-		}
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
-}
 func AppliesTo(action Action, kind string) bool { return actionAppliesTo(action, kind) }
 func actionAppliesTo(action Action, kind string) bool {
 	if len(action.AppliesTo) == 0 {

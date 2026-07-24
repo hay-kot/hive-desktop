@@ -189,6 +189,25 @@ describe('runGraph', () => {
     expect(result.discards).toEqual([{ msgId: '1', nodeId: 'action' }])
   })
 
+  it('a webhook-source entry ingests only its own flow-qualified topic and passes msgs through', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'hooks',
+      nodes: [
+        { id: 'in-hook', type: 'webhook-source', config: { path: 'ci' } },
+        { id: 'out', type: 'feed', config: {} },
+      ],
+      wires: [{ from: 'in-hook', to: 'out' }],
+    }
+    const mine = { ...msg('1', { event: 'deploy' }, 'source:hooks/in-hook'), SourceKind: 'webhook', SourceScope: 'in-hook' }
+    const foreign = msg('2', {}, 'source:other-flow/in-hook')
+    const result = await runGraph(flow, [mine, foreign], transport)
+    expect(result.outputs).toEqual([
+      expect.objectContaining({ sink: { kind: 'feed', targetId: 'hooks/out' }, key: '1', sourceTopic: 'source:hooks/in-hook', sourceKind: 'webhook', sourceScope: 'in-hook' }),
+    ])
+    expect(result.discards).toEqual([{ msgId: '2', nodeId: UNROUTED_NODE_ID }])
+  })
+
   it('a msg matching no entry node topic is discarded as unrouted (still accounted for)', async () => {
     const transport = new InProcessTransport(processorRegistry)
     const flow: Flow = {

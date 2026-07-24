@@ -57,13 +57,9 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: prompt_template rendered blank")
 	}
 
-	var repo string
-	if cfg.RepoTemplate != "" {
-		repo, err = renderer.Render(cfg.RepoTemplate, data)
-		if err != nil {
-			return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
-		}
-		repo = strings.TrimSpace(repo)
+	repo, err := RenderRepoTarget(action, data.Key, data.Raw)
+	if err != nil {
+		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
 	}
 
 	name := session.Slugify(action.ID + "-" + data.Key)

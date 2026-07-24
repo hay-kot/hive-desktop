@@ -14,6 +14,8 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0004](decisions/0004-release-channels.md) | Release channels: stable, beta, dev |
 | [0005](decisions/0005-web-workers-static-assets.md) | Landing page as Cloudflare Workers static assets |
 | [0006](decisions/0006-lefthook-quality-gates.md) | Quality gates enforced by lefthook git hooks |
+| [0007](decisions/0007-local-webhook-listener.md) | Local webhook listener for generic pipeline ingress |
+| [0008](decisions/0008-canonical-item-contract.md) | Canonical inbox item contract |
 
 ## References
 

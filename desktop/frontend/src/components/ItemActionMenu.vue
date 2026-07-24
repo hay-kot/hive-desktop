@@ -4,7 +4,6 @@ import AppMenu from './AppMenu.vue'
 import { ActionViews } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { actionTypeMeta } from '../lib/actionPresentation'
-import { githubPayload } from '../lib/feedPresentation'
 import IconArchive from '~icons/lucide/archive'
 import IconCopy from '~icons/lucide/copy'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -22,7 +21,7 @@ import type { MenuEntry } from '../types/menu'
 // fetches them itself — the menu is ephemeral, so no caching.
 const props = defineProps<{
   item: InboxItem
-  /** Pre-loaded configured actions; omit to have the menu fetch per item kind. */
+  /** Pre-loaded configured actions; omit to have the menu fetch per item id. */
   actions?: ActionView[]
   flip?: boolean
   ignore?: (HTMLElement | null)[]
@@ -44,7 +43,7 @@ const menuActions = computed(() => props.actions ?? fetchedActions.value)
 onMounted(async () => {
   if (props.actions !== undefined) return
   try {
-    fetchedActions.value = (await ActionViews(githubPayload(props.item).kind)) ?? []
+    fetchedActions.value = (await ActionViews(props.item.id)) ?? []
   } catch (error) {
     console.warn('Unable to load actions for item menu', error)
   }
@@ -63,8 +62,12 @@ const entries = computed<MenuEntry[]>(() => {
     { kind: 'action', id: 'toggle-archive', label: item.archivedAt ? 'Move to inbox' : 'Archive', icon: IconArchive, kbd: kbdFor('feed.toggle-archive'), testid: 'menu-toggle-archive' },
     { kind: 'action', id: 'toggle-ignored', label: item.ignoredAt ? 'Stop ignoring' : 'Ignore', icon: IconEyeOff, testid: 'menu-toggle-ignored' },
     { kind: 'separator' },
-    { kind: 'action', id: 'open-browser', label: 'Open in browser', icon: IconExternalLink, kbd: kbdFor('feed.open-in-browser'), testid: 'menu-open-browser' },
-    { kind: 'action', id: 'copy-link', label: 'Copy link', icon: IconLink, testid: 'menu-copy-link' },
+    // Link entries only when the item carries a URL — webhook payloads
+    // without one have nothing to open or copy.
+    ...(item.url ? [
+      { kind: 'action', id: 'open-browser', label: 'Open in browser', icon: IconExternalLink, kbd: kbdFor('feed.open-in-browser'), testid: 'menu-open-browser' },
+      { kind: 'action', id: 'copy-link', label: 'Copy link', icon: IconLink, testid: 'menu-copy-link' },
+    ] satisfies MenuEntry[] : []),
     { kind: 'action', id: 'copy-contents', label: 'Copy contents', icon: IconCopy, testid: 'menu-copy-contents' },
   ]
   if (menuActions.value.length) {
