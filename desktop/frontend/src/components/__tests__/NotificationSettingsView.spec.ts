@@ -24,7 +24,7 @@ beforeEach(() => {
   resetNotificationSettingsForTests()
   mocks.NotificationSettings.mockResolvedValue({
     notificationsEnabled: true,
-    systemNotificationsEnabled: true,
+    delivery: 'auto',
     notificationSound: true,
   })
   mocks.SetNotificationSettings.mockResolvedValue(undefined)
@@ -33,12 +33,12 @@ beforeEach(() => {
 })
 
 describe('NotificationSettingsView', () => {
-  it('renders preferences, disables system notifications with master off, and persists the switch', async () => {
+  it('renders preferences, disables delivery with master off, and persists the switch', async () => {
     const wrapper = mount(NotificationSettingsView)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="notification-enable"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="notification-system"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="notification-delivery-auto"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="notification-sound"]').exists()).toBe(true)
 
     await wrapper.find('[data-testid="notification-enable"]').trigger('click')
@@ -46,10 +46,31 @@ describe('NotificationSettingsView', () => {
 
     expect(mocks.SetNotificationSettings).toHaveBeenCalledWith({
       notificationsEnabled: false,
-      systemNotificationsEnabled: true,
+      delivery: 'auto',
       notificationSound: true,
     })
-    expect(wrapper.find('[data-testid="notification-system"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="notification-delivery-auto"]').attributes('disabled')).toBeDefined()
+  })
+
+  it('reflects the persisted delivery mode and persists a change', async () => {
+    mocks.NotificationSettings.mockResolvedValue({
+      notificationsEnabled: true,
+      delivery: 'system',
+      notificationSound: true,
+    })
+    const wrapper = mount(NotificationSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find<HTMLInputElement>('[data-testid="notification-delivery-system"]').element.checked).toBe(true)
+
+    await wrapper.find('[data-testid="notification-delivery-app"]').trigger('change')
+    await flushPromises()
+
+    expect(mocks.SetNotificationSettings).toHaveBeenCalledWith({
+      notificationsEnabled: true,
+      delivery: 'app',
+      notificationSound: true,
+    })
   })
 
   it('requests permission and renders denied guidance from the live state', async () => {

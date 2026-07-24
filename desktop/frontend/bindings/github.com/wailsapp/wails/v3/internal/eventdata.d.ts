@@ -19,6 +19,7 @@ declare module "@wailsio/runtime" {
             "jobs:updated": string;
             "log:appended": number;
             "notification:activated": main$0.NotificationActivation;
+            "notification:toast": main$0.NotificationToast;
             "update:available": main$0.UpdateInfo;
             "update:none": main$0.UpdateInfo;
             "window:blur": boolean;

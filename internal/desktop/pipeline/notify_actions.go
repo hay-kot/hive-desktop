@@ -25,6 +25,13 @@ type NotifyActionConfig struct {
 	Body     string
 	Severity string
 	Sound    bool
+	// OnlyWhenNew restricts delivery to observations ingestion judged
+	// genuinely new (see DB.InboxItemNotifiable). It is set for a notifying
+	// feed and not for a notify node: a feed is a place items live, so
+	// "notify me about this feed" means the arrivals, not every later comment
+	// on something already sitting in it. A notify node notifies for whatever
+	// is routed to it, which is the author's explicit choice.
+	OnlyWhenNew bool
 }
 
 // Validate satisfies actions.ActionConfig. The flow's own validator is
@@ -82,10 +89,10 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 			continue
 		}
 		for _, node := range f.Nodes {
-			if node.ID != nodeID || node.Type != "notify" {
+			if node.ID != nodeID {
 				continue
 			}
-			cfg, ok := node.Config.(*flow.NotifyConfig)
+			cfg, ok := notifyNodeConfig(node)
 			if !ok {
 				return actions.Action{}, false
 			}
@@ -94,15 +101,33 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 				Label: notifyLabel(node),
 				Type:  ActionTypeNotify,
 				Config: &NotifyActionConfig{
-					Title:    cfg.Title,
-					Body:     cfg.Body,
-					Severity: cfg.SeverityOrDefault(),
-					Sound:    cfg.SoundOrDefault(),
+					Title:       cfg.Title,
+					Body:        cfg.Body,
+					Severity:    cfg.SeverityOrDefault(),
+					Sound:       cfg.SoundOrDefault(),
+					OnlyWhenNew: node.Type == "feed",
 				},
 			}, true
 		}
 	}
 	return actions.Action{}, false
+}
+
+// notifyNodeConfig reads the notify config a node delivers through, from
+// either shape that raises a notify output: a notify node, whose whole
+// purpose it is, or a feed node marked as one that interrupts. A feed
+// without that block never enqueues a notify command, so reaching here for
+// one means the flow was edited between the graph run and the delivery —
+// reported as unresolved, exactly like a deleted node.
+func notifyNodeConfig(node flow.Node) (*flow.NotifyConfig, bool) {
+	switch cfg := node.Config.(type) {
+	case *flow.NotifyConfig:
+		return cfg, node.Type == "notify"
+	case *flow.FeedConfig:
+		return cfg.Notify, cfg.Notify != nil
+	default:
+		return nil, false
+	}
 }
 
 // notifyLabel is the human name a notify delivery reports in the Activity

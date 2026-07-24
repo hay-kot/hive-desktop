@@ -78,7 +78,8 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
   test('creates the first workspace and lands on an empty feed', async () => {
     // Authenticated with no workspaces — create the first one. "New profile"
     // seeds a real starter flow (flow.FlowStore.starterFlow — three
-    // github-source -> feed pairs), but nothing has polled GitHub yet in mock
+    // github-source -> feed pairs plus a notifying "Review requests" feed), but
+    // nothing has polled GitHub yet in mock
     // mode (buildPipelineProducer is skipped, and only the fixture flow
     // desktop/mockseed.go targets gets seeded feed_item rows) — so a freshly
     // created workspace starts with feeds but zero items.
@@ -92,7 +93,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await page.getByTestId('onboarding-workspace-submit').click()
 
     await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Frontend Triage', { timeout: 15_000 })
-    await expect(page.getByTestId('sidebar-feed')).toHaveCount(3)
+    await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
     await expect(page.getByTestId('feed-item')).toHaveCount(0)
   })
 
@@ -107,7 +108,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await expect(modal).toBeHidden()
     await expect(page.getByTestId('profile-tile')).toHaveCount(2)
     await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Backend Triage')
-    await expect(page.getByTestId('sidebar-feed')).toHaveCount(3)
+    await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
   })
 
   test('renames a feed node in the flows canvas, deploys, and the sidebar reflects it', async () => {
@@ -116,7 +117,10 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await page.getByTestId('sidebar-edit-flow').click()
     const flowsView = page.getByTestId('flows-view')
     await expect(flowsView).toBeVisible()
-    await expect(page.getByTestId('canvas-node-wire-count')).toHaveText('6 nodes · 3 wires')
+    // Three source→feed pairs, plus the seeded notifying "Review requests"
+    // feed behind a filter on the notifications source.
+    await expect(page.getByTestId('canvas-node-wire-count')).toHaveText('8 nodes · 5 wires')
+    await expect(page.locator('[data-testid="flow-node-review-requests"]')).toBeVisible()
 
     await page.locator('[data-testid="flow-node-my-open-prs"]').dblclick()
     const editor = page.getByTestId('node-editor')
@@ -138,7 +142,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     // the just-saved flow).
     await page.locator('[data-testid="profile-tile"][data-id="backend-triage"]').click()
     await expect(flowsView).toBeHidden()
-    await expect(page.getByTestId('sidebar-feed')).toHaveCount(3)
+    await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
     const teamRow = page.locator('[data-testid="sidebar-feed"][data-id="backend-triage/my-open-prs"]')
     await expect(teamRow).toContainText('Team PRs')
 

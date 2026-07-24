@@ -3,7 +3,7 @@ import type { RecordInput } from '../../bindings/github.com/hay-kot/hive-desktop
 import type { NotifyInput } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/models'
 import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice'
 import { useActivity } from './useActivity'
-import { useNotificationSettings, type NotificationPermission } from './useNotificationSettings'
+import { useNotificationSettings, type NotificationDelivery, type NotificationPermission } from './useNotificationSettings'
 import { useToasts } from './useToasts'
 import { useWindowFocus } from './useWindowFocus'
 import type { ToastOptions, ToastSeverity } from '../types/toast'
@@ -16,6 +16,18 @@ export interface NotifyEvent {
   severity?: NotifySeverity
   category?: string
   source?: string
+  /**
+   * Opaque routing data carried on the OS notification and handed back when
+   * the user clicks it. A feed notification puts the inbox item's identity
+   * here so Go's notification:activate can name what to open; the toast path
+   * ignores it (an in-app toast has nowhere to navigate from).
+   */
+  data?: Record<string, unknown>
+  /**
+   * Overrides the node's sound to off. The app's sound preference is the
+   * ceiling: this can quiet a notification, never unmute one.
+   */
+  silent?: boolean
 }
 
 export const notifySeverityMapping: Record<NotifySeverity, { activity: string; toast: ToastSeverity }> = {
@@ -27,7 +39,7 @@ export const notifySeverityMapping: Record<NotifySeverity, { activity: string; t
 
 export interface NotifySettings {
   notificationsEnabled: Readonly<Ref<boolean>>
-  systemNotificationsEnabled: Readonly<Ref<boolean>>
+  delivery: Readonly<Ref<NotificationDelivery>>
   notificationSound: Readonly<Ref<boolean>>
   permission: Readonly<Ref<NotificationPermission>>
   requestPermission: () => Promise<void>
@@ -52,7 +64,7 @@ function defaults(): NotifyDeps {
     focused,
     settings: {
       notificationsEnabled: settings.notificationsEnabled,
-      systemNotificationsEnabled: settings.systemNotificationsEnabled,
+      delivery: settings.delivery,
       notificationSound: settings.notificationSound,
       permission: settings.permission,
       requestPermission: settings.requestPermission,
@@ -80,11 +92,15 @@ export function useNotify(overrides: Partial<NotifyDeps> = {}) {
 
     if (!deps.settings.notificationsEnabled.value) return
     const toast = () => deps.showToast(event.title, { body, severity: mapping.toast })
-    if (deps.focused.value) {
+
+    // Delivery decides where an eligible notification surfaces: "app" never
+    // leaves the window, "system" always leaves it, and "auto" — the default —
+    // only raises a banner when the user is looking elsewhere.
+    const delivery = deps.settings.delivery.value
+    if (delivery === 'app' || (delivery === 'auto' && deps.focused.value)) {
       toast()
       return
     }
-    if (!deps.settings.systemNotificationsEnabled.value) return
 
     if (deps.settings.permission.value === 'not-requested') await deps.settings.requestPermission()
     if (deps.settings.permission.value !== 'granted') {
@@ -92,7 +108,14 @@ export function useNotify(overrides: Partial<NotifyDeps> = {}) {
       return
     }
     try {
-      await deps.osNotify({ title: event.title, subtitle: '', body, severity, sound: deps.settings.notificationSound.value, data: {} })
+      await deps.osNotify({
+        title: event.title,
+        subtitle: '',
+        body,
+        severity,
+        sound: deps.settings.notificationSound.value && !event.silent,
+        data: event.data ?? {},
+      })
     } catch (error) {
       console.warn('[notify] native notification failed; surfacing toast instead', error)
       toast()

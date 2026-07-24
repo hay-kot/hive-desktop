@@ -158,6 +158,21 @@ export async function runGraph(flow: Flow, batch: Msg[], transport: WorkerTransp
           }
           if (msg.snapshotContext) output.snapshotId = msg.snapshotContext.snapshotId
           outputs.push(output)
+          // A feed configured to interrupt raises the same notify output a
+          // notify node does, targeting its own id — one delivery path for
+          // both. Never for a snapshot: those re-state every current item on
+          // every poll, so this would re-notify the whole feed each tick.
+          if (!msg.snapshotContext && (node.config as feedNode.Config).notify) {
+            outputs.push({
+              sink: feedNode.notifySink(flow.id, nodeId),
+              key: msg.Key,
+              occurrenceKey: msg.OccurrenceKey,
+              payload: msg.Payload,
+              sourceTopic: msg.Topic,
+              sourceKind: msg.SourceKind,
+              sourceScope: msg.SourceScope,
+            })
+          }
         } else if (sink.kind === 'notify') {
           // A notify output carries the message's source identity as well as
           // its payload: the backend resolves the inbox row behind it so a

@@ -86,6 +86,11 @@ func registerEvents() struct{} {
 	// its payload is the whole message: the window is already being raised by
 	// the time it fires, and the frontend's job is only to route to that item.
 	application.RegisterEvent[NotificationActivation]("notification:activated")
+	// notification:toast carries a flow notification the user chose to receive
+	// inside Hive rather than as an OS banner (Settings -> Notifications ->
+	// Delivery). The frontend surfaces it through the same toast stack every
+	// other in-app notification uses.
+	application.RegisterEvent[NotificationToast]("notification:toast")
 	return struct{}{}
 }
 
@@ -157,6 +162,16 @@ func emitJobsUpdated() {
 func emitNotificationActivated(activation NotificationActivation) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("notification:activated", activation)
+	}
+}
+
+// emitNotificationToast hands a flow notification to the frontend to surface
+// in-app. Safe to call from the output worker's goroutine once the app is
+// running; before that (or in a headless build) it is a no-op, which matches
+// the native path's own behavior when notifications are unavailable.
+func emitNotificationToast(toast NotificationToast) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("notification:toast", toast)
 	}
 }
 
@@ -381,12 +396,12 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // a notify node's config lives in its flow, not in actions.yml, so the
 // worker resolves those ids from the live flow set and everything else from
 // the authored catalog.
-func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
+func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, focus *focusState, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
 	dispatcher := pipeline.NewDispatcher(map[string]pipeline.Executor{
 		pipeline.ActionTypeLaunchSession: pipeline.NewLaunchSessionExecutor(launcher),
 		"shell":                          pipeline.NewShellExecutor(logger),
 		"publish-message":                pipeline.NewPublishMessageExecutor(publisher),
-		pipeline.ActionTypeNotify:        pipeline.NewNotifyExecutor(notifier, settingsNotificationGate{logger: logger}, db, logger),
+		pipeline.ActionTypeNotify:        pipeline.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
 	})
 	worker := pipeline.NewWorker(db, pipeline.NewFlowNotifyActions(flows, actionStore), dispatcher, pipeline.DefaultOutputWorkerInterval, logger)
 	worker.SetRecorder(recorder)
@@ -472,6 +487,10 @@ func main() {
 	actionStore.SetUsageChecker(actionUsageChecker{flows: flowsStore, db: pipelineDB})
 
 	// Mock/server builds deliberately do not start the native Wails
+	// Focus feeds both the frontend's focus-sensitive UI and the notification
+	// gate's automatic delivery mode, so it is built before the output worker
+	// that gate belongs to.
+	focus := newFocusState()
 	// notification service: E2E verifies preference persistence without an OS
 	// bus, banner, or permission prompt. The frontend still gets a descriptive
 	// unavailable binding through NotificationService. Built before the output
@@ -489,7 +508,7 @@ func main() {
 		}
 	}
 
-	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
+	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
 	if desktop.MockMode() == "" {
 		outputWorker.Start()
 	}
@@ -546,7 +565,6 @@ func main() {
 	// toggle seeds the initial state.
 	updaterVersion, _, _ := resolvedBuildInfo()
 	updaterService := NewUpdaterService(updaterVersion, settings.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
-	focus := newFocusState()
 
 	services := []application.Service{
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),

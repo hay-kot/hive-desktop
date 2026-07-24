@@ -33,11 +33,15 @@ type GithubSettings struct {
 }
 
 // NotificationSettings is the desktop notification configuration resolved
-// from settings.yaml. All fields are explicit booleans for the frontend.
+// from settings.yaml. Delivery is carried as a resolved string from the
+// closed set desktop.DeliveryAuto/DeliverySystem/DeliveryApp.
 type NotificationSettings struct {
-	NotificationsEnabled       bool `json:"notificationsEnabled"`
-	SystemNotificationsEnabled bool `json:"systemNotificationsEnabled"`
-	NotificationSound          bool `json:"notificationSound"`
+	NotificationsEnabled bool `json:"notificationsEnabled"`
+	// Delivery is where an eligible notification is surfaced: "auto" (an OS
+	// banner only while Hive is unfocused), "system" (always an OS banner), or
+	// "app" (always in-app).
+	Delivery          string `json:"delivery"`
+	NotificationSound bool   `json:"notificationSound"`
 }
 
 // AppearanceSettings is the frontend's presentation configuration. Theme is
@@ -116,9 +120,9 @@ func (s *SettingsService) NotificationSettings() (NotificationSettings, error) {
 		return NotificationSettings{}, err
 	}
 	return NotificationSettings{
-		NotificationsEnabled:       settings.NotificationsEnabledOrDefault(),
-		SystemNotificationsEnabled: settings.SystemNotificationsEnabledOrDefault(),
-		NotificationSound:          settings.NotificationSoundOrDefault(),
+		NotificationsEnabled: settings.NotificationsEnabledOrDefault(),
+		Delivery:             settings.NotificationDeliveryOrDefault(),
+		NotificationSound:    settings.NotificationSoundOrDefault(),
 	}, nil
 }
 
@@ -130,7 +134,9 @@ func (s *SettingsService) SetNotificationSettings(settings NotificationSettings)
 		return err
 	}
 	current.NotificationsEnabled = &settings.NotificationsEnabled
-	current.SystemNotificationsEnabled = &settings.SystemNotificationsEnabled
+	// Persist the resolved mode: an unknown value from a stale frontend heals
+	// to the default here rather than being written back verbatim.
+	current.NotificationDelivery = desktop.ResolveNotificationDelivery(settings.Delivery)
 	current.NotificationSound = &settings.NotificationSound
 	return desktop.SaveSettings(current)
 }

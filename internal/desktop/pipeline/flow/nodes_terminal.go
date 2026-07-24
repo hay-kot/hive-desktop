@@ -49,6 +49,18 @@ const feedDescriptionMaxLen = 500
 type FeedConfig struct {
 	Icon        string `json:"icon,omitempty"        yaml:"icon,omitempty"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
+	// Notify turns this feed into one that interrupts: a present block means
+	// "tell me when something new lands here", and its absence means the feed
+	// is read at the user's leisure like any other. Presence is the switch so
+	// a quiet feed carries no notify keys at all — the same absent-means-
+	// default idiom Icon and Description use.
+	//
+	// A notify *node* (see NotifyConfig) is the general form: it notifies for
+	// whatever is routed to it and claims no feed membership. This is the
+	// common case of the same idea — the feed you point at "things that need
+	// my attention right now" — expressed on the feed itself rather than as a
+	// second terminal alongside it. Both deliver through the same executor.
+	Notify *NotifyConfig `json:"notify,omitempty" yaml:"notify,omitempty"`
 }
 
 func (c *FeedConfig) Inputs() int  { return 1 }
@@ -60,6 +72,11 @@ func (c *FeedConfig) Validate(Refs) error {
 	}
 	if utf8.RuneCountInString(c.Description) > feedDescriptionMaxLen {
 		return fmt.Errorf("description: must be at most %d characters", feedDescriptionMaxLen)
+	}
+	if c.Notify != nil {
+		if err := c.Notify.Validate(nil); err != nil {
+			return fmt.Errorf("notify: %w", err)
+		}
 	}
 	return nil
 }
