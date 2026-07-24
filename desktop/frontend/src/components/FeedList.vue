@@ -252,9 +252,8 @@ watch(() => props.selectedId, async (id) => {
 /* A centered chip on a hairline rule, breathing on both sides so tiers read as
    section breaks rather than another row. Deliberately hueless — the rows
    already carry color (kind pills, unread dots) and a tinted separator
-   competed with them. Sticky keeps the tier visible while scrolling a long
-   group; z-index clears a hovered row's floating action pill (z-10). */
-.date-divider { position: sticky; top: 0; z-index: 11; display: flex; align-items: center; gap: 12px; padding: 26px 0 22px; background: var(--color-list); }
+   competed with them. Scrolls away with its group rather than sticking. */
+.date-divider { display: flex; align-items: center; gap: 12px; padding: 26px 0 22px; background: var(--color-list); }
 /* No horizontal padding: the rules run the full content width, landing on the
    same edges as every row's border-bottom instead of floating inset. */
 .date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-row); }
