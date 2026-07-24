@@ -1,4 +1,33 @@
-import { beforeEach } from 'vitest'
+import { afterAll, beforeEach } from 'vitest'
+
+// @wailsio/runtime's drag module starts a 50ms polling interval as an
+// import-time side effect, and that interval's very first tick dereferences
+// `window` (it calls window.clearInterval to stop itself). Any spec importing
+// the Wails runtime — which includes anything reaching a generated service
+// binding — that finishes within those 50ms leaves the timer pending, so it
+// fires after Vitest has torn the happy-dom environment down and raises
+// `ReferenceError: window is not defined`. That surfaces as an unhandled error
+// which fails the whole run regardless of how the assertions went, and it is
+// timing-dependent: fast local runs usually win the race, slower CI ones do
+// not.
+//
+// setupFiles run before any test module is evaluated, and `window` is
+// `globalThis` under this environment, so patching here catches the runtime's
+// `window.setInterval` call and lets afterAll clear it while `window` is still
+// alive. Intervals only: this is about a module-scope poller outliving its
+// environment, not about test-owned timers.
+const pendingIntervals = new Set<ReturnType<typeof setInterval>>()
+const nativeSetInterval = globalThis.setInterval
+globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => {
+  const id = nativeSetInterval(...args)
+  pendingIntervals.add(id)
+  return id
+}) as typeof globalThis.setInterval
+
+afterAll(() => {
+  for (const id of pendingIntervals) clearInterval(id)
+  pendingIntervals.clear()
+})
 
 // Node (22+) ships its own global `localStorage`/`sessionStorage`, which
 // shadows happy-dom's Storage implementation in this Vitest environment and
