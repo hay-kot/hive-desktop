@@ -254,9 +254,11 @@ watch(() => props.selectedId, async (id) => {
    already carry color (kind pills, unread dots) and a tinted separator
    competed with them. Sticky keeps the tier visible while scrolling a long
    group; z-index clears a hovered row's floating action pill (z-10). */
-.date-divider { position: sticky; top: 0; z-index: 11; display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px; background: var(--color-list); }
+.date-divider { position: sticky; top: 0; z-index: 11; display: flex; align-items: center; gap: 12px; padding: 26px 0 22px; background: var(--color-list); }
+/* No horizontal padding: the rules run the full content width, landing on the
+   same edges as every row's border-bottom instead of floating inset. */
 .date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-row); }
-.date-badge { flex: none; border-radius: 999px; background: var(--color-chip); padding: 3px 10px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+.date-badge { flex: none; border: 1px solid var(--color-strong); border-radius: 999px; background: var(--color-chip); padding: 4px 12px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .archived-divider { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 14px 6px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; border-top: 1px solid var(--color-row); margin-top: 6px; }
 .archived-divider:hover { color: var(--color-text); }
 .state-frame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }
