@@ -50,7 +50,8 @@ helpers), `types/`. TS bindings to Go services are **generated** into
 Drive everything through the **root** mise tasks (canonical entry points):
 
 ```bash
-mise run desktop:dev       # wails3 dev — live frontend (Vite HMR) + Go; picks a free port
+mise run desktop:dev       # wails3 dev — live frontend (Vite HMR) + Go; picks a free port;
+                           # runs on an ephemeral copy of the local data dir (HIVE_DATA_DIR overrides)
 mise run desktop:serve     # headless HTTP server build on localhost:8080 (agent UI loop)
 mise run desktop:build     # build the app (macOS emits desktop/bin/hive-desktop)
 mise run desktop:generate  # regenerate frontend TS bindings after Go service changes

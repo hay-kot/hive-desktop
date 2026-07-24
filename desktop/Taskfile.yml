@@ -36,14 +36,19 @@ tasks:
   dev:
     summary: Runs the application in development mode
     # Resolve a free Vite port (honoring an explicit WAILS_VITE_PORT) so multiple
-    # dev instances can run at once, and inject the git branch for the dev bar.
+    # dev instances can run at once, inject the git branch for the dev bar, and
+    # point the app at an ephemeral per-worktree copy of the local data dir so
+    # dev never mutates real user state (an explicit HIVE_DATA_DIR wins).
     vars:
       VITE_PORT:
         sh: ./build/scripts/dev-port.sh
       DEV_BRANCH:
         sh: git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown
+      DEV_DATA_DIR:
+        sh: ./build/scripts/dev-data-dir.sh
     env:
       VITE_HIVE_DEV_BRANCH: '{{.DEV_BRANCH}}'
+      HIVE_DATA_DIR: '{{.DEV_DATA_DIR}}'
     cmds:
       - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
