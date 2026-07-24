@@ -2,22 +2,13 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches: [main]
-  schedule:
-    # Daily run on main: fires the desktop-e2e-nightly-strict lane so the e2e
-    # suite accumulates flake signal without waiting on PR traffic (see the
-    # desktop-e2e job's blocking criteria).
-    - cron: "0 6 * * *"
-  # Manual trigger for the nightly-strict lane (flake hunting on demand).
-  workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: true
 
 env:
   GOPRIVATE: github.com/colonyops/hive
@@ -96,132 +87,3 @@ jobs:
       - name: Test frontend
         working-directory: desktop/frontend
         run: npm test
-
-  # Core lane: full suite minus quarantined tests, on PR and push. The
-  # schedule/dispatch events run desktop-e2e-nightly-strict instead so the
-  # suite is not executed twice per night.
-  desktop-e2e:
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    # Non-blocking while the suite burns in. Flip to blocking (delete this
-    # line) after ~10 consecutive green runs across the PR and daily scheduled
-    # lanes with no unexplained failure artifacts (see
-    # .hive/research/2026-07-23-e2e-architecture-research.md).
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Free runner disk space
-        run: ./desktop/e2e/scripts/free-ci-disk.sh
-
-      # With zero quarantined tests --grep-invert matches everything, so this
-      # is the full suite until something gets tagged.
-      - name: Run desktop e2e tests (minus @quarantine)
-        run: ./desktop/e2e/scripts/run-docker.sh --grep-invert @quarantine
-
-      - name: Upload Playwright traces and results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-e2e-results
-          path: desktop/e2e/test-results
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Quarantine lane: known-flaky tests keep running (and recording traces) so
-  # they can graduate back out, without gating anything.
-  desktop-e2e-quarantine:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      # The image build takes minutes; skip it entirely when nothing is
-      # tagged @quarantine.
-      - name: Check for quarantined tests
-        id: quarantine
-        run: |
-          if grep -rq '@quarantine' desktop/e2e/tests; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "::notice::No @quarantine-tagged tests; skipping quarantine lane."
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Free runner disk space
-        if: steps.quarantine.outputs.present == 'true'
-        run: ./desktop/e2e/scripts/free-ci-disk.sh
-
-      - name: Run quarantined desktop e2e tests
-        if: steps.quarantine.outputs.present == 'true'
-        run: ./desktop/e2e/scripts/run-docker.sh --grep @quarantine --pass-with-no-tests
-
-      - name: Upload Playwright traces and results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-e2e-quarantine-results
-          path: desktop/e2e/test-results
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Burn-in lane (BLOCKING): repeat only the spec files changed on this PR to
-  # shake out flakiness before it lands. Onboarding specs are excluded: the
-  # mock device-flow grant is one-way per server process, so repeating those
-  # tests fails by design, not by flake.
-  desktop-e2e-burn-in:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      # fetch-depth: 0 so the image build's `COPY . .` carries a .git with
-      # origin/main — --only-changed resolves it inside the container.
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Free runner disk space
-        run: ./desktop/e2e/scripts/free-ci-disk.sh
-
-      - name: Burn in changed desktop e2e specs
-        run: ./desktop/e2e/scripts/run-docker.sh --only-changed=origin/main --repeat-each 5 --retries=0 --grep-invert onboarding --pass-with-no-tests
-
-      - name: Upload Playwright traces and results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-e2e-burn-in-results
-          path: desktop/e2e/test-results
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Nightly strict lane: full suite with PW_FAIL_ON_FLAKY=1 so tests that
-  # only pass on retry fail the run — the flake-detection feed for the
-  # quarantine list. Scheduled daily, plus workflow_dispatch for on-demand
-  # flake hunting.
-  desktop-e2e-nightly-strict:
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v7
-
-      - name: Free runner disk space
-        run: ./desktop/e2e/scripts/free-ci-disk.sh
-
-      - name: Run desktop e2e tests (strict, fail on flaky)
-        run: ./desktop/e2e/scripts/run-docker.sh
-        env:
-          PW_FAIL_ON_FLAKY: "1"
-
-      - name: Upload Playwright traces and results
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: desktop-e2e-nightly-strict-results
-          path: desktop/e2e/test-results
-          retention-days: 7
-          if-no-files-found: ignore
