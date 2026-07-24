@@ -519,7 +519,7 @@ describe('App', () => {
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({ view: 'trash' })
     expect(mocks.ListInboxItemsTrash).toHaveBeenLastCalledWith('personal', 500)
-    expect(wrapper.get('[data-testid="sidebar-trash"]').classes()).toContain('sidebar-entry-selected')
+    expect(wrapper.get('[data-testid="sidebar-trash"]').classes()).toContain('footer-entry-selected')
     wrapper.unmount()
   })
 

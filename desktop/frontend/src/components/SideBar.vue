@@ -359,20 +359,17 @@ function deleteFolder(folder: FeedFolder): void {
 
     <!-- Trash: unrouted + ignored items. Deliberately de-emphasized — no
          count, no unread badge; a place to go, never a queue that calls.
-         Renders exactly like a feed row so the sidebar stays visually one
-         list; only the missing count marks it as a utility surface. -->
-    <section class="mt-auto px-2.5 pb-2 pt-1">
-      <button
-        type="button"
-        class="sidebar-entry"
-        :class="{ 'sidebar-entry-selected': selection.type === 'trash' }"
-        data-testid="sidebar-trash"
-        @click="emit('select', { type: 'trash' })"
-      >
-        <span class="nav-icon"><IconTrash class="size-3" /></span>
-        <span class="min-w-0 flex-1 truncate text-left">Trash</span>
-      </button>
-    </section>
+         Styled as a footer utility row alongside Edit flow, not as a feed. -->
+    <button
+      type="button"
+      class="footer-entry mt-auto"
+      :class="{ 'footer-entry-selected': selection.type === 'trash' }"
+      data-testid="sidebar-trash"
+      @click="emit('select', { type: 'trash' })"
+    >
+      <span class="footer-icon"><IconTrash class="size-3" /></span>
+      <span class="min-w-0 flex-1 truncate">Trash</span>
+    </button>
 
     <button
       class="flex items-center gap-2.5 border-t border-border p-2.5 text-left hover:bg-chip"
@@ -397,10 +394,11 @@ function deleteFolder(folder: FeedFolder): void {
 </template>
 
 <style scoped>
-.sidebar-entry { display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 8px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
-.sidebar-entry:hover { background: var(--color-chip); color: var(--color-text); }
-.sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
-.sidebar-entry-selected .nav-icon { border-color: var(--color-accent-tint); color: var(--color-accent); }
+.footer-entry { display: flex; align-items: center; gap: 10px; width: 100%; padding: 10px; border-top: 1px solid var(--color-border); color: var(--color-text-2); font-size: 12.5px; text-align: left; cursor: pointer; }
+.footer-entry:hover { background: var(--color-chip); color: var(--color-text); }
+.footer-entry-selected { color: var(--color-accent); font-weight: 500; }
+.footer-entry-selected .footer-icon { border-color: var(--color-accent-tint); color: var(--color-accent); }
+.footer-icon { display: flex; flex: none; align-items: center; justify-content: center; width: 22px; height: 22px; border: 1px solid var(--color-card); border-radius: 6px; background: var(--color-app); color: var(--color-text-3); }
 .nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--color-strong); border-radius: 5px; background: var(--color-app); color: var(--color-text-2); }
 .section-label { display: flex; align-items: center; gap: 7px; padding: 0 6px 8px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
 .folder-add { opacity: 0; }

@@ -54,10 +54,10 @@ describe('SideBar', () => {
     expect(trash.text()).toBe('Trash')
     await trash.trigger('click')
     expect(wrapper.emitted('select')).toEqual([[{ type: 'trash' }]])
-    expect(trash.classes()).not.toContain('sidebar-entry-selected')
+    expect(trash.classes()).not.toContain('footer-entry-selected')
 
     const selected = mount(SideBar, { props: { profile, selection: { type: 'trash' } } })
-    expect(selected.get('[data-testid="sidebar-trash"]').classes()).toContain('sidebar-entry-selected')
+    expect(selected.get('[data-testid="sidebar-trash"]').classes()).toContain('footer-entry-selected')
   })
 
   it('opens the flows canvas from the Edit flow footer', async () => {
