@@ -199,7 +199,11 @@ ZIP_NAME="Hive-${VERSION}-darwin-universal.zip"
 echo "==> packaging $ZIP_NAME"
 (
   cd desktop/bin
-  ditto -c -k --keepParent Hive.app "$ZIP_NAME"
+  # Extended attributes are deliberately excluded. ditto otherwise encodes
+  # them as ._* AppleDouble entries; the updater's cross-platform ZIP
+  # extractor materializes those as real bundle files, invalidating the code
+  # signature and making Gatekeeper report that Hive is damaged.
+  ditto -c -k --norsrc --noextattr --noacl --keepParent Hive.app "$ZIP_NAME"
   # SHA256SUMS is a manual-verification/audit sidecar; the in-app updater
   # verifies the sha256 published in the channel manifest.
   shasum -a 256 "$ZIP_NAME" > SHA256SUMS
@@ -208,6 +212,18 @@ echo "==> packaging $ZIP_NAME"
 ZIP_PATH="desktop/bin/$ZIP_NAME"
 SHA256="$(awk '{print $1}' desktop/bin/SHA256SUMS)"
 SIZE="$(stat -f%z "$ZIP_PATH")"
+
+# Exercise the same plain-ZIP extraction semantics as the updater before any
+# bytes become immutable in R2. Native ditto extraction would silently restore
+# AppleDouble metadata and miss the signature-breaking failure mode above.
+echo "==> verifying packaged app after plain ZIP extraction"
+EXTRACTED="$WORK/extracted"
+mkdir -p "$EXTRACTED"
+/usr/bin/unzip -q "$ZIP_PATH" -d "$EXTRACTED"
+metadata_file="$(find "$EXTRACTED/Hive.app" -name '._*' -print -quit)"
+[[ -z "$metadata_file" ]] || { echo "packaged app contains signature-breaking AppleDouble file: $metadata_file" >&2; exit 1; }
+codesign --verify --deep --strict --verbose=2 "$EXTRACTED/Hive.app"
+xcrun stapler validate "$EXTRACTED/Hive.app"
 
 # ---- upload -----------------------------------------------------------------
 if [[ $SKIP_UPLOAD = 1 ]]; then

@@ -47,7 +47,7 @@ desktop/
 
 ## Publish flow
 
-The pipeline is `scripts/release/release-desktop.sh` — build universal .app, Developer ID sign (ephemeral keychain), notarize + staple, zip + `SHA256SUMS`, upload to `releases/<semver>/`, write channel manifests. Channel routing and cascade per the rules below.
+The pipeline is `scripts/release/release-desktop.sh` — build universal .app, Developer ID sign (ephemeral keychain), notarize + staple, zip without macOS AppleDouble metadata, verify the extracted archive's signature and stapled ticket, write `SHA256SUMS`, upload to `releases/<semver>/`, and write channel manifests. Channel routing and cascade per the rules below.
 
 **CI release** (the normal path): push a `desktop-v<semver>` tag; `.github/workflows/desktop-publish.yml` wraps the same script on a macOS runner using the repo secrets.
 
