@@ -11,8 +11,11 @@ import IconRss from '~icons/lucide/rss'
 import IconSettings from '~icons/lucide/settings'
 import IconTrash from '~icons/lucide/trash-2'
 import IconWorkflow from '~icons/lucide/workflow'
+import ConfirmationDialog from './ConfirmationDialog.vue'
+import FolderEditModal from './FolderEditModal.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SidebarFeedRow from './SidebarFeedRow.vue'
+import { useConfirmation } from '../composables/useConfirmation'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { applyMove, SIDEBAR_DRAG_MIME, type DragRef, type DropTarget } from '../lib/feedTree'
 import type { FeedFolder, FeedSummary, FeedTree, Profile, SidebarSelection } from '../types/feed'
@@ -149,7 +152,6 @@ function isCollapsed(folderId: string): boolean {
 }
 
 function onHeaderClick(folder: FeedFolder): void {
-  if (renamingId.value === folder.id) return
   const flowId = props.profile.id
   const current = collapsedByFlow.value[flowId] ?? []
   collapsedByFlow.value = {
@@ -159,8 +161,17 @@ function onHeaderClick(folder: FeedFolder): void {
 }
 
 // ── folder structure (persisted) ────────────────────────────────────────────
-const renamingId = ref<string | null>(null)
-const draftName = ref('')
+// Renaming and deleting both live in the folder's edit dialog, so the tree row
+// carries a single hover affordance and no click in it can mutate the layout.
+// The dialog reads the folder back out of the tree by id, so a rename reflects
+// straight from the persisted layout rather than a local copy.
+const editingId = ref<string | null>(null)
+const confirmation = useConfirmation()
+
+const editingFolder = computed<FeedFolder | null>(() => {
+  const node = tree.value.find((n) => n.kind === 'folder' && n.folder.id === editingId.value)
+  return node?.kind === 'folder' ? node.folder : null
+})
 
 function replaceFolder(folder: FeedFolder, patch: Partial<FeedFolder>): void {
   emit(
@@ -183,33 +194,27 @@ function newFolderId(): string {
 function addFolder(): void {
   const id = newFolderId()
   emit('reorder', [...tree.value, { kind: 'folder', folder: { id, name: 'New folder', feeds: [] } }])
-  renamingId.value = id
-  draftName.value = 'New folder'
+  editingId.value = id
 }
 
-function startRename(folder: FeedFolder): void {
-  renamingId.value = folder.id
-  draftName.value = folder.name
-}
-
-function commitRename(folder: FeedFolder): void {
-  const name = draftName.value.trim()
-  renamingId.value = null
-  if (name && name !== folder.name) replaceFolder(folder, { name })
-}
-
-function cancelRename(): void {
-  renamingId.value = null
-}
-
-function focusInput(vnode: { el?: unknown }): void {
-  const el = vnode.el as HTMLInputElement | undefined
-  el?.focus()
-  el?.select()
+function saveFolderName(folder: FeedFolder, name: string): void {
+  editingId.value = null
+  if (name !== folder.name) replaceFolder(folder, { name })
 }
 
 // Deleting a folder ungroups it: its feeds re-enter the top level at the
-// folder's slot (no feed is destroyed), so no confirm is needed.
+// folder's slot, so no feed is destroyed — but the folder's name and grouping
+// are, with no undo, which is why it is confirmed. The edit dialog steps aside
+// while the confirmation is up (both close on Escape) and comes back on cancel.
+function requestDeleteFolder(folder: FeedFolder): void {
+  confirmation.request({
+    title: 'Delete folder',
+    description: `Delete ${folder.name}? Feeds inside will move to the top level — no feed is removed.`,
+    confirmLabel: 'Delete folder',
+    onConfirm: () => deleteFolder(folder),
+  })
+}
+
 function deleteFolder(folder: FeedFolder): void {
   const next: FeedTree = []
   for (const n of tree.value) {
@@ -219,6 +224,7 @@ function deleteFolder(folder: FeedFolder): void {
       next.push(n)
     }
   }
+  editingId.value = null
   emit('reorder', next)
 }
 </script>
@@ -295,30 +301,14 @@ function deleteFolder(folder: FeedFolder): void {
               <IconFolder class="folder-glyph size-3" />
               <component :is="isCollapsed(node.folder.id) ? IconChevronRight : IconChevronDown" class="folder-chevron size-3" />
             </span>
-            <input
-              v-if="renamingId === node.folder.id"
-              v-model="draftName"
-              class="folder-rename min-w-0 flex-1"
-              data-testid="folder-rename-input"
-              @click.stop
-              @vue:mounted="focusInput"
-              @keydown.enter.prevent="commitRename(node.folder)"
-              @keydown.esc.prevent="cancelRename"
-              @blur="commitRename(node.folder)"
-            >
-            <span v-else class="min-w-0 flex-1 truncate text-left font-medium" data-testid="folder-name">{{ node.folder.name }}</span>
+            <span class="min-w-0 flex-1 truncate text-left font-medium" data-testid="folder-name">{{ node.folder.name }}</span>
             <button
               class="folder-action flex size-5 shrink-0 items-center justify-center rounded-md text-text-4 hover:bg-chip hover:text-text"
-              title="Rename folder"
-              data-testid="folder-rename"
-              @click.stop="startRename(node.folder)"
+              title="Edit folder"
+              aria-label="Edit folder"
+              data-testid="folder-edit"
+              @click.stop="editingId = node.folder.id"
             ><IconPencil class="size-3" /></button>
-            <button
-              class="folder-action flex size-5 shrink-0 items-center justify-center rounded-md text-text-4 hover:bg-danger/15 hover:text-danger"
-              title="Delete folder"
-              data-testid="folder-delete"
-              @click.stop="deleteFolder(node.folder)"
-            ><IconTrash class="size-3" /></button>
             <span class="font-mono text-[11px]" :class="folderNew(node.folder) ? 'text-accent' : 'text-text-3'">{{ folderNew(node.folder) || folderTotal(node.folder) }}</span>
           </div>
 
@@ -390,6 +380,25 @@ function deleteFolder(folder: FeedFolder): void {
     </button>
 
     <PanelResizeHandle edge="right" name="sidebar" :start="startResize" :step="step" />
+
+    <FolderEditModal
+      v-if="editingFolder && !confirmation.open.value"
+      :key="editingFolder.id"
+      :folder="editingFolder"
+      @save="saveFolderName(editingFolder, $event)"
+      @delete="requestDeleteFolder(editingFolder)"
+      @close="editingId = null"
+    />
+    <ConfirmationDialog
+      v-if="confirmation.open.value && confirmation.options.value"
+      :title="confirmation.options.value.title"
+      :description="confirmation.options.value.description"
+      :confirm-label="confirmation.options.value.confirmLabel"
+      :busy="confirmation.busy.value"
+      :error="confirmation.error.value"
+      @confirm="confirmation.confirm"
+      @cancel="confirmation.cancel"
+    />
   </aside>
 </template>
 
@@ -422,7 +431,6 @@ function deleteFolder(folder: FeedFolder): void {
 .folder-header:hover .folder-chevron { display: inline-flex; }
 .folder-action { opacity: 0; }
 .folder-header:hover .folder-action, .folder-action:focus-visible { opacity: 1; }
-.folder-rename { background: var(--color-app); border: 1px solid var(--color-accent); border-radius: 5px; padding: 1px 5px; font-size: 13px; color: var(--color-text); outline: none; }
 .folder-body { margin-top: 1px; }
 .folder-empty { padding: 6px 8px 6px 20px; font-size: 11.5px; color: var(--color-text-4); font-style: italic; }
 .sb-folder.drop-into { background: var(--color-accent-tint); border-radius: 7px; }
