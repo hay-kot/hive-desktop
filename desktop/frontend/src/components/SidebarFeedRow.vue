@@ -7,7 +7,6 @@ import AppMenu from './AppMenu.vue'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconMailCheck from '~icons/lucide/mail-check'
 import { feedIconComponent } from '../lib/feedIcons'
-import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import type { FeedSummary } from '../types/feed'
 import type { MenuEntry } from '../types/menu'
 
@@ -22,18 +21,15 @@ const icon = computed(() => feedIconComponent(props.feed.icon))
 const tooltip = computed(() => props.feed.description || props.feed.name)
 
 // The row's "…" menu (also opened by right-click), same shape as an inbox
-// row's. The shortcut hint is shown only on the selected row: the binding acts
-// on the current selection, so on any other row it would name a key that does
-// something else.
-const { combosFor } = useKeybindings()
+// row's. No shortcut hint: the binding acts on the *selected* feed, so on any
+// other row it would name a key that does something else.
 const root = ref<HTMLElement | null>(null)
 const menuToggle = ref<HTMLElement | null>(null)
 const menuOpen = ref(false)
 const menuFlip = ref(false)
-const entries = computed<MenuEntry[]>(() => {
-  const combo = props.selected ? combosFor('feed.mark-all-read')[0] : undefined
-  return [{ kind: 'action', id: 'mark-read', label: 'Mark all as read', icon: IconMailCheck, kbd: combo ? formatCombo(combo) : undefined, testid: 'sidebar-feed-mark-read' }]
-})
+const entries: MenuEntry[] = [
+  { kind: 'action', id: 'mark-read', label: 'Mark all as read', icon: IconMailCheck, testid: 'sidebar-feed-mark-read' },
+]
 
 // The sidebar is a scroll container, so an overflowing menu is clipped rather
 // than allowed to hang outside it. Open upward when the row sits near the

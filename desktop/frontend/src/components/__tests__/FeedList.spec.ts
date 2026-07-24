@@ -45,13 +45,12 @@ describe('FeedList', () => {
     expect(wrapper.emitted('refresh')).toHaveLength(1)
   })
 
-  it('offers mark all as read in the view menu, with its shortcut, and closes after', async () => {
+  it('offers mark all as read in the view menu and closes after', async () => {
     const wrapper = mountList()
     await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
 
     const entry = wrapper.get('[data-testid="view-menu-mark-read"]')
-    expect(entry.text()).toContain('Mark all as read')
-    expect(entry.text()).toMatch(/[⇧A]|Shift/) // teaches the keymap rather than replacing it
+    expect(entry.text()).toBe('Mark all as read') // no shortcut glyph in the label
 
     await entry.trigger('click')
     expect(wrapper.emitted('mark-all-read')).toHaveLength(1)
