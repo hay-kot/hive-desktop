@@ -31,8 +31,8 @@ mkdir -p desktop/e2e/test-results desktop/e2e/screenshots
 # --env PW_FAIL_ON_FLAKY (no value) forwards the host value only when the
 # variable is set on the host; otherwise it stays unset in the container.
 # Contract: playwright.config.ts enables failOnFlakyTests when
-# PW_FAIL_ON_FLAKY is set, so retried-then-passed tests fail the run
-# (the CI nightly-strict lane's flake-detection feed).
+# PW_FAIL_ON_FLAKY is set, so retried-then-passed tests fail the run —
+# use it for a strict flake hunt before landing a branch.
 #
 # Extra script arguments are appended after the image name; the image
 # entrypoint treats a leading flag as Playwright options, so
