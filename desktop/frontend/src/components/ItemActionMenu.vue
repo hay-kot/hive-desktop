@@ -4,7 +4,7 @@ import AppMenu from './AppMenu.vue'
 import { ActionViews } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { actionTypeMeta } from '../lib/actionPresentation'
-import { githubPayload } from '../lib/feedPresentation'
+import { kind } from '../lib/itemPresentation'
 import IconArchive from '~icons/lucide/archive'
 import IconCopy from '~icons/lucide/copy'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -44,7 +44,7 @@ const menuActions = computed(() => props.actions ?? fetchedActions.value)
 onMounted(async () => {
   if (props.actions !== undefined) return
   try {
-    fetchedActions.value = (await ActionViews(githubPayload(props.item).kind)) ?? []
+    fetchedActions.value = (await ActionViews(kind(props.item))) ?? []
   } catch (error) {
     console.warn('Unable to load actions for item menu', error)
   }

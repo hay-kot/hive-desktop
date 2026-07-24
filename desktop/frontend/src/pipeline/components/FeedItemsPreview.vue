@@ -8,7 +8,7 @@
 // PipelineService.ListInboxItemsByFeed binding into this shape.
 import { ref, watch } from 'vue'
 import type { InboxItem } from '../../types/feed'
-import { githubPayload } from '../../lib/feedPresentation'
+import { byline, container } from '../../lib/itemPresentation'
 
 export interface FeedItemsClient {
   feedItems(feedId: string): Promise<Array<InboxItem & { archivedAt?: number | null; archivedActor?: string | null; archivedReason?: string | null; sourceState?: string | null }> | null | undefined>
@@ -49,10 +49,10 @@ async function load(feedId: string | null): Promise<void> {
 watch(() => props.feedId, (id) => { void load(id) }, { immediate: true })
 
 // item.payload is an opaque source payload, decoded here only through the
-// GitHub presentation adapter for title/repository/author display.
+// canonical presentation projections for title/repository/author display.
 function title(item: InboxItem): string { return item.title }
-function repo(item: InboxItem): string { return githubPayload(item).repo }
-function author(item: InboxItem): string { return githubPayload(item).author }
+function repo(item: InboxItem): string { return container(item) }
+function author(item: InboxItem): string { return byline(item) }
 </script>
 
 <template>

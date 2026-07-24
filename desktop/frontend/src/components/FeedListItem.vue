@@ -3,8 +3,7 @@ import { computed, ref } from 'vue'
 import ItemActionMenu from './ItemActionMenu.vue'
 import SourceMark from './SourceMark.vue'
 import { relativeAge } from '../lib/age'
-import { defaultWebhookSourceIcon, feedIconComponent } from '../lib/feedIcons'
-import { bodySnippet, feedSource, githubPayload, typeLabel } from '../lib/feedPresentation'
+import { byline, container, containerLine, kind, kindLabel, kindStyle, presentationFor, snippet } from '../lib/itemPresentation'
 import IconArchive from '~icons/lucide/archive'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -22,14 +21,17 @@ const emit = defineEmits<{
   'copy-contents': []
   'run-action': [actionId: string]
 }>()
-const source = computed(() => feedSource(props.item))
-// Webhook items render their source node's configured feed icon (falling
-// back to the webhook glyph); GitHub keeps its brand mark inside SourceMark.
-const sourceIcon = computed(() => source.value.key === 'webhook' ? feedIconComponent(props.sourceIcons?.[props.item.sourceScope] || defaultWebhookSourceIcon) : undefined)
-const github = computed(() => githubPayload(props.item))
-const type = computed(() => typeLabel(github.value.kind))
-const snippet = computed(() => bodySnippet(github.value.body))
-const typePillClass = computed(() => github.value.kind === 'PR' ? 'type-pill-pr' : github.value.kind === 'Issue' ? 'type-pill-issue' : 'type-pill-neutral')
+// The source label, badge mark, and (for webhook items) icon resolution are
+// all provider-variant — delegated to the sourceKind-keyed adapter registry.
+const presentation = computed(() => presentationFor(props.item.sourceKind))
+const sourceMark = computed(() => presentation.value.mark(props.item, { sourceIcons: props.sourceIcons }))
+const itemKind = computed(() => kind(props.item))
+const itemKindLabel = computed(() => kindLabel(props.item))
+const itemKindStyle = computed(() => kindStyle(props.item))
+const itemContainer = computed(() => container(props.item))
+const itemContainerLine = computed(() => containerLine(props.item))
+const itemByline = computed(() => byline(props.item))
+const itemSnippet = computed(() => snippet(props.item))
 
 // The row's "…" menu (also opened by right-click). Anchored under the kebab;
 // flipped upward when the row sits too close to the bottom of the window for
@@ -56,11 +58,11 @@ function toggleMenu(): void {
        select like the button did (`.self` so pill keystrokes don't select). -->
   <div ref="root" class="feed-item" :class="{ selected, 'menu-open': menuOpen }" role="button" tabindex="0" :data-id="item.externalId" :data-inbox-id="item.id" data-testid="feed-item" @click="emit('select')" @keydown.enter.self.prevent="emit('select')" @keydown.space.self.prevent="emit('select')" @contextmenu.prevent="openMenu()">
     <div class="relative flex items-start gap-3">
-      <span class="source-badge" :data-source="source.key" data-testid="source-badge"><SourceMark :source="source" :icon="sourceIcon" class="size-4" /></span>
+      <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" class="size-4" /></span>
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2.5"><div class="min-w-0 flex-1 truncate text-left text-[13.5px] leading-[1.35]" :class="item.unread ? 'font-semibold text-text' : 'font-normal text-text-2'">{{ item.title }}</div><div class="meta-right flex shrink-0 items-center gap-2"><span v-if="item.unread" data-testid="unread-dot" class="unread-dot" /><span class="font-mono text-[11px] text-text-4">{{ relativeAge(item.lastEventAt) }}</span></div></div>
-        <div class="mt-[5px] flex min-w-0 items-center gap-2"><span v-if="archived && item.archivedReason" class="type-pill type-pill-neutral" data-testid="archive-reason">{{ item.archivedReason }}</span><span v-if="trash && item.ignoredAt != null" class="type-pill type-pill-neutral" data-testid="ignored-pill">ignored</span><span class="type-pill" :class="typePillClass" data-testid="type-pill" :data-kind="github.kind">{{ type }}</span><span class="min-w-0 truncate font-mono text-[11px] text-text-3">{{ source.label }}<template v-if="github.repo"> · {{ github.repo }}</template><template v-if="github.num"> #{{ github.num }}</template></span></div>
-        <div v-if="github.author || snippet" class="mt-[5px] truncate text-left text-[12px] leading-[1.4] text-text-3" data-testid="item-snippet"><span v-if="github.author" class="text-text-2">{{ github.author }}</span><template v-if="github.author && snippet"> — </template>{{ snippet }}</div>
+        <div class="mt-[5px] flex min-w-0 items-center gap-2"><span v-if="archived && item.archivedReason" class="type-pill type-pill-neutral" data-testid="archive-reason">{{ item.archivedReason }}</span><span v-if="trash && item.ignoredAt != null" class="type-pill type-pill-neutral" data-testid="ignored-pill">ignored</span><span class="type-pill" :class="'type-pill-' + itemKindStyle" data-testid="type-pill" :data-kind="itemKind">{{ itemKindLabel }}</span><span class="min-w-0 truncate font-mono text-[11px] text-text-3">{{ presentation.sourceLabel }}<template v-if="itemContainer"> · {{ itemContainerLine }}</template></span></div>
+        <div v-if="itemByline || itemSnippet" class="mt-[5px] truncate text-left text-[12px] leading-[1.4] text-text-3" data-testid="item-snippet"><span v-if="itemByline" class="text-text-2">{{ itemByline }}</span><template v-if="itemByline && itemSnippet"> — </template>{{ itemSnippet }}</div>
       </div>
     </div>
     <!-- Hover pill: swaps in over the unread dot + timestamp (which fade out)

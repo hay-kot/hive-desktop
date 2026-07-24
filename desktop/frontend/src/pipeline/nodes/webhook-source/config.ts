@@ -12,6 +12,9 @@ import { isFeedIcon } from '../../../lib/feedIcons'
 
 export const type = 'webhook-source'
 export const role = 'source' as const
+// The inbox item sourceKind this node's items carry — see github-source's
+// config.ts for why this lives next to `type`.
+export const sourceKind = 'webhook'
 
 export interface Config {
   /**

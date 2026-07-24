@@ -4,8 +4,7 @@ import { Browser, Window } from '@wailsio/runtime'
 import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
-import { bodySnippet, feedSource, githubPayload, typeLabel } from '../lib/feedPresentation'
-import { itemContents } from '../lib/itemClipboard'
+import { clipboardText, kind, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
 import { useToasts } from './useToasts'
@@ -179,11 +178,7 @@ export function useFeedState() {
   function matchesSearch(item: InboxItem): boolean {
     const query = search.value.trim().toLowerCase()
     if (!query) return true
-    const github = githubPayload(item)
-    const haystack = [item.title, github.repo, github.author, typeLabel(github.kind), feedSource(item).label, bodySnippet(github.body)]
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(query)
+    return searchText(item).toLowerCase().includes(query)
   }
 
   function compareItems(a: InboxItem, b: InboxItem): number {
@@ -296,18 +291,20 @@ export function useFeedState() {
           return { id: feedId, name: n.name || n.id, count: c?.total ?? 0, newCount: c?.unread ?? 0, archivedCount: c?.archived ?? 0, icon: n.icon, description: n.description }
         })
       const icons: Record<string, string> = {}
+      const countByKind = new Map<string, number>()
       for (const n of nodes) {
         if (n.type === 'webhook-source' && n.icon) icons[n.id] = n.icon
+        const nodeSourceKind = sourceKindForNodeType(n.type)
+        if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }
       sourceIcons.value = icons
-      const sourceCount = nodes.filter((n) => n.type === 'github-source').length
       const profile = profiles.value.find((p) => p.id === flowId)
       if (profile) {
         profile.feeds = feeds
         // Rebuild the sidebar tree from current feeds + saved layout on every
         // load so counts stay fresh and added/removed feeds reconcile in.
         profile.tree = buildFeedTree(feeds, sidebar, flowId)
-        profile.sourceSummary = `GitHub · ${sourceCount} source${sourceCount === 1 ? '' : 's'}`
+        profile.sourceSummary = sourceSummary(countByKind)
         // Workspace rollups derive from feed counts: without an aggregate
         // inbox there is no workspace-wide query to consult.
         profile.totalCount = feeds.reduce((sum, f) => sum + f.count, 0)
@@ -513,7 +510,7 @@ export function useFeedState() {
     // buttons that fail on click.
     if (!item || item.sourceKind !== 'github') { actions.value = []; return }
     try {
-      const available = (await ActionViews(githubPayload(item).kind)) ?? []
+      const available = (await ActionViews(kind(item))) ?? []
       if (token !== actionLoadSeq || selectedId.value !== item.id) return
       actions.value = available
       await Promise.all(available.map(async (action) => {
@@ -853,7 +850,7 @@ export function useFeedState() {
     await copyToClipboard(item.url, 'Link copied')
   }
 
-  const copyItemContents = (item: InboxItem) => copyToClipboard(itemContents(item), 'Contents copied')
+  const copyItemContents = (item: InboxItem) => copyToClipboard(clipboardText(item), 'Contents copied')
 
   // Row-level entry point for a configured action: actions load per selected
   // item (labels, requiresSessionInput, run cards all key off the selection),

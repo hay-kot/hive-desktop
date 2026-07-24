@@ -1,0 +1,236 @@
+// Presentation adapter registry: the seam between an inbox item's
+// provider-neutral payload and the feed UI. Canonical projections (kind,
+// container, byline, snippet, search, clipboard) are plain module
+// functions — every sourceKind gets identical semantics, so no adapter can
+// quietly fork search or clipboard behavior. Only the genuinely
+// provider-variant surface (sourceLabel, the brand/glyph mark, the
+// actions-footer context line) lives in the sourceKind-keyed registry below.
+import type { Component } from 'vue'
+import GithubMark from '../components/marks/GithubMark.vue'
+import { defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
+import * as githubSourceNode from '../pipeline/nodes/github-source/config'
+import * as webhookSourceNode from '../pipeline/nodes/webhook-source/config'
+import IconCircleDot from '~icons/lucide/circle-dot'
+import IconGitPullRequest from '~icons/lucide/git-pull-request'
+import IconInbox from '~icons/lucide/inbox'
+import type { InboxItem } from '../types/feed'
+
+// ── Canonical payload decode ────────────────────────────────────────────────
+
+/** Canonical payload projection (the blessed inbox-item contract keys).
+ *  Every field is typeof-guarded, so any payload shape — a non-object
+ *  payload, a mistyped field — degrades to empty fields instead of
+ *  breaking. Applies to every sourceKind; the contract is provider-neutral. */
+export interface CanonicalPayload {
+  kind: string
+  repo: string
+  num: number
+  author: string
+  body: string
+  url: string
+  labels: string[]
+  state: string
+}
+
+export function canonicalPayload(item: InboxItem): CanonicalPayload {
+  if (!item.payload || typeof item.payload !== 'object') {
+    return { kind: '', repo: '', num: 0, author: '', body: '', url: item.url, labels: [], state: '' }
+  }
+  const value = item.payload as Record<string, unknown>
+  const string = (key: string): string => (typeof value[key] === 'string' ? value[key] as string : '')
+  return {
+    kind: string('kind'),
+    repo: string('repo'),
+    num: typeof value.num === 'number' ? value.num : 0,
+    author: string('author'),
+    body: string('body'),
+    url: string('url') || item.url,
+    labels: Array.isArray(value.labels) ? value.labels.filter((label): label is string => typeof label === 'string') : [],
+    state: string('state'),
+  }
+}
+
+// ── Canonical projections ───────────────────────────────────────────────────
+// Deliberately module functions, not adapter members: every provider gets
+// identical kind styling, container/byline lines, snippets, search, and
+// clipboard semantics.
+
+export type KindStyle = 'pr' | 'issue' | 'neutral'
+
+/** Raw canonical kind — what applies_to matches against; '' when absent. */
+export function kind(item: InboxItem): string {
+  return canonicalPayload(item).kind
+}
+
+/** Human label for the kind pill/search: known kinds get a friendly name,
+ *  anything else echoes the raw kind, and an absent kind reads as "Item". */
+export function kindLabel(item: InboxItem): string {
+  const raw = kind(item)
+  if (raw === 'PR') return 'Pull Request'
+  if (raw === 'Issue') return 'Issue'
+  return raw || 'Item'
+}
+
+/** Kind pill styling. PR/Issue styling is payload-driven, not
+ *  provider-driven — a webhook item with kind "PR" gets PR styling too. */
+export function kindStyle(item: InboxItem): KindStyle {
+  const raw = kind(item)
+  if (raw === 'PR') return 'pr'
+  if (raw === 'Issue') return 'issue'
+  return 'neutral'
+}
+
+/** Kind pill glyph; undefined for anything but PR/Issue. */
+export function kindIcon(item: InboxItem): Component | undefined {
+  const style = kindStyle(item)
+  if (style === 'pr') return IconGitPullRequest
+  if (style === 'issue') return IconCircleDot
+  return undefined
+}
+
+/** Container/context label: repo, channel, dashboard — whatever the source
+ *  scopes its items to. '' when the payload carries none. */
+export function container(item: InboxItem): string {
+  return canonicalPayload(item).repo
+}
+
+/** container() plus a short ordinal badge (" #num") when num is positive. */
+export function containerLine(item: InboxItem): string {
+  const payload = canonicalPayload(item)
+  return payload.repo + (payload.num > 0 ? ` #${payload.num}` : '')
+}
+
+/** Actor byline; '' when the payload carries none. */
+export function byline(item: InboxItem): string {
+  return canonicalPayload(item).author
+}
+
+/** Markdown body for the detail pane. */
+export function body(item: InboxItem): string {
+  return canonicalPayload(item).body
+}
+
+/** Reduces a markdown body to its first non-empty line, with heading, list,
+ *  link, and emphasis markup stripped — a plain-text one-liner for the feed
+ *  row. */
+export function bodySnippet(text: string): string {
+  for (const raw of text.split('\n')) {
+    const line = raw
+      .replace(/^#{1,6}\s+/, '')
+      .replace(/^\s*[-*+]\s+\[[ xX]\]\s+/, '')
+      .replace(/^\s*[-*+>]\s+/, '')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/[*_`~]/g, '')
+      .trim()
+    if (line) return line
+  }
+  return ''
+}
+
+/** One-line body snippet for the feed row. */
+export function snippet(item: InboxItem): string {
+  return bodySnippet(body(item))
+}
+
+/** Haystack matchesSearch filters the feed against: title, container,
+ *  byline, kind label, source label, and the body snippet. */
+export function searchText(item: InboxItem): string {
+  return [item.title, container(item), byline(item), kindLabel(item), presentationFor(item.sourceKind).sourceLabel, snippet(item)]
+    .join(' ')
+}
+
+/** Clipboard text for an inbox item's "Copy contents" action: a compact
+ *  header (title, repo #num, link) followed by the raw markdown body —
+ *  self-contained enough to paste into a session prompt or a message
+ *  without the reader needing the app open. */
+export function clipboardText(item: InboxItem): string {
+  const payload = canonicalPayload(item)
+  const reference = [payload.repo && payload.num ? `${payload.repo} #${payload.num}` : '', item.url].filter(Boolean).join(' · ')
+  const header = [item.title, reference].filter(Boolean).join('\n')
+  const trimmedBody = payload.body.trim()
+  return trimmedBody ? `${header}\n\n${trimmedBody}` : header
+}
+
+// ── Provider-variant adapter registry ───────────────────────────────────────
+
+/** Context the host owns that presentation needs beyond the item. */
+export interface PresentationContext {
+  /** webhook-source node id → configured icon key (useFeedState.sourceIcons). */
+  sourceIcons?: Record<string, string>
+}
+
+/** The ONLY provider-variant surface — everything else is a canonical
+ *  projection above, shared by every source. */
+export interface ItemPresentation {
+  /** Human source label: "GitHub", "Webhook"; the default adapter echoes
+   *  the raw sourceKind. */
+  sourceLabel: string
+  /** Resolved mark component for the source badge (row + detail). */
+  mark(item: InboxItem, ctx?: PresentationContext): Component
+  /** Detail ACTIONS-footer context line (github: payload branch); '' hides
+   *  it. */
+  actionContextLine(item: InboxItem): string
+}
+
+function githubActionContextLine(item: InboxItem): string {
+  // branch/prompt/reason are GitHub grab-bag fields, not part of the
+  // canonical contract — decoded privately here rather than in
+  // canonicalPayload. prompt/reason remain grab-bag, currently unrendered.
+  if (!item.payload || typeof item.payload !== 'object') return ''
+  const value = item.payload as Record<string, unknown>
+  return typeof value.branch === 'string' ? value.branch : ''
+}
+
+const githubPresentation: ItemPresentation = {
+  sourceLabel: 'GitHub',
+  mark: () => GithubMark,
+  actionContextLine: githubActionContextLine,
+}
+
+const webhookPresentation: ItemPresentation = {
+  sourceLabel: 'Webhook',
+  mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultWebhookSourceIcon),
+  actionContextLine: () => '',
+}
+
+/** Registry lookup; an unknown/absent sourceKind gets the default adapter —
+ *  a neutral mark and its raw sourceKind as the label — instead of
+ *  guessing at a provider. Renders today only for source kinds that don't
+ *  exist yet (e.g. `generic` test observations in Trash). */
+export function presentationFor(sourceKind: string | undefined): ItemPresentation {
+  if (sourceKind === 'github') return githubPresentation
+  if (sourceKind === 'webhook') return webhookPresentation
+  return { sourceLabel: sourceKind ?? '', mark: () => IconInbox, actionContextLine: () => '' }
+}
+
+// ── Single source-kind list ─────────────────────────────────────────────────
+// Each backend source node's config module exports its sourceKind next to
+// its node `type` — the only place a flow node type maps to a sourceKind, so
+// provider N+1 adds a node module and never touches a hand-maintained list
+// here (engine/runGraph.ts's BACKEND_SOURCE_TYPES derives its own set from
+// the same node modules' `type` exports).
+
+const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
+  [githubSourceNode.type]: githubSourceNode.sourceKind,
+  [webhookSourceNode.type]: webhookSourceNode.sourceKind,
+}
+
+/** Flow node type → inbox item sourceKind; null for non-source node types. */
+export function sourceKindForNodeType(nodeType: string): string | null {
+  return SOURCE_KIND_BY_NODE_TYPE[nodeType] ?? null
+}
+
+// ── Sidebar summary ─────────────────────────────────────────────────────────
+
+/** Sidebar source-mix summary for a profile's source nodes, grouped by
+ *  sourceKind: one kind → "<Label> · N source(s)"; mixed kinds → "<total>
+ *  sources"; none → "No sources". */
+export function sourceSummary(countByKind: ReadonlyMap<string, number>): string {
+  const kinds = [...countByKind.keys()].filter((key) => (countByKind.get(key) ?? 0) > 0)
+  if (kinds.length === 0) return 'No sources'
+  const total = kinds.reduce((sum, key) => sum + (countByKind.get(key) ?? 0), 0)
+  if (kinds.length > 1) return `${total} sources`
+  const onlyKind = kinds[0]!
+  const count = countByKind.get(onlyKind) ?? 0
+  return `${presentationFor(onlyKind).sourceLabel} · ${count} source${count === 1 ? '' : 's'}`
+}

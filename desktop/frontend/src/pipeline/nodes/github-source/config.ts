@@ -14,6 +14,11 @@ import IconGithub from '~icons/lucide/github'
 
 export const type = 'github-source'
 export const role = 'source' as const
+// The inbox item sourceKind this node's items carry — the single source of
+// truth lib/itemPresentation.ts's sourceKindForNodeType and (via
+// engine/runGraph.ts's BACKEND_SOURCE_TYPES) the backend-source node set both
+// derive from.
+export const sourceKind = 'github'
 
 export type SourceKind = 'search' | 'notifications'
 

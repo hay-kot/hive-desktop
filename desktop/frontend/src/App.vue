@@ -40,7 +40,7 @@ import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/h
 import type { UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
 import type { ApplicationSettingsSection, ProfileSettingsSection } from './router'
 import type { SidebarSelection } from './types/feed'
-import { githubPayload } from './lib/feedPresentation'
+import { kind } from './lib/itemPresentation'
 
 // Only true when Vite is serving in dev mode (under `wails3 dev`). Keeping
 // these imports inside this compile-time conditional prevents developer tools
@@ -65,7 +65,7 @@ const {
 
 // The feed-item kinds currently in the system — what the actions editor
 // autocompletes and validates "applies to" against.
-const knownFeedTypes = computed(() => [...new Set(items.value.map((item) => githubPayload(item).kind).filter(Boolean))].sort((a, b) => a.localeCompare(b)))
+const knownFeedTypes = computed(() => [...new Set(items.value.map((item) => kind(item)).filter(Boolean))].sort((a, b) => a.localeCompare(b)))
 
 
 const selectedEvents = ref([] as Awaited<ReturnType<typeof loadEvents>>)
