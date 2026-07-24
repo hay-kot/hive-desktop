@@ -142,3 +142,44 @@ export interface WebhookInfo {
     "port": number;
     "baseUrl": string;
 }
+
+/**
+ * WebhookSettings is the local listener's editable configuration joined with
+ * the running listener's actual state, so the settings pane can show what is
+ * configured and what is live in one read.
+ */
+export interface WebhookSettings {
+    /**
+     * Enabled and Port are the persisted configuration.
+     */
+    "enabled": boolean;
+    "port": number;
+
+    /**
+     * PortMin and PortMax bound generated ports; the frontend reuses them to
+     * label the field rather than restating the range.
+     */
+    "portMin": number;
+    "portMax": number;
+
+    /**
+     * PortOverridden reports that HIVE_DESKTOP_WEBHOOK_PORT is in force, in
+     * which case Port is the override and editing it has no effect.
+     */
+    "portOverridden": boolean;
+
+    /**
+     * Running, BoundPort, BaseURL, and StartError describe this session's
+     * listener. BoundPort is 0 when it never bound.
+     */
+    "running": boolean;
+    "boundPort": number;
+    "baseUrl": string;
+    "startError": string;
+
+    /**
+     * RestartRequired reports that the persisted configuration and the running
+     * listener disagree — both toggles only take effect at startup.
+     */
+    "restartRequired": boolean;
+}

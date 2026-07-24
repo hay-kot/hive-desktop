@@ -3,8 +3,8 @@
 
 /**
  * WebhookService is the Wails service exposing the local webhook listener's
- * endpoint info and each webhook-source node's last captured delivery to the
- * frontend node editor.
+ * endpoint info, its user-tunable settings, and each webhook-source node's
+ * last captured delivery to the frontend.
  * @module
  */
 
@@ -26,9 +26,35 @@ export function Capture(flowID: string, nodeID: string): $CancellablePromise<$mo
 }
 
 /**
+ * GeneratePort returns a fresh random port from the generation range without
+ * persisting it: the settings pane offers it as a candidate, and saving is
+ * what commits it.
+ */
+export function GeneratePort(): $CancellablePromise<number> {
+    return $Call.ByID(252038912);
+}
+
+/**
  * Info returns the listener's state and the base URL webhook-source paths
  * are served under (endpoint URL = BaseURL + node path).
  */
 export function Info(): $CancellablePromise<$models.WebhookInfo> {
     return $Call.ByID(2539458276);
+}
+
+/**
+ * SetSettings persists the enable toggle and port, preserving all unrelated
+ * desktop settings. Neither is applied to the running listener: both are
+ * startup-time decisions, and Settings reports the pending restart.
+ */
+export function SetSettings(next: $models.WebhookSettings): $CancellablePromise<void> {
+    return $Call.ByID(3479855781, next);
+}
+
+/**
+ * Settings returns the persisted webhook configuration alongside the state of
+ * this session's listener.
+ */
+export function Settings(): $CancellablePromise<$models.WebhookSettings> {
+    return $Call.ByID(2337024965);
 }

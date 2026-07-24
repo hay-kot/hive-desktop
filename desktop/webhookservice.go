@@ -6,22 +6,24 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // WebhookService is the Wails service exposing the local webhook listener's
-// endpoint info and each webhook-source node's last captured delivery to the
-// frontend node editor.
+// endpoint info, its user-tunable settings, and each webhook-source node's
+// last captured delivery to the frontend.
 type WebhookService struct {
 	db       *pipelinedb.DB
 	listener *pipeline.WebhookListener
 	port     int
 }
 
-// NewWebhookService wires the service. listener is nil in mock modes without
-// an explicit port claim; port is the configured port either way, so the
-// editor can render the endpoint URL a live run would serve.
+// NewWebhookService wires the service. listener is nil when the listener is
+// disabled, or in mock modes without an explicit port claim; port is the
+// configured port either way, so the editor can render the endpoint URL a
+// live run would serve.
 func NewWebhookService(db *pipelinedb.DB, listener *pipeline.WebhookListener, port int) *WebhookService {
 	return &WebhookService{db: db, listener: listener, port: port}
 }
@@ -45,8 +47,96 @@ func (s *WebhookService) Info() WebhookInfo {
 	return WebhookInfo{
 		Running: running,
 		Port:    port,
-		BaseURL: fmt.Sprintf("http://127.0.0.1:%d%s", port, pipeline.WebhookPathPrefix),
+		BaseURL: webhookBaseURL(port),
 	}
+}
+
+// WebhookSettings is the local listener's editable configuration joined with
+// the running listener's actual state, so the settings pane can show what is
+// configured and what is live in one read.
+type WebhookSettings struct {
+	// Enabled and Port are the persisted configuration.
+	Enabled bool `json:"enabled"`
+	Port    int  `json:"port"`
+	// PortMin and PortMax bound generated ports; the frontend reuses them to
+	// label the field rather than restating the range.
+	PortMin int `json:"portMin"`
+	PortMax int `json:"portMax"`
+	// PortOverridden reports that HIVE_DESKTOP_WEBHOOK_PORT is in force, in
+	// which case Port is the override and editing it has no effect.
+	PortOverridden bool `json:"portOverridden"`
+	// Running, BoundPort, BaseURL, and StartError describe this session's
+	// listener. BoundPort is 0 when it never bound.
+	Running    bool   `json:"running"`
+	BoundPort  int    `json:"boundPort"`
+	BaseURL    string `json:"baseUrl"`
+	StartError string `json:"startError"`
+	// RestartRequired reports that the persisted configuration and the running
+	// listener disagree — both toggles only take effect at startup.
+	RestartRequired bool `json:"restartRequired"`
+}
+
+// Settings returns the persisted webhook configuration alongside the state of
+// this session's listener.
+func (s *WebhookService) Settings() (WebhookSettings, error) {
+	settings, err := desktop.LoadSettings()
+	if err != nil {
+		return WebhookSettings{}, err
+	}
+
+	port, err := desktop.ResolveWebhookPort(settings)
+	if err != nil {
+		return WebhookSettings{}, err
+	}
+	enabled := settings.WebhookEnabledOrDefault()
+
+	view := WebhookSettings{
+		Enabled:        enabled,
+		Port:           port,
+		PortMin:        desktop.WebhookPortMin,
+		PortMax:        desktop.WebhookPortMax,
+		PortOverridden: desktop.WebhookPortOverride() > 0,
+		BaseURL:        webhookBaseURL(port),
+	}
+	if s.listener != nil {
+		view.Running = s.listener.Running()
+		if err := s.listener.StartError(); err != nil {
+			view.StartError = err.Error()
+		}
+	}
+	if view.Running {
+		view.BoundPort = s.listener.Port()
+		view.BaseURL = webhookBaseURL(view.BoundPort)
+	}
+	view.RestartRequired = enabled != view.Running || (view.Running && view.BoundPort != port)
+	return view, nil
+}
+
+// SetSettings persists the enable toggle and port, preserving all unrelated
+// desktop settings. Neither is applied to the running listener: both are
+// startup-time decisions, and Settings reports the pending restart.
+func (s *WebhookService) SetSettings(next WebhookSettings) error {
+	if !desktop.ValidWebhookPort(next.Port) {
+		return fmt.Errorf("port must be between 1024 and 65535")
+	}
+	current, err := desktop.LoadSettings()
+	if err != nil {
+		return err
+	}
+	current.WebhookEnabled = &next.Enabled
+	current.WebhookPort = next.Port
+	return desktop.SaveSettings(current)
+}
+
+// GeneratePort returns a fresh random port from the generation range without
+// persisting it: the settings pane offers it as a candidate, and saving is
+// what commits it.
+func (s *WebhookService) GeneratePort() (int, error) {
+	return desktop.AllocateWebhookPort()
+}
+
+func webhookBaseURL(port int) string {
+	return fmt.Sprintf("http://127.0.0.1:%d%s", port, pipeline.WebhookPathPrefix)
 }
 
 // WebhookCaptureView is one webhook-source node's most recent delivery.

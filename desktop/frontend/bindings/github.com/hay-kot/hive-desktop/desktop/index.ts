@@ -37,5 +37,6 @@ export type {
     SystemInfo,
     UpdateInfo,
     WebhookCaptureView,
-    WebhookInfo
+    WebhookInfo,
+    WebhookSettings
 } from "./models.js";
