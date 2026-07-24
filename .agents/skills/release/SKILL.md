@@ -87,18 +87,12 @@ Reject missing or unknown channels instead of guessing.
    ```
 
    Do not read `.env`, print credential environment variables, or call
-   `go run ./cmd/release publish` directly. Stop on failure. Do not rerun
-   with `--force`, overwrite artifacts, or invent a replacement version without
-   explicit user approval.
-9. Verify every affected live manifest and the downloaded artifact with:
-
-   ```bash
-   go run ./cmd/release verify <version>
-   ```
-
-   It must report the candidate version, expected channel cascade, artifact URL,
-   size, and the checksum produced by the publisher. Stop on failure.
-10. After successful verification, create the lightweight release tag locally:
+   `go run ./cmd/release publish` directly. The publisher verifies every affected
+   live manifest and downloads the public artifact to check its size and SHA-256
+   before it succeeds. Stop on failure. Do not rerun with `--force`, overwrite
+   artifacts, or invent a replacement version without explicit user approval.
+9. After successful publishing and verification, create the lightweight release
+   tag locally:
 
     ```bash
     git tag "desktop-v<version>" HEAD
@@ -112,9 +106,11 @@ Reject missing or unknown channels instead of guessing.
 ## Explicit CI workflow
 
 Only when the user explicitly asks to publish through GitHub Actions, replace
-steps 8-10 with:
+steps 8-9 with:
 
-1. Create and push `desktop-v<version>` at `HEAD`.
+1. Create and push `desktop-v<version>` at `HEAD`. The workflow rechecks that
+   the tagged commit belongs to `origin/main` and runs the same release gates
+   before publishing.
 2. Locate the triggered `Publish Desktop` run with `gh run list` and watch it
    with `gh run watch --exit-status`.
 3. On success, report the version, tag, workflow URL, channel manifests, and

@@ -49,8 +49,8 @@ func newReleaseCommand() *cli.Command {
 				Name:      "prepare",
 				Usage:     "select and validate a release candidate",
 				ArgsUsage: "<dev|beta|stable> [version]",
-				Description: "Selects the next version when version is omitted, validates advancement across every affected " +
-					"live manifest, rejects existing local or origin tags, and prints the commit and manifest cascade.",
+				Description: "Requires a clean current main, selects the next version when version is omitted, validates advancement " +
+					"across every affected live manifest, rejects existing local or origin tags, and prints the commit and manifest cascade.",
 				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.NArg() < 1 || cmd.NArg() > 2 || !validChannel(cmd.Args().First()) {
 						return cli.Exit("expected a channel (dev, beta, or stable) and optional version", 2)
@@ -62,8 +62,8 @@ func newReleaseCommand() *cli.Command {
 				Name:      "publish",
 				Usage:     "build, sign, notarize, and publish a release",
 				ArgsUsage: "<version>",
-				Description: "Builds the universal macOS app, signs it, notarizes and staples it, packages and " +
-					"verifies it, uploads immutable artifacts to R2, updates the channel cascade, and verifies the public artifact. " +
+				Description: "Public publishing requires a clean current main or a matching CI tag on main; the command builds the universal macOS app, signs it, " +
+					"notarizes and staples it, packages and verifies it, uploads immutable artifacts to R2, updates the channel cascade, and verifies the public artifact. " +
 					"For local publishing, run this through `mise run release:desktop -- <version>` so mise loads credentials.",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "skip-notarize", Usage: "skip notarization and stapling (requires --skip-upload)"},
@@ -118,6 +118,9 @@ func withRepoRoot(action cli.ActionFunc) cli.ActionFunc {
 }
 
 func prepare(ctx context.Context, channel, candidate string) error {
+	if err := validatePrepareSource(ctx); err != nil {
+		return err
+	}
 	versions, manifests, err := releaseVersions(ctx)
 	if err != nil {
 		return err
