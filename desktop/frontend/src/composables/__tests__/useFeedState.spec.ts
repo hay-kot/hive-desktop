@@ -160,6 +160,17 @@ describe('useFeedState', () => {
     expect(mocks.ListInboxItemsByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
   })
 
+  it('applies a read write back onto the archived row so its next write is not stale', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([item(9, { archivedAt: 9, archivedReason: 'manual' })])
+    const get = mountState(); await flushPromises()
+    await get().toggleArchivedSection()
+    await get().selectItem(9)
+    expect(get().selectedItem.value?.revision).toBe(2)
+    await get().toggleArchive(get().selectedItem.value!)
+    expect(mocks.ToggleInboxItemArchived).toHaveBeenCalledWith(9, 2)
+  })
+
   it('loads action runs by selected item id and does not let old action responses replace a new selection', async () => {
     mocks.ListInboxItemsByFeed.mockResolvedValue([item(1), item(2)])
     mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])

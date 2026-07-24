@@ -87,7 +87,10 @@ test('archives, restores, and marks the selected inbox item unread from keyboard
   await expect(item.getByTestId('archive-reason')).toHaveText('manual')
 
   // Un-archiving from the archived section returns it to the active list.
+  // Archiving preserves unread, so selecting the archived row runs a read
+  // mutation first; wait for it to land before the next revision-guarded write.
   await item.click()
+  await expect(item.getByTestId('unread-dot')).toHaveCount(0)
   await page.keyboard.press('e')
   await expect(item).toBeVisible()
   await expect(item.getByTestId('archive-reason')).toHaveCount(0)

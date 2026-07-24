@@ -550,11 +550,21 @@ export function useFeedState() {
     else await loadTrashItems()
   }
 
+  // A write returns the row's new revision; apply it wherever that row is
+  // loaded. The archived section holds rows too, and a row selected there is
+  // just as writable as an active one — skipping it would leave the stale
+  // revision that the next optimistic write (archive toggle) rejects.
+  function applyItemUpdate(updated: InboxItem): void {
+    const next = asInboxItem(updated)
+    for (const list of [items, archivedItems]) {
+      const index = list.value.findIndex((candidate) => candidate.id === next.id)
+      if (index >= 0) list.value.splice(index, 1, next)
+    }
+  }
+
   async function markItemUnread(item: InboxItem, unread: boolean): Promise<void> {
     try {
-      const updated = await MarkInboxItemUnread(item.id, item.revision, unread)
-      const index = items.value.findIndex((candidate) => candidate.id === item.id)
-      if (index >= 0) items.value.splice(index, 1, asInboxItem(updated))
+      applyItemUpdate(await MarkInboxItemUnread(item.id, item.revision, unread))
     } catch (error) {
       console.warn('Unable to update inbox item unread state', error)
       await reloadCurrentSelection()
