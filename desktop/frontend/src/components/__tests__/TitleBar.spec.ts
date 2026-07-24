@@ -132,6 +132,16 @@ describe('TitleBar', () => {
     expect(wrapper.emitted('open-update')).toHaveLength(1)
   })
 
+  it('shows install progress and disables repeated update clicks', async () => {
+    const wrapper = mount(TitleBar, { props: { updateAvailable: true, updateInstalling: true, latestVersion: '1.5.0' } })
+    const chip = wrapper.get('[data-testid="titlebar-update-chip"]')
+
+    expect(chip.attributes('disabled')).toBeDefined()
+    expect(chip.text()).toContain('Installing…')
+    await chip.trigger('click')
+    expect(wrapper.emitted('open-update')).toBeUndefined()
+  })
+
   it('shows the update chip during onboarding (no profile)', () => {
     const wrapper = mount(TitleBar, { props: { updateAvailable: true, latestVersion: '2.0.0' } })
     expect(wrapper.find('[data-testid="titlebar-update-chip"]').exists()).toBe(true)

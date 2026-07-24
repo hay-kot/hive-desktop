@@ -56,7 +56,7 @@ const {
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, visibleItems, unreadCount, search, loadError,
-  selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, dismissToast, clearToasts,
+  selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, renameProfile, setProfileEnabled, deleteProfile,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
@@ -310,8 +310,8 @@ async function openJobRun(commandID: number): Promise<void> {
 }
 
 // ── Desktop self-update ───────────────────────────────────────────────────────
-// The UpdaterService checks GitHub for a newer desktop release in the
-// background (when enabled) and emits update:available. We seed initial state
+// The UpdaterService checks the configured release-channel manifest for a
+// newer desktop release in the background (when enabled) and emits update:available. We seed initial state
 // via Status() on mount and keep it current through the subscription, so the
 // title-bar chip appears without waiting for the next poll. Clicking it
 // downloads + relaunches into the new version.
@@ -329,7 +329,13 @@ async function openUpdate(): Promise<void> {
   try {
     await InstallUpdate()
   } catch (error) {
-    console.debug('Update install failed', error)
+    const detail = error instanceof Error ? error.message : String(error)
+    console.error('Update install failed', error)
+    showToast('Could not install the update', {
+      severity: 'error',
+      body: detail,
+      duration: 10_000,
+    })
     installingUpdate.value = false
   }
 }
@@ -692,6 +698,7 @@ onUnmounted(() => {
         :jobs-active="jobsActive"
         :active-jobs="activeJobs"
         :update-available="updateAvailable"
+        :update-installing="installingUpdate"
         :latest-version="updateLatestVersion"
         :can-go-back="canGoBack"
         :can-go-forward="canGoForward"

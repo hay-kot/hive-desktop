@@ -142,15 +142,33 @@ func (s *UpdaterService) CheckNow() (UpdateInfo, error) {
 func (s *UpdaterService) InstallUpdate() error {
 	s.mu.Lock()
 	engine := s.engine
+	available := s.available
 	s.mu.Unlock()
 	if engine == nil {
+		s.logger.Debug().Msg("update install ignored; updater is unavailable")
 		return nil
 	}
+
+	latestVersion := ""
+	if available != nil {
+		latestVersion = available.LatestVersion
+	}
+	log := s.logger.With().Str("current_version", s.currentVersion).Str("latest_version", latestVersion).Logger()
+	log.Info().Msg("update install started")
+
 	ctx := context.Background()
 	if err := engine.DownloadAndInstall(ctx); err != nil {
+		log.Error().Err(err).Str("stage", "download_install").Msg("update install failed")
 		return err
 	}
-	return engine.Restart(ctx)
+	log.Info().Msg("update downloaded and verified; requesting restart")
+
+	if err := engine.Restart(ctx); err != nil {
+		log.Error().Err(err).Str("stage", "restart").Msg("update install failed")
+		return err
+	}
+	log.Info().Msg("update restart requested")
+	return nil
 }
 
 // stop cancels the ticker and waits for the poll goroutine to exit. Safe to

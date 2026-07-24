@@ -41,6 +41,7 @@ const props = defineProps<{
   jobsActive?: boolean
   activeJobs?: Job[]
   updateAvailable?: boolean
+  updateInstalling?: boolean
   latestVersion?: string
   canGoBack?: boolean
   canGoForward?: boolean
@@ -142,12 +143,18 @@ function onTitlebarDblclick(event: MouseEvent): void {
     <div class="flex min-w-0 flex-1 items-center justify-end gap-2 pl-2 pr-3">
       <button
         v-if="updateAvailable"
-        class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-severity-info-border bg-severity-info-tint px-2 py-1 text-[11.5px] font-semibold text-severity-info hover:opacity-85"
+        class="flex shrink-0 items-center gap-1.5 rounded-md border border-severity-info-border bg-severity-info-tint px-2 py-1 text-[11.5px] font-semibold text-severity-info disabled:cursor-wait enabled:cursor-pointer enabled:hover:opacity-85"
         style="--wails-draggable: no-drag"
         data-testid="titlebar-update-chip"
-        :title="latestVersion ? `Update to ${latestVersion}` : 'Update available'"
+        :disabled="updateInstalling"
+        :title="updateInstalling ? 'Installing update…' : latestVersion ? `Update to ${latestVersion}` : 'Update available'"
         @click="emit('open-update')"
-      ><IconArrowUpCircle class="size-3" />Update<template v-if="latestVersion">&nbsp;{{ latestVersion }}</template></button>
+      >
+        <IconLoader v-if="updateInstalling" class="size-3 animate-spin" />
+        <IconArrowUpCircle v-else class="size-3" />
+        <template v-if="updateInstalling">Installing…</template>
+        <template v-else>Update<template v-if="latestVersion">&nbsp;{{ latestVersion }}</template></template>
+      </button>
       <button
         v-if="errorCount && errorCount > 0"
         class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-severity-error-border bg-severity-error-tint px-2 py-1 text-[11.5px] font-semibold text-severity-error hover:opacity-85"

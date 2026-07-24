@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"path/filepath"
@@ -171,6 +172,35 @@ func TestUpdaterServiceInstallUpdate(t *testing.T) {
 	defer engine.mu.Unlock()
 	require.Equal(t, 1, engine.installs)
 	require.Equal(t, 1, engine.restarts)
+}
+
+func TestUpdaterServiceInstallUpdateLogsDownloadFailure(t *testing.T) {
+	silenceEmits(t)
+	var logs bytes.Buffer
+	engine := &fakeEngine{installErr: errors.New("checksum mismatch")}
+	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
+	s.attach(engine)
+	s.available = &UpdateInfo{LatestVersion: "1.3.0"}
+
+	err := s.InstallUpdate()
+	require.ErrorContains(t, err, "checksum mismatch")
+	require.Contains(t, logs.String(), `"stage":"download_install"`)
+	require.Contains(t, logs.String(), `"current_version":"1.2.3"`)
+	require.Contains(t, logs.String(), `"latest_version":"1.3.0"`)
+	require.Contains(t, logs.String(), `"message":"update install failed"`)
+}
+
+func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
+	silenceEmits(t)
+	var logs bytes.Buffer
+	engine := &fakeEngine{restartErr: errors.New("helper failed")}
+	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
+	s.attach(engine)
+
+	err := s.InstallUpdate()
+	require.ErrorContains(t, err, "helper failed")
+	require.Contains(t, logs.String(), `"stage":"restart"`)
+	require.Contains(t, logs.String(), `"message":"update install failed"`)
 }
 
 func TestUpdaterServiceInstallUpdateDevNoop(t *testing.T) {

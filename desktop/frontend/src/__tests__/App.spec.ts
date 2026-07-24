@@ -218,6 +218,27 @@ describe('App', () => {
     mocks.RecordActivity.mockResolvedValue(undefined)
   })
 
+  it('shows updater install failures in an error toast', async () => {
+    mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: true, currentVersion: '1.2.0', latestVersion: '1.3.0', notes: '', releaseUrl: '' })
+    mocks.InstallUpdate.mockRejectedValue(new Error('checksum mismatch'))
+    vi.stubGlobal('confirm', vi.fn(() => true))
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = await mountApp()
+
+    try {
+      await wrapper.get('[data-testid="titlebar-update-chip"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.get('[data-testid="toast-title"]').text()).toBe('Could not install the update')
+      expect(wrapper.get('[data-testid="toast-body"]').text()).toContain('checksum mismatch')
+      expect(wrapper.get('[data-testid="titlebar-update-chip"]').attributes('disabled')).toBeUndefined()
+    } finally {
+      wrapper.unmount()
+      vi.unstubAllGlobals()
+      consoleError.mockRestore()
+    }
+  })
+
   it('registers profile / feed-selection / flow-edit palette commands (not the removed feed-editor ones)', async () => {
     const wrapper = await mountApp()
     const { results, query } = useCommandPalette()
