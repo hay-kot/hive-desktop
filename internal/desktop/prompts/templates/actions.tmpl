@@ -1,0 +1,31 @@
+Define Hive Desktop actions.
+{{template "app" .}}
+Write the actions to {{.Env.ActionsPath}}.
+
+An action is something a feed item can trigger. It shows up in two places: as a
+button in the detail pane when a feed item is selected, and as the target of a
+flow `action` node, which fires it automatically for every message routed there.
+{{template "yaml-strict" .}}
+## Top-level schema
+
+- `version` — must be `1`.
+- `actions` — the list. Every action has:
+  - `id` — a slug (lowercase letters, digits, hyphens, starting with a letter or digit), unique across the file. This is what a flow `action` node references.
+  - `label` — the human-readable name shown on the button.
+  - `type` — one of the action types documented below.
+  - `applies_to` — optional list of item kinds this action is offered for in the detail pane (e.g. `[pr]`, `[issue]`, or a webhook item's own `kind`). Empty means any kind. It does not restrict flow `action` nodes, which target one id explicitly.
+  - `show_in_detail` — whether the detail pane offers it as a manual button. Flow `action` nodes can target the action either way.
+  - plus that type's own fields, **flattened at the same level** — not nested under a `config:` key.
+{{template "template-data" .}}
+## Action types
+{{range .Types}}
+{{section 3 .Type .Doc}}
+{{end}}
+## Worked example
+
+A complete, valid actions.yml demonstrating every type:
+
+```yaml
+{{.Example}}
+```
+{{template "task" .}}

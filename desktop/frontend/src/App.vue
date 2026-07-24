@@ -38,7 +38,12 @@ import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
 import type { UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
-import type { ApplicationSettingsSection, ProfileSettingsSection } from './router'
+import {
+  isApplicationSettingsSection,
+  isProfileSettingsSection,
+  type ApplicationSettingsSection,
+  type ProfileSettingsSection,
+} from './router'
 import type { SidebarSelection } from './types/feed'
 import { kind } from './lib/itemPresentation'
 
@@ -114,16 +119,14 @@ const activityActive = computed(() => route.name === 'activity')
 const devActive = computed(() => devMode && route.name === 'dev')
 const applicationSettingsActive = computed(() => route.name === 'application-settings')
 const profileSettingsActive = computed(() => route.name === 'profile-settings')
+// Resolved against router.ts's section lists rather than a whitelist repeated
+// here: the route already rejects an unknown :section, so anything that
+// reaches this point and is not recognized is the absent-param case.
 const applicationSettingsSection = computed<ApplicationSettingsSection>(() =>
-  route.params.section === 'integrations' ? 'integrations'
-    : route.params.section === 'actions' ? 'actions'
-      : route.params.section === 'keybindings' ? 'keybindings'
-        : route.params.section === 'system' ? 'system'
-          : route.params.section === 'notifications' ? 'notifications'
-            : 'appearance',
+  isApplicationSettingsSection(route.params.section) ? route.params.section : 'appearance',
 )
 const profileSettingsSection = computed<ProfileSettingsSection>(() =>
-  route.params.section === 'danger' ? 'danger' : 'general',
+  isProfileSettingsSection(route.params.section) ? route.params.section : 'general',
 )
 const canGoBack = computed(() => {
   void route.fullPath

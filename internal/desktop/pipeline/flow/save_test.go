@@ -55,7 +55,7 @@ func TestSaveFlow_NewFile_LoadSaveLoadRoundTrip(t *testing.T) {
 
 func TestSaveFlow_WorkedExample_LoadSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	path := writeFlow(t, dir, "triage.yaml", workedExampleYAML)
+	path := writeFlow(t, dir, "triage.yaml", WorkedExampleYAML)
 
 	original, _, err := LoadFlow(path, workedExampleRefs())
 	require.NoError(t, err)

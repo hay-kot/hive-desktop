@@ -2,7 +2,7 @@
 // Application-wide settings, opened from the persistent profile rail.
 // Only settings backed by real behavior or explicitly marked future
 // integrations belong here.
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconPalette from '~icons/lucide/palette'
 import IconPlug from '~icons/lucide/plug'
@@ -10,11 +10,13 @@ import IconPlay from '~icons/lucide/play'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconSettings from '~icons/lucide/settings'
+import IconSparkles from '~icons/lucide/sparkles'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
+import PromptSettingsView from './PromptSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
@@ -30,7 +32,7 @@ import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
-import type { ApplicationSettingsSection } from '../router'
+import { applicationSettingsSections, type ApplicationSettingsSection } from '../router'
 
 const props = withDefaults(defineProps<{
   githubConnected: boolean
@@ -39,22 +41,20 @@ const props = withDefaults(defineProps<{
   knownFeedTypes?: string[]
 }>(), { knownFeedTypes: () => [] })
 const emit = defineEmits<{ close: []; 'select-category': [category: ApplicationSettingsSection] }>()
-const categories = [
-  { id: 'appearance' as const, label: 'Appearance', icon: IconPalette },
-  { id: 'keybindings' as const, label: 'Keyboard', icon: IconKeyboard },
-  { id: 'integrations' as const, label: 'Integrations', icon: IconPlug },
-  { id: 'actions' as const, label: 'Actions', icon: IconPlay },
-  { id: 'system' as const, label: 'System', icon: IconHardDrive },
-  { id: 'notifications' as const, label: 'Notifications', icon: IconBell },
-]
-const sectionTitle = computed(() => ({
-  appearance: 'Appearance',
-  keybindings: 'Keyboard shortcuts',
-  integrations: 'Integrations',
-  actions: 'Actions',
-  system: 'System',
-  notifications: 'Notifications',
-}[props.activeCategory]))
+// Keyed by section id and ordered by router.ts's applicationSettingsSections,
+// so a section added there shows up here (and TypeScript flags the missing
+// entry) instead of being routable but absent from the nav.
+const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: string; icon: Component }> = {
+  appearance: { label: 'Appearance', title: 'Appearance', icon: IconPalette },
+  keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
+  integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
+  actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
+  prompts: { label: 'LLM prompts', title: 'LLM prompts', icon: IconSparkles },
+  system: { label: 'System', title: 'System', icon: IconHardDrive },
+  notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
+}
+const categories = applicationSettingsSections.map((id) => ({ id, ...categoryMeta[id] }))
+const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const { theme } = useTheme()
 const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
@@ -126,6 +126,8 @@ function onThemeChange(value: string): void {
       <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
 
       <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
+
+      <PromptSettingsView v-else-if="props.activeCategory === 'prompts'" />
 
       <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
 

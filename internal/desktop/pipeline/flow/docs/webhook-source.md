@@ -2,7 +2,7 @@
 
 A **webhook source** node turns anything that can send an HTTP request into a flow input. The desktop runs a local listener on `127.0.0.1`; JSON POSTed to `http://127.0.0.1:<port>/hooks/<path>` becomes messages on this node's output, exactly like a github-source poll would produce them.
 
-The port is picked at random the first time Hive starts and then kept, so it differs per machine — the **Endpoint** row below shows this install's full URL. Settings → Integrations → Webhooks changes the port or turns the listener off entirely.
+The port is picked at random the first time Hive starts and then kept, so it differs per machine. Settings → Integrations → Webhooks shows this install's full endpoint URL, changes the port, or turns the listener off entirely.
 
 ## Fields
 
@@ -19,7 +19,7 @@ The port is picked at random the first time Hive starts and then kept, so it dif
 
 ## Rendering and transformation
 
-Feeds render an item from what was ingested. A payload carrying the canonical item contract's fields (`id`, `kind`, `repo`, `title`, `url`, …; docs/decisions/0008) renders like a first-party item; anything else still ingests fine but renders minimally (title + link). The node editor shows the last captured delivery, flags payloads missing the render-critical fields, and offers a copyable LLM prompt for authoring a `function` node that reshapes or routes the payload downstream. A function node must only change `msg.Payload` — `msg.Key` and `msg.Topic` are how feed membership resolves.
+Feeds render an item from what was ingested. A payload carrying the canonical item contract's fields (`id`, `kind`, `repo`, `title`, `url`, …; docs/decisions/0008) renders like a first-party item; anything else still ingests fine but renders minimally (title + link). To reshape a payload, put a `function` node downstream of this one; the node editor shows the last captured delivery, flags payloads missing the render-critical fields, and offers a copyable LLM prompt for writing that function. A function node must only change `msg.Payload` — `msg.Key` and `msg.Topic` are how feed membership resolves.
 
 ## Behavior
 

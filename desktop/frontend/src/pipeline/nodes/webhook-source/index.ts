@@ -2,7 +2,7 @@
 // "backend-run" (the local webhook listener ingests deliveries in Go), so
 // there is no worker-side code for this type.
 import editor from './editor.vue'
-import help from './help.md?raw'
+import help from '@nodedocs/webhook-source.md?raw'
 import { accentToken, category, defaults, freshConfig, glyph, label, role, tint, type, validate } from './config'
 import { defineNodeType } from '../../nodeType'
 

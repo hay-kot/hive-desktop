@@ -24,7 +24,7 @@ import { useFlowsSession } from '../composables/useFlowsSession'
 import { useResizablePanel } from '../../composables/useResizablePanel'
 import { useClipboard } from '../../composables/useClipboard'
 import { classify } from '../lib/runStatus'
-import { buildFlowPrompt } from '../lib/flowPrompt'
+import { renderPrompt } from '../../composables/usePrompts'
 import NodePalette from './NodePalette.vue'
 import FlowsCanvas from './FlowsCanvas.vue'
 import FlowDebugPanel from './FlowDebugPanel.vue'
@@ -123,14 +123,21 @@ const previewFeedId = computed(() => {
   return flowId && node ? `${flowId}/${node.id}` : null
 })
 
-// ── Copy prompt — the flows equivalent of the feed sidebar's
-// "Copy feeds config prompt" (see App.vue's copyConfigPrompt command). This
-// view has no reachable toast queue (ToastStack is driven by useFeedState,
-// mounted as App.vue's sibling — see FlowsView's own module docs above on
-// staying out of that path), so success/failure surfaces as a small
-// self-clearing inline label instead of a toast. ──────────────────────────
-const { copy, status: copyStatus } = useClipboard({ resetDelay: 2500 })
-const onCopyPrompt = () => copy(buildFlowPrompt())
+// ── Copy prompt — the flows authoring prompt, rendered by the Go prompts
+// service (the same text Settings ▸ LLM prompts lists; this is the in-place
+// shortcut to it). This view has no reachable toast queue (ToastStack is
+// driven by useFeedState, mounted as App.vue's sibling — see FlowsView's own
+// module docs above on staying out of that path), so success/failure surfaces
+// as a small self-clearing inline label instead of a toast. ───────────────
+const { copy, status: copyStatus, setStatus: setCopyStatus } = useClipboard({ resetDelay: 2500 })
+async function onCopyPrompt(): Promise<void> {
+  const text = await renderPrompt('flows')
+  if (text === null) {
+    setCopyStatus('error')
+    return
+  }
+  await copy(text)
+}
 
 // ── Deploy split-button menu — demotes Refresh now/Copy prompt/Show debug
 // panel behind the "▾" so the main Deploy action reads as one clear amber

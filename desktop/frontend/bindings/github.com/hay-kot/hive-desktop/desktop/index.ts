@@ -7,6 +7,7 @@ import * as FlowsService from "./flowsservice.js";
 import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
 import * as PipelineService from "./pipelineservice.js";
+import * as PromptsService from "./promptsservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SystemService from "./systemservice.js";
 import * as UpdaterService from "./updaterservice.js";
@@ -19,6 +20,7 @@ export {
     JobService,
     NotificationService,
     PipelineService,
+    PromptsService,
     SettingsService,
     SystemService,
     UpdaterService,
@@ -31,6 +33,7 @@ export type {
     BuildInfo,
     FlowSummary,
     GithubSettings,
+    KeybindingSettings,
     NotificationSettings,
     NotifyInput,
     PathInfo,

@@ -19,22 +19,31 @@ export function useClipboard(options: { resetDelay?: number } = {}) {
   const copied = computed(() => status.value === 'success')
   let timer: ReturnType<typeof setTimeout> | undefined
 
-  async function copy(text: string): Promise<void> {
-    try {
-      await Clipboard.SetText(text)
-      status.value = 'success'
-    } catch {
-      status.value = 'error'
-    }
+  // Drives the same auto-resetting affordance from outside a copy attempt —
+  // for callers that must fetch the text first (prompts are rendered by the Go
+  // service), where a failure before Clipboard.SetText is still a failed copy
+  // as far as the user is concerned.
+  function setStatus(next: CopyStatus): void {
+    status.value = next
     if (timer !== undefined) clearTimeout(timer)
+    if (next === 'idle') return
     timer = setTimeout(() => {
       status.value = 'idle'
     }, resetDelay)
+  }
+
+  async function copy(text: string): Promise<void> {
+    try {
+      await Clipboard.SetText(text)
+      setStatus('success')
+    } catch {
+      setStatus('error')
+    }
   }
 
   onScopeDispose(() => {
     if (timer !== undefined) clearTimeout(timer)
   })
 
-  return { copy, status, copied }
+  return { copy, setStatus, status, copied }
 }

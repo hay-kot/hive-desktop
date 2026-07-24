@@ -3,7 +3,7 @@
 // worker-side code for this type to keep out of the app chunk (unlike the
 // processor types, where this matters).
 import editor from './editor.vue'
-import help from './help.md?raw'
+import help from '@nodedocs/github-source.md?raw'
 import { accentToken, category, defaults, glyph, label, role, tint, type, validate } from './config'
 import { defineNodeType } from '../../nodeType'
 

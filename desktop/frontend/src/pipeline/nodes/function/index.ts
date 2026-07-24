@@ -2,7 +2,7 @@
 // worker-side ProcessorRuntime this pairs with, discovered by processors.ts).
 import IconSquareFunction from '~icons/lucide/square-function'
 import editor from './editor.vue'
-import help from './help.md?raw'
+import help from '@nodedocs/function.md?raw'
 import { accentToken, category, defaults, label, outputs, role, tint, type, validate } from './config'
 import { defineNodeType } from '../../nodeType'
 

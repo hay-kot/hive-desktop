@@ -15,7 +15,7 @@ import { SearchableSelectField, TextField } from '../../fields'
 import IconRefresh from '~icons/lucide/refresh-cw'
 import { randomPath, randomSecret } from './config'
 import type { Config } from './config'
-import { buildTransformPrompt } from './prompt'
+import { renderPrompt } from '../../../composables/usePrompts'
 
 export interface WebhookInfoView {
   running: boolean
@@ -108,13 +108,21 @@ const capturePreview = computed(() => {
 })
 
 const { copy: copyUrl, copied: urlCopied } = useClipboard()
-const { copy: copyPrompt, copied: promptCopied } = useClipboard({ resetDelay: 2500 })
+const { copy: copyPrompt, setStatus: setPromptStatus, copied: promptCopied } = useClipboard({ resetDelay: 2500 })
 
-function onCopyPrompt() {
-  void copyPrompt(buildTransformPrompt({
-    path: props.config.path ?? '',
-    sample: hasCapture.value ? capture.value!.body : undefined,
-  }))
+// The transform prompt is rendered by the Go prompts service like every other
+// prompt in the app; this node supplies the two facts only it has — the
+// endpoint path and the last delivery captured on it.
+async function onCopyPrompt(): Promise<void> {
+  const text = await renderPrompt('webhook-transform', {
+    webhookPath: props.config.path ?? '',
+    webhookSample: hasCapture.value ? capture.value!.body : '',
+  })
+  if (text === null) {
+    setPromptStatus('error')
+    return
+  }
+  await copyPrompt(text)
 }
 </script>
 

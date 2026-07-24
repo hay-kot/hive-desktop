@@ -1,0 +1,47 @@
+Set up Hive Desktop's keyboard shortcuts.
+{{template "app" .}}
+Shortcuts live under the `keybindings` key in {{.Env.SettingsPath}}. The file is
+YAML; add or edit the section, leaving every other key in the file untouched:
+
+```yaml
+keybindings:
+  feed.next: [j, arrowdown]
+  feed.refresh: [r]
+  window.hide: [mod+shift+h]
+```
+
+- Each key is a command id from the table below. An unknown id is ignored.
+- Each value is a list of combos. A command may have several.
+- An **omitted** command keeps its default combos. An explicit **empty list** (`[]`) unbinds it entirely. These are different — omitting is not how you unbind.
+- The app reloads shortcuts on save.
+
+## Combo syntax
+
+A combo is modifiers joined to one key by `+`, all lowercase:
+
+- `mod` — Command on macOS, Control elsewhere. Prefer it over naming either directly.
+- `alt`, `shift` — as written.
+- Modifier order does not matter on input, but the canonical spelling is `mod`, `ctrl`, `alt`, `shift`, then the key.
+- The key is the character the keystroke produces (`j`, `/`, `?`) or a named key: `arrowup`, `arrowdown`, `arrowleft`, `arrowright`, `enter`, `space`, `escape`, `backspace`, `tab`, `delete`, `plus`.
+- Add `shift` only when it does not already change the character: `shift+g` and `shift+arrowdown` are right, but Shift+/ is `?`, not `shift+/`.
+
+## Contexts
+
+A command's context decides where an unmodified combo fires:
+
+- `global` — anywhere in the app.
+- `feed` — only while the feed is on screen, so single letters stay free elsewhere.
+
+Two commands sharing a combo in the same context conflict, and the app will
+flag it. Commands in different contexts may share a combo safely.
+
+## Bindable commands
+
+| Command id | Command | Group | Context | Default |
+| --- | --- | --- | --- | --- |
+{{range .Commands}}| `{{.ID}}` | {{.Title}} | {{.Group}} | {{.Context}} | {{if .DefaultCombos}}{{range $i, $c := .DefaultCombos}}{{if $i}}, {{end}}`{{$c}}`{{end}}{{else}}(unbound){{end}} |
+{{end}}
+Only these ids are bindable. Anything else in the app — switching profiles,
+selecting a feed, jumping to a node — is data rather than a command and cannot
+be bound.
+{{template "task" .}}

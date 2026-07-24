@@ -1,0 +1,46 @@
+{{/*
+Shared fragments composed by the individual prompt templates. Wording that
+appears in more than one prompt belongs here so it is written — and corrected —
+once. Every fragment is executed with the owning prompt's data map, which
+always carries .Env.
+*/}}
+
+{{define "app"}}
+Hive Desktop is a desktop app that turns GitHub activity and webhook deliveries
+into triaged feeds and automated coding-agent sessions. Its configuration is
+plain text on this machine, meant to be edited directly:
+
+- {{.Env.FlowsDir}}/<id>.yaml — flows: the graph that decides what reaches which feed and what fires an action.
+- {{.Env.ActionsPath}} — actions: what a feed item or flow node can trigger.
+- {{.Env.SettingsPath}} — app settings: polling, updates, notifications, appearance, keyboard shortcuts.
+{{end}}
+
+{{define "yaml-strict"}}
+Rules for every file above:
+
+- The schema is strict: an unknown key is a hard error, not a warning. Do not invent fields.
+- The app watches these files and reloads on save — no restart, no build step.
+- A file that fails to parse is rejected as a whole and the last good version stays live, so a mistake degrades to "nothing changed" rather than a broken app.
+{{end}}
+
+{{define "template-data"}}
+## Template data
+
+Every `*_template` field is a Go `text/template` rendered over the item that
+triggered the action:
+
+- `{{"{{ .Payload.<field> }}"}}` — the item's payload. GitHub items carry `repo`, `title`, `url`, `num`, `author`, `body`, `labels`, and `state`; webhook items carry whatever was POSTed.
+- `{{"{{ .Key }}"}}` — the item's stable identity, e.g. `colonyops/hive#2841`.
+- `{{"{{ .Raw }}"}}` — the payload as raw JSON.
+
+A field that does not exist renders empty rather than failing, so guard
+anything you depend on.
+{{end}}
+
+{{define "task"}}
+---
+
+What I want:
+
+<describe it here>
+{{end}}

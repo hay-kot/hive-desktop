@@ -25,6 +25,14 @@ const mocks = vi.hoisted(() => ({
   Commit: vi.fn(),
   On: vi.fn(),
   SetText: vi.fn(),
+  RenderPrompt: vi.fn(),
+}))
+
+// Prompt text is assembled by the Go prompts service, so "Copy prompt" is a
+// service call followed by a clipboard write.
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+  Catalog: vi.fn(),
+  Render: mocks.RenderPrompt,
 }))
 
 vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
@@ -169,17 +177,38 @@ describe('FlowsView deploy menu', () => {
     wrapper.unmount()
   })
 
-  it('"Copy prompt" still copies the flow prompt', async () => {
+  it('"Copy prompt" copies the rendered flows prompt', async () => {
     mocks.SetText.mockResolvedValue(undefined)
+    mocks.RenderPrompt.mockResolvedValue({ id: 'flows', title: 'Flows', description: '', target: '', text: 'FLOWS PROMPT' })
     const wrapper = await mountWithActiveFlow()
 
     await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
     await wrapper.get('[data-testid="deploy-menu-copy-prompt"]').trigger('click')
     await flushPromises()
 
-    expect(mocks.SetText).toHaveBeenCalled()
+    expect(mocks.RenderPrompt).toHaveBeenCalledWith('flows', expect.anything())
+    expect(mocks.SetText).toHaveBeenCalledWith('FLOWS PROMPT')
     expect(wrapper.get('[data-testid="copy-prompt-status"]').text()).toBe('Prompt copied')
 
+    wrapper.unmount()
+  })
+
+  // A prompt that cannot be rendered must not put a half-built or stale prompt
+  // on the clipboard.
+  it('"Copy prompt" reports failure when the prompt cannot be rendered', async () => {
+    mocks.SetText.mockResolvedValue(undefined)
+    mocks.RenderPrompt.mockRejectedValue(new Error('unavailable'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const wrapper = await mountWithActiveFlow()
+
+    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="deploy-menu-copy-prompt"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.SetText).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="copy-prompt-status"]').text()).toBe('Could not copy')
+
+    warn.mockRestore()
     wrapper.unmount()
   })
 
