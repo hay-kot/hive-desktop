@@ -4,7 +4,7 @@ import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
-import { createAppRouter } from '../router'
+import { applicationSettingsSections, createAppRouter } from '../router'
 
 const mocks = vi.hoisted(() => ({
   // flowsservice
@@ -448,6 +448,27 @@ describe('App', () => {
 
     expect(router.currentRoute.value.params.section).toBe('notifications')
     expect(wrapper.find('[data-testid="notification-settings"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  // Routing a section is not the same as reaching it: App resolves :section
+  // itself, and a section it does not recognize silently renders the default
+  // pane. Clicking each nav entry is the only check that covers both halves.
+  it.each(applicationSettingsSections)('navigates to the %s settings section from its nav entry', async (section) => {
+    const router = createAppRouter(createMemoryHistory())
+    await router.push('/settings')
+    await router.isReady()
+    const wrapper = mount(App, { global: { plugins: [router] } })
+    await flushPromises()
+
+    await wrapper.get(`[data-testid="settings-category-${section}"]`).trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.params.section).toBe(section)
+    expect(
+      wrapper.get(`[data-testid="settings-category-${section}"]`).attributes('aria-current'),
+      `the ${section} nav entry is not marked current — App resolved :section to another pane`,
+    ).toBe('true')
     wrapper.unmount()
   })
 

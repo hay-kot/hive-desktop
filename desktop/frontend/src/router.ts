@@ -8,8 +8,33 @@ import {
 } from 'vue-router'
 
 export type AppRouteName = 'feed' | 'flows' | 'activity' | 'application-settings' | 'profile-settings' | 'dev'
-export type ApplicationSettingsSection = 'appearance' | 'integrations' | 'actions' | 'prompts' | 'keybindings' | 'system' | 'notifications'
-export type ProfileSettingsSection = 'general' | 'danger'
+
+// The one list of application settings sections. It builds the route's own
+// section matcher below and backs isApplicationSettingsSection, which App.vue
+// uses to resolve :section — a second hand-written list is how a section ends
+// up routable but unreachable, silently falling through to the default pane.
+// Order is presentation order in SettingsView's nav.
+export const applicationSettingsSections = [
+  'appearance',
+  'keybindings',
+  'integrations',
+  'actions',
+  'prompts',
+  'system',
+  'notifications',
+] as const
+export type ApplicationSettingsSection = (typeof applicationSettingsSections)[number]
+
+export function isApplicationSettingsSection(value: unknown): value is ApplicationSettingsSection {
+  return typeof value === 'string' && (applicationSettingsSections as readonly string[]).includes(value)
+}
+
+export const profileSettingsSections = ['general', 'danger'] as const
+export type ProfileSettingsSection = (typeof profileSettingsSections)[number]
+
+export function isProfileSettingsSection(value: unknown): value is ProfileSettingsSection {
+  return typeof value === 'string' && (profileSettingsSections as readonly string[]).includes(value)
+}
 
 // App.vue owns the persistent desktop shell and renders the matched page in
 // its main slot. Vue Router still requires a component on leaf route records.
@@ -36,12 +61,12 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
       component: ShellPage,
     },
     {
-      path: '/settings/:section(appearance|integrations|actions|prompts|keybindings|system|notifications)?',
+      path: `/settings/:section(${applicationSettingsSections.join('|')})?`,
       name: 'application-settings',
       component: ShellPage,
     },
     {
-      path: '/profiles/:profileId/settings/:section(general|danger)?',
+      path: `/profiles/:profileId/settings/:section(${profileSettingsSections.join('|')})?`,
       name: 'profile-settings',
       component: ShellPage,
     },
