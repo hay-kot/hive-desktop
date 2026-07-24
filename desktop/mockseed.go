@@ -24,9 +24,9 @@ const (
 // mockItemAges is how long ago each mockInboxItems entry last saw activity,
 // positionally paired with that slice. Ages must stay strictly increasing —
 // the fixture's newest-first order is the seeded order — and are spread across
-// the feed list's date tiers (today / yesterday / this week / older) so mock
-// mode exercises the date separators instead of stacking every row under
-// "Today".
+// the feed list's date tiers (today through this/last month, depending on where
+// in the month the app runs) so mock mode exercises the date separators instead
+// of stacking every row under "Today".
 var mockItemAges = []time.Duration{
 	45 * time.Minute,
 	5 * time.Hour,

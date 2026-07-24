@@ -7,7 +7,10 @@ function item(id: number, title: string, unread = false): InboxItem {
   return { id, profileId: 'triage', sourceKind: 'github', sourceScope: 'acme/app', externalId: `pr-${id}`, title, url: '', payload: { kind: 'PR', repo: 'acme/app', num: id, author: 'hay', body: 'Body' }, revision: 1, unread, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now() }
 }
 
+// A year back so the tier is "Older" whatever the suite's wall clock says —
+// nearer ages straddle the month tiers depending on the day of the month.
 const day = 24 * 60 * 60 * 1000
+const longAgo = 400 * day
 const aged = (id: number, ageMs: number): InboxItem => ({ ...item(id, `Item ${id}`), lastEventAt: Date.now() - ageMs })
 const dividerLabels = (wrapper: VueWrapper) => wrapper.findAll('[data-testid="feed-date-divider"]').map((divider) => divider.text())
 
@@ -84,14 +87,14 @@ describe('FeedList', () => {
   })
 
   it('separates rows into date tiers and leaves a leading Today unlabeled', () => {
-    const wrapper = mountList({ visibleItems: [aged(1, 0), aged(2, 21 * day)] })
+    const wrapper = mountList({ visibleItems: [aged(1, 0), aged(2, longAgo)] })
     expect(dividerLabels(wrapper)).toEqual(['Older'])
     // Both rows still render — suppressing the label drops the separator, not the group.
     expect(wrapper.findAll('[data-testid="feed-item"]')).toHaveLength(2)
   })
 
   it('labels Today when oldest-first sort moves it to the bottom', () => {
-    const wrapper = mountList({ sort: 'oldest', visibleItems: [aged(2, 21 * day), aged(1, 0)] })
+    const wrapper = mountList({ sort: 'oldest', visibleItems: [aged(2, longAgo), aged(1, 0)] })
     expect(dividerLabels(wrapper)).toEqual(['Older', 'Today'])
   })
 
