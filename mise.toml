@@ -16,11 +16,11 @@ _.file = { path = ".env", redact = true }
 # Wires .git/hooks to lefthook after `mise install`, so a fresh clone gets the
 # quality gates without a separate manual step. Idempotent; safe to re-run.
 [hooks]
-postinstall = "lefthook install"
+postinstall = "{{config_root}}/scripts/hooks/install.sh"
 
 [tasks.setup]
 description = "Install the lefthook git hooks (runs automatically after `mise install`)"
-run = "lefthook install"
+run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
 description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"

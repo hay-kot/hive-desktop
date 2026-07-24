@@ -18,4 +18,6 @@ fi
 hooks_dir="$(git rev-parse --path-format=absolute --git-common-dir)/hooks"
 git config --local core.hooksPath "$hooks_dir"
 
+# lefthook's warning here names the *global* hooksPath as the target; it writes
+# to the local one set above. Verify with `ls "$hooks_dir"` if in doubt.
 lefthook install --force

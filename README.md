@@ -18,6 +18,7 @@ Private product monorepo for the Hive desktop application and its supporting ser
 ## Setup
 
 ```sh
+mise trust                         # once per clone, before mise reads mise.toml
 mise install                       # toolchain + git hooks (lefthook)
 cd desktop/frontend && npm ci      # frontend deps, for the desktop app and its tests
 ```
