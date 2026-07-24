@@ -319,18 +319,31 @@ const updateInfo = ref<UpdateInfo | null>(null)
 const updateAvailable = computed(() => updateInfo.value?.available ?? false)
 const updateLatestVersion = computed(() => updateInfo.value?.latestVersion ?? '')
 const installingUpdate = ref(false)
+const updateConfirmOpen = ref(false)
+const updateInstallError = ref('')
 
-async function openUpdate(): Promise<void> {
+function openUpdate(): void {
   if (installingUpdate.value) return
-  // A native confirm is a lightweight affordance before the app quits and
-  // relaunches into the new version; guarded for the non-Wails test context.
-  if (typeof window.confirm === 'function' && !window.confirm('Download the update and relaunch Hive now?')) return
+  updateInstallError.value = ''
+  updateConfirmOpen.value = true
+}
+
+function cancelUpdate(): void {
+  if (installingUpdate.value) return
+  updateConfirmOpen.value = false
+  updateInstallError.value = ''
+}
+
+async function confirmUpdate(): Promise<void> {
+  if (installingUpdate.value) return
   installingUpdate.value = true
+  updateInstallError.value = ''
   try {
     await InstallUpdate()
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error)
     console.error('Update install failed', error)
+    updateInstallError.value = detail
     showToast('Could not install the update', {
       severity: 'error',
       body: detail,
@@ -832,6 +845,17 @@ onUnmounted(() => {
       :error="sessionLaunchError"
       @close="cancelSessionLaunch"
       @submit="submitSessionLaunch"
+    />
+    <ConfirmationDialog
+      v-if="updateConfirmOpen"
+      title="Install update?"
+      :description="`Download Hive ${updateLatestVersion || 'update'} and relaunch the app now?`"
+      confirm-label="Install and relaunch"
+      :busy="installingUpdate"
+      :error="updateInstallError"
+      testid="update-confirmation"
+      @confirm="confirmUpdate"
+      @cancel="cancelUpdate"
     />
     <ConfirmationDialog
       v-if="actionRerunConfirmation"

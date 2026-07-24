@@ -218,23 +218,27 @@ describe('App', () => {
     mocks.RecordActivity.mockResolvedValue(undefined)
   })
 
-  it('shows updater install failures in an error toast', async () => {
+  it('confirms updates in-app and shows install failures', async () => {
     mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: true, currentVersion: '1.2.0', latestVersion: '1.3.0', notes: '', releaseUrl: '' })
     mocks.InstallUpdate.mockRejectedValue(new Error('checksum mismatch'))
-    vi.stubGlobal('confirm', vi.fn(() => true))
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const wrapper = await mountApp()
 
     try {
       await wrapper.get('[data-testid="titlebar-update-chip"]').trigger('click')
+      expect(document.querySelector('[data-testid="update-confirmation"]')?.textContent).toContain('Download Hive 1.3.0')
+      expect(mocks.InstallUpdate).not.toHaveBeenCalled()
+
+      document.querySelector<HTMLButtonElement>('[data-testid="update-confirmation-confirm"]')?.click()
       await flushPromises()
 
+      expect(mocks.InstallUpdate).toHaveBeenCalledOnce()
+      expect(document.querySelector('[data-testid="update-confirmation-error"]')?.textContent).toContain('checksum mismatch')
       expect(wrapper.get('[data-testid="toast-title"]').text()).toBe('Could not install the update')
       expect(wrapper.get('[data-testid="toast-body"]').text()).toContain('checksum mismatch')
       expect(wrapper.get('[data-testid="titlebar-update-chip"]').attributes('disabled')).toBeUndefined()
     } finally {
       wrapper.unmount()
-      vi.unstubAllGlobals()
       consoleError.mockRestore()
     }
   })
