@@ -148,11 +148,11 @@ function dropClass(id: string): Record<string, boolean> {
 
 /* The insertion line floats in the gap between cards rather than lighting up a
    card's own border, which reads as an edit to that card and sits badly against
-   the 11px corners. Inset and pill-capped so it echoes the card radius. */
+   the 11px corners. */
 .action-row { position: relative; }
 .action-row::before, .action-row::after {
   content: ''; position: absolute; left: 8px; right: 8px; height: 2px;
-  border-radius: 999px; background: var(--color-accent); box-shadow: 0 0 0 3px var(--color-accent-tint);
+  border-radius: 1px; background: var(--color-accent);
   opacity: 0; pointer-events: none;
 }
 .action-row::before { top: -7px; }
