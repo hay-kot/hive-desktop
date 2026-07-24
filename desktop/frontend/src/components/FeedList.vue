@@ -158,7 +158,10 @@ watch(() => props.selectedId, async (id) => {
       </div>
       <template v-else>
         <template v-for="group in itemGroups" :key="group.key">
-          <div v-if="group.label" class="date-divider" data-testid="feed-date-divider"><span class="date-badge">{{ group.label }}</span></div>
+          <div v-if="group.label" class="date-divider" data-testid="feed-date-divider">
+            <span data-testid="feed-date-label">{{ group.label }}</span>
+            <span class="date-count" data-testid="feed-date-count">{{ group.items.length }}</span>
+          </div>
           <FeedListItem
             v-for="item in group.items"
             :key="item.id"
@@ -249,14 +252,12 @@ watch(() => props.selectedId, async (id) => {
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
 .view-menu-divider { height: 1px; background: var(--color-row); margin: 4px; }
-/* A centered chip in its own band, breathing on both sides so tiers read as
-   section breaks rather than another row. Deliberately hueless — the rows
-   already carry color (kind pills, unread dots) and a tinted separator
-   competed with them. Scrolls away with its group rather than sticking.
-   The band closes with a row-weight rule so it is bounded on both sides —
-   the line above it is the preceding row's own border-bottom. */
-.date-divider { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--color-row); padding: 34px 0; background: var(--color-list); }
-.date-badge { flex: none; border: 1px solid var(--color-strong); border-radius: 999px; background: var(--color-chip); padding: 4px 12px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
+/* A compact full-bleed strip on a raised background: the tier on the left, its
+   row count on the right, padded to land on the row's title and age columns.
+   Hueless on purpose — the rows already carry color (kind pills, unread dots).
+   Only a bottom rule: the line above it is the preceding row's own border. */
+.date-divider { display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--color-row); background: var(--color-pane); padding: 7px 16px 7px 18px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.date-count { color: var(--color-text-4); }
 .archived-divider { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 14px 6px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; border-top: 1px solid var(--color-row); margin-top: 6px; }
 .archived-divider:hover { color: var(--color-text); }
 .state-frame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }

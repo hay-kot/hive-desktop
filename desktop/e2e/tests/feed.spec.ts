@@ -38,7 +38,7 @@ test('renders the mock feed with pr2841 selected by default', async ({ page }) =
 // known labels, no repeats, newest tier first.
 test('separates the feed into date tiers', async ({ page }) => {
   const tiers = ['Today', 'Yesterday', 'This week', 'Last week', 'This month', 'Last month', 'Older']
-  const labels = await page.getByTestId('feed-date-divider').evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
+  const labels = await page.getByTestId('feed-date-label').evaluateAll((els) => els.map((el) => el.textContent?.trim() ?? ''))
   expect(labels.length).toBeGreaterThan(1)
   expect(labels.filter((label) => tiers.includes(label))).toEqual(labels)
   expect(new Set(labels).size).toBe(labels.length)
