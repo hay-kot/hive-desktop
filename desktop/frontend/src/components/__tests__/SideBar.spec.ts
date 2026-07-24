@@ -1,10 +1,14 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import SideBar from '../SideBar.vue'
 import type { FeedTree, Profile, SidebarNode } from '../../types/feed'
 
-// Collapse state and panel width live in localStorage; isolate every test.
-beforeEach(() => localStorage.clear())
+// Collapse state and panel width live in localStorage; isolate every test. The
+// folder dialogs teleport to the body, so clear that between tests too.
+beforeEach(() => {
+  localStorage.clear()
+  document.body.innerHTML = ''
+})
 
 const profile: Profile = {
   id: 'personal',
@@ -121,7 +125,20 @@ const grouped: Profile = {
 }
 
 function mountGrouped() {
-  return mount(SideBar, { props: { profile: grouped, selection: { type: 'feed', feedId: 'desktop' } } })
+  return mount(SideBar, {
+    props: { profile: grouped, selection: { type: 'feed', feedId: 'desktop' } },
+    attachTo: document.body,
+  })
+}
+
+// The folder edit dialog and its confirmation both teleport out of the wrapper.
+function dialog<T extends HTMLElement>(testid: string): T {
+  return document.querySelector<T>(`[data-testid="${testid}"]`)!
+}
+
+async function openFolderEditor(wrapper: ReturnType<typeof mountGrouped>): Promise<void> {
+  await wrapper.get('[data-testid="folder-edit"]').trigger('click')
+  await flushPromises()
 }
 
 // The tree carried by the most recent 'reorder' emit.
@@ -164,29 +181,83 @@ describe('SideBar folders', () => {
     expect(wrapper.emitted('reorder')).toBeUndefined()
   })
 
-  it('appends a new empty folder when the new-folder button is clicked', async () => {
+  it('appends a new empty folder and opens it for naming', async () => {
     const wrapper = mountGrouped()
     await wrapper.find('[data-testid="sidebar-new-folder"]').trigger('click')
-    const folders = lastReorder(wrapper).filter((n) => n.kind === 'folder')
-    expect(folders).toHaveLength(2)
+    const tree = lastReorder(wrapper)
+    expect(tree.filter((n) => n.kind === 'folder')).toHaveLength(2)
+
+    // Once the parent persists the tree, the new folder opens in its edit
+    // dialog with the placeholder name ready to be typed over.
+    await wrapper.setProps({ profile: { ...grouped, tree } })
+    await flushPromises()
+    expect(dialog<HTMLInputElement>('folder-edit-name').value).toBe('New folder')
+    wrapper.unmount()
   })
 
-  it('renames a folder, emitting the new name', async () => {
+  it('renames a folder from the edit dialog, emitting the new name', async () => {
     const wrapper = mountGrouped()
-    await wrapper.find('[data-testid="folder-rename"]').trigger('click')
-    const input = wrapper.find('[data-testid="folder-rename-input"]')
-    expect(input.exists()).toBe(true)
-    await input.setValue('Projects')
-    await input.trigger('keydown.enter')
+    await openFolderEditor(wrapper)
+
+    const input = dialog<HTMLInputElement>('folder-edit-name')
+    input.value = 'Projects'
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    await flushPromises()
+    dialog<HTMLButtonElement>('folder-edit-save').click()
+    await flushPromises()
+
     expect(folderNamed(lastReorder(wrapper), 'work')?.name).toBe('Projects')
+    expect(document.querySelector('[data-testid="folder-edit-modal"]')).toBeNull()
+    wrapper.unmount()
   })
 
-  it('deleting a folder ungroups its feeds back to the top level', async () => {
+  it('offers no single-click delete in the tree; deletion starts in the edit dialog', async () => {
     const wrapper = mountGrouped()
-    await wrapper.find('[data-testid="folder-delete"]').trigger('click')
+    expect(wrapper.find('[data-testid="folder-delete"]').exists()).toBe(false)
+
+    // Every button in the folder header, exercised: none of them writes a layout.
+    for (const button of wrapper.findAll('[data-testid="sidebar-folder"] .folder-header button')) {
+      await button.trigger('click')
+    }
+    await flushPromises()
+    expect(wrapper.emitted('reorder')).toBeUndefined()
+    expect(dialog('folder-edit-modal')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('deletes a folder only after confirming, ungrouping its feeds to the top level', async () => {
+    const wrapper = mountGrouped()
+    await openFolderEditor(wrapper)
+    dialog<HTMLButtonElement>('folder-edit-delete').click()
+    await flushPromises()
+
+    // The confirm expands inside the dialog rather than stacking another one.
+    expect(dialog('folder-edit-modal')).not.toBeNull()
+    expect(dialog('folder-delete-confirm-description').textContent).toContain('Its 1 feed moves to the top level')
+    expect(wrapper.emitted('reorder')).toBeUndefined()
+
+    dialog<HTMLButtonElement>('folder-delete-confirm-confirm').click()
+    await flushPromises()
+
     const tree = lastReorder(wrapper)
     expect(tree.some((n) => n.kind === 'folder')).toBe(false)
     expect(tree.some((n) => n.kind === 'feed' && n.feed.id === 'backend')).toBe(true)
+    expect(document.querySelector('[data-testid="folder-edit-modal"]')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('cancelling the delete confirmation keeps the folder and the dialog', async () => {
+    const wrapper = mountGrouped()
+    await openFolderEditor(wrapper)
+    dialog<HTMLButtonElement>('folder-edit-delete').click()
+    await flushPromises()
+    dialog<HTMLButtonElement>('folder-delete-confirm-cancel').click()
+    await flushPromises()
+
+    expect(wrapper.emitted('reorder')).toBeUndefined()
+    expect(document.querySelector('[data-testid="folder-delete-confirm"]')).toBeNull()
+    expect(dialog('folder-edit-modal')).not.toBeNull()
+    wrapper.unmount()
   })
 
   it('emits a reorder when a feed is dragged to the trailing drop zone', async () => {
