@@ -7,9 +7,14 @@ disable-model-invocation: true
 
 # Release Hive Desktop
 
-Cut a release through the tag-triggered CI publisher. Never upload locally and
-then push the same tag: the tag would trigger CI to republish an immutable
-version and fail.
+Cut a release through the local publisher by default. `mise` loads release
+credentials automatically; never read `.env`, inspect secret values, or invoke
+the release script outside `mise`. Use the tag-triggered GitHub Actions publisher
+only when the user explicitly requests the CI workflow.
+
+Never upload locally and then push the same tag: pushing the tag would trigger
+CI to republish an immutable version and fail. In the default local flow, create
+the release tag locally after publishing and do not push it.
 
 ## Arguments
 
@@ -57,9 +62,9 @@ Reject missing or unknown channels instead of guessing.
    affected manifests (`dev`; `beta+dev`; or `stable+beta+dev`). Ask for an
    explicit confirmation before doing anything that publishes. Prefer the
    harness's structured confirmation UI when available; otherwise ask in plain
-   text and wait. The confirmation must make clear that it will push the tag
-   and start a signed/notarized public release. A typed alternate version is
-   acceptable; revalidate it. Stop on cancellation.
+   text and wait. The confirmation must make clear that the local workflow will
+   build, sign, notarize, and upload a public release. A typed alternate version
+   is acceptable; revalidate it. Stop on cancellation.
 7. After confirmation, run the same local gates used before pushes:
 
    ```bash
@@ -72,23 +77,42 @@ Reject missing or unknown channels instead of guessing.
 
    Stop on the first failure. Verify the worktree is still clean and `HEAD`
    still equals `origin/main` afterward.
-8. Create and push the lightweight release tag:
+8. Publish through `mise`, which loads the credentials without exposing them:
 
    ```bash
-   git tag "desktop-v<version>" HEAD
-   git push origin "desktop-v<version>"
+   mise run release:desktop -- <version>
    ```
 
-   This push triggers `.github/workflows/desktop-publish.yml`, which runs
-   `scripts/release/release-desktop.sh` with the selected version. Do not call
-   that script locally in the normal flow.
-9. Locate the triggered `Publish Desktop` GitHub Actions run with `gh run list`,
-   then watch it to completion with `gh run watch --exit-status`. On success,
-   report the version, tag, workflow URL, channel manifests, and artifact URL
-   prefix (`https://dl.hivedesktop.com/desktop/releases/<version>/`).
-10. On failure, report the failed step and workflow URL. Do not delete or move
-    the tag, rerun with `--force`, overwrite artifacts, or invent a replacement
-    version without explicit user approval.
+   Do not read `.env`, print credential environment variables, or call
+   `scripts/release/release-desktop.sh` directly. Stop on failure. Do not rerun
+   with `--force`, overwrite artifacts, or invent a replacement version without
+   explicit user approval.
+9. Verify the affected live manifests and published artifact URL. They must
+   report the candidate version, expected channel cascade, and the checksum
+   produced by the publisher.
+10. After successful verification, create the lightweight release tag locally:
+
+    ```bash
+    git tag "desktop-v<version>" HEAD
+    ```
+
+    Do not push the tag: `.github/workflows/desktop-publish.yml` runs on the tag
+    push and would attempt to republish the immutable release. Report the
+    version, local tag, affected channel manifests, and artifact URL prefix
+    (`https://dl.hivedesktop.com/desktop/releases/<version>/`).
+
+## Explicit CI workflow
+
+Only when the user explicitly asks to publish through GitHub Actions, replace
+steps 8-10 with:
+
+1. Create and push `desktop-v<version>` at `HEAD`.
+2. Locate the triggered `Publish Desktop` run with `gh run list` and watch it
+   with `gh run watch --exit-status`.
+3. On success, report the version, tag, workflow URL, channel manifests, and
+   artifact URL prefix. On failure, report the failed step and workflow URL; do
+   not delete or move the tag, force a rerun, overwrite artifacts, or choose a
+   replacement version without explicit user approval.
 
 ## Version selection rules
 
