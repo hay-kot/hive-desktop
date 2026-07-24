@@ -21,8 +21,10 @@ pre-commit:
     # gets its unstaged hunks staged along with the formatting.
     - name: gofmt
       glob: "*.go"
+      # lefthook globs are separator-blind: `*` matches nested paths too, and
+      # `internal/hivecore/**/*` would miss files sitting directly in that dir.
       exclude:
-        - "internal/hivecore/**/*"
+        - "internal/hivecore/*"
       run: mise run fmt:files {staged_files}
       stage_fixed: true
 
@@ -31,7 +33,7 @@ pre-commit:
     # only catches the local case: hivecore changing without the pin moving.
     # CI runs the authoritative check (`mise run check:vendor`).
     - name: vendored-code
-      glob: "internal/hivecore/**/*"
+      glob: "internal/hivecore/*"
       fail_text: "internal/hivecore is vendored from colonyops/hive — never edit it here. Land the change in hive, then run 'mise run vendor'."
       run: |
         if [ -n "$(git diff --cached --name-only -- scripts/vendorhive/vendor.lock)" ]; then
@@ -73,7 +75,7 @@ pre-push:
       run: mise run check:generate
 
     - name: frontend-test
-      glob: "desktop/frontend/**/*"
+      glob: "desktop/frontend/*"
       run: |
         if [ ! -d desktop/frontend/node_modules ]; then
           echo "SKIP frontend tests: desktop/frontend/node_modules is missing (run 'cd desktop/frontend && npm ci')." >&2
