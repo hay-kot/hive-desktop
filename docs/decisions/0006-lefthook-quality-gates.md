@@ -14,7 +14,9 @@ The quality gates (`fmt`, `lint`, `test`, generated-file and vendor drift checks
 The split is by cost, because a slow pre-commit stalls agent loops:
 
 - **pre-commit** (~0.1s): `golangci-lint fmt` on staged Go files, a guard against editing vendored `internal/hivecore/`, and a generated-code drift check that only fires when a generator input is staged.
-- **pre-push** (~5s): `check:tidy`, `lint`, `test`, `check:generate`, and the frontend unit tests when the push touches `desktop/frontend/`. Push is the wrap/PR boundary for headless work, so the full gates belong here.
+- **pre-push** (~2s, ~6s with the frontend): `check:generate`, `check:tidy`, `lint`, `test`, and the frontend unit tests when the push touches `desktop/frontend/`. Push is the wrap/PR boundary for headless work, so the full gates belong here.
+
+Jobs run piped rather than in parallel. `check:generate` rewrites the same `.go` files that `fmt`, `lint`, and `test` read, and a torn read would surface as an unreproducible failure — worth more than the two seconds parallelism would save.
 
 Formatting **auto-fixes and re-stages** rather than failing: a blocked commit costs an agent a whole turn to re-run and re-commit for whitespace. The trade-off is that a partially staged file gets its unstaged hunks staged along with the formatting.
 
