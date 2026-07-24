@@ -153,7 +153,7 @@ watch(() => props.selectedId, async (id) => {
       </div>
       <template v-else>
         <template v-for="group in itemGroups" :key="group.key">
-          <div v-if="group.label" class="date-divider" data-testid="feed-date-divider">{{ group.label }}</div>
+          <div v-if="group.label" class="date-divider" data-testid="feed-date-divider"><span class="date-badge">{{ group.label }}</span></div>
           <FeedListItem
             v-for="item in group.items"
             :key="item.id"
@@ -244,9 +244,13 @@ watch(() => props.selectedId, async (id) => {
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
 .view-menu-divider { height: 1px; background: var(--color-row); margin: 4px; }
-/* Sticky so the tier a row belongs to stays visible while scrolling through a
-   long group. z-index clears a hovered row's floating action pill (z-10). */
-.date-divider { position: sticky; top: 0; z-index: 11; padding: 8px 14px 6px; background: var(--color-list); color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+/* A centered accent chip on a hairline rule, breathing on both sides so tiers
+   read as section breaks rather than another row. Sticky keeps the tier
+   visible while scrolling a long group; z-index clears a hovered row's
+   floating action pill (z-10). */
+.date-divider { position: sticky; top: 0; z-index: 11; display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px; background: var(--color-list); }
+.date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-row); }
+.date-badge { flex: none; border-radius: 999px; background: var(--color-accent-tint); padding: 3px 10px; color: var(--color-accent); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; }
 .archived-divider { display: flex; width: 100%; align-items: center; gap: 7px; padding: 8px 14px 6px; color: var(--color-text-3); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; cursor: pointer; border-top: 1px solid var(--color-row); margin-top: 6px; }
 .archived-divider:hover { color: var(--color-text); }
 .state-frame { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; height: 100%; padding: 24px; text-align: center; }
