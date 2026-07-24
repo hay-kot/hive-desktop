@@ -30,6 +30,7 @@ import FlowsCanvas from './FlowsCanvas.vue'
 import FlowDebugPanel from './FlowDebugPanel.vue'
 import FeedItemsPreview, { type FeedItemsClient } from './FeedItemsPreview.vue'
 import PanelResizeHandle from '../../components/PanelResizeHandle.vue'
+import AppSelect from '../../components/AppSelect.vue'
 
 const {
   flows, activeFlow, layout, dirty, nodeRuns, latestRunByNode, saving, error, flowFocusNodeId,
@@ -108,6 +109,7 @@ const feedItemsClient: FeedItemsClient = {
 }
 
 const feedNodes = computed(() => activeFlow.value?.nodes.filter((n) => n.type === 'feed') ?? [])
+const feedNodeOptions = computed(() => feedNodes.value.map((n) => ({ value: n.id, label: n.name || n.id })))
 const selectedFeedNodeId = ref<string | null>(null)
 
 watch(feedNodes, (nodes) => {
@@ -296,13 +298,14 @@ const showDebug = ref(false)
           </div>
           <div class="flex min-h-0 flex-col border-t border-row" style="height: 40%">
             <div v-if="feedNodes.length > 1" class="shrink-0 border-b border-row px-3 py-2">
-              <select
-                v-model="selectedFeedNodeId"
-                class="w-full rounded-md border border-strong bg-app px-2 py-1 text-[11.5px] text-text"
-                data-testid="feed-preview-node-select"
-              >
-                <option v-for="n in feedNodes" :key="n.id" :value="n.id">{{ n.name || n.id }}</option>
-              </select>
+              <AppSelect
+                size="sm"
+                :model-value="selectedFeedNodeId ?? ''"
+                :options="feedNodeOptions"
+                testid="feed-preview-node-select"
+                aria-label="Feed preview node"
+                @update:model-value="selectedFeedNodeId = $event"
+              />
             </div>
             <FeedItemsPreview :feed-id="previewFeedId" :client="feedItemsClient" />
           </div>

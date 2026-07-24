@@ -74,3 +74,39 @@ test('double-clicking a node opens its editor drawer, read-only', async ({ page 
   // Escaping without Save must not mark the flow dirty.
   await expect(page.getByTestId('flow-dirty-indicator')).toHaveCount(0)
 })
+
+// AppSelect teleports its popover to <body> precisely because the drawer body
+// scrolls: an absolutely-positioned list inside it gets clipped by that
+// overflow. This is the regression guard for that — the reason the flow
+// editor could not just use the in-place popover the actions drawer started
+// with. Read-only: the picker is opened and escaped, never chosen from.
+test('the node editor select opens an unclipped, themed popover', async ({ page }) => {
+  await page.getByTestId('sidebar-edit-flow').click()
+  await page.locator('[data-testid="flow-node-notifications-inbox"]').dblclick()
+  await expect(page.getByTestId('node-editor')).toBeVisible()
+
+  const trigger = page.getByTestId('feed-editor-icon')
+  await trigger.click()
+  const popover = page.getByTestId('feed-editor-icon-popover')
+  await expect(popover).toBeVisible()
+
+  // Rendered as a child of <body>, so no ancestor's overflow can clip it, and
+  // actually hit-testable at its own centre rather than painted underneath the
+  // drawer.
+  expect(await popover.evaluate((el) => {
+    const box = el.getBoundingClientRect()
+    return {
+      parent: el.parentElement?.tagName,
+      onTop: el.contains(document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)),
+      insideViewport: box.top >= 0 && box.left >= 0
+        && box.bottom <= window.innerHeight && box.right <= window.innerWidth,
+    }
+  })).toEqual({ parent: 'BODY', onTop: true, insideViewport: true })
+
+  await expect(page.getByTestId('feed-editor-icon-option-sparkles')).toBeVisible()
+
+  await page.keyboard.press('Escape')
+  await expect(popover).toHaveCount(0)
+  await expect(page.getByTestId('node-editor')).toBeVisible() // the select ate the Escape, the drawer stays open
+  await expect(page.getByTestId('flow-dirty-indicator')).toHaveCount(0)
+})

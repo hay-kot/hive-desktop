@@ -2,12 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
 import { defaults, validate, type Config } from '../config'
+import { chooseOption } from '../../../../test-utils/select'
 
 describe('github-source editor', () => {
   it('renders the current kind and query', () => {
     const config: Config = { kind: 'search', query: 'is:open is:pr' }
     const wrapper = mount(Editor, { props: { config } })
-    expect(wrapper.get<HTMLSelectElement>('[data-testid="github-source-editor-kind"]').element.value).toBe('search')
+    expect(wrapper.get('[data-testid="github-source-editor-kind"]').text()).toContain('Search')
     expect(wrapper.get<HTMLInputElement>('[data-testid="github-source-editor-query"]').element.value).toBe('is:open is:pr')
   })
 
@@ -28,12 +29,10 @@ describe('github-source editor', () => {
     const config: Config = { kind: 'search', query: 'is:open' }
     const wrapper = mount(Editor, { props: { config } })
 
-    const select = wrapper.get<HTMLSelectElement>('[data-testid="github-source-editor-kind"]').element
-    select.value = 'notifications'
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-    await wrapper.vm.$nextTick()
+    await chooseOption(wrapper, 'github-source-editor-kind', 'notifications')
 
     expect(wrapper.emitted('update:config')).toEqual([[{ kind: 'notifications', query: '' }]])
+    wrapper.unmount()
   })
 })
 

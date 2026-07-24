@@ -8,6 +8,7 @@ import ToggleField from '../ToggleField.vue'
 import TabStrip from '../TabStrip.vue'
 import GlobListField from '../GlobListField.vue'
 import CodeField from '../CodeField.vue'
+import { chooseOption, openSelect } from '../../../test-utils/select'
 
 function fire(el: Element, type: string) {
   el.dispatchEvent(new Event(type, { bubbles: true }))
@@ -68,24 +69,43 @@ describe('TextareaField', () => {
 })
 
 describe('SelectField', () => {
-  it('round-trips modelValue and emits on change', async () => {
-    const options = [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }]
-    const wrapper = mount(SelectField, { props: { modelValue: 'a', options, testid: 'sf' } })
-    const select = wrapper.get('select').element as HTMLSelectElement
-    expect(select.value).toBe('a')
+  const options = [{ value: 'a', label: 'Alpha' }, { value: 'b', label: 'Beta' }]
 
-    select.value = 'b'
-    fire(select, 'change')
-    await wrapper.vm.$nextTick()
+  it('round-trips modelValue and emits the chosen option', async () => {
+    const wrapper = mount(SelectField, { props: { modelValue: 'a', options, testid: 'sf' } })
+    expect(wrapper.get('[data-testid="sf"]').text()).toContain('Alpha')
+
+    await chooseOption(wrapper, 'sf', 'b')
 
     expect(wrapper.emitted('update:modelValue')).toEqual([['b']])
   })
 
-  it('renders a disabled placeholder option when provided', () => {
-    const wrapper = mount(SelectField, { props: { modelValue: '', options: [], placeholder: 'Choose one' } })
-    const placeholderOption = wrapper.find('option[value=""]')
-    expect(placeholderOption.exists()).toBe(true)
-    expect(placeholderOption.attributes('disabled')).toBeDefined()
+  it('shows the placeholder when nothing is selected', () => {
+    const wrapper = mount(SelectField, { props: { modelValue: '', options: [], placeholder: 'Choose one', testid: 'sf' } })
+    expect(wrapper.get('[data-testid="sf"]').text()).toContain('Choose one')
+  })
+
+  it('wraps the control in FieldRow chrome and labels it', () => {
+    const wrapper = mount(SelectField, { props: { modelValue: 'a', options, label: 'Kind', hint: 'pick one', testid: 'sf' } })
+    expect(wrapper.text()).toContain('Kind')
+    expect(wrapper.get('[data-testid="sf-hint"]').text()).toBe('pick one')
+    expect(wrapper.get('[data-testid="sf"]').attributes('aria-label')).toBe('Kind')
+  })
+
+  it('offers a search box only when searchable', async () => {
+    const plain = mount(SelectField, { props: { modelValue: 'a', options, testid: 'sf' } })
+    expect((await openSelect(plain, 'sf')).querySelector('[data-testid="sf-search"]')).toBeNull()
+    plain.unmount()
+
+    const searchable = mount(SelectField, { props: { modelValue: 'a', options, searchable: true, testid: 'sf' } })
+    expect((await openSelect(searchable, 'sf')).querySelector('[data-testid="sf-search"]')).not.toBeNull()
+    searchable.unmount()
+  })
+
+  it('does not open when disabled', async () => {
+    const wrapper = mount(SelectField, { props: { modelValue: 'a', options, disabled: true, testid: 'sf' } })
+    await wrapper.get('[data-testid="sf"]').trigger('click')
+    expect(document.querySelector('[data-testid="sf-popover"]')).toBeNull()
   })
 })
 

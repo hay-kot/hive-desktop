@@ -2,7 +2,7 @@
 // A feed node's identity is still its node id — the fields here are purely
 // cosmetic sidebar presentation: the glyph shown in the tree and a hover
 // tooltip that explains the feed's context (handy for LLM-generated feeds).
-import { SearchableSelectField, SelectField, TextareaField, TextField, ToggleField } from '../../fields'
+import { SelectField, TextareaField, TextField, ToggleField } from '../../fields'
 import { defaultFeedIcon, feedIconOptions } from '../../../lib/feedIcons'
 import { defaultNotifyTitle, descriptionMaxLen, severities, type Config, type Notify } from './config'
 
@@ -47,10 +47,11 @@ function updateNotify<K extends keyof Notify>(key: K, value: Notify[K]) {
       named after this node.
     </p>
 
-    <SearchableSelectField
+    <SelectField
       label="Sidebar icon"
       :model-value="config.icon || defaultFeedIcon"
       :options="iconOptions"
+      searchable
       search-placeholder="Search icons…"
       hint="Shown next to the feed in the sidebar tree."
       testid="feed-editor-icon"

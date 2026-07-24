@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DevView from '../DevView.vue'
+import { chooseOption } from '../../test-utils/select'
 
 const mocks = vi.hoisted(() => ({
   notify: vi.fn(),
@@ -43,7 +44,7 @@ describe('DevView notification test controls', () => {
   it('sends auto notifications through useNotify so Activity and focus settings apply', async () => {
     const wrapper = mount(DevView)
 
-    await wrapper.find('[data-testid="dev-notification-severity"]').setValue('success')
+    await chooseOption(wrapper, 'dev-notification-severity', 'success')
     await wrapper.find('[data-testid="dev-notification-send"]').trigger('click')
 
     expect(mocks.notify).toHaveBeenCalledWith({
@@ -62,8 +63,8 @@ describe('DevView notification test controls', () => {
   it('forces a toast using the notification severity mapping without recording Activity', async () => {
     const wrapper = mount(DevView)
 
-    await wrapper.find('[data-testid="dev-notification-severity"]').setValue('warning')
-    await wrapper.find('[data-testid="dev-notification-channel"]').setValue('force-toast')
+    await chooseOption(wrapper, 'dev-notification-severity', 'warning')
+    await chooseOption(wrapper, 'dev-notification-channel', 'force-toast')
     await wrapper.find('[data-testid="dev-notification-send"]').trigger('click')
 
     expect(mocks.showToast).toHaveBeenCalledWith('Test notification', {
@@ -80,8 +81,8 @@ describe('DevView notification test controls', () => {
     const wrapper = mount(DevView)
     mocks.notificationSound.value = false
 
-    await wrapper.find('[data-testid="dev-notification-severity"]').setValue('error')
-    await wrapper.find('[data-testid="dev-notification-channel"]').setValue('force-system')
+    await chooseOption(wrapper, 'dev-notification-severity', 'error')
+    await chooseOption(wrapper, 'dev-notification-channel', 'force-system')
     await wrapper.find('[data-testid="dev-notification-send"]').trigger('click')
 
     expect(mocks.Notify).toHaveBeenCalledWith({
@@ -104,7 +105,7 @@ describe('DevView notification test controls', () => {
 
     await wrapper.find('[data-testid="dev-notification-delay"]').setValue(true)
     await wrapper.find('[data-testid="dev-notification-send"]').trigger('click')
-    await wrapper.find('[data-testid="dev-notification-severity"]').setValue('error')
+    await chooseOption(wrapper, 'dev-notification-severity', 'error')
     await wrapper.find('[data-testid="dev-notification-send"]').trigger('click')
 
     vi.advanceTimersByTime(2999)

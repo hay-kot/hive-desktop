@@ -4,10 +4,9 @@ import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
 import AppCheckbox from './AppCheckbox.vue'
-import AppSelect from './AppSelect.vue'
 import AppliesToField from './AppliesToField.vue'
 import DrawerSheet from './DrawerSheet.vue'
-import { TextareaField, TextField } from '../pipeline/fields'
+import { SelectField, TextareaField, TextField } from '../pipeline/fields'
 import type { EditableAction } from '../composables/useActionsSettings'
 
 const props = withDefaults(defineProps<{ action: EditableAction; isNew: boolean; busy?: boolean; error?: string | null; returnFocusTo?: HTMLElement | null; knownTypes?: string[] }>(), { knownTypes: () => [] })
@@ -60,7 +59,7 @@ onUnmounted(() => {
     <div class="grid gap-3">
       <TextField ref="idRef" v-model="action.id" label="ID" :disabled="!isNew" testid="action-id" />
       <TextField ref="labelRef" v-model="action.label" label="Label" testid="action-label" />
-      <div class="text-xs text-text-2">Type<AppSelect :model-value="action.type" :options="typeOptions" testid="action-type" aria-label="Type" class="mt-1" @update:model-value="setType" /></div>
+      <SelectField label="Type" :model-value="action.type" :options="typeOptions" testid="action-type" @update:model-value="setType" />
       <AppCheckbox v-model="action.showInDetail" label="Show manual button in detail pane" testid="action-show-in-detail" />
       <AppliesToField ref="appliesField" :model-value="action.appliesTo" :known-types="knownTypes" @update:model-value="action.appliesTo = $event" />
       <template v-if="action.launch">
