@@ -57,18 +57,30 @@ export function canonicalPayload(item: InboxItem): CanonicalPayload {
 
 export type KindStyle = 'pr' | 'issue' | 'neutral'
 
-/** Raw canonical kind — what applies_to matches against; '' when absent. */
+/** The kind an item carries when its payload declares none. Every item has a
+ *  kind so every item is automatable: `applies_to: [Item]` targets exactly
+ *  the untyped ones, and they show up in the actions editor's autocomplete
+ *  like any other kind. Must stay in sync with Go's DefaultItemKind
+ *  (internal/desktop/pipeline/action_item.go) — the action gate matches
+ *  against the same value. See docs/decisions/0008-canonical-item-contract.md. */
+export const DEFAULT_ITEM_KIND = 'Item'
+
+/** Canonical kind — what applies_to matches against. Never empty:
+ *  canonicalPayload keeps the raw decode (so "was a kind sent?" stays
+ *  answerable), and this projection trims and applies DEFAULT_ITEM_KIND.
+ *  Trimming mirrors Go's canonicalFields, so both sides agree on which
+ *  items are untyped. */
 export function kind(item: InboxItem): string {
-  return canonicalPayload(item).kind
+  return canonicalPayload(item).kind.trim() || DEFAULT_ITEM_KIND
 }
 
 /** Human label for the kind pill/search: known kinds get a friendly name,
- *  anything else echoes the raw kind, and an absent kind reads as "Item". */
+ *  anything else echoes the kind (including the default). */
 export function kindLabel(item: InboxItem): string {
   const raw = kind(item)
   if (raw === 'PR') return 'Pull Request'
   if (raw === 'Issue') return 'Issue'
-  return raw || 'Item'
+  return raw
 }
 
 /** Kind pill styling. PR/Issue styling is payload-driven, not

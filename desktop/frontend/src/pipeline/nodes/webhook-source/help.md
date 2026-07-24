@@ -12,6 +12,7 @@ A **webhook source** node turns anything that can send an HTTP request into a fl
 - POST only, JSON body only (any shape — object, array, or scalar), capped at 1 MiB. Accepted deliveries return `202`.
 - Item identity: a top-level `"id"` (string or number) is the stable key — re-posting the same id updates the same inbox item. Without an `id`, the body's content hash is the key, so exact duplicate deliveries deduplicate and any changed body is a new item.
 - A top-level `"title"` and `"url"` are promoted so the item renders in feeds; everything else stays in the opaque `msg.Payload` for downstream nodes, decoded against the canonical item contract (docs/decisions/0008) wherever it renders.
+- A top-level `"kind"` is the item's type label and what actions target with `applies_to`. Omit it and the item is kind `Item` — still automatable (`applies_to: [Item]`), just not distinguishable from other untyped deliveries.
 - A top-level `"state"` drives lifecycle: `resolved`, `closed`, and `done` (case-insensitive) system-archive the item with the state as the archive reason; any other or absent state keeps it active. A later delivery whose state leaves one of those terminal values resurfaces the item. A stateless payload behaves exactly as before — manual triage only.
 
 ## Rendering and transformation

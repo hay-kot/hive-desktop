@@ -27,7 +27,7 @@ item contract — no new keys, no schema change:
 | `id` | stable identity within source scope | `external_id` column |
 | `title` | heading | `title` column |
 | `url` | external link; gates open/copy affordances | `url` column |
-| `kind` | provider-defined type label (`PR`, `Issue`, `Alert`, …) | payload |
+| `kind` | provider-defined type label (`PR`, `Issue`, `Alert`, …); defaults to `Item` | payload |
 | `repo` | container/context label (repo, channel, dashboard) | payload |
 | `num` | short ordinal badge | payload |
 | `author` | actor | payload |
@@ -40,6 +40,20 @@ All keys are optional except `id` and `title`. Extra top-level payload fields
 (GitHub's `branch`/`prompt`/`reason`) are provider enrichment, decoded only by
 that provider's own adapter — there is no `ext.<provider>` namespace, because
 namespacing would orphan every already-stored payload the moment it landed.
+
+**Every item has a kind.** A payload that declares no `kind` (or a blank one)
+projects as `Item` — `DefaultItemKind` in
+`internal/desktop/pipeline/action_item.go`, `DEFAULT_ITEM_KIND` in
+`desktop/frontend/src/lib/itemPresentation.ts`. Without this, an untyped item
+was automatable only by an action with no `applies_to` at all: it could not be
+named, so it never appeared in the actions editor's autocomplete and
+`applies_to: [Item]` matched nothing. Making the default a real kind means
+untyped deliveries are a targetable class rather than a dead end — which is
+what lets a webhook sender fire into the app before anyone has written a
+`function` node to shape its payload. The default is *derived at the decode
+boundary*, never written into stored payloads: no migration, and the raw
+payload still answers "did the source actually send a kind?" — which is why
+the webhook conformance probe keeps listing `kind` as a missing field.
 
 The contract is enforced by two provider-dispatch seams, both now
 `sourceKind`-keyed registries instead of hard-coded gates:

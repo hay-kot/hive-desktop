@@ -64,8 +64,10 @@ const {
 } = useFeedState()
 
 // The feed-item kinds currently in the system — what the actions editor
-// autocompletes and validates "applies to" against.
-const knownFeedTypes = computed(() => [...new Set(items.value.map((item) => kind(item)).filter(Boolean))].sort((a, b) => a.localeCompare(b)))
+// autocompletes and validates "applies to" against. kind() never returns
+// empty (untyped items report DEFAULT_ITEM_KIND), so untyped items are
+// offered as a target like any other kind.
+const knownFeedTypes = computed(() => [...new Set(items.value.map((item) => kind(item)))].sort((a, b) => a.localeCompare(b)))
 
 
 const selectedEvents = ref([] as Awaited<ReturnType<typeof loadEvents>>)

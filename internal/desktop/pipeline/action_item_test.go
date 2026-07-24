@@ -50,11 +50,16 @@ func TestDecodeActionItem_MissingOrBlankIDFillsFromExternalID(t *testing.T) {
 	assert.Equal(t, "ext-8", item.ID, "whitespace-only id counts as blank")
 }
 
-func TestDecodeActionItem_KindAbsentIsEmpty(t *testing.T) {
+func TestDecodeActionItem_KindAbsentFallsBackToDefault(t *testing.T) {
 	payload := []byte(`{"id":"pr-1","title":"Fix it"}`)
 	item, err := DecodeActionItem(payload, "ext-1")
 	require.NoError(t, err)
-	assert.Empty(t, item.Kind)
+	assert.Equal(t, DefaultItemKind, item.Kind)
+	assert.JSONEq(t, string(payload), string(item.Payload), "the default is derived, never written into the payload")
+
+	blank, err := DecodeActionItem([]byte(`{"id":"pr-1","kind":"  "}`), "ext-1")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultItemKind, blank.Kind, "a whitespace-only kind is no kind")
 }
 
 func TestDecodeActionItem_NonObjectPayloadPassesThroughUntouched(t *testing.T) {
@@ -67,7 +72,7 @@ func TestDecodeActionItem_NonObjectPayloadPassesThroughUntouched(t *testing.T) {
 		item, err := DecodeActionItem(payload, "ext-9")
 		require.NoError(t, err)
 		assert.Equal(t, "ext-9", item.ID, "identity falls back to externalID for %s", payload)
-		assert.Empty(t, item.Kind, "non-object payloads carry no canonical kind for %s", payload)
+		assert.Equal(t, DefaultItemKind, item.Kind, "non-object payloads take the default kind for %s", payload)
 		assert.Equal(t, payload, item.Payload, "non-object payload passes through byte-for-byte for %s", payload)
 	}
 }
@@ -189,19 +194,29 @@ func TestActionApplicability_EmptyAppliesToMatchesAnyKind(t *testing.T) {
 	assert.True(t, ok)
 }
 
-// TestActionApplicability_EmptyKindMatchesOnlyEmptyAppliesTo pins the
-// asymmetry: an item with no canonical kind is offered actions with an
-// empty applies_to (any kind), but not actions scoped to a specific kind —
-// "" never case-insensitively equals "pr".
-func TestActionApplicability_EmptyKindMatchesOnlyEmptyAppliesTo(t *testing.T) {
-	item := DecodedActionItem{ID: "1", Kind: "", Payload: []byte(`{}`)}
+// TestActionApplicability_UntypedItemIsTargetableByDefaultKind is the point
+// of DefaultItemKind: a payload that declares no kind is not a dead end for
+// automation. It is reachable both by an action with no applies_to and by
+// one scoped to the default kind (case-insensitively, so a hand-written
+// "item" works), while staying out of scope for unrelated kinds.
+func TestActionApplicability_UntypedItemIsTargetableByDefaultKind(t *testing.T) {
+	item, err := DecodeActionItem([]byte(`{"id":"x","title":"no kind here"}`), "ext-1")
+	require.NoError(t, err)
 
 	anyKind := probeLaunchSessionAction("any", "")
 	ok, _ := ActionApplicability(anyKind, item)
-	assert.True(t, ok, "empty applies_to matches an item with no kind")
+	assert.True(t, ok, "empty applies_to still matches everything")
+
+	byDefault := probeLaunchSessionAction("untyped", "", DefaultItemKind)
+	ok, _ = ActionApplicability(byDefault, item)
+	assert.True(t, ok, "applies_to: [Item] targets untyped items")
+
+	lowercase := probeLaunchSessionAction("untyped-lower", "", "item")
+	ok, _ = ActionApplicability(lowercase, item)
+	assert.True(t, ok, "applies_to matching stays case-insensitive")
 
 	scoped := probeLaunchSessionAction("scoped", "", "pr")
 	ok, reason := ActionApplicability(scoped, item)
-	assert.False(t, ok, "a kind-scoped action does not match an item with no kind")
+	assert.False(t, ok, "an untyped item is not swept up by unrelated kinds")
 	assert.Contains(t, reason, "does not apply")
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  DEFAULT_ITEM_KIND,
   bodySnippet,
   canonicalPayload,
   clipboardText,
@@ -63,14 +64,26 @@ describe('kind / kindLabel / kindStyle', () => {
     expect(kindStyle(issue)).toBe('issue')
   })
 
-  it('falls back to the raw kind, then a generic label and neutral style', () => {
+  it('falls back to the raw kind and neutral style for provider-defined kinds', () => {
     const alert = { ...baseItem, payload: { ...baseItem.payload as object, kind: 'Alert' } }
     expect(kindLabel(alert)).toBe('Alert')
     expect(kindStyle(alert)).toBe('neutral')
+  })
 
-    const kindless = { ...baseItem, payload: {} }
-    expect(kindLabel(kindless)).toBe('Item')
-    expect(kindStyle(kindless)).toBe('neutral')
+  // Every item carries a kind so every item is automatable — an untyped
+  // payload reports DEFAULT_ITEM_KIND rather than an empty string, which is
+  // what puts it in the actions editor's applies_to autocomplete.
+  it('gives an untyped payload the default kind', () => {
+    for (const payload of [{}, null, 'a string', { kind: '   ' }]) {
+      const untyped = { ...baseItem, payload }
+      expect(kind(untyped)).toBe(DEFAULT_ITEM_KIND)
+      expect(kindLabel(untyped)).toBe('Item')
+      expect(kindStyle(untyped)).toBe('neutral')
+    }
+  })
+
+  it('keeps the raw decode free of the default, so "was a kind sent?" stays answerable', () => {
+    expect(canonicalPayload({ ...baseItem, payload: {} }).kind).toBe('')
   })
 })
 

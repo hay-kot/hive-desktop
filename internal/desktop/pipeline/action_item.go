@@ -9,6 +9,16 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
+// DefaultItemKind is the kind an item carries when its payload declares
+// none. Every item has a kind so every item is automatable: an action with
+// applies_to: [Item] targets exactly the untyped ones, instead of them being
+// reachable only by an action with no applies_to at all. Must stay in sync
+// with the frontend's DEFAULT_ITEM_KIND (lib/itemPresentation.ts), which
+// feeds the actions editor's autocomplete. Matching is case-insensitive, so
+// a hand-written applies_to: [item] works too. See
+// docs/decisions/0008-canonical-item-contract.md.
+const DefaultItemKind = "Item"
+
 // DecodedActionItem is the canonical action-item projection of a persisted
 // inbox payload: identity, canonical kind, and the payload bytes handed to
 // the output worker for template rendering. The desktop service deliberately
@@ -22,17 +32,24 @@ type DecodedActionItem struct {
 // DecodeActionItem projects any source's persisted inbox payload into the
 // canonical action item. Object payloads: `id` accepts a string or number;
 // a missing/blank id is filled from the row's external id (re-marshaling
-// only in that case); `kind` is the canonical top-level string. Non-object
+// only in that case); `kind` is the canonical top-level string, falling back
+// to DefaultItemKind so every item is targetable by applies_to. Non-object
 // payloads (arrays, scalars) pass through untouched — ID comes from
-// externalID, kind is empty, and no id injection is attempted. All other
-// fields pass through untouched (grab bag preserved).
+// externalID, kind is the default, and no id injection is attempted. All
+// other fields pass through untouched (grab bag preserved). The default is
+// applied here, at the one decode boundary, rather than written into stored
+// payloads: no migration, and the raw payload still answers "did the source
+// actually send a kind?".
 func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, error) {
 	id, kind, _ := canonicalFields(payload)
+	if kind == "" {
+		kind = DefaultItemKind
+	}
 
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
 		// Non-object payload (array, scalar, null) or invalid JSON: pass
-		// through untouched. canonicalFields already returned "" for id/kind
+		// through untouched. canonicalFields already returned "" for id
 		// above. fields == nil also catches a literal `null` payload, which
 		// unmarshals into a nil map without error.
 		return DecodedActionItem{ID: externalID, Kind: kind, Payload: payload}, nil

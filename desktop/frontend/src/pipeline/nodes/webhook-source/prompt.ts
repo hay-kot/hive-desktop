@@ -15,7 +15,9 @@ export interface TransformPromptOptions {
 
 const FEED_ITEM_SHAPE = `{
   "id": "unique-stable-id",        // string, required — item identity
-  "kind": "PR" | "Issue" | string, // rendered as the item's type label
+  "kind": "PR" | "Issue" | string, // optional — the item's type label, and what
+                                   // actions target via applies_to; omitted
+                                   // means the kind "Item"
   "repo": "owner/name",            // string — repo line in the feed row
   "title": "human readable title", // string, required for a useful row
   "url": "https://…",              // string — opened by the o/Enter shortcut
