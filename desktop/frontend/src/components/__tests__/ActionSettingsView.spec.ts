@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ActionSettingsView from '../ActionSettingsView.vue'
 import type { EditableAction } from '../../composables/useActionsSettings'
 
-const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), On: vi.fn() }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction }))
+const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), ReorderActions: vi.fn(), On: vi.fn() }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction, ReorderActions: mocks.ReorderActions }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
 const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }
 function mountSettings(actions: EditableAction[] = [launch]) { mocks.ListActions.mockResolvedValue({ actions, error: '' }); mocks.On.mockReturnValue(() => {}); return mount(ActionSettingsView, { attachTo: document.body }) }
 function editor<T extends HTMLElement>(id: string): T { return document.querySelector<T>(`[data-testid="${id}"]`)! }
+function shell(id: string): EditableAction { return { id, label: id.toUpperCase(), type: 'shell', showInDetail: true, appliesTo: [], shell: { commandTemplate: 'true' } } }
+function rowIds(wrapper: VueWrapper): string[] { return wrapper.findAll('[data-testid^="action-row-"]').map((row) => row.attributes('data-testid')!.replace('action-row-', '')) }
 async function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): Promise<void> { element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); await flushPromises() }
 
 beforeEach(() => { vi.clearAllMocks(); document.body.innerHTML = '' })
@@ -85,6 +87,44 @@ describe('ActionSettingsView', () => {
     expect(document.querySelector('[data-testid="action-editor"]')).not.toBeNull()
     resolveCreate({ id: 'run', label: 'Run', type: 'launch-session', showInDetail: true, appliesTo: [] })
     await flushPromises()
+    wrapper.unmount()
+  })
+
+  it('persists a dragged order and renders it without waiting for the reload', async () => {
+    // jsdom rects are all zeroes, so a dragover with no clientY lands on the
+    // row's bottom half — the "after" edge.
+    let stored = ['a', 'b', 'c'].map(shell)
+    mocks.ListActions.mockImplementation(async () => ({ actions: stored, error: '' }))
+    mocks.ReorderActions.mockImplementation(async (ids: string[]) => { stored = ids.map((id) => stored.find((action) => action.id === id)!) })
+    mocks.On.mockReturnValue(() => {})
+    const wrapper = mount(ActionSettingsView, { attachTo: document.body }); await flushPromises()
+
+    await wrapper.get('[data-testid="action-row-a"]').trigger('dragstart')
+    await wrapper.get('[data-testid="action-row-c"]').trigger('dragover')
+    await wrapper.get('[data-testid="action-row-c"]').trigger('drop')
+    expect(mocks.ReorderActions).toHaveBeenCalledWith(['b', 'c', 'a'])
+    expect(rowIds(wrapper)).toEqual(['b', 'c', 'a'])
+    await flushPromises()
+    expect(rowIds(wrapper)).toEqual(['b', 'c', 'a'])
+
+    // Dropping an action back where it already sits writes nothing.
+    await wrapper.get('[data-testid="action-row-b"]').trigger('dragstart')
+    await wrapper.get('[data-testid="action-row-c"]').trigger('dragover', { clientY: -1 })
+    await wrapper.get('[data-testid="action-row-c"]').trigger('drop')
+    await flushPromises()
+    expect(mocks.ReorderActions).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('restores the previous order when the backend rejects the reorder', async () => {
+    mocks.ReorderActions.mockRejectedValue(new Error('the catalog changed'))
+    const wrapper = mountSettings(['a', 'b'].map(shell)); await flushPromises()
+    await wrapper.get('[data-testid="action-row-b"]').trigger('dragstart')
+    await wrapper.get('[data-testid="action-row-a"]').trigger('dragover', { clientY: -1 })
+    await wrapper.get('[data-testid="action-row-a"]').trigger('drop')
+    await flushPromises()
+    expect(rowIds(wrapper)).toEqual(['a', 'b'])
+    expect(wrapper.get('[data-testid="actions-error"]').text()).toContain('the catalog changed')
     wrapper.unmount()
   })
 

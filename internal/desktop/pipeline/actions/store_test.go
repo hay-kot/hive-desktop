@@ -9,6 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func ids(list []Action) []string {
+	out := make([]string, 0, len(list))
+	for _, a := range list {
+		out = append(out, a.ID)
+	}
+	return out
+}
+
 func TestActionStore_ListGet(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "actions.yml")
@@ -18,7 +26,7 @@ func TestActionStore_ListGet(t *testing.T) {
 
 	list := store.List()
 	require.Len(t, list, 3)
-	assert.Equal(t, "notify", list[0].ID, "List is sorted by id")
+	assert.Equal(t, []string{"spawn-review", "run-lint", "notify"}, ids(list), "List keeps actions.yml order")
 
 	a, ok := store.Get("run-lint")
 	require.True(t, ok)

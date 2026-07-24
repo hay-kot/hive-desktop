@@ -158,6 +158,54 @@ func TestActionStoreCRUDNormalizesEmptyAcceptedCatalogShapes(t *testing.T) {
 	}
 }
 
+func TestActionStoreReorderRewritesSequenceAndRejectsStaleOrders(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "actions.yml")
+	original := `# catalog header
+version: 1
+actions:
+  # first action comment
+  - id: first
+    label: First
+    type: shell
+    command_template: "true"
+  - id: second
+    label: Second
+    type: shell
+    command_template: "true"
+  - id: third
+    label: Third
+    type: shell
+    command_template: "true"
+`
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+	s := NewActionStore(path)
+	require.Equal(t, []string{"first", "second", "third"}, ids(s.List()))
+
+	require.NoError(t, s.Reorder([]string{"third", "first", "second"}))
+	got := string(mustRead(t, path))
+	assert.Less(t, strings.Index(got, "id: third"), strings.Index(got, "id: first"))
+	assert.Less(t, strings.Index(got, "id: first"), strings.Index(got, "id: second"))
+	assert.Contains(t, got, "# catalog header")
+	assert.Contains(t, got, "# first action comment", "an entry's comment travels with the entry")
+	assert.Equal(t, []string{"third", "first", "second"}, ids(s.List()), "the store serves the written order")
+	assert.Equal(t, "third", s.ListEditable().Actions[0].ID)
+
+	reordered := mustRead(t, path)
+	require.NoError(t, s.Reorder([]string{"third", "first", "second"}))
+	assert.Equal(t, reordered, mustRead(t, path), "an order that already matches disk writes nothing")
+
+	require.ErrorContains(t, s.Reorder([]string{"third", "first"}), "the catalog changed")
+	require.ErrorContains(t, s.Reorder([]string{"third", "first", "first"}), "listed twice")
+	require.ErrorContains(t, s.Reorder([]string{"third", "first", "ghost"}), "not found")
+	assert.Equal(t, reordered, mustRead(t, path), "a rejected order never rewrites the file")
+
+	// A hand-edited order is what the app then serves, the same as any other
+	// external edit picked up by the watcher's reload.
+	require.NoError(t, os.WriteFile(path, []byte(original), 0o600))
+	require.NoError(t, s.Reload())
+	assert.Equal(t, []string{"first", "second", "third"}, ids(s.List()))
+}
+
 func TestActionStoreUpdateBlocksHeadlessActionBecomingInteractiveForLoadedFlows(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "actions.yml")
 	s := NewActionStore(path)

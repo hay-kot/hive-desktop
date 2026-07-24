@@ -59,6 +59,26 @@ func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
 	assert.Equal(t, 3, wakes)
 }
 
+func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
+	store, _ := newServiceStore(t)
+	wakes := 0
+	service := NewActionsService(store, func() { wakes++ })
+	for _, id := range []string{"one", "two"} {
+		_, err := service.CreateAction(serviceAction(id))
+		require.NoError(t, err)
+	}
+	wakes = 0
+
+	require.NoError(t, service.ReorderActions([]string{"two", "one"}))
+	assert.Equal(t, 1, wakes)
+	catalog := service.ListActions()
+	require.Len(t, catalog.Actions, 2)
+	assert.Equal(t, "two", catalog.Actions[0].ID)
+
+	require.ErrorContains(t, service.ReorderActions([]string{"two"}), "the catalog changed")
+	assert.Equal(t, 1, wakes)
+}
+
 func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *testing.T) {
 	store, path := newServiceStore(t)
 	service := NewActionsService(store, nil)

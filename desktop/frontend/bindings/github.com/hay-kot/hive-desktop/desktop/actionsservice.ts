@@ -34,6 +34,15 @@ export function ListActions(): $CancellablePromise<actions$0.EditableCatalog> {
     return $Call.ByID(363974597);
 }
 
+/**
+ * ReorderActions persists the catalog order the settings list was dragged
+ * into. ids must be the full catalog; a stale list (a hand edit added or
+ * removed an action meanwhile) is rejected so the caller reloads.
+ */
+export function ReorderActions(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(1008235968, ids);
+}
+
 export function UpdateAction(id: string, a: actions$0.EditableAction): $CancellablePromise<actions$0.EditableAction> {
     return $Call.ByID(2719986457, id, a);
 }

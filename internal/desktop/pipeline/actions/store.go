@@ -26,11 +26,16 @@ type ActionUsageChecker interface {
 
 // ActionStore retains its last-good snapshot if a disk reload or mutation
 // candidate is invalid. All mutations re-read disk while holding this lock.
+//
+// actions.yml's sequence order is the catalog's presentation order, so the
+// snapshot keeps the parsed slice as-is and indexes it separately for lookup
+// by id; nothing re-sorts on the way out.
 type ActionStore struct {
 	path    string
 	mu      sync.Mutex
 	loaded  bool
-	actions map[string]Action
+	actions []Action
+	index   map[string]Action
 	err     error
 	usage   ActionUsageChecker
 }
@@ -57,12 +62,7 @@ func (s *ActionStore) List() []Action {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
-	out := make([]Action, 0, len(s.actions))
-	for _, a := range s.actions {
-		out = append(out, a)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
-	return out
+	return append(make([]Action, 0, len(s.actions)), s.actions...)
 }
 
 func AppliesTo(action Action, kind string) bool { return actionAppliesTo(action, kind) }
@@ -82,7 +82,7 @@ func (s *ActionStore) Get(id string) (Action, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
-	a, ok := s.actions[id]
+	a, ok := s.index[id]
 	return a, ok
 }
 
@@ -100,7 +100,8 @@ func (s *ActionStore) reloadLocked() error {
 		s.err = err
 		return err
 	}
-	s.actions = byID(loaded)
+	s.actions = loaded
+	s.index = byID(loaded)
 	s.err = nil
 	return nil
 }
@@ -119,7 +120,6 @@ func (s *ActionStore) ListEditable() EditableCatalog {
 	for _, a := range s.actions {
 		out = append(out, editableFromAction(a))
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	catalog := EditableCatalog{Actions: out}
 	if s.err != nil {
 		catalog.Error = s.err.Error()
@@ -131,7 +131,7 @@ func (s *ActionStore) GetEditable(id string) (EditableAction, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
-	a, ok := s.actions[id]
+	a, ok := s.index[id]
 	return editableFromAction(a), ok
 }
 
@@ -214,6 +214,53 @@ func (s *ActionStore) Delete(id string) error {
 	}
 	list.Content = append(list.Content[:i], list.Content[i+1:]...)
 	return s.writeDocumentLocked(doc)
+}
+
+// Reorder rewrites the actions.yml sequence so it reads in ids order, which is
+// the order every caller of List/ListEditable then sees. ids must name each
+// action currently on disk exactly once: a reorder computed from a catalog that
+// a hand edit has since changed is rejected rather than allowed to drop or
+// duplicate an entry. An order that already matches disk writes nothing.
+func (s *ActionStore) Reorder(ids []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, list, err := s.latestDocumentLocked()
+	if err != nil {
+		return err
+	}
+	if len(ids) != len(list.Content) {
+		return fmt.Errorf("reorder actions: %d ids for %d actions on disk; the catalog changed", len(ids), len(list.Content))
+	}
+	ordered := make([]*yaml.Node, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		if seen[id] {
+			return fmt.Errorf("reorder actions: action %q listed twice", id)
+		}
+		seen[id] = true
+		i := findActionNode(list, id)
+		if i < 0 {
+			return fmt.Errorf("reorder actions: action %q not found", id)
+		}
+		ordered = append(ordered, list.Content[i])
+	}
+	if sameNodes(list.Content, ordered) {
+		return nil
+	}
+	list.Content = ordered
+	return s.writeDocumentLocked(doc)
+}
+
+func sameNodes(a, b []*yaml.Node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *ActionStore) mutateLocked(mode, id string, a Action) (EditableAction, error) {

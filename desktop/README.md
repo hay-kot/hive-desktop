@@ -169,6 +169,12 @@ actions:
     prompt_template: "Review {{ .Payload.title }}"
 ```
 
+The file's sequence order is the catalog's presentation order: `ActionStore`
+never re-sorts, so the detail pane and item action menu offer applicable
+actions in the order they appear on disk. Dragging a row in Settings ▸ Actions
+rewrites that sequence (`ActionStore.Reorder`), and hand-editing the file has
+the same effect.
+
 An `actions.ActionsWatcher` watches the `actions.yml` parent directory,
 debounces write/rename bursts, reloads `ActionStore`, and emits
 `actions:updated`. `ActionStore` keeps the last-good action set when a broken
