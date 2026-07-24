@@ -7,14 +7,14 @@ import type { InboxItem } from '../../types/feed'
 
 const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
-  ListInboxItemsByFeed: vi.fn(), ListArchivedInboxItemsByFeed: vi.fn(), ListInboxItemsTrash: vi.fn(), FeedCounts: vi.fn(), MarkInboxItemUnread: vi.fn(), ToggleInboxItemArchived: vi.fn(), ToggleInboxItemIgnored: vi.fn(), InboxItemEvents: vi.fn(),
+  ListInboxItemsByFeed: vi.fn(), ListArchivedInboxItemsByFeed: vi.fn(), ListInboxItemsTrash: vi.fn(), FeedCounts: vi.fn(), MarkInboxItemUnread: vi.fn(), MarkInboxItemsRead: vi.fn(), ToggleInboxItemArchived: vi.fn(), ToggleInboxItemIgnored: vi.fn(), InboxItemEvents: vi.fn(),
   ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(),
   notify: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed, ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed, ListInboxItemsTrash: mocks.ListInboxItemsTrash, FeedCounts: mocks.FeedCounts,
-  MarkInboxItemUnread: mocks.MarkInboxItemUnread, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
+  MarkInboxItemUnread: mocks.MarkInboxItemUnread, MarkInboxItemsRead: mocks.MarkInboxItemsRead, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
   ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, SessionLaunchOptions: mocks.SessionLaunchOptions,
 }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Call: { ByID: vi.fn() } }))
@@ -33,6 +33,7 @@ beforeEach(() => {
   mocks.GetFlow.mockResolvedValue(flow); mocks.GetSidebar.mockResolvedValue({ items: [] }); mocks.SaveSidebar.mockResolvedValue(undefined)
   mocks.FeedCounts.mockResolvedValue([{ feedId: 'triage/my-prs', total: 3, unread: 2, archived: 1 }])
   mocks.ListInboxItemsByFeed.mockResolvedValue([]); mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([]); mocks.ListInboxItemsTrash.mockResolvedValue([]); mocks.ActionViews.mockResolvedValue([]); mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' }); mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [{ name: 'hive', repository: 'https://github.com/hay-kot/hive-desktop.git' }], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' })
+  mocks.MarkInboxItemsRead.mockResolvedValue(0)
   mocks.MarkInboxItemUnread.mockImplementation(async (id: number, revision: number, unread: boolean) => item(id, { revision: revision + 1, unread }))
   mocks.ToggleInboxItemArchived.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, archivedAt: Date.now() }))
   mocks.ToggleInboxItemIgnored.mockImplementation(async (id: number, revision: number) => item(id, { revision: revision + 1, ignoredAt: Date.now() }))
@@ -45,7 +46,7 @@ describe('useFeedState', () => {
   it('keeps durable outcomes on notify and reserves showToast for ephemeral feedback', () => {
     const source = readFileSync('src/composables/useFeedState.ts', 'utf8')
     expect(source).not.toContain('recordActivity')
-    expect(source.match(/showToast\(/g)).toHaveLength(7)
+    expect(source.match(/showToast\(/g)).toHaveLength(9)
     for (const title of ['Sidebar layout save failed', 'Profile renamed', 'Profile enabled', 'Profile disabled', "Couldn't delete profile", 'Profile deleted']) {
       expect(source).toContain(title)
     }
@@ -158,6 +159,46 @@ describe('useFeedState', () => {
     mocks.MarkInboxItemUnread.mockRejectedValueOnce(new Error('stale'))
     await get().markItemUnread(get().items.value[0]!, true)
     expect(mocks.ListInboxItemsByFeed).toHaveBeenLastCalledWith('triage', 'triage/my-prs', 500)
+  })
+
+  it('clears a whole scope in one write and re-reads the list and the sidebar counts', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1), item(2)])
+    mocks.MarkInboxItemsRead.mockResolvedValue(2)
+    const get = mountState(); await flushPromises()
+    const listsBefore = mocks.ListInboxItemsByFeed.mock.calls.length
+    const countsBefore = mocks.FeedCounts.mock.calls.length
+
+    await get().markAllRead('triage/my-prs')
+
+    expect(mocks.MarkInboxItemsRead).toHaveBeenCalledWith('triage', 'triage/my-prs')
+    expect(mocks.MarkInboxItemUnread).not.toHaveBeenCalled() // one bulk write, not one per row
+    expect(mocks.ListInboxItemsByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
+    expect(mocks.FeedCounts.mock.calls.length).toBeGreaterThan(countsBefore)
+    expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Marked 2 items as read'])
+  })
+
+  it('marks every feed in the workspace when no feed is named, and reports an empty clear', async () => {
+    mocks.MarkInboxItemsRead.mockResolvedValue(0)
+    const get = mountState(); await flushPromises()
+    await get().markAllRead(null)
+    expect(mocks.MarkInboxItemsRead).toHaveBeenCalledWith('triage', '')
+    expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Nothing to mark as read'])
+  })
+
+  it('surfaces a failed bulk clear and still refreshes rather than leaving a half-stale list', async () => {
+    mocks.MarkInboxItemsRead.mockRejectedValue(new Error('locked'))
+    const get = mountState(); await flushPromises()
+    const listsBefore = mocks.ListInboxItemsByFeed.mock.calls.length
+    await get().markAllRead('triage/my-prs')
+    expect(get().toasts.value.map((toast) => toast.message)).toEqual(['Could not mark items as read'])
+    expect(mocks.ListInboxItemsByFeed.mock.calls.length).toBeGreaterThan(listsBefore)
+  })
+
+  it('reads the scope unread count off the feed counts the sidebar already shows', async () => {
+    const get = mountState(); await flushPromises()
+    expect(get().unreadInScope('triage/my-prs')).toBe(2)
+    expect(get().unreadInScope(null)).toBe(2)
+    expect(get().unreadInScope('triage/gone')).toBe(0)
   })
 
   it('applies a read write back onto the archived row so its next write is not stale', async () => {

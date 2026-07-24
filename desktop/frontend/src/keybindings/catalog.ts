@@ -4,6 +4,7 @@ import IconArrowUp from '~icons/lucide/arrow-up'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
+import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelRight from '~icons/lucide/panel-right'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -85,6 +86,27 @@ export const commandCatalog: BindableCommand[] = [
   },
   { id: 'feed.toggle-archive', title: 'Archive / unarchive item', group: 'Feeds', defaultCombos: ['e'], context: 'feed' },
   { id: 'feed.mark-unread', title: 'Mark unread', group: 'Feeds', defaultCombos: ['shift+u'], context: 'feed' },
+  // Scoped to the selected feed; a no-op in Trash, which carries no unread
+  // semantics. The workspace variant stays unbound by default: it clears every
+  // feed at once and there is no undo, so it should be asked for by name.
+  {
+    id: 'feed.mark-all-read',
+    title: 'Mark all as read',
+    group: 'Feeds',
+    keywords: ['read', 'unread', 'clear', 'catch up', 'bulk'],
+    icon: IconMailCheck,
+    defaultCombos: ['shift+a'],
+    context: 'feed',
+  },
+  {
+    id: 'feed.mark-workspace-read',
+    title: 'Mark all feeds as read',
+    group: 'Feeds',
+    keywords: ['read', 'unread', 'clear', 'catch up', 'bulk', 'workspace', 'everything'],
+    icon: IconMailCheck,
+    defaultCombos: [],
+    context: 'feed',
+  },
   {
     id: 'feed.refresh',
     title: 'Refresh feeds',

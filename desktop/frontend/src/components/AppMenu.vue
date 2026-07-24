@@ -13,6 +13,8 @@ const props = defineProps<{
   entries: MenuEntry[]
   /** Open upward from the anchor — for hosts near the bottom of a scroll area. */
   flip?: boolean
+  /** CSS width override — for hosts narrower than the default panel (the sidebar). */
+  width?: string
   ignore?: (HTMLElement | null)[]
   testid?: string
 }>()
@@ -24,7 +26,7 @@ useEscapeToClose(() => emit('close'))
 </script>
 
 <template>
-  <div ref="root" class="app-menu" :class="{ flip }" role="menu" :data-testid="testid">
+  <div ref="root" class="app-menu" :class="{ flip }" :style="width ? { width } : undefined" role="menu" :data-testid="testid">
     <template v-for="(entry, index) in entries" :key="index">
       <div v-if="entry.kind === 'separator'" class="app-menu-sep" />
       <div v-else-if="entry.kind === 'label'" class="app-menu-label">{{ entry.text }}</div>

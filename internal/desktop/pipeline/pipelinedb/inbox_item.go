@@ -161,6 +161,32 @@ func (db *DB) SetInboxItemUnread(ctx context.Context, itemID, revision int64, un
 	return inboxItemView(row), nil
 }
 
+// MarkInboxItemsRead clears unread across a whole scope in one statement:
+// feedID names a single feed, an empty feedID means every feed in the
+// workspace. It returns how many rows it changed so the caller can report the
+// size of what it just did.
+//
+// Callers get no rows back. A bulk clear touches more rows than a UI holds and
+// the revisions all move, so the frontend re-reads the affected list and the
+// sidebar counts rather than patching what it has.
+func (db *DB) MarkInboxItemsRead(ctx context.Context, profileID, feedID string) (int64, error) {
+	if profileID == "" {
+		return 0, fmt.Errorf("marking inbox items read: profile id is required")
+	}
+	if feedID == "" {
+		marked, err := db.queries.MarkProfileInboxItemsRead(ctx, profileID)
+		if err != nil {
+			return 0, fmt.Errorf("marking every feed read for %q: %w", profileID, err)
+		}
+		return marked, nil
+	}
+	marked, err := db.queries.MarkFeedInboxItemsRead(ctx, MarkFeedInboxItemsReadParams{ProfileID: profileID, FeedID: feedID})
+	if err != nil {
+		return 0, fmt.Errorf("marking feed %q read: %w", feedID, err)
+	}
+	return marked, nil
+}
+
 func (db *DB) ToggleInboxItemArchived(ctx context.Context, itemID, revision, archivedAt int64) (InboxItemView, error) {
 	row, err := db.queries.ToggleInboxItemArchived(ctx, ToggleInboxItemArchivedParams{ArchivedAt: sql.NullInt64{Int64: archivedAt, Valid: true}, ID: itemID, Revision: revision})
 	if errors.Is(err, sql.ErrNoRows) {

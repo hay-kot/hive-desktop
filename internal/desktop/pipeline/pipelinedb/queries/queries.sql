@@ -169,6 +169,28 @@ UPDATE inbox_item SET unread = ?, revision = revision + 1
 WHERE id = ? AND revision = ?
 RETURNING *;
 
+-- Bulk read-state clear, claim-scoped so it covers exactly the rows
+-- CountInboxItemsByFeed reports as unread. Deliberately NOT revision-guarded:
+-- a bulk triage has no single row whose revision the caller could have read,
+-- and read state is low-stakes. The revision still advances, so an optimistic
+-- per-item write holding a pre-clear copy is rejected and re-reads instead of
+-- silently resurrecting the unread flag. Archived and ignored rows are left
+-- alone: neither is in the active list this clears.
+-- (Keep this file ASCII-only. sqlc mixes byte and rune offsets when it edits a
+-- query, so a multi-byte character anywhere above corrupts a later query.)
+-- name: MarkFeedInboxItemsRead :execrows
+UPDATE inbox_item SET unread = 0, revision = revision + 1
+WHERE unread = 1 AND archived_at IS NULL AND ignored_at IS NULL
+  AND id IN (SELECT c.item_id FROM feed_membership_claim c WHERE c.profile_id = ? AND c.feed_id = ?);
+
+-- The workspace-wide variant: every feed in the profile, same scoping rules.
+-- Unrouted observations stay untouched; they live only in Trash, which carries
+-- no unread semantics.
+-- name: MarkProfileInboxItemsRead :execrows
+UPDATE inbox_item SET unread = 0, revision = revision + 1
+WHERE unread = 1 AND archived_at IS NULL AND ignored_at IS NULL
+  AND id IN (SELECT c.item_id FROM feed_membership_claim c WHERE c.profile_id = ?);
+
 -- name: ToggleInboxItemArchived :one
 UPDATE inbox_item SET
     ignored_at = CASE WHEN archived_at IS NULL THEN NULL ELSE ignored_at END,

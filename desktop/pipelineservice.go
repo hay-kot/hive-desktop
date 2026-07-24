@@ -108,6 +108,14 @@ func (s *PipelineService) MarkInboxItemUnread(itemID, revision int64, unread boo
 	return s.db.SetInboxItemUnread(context.Background(), itemID, revision, unread)
 }
 
+// MarkInboxItemsRead clears unread for a whole scope in one write: the named
+// feed, or every feed in the workspace when feedID is empty. Archived and
+// ignored items keep their state. It returns the number of items cleared,
+// which is what the frontend reports back to the user.
+func (s *PipelineService) MarkInboxItemsRead(profileID, feedID string) (int64, error) {
+	return s.db.MarkInboxItemsRead(context.Background(), profileID, feedID)
+}
+
 func (s *PipelineService) ToggleInboxItemArchived(itemID, revision int64) (pipelinedb.InboxItemView, error) {
 	return s.db.ToggleInboxItemArchived(context.Background(), itemID, revision, time.Now().UnixMilli())
 }

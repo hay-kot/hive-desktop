@@ -1539,6 +1539,34 @@ func (q *Queries) ListUnarchivedInboxItemsBySource(ctx context.Context, arg List
 	return items, nil
 }
 
+const markFeedInboxItemsRead = `-- name: MarkFeedInboxItemsRead :execrows
+UPDATE inbox_item SET unread = 0, revision = revision + 1
+WHERE unread = 1 AND archived_at IS NULL AND ignored_at IS NULL
+  AND id IN (SELECT c.item_id FROM feed_membership_claim c WHERE c.profile_id = ? AND c.feed_id = ?)
+`
+
+type MarkFeedInboxItemsReadParams struct {
+	ProfileID string `json:"profile_id"`
+	FeedID    string `json:"feed_id"`
+}
+
+// Bulk read-state clear, claim-scoped so it covers exactly the rows
+// CountInboxItemsByFeed reports as unread. Deliberately NOT revision-guarded:
+// a bulk triage has no single row whose revision the caller could have read,
+// and read state is low-stakes. The revision still advances, so an optimistic
+// per-item write holding a pre-clear copy is rejected and re-reads instead of
+// silently resurrecting the unread flag. Archived and ignored rows are left
+// alone: neither is in the active list this clears.
+// (Keep this file ASCII-only. sqlc mixes byte and rune offsets when it edits a
+// query, so a multi-byte character anywhere above corrupts a later query.)
+func (q *Queries) MarkFeedInboxItemsRead(ctx context.Context, arg MarkFeedInboxItemsReadParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markFeedInboxItemsRead, arg.ProfileID, arg.FeedID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const markOutputCommandDone = `-- name: MarkOutputCommandDone :exec
 UPDATE output_command
 SET status = 'done', last_error = NULL, result_json = ?, stdout = ?, stderr = ?
@@ -1582,6 +1610,23 @@ func (q *Queries) MarkOutputCommandFailed(ctx context.Context, arg MarkOutputCom
 		arg.ID,
 	)
 	return err
+}
+
+const markProfileInboxItemsRead = `-- name: MarkProfileInboxItemsRead :execrows
+UPDATE inbox_item SET unread = 0, revision = revision + 1
+WHERE unread = 1 AND archived_at IS NULL AND ignored_at IS NULL
+  AND id IN (SELECT c.item_id FROM feed_membership_claim c WHERE c.profile_id = ?)
+`
+
+// The workspace-wide variant: every feed in the profile, same scoping rules.
+// Unrouted observations stay untouched; they live only in Trash, which carries
+// no unread semantics.
+func (q *Queries) MarkProfileInboxItemsRead(ctx context.Context, profileID string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markProfileInboxItemsRead, profileID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const pruneActivityEvents = `-- name: PruneActivityEvents :exec

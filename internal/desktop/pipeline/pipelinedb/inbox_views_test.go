@@ -16,6 +16,86 @@ func itemIDs(items []InboxItemView) []int64 {
 	return ids
 }
 
+func TestMarkInboxItemsRead(t *testing.T) {
+	db := openTestDB(t)
+	ctx := context.Background()
+
+	insert := func(externalID string, unread int64) InboxItem {
+		row, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: externalID, Title: externalID, Payload: []byte(`{}`), Unread: unread, Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 1})
+		require.NoError(t, err)
+		return row
+	}
+	claim := func(feedID string, itemID int64) {
+		require.NoError(t, db.Queries().UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{ProfileID: "p", FeedID: feedID, ItemID: itemID, SourceID: "source-a"}))
+	}
+
+	active := insert("active", 1)
+	sameFeed := insert("same-feed", 1)
+	alreadyRead := insert("already-read", 0)
+	archived := insert("archived", 1)
+	ignored := insert("ignored", 1)
+	otherFeed := insert("other-feed", 1)
+	unrouted := insert("unrouted", 1)
+	otherProfileItem, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{ProfileID: "other", SourceKind: "github", ExternalID: "other", Title: "other", Payload: []byte(`{}`), Unread: 1, Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 1})
+	require.NoError(t, err)
+
+	for _, id := range []int64{active.ID, sameFeed.ID, alreadyRead.ID, archived.ID, ignored.ID} {
+		claim("feed-a", id)
+	}
+	claim("feed-b", otherFeed.ID)
+	require.NoError(t, db.Queries().UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{ProfileID: "other", FeedID: "feed-c", ItemID: otherProfileItem.ID, SourceID: "source-a"}))
+	_, err = db.ToggleInboxItemArchived(ctx, archived.ID, archived.Revision, 99)
+	require.NoError(t, err)
+	// Ignoring already clears unread, so force it back on: the query must skip
+	// ignored rows on their own merit, not because they happen to be read.
+	ignoredRow, err := db.ToggleInboxItemIgnored(ctx, ignored.ID, ignored.Revision, 99)
+	require.NoError(t, err)
+	_, err = db.SetInboxItemUnread(ctx, ignored.ID, ignoredRow.Revision, true)
+	require.NoError(t, err)
+
+	unreadByID := func() map[int64]bool {
+		state := map[int64]bool{}
+		for _, id := range []int64{active.ID, sameFeed.ID, alreadyRead.ID, archived.ID, ignored.ID, otherFeed.ID, unrouted.ID, otherProfileItem.ID} {
+			row, getErr := db.Queries().GetInboxItemByID(ctx, id)
+			require.NoError(t, getErr)
+			state[id] = row.Unread != 0
+		}
+		return state
+	}
+
+	_, err = db.MarkInboxItemsRead(ctx, "", "feed-a")
+	require.Error(t, err, "a bulk clear always names its profile")
+
+	marked, err := db.MarkInboxItemsRead(ctx, "p", "feed-a")
+	require.NoError(t, err)
+	assert.Equal(t, int64(2), marked, "only the feed's unread, unarchived, unignored rows count")
+	assert.Equal(t, map[int64]bool{
+		active.ID: false, sameFeed.ID: false, alreadyRead.ID: false,
+		archived.ID: true, ignored.ID: true, otherFeed.ID: true, unrouted.ID: true, otherProfileItem.ID: true,
+	}, unreadByID())
+
+	// The clear advances revisions, so a per-item write holding a pre-clear
+	// copy is rejected rather than resurrecting the unread flag.
+	_, err = db.SetInboxItemUnread(ctx, active.ID, active.Revision, true)
+	require.ErrorIs(t, err, ErrStaleInboxItem)
+
+	repeat, err := db.MarkInboxItemsRead(ctx, "p", "feed-a")
+	require.NoError(t, err)
+	assert.Zero(t, repeat, "a second pass has nothing left to clear")
+
+	all, err := db.MarkInboxItemsRead(ctx, "p", "")
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), all, "the workspace variant reaches every feed, and nothing else")
+	assert.Equal(t, map[int64]bool{
+		active.ID: false, sameFeed.ID: false, alreadyRead.ID: false,
+		archived.ID: true, ignored.ID: true, otherFeed.ID: false, unrouted.ID: true, otherProfileItem.ID: true,
+	}, unreadByID())
+
+	counts, err := db.FeedCounts(ctx, "p")
+	require.NoError(t, err)
+	assert.Equal(t, []FeedInboxCount{{FeedID: "feed-a", Total: 3, Unread: 0, Archived: 1}, {FeedID: "feed-b", Total: 1, Unread: 0}}, counts)
+}
+
 func TestFeedViewsTriageAndCounts(t *testing.T) {
 	db := openTestDB(t)
 	ctx := context.Background()
