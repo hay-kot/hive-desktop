@@ -2,6 +2,7 @@ package pipelinedb
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -134,4 +135,25 @@ func TestReadForConsumer_ResumesFromPersistedOffset(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, msgs, 1)
 	assert.Equal(t, "3", msgs[0].ID)
+}
+
+func TestReadFrom_EmptySnapshotSurvivesJSON(t *testing.T) {
+	database := openTestDB(t)
+	ctx := context.Background()
+
+	_, err := database.AppendSnapshot(ctx, "source:test", "github", "", []SnapshotItem{})
+	require.NoError(t, err)
+
+	msgs, _, err := database.ReadFrom(ctx, 0, 10)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+	require.NotNil(t, msgs[0].Snapshot, "an empty snapshot must decode as a non-nil slice")
+
+	// The frontend engine routes on `msg.Snapshot != null`; an empty snapshot
+	// must therefore cross the binding as [] rather than being omitted, or the
+	// boundary row (key "") is treated as an ordinary item and CommitBatch
+	// wedges the consumer on resolving inbox item "<kind>//".
+	wire, err := json.Marshal(msgs[0])
+	require.NoError(t, err)
+	assert.Contains(t, string(wire), `"Snapshot":[]`)
 }

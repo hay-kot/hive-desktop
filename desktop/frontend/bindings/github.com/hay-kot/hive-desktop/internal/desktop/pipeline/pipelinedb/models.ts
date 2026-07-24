@@ -122,7 +122,16 @@ export interface Msg {
     "Topic": string;
     "Ts": number;
     "Payload": json$0.RawMessage;
-    "Snapshot"?: SnapshotItem[] | null;
+
+    /**
+     * Snapshot must NOT be omitempty: an empty snapshot (a successful poll
+     * that returned zero items) marshals as [] and the frontend engine's
+     * `msg.Snapshot != null` routing depends on it. With omitempty the field
+     * vanishes, the boundary row (key "") is routed as an ordinary item, and
+     * CommitBatch fails resolving inbox item "<kind>//" forever — wedging the
+     * consumer at that offset.
+     */
+    "Snapshot": SnapshotItem[] | null;
     "SourceKind": string;
     "SourceScope": string;
     "OccurrenceKey"?: string;
