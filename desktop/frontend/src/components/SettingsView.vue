@@ -2,7 +2,7 @@
 // Application-wide settings, opened from the persistent profile rail.
 // Only settings backed by real behavior or explicitly marked future
 // integrations belong here.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconPalette from '~icons/lucide/palette'
 import IconPlug from '~icons/lucide/plug'
@@ -22,11 +22,14 @@ import grafanaIcon from '../assets/integrations/grafana.svg'
 import posthogIcon from '../assets/integrations/posthog.svg'
 import slackIcon from '../assets/integrations/slack.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
+import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
+import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
+import { useWebhookSettings } from '../composables/useWebhookSettings'
 import type { ApplicationSettingsSection } from '../router'
 
 const props = withDefaults(defineProps<{
@@ -56,6 +59,27 @@ const sectionTitle = computed(() => ({
 const { theme } = useTheme()
 const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
 const githubSettingsOpen = ref(false)
+const webhookSettingsOpen = ref(false)
+
+// The webhook card's badge reflects the same state the drawer edits, so a save
+// there is reflected here without a second fetch.
+const { settings: webhook, refresh: refreshWebhook } = useWebhookSettings()
+const webhookStatus = computed(() => {
+  if (!webhook.value) return { label: 'Local', tone: 'neutral' as const }
+  // A saved change the listener has not picked up yet outranks what it is
+  // currently doing — otherwise disabling it would still read "Running".
+  if (webhook.value.startError) return { label: 'Port in use', tone: 'danger' as const }
+  if (webhook.value.restartRequired) return { label: 'Restart needed', tone: 'neutral' as const }
+  if (webhook.value.running) return { label: 'Running', tone: 'success' as const }
+  return { label: 'Disabled', tone: 'neutral' as const }
+})
+const webhookDescription = computed(() => webhook.value
+  ? `Receive JSON from anything that can POST — ${webhook.value.baseUrl}`
+  : 'Receive JSON from anything that can POST to a local endpoint')
+
+watch(() => props.activeCategory, (category) => {
+  if (category === 'integrations') void refreshWebhook()
+}, { immediate: true })
 const futureIntegrations = [
   { id: 'grafana', name: 'Grafana', description: 'Metrics, dashboards, and alerts', icon: grafanaIcon },
   { id: 'posthog', name: 'PostHog', description: 'Product analytics and events', icon: posthogIcon },
@@ -144,6 +168,35 @@ function onThemeChange(value: string): void {
             </template>
           </BaseCard>
 
+          <BaseCard class="rounded-lg border border-border bg-raised" data-testid="integration-webhook">
+            <template #icon>
+              <BaseIconBadge :size="40" rounded="rounded-lg" class="bg-chip p-2 text-text-2">
+                <IconWebhook class="size-full" />
+              </BaseIconBadge>
+            </template>
+            <div class="min-w-0 flex-1">
+              <div class="text-[13.5px] font-semibold text-text">Webhooks</div>
+              <div class="mt-0.5 truncate text-xs text-text-3">{{ webhookDescription }}</div>
+            </div>
+            <template #actions>
+              <div class="flex shrink-0 items-center gap-2">
+                <BaseBadge
+                  :tone="webhookStatus.tone"
+                  variant="pill"
+                  class="px-2.5 py-1 text-[11px] font-semibold"
+                  data-testid="integration-webhook-status"
+                >{{ webhookStatus.label }}</BaseBadge>
+                <button
+                  type="button"
+                  class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
+                  aria-label="Configure webhook listener"
+                  data-testid="integration-webhook-configure"
+                  @click="webhookSettingsOpen = true"
+                ><IconSettings class="size-3.5" /></button>
+              </div>
+            </template>
+          </BaseCard>
+
           <BaseCard
             v-for="integration in futureIntegrations"
             :key="integration.id"
@@ -173,6 +226,7 @@ function onThemeChange(value: string): void {
           </BaseCard>
         </div>
         <GithubIntegrationDrawer v-if="githubSettingsOpen" @close="githubSettingsOpen = false" />
+        <WebhookIntegrationDrawer v-if="webhookSettingsOpen" @close="webhookSettingsOpen = false" />
       </div>
     </div>
   </SettingsLayout>
