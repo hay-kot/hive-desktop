@@ -38,6 +38,15 @@ const emit = defineEmits<{
   refresh: []
   'update:search': [value: string]
   'set-sort': [value: FeedSort]
+  // Row-level intents from a FeedListItem's hover pill / "…" menu, re-emitted
+  // with the item so the store can act on rows that are not the selection.
+  'item-set-unread': [item: InboxItem, unread: boolean]
+  'item-toggle-archive': [item: InboxItem]
+  'item-toggle-ignored': [item: InboxItem]
+  'item-open-browser': [item: InboxItem]
+  'item-copy-link': [item: InboxItem]
+  'item-copy-contents': [item: InboxItem]
+  'item-run-action': [item: InboxItem, actionId: string]
 }>()
 
 const sortOptions: { value: FeedSort; label: string }[] = [
@@ -137,6 +146,13 @@ watch(() => props.selectedId, async (id) => {
           :trash="trash"
           :selected="item.id === selectedId"
           @select="emit('select', item.id)"
+          @set-unread="(unread) => emit('item-set-unread', item, unread)"
+          @toggle-archive="emit('item-toggle-archive', item)"
+          @toggle-ignored="emit('item-toggle-ignored', item)"
+          @open-browser="emit('item-open-browser', item)"
+          @copy-link="emit('item-copy-link', item)"
+          @copy-contents="emit('item-copy-contents', item)"
+          @run-action="(actionId) => emit('item-run-action', item, actionId)"
         />
         <!-- Archived section: items whose rules still match but whose work is
              done stay in the feed, demoted below the fold. Collapsed by
@@ -155,6 +171,13 @@ watch(() => props.selectedId, async (id) => {
               archived
               :selected="item.id === selectedId"
               @select="emit('select', item.id)"
+              @set-unread="(unread) => emit('item-set-unread', item, unread)"
+              @toggle-archive="emit('item-toggle-archive', item)"
+              @toggle-ignored="emit('item-toggle-ignored', item)"
+              @open-browser="emit('item-open-browser', item)"
+              @copy-link="emit('item-copy-link', item)"
+              @copy-contents="emit('item-copy-contents', item)"
+              @run-action="(actionId) => emit('item-run-action', item, actionId)"
             />
           </template>
         </template>

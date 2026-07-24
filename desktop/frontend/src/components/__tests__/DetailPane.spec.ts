@@ -65,13 +65,26 @@ describe('DetailPane', () => {
     expect(wrapper.get('[data-testid="action-footer-branch"]').text()).toContain('a-very-long-branch')
   })
 
-  it('offers read, archive, and ignore actions from the item menu', async () => {
+  it('offers triage, open/copy, and configured actions from the shared item menu', async () => {
     const wrapper = mount(DetailPane, { props: { item, actions } })
     await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
-    const entries = wrapper.get('[data-testid="item-actions-menu"]').findAll('button')
-    expect(entries.map((entry) => entry.text())).toEqual(['Mark as read', 'Archive', 'Ignore'])
-    await entries[2]!.trigger('click')
+    const menu = wrapper.get('[data-testid="item-actions-menu"]')
+    expect(menu.findAll('button').map((entry) => entry.get('span.flex-1').text())).toEqual([
+      'Mark as read', 'Archive', 'Ignore', 'Open in browser', 'Copy link', 'Copy contents', 'Summarize',
+    ])
+    await menu.get('[data-testid="menu-toggle-ignored"]').trigger('click')
     expect(wrapper.emitted('toggle-ignored')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="item-actions-menu"]').exists()).toBe(false)
+  })
+
+  it('relays copy and configured-action intents from the item menu', async () => {
+    const wrapper = mount(DetailPane, { props: { item, actions } })
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="menu-copy-contents"]').trigger('click')
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="menu-action-summarize"]').trigger('click')
+    expect(wrapper.emitted('copy-contents')).toHaveLength(1)
+    expect(wrapper.emitted('run-action')).toEqual([['summarize']])
   })
 
   it('renders the Observed activity timeline in supplied chronological order', () => {

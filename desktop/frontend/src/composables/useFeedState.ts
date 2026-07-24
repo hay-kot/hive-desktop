@@ -5,6 +5,8 @@ import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, Sav
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
 import { bodySnippet, feedSource, githubPayload, typeLabel } from '../lib/feedPresentation'
+import { itemContents } from '../lib/itemClipboard'
+import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
 import { useToasts } from './useToasts'
 import { useWailsEvent } from './useWailsEvent'
@@ -800,16 +802,43 @@ export function useFeedState() {
     }
   }
 
-  // Opens the selected item's canonical GitHub URL (the detail pane's "open"
-  // button). The URL comes from the inbox item; a missing one means the
-  // source did not carry it.
-  async function openSelectedInBrowser() {
-    const url = selectedItem.value?.url
+  // Opens an item's canonical GitHub URL. The URL comes from the inbox item;
+  // a missing one means the source did not carry it.
+  async function openItemInBrowser(item: InboxItem | null) {
+    const url = item?.url
     if (!url) {
       showToast('No link available for this item', { severity: 'error' })
       return
     }
     await openUrl(url)
+  }
+
+  const openSelectedInBrowser = () => openItemInBrowser(selectedItem.value)
+
+  const clipboard = useClipboard()
+  async function copyToClipboard(text: string, copiedMessage: string): Promise<void> {
+    await clipboard.copy(text)
+    if (clipboard.status.value === 'error') showToast('Could not copy to the clipboard', { severity: 'error' })
+    else showToast(copiedMessage, { severity: 'success' })
+  }
+
+  async function copyItemLink(item: InboxItem): Promise<void> {
+    if (!item.url) {
+      showToast('No link available for this item', { severity: 'error' })
+      return
+    }
+    await copyToClipboard(item.url, 'Link copied')
+  }
+
+  const copyItemContents = (item: InboxItem) => copyToClipboard(itemContents(item), 'Contents copied')
+
+  // Row-level entry point for a configured action: actions load per selected
+  // item (labels, requiresSessionInput, run cards all key off the selection),
+  // so running from a row first selects that row — which also surfaces the
+  // run's feedback in the detail pane.
+  async function runItemAction(item: InboxItem, actionID: string): Promise<void> {
+    if (selectedId.value !== item.id) await selectItem(item.id)
+    await invokeAction(actionID)
   }
 
   async function hideWindow() {
@@ -907,7 +936,11 @@ export function useFeedState() {
     submitSessionLaunch,
     notWired,
     openUrl,
+    openItemInBrowser,
     openSelectedInBrowser,
+    copyItemLink,
+    copyItemContents,
+    runItemAction,
     hideWindow,
   }
 }
