@@ -2,6 +2,8 @@ package desktop
 
 import (
 	"fmt"
+	"math/rand/v2"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,9 +20,35 @@ const settingsFileName = "settings.yaml"
 // GitHub's notifications polling contract.
 const MinPollInterval = 60 * time.Second
 
-// DefaultWebhookPort is the local webhook listener's default TCP port
-// ("HIVE" on a phone keypad). The listener always binds 127.0.0.1.
-const DefaultWebhookPort = 4483
+// WebhookPortMin and WebhookPortMax bound the range a webhook port is drawn
+// from on first run. The window sits above the crowded well-known/registered
+// ports and below both Linux's (32768) and macOS's (49152) ephemeral floors,
+// so a port persisted here is never handed out to an outbound connection
+// while Hive is closed — the failure mode a port in the IANA dynamic range
+// would invite. The listener always binds 127.0.0.1.
+const (
+	WebhookPortMin = 20000
+	WebhookPortMax = 32767
+)
+
+// reservedWebhookPorts are registered services inside the generation range.
+// Binding is what actually proves a port free, so this list only matters for
+// a service that happens to be stopped at first run and would otherwise be a
+// conflict waiting to happen the next time it starts.
+var reservedWebhookPorts = map[int]bool{
+	20000: true, // DNP
+	22000: true, // Syncthing
+	24800: true, // Synergy/Barrier
+	25565: true, // Minecraft
+	26257: true, // CockroachDB
+	27017: true, // MongoDB
+	27018: true, // MongoDB shard
+	27019: true, // MongoDB config server
+	28017: true, // MongoDB HTTP status
+	29418: true, // Gerrit
+	31337: true, // widely probed
+	32400: true, // Plex
+}
 
 // Release channels form a closed set (docs/decisions/0004): a version's
 // prerelease identifier routes a build to its channel, and the updater follows
@@ -73,10 +101,17 @@ type Settings struct {
 	// mean "no choice persisted yet". omitempty keeps the section out of
 	// settings.yaml until something is actually set.
 	Appearance Appearance `yaml:"appearance,omitempty"`
-	// WebhookPort is the local webhook listener's TCP port. Absent or
-	// out-of-range values fall back to DefaultWebhookPort; resolve through
-	// WebhookPortOrDefault rather than reading the field directly.
+	// WebhookPort is the local webhook listener's TCP port. There is no fixed
+	// default: an absent or out-of-range value means "not allocated yet", and
+	// ResolveWebhookPort draws a random one and persists it. Resolve through
+	// ResolveWebhookPort rather than reading the field directly.
 	WebhookPort int `yaml:"webhook_port,omitempty"`
+	// WebhookEnabled toggles the local webhook listener. It is read once at
+	// startup — the listener binds a port and serves flow-declared routes, so
+	// flipping it live would mean tearing down in-flight deliveries for no
+	// benefit. Absent defaults to enabled; resolve through
+	// WebhookEnabledOrDefault rather than reading the pointer directly.
+	WebhookEnabled *bool `yaml:"webhook_enabled,omitempty"`
 }
 
 // SettingsPath is the settings.yaml location under the desktop config root.
@@ -171,21 +206,90 @@ func (s Settings) UpdateChannelOrDefault(fallback string) string {
 	}
 }
 
-// WebhookPortOrDefault resolves WebhookPort, tolerating hand-edited values
-// outside the valid port range by falling back to DefaultWebhookPort. The
-// EnvWebhookPort environment variable, when set to a valid port, wins over
-// the settings file outright (mirroring the EnvFlowsDir-style overrides) so
-// parallel dev/e2e instances can each claim a distinct port.
-func (s Settings) WebhookPortOrDefault() int {
-	if v := os.Getenv(EnvWebhookPort); v != "" {
-		if port, err := strconv.Atoi(v); err == nil && port > 0 && port <= 65535 {
-			return port
+// WebhookEnabledOrDefault resolves WebhookEnabled, defaulting to true when
+// the key is absent from settings.yaml.
+func (s Settings) WebhookEnabledOrDefault() bool {
+	if s.WebhookEnabled == nil {
+		return true
+	}
+	return *s.WebhookEnabled
+}
+
+// ValidWebhookPort reports whether port is a usable listener port. Ports
+// below 1024 are excluded outright: binding them needs privileges the desktop
+// app does not have, so accepting one would only defer the failure to startup.
+func ValidWebhookPort(port int) bool {
+	return port >= 1024 && port <= 65535
+}
+
+// WebhookPortOverride returns the port EnvWebhookPort claims, or 0 when the
+// variable is unset or unusable. The override wins over settings.yaml
+// outright (mirroring the EnvFlowsDir-style overrides) so parallel dev/e2e
+// instances can each claim a distinct port without writing to the user's
+// settings.
+func WebhookPortOverride() int {
+	v := os.Getenv(EnvWebhookPort)
+	if v == "" {
+		return 0
+	}
+	port, err := strconv.Atoi(v)
+	if err != nil || !ValidWebhookPort(port) {
+		return 0
+	}
+	return port
+}
+
+// AllocateWebhookPort draws a random port from the generation range that is
+// not reserved and binds on 127.0.0.1 right now. The bind is released before
+// returning, so the result is a strong hint rather than a reservation — the
+// listener still has to tolerate a bind failure, which it does.
+func AllocateWebhookPort() (int, error) {
+	const attempts = 64
+	span := WebhookPortMax - WebhookPortMin + 1
+	for range attempts {
+		port := WebhookPortMin + rand.IntN(span)
+		if reservedWebhookPorts[port] {
+			continue
 		}
+		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		if err != nil {
+			continue
+		}
+		_ = ln.Close()
+		return port, nil
 	}
-	if s.WebhookPort > 0 && s.WebhookPort <= 65535 {
-		return s.WebhookPort
+	return 0, fmt.Errorf("no free port found in %d-%d after %d attempts", WebhookPortMin, WebhookPortMax, attempts)
+}
+
+// ResolveWebhookPort returns the port the webhook listener should bind.
+// EnvWebhookPort wins outright. Otherwise a valid persisted port is used
+// as-is, and an absent or out-of-range one (first run, or a hand-edited
+// value) is replaced by a freshly allocated random port that is written back
+// to settings.yaml so the endpoint URLs users paste into sending systems stay
+// stable across restarts.
+func ResolveWebhookPort(settings Settings) (int, error) {
+	if port := WebhookPortOverride(); port > 0 {
+		return port, nil
 	}
-	return DefaultWebhookPort
+	if ValidWebhookPort(settings.WebhookPort) {
+		return settings.WebhookPort, nil
+	}
+
+	port, err := AllocateWebhookPort()
+	if err != nil {
+		return 0, fmt.Errorf("allocate webhook port: %w", err)
+	}
+	// Load-modify-save rather than writing the passed-in value: the caller's
+	// copy may predate an unrelated write.
+	current, err := LoadSettings()
+	if err != nil {
+		return 0, err
+	}
+	current.WebhookPort = port
+	if err := SaveSettings(current); err != nil {
+		return 0, fmt.Errorf("persist allocated webhook port: %w", err)
+	}
+	return port, nil
 }
 
 // PollIntervalOrDefault resolves PollInterval. Hand-edited values below the

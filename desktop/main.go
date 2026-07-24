@@ -445,13 +445,19 @@ func main() {
 
 	// The webhook listener is the push-driven counterpart to the poll
 	// producer: it serves user-declared webhook-source endpoints on
-	// 127.0.0.1 and ingests deliveries directly. Live mode always starts
-	// it; mock modes only when a port is explicitly claimed via
-	// HIVE_DESKTOP_WEBHOOK_PORT, so parallel e2e server instances never
-	// fight over the default port. A bind failure logs and the app runs on.
-	webhookPort := settings.WebhookPortOrDefault()
+	// 127.0.0.1 and ingests deliveries directly. It starts when settings
+	// enable it (the default) and, in mock modes, only when a port is
+	// explicitly claimed via HIVE_DESKTOP_WEBHOOK_PORT so parallel e2e server
+	// instances never fight over one. The port is drawn at random on first
+	// run and persisted; a failure to find one, like a bind failure, logs and
+	// the app runs on without webhooks.
+	webhookPort, err := desktop.ResolveWebhookPort(settings)
+	if err != nil {
+		logger.Warn().Err(err).Msg("webhook port unavailable")
+	}
+	webhookEnabled := settings.WebhookEnabledOrDefault()
 	var webhookListener *pipeline.WebhookListener
-	if desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "" {
+	if webhookEnabled && webhookPort > 0 && (desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "") {
 		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
 		if err := webhookListener.Start(); err != nil {

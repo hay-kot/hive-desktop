@@ -113,6 +113,7 @@ type WebhookListener struct {
 	port     int
 	server   *http.Server
 	listener net.Listener
+	startErr error
 }
 
 // NewWebhookListener builds a listener bound to 127.0.0.1:port at Start.
@@ -128,11 +129,13 @@ func (l *WebhookListener) SetRecorder(r activity.Recorder) { l.recorder = r }
 
 // Start binds 127.0.0.1 and serves in a goroutine. A bind failure (port in
 // use) is returned to the caller, which logs and continues — a busy webhook
-// port must never take the desktop app down with it.
+// port must never take the desktop app down with it — and is retained for
+// StartError so settings can surface it instead of leaving it in the log.
 func (l *WebhookListener) Start() error {
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(l.port)))
 	if err != nil {
-		return fmt.Errorf("webhook listener: %w", err)
+		l.startErr = fmt.Errorf("webhook listener: %w", err)
+		return l.startErr
 	}
 	l.listener = ln
 	l.server = &http.Server{Handler: l.Handler(), ReadHeaderTimeout: 5 * time.Second}
@@ -159,6 +162,9 @@ func (l *WebhookListener) Stop() {
 
 // Running reports whether Start succeeded and the listener is bound.
 func (l *WebhookListener) Running() bool { return l.listener != nil }
+
+// StartError returns why Start failed to bind, or nil if it never failed.
+func (l *WebhookListener) StartError() error { return l.startErr }
 
 // Port returns the bound TCP port once Running, else the configured port.
 // They differ only when the listener was constructed with port 0 (tests).
