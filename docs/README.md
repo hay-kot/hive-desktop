@@ -16,6 +16,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0006](decisions/0006-lefthook-quality-gates.md) | Quality gates enforced by lefthook git hooks |
 | [0007](decisions/0007-local-webhook-listener.md) | Local webhook listener for generic pipeline ingress |
 | [0008](decisions/0008-canonical-item-contract.md) | Canonical inbox item contract |
+| [0009](decisions/0009-go-owned-llm-prompts.md) | LLM prompts owned by Go, node docs live with the schema |
 
 ## References
 

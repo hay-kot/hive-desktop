@@ -25,28 +25,6 @@ func workedExampleRefs() testRefs {
 	}
 }
 
-// workedExampleYAML is the design doc's worked example: a github-source ->
-// github-filter -> function(outputs:2) -> {feed, action} flow.
-const workedExampleYAML = `version: 1
-name: Frontend Triage
-nodes:
-  - { id: in-prs, type: github-source, kind: search, query: "is:open is:pr" }
-  - { id: drop-bots, type: github-filter, exclude_authors: ["*[bot]"], repos: ["colonyops/*"] }
-  - id: tag
-    type: function
-    outputs: 2
-    on_message: |
-      if (msg.payload.state === "closed") return null;
-      msg.payload.tag = "review"; return [msg, null];
-  - { id: team-feed, type: feed }
-  - { id: spawn-review, type: action, action: review-pr }
-wires:
-  - { from: in-prs, to: drop-bots }
-  - { from: drop-bots, to: tag }
-  - { from: tag, out: 0, to: team-feed }
-  - { from: tag, out: 0, to: spawn-review }
-`
-
 func writeFlow(t *testing.T, dir, name, content string) string {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -54,9 +32,12 @@ func writeFlow(t *testing.T, dir, name, content string) string {
 	return path
 }
 
+// TestLoadFlow_WorkedExample doubles as the guarantee behind the flows
+// authoring prompt: WorkedExampleYAML is the example that prompt hands an
+// agent, so it has to parse and validate cleanly here.
 func TestLoadFlow_WorkedExample(t *testing.T) {
 	dir := t.TempDir()
-	path := writeFlow(t, dir, "triage.yaml", workedExampleYAML)
+	path := writeFlow(t, dir, "triage.yaml", WorkedExampleYAML)
 
 	f, warnings, err := LoadFlow(path, workedExampleRefs())
 	require.NoError(t, err)

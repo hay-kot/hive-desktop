@@ -33,6 +33,14 @@ export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
 }
 
 /**
+ * KeybindingSettings returns the persisted shortcut overrides. A nil map is
+ * normalized to an empty one so the frontend never has to null-check it.
+ */
+export function KeybindingSettings(): $CancellablePromise<$models.KeybindingSettings> {
+    return $Call.ByID(4264711753);
+}
+
+/**
  * NotificationSettings returns the current resolved notification settings.
  */
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
@@ -53,6 +61,15 @@ export function SetAppearanceSettings(settings: $models.AppearanceSettings): $Ca
  */
 export function SetGithubSettings(settings: $models.GithubSettings): $CancellablePromise<void> {
     return $Call.ByID(2361435926, settings);
+}
+
+/**
+ * SetKeybindingSettings persists the shortcut overrides while preserving all
+ * unrelated desktop settings. An empty map clears the section entirely, which
+ * is how "reset everything to defaults" is expressed.
+ */
+export function SetKeybindingSettings(settings: $models.KeybindingSettings): $CancellablePromise<void> {
+    return $Call.ByID(2669604577, settings);
 }
 
 /**

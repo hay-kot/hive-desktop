@@ -1,11 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { nextTick } from 'vue'
 
-// The effective keymap is a module singleton whose overrides load from
-// localStorage (via VueUse useStorage) at import time, so — like useTheme —
-// each test clears storage, resets modules, and imports fresh.
+// The durable overrides live in settings.yaml, read and written through
+// SettingsService. The effective keymap is a module singleton hydrated from
+// that read, so each test seeds the stubbed service, resets modules, and
+// imports fresh.
+const settings = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }))
+
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+  KeybindingSettings: settings.get,
+  SetKeybindingSettings: settings.set,
+}))
+
+/** Seeds what settings.yaml holds before useKeybindings hydrates. */
+function seedStoredOverrides(overrides: unknown): void {
+  settings.get.mockResolvedValue({ overrides })
+}
+
+/** The override map most recently written through to settings.yaml. */
+function lastPersisted(): Record<string, string[]> | undefined {
+  const calls = settings.set.mock.calls
+  return calls.length ? (calls[calls.length - 1]![0] as { overrides: Record<string, string[]> }).overrides : undefined
+}
+
 beforeEach(() => {
   localStorage.clear()
+  settings.get.mockReset()
+  settings.set.mockReset()
+  settings.get.mockResolvedValue({ overrides: {} })
+  settings.set.mockResolvedValue(undefined)
   vi.resetModules()
 })
 
@@ -113,9 +136,7 @@ describe('effective keymap', () => {
     expect(kb.resolve('g')).toBe('feed.next')
     expect(kb.isOverridden('feed.next')).toBe(true)
     await nextTick()
-    expect(JSON.parse(localStorage.getItem('hive.keybindings') ?? '{}')).toMatchObject({
-      'feed.next': ['j', 'arrowdown', 'g'],
-    })
+    expect(lastPersisted()).toMatchObject({ 'feed.next': ['j', 'arrowdown', 'g'] })
   })
 
   it('removes a binding, leaving an empty array as an explicit unbind', async () => {
@@ -150,24 +171,70 @@ describe('effective keymap', () => {
 })
 
 describe('override storage sanitization', () => {
+  // settings.yaml is hand-editable, so anything can arrive here.
   it('drops unknown ids, non-arrays, and non-string combos on load', async () => {
-    localStorage.setItem('hive.keybindings', JSON.stringify({
+    seedStoredOverrides({
       'feed.next': ['g'],
       'unknown.id': ['x'],
       'feed.prev': 'not-an-array',
       'feed.refresh': [123, 'r', 'r'],
-    }))
-    const { useKeybindings } = await import('../useKeybindings')
+    })
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    initializeKeybindings()
+    await vi.waitFor(() => expect(useKeybindings().bindings.value['feed.next']).toEqual(['g']))
+
     const kb = useKeybindings()
-    expect(kb.bindings.value['feed.next']).toEqual(['g'])
     expect(kb.bindings.value['feed.refresh']).toEqual(['r']) // 123 dropped, dupe collapsed
     expect(kb.bindings.value['feed.prev']).toEqual(['k', 'arrowup']) // invalid → default
     expect(kb.resolve('x')).toBeNull() // unknown id never bound
   })
 
-  it('falls back to defaults for malformed or non-object storage', async () => {
-    localStorage.setItem('hive.keybindings', 'not json')
-    const { useKeybindings } = await import('../useKeybindings')
+  it('falls back to defaults for a malformed or non-object section', async () => {
+    seedStoredOverrides('not an object')
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    initializeKeybindings()
+    await nextTick()
     expect(useKeybindings().bindings.value['feed.next']).toEqual(['j', 'arrowdown'])
+  })
+
+  // An unreadable settings.yaml must leave the app usable rather than
+  // shortcut-less.
+  it('keeps catalog defaults when the settings read fails', async () => {
+    settings.get.mockRejectedValue(new Error('unavailable'))
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    initializeKeybindings()
+    await vi.waitFor(() => expect(warn).toHaveBeenCalled())
+    expect(useKeybindings().bindings.value['feed.next']).toEqual(['j', 'arrowdown'])
+    warn.mockRestore()
+  })
+
+  // Hydration happens after mount; a rebind made while that read is in flight
+  // is newer than its result and must survive.
+  it('does not let a late hydrate clobber a rebind made while it was in flight', async () => {
+    let resolveRead: (value: { overrides: Record<string, string[]> }) => void = () => {}
+    settings.get.mockReturnValue(new Promise((resolve) => { resolveRead = resolve }))
+
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    initializeKeybindings()
+
+    const kb = useKeybindings()
+    kb.addBinding('feed.next', 'g')
+    resolveRead({ overrides: { 'feed.next': ['z'] } })
+    await nextTick()
+
+    expect(kb.bindings.value['feed.next']).toEqual(['j', 'arrowdown', 'g'])
+  })
+
+  it('clears the section entirely on reset-all', async () => {
+    const { useKeybindings } = await import('../useKeybindings')
+    const kb = useKeybindings()
+    kb.addBinding('feed.next', 'g')
+    kb.clearAll()
+
+    expect(kb.bindings.value['feed.next']).toEqual(['j', 'arrowdown'])
+    // Writes are chained so two quick edits cannot land out of order, so the
+    // clear lands a tick behind the add.
+    await vi.waitFor(() => expect(lastPersisted()).toEqual({}))
   })
 })

@@ -47,6 +47,46 @@ type AppearanceSettings struct {
 	Theme string `json:"theme"`
 }
 
+// KeybindingSettings carries keyboard shortcut overrides keyed by command id.
+// Like AppearanceSettings the values are opaque to Go: the frontend owns the
+// command vocabulary and the combo grammar, so this is transport only.
+//
+// An id absent from Overrides keeps its catalog default; an id mapped to an
+// empty list is explicitly unbound.
+type KeybindingSettings struct {
+	Overrides map[string][]string `json:"overrides"`
+}
+
+// KeybindingSettings returns the persisted shortcut overrides. A nil map is
+// normalized to an empty one so the frontend never has to null-check it.
+func (s *SettingsService) KeybindingSettings() (KeybindingSettings, error) {
+	settings, err := desktop.LoadSettings()
+	if err != nil {
+		return KeybindingSettings{}, err
+	}
+	overrides := settings.Keybindings
+	if overrides == nil {
+		overrides = map[string][]string{}
+	}
+	return KeybindingSettings{Overrides: overrides}, nil
+}
+
+// SetKeybindingSettings persists the shortcut overrides while preserving all
+// unrelated desktop settings. An empty map clears the section entirely, which
+// is how "reset everything to defaults" is expressed.
+func (s *SettingsService) SetKeybindingSettings(settings KeybindingSettings) error {
+	current, err := desktop.LoadSettings()
+	if err != nil {
+		return err
+	}
+	if len(settings.Overrides) == 0 {
+		current.Keybindings = nil
+	} else {
+		current.Keybindings = settings.Overrides
+	}
+	return desktop.SaveSettings(current)
+}
+
 // AppearanceSettings returns the persisted appearance configuration. An empty
 // Theme tells the frontend no choice has been recorded, which is its cue to
 // adopt whatever theme its localStorage cache already holds.

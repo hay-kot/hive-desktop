@@ -190,6 +190,13 @@ describe('SettingsView', () => {
     expect(wrapper.find('[data-testid="settings-keybindings"]').exists()).toBe(true)
   })
 
+  it('exposes an LLM prompts section that renders the prompt catalog', () => {
+    const wrapper = mount(SettingsView, { props: { githubConnected: true, activeCategory: 'prompts' } })
+
+    expect(wrapper.find('[data-testid="settings-category-prompts"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="prompt-settings"]').exists()).toBe(true)
+  })
+
   it('closes from the header action and Escape', async () => {
     const wrapper = mount(SettingsView, { props: { githubConnected: true, activeCategory: 'appearance' } })
 

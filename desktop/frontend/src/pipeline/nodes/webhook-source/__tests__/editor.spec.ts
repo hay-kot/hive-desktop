@@ -1,7 +1,25 @@
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import Editor, { type WebhookCaptureView, type WebhookEditorClient } from '../editor.vue'
 import type { Config } from '../config'
+
+// The transform prompt is assembled by the Go prompts service; this editor
+// only supplies the endpoint path and the last captured delivery.
+const mocks = vi.hoisted(() => ({ Render: vi.fn(), SetText: vi.fn() }))
+
+vi.mock('../../../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+  Catalog: vi.fn(),
+  Render: mocks.Render,
+}))
+
+vi.mock('@wailsio/runtime', () => ({ Clipboard: { SetText: mocks.SetText } }))
+
+beforeEach(() => {
+  mocks.Render.mockReset()
+  mocks.SetText.mockReset()
+  mocks.SetText.mockResolvedValue(undefined)
+  mocks.Render.mockResolvedValue({ id: 'webhook-transform', title: '', description: '', target: '', text: 'TRANSFORM PROMPT' })
+})
 
 function fakeClient(capture?: Partial<WebhookCaptureView>): WebhookEditorClient {
   return {
@@ -95,5 +113,29 @@ describe('webhook-source editor', () => {
     })
     await flushPromises()
     expect(wrapper.find('[data-testid="webhook-source-editor-shape-warning"]').exists()).toBe(false)
+  })
+
+  it('copies the service-rendered transform prompt, scoped to this node', async () => {
+    const wrapper = mountEditor({ path: 'ci-alerts' }, { receivedAt: 5, body: '{"event":"deploy"}' })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="webhook-source-editor-copy-prompt"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.Render).toHaveBeenCalledWith('webhook-transform', expect.objectContaining({
+      webhookPath: 'ci-alerts',
+      webhookSample: '{"event":"deploy"}',
+    }))
+    expect(mocks.SetText).toHaveBeenCalledWith('TRANSFORM PROMPT')
+  })
+
+  it('passes an empty sample when nothing has been captured yet', async () => {
+    const wrapper = mountEditor({ path: 'ci-alerts' })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="webhook-source-editor-copy-prompt"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.Render).toHaveBeenCalledWith('webhook-transform', expect.objectContaining({ webhookSample: '' }))
   })
 })

@@ -112,6 +112,18 @@ type Settings struct {
 	// benefit. Absent defaults to enabled; resolve through
 	// WebhookEnabledOrDefault rather than reading the pointer directly.
 	WebhookEnabled *bool `yaml:"webhook_enabled,omitempty"`
+	// Keybindings holds keyboard shortcut *overrides*, keyed by the frontend's
+	// bindable command id (desktop/frontend/src/keybindings/catalog.ts). An
+	// absent id keeps its catalog default; an id mapped to an empty list is
+	// explicitly unbound — the two are deliberately different, which is why
+	// this is a sparse map rather than the full keymap.
+	//
+	// Go stores these opaquely, exactly as it stores Appearance.Theme and for
+	// the same reason: the command vocabulary and the combo grammar live with
+	// the frontend that implements them, so validating here would duplicate
+	// that list and make an older build reject a settings.yaml written by a
+	// newer one.
+	Keybindings map[string][]string `yaml:"keybindings,omitempty"`
 }
 
 // SettingsPath is the settings.yaml location under the desktop config root.

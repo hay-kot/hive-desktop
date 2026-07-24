@@ -59,6 +59,18 @@ export interface GithubSettings {
 }
 
 /**
+ * KeybindingSettings carries keyboard shortcut overrides keyed by command id.
+ * Like AppearanceSettings the values are opaque to Go: the frontend owns the
+ * command vocabulary and the combo grammar, so this is transport only.
+ * 
+ * An id absent from Overrides keeps its catalog default; an id mapped to an
+ * empty list is explicitly unbound.
+ */
+export interface KeybindingSettings {
+    "overrides": { [_ in string]?: string[] | null } | null;
+}
+
+/**
  * NotificationSettings is the desktop notification configuration resolved
  * from settings.yaml. All fields are explicit booleans for the frontend.
  */

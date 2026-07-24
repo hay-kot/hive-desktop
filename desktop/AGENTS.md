@@ -33,9 +33,12 @@ internal/desktop/
   desktop.go              # env-var surface, data/config/flows/actions paths
   auth/                   # device-flow + PAT auth behind the auth service
   feed/                   # GitHub fetch layer (LiveProvider + mock fixtures)
+  prompts/                # every paste-ready LLM prompt: templates/ + registry
   pipeline/               # producer, output worker, executors, retention
     actions/              # actions.yml store, watcher, seed, editable model
+      docs/               # per-action-type markdown, rendered into the prompt
     flow/                 # flow YAML parse/validate/save, FlowsWatcher, sidebar
+      docs/               # per-node-type markdown — ALSO the frontend's node help
     pipelinedb/           # sqlc-backed SQLite: event log, feed_item, output_command
 ```
 
@@ -146,6 +149,18 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
   `github.NewKeychainStore()`. `HIVE_GITHUB_TOKEN` is a read-only headless
   override; `HIVE_GITHUB_CLIENT_ID` overrides the device-flow client id. Never
   log or persist tokens elsewhere.
+- **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
+  `internal/desktop/prompts/templates/`; nothing in the frontend builds a
+  prompt string. Adding one is a template plus a `definitions` entry — Settings
+  ▸ LLM prompts lists whatever the registry reports. Per-type prose belongs in
+  `flow/docs/<type>.md` / `actions/docs/<type>.md`, never in a prompt template,
+  and a registry↔docs bijection test enforces that a new type documents itself.
+- **Node docs are shared across the language boundary.** The frontend imports
+  `internal/desktop/pipeline/flow/docs/*.md` through the `@nodedocs` Vite alias
+  rather than keeping a copy — it is declared in **both** `vite.config.ts` and
+  `vitest.config.ts`, each with a matching `server.fs.allow` entry (the files
+  sit outside the Vite root). These docs are read by the node drawer *and* by
+  an LLM, so keep them free of UI-only references like "the row below".
 
 ## Environment variables
 

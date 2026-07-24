@@ -509,6 +509,7 @@ func main() {
 		application.NewService(NewSystemService()),
 		application.NewService(NewSettingsService(producer, fetcher, logger)),
 		application.NewService(NewWebhookService(pipelineDB, webhookListener, webhookPort)),
+		application.NewService(NewPromptsService(webhookListener, webhookPort)),
 		application.NewService(updaterService),
 	}
 	if nativeNotifications != nil {

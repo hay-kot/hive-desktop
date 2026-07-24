@@ -10,11 +10,13 @@ import IconPlay from '~icons/lucide/play'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconSettings from '~icons/lucide/settings'
+import IconSparkles from '~icons/lucide/sparkles'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
+import PromptSettingsView from './PromptSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
@@ -44,6 +46,7 @@ const categories = [
   { id: 'keybindings' as const, label: 'Keyboard', icon: IconKeyboard },
   { id: 'integrations' as const, label: 'Integrations', icon: IconPlug },
   { id: 'actions' as const, label: 'Actions', icon: IconPlay },
+  { id: 'prompts' as const, label: 'LLM prompts', icon: IconSparkles },
   { id: 'system' as const, label: 'System', icon: IconHardDrive },
   { id: 'notifications' as const, label: 'Notifications', icon: IconBell },
 ]
@@ -52,6 +55,7 @@ const sectionTitle = computed(() => ({
   keybindings: 'Keyboard shortcuts',
   integrations: 'Integrations',
   actions: 'Actions',
+  prompts: 'LLM prompts',
   system: 'System',
   notifications: 'Notifications',
 }[props.activeCategory]))
@@ -126,6 +130,8 @@ function onThemeChange(value: string): void {
       <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
 
       <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
+
+      <PromptSettingsView v-else-if="props.activeCategory === 'prompts'" />
 
       <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
 

@@ -1,5 +1,8 @@
 import { computed, ref } from 'vue'
-import { useStorage } from '@vueuse/core'
+import {
+  KeybindingSettings as GetKeybindingSettings,
+  SetKeybindingSettings,
+} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
 import { commandCatalog } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /
@@ -147,18 +150,64 @@ function sanitizeOverrides(value: unknown): Overrides {
   return out
 }
 
-const overrides = useStorage<Overrides>('hive.keybindings', {}, undefined, {
-  serializer: {
-    read: (raw: string): Overrides => {
-      try {
-        return sanitizeOverrides(JSON.parse(raw))
-      } catch {
-        return {}
-      }
-    },
-    write: (value: Overrides): string => JSON.stringify(value),
-  },
-})
+// The durable record is settings.yaml's `keybindings` section, so shortcuts
+// live alongside the rest of the user's config and can be managed from a
+// dotfiles repo or handed to an agent (see the "Keyboard shortcuts" prompt in
+// internal/desktop/prompts). Webview localStorage is not a candidate: it is
+// partitioned per bundle id and per dev-server port and macOS may purge it
+// outright, so a rebind could silently vanish.
+//
+// Only overrides are stored. An id absent here falls back to its catalog
+// default; an id mapped to [] is explicitly unbound.
+const overrides = ref<Overrides>({})
+
+// Incremented by every mutation so an in-flight hydrate can tell its result is
+// already stale and must not clobber a rebind the user just made (the same
+// versioning idea as useTheme).
+let overridesVersion = 0
+
+// Saves are chained rather than fired in parallel so two quick rebinds cannot
+// land out of order and leave settings.yaml disagreeing with the screen. The
+// chain absorbs its own failures so it never settles rejected.
+let persistChain: Promise<void> = Promise.resolve()
+
+function persistOverrides(next: Overrides): void {
+  persistChain = persistChain
+    .then(async () => {
+      await SetKeybindingSettings({ overrides: next })
+    })
+    .catch((error: unknown) => {
+      // The rebind is already live in this session; losing the durable write is
+      // degraded-but-working, not a reason to revert what the user sees.
+      console.warn('Unable to persist keybindings to settings.yaml', error)
+    })
+}
+
+/** Replaces the override map and writes it through to settings.yaml. */
+function applyOverrides(next: Overrides): void {
+  overridesVersion++
+  overrides.value = next
+  persistOverrides(next)
+}
+
+// Reads the durable overrides once at startup. A failure keeps the catalog
+// defaults rather than blanking the keymap: an unavailable binding must not
+// leave the app with no shortcuts.
+async function hydrateFromSettings(): Promise<void> {
+  const version = overridesVersion
+  try {
+    const settings = await GetKeybindingSettings()
+    if (overridesVersion !== version) return
+    overrides.value = sanitizeOverrides(settings.overrides)
+  } catch (error) {
+    console.warn('Unable to load keybindings from settings.yaml', error)
+  }
+}
+
+/** Called once from main.ts, before the app can dispatch a shortcut. */
+export function initializeKeybindings(): void {
+  void hydrateFromSettings()
+}
 
 // True while the settings editor is capturing a keystroke; the global
 // dispatcher checks this so a combo being recorded never also fires a command.
@@ -194,7 +243,7 @@ function resolve(combo: string): string | null {
 }
 
 function setCombos(id: string, combos: string[]): void {
-  overrides.value = { ...overrides.value, [id]: combos }
+  applyOverrides({ ...overrides.value, [id]: combos })
 }
 
 function addBinding(id: string, combo: string): void {
@@ -213,11 +262,11 @@ function removeBinding(id: string, combo: string): void {
 function resetToDefault(id: string): void {
   const next = { ...overrides.value }
   delete next[id]
-  overrides.value = next
+  applyOverrides(next)
 }
 
 function clearAll(): void {
-  overrides.value = {}
+  applyOverrides({})
 }
 
 function isOverridden(id: string): boolean {

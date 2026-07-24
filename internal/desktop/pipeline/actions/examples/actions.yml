@@ -1,0 +1,40 @@
+version: 1
+actions:
+  - id: review-pr
+    label: Review PR
+    type: launch-session
+    show_in_detail: true
+    applies_to: [pr]
+    repo_template: "https://github.com/{{ .Payload.repo }}.git"
+    prompt_template: |
+      Review pull request {{ .Payload.title }}
+
+      {{ .Payload.url }}
+  - id: start-implementation
+    label: Start implementation
+    type: launch-session
+    show_in_detail: true
+    applies_to: [issue]
+    agent: claude
+    repo_template: "https://github.com/{{ .Payload.repo }}.git"
+    prompt_template: |
+      Work on {{ .Payload.title }}
+
+      {{ .Payload.url }}
+
+      {{ .Payload.body }}
+  - id: open-in-editor
+    label: Open in editor
+    type: shell
+    show_in_detail: true
+    timeout: "30s"
+    cwd: /tmp
+    env:
+      EDITOR: code
+    command_template: '$EDITOR --goto {{ .Payload.repo | shq }}'
+  - id: notify-oncall
+    label: Notify oncall
+    type: publish-message
+    show_in_detail: false
+    topic: oncall.alerts
+    message_template: "{{ .Payload.title }} — {{ .Payload.url }}"
