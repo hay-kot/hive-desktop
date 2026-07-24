@@ -25,6 +25,7 @@ export {
 };
 
 export type {
+    AppearanceSettings,
     BuildInfo,
     FlowSummary,
     GithubSettings,

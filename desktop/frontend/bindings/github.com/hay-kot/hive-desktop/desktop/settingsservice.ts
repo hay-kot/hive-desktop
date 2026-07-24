@@ -17,6 +17,15 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
+ * AppearanceSettings returns the persisted appearance configuration. An empty
+ * Theme tells the frontend no choice has been recorded, which is its cue to
+ * adopt whatever theme its localStorage cache already holds.
+ */
+export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSettings> {
+    return $Call.ByID(2825710563);
+}
+
+/**
  * GithubSettings returns the current resolved GitHub polling settings.
  */
 export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
@@ -28,6 +37,14 @@ export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
  */
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
     return $Call.ByID(2998490926);
+}
+
+/**
+ * SetAppearanceSettings persists the appearance configuration while preserving
+ * all unrelated desktop settings.
+ */
+export function SetAppearanceSettings(settings: $models.AppearanceSettings): $CancellablePromise<void> {
+    return $Call.ByID(870994635, settings);
 }
 
 /**

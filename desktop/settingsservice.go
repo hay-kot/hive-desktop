@@ -40,6 +40,35 @@ type NotificationSettings struct {
 	NotificationSound          bool `json:"notificationSound"`
 }
 
+// AppearanceSettings is the frontend's presentation configuration. Theme is
+// carried verbatim: the frontend owns the valid set and heals unknown values,
+// so an empty Theme means "nothing persisted yet" rather than an error.
+type AppearanceSettings struct {
+	Theme string `json:"theme"`
+}
+
+// AppearanceSettings returns the persisted appearance configuration. An empty
+// Theme tells the frontend no choice has been recorded, which is its cue to
+// adopt whatever theme its localStorage cache already holds.
+func (s *SettingsService) AppearanceSettings() (AppearanceSettings, error) {
+	settings, err := desktop.LoadSettings()
+	if err != nil {
+		return AppearanceSettings{}, err
+	}
+	return AppearanceSettings{Theme: settings.Appearance.Theme}, nil
+}
+
+// SetAppearanceSettings persists the appearance configuration while preserving
+// all unrelated desktop settings.
+func (s *SettingsService) SetAppearanceSettings(settings AppearanceSettings) error {
+	current, err := desktop.LoadSettings()
+	if err != nil {
+		return err
+	}
+	current.Appearance.Theme = settings.Theme
+	return desktop.SaveSettings(current)
+}
+
 // NotificationSettings returns the current resolved notification settings.
 func (s *SettingsService) NotificationSettings() (NotificationSettings, error) {
 	settings, err := desktop.LoadSettings()
