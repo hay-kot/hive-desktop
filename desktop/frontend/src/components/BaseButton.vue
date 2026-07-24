@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 
 const props = withDefaults(defineProps<{
-  variant?: 'primary' | 'secondary' | 'danger' | 'ghost'
+  variant?: 'primary' | 'secondary' | 'danger' | 'danger-outline' | 'ghost'
   size?: 'sm' | 'md'
   busy?: boolean
   disabled?: boolean
@@ -27,6 +27,9 @@ const classes = computed(() => [
     primary: 'bg-accent text-accent-contrast hover:brightness-110',
     secondary: 'border border-card text-text-2 hover:text-text',
     danger: 'bg-severity-error text-accent-contrast hover:brightness-110',
+    // Outlined destructive: for confirmations that sit inside another surface,
+    // where a filled danger button would out-shout the surface's own primary.
+    'danger-outline': 'border border-severity-error/40 text-severity-error hover:bg-severity-error-tint',
     ghost: 'text-text-2 hover:text-text',
   }[props.variant],
 ])

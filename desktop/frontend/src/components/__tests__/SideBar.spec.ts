@@ -231,32 +231,31 @@ describe('SideBar folders', () => {
     dialog<HTMLButtonElement>('folder-edit-delete').click()
     await flushPromises()
 
-    // The confirmation replaces the edit dialog and says where the feeds go.
-    expect(document.querySelector('[data-testid="folder-edit-modal"]')).toBeNull()
-    expect(dialog('confirmation-dialog').textContent).toContain('Feeds inside will move to the top level')
+    // The confirm expands inside the dialog rather than stacking another one.
+    expect(dialog('folder-edit-modal')).not.toBeNull()
+    expect(dialog('folder-delete-confirm-description').textContent).toContain('Its 1 feed moves to the top level')
     expect(wrapper.emitted('reorder')).toBeUndefined()
 
-    dialog<HTMLButtonElement>('confirmation-dialog-confirm').click()
+    dialog<HTMLButtonElement>('folder-delete-confirm-confirm').click()
     await flushPromises()
 
     const tree = lastReorder(wrapper)
     expect(tree.some((n) => n.kind === 'folder')).toBe(false)
     expect(tree.some((n) => n.kind === 'feed' && n.feed.id === 'backend')).toBe(true)
-    expect(document.querySelector('[data-testid="confirmation-dialog"]')).toBeNull()
     expect(document.querySelector('[data-testid="folder-edit-modal"]')).toBeNull()
     wrapper.unmount()
   })
 
-  it('cancelling the delete confirmation keeps the folder and returns to the edit dialog', async () => {
+  it('cancelling the delete confirmation keeps the folder and the dialog', async () => {
     const wrapper = mountGrouped()
     await openFolderEditor(wrapper)
     dialog<HTMLButtonElement>('folder-edit-delete').click()
     await flushPromises()
-    dialog<HTMLButtonElement>('confirmation-dialog-cancel').click()
+    dialog<HTMLButtonElement>('folder-delete-confirm-cancel').click()
     await flushPromises()
 
     expect(wrapper.emitted('reorder')).toBeUndefined()
-    expect(document.querySelector('[data-testid="confirmation-dialog"]')).toBeNull()
+    expect(document.querySelector('[data-testid="folder-delete-confirm"]')).toBeNull()
     expect(dialog('folder-edit-modal')).not.toBeNull()
     wrapper.unmount()
   })

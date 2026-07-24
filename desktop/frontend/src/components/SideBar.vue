@@ -11,11 +11,9 @@ import IconRss from '~icons/lucide/rss'
 import IconSettings from '~icons/lucide/settings'
 import IconTrash from '~icons/lucide/trash-2'
 import IconWorkflow from '~icons/lucide/workflow'
-import ConfirmationDialog from './ConfirmationDialog.vue'
 import FolderEditModal from './FolderEditModal.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SidebarFeedRow from './SidebarFeedRow.vue'
-import { useConfirmation } from '../composables/useConfirmation'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { applyMove, SIDEBAR_DRAG_MIME, type DragRef, type DropTarget } from '../lib/feedTree'
 import type { FeedFolder, FeedSummary, FeedTree, Profile, SidebarSelection } from '../types/feed'
@@ -166,7 +164,6 @@ function onHeaderClick(folder: FeedFolder): void {
 // The dialog reads the folder back out of the tree by id, so a rename reflects
 // straight from the persisted layout rather than a local copy.
 const editingId = ref<string | null>(null)
-const confirmation = useConfirmation()
 
 const editingFolder = computed<FeedFolder | null>(() => {
   const node = tree.value.find((n) => n.kind === 'folder' && n.folder.id === editingId.value)
@@ -204,17 +201,8 @@ function saveFolderName(folder: FeedFolder, name: string): void {
 
 // Deleting a folder ungroups it: its feeds re-enter the top level at the
 // folder's slot, so no feed is destroyed — but the folder's name and grouping
-// are, with no undo, which is why it is confirmed. The edit dialog steps aside
-// while the confirmation is up (both close on Escape) and comes back on cancel.
-function requestDeleteFolder(folder: FeedFolder): void {
-  confirmation.request({
-    title: 'Delete folder',
-    description: `Delete ${folder.name}? Feeds inside will move to the top level — no feed is removed.`,
-    confirmLabel: 'Delete folder',
-    onConfirm: () => deleteFolder(folder),
-  })
-}
-
+// are, with no undo. The edit dialog confirms before it emits, so reaching here
+// already means the user said yes.
 function deleteFolder(folder: FeedFolder): void {
   const next: FeedTree = []
   for (const n of tree.value) {
@@ -382,22 +370,12 @@ function deleteFolder(folder: FeedFolder): void {
     <PanelResizeHandle edge="right" name="sidebar" :start="startResize" :step="step" />
 
     <FolderEditModal
-      v-if="editingFolder && !confirmation.open.value"
+      v-if="editingFolder"
       :key="editingFolder.id"
       :folder="editingFolder"
       @save="saveFolderName(editingFolder, $event)"
-      @delete="requestDeleteFolder(editingFolder)"
+      @delete="deleteFolder(editingFolder)"
       @close="editingId = null"
-    />
-    <ConfirmationDialog
-      v-if="confirmation.open.value && confirmation.options.value"
-      :title="confirmation.options.value.title"
-      :description="confirmation.options.value.description"
-      :confirm-label="confirmation.options.value.confirmLabel"
-      :busy="confirmation.busy.value"
-      :error="confirmation.error.value"
-      @confirm="confirmation.confirm"
-      @cancel="confirmation.cancel"
     />
   </aside>
 </template>
