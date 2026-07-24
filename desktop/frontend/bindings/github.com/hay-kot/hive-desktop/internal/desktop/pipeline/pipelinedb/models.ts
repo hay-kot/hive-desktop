@@ -199,7 +199,7 @@ export interface Output {
 
 /**
  * Sink identifies where an Output is committed. Feed outputs claim immutable
- * inbox membership; action outputs enqueue an output_command.
+ * inbox membership; action and notify outputs enqueue an output_command.
  */
 export interface Sink {
     "kind": string;

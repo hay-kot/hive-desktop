@@ -23,10 +23,26 @@ type (
 	// returned by NodeRuns (see pipelinedb/node_run.go) — NodeRun's write
 	// shape plus EndedAt.
 	NodeRunRecord = pipelinedb.NodeRunRecord
+
+	// NotifyCommand mirrors pipelinedb.NotifyCommand, the durable payload a
+	// notify terminal's output_command carries.
+	NotifyCommand = pipelinedb.NotifyCommand
 )
 
 // Sink.Kind values.
 const (
 	SinkKindFeed   = pipelinedb.SinkKindFeed
 	SinkKindAction = pipelinedb.SinkKindAction
+	SinkKindNotify = pipelinedb.SinkKindNotify
+)
+
+// NotifyActionPrefix namespaces the synthetic action ids notify terminals
+// enqueue under.
+const NotifyActionPrefix = pipelinedb.NotifyActionPrefix
+
+// NotifyActionID and NotifyActionTarget map between a notify node's
+// flow-qualified id and the synthetic action id its queued commands carry.
+var (
+	NotifyActionID     = pipelinedb.NotifyActionID
+	NotifyActionTarget = pipelinedb.NotifyActionTarget
 )

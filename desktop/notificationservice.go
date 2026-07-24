@@ -1,10 +1,15 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 
+	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/desktop"
 	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
+	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 // NotifyInput is the frontend-facing request for a native notification.
@@ -68,6 +73,53 @@ func (s *NotificationService) PermissionStatus() (string, error) {
 // authorization and returns whether it was granted.
 func (s *NotificationService) RequestNotificationPermission() (bool, error) {
 	return s.notifier.RequestPermission()
+}
+
+// NotificationActivation is the notification:activated payload: which
+// workspace and inbox item a clicked notification came from. ItemID is 0 when
+// the notification had no item behind it (an app-level notification, or one
+// whose item could not be resolved), which the frontend reads as "just raise
+// the window".
+type NotificationActivation struct {
+	ProfileID string `json:"profileId"`
+	ItemID    int64  `json:"itemId"`
+}
+
+// flowNotifier adapts the native notifier to the pipeline's SystemNotifier,
+// so a flow's notify node delivers through exactly the same native path (and
+// icon, and permission handling) as an app-level notification.
+type flowNotifier struct{ notifier notificationNotifier }
+
+func (n flowNotifier) Notify(_ context.Context, in pipeline.SystemNotification) error {
+	if n.notifier == nil {
+		return errors.New("native notifications unavailable")
+	}
+	return n.notifier.Notify(notify.Input{
+		Title:    in.Title,
+		Body:     in.Body,
+		Severity: in.Severity,
+		Sound:    in.Sound,
+		Data:     in.Data,
+	})
+}
+
+// settingsNotificationGate resolves the app-level notification policy from
+// settings.yaml on every delivery, so toggling notifications off in Settings
+// silences flow notify nodes immediately rather than at the next restart. An
+// unreadable settings file fails closed: never surface banners the user may
+// have switched off.
+type settingsNotificationGate struct{ logger zerolog.Logger }
+
+func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPolicy {
+	settings, err := desktop.LoadSettings()
+	if err != nil {
+		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
+		return pipeline.NotificationPolicy{}
+	}
+	return pipeline.NotificationPolicy{
+		Allowed: settings.NotificationsEnabledOrDefault() && settings.SystemNotificationsEnabledOrDefault(),
+		Sound:   settings.NotificationSoundOrDefault(),
+	}
 }
 
 type unavailableNotifier struct {

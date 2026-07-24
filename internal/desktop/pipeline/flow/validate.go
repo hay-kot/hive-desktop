@@ -95,7 +95,7 @@ func validateFlow(f *Flow, refs Refs) ([]string, error) {
 		}
 	}
 	if !hasTerminal {
-		warnings = append(warnings, "flow has no terminal node (feed or action)")
+		warnings = append(warnings, "flow has no terminal node (feed, action, or notify)")
 	}
 	return warnings, nil
 }

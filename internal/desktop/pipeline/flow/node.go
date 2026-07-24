@@ -47,6 +47,7 @@ var registry = map[string]nodeFactory{
 	"function":       func() NodeConfig { return &FunctionConfig{} },
 	"feed":           func() NodeConfig { return &FeedConfig{} },
 	"action":         func() NodeConfig { return &ActionConfig{} },
+	"notify":         func() NodeConfig { return &NotifyConfig{} },
 }
 
 // nodeHeader is the small set of fields common to every node, decoded first

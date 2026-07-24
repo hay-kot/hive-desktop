@@ -11,11 +11,12 @@ wiring; do not duplicate its detail here.**
 
 A Wails v3 desktop shell (Vue 3 + TypeScript frontend, Go backend) that renders
 a GitHub-backed feed. A **flow** (`flows/*.yaml`) wires `github-source` nodes
-through filters into `feed` and `action` terminals; a background producer polls
-sources, appends to an event log, and commits durable `feed_item` rows the
-sidebar reads. `action` nodes emit durable `output_command`s that an output
-worker dispatches (`launch-session`, `shell`, `publish-message`). Auth is a
-GitHub OAuth device flow with a PAT fallback, tokens in the OS keychain.
+through filters into `feed`, `action`, and `notify` terminals; a background
+producer polls sources, appends to an event log, and commits durable
+`feed_item` rows the sidebar reads. `action` and `notify` nodes emit durable
+`output_command`s that an output worker dispatches (`launch-session`, `shell`,
+`publish-message`, `notify`). Auth is a GitHub OAuth device flow with a PAT
+fallback, tokens in the OS keychain.
 
 ## Code layout
 

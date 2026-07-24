@@ -12,6 +12,7 @@ import * as githubFilterNode from '../nodes/github-filter/config'
 import * as githubSourceNode from '../nodes/github-source/config'
 import * as webhookSourceNode from '../nodes/webhook-source/config'
 import * as feedNode from '../nodes/feed/config'
+import * as notifyNode from '../nodes/notify/config'
 import { inDegrees, outWiresByPort, topoSort } from './graph'
 import { NodeTimeoutError, type NodeResult, type WorkerTransport } from './transport'
 
@@ -50,12 +51,12 @@ interface TerminalDef {
   sink(flowId: string, nodeId: string, config: any): Sink
 }
 
-// The two terminal node types' sink-tagging is delegated to each node's own
-// config.ts (single source of truth for its sink shape) rather than
-// re-encoded here.
+// Each terminal node type's sink-tagging is delegated to its own config.ts
+// (single source of truth for its sink shape) rather than re-encoded here.
 const TERMINALS: Record<string, TerminalDef> = {
   [feedNode.type]: { sink: feedNode.sink },
   [actionNode.type]: { sink: actionNode.sink },
+  [notifyNode.type]: { sink: notifyNode.sink },
 }
 
 interface NodeRunAcc {
@@ -140,8 +141,9 @@ export async function runGraph(flow: Flow, batch: Msg[], transport: WorkerTransp
       if (terminal) {
         const sink = terminal.sink(flow.id, nodeId, node.config)
         // Snapshots only reconcile feed membership. They must never produce a
-        // side effect through an action terminal.
-        if (msg.snapshotContext && sink.kind === 'action') {
+        // side effect — an enqueued action, or a notification about an item
+        // the user was already told about.
+        if (msg.snapshotContext && sink.kind !== 'feed') {
           run.dropCount++
           discards.push({ msgId: msg.ID, nodeId })
           continue
@@ -156,6 +158,19 @@ export async function runGraph(flow: Flow, batch: Msg[], transport: WorkerTransp
           }
           if (msg.snapshotContext) output.snapshotId = msg.snapshotContext.snapshotId
           outputs.push(output)
+        } else if (sink.kind === 'notify') {
+          // A notify output carries the message's source identity as well as
+          // its payload: the backend resolves the inbox row behind it so a
+          // clicked notification can reveal that item.
+          outputs.push({
+            sink,
+            key: msg.Key,
+            occurrenceKey: msg.OccurrenceKey,
+            payload: msg.Payload,
+            sourceTopic: msg.Topic,
+            sourceKind: msg.SourceKind,
+            sourceScope: msg.SourceScope,
+          })
         } else {
           outputs.push({ sink, occurrenceKey: msg.OccurrenceKey, payload: msg.Payload, sourceTopic: '' })
         }

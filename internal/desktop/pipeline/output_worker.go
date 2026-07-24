@@ -26,9 +26,13 @@ const (
 const ActionTypeLaunchSession = "launch-session"
 
 type OutputData struct {
-	Key       string
-	Payload   map[string]any
-	Raw       json.RawMessage
+	Key     string
+	Payload map[string]any
+	Raw     json.RawMessage
+	// CreatedAt is when the command was enqueued (Unix milliseconds), so an
+	// executor whose side effect is time-sensitive can tell a fresh command
+	// from one that waited out an app restart. Zero when unknown.
+	CreatedAt int64
 	CommandID int64
 	IsRerun   bool
 }
@@ -289,8 +293,11 @@ func (w *Worker) process(ctx context.Context, row pipelinedb.OutputCommand) {
 	w.jobDone(ctx, jobID)
 	logger.Debug().Msg("output worker: job done")
 	// This is the automatic path (process only executes when the action
-	// auto-applies). A launch-session run is recorded by the launcher instead.
-	if a.Type != ActionTypeLaunchSession {
+	// auto-applies). A launch-session run is recorded by the launcher instead,
+	// and an executor that deliberately performed no side effect (a notify
+	// command suppressed by settings or a cooldown) reports Attempted false —
+	// the Activity view records what happened, not what was considered.
+	if a.Type != ActionTypeLaunchSession && result.Attempted {
 		w.record(ctx, activity.AutoAction(actionLabel(a), a.ID, row.Key))
 	}
 }
@@ -318,7 +325,7 @@ func (w *Worker) execute(
 	}
 	return w.dispatch.Execute(ctx, a, OutputData{
 		Key: row.Key, Payload: payload, Raw: json.RawMessage(row.Payload),
-		CommandID: row.ID, IsRerun: row.IsRerun != 0,
+		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun != 0,
 	}, input)
 }
 

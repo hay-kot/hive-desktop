@@ -70,6 +70,15 @@ export function InboxItemEvents(itemID: number, limit: number): $CancellableProm
 }
 
 /**
+ * InboxItemFeed returns the feed that holds an item, or "" when no feed
+ * claims it (an unrouted item, shown in Trash). The frontend uses it to turn
+ * a clicked notification into a feed route that reveals the item.
+ */
+export function InboxItemFeed(profileID: string, itemID: number): $CancellablePromise<string> {
+    return $Call.ByID(3525173674, profileID, itemID);
+}
+
+/**
  * InvokeAction records the user's explicit confirmation for actionID against
  * item and executes it. It accepts only actions that apply to the item's kind;
  * executable configuration is always re-resolved from ActionStore.

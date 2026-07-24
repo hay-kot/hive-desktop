@@ -66,7 +66,7 @@ All timestamps stored by this database are Unix milliseconds.
 | `consumer_offset` | Last ordinary log offset fully committed by a flow. | A monotonic upsert prevents replay from moving a cursor backward. |
 | `source_head` | Latest source payload for change detection across producer restarts. | Deleted with a profile purge. |
 | `webhook_capture` | Most recent request body per webhook source topic, for the node editor's preview/prompt affordances. | One row per topic, replaced on every delivery. |
-| `output_command` | Durable, deduplicated action work queue. | Terminal command history is bounded; pending and running work is retained. |
+| `output_command` | Durable, deduplicated action work queue, shared by `action` nodes (keyed by their `actions.yml` id) and `notify` nodes (keyed by a synthetic `notify:<flowId>/<nodeId>` id). | Terminal command history is bounded; pending and running work is retained. |
 | `node_run` and `activity_event` | Flow diagnostics and the user-facing activity log. | Both are globally bounded diagnostic histories. |
 
 `pipeline.Maintenance` runs retention every five minutes after startup. One
@@ -165,6 +165,7 @@ Supported node types are:
 | `function` | Author-provided JavaScript processor with one to sixteen outputs. |
 | `feed` | Terminal membership target. The flow-qualified node id is the feed id. |
 | `action` | Terminal action target referring to a headless-capable action in `actions.yml`. |
+| `notify` | Terminal system-notification target with inline `title`/`body` templates, optional `severity` and `sound`. Delivery respects the app's notification settings. |
 
 Wires are directed `{from, out?, to}` edges. Validation rejects unknown nodes,
 invalid node configuration, invalid ports, duplicate wires, cycles, source
