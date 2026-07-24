@@ -32,6 +32,15 @@ function toggle(id: string): void {
   expandedId.value = expandedId.value === id ? null : id
 }
 
+/** True while this row is showing its post-copy confirmation. */
+function justCopied(id: string): boolean {
+  return copiedId.value === id && copyStatus.value === 'success'
+}
+
+function copyFailed(id: string): boolean {
+  return copiedId.value === id && copyStatus.value === 'error'
+}
+
 async function onCopy(id: string, text: string): Promise<void> {
   copiedId.value = id
   await copy(text)
@@ -93,16 +102,28 @@ onMounted(() => void refresh())
               @click="onCopy(prompt.id, prompt.text)"
             >
               <template #icon>
-                <IconCheck v-if="copiedId === prompt.id && copyStatus === 'success'" class="size-3.5" :stroke-width="2.4" />
+                <IconCheck v-if="justCopied(prompt.id)" class="size-3.5" :stroke-width="2.4" />
                 <IconCopy v-else class="size-3.5" :stroke-width="2.2" />
               </template>
-              {{ copiedId === prompt.id && copyStatus === 'success' ? 'Copied' : 'Copy' }}
+              <!-- Both labels share one grid cell, so the button always
+                   reserves the width of the longer one and confirming a copy
+                   cannot reflow the row. A fixed min-width would do it too,
+                   but breaks the moment the font or the wording changes. The
+                   sizer is visibility:hidden, so it is not announced. -->
+              <span class="grid text-center">
+                <span class="invisible col-start-1 row-start-1">Copied</span>
+                <span class="col-start-1 row-start-1" :data-testid="`prompt-${prompt.id}-copy-label`">
+                  {{ justCopied(prompt.id) ? 'Copied' : 'Copy' }}
+                </span>
+              </span>
             </BaseButton>
           </div>
         </div>
 
+        <!-- Only the failure path adds a row. It is rare and worth the jolt;
+             the success path above is the one that must not move. -->
         <p
-          v-if="copiedId === prompt.id && copyStatus === 'error'"
+          v-if="copyFailed(prompt.id)"
           class="mt-2 text-[11.5px] text-severity-error"
           :data-testid="`prompt-${prompt.id}-copy-error`"
         >Could not copy to the clipboard.</p>

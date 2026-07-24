@@ -70,8 +70,28 @@ describe('PromptSettingsView', () => {
     await flushPromises()
 
     expect(mocks.SetText).toHaveBeenCalledWith('flows PROMPT BODY')
-    expect(wrapper.get('[data-testid="prompt-flows-copy"]').text()).toBe('Copied')
-    expect(wrapper.get('[data-testid="prompt-actions-copy"]').text()).toBe('Copy')
+    expect(wrapper.get('[data-testid="prompt-flows-copy-label"]').text()).toBe('Copied')
+    expect(wrapper.get('[data-testid="prompt-actions-copy-label"]').text()).toBe('Copy')
+  })
+
+  // Confirming a copy must not resize the button — that reflows the row and
+  // shoves the neighbouring controls sideways. The label sits in a grid cell
+  // shared with a hidden sizer holding the longest label, so the reserved
+  // width is the same before and after.
+  it('reserves the confirmed label width so copying does not reflow the row', async () => {
+    mocks.Catalog.mockResolvedValue([prompt('flows')])
+    const wrapper = mount(PromptSettingsView)
+    await flushPromises()
+
+    const sizer = () => wrapper.get('[data-testid="prompt-flows-copy"] .invisible')
+    expect(sizer().text()).toBe('Copied')
+
+    await wrapper.get('[data-testid="prompt-flows-copy"]').trigger('click')
+    await flushPromises()
+
+    // Same sizer, same reserved width, in both states.
+    expect(sizer().text()).toBe('Copied')
+    expect(wrapper.get('[data-testid="prompt-flows-copy-label"]').text()).toBe('Copied')
   })
 
   it('surfaces a clipboard failure instead of silently doing nothing', async () => {
