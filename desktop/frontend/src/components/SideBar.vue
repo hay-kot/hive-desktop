@@ -23,6 +23,7 @@ const emit = defineEmits<{
   select: [sel: SidebarSelection]
   'open-flows': []
   'open-settings': []
+  'mark-read': [feedId: string]
   reorder: [tree: FeedTree]
 }>()
 
@@ -265,6 +266,7 @@ function deleteFolder(folder: FeedFolder): void {
             :feed="node.feed"
             :selected="feedSelected(node.feed.id)"
             @select="emit('select', { type: 'feed', feedId: node.feed.id })"
+            @mark-read="emit('mark-read', node.feed.id)"
           />
         </div>
 
@@ -317,6 +319,7 @@ function deleteFolder(folder: FeedFolder): void {
                 :feed="feed"
                 :selected="feedSelected(feed.id)"
                 @select="emit('select', { type: 'feed', feedId: feed.id })"
+                @mark-read="emit('mark-read', feed.id)"
               />
             </div>
             <div v-if="node.folder.feeds.length === 0" class="folder-empty">Drop feeds here</div>

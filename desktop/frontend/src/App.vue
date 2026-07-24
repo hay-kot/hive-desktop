@@ -66,7 +66,7 @@ const {
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, renameProfile, setProfileEnabled, deleteProfile,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
-  toggleUnread, markItemUnread, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
+  toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
 } = useFeedState()
 
 // The feed-item kinds currently in the system — what the actions editor
@@ -372,6 +372,33 @@ async function confirmUpdate(): Promise<void> {
   }
 }
 
+// ── Mark all as read ─────────────────────────────────────────────────────────
+// Clearing one feed is scoped, visible in the sidebar, and the thing the user
+// just asked for, so it runs straight away. The workspace variant reaches every
+// feed at once with no undo, so it confirms and names the count first.
+const markWorkspaceReadOpen = ref(false)
+const workspaceUnreadCount = computed(() => unreadInScope(null))
+
+function markFeedRead(feedId: string): void {
+  void markAllRead(feedId)
+}
+
+function markSelectedFeedRead(): void {
+  // Trash carries no unread semantics, so there is nothing here to clear.
+  if (selection.value.type !== 'feed') return
+  markFeedRead(selection.value.feedId)
+}
+
+function requestMarkWorkspaceRead(): void {
+  if (markingAllRead.value) return
+  markWorkspaceReadOpen.value = true
+}
+
+async function confirmMarkWorkspaceRead(): Promise<void> {
+  await markAllRead(null)
+  markWorkspaceReadOpen.value = false
+}
+
 function closeSettings(): void {
   openFeed()
 }
@@ -586,6 +613,8 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.refresh': refresh,
   'feed.toggle-archive': async () => { if (selectedItem.value) await toggleArchive(selectedItem.value) },
   'feed.mark-unread': async () => { if (selectedItem.value) await markItemUnread(selectedItem.value, true) },
+  'feed.mark-all-read': markSelectedFeedRead,
+  'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'window.hide': hideWindow,
 }
@@ -599,7 +628,7 @@ const feedNavActive = computed(() =>
 
 // While an overlay owns the screen, only the palette toggle stays live.
 const anyOverlayOpen = computed(() =>
-  paletteOpen.value || newProfileOpen.value || deleteProfileOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
+  paletteOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
 )
 
 // Seed commands — reactive getter so they update when profiles/flows load
@@ -859,6 +888,7 @@ onUnmounted(() => {
             @select="navigateSidebar"
             @open-flows="openFlows()"
             @open-settings="requestOpenSettings('profile')"
+            @mark-read="markFeedRead"
             @reorder="(t) => activeProfile && reorderFeeds(activeProfile.id, t)"
           />
           <section v-if="activeProfile" class="flex min-w-0 flex-1">
@@ -935,6 +965,18 @@ onUnmounted(() => {
       testid="action-rerun-confirmation"
       @confirm="confirmActionRerun"
       @cancel="cancelActionRerun"
+    />
+    <ConfirmationDialog
+      v-if="markWorkspaceReadOpen"
+      title="Mark all feeds as read?"
+      :description="workspaceUnreadCount === 1
+        ? `Clear the unread item in every feed of ${activeProfile?.name ?? 'this workspace'}. This can't be undone.`
+        : `Clear all ${workspaceUnreadCount} unread items in every feed of ${activeProfile?.name ?? 'this workspace'}. This can't be undone.`"
+      confirm-label="Mark all as read"
+      :busy="markingAllRead"
+      testid="mark-workspace-read-confirmation"
+      @confirm="confirmMarkWorkspaceRead"
+      @cancel="markWorkspaceReadOpen = false"
     />
     <ToastStack :toasts="toasts" @dismiss="dismissToast" @clear-all="clearToasts" />
     <CommandPalette />

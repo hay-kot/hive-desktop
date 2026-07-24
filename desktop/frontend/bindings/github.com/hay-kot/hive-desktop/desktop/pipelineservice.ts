@@ -128,6 +128,16 @@ export function MarkInboxItemUnread(itemID: number, revision: number, unread: bo
 }
 
 /**
+ * MarkInboxItemsRead clears unread for a whole scope in one write: the named
+ * feed, or every feed in the workspace when feedID is empty. Archived and
+ * ignored items keep their state. It returns the number of items cleared,
+ * which is what the frontend reports back to the user.
+ */
+export function MarkInboxItemsRead(profileID: string, feedID: string): $CancellablePromise<number> {
+    return $Call.ByID(1448148202, profileID, feedID);
+}
+
+/**
  * NodeRuns returns up to limit of a flow's most recent node_run rows,
  * newest first, for the flows canvas's live per-node status and RECENT
  * activity list.

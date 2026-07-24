@@ -2,7 +2,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
 import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
-import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
+import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
@@ -96,6 +96,7 @@ export function useFeedState() {
   const togglingProfileId = ref<string | null>(null)
   const toggleProfileError = ref<string | null>(null)
   const deletingProfile = ref(false)
+  const markingAllRead = ref(false)
   // Monotonic token: out-of-order loadItems responses must not clobber newer.
   let loadSeq = 0
   let feedsSeq = 0
@@ -578,6 +579,37 @@ export function useFeedState() {
     if (activeProfileId.value) await loadFeeds(activeProfileId.value)
   }
 
+  // Bulk read-state clear for a whole scope: one feed, or every feed in the
+  // workspace when feedID is null. One backend write, not N revision-guarded
+  // per-item calls — so the loaded rows and the sidebar counts are re-read
+  // afterwards rather than patched.
+  //
+  // It deliberately ignores the search box and the unread filter. Those narrow
+  // what is on screen right now; "all" means the scope the user named, and a
+  // half-cleared feed whose leftovers depend on a search term nobody will
+  // remember typing is the worse surprise.
+  async function markAllRead(feedID: string | null = null): Promise<void> {
+    if (!activeProfileId.value || markingAllRead.value) return
+    markingAllRead.value = true
+    try {
+      const marked = await MarkInboxItemsRead(activeProfileId.value, feedID ?? '')
+      showToast(marked > 0 ? `Marked ${marked} ${marked === 1 ? 'item' : 'items'} as read` : 'Nothing to mark as read', { severity: 'success' })
+    } catch (error) {
+      console.warn('Unable to mark inbox items as read', error)
+      showToast('Could not mark items as read', { severity: 'error' })
+    } finally {
+      markingAllRead.value = false
+    }
+    await refresh()
+  }
+
+  // The count the confirmation quotes and the sidebar badge shows are the same
+  // number: feed counts are the only unread aggregate the app has.
+  function unreadInScope(feedID: string | null = null): number {
+    if (!feedID) return activeProfile.value?.unreadCount ?? 0
+    return activeProfile.value?.feeds.find((feed) => feed.id === feedID)?.newCount ?? 0
+  }
+
   async function toggleArchive(item: InboxItem): Promise<void> {
     try {
       await ToggleInboxItemArchived(item.id, item.revision)
@@ -942,6 +974,9 @@ export function useFeedState() {
     selectPrev,
     toggleUnread,
     markItemUnread,
+    markingAllRead,
+    markAllRead,
+    unreadInScope,
     toggleArchive,
     toggleIgnored,
     loadEvents,
