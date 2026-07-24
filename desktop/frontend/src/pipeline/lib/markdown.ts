@@ -21,6 +21,17 @@ function renderInline(text: string): string {
   return out
 }
 
+/**
+ * The text-only sibling of renderInline(): drops the markers for the same
+ * inline subset (inline code, bold) instead of wrapping them in tags, for
+ * plain-text contexts that can't render HTML at all.
+ */
+function stripInline(text: string): string {
+  let out = text.replace(/`([^`]+)`/g, '$1')
+  out = out.replace(/\*\*([^*]+)\*\*/g, '$1')
+  return out
+}
+
 interface ListState {
   ordered: boolean
   items: string[]
@@ -109,9 +120,11 @@ export function renderMarkdown(src: string): string {
 }
 
 /**
- * The first paragraph of a help.md doc, skipping leading headings — used as
- * a short summary by the drawer's collapsed Docs section and the palette's
- * hover card.
+ * The first paragraph of a help.md doc as plain text, skipping leading
+ * headings and stripping inline markers — used as a short summary by the
+ * drawer's collapsed Docs section and the palette's entry line and tooltip.
+ * Every consumer is a plain-text context (a `title` attribute can't render
+ * HTML at all), so the markers would otherwise show up literally.
  */
 export function summarize(markdown: string): string {
   const lines = markdown.replace(/\r\n/g, '\n').split('\n')
@@ -126,5 +139,5 @@ export function summarize(markdown: string): string {
     if (line === '') break
     paragraph.push(line)
   }
-  return paragraph.join(' ')
+  return stripInline(paragraph.join(' '))
 }
