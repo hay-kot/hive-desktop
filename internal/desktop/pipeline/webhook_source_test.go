@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -235,4 +236,147 @@ func TestMissingFeedItemFields(t *testing.T) {
 	assert.Empty(t, MissingFeedItemFields([]byte(`{"id":"1","kind":"PR","repo":"o/r","title":"t","url":"https://x"}`)))
 	assert.Equal(t, []string{"kind", "repo"}, MissingFeedItemFields([]byte(`{"id":"1","kind":7,"title":"t","url":"https://x"}`)))
 	assert.Equal(t, []string{"id", "kind", "repo", "title", "url"}, MissingFeedItemFields([]byte(`[1,2,3]`)))
+}
+
+// --- Classifier-level tests: pure webhookClassifier.Classify calls, no DB. ---
+
+func TestWebhookClassifier_FirstDeliveryActiveState(t *testing.T) {
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"open"}`)}
+	got := webhookClassifier{}.Classify(nil, current)
+
+	assert.Equal(t, "received", got.Kind)
+	assert.Equal(t, pipelinedb.TransitionNone, got.Transition)
+	assert.Equal(t, pipelinedb.AttentionActivity, got.Attention)
+	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, "open", got.SourceState)
+	assert.Equal(t, "x@100", got.OccurrenceKey)
+	assert.Empty(t, got.ArchivedReason)
+}
+
+func TestWebhookClassifier_MissingStateStaysActive(t *testing.T) {
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x"}`)}
+	got := webhookClassifier{}.Classify(nil, current)
+	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Empty(t, got.SourceState)
+
+	nonObject := pipelinedb.Observation{ExternalID: "y", Title: "t", ObservedAt: 100, Payload: []byte(`[1,2,3]`)}
+	got = webhookClassifier{}.Classify(nil, nonObject)
+	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Empty(t, got.SourceState)
+}
+
+func TestWebhookClassifier_FirstDeliveryAlreadyTerminal(t *testing.T) {
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"done"}`)}
+	got := webhookClassifier{}.Classify(nil, current)
+
+	assert.Equal(t, "received", got.Kind)
+	assert.Equal(t, pipelinedb.LifecycleTerminal, got.Lifecycle)
+	assert.Equal(t, pipelinedb.TransitionNone, got.Transition, "first-seen terminal is not auto-archived, matching GitHub")
+	assert.Equal(t, "done", got.SourceState)
+	assert.Empty(t, got.ArchivedReason)
+}
+
+func TestWebhookClassifier_EntersTerminalCaseInsensitive(t *testing.T) {
+	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"open"}`)}
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"Resolved"}`)}
+	got := webhookClassifier{}.Classify(&prev, current)
+
+	assert.Equal(t, "resolved", got.Kind)
+	assert.Equal(t, "Resolved", got.Summary)
+	assert.Equal(t, pipelinedb.TransitionEnteredTerminal, got.Transition)
+	assert.Equal(t, pipelinedb.AttentionActivity, got.Attention)
+	assert.Equal(t, "resolved", got.ArchivedReason)
+	assert.Equal(t, "resolved", got.SourceState)
+	assert.Equal(t, pipelinedb.LifecycleTerminal, got.Lifecycle)
+}
+
+func TestWebhookClassifier_LeavesTerminalReopens(t *testing.T) {
+	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"closed"}`)}
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"open"}`)}
+	got := webhookClassifier{}.Classify(&prev, current)
+
+	assert.Equal(t, "reopened", got.Kind)
+	assert.Equal(t, "Reopened", got.Summary)
+	assert.Equal(t, pipelinedb.TransitionLeftTerminal, got.Transition)
+	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Empty(t, got.ArchivedReason)
+}
+
+func TestWebhookClassifier_UnchangedActiveStateIsUpdated(t *testing.T) {
+	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","n":1}`)}
+	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","n":2}`)}
+	got := webhookClassifier{}.Classify(&prev, current)
+
+	assert.Equal(t, "updated", got.Kind)
+	assert.Equal(t, current.Title, got.Summary)
+	assert.Equal(t, pipelinedb.TransitionNone, got.Transition)
+	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+}
+
+// --- Listener-level tests: real SQLite through IngestObservation + applyTransition. ---
+
+func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
+	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	handler := listener.Handler()
+
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
+	time.Sleep(2 * time.Millisecond) // distinct ObservedAt so the two deliveries get distinct occurrence keys
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"Resolved"}`, nil).Code)
+
+	ctx := context.Background()
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+	})
+	require.NoError(t, err)
+	assert.True(t, item.ArchivedAt.Valid)
+	assert.Equal(t, "system", item.ArchivedActor.String)
+	assert.Equal(t, "resolved", item.ArchivedReason.String)
+	assert.Equal(t, "resolved", item.SourceState.String)
+	assert.Equal(t, "terminal", item.Lifecycle)
+
+	events, err := db.Queries().ListInboxEventsByItem(ctx, pipelinedb.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "resolved", events[0].Kind, "latest event is first (ORDER BY id DESC)")
+}
+
+func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
+	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	handler := listener.Handler()
+
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
+	time.Sleep(2 * time.Millisecond) // distinct ObservedAt so each delivery gets a distinct occurrence key
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"closed"}`, nil).Code)
+	time.Sleep(2 * time.Millisecond)
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
+
+	ctx := context.Background()
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+	})
+	require.NoError(t, err)
+	assert.False(t, item.ArchivedAt.Valid, "reopen resurfaces the item")
+	assert.NotEqual(t, int64(0), item.Unread)
+	assert.Equal(t, "active", item.Lifecycle)
+	assert.Equal(t, "open", item.SourceState.String)
+
+	events, err := db.Queries().ListInboxEventsByItem(ctx, pipelinedb.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	require.NoError(t, err)
+	require.NotEmpty(t, events)
+	assert.Equal(t, "reopened", events[0].Kind)
+}
+
+func TestWebhookListenerFirstDeliveryTerminalNotArchived(t *testing.T) {
+	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	handler := listener.Handler()
+
+	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"done"}`, nil).Code)
+
+	ctx := context.Background()
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "terminal", item.Lifecycle)
+	assert.False(t, item.ArchivedAt.Valid, "terminal on arrival is not auto-archived")
 }

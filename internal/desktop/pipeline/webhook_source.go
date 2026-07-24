@@ -38,28 +38,61 @@ const WebhookSecretHeader = "X-Hive-Secret"
 // bounds both.
 const maxWebhookBodyBytes = 1 << 20
 
+// webhookTerminalStates are the canonical `state` values that end a webhook
+// item's lifecycle. Comparison is case-insensitive; any other or absent
+// state keeps the item active (a stateless webhook behaves exactly as
+// before: manual triage only).
+var webhookTerminalStates = map[string]bool{"resolved": true, "closed": true, "done": true}
+
+// decodeWebhookState extracts the canonical top-level `state` string from a
+// delivery payload: lowercased and trimmed; "" for non-object payloads or a
+// missing/non-string state. Delegates to the shared canonicalFields decode
+// (action_item.go) — no second copy of the canonical-field parsing.
+func decodeWebhookState(payload []byte) string {
+	_, _, state := canonicalFields(payload)
+	return strings.ToLower(strings.TrimSpace(state))
+}
+
 // webhookClassifier is the source-side classifier for webhook observations.
-// Unlike GitHub items, a webhook payload has no lifecycle the desktop can
-// interpret, so every observation is active: a first delivery is "received",
-// a changed re-delivery of the same key is "updated", and both count as
-// activity (an unchanged re-delivery never reaches classification —
-// IngestObservation skips it on the source-head comparison). The occurrence
-// key is per delivery so downstream action dedup fires once per change.
+// It reads the canonical top-level `state` and maps it to lifecycle exactly
+// like githubClassifier: a first delivery is "received" (terminal on arrival
+// stays unarchived, matching GitHub); a delivery that newly enters a
+// terminal state system-archives with the state as both the event kind and
+// the archive reason; a delivery that leaves a terminal state resurfaces as
+// "reopened"; anything else is "updated" activity. An unchanged re-delivery
+// never reaches classification — IngestObservation skips it on the
+// source-head comparison. The occurrence key is per delivery so downstream
+// action dedup fires once per change.
 type webhookClassifier struct{}
 
 func (webhookClassifier) Classify(previous *pipelinedb.Observation, current pipelinedb.Observation) pipelinedb.Classification {
-	kind := "received"
-	if previous != nil {
-		kind = "updated"
+	state := decodeWebhookState(current.Payload)
+	curTerminal := webhookTerminalStates[state]
+	lifecycle := pipelinedb.LifecycleActive
+	if curTerminal {
+		lifecycle = pipelinedb.LifecycleTerminal
 	}
-	return pipelinedb.Classification{
-		Kind:          kind,
+	out := pipelinedb.Classification{
+		Kind:          "updated",
 		Transition:    pipelinedb.TransitionNone,
 		Attention:     pipelinedb.AttentionActivity,
-		Lifecycle:     pipelinedb.LifecycleActive,
+		Lifecycle:     lifecycle,
+		SourceState:   state,
 		OccurrenceKey: current.ExternalID + "@" + strconv.FormatInt(current.ObservedAt, 10),
 		Summary:       current.Title,
 	}
+	if previous == nil {
+		out.Kind = "received"
+		return out
+	}
+	prevTerminal := webhookTerminalStates[decodeWebhookState(previous.Payload)]
+	switch {
+	case !prevTerminal && curTerminal:
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, titleCase(state), pipelinedb.TransitionEnteredTerminal, state
+	case prevTerminal && !curTerminal:
+		out.Kind, out.Summary, out.Transition = "reopened", "Reopened", pipelinedb.TransitionLeftTerminal
+	}
+	return out
 }
 
 // WebhookListener is the desktop's local webhook ingress: a localhost-only
