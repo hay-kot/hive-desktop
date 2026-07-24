@@ -46,6 +46,9 @@ type SystemNotification struct {
 	Body     string
 	Severity string
 	Sound    bool
+	// InApp asks the delivery adapter to surface this inside Hive rather than
+	// as an OS banner. Copied from the policy; see NotificationPolicy.InApp.
+	InApp bool
 	// Data rides along to the native notification and comes back when the
 	// user clicks it, which is how a banner knows which item to reveal.
 	Data map[string]any
@@ -65,6 +68,11 @@ type NotificationPolicy struct {
 	// Sound is the app-level sound preference. A node can silence itself,
 	// but it cannot make a notification audible once this is off.
 	Sound bool
+	// InApp routes this delivery inside Hive instead of to an OS banner. The
+	// gate resolves it from the user's delivery preference and, for the
+	// automatic mode, the window's current focus — so this package needs no
+	// vocabulary for either.
+	InApp bool
 }
 
 // NotificationGate resolves the app-level notification policy. It is read
@@ -76,9 +84,11 @@ type NotificationGate interface {
 }
 
 // InboxItemLocator resolves the durable inbox row a notification came from,
-// so a click can select that item. Implemented by *pipelinedb.DB.
+// so a click can select that item, and answers whether that row's latest
+// observation was one worth interrupting for. Implemented by *pipelinedb.DB.
 type InboxItemLocator interface {
 	InboxItemID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
+	InboxItemNotifiable(ctx context.Context, profileID, sourceKind, sourceScope, externalID, occurrenceKey string) (bool, error)
 }
 
 // NotifyExecutor delivers a notify terminal's queued command as a native
@@ -153,6 +163,20 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
 		return ExecutionResult{}, nil
 	}
+	// A notifying feed only interrupts for genuinely new activity. Ingestion
+	// already made that call when it triaged the observation, so this asks it
+	// rather than guessing from the payload. A locator failure notifies: the
+	// item is real and something changed, and a database hiccup is a poor
+	// reason to swallow the one interrupt the user asked for.
+	if cfg.OnlyWhenNew && e.items != nil {
+		notifiable, err := e.items.InboxItemNotifiable(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID, cmd.OccurrenceKey)
+		if err != nil {
+			e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("notify: could not check item activity; notifying anyway")
+		} else if !notifiable {
+			e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed, not new activity")
+			return ExecutionResult{}, nil
+		}
+	}
 
 	// Templates render over the item exactly as an action's do, so
 	// `{{ .Payload.title }}` means the same thing in a notify node as in a
@@ -190,6 +214,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		Body:     body,
 		Severity: cfg.Severity,
 		Sound:    cfg.Sound && policy.Sound,
+		InApp:    policy.InApp,
 		Data:     e.clickData(ctx, cmd),
 	}); err != nil {
 		return ExecutionResult{Attempted: true}, fmt.Errorf("notify: %w", err)

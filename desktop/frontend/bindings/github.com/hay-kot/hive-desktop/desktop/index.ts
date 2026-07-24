@@ -36,6 +36,7 @@ export type {
     KeybindingSettings,
     NotificationActivation,
     NotificationSettings,
+    NotificationToast,
     NotifyInput,
     PathInfo,
     SystemInfo,

@@ -91,6 +91,18 @@ type NotificationActivation struct {
 type flowNotifier struct{ notifier notificationNotifier }
 
 func (n flowNotifier) Notify(_ context.Context, in pipeline.SystemNotification) error {
+	// The user asked for this one inside Hive, not as a banner. The frontend
+	// owns in-app presentation (see useToasts), so this hands the rendered
+	// notification over and is done — there is no native call to make, and no
+	// notification permission to need.
+	if in.InApp {
+		emitNotificationToast(NotificationToast{
+			Title:    in.Title,
+			Body:     in.Body,
+			Severity: in.Severity,
+		})
+		return nil
+	}
 	if n.notifier == nil {
 		return errors.New("native notifications unavailable")
 	}
@@ -103,12 +115,28 @@ func (n flowNotifier) Notify(_ context.Context, in pipeline.SystemNotification) 
 	})
 }
 
+// NotificationToast is a flow notification the user chose to receive inside
+// Hive. It is the payload of the notification:toast event; unlike a banner it
+// carries no click target, because the app is already in front of them.
+type NotificationToast struct {
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Severity string `json:"severity"`
+}
+
 // settingsNotificationGate resolves the app-level notification policy from
 // settings.yaml on every delivery, so toggling notifications off in Settings
 // silences flow notify nodes immediately rather than at the next restart. An
-// unreadable settings file fails closed: never surface banners the user may
-// have switched off.
-type settingsNotificationGate struct{ logger zerolog.Logger }
+// unreadable settings file fails closed: never surface notifications the user
+// may have switched off.
+//
+// It also resolves *where* a notification surfaces, which is why it holds the
+// window's focus state: the automatic delivery mode means "a banner only when
+// I'm looking elsewhere", and only this side of the app knows both halves.
+type settingsNotificationGate struct {
+	focus  *focusState
+	logger zerolog.Logger
+}
 
 func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPolicy {
 	settings, err := desktop.LoadSettings()
@@ -117,8 +145,25 @@ func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPoli
 		return pipeline.NotificationPolicy{}
 	}
 	return pipeline.NotificationPolicy{
-		Allowed: settings.NotificationsEnabledOrDefault() && settings.SystemNotificationsEnabledOrDefault(),
+		Allowed: settings.NotificationsEnabledOrDefault(),
 		Sound:   settings.NotificationSoundOrDefault(),
+		InApp:   g.inApp(settings.NotificationDeliveryOrDefault()),
+	}
+}
+
+// inApp maps the delivery preference onto this moment: "app" always stays
+// inside Hive, "system" always leaves it, and "auto" — the default — keeps a
+// notification in-app only while the user is already looking at the window.
+// An unknown focus state (no window yet) counts as unfocused, so a
+// notification raised during startup still reaches the user.
+func (g settingsNotificationGate) inApp(delivery string) bool {
+	switch delivery {
+	case desktop.DeliveryApp:
+		return true
+	case desktop.DeliverySystem:
+		return false
+	default:
+		return g.focus != nil && g.focus.get()
 	}
 }
 

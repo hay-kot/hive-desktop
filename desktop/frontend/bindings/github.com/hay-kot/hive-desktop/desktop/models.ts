@@ -84,12 +84,30 @@ export interface NotificationActivation {
 
 /**
  * NotificationSettings is the desktop notification configuration resolved
- * from settings.yaml. All fields are explicit booleans for the frontend.
+ * from settings.yaml. Delivery is carried as a resolved string from the
+ * closed set desktop.DeliveryAuto/DeliverySystem/DeliveryApp.
  */
 export interface NotificationSettings {
     "notificationsEnabled": boolean;
-    "systemNotificationsEnabled": boolean;
+
+    /**
+     * Delivery is where an eligible notification is surfaced: "auto" (an OS
+     * banner only while Hive is unfocused), "system" (always an OS banner), or
+     * "app" (always in-app).
+     */
+    "delivery": string;
     "notificationSound": boolean;
+}
+
+/**
+ * NotificationToast is a flow notification the user chose to receive inside
+ * Hive. It is the payload of the notification:toast event; unlike a banner it
+ * carries no click target, because the app is already in front of them.
+ */
+export interface NotificationToast {
+    "title": string;
+    "body": string;
+    "severity": string;
 }
 
 /**

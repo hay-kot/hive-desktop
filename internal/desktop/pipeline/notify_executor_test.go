@@ -31,10 +31,18 @@ func (g gateTest) NotificationPolicy() NotificationPolicy { return g.policy }
 type itemLocatorTest struct {
 	id  int64
 	err error
+	// notifiable answers InboxItemNotifiable; the zero value is "new
+	// activity", so the existing tests read unchanged.
+	notNew      bool
+	notifiedErr error
 }
 
 func (l itemLocatorTest) InboxItemID(context.Context, string, string, string, string) (int64, error) {
 	return l.id, l.err
+}
+
+func (l itemLocatorTest) InboxItemNotifiable(context.Context, string, string, string, string, string) (bool, error) {
+	return !l.notNew, l.notifiedErr
 }
 
 func notifyAction() actions.Action {
@@ -217,4 +225,67 @@ func TestNotifyExecutor_ReportsDeliveryFailure(t *testing.T) {
 	result, err := executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.ErrorIs(t, err, notifier.err)
 	assert.True(t, result.Attempted, "the notification was dispatched and the OS refused it")
+}
+
+// A notifying feed only interrupts for genuinely new activity; a notify node
+// notifies for whatever the author routed to it. Both resolve to the same
+// executor, so the distinction rides on the action config.
+func TestNotifyExecutor_OnlyWhenNew(t *testing.T) {
+	feedAction := func() actions.Action {
+		action := notifyAction()
+		cfg := *action.Config.(*NotifyActionConfig)
+		cfg.OnlyWhenNew = true
+		action.Config = &cfg
+		return action
+	}
+
+	t.Run("suppressed when ingestion judged the observation not new", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notNew: true}, zerolog.Nop())
+
+		result, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.False(t, result.Attempted, "a suppressed notification records no activity")
+		assert.Empty(t, notifier.sent)
+	})
+
+	t.Run("delivered when it is new", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42}, zerolog.Nop())
+
+		_, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, notifier.sent, 1)
+	})
+
+	t.Run("a lookup failure notifies rather than swallowing the interrupt", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notifiedErr: errors.New("database is locked")}, zerolog.Nop())
+
+		_, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, notifier.sent, 1)
+	})
+
+	t.Run("a notify node is unaffected by the item's state", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notNew: true}, zerolog.Nop())
+
+		_, err := executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, notifier.sent, 1)
+	})
+}
+
+// The delivery preference decides where a notification surfaces; the executor
+// only carries the gate's verdict through to the adapter.
+func TestNotifyExecutor_CarriesInAppDelivery(t *testing.T) {
+	notifier := &notifierTest{}
+	gate := gateTest{policy: NotificationPolicy{Allowed: true, Sound: true, InApp: true}}
+	executor := NewNotifyExecutor(notifier, gate, itemLocatorTest{id: 42}, zerolog.Nop())
+
+	_, err := executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Len(t, notifier.sent, 1)
+	assert.True(t, notifier.sent[0].InApp)
 }

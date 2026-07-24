@@ -239,7 +239,13 @@ func (s *FlowStore) uniqueIDLocked(base string) string {
 
 // starterFlow is the graph a freshly created profile begins with: a few
 // github-source nodes each wired to its own feed terminal, laid out in two
-// columns (sources left, feeds right).
+// columns (sources left, feeds right), plus a notifying "Review requests" feed
+// behind a filter on the notifications source.
+//
+// That last feed ships on by default deliberately: "tell me when I'm asked to
+// review something" is the case a quiet feed cannot serve — the item sits
+// unread until you happen to look — and it should not require hand-authoring a
+// flow to get.
 func starterFlow(id, name string) (Flow, Layout) {
 	seeds := []struct {
 		feedID, feedName, kind, query string
@@ -248,6 +254,8 @@ func starterFlow(id, name string) (Flow, Layout) {
 		{"assigned", "Assigned", "search", "is:open assignee:@me archived:false"},
 		{"notifications", "Notifications", "notifications", ""},
 	}
+
+	const notificationsSeedID = "notifications"
 
 	var nodes []Node
 	var wires []Wire
@@ -261,6 +269,30 @@ func starterFlow(id, name string) (Flow, Layout) {
 		wires = append(wires, Wire{From: srcID, To: seed.feedID})
 		layout.Nodes[srcID] = NodePosition{X: 48, Y: 48 + i*96}
 		layout.Nodes[seed.feedID] = NodePosition{X: 360, Y: 48 + i*96}
+
+		if seed.feedID != notificationsSeedID {
+			continue
+		}
+		// The filter takes a second branch off the same source rather than
+		// sitting between it and the Notifications feed: everything still lands
+		// there to read at leisure, and only review requests also land in the
+		// feed that interrupts.
+		nodes = append(nodes,
+			Node{ID: "review-requests-filter", Type: "github-filter", Config: &GithubFilterConfig{Reasons: []string{"review_requested"}}},
+			Node{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &FeedConfig{
+				Icon: "eye",
+				Notify: &NotifyConfig{
+					Title: "Review requested",
+					Body:  "{{ .Payload.repo }} #{{ .Payload.num }} · {{ .Payload.title }}",
+				},
+			}},
+		)
+		wires = append(wires,
+			Wire{From: srcID, To: "review-requests-filter"},
+			Wire{From: "review-requests-filter", Out: 0, To: "review-requests"},
+		)
+		layout.Nodes["review-requests-filter"] = NodePosition{X: 360, Y: 48 + (i+1)*96}
+		layout.Nodes["review-requests"] = NodePosition{X: 672, Y: 48 + (i+1)*96}
 	}
 	return Flow{ID: id, Name: name, Enabled: true, Resurface: ResurfacePolicyStateChanges, Nodes: nodes, Wires: wires}, layout
 }

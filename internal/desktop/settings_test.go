@@ -108,14 +108,31 @@ func TestNotificationSettingsOrDefault(t *testing.T) {
 	}{
 		{name: "notifications unset defaults to true", settings: Settings{}, want: true, resolve: Settings.NotificationsEnabledOrDefault},
 		{name: "notifications explicit false", settings: Settings{NotificationsEnabled: &disabled}, want: false, resolve: Settings.NotificationsEnabledOrDefault},
-		{name: "system notifications unset defaults to true", settings: Settings{}, want: true, resolve: Settings.SystemNotificationsEnabledOrDefault},
-		{name: "system notifications explicit false", settings: Settings{SystemNotificationsEnabled: &disabled}, want: false, resolve: Settings.SystemNotificationsEnabledOrDefault},
 		{name: "notification sound explicit true", settings: Settings{NotificationSound: &enabled}, want: true, resolve: Settings.NotificationSoundOrDefault},
 		{name: "notification sound explicit false", settings: Settings{NotificationSound: &disabled}, want: false, resolve: Settings.NotificationSoundOrDefault},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			require.Equal(t, tt.want, tt.resolve(tt.settings))
+		})
+	}
+}
+
+func TestNotificationDeliveryOrDefault(t *testing.T) {
+	tests := []struct {
+		name     string
+		settings Settings
+		want     string
+	}{
+		{name: "unset defaults to auto", settings: Settings{}, want: DeliveryAuto},
+		{name: "explicit auto", settings: Settings{NotificationDelivery: DeliveryAuto}, want: DeliveryAuto},
+		{name: "explicit system", settings: Settings{NotificationDelivery: DeliverySystem}, want: DeliverySystem},
+		{name: "explicit app", settings: Settings{NotificationDelivery: DeliveryApp}, want: DeliveryApp},
+		{name: "hand-edited typo heals to auto", settings: Settings{NotificationDelivery: "banner"}, want: DeliveryAuto},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.settings.NotificationDeliveryOrDefault())
 		})
 	}
 }

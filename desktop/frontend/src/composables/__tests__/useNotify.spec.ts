@@ -5,7 +5,7 @@ import { notifySeverityMapping, useNotify, type NotifyDeps, type NotifySeverity 
 function makeSettings(overrides: Partial<NotifyDeps['settings']> = {}): NotifyDeps['settings'] {
   return {
     notificationsEnabled: ref(true),
-    systemNotificationsEnabled: ref(true),
+    delivery: ref('auto'),
     notificationSound: ref(true),
     permission: ref('granted'),
     requestPermission: vi.fn().mockResolvedValue(undefined),
@@ -62,12 +62,29 @@ describe('useNotify', () => {
     expect(deps.osNotify).not.toHaveBeenCalled()
   })
 
-  it('records only when system notifications are disabled while unfocused', async () => {
-    const deps = makeDeps({ focused: ref(false), settings: makeSettings({ systemNotificationsEnabled: ref(false) }) })
-    await useNotify(deps).notify({ title: 'Silent system' })
-    expect(deps.record).toHaveBeenCalledOnce()
+  it('keeps notifications in the app on the "app" delivery mode, focused or not', async () => {
+    for (const focused of [true, false]) {
+      const deps = makeDeps({ focused: ref(focused), settings: makeSettings({ delivery: ref('app') }) })
+      await useNotify(deps).notify({ title: 'In app only' })
+      expect(deps.showToast).toHaveBeenCalledWith('In app only', { body: '', severity: 'info' })
+      expect(deps.osNotify).not.toHaveBeenCalled()
+    }
+  })
+
+  it('raises an OS banner on the "system" delivery mode even while focused', async () => {
+    const deps = makeDeps({ focused: ref(true), settings: makeSettings({ delivery: ref('system') }) })
+    await useNotify(deps).notify({ title: 'Always a banner' })
     expect(deps.showToast).not.toHaveBeenCalled()
-    expect(deps.osNotify).not.toHaveBeenCalled()
+    expect(deps.osNotify).toHaveBeenCalledWith({ title: 'Always a banner', subtitle: '', body: '', severity: 'info', sound: true, data: {} })
+  })
+
+  it('carries click-routing data and lets an event silence itself', async () => {
+    const deps = makeDeps({ focused: ref(false) })
+    await useNotify(deps).notify({ title: 'Review requested', data: { profileId: 'work', itemId: 42 }, silent: true })
+    expect(deps.osNotify).toHaveBeenCalledWith({
+      title: 'Review requested', subtitle: '', body: '', severity: 'info',
+      sound: false, data: { profileId: 'work', itemId: 42 },
+    })
   })
 
   it('falls back to a toast when notification permission is denied', async () => {

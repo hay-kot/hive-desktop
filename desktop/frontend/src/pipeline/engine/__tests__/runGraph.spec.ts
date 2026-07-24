@@ -233,6 +233,97 @@ describe('runGraph', () => {
     expect(result.discards).toEqual([{ msgId: '1', nodeId: 'tell-me' }])
   })
 
+  // A notifying feed is the same notification, raised by the feed itself: one
+  // message produces both the membership claim and the notify output, and the
+  // notify half targets the feed's own id so it resolves back to that config.
+  it('a notifying feed raises a notify output alongside its claim', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'f',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'notifications' } },
+        { id: 'inbox', type: 'feed', config: { notify: { title: 'Review requested' } } },
+      ],
+      wires: [{ from: 'source', to: 'inbox' }],
+    }
+    const result = await runGraph(flow, [msg('1', { repo: 'acme/api' }, 'source:f/source')], transport)
+    expect(result.outputs).toEqual([
+      expect.objectContaining({ sink: { kind: 'feed', targetId: 'f/inbox' }, key: '1' }),
+      {
+        sink: { kind: 'notify', targetId: 'f/inbox' },
+        key: '1',
+        occurrenceKey: 'occurrence:1',
+        payload: { repo: 'acme/api' },
+        sourceTopic: 'source:f/source',
+        sourceKind: 'github',
+        sourceScope: 'scope',
+      },
+    ])
+  })
+
+  it('a quiet feed raises no notify output', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'f',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'notifications' } },
+        { id: 'inbox', type: 'feed', config: {} },
+      ],
+      wires: [{ from: 'source', to: 'inbox' }],
+    }
+    const result = await runGraph(flow, [msg('1', {}, 'source:f/source')], transport)
+    expect(result.outputs.filter((out) => out.sink.kind === 'notify')).toEqual([])
+  })
+
+  // The snapshot still has to claim membership — that is what reconciles the
+  // feed — so a notifying feed drops only the notify half, not the message.
+  it('a snapshot reconciles a notifying feed without re-notifying it', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'f',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'notifications' } },
+        { id: 'inbox', type: 'feed', config: { notify: { title: 'hi' } } },
+      ],
+      wires: [{ from: 'source', to: 'inbox' }],
+    }
+    const snapshot = msg('1', {}, 'source:f/source')
+    snapshot.Snapshot = [{ key: 'item', payload: {} }]
+    const result = await runGraph(flow, [snapshot], transport)
+    expect(result.outputs).toEqual([
+      expect.objectContaining({ sink: { kind: 'feed', targetId: 'f/inbox' }, key: 'item', snapshotId: '1' }),
+    ])
+  })
+
+  // The shipped starter-flow shape: everything lands in Notifications to read
+  // at leisure, and review requests also land in a feed that interrupts.
+  it('routes only a filter pass port into the notifying feed', async () => {
+    const transport = new InProcessTransport(processorRegistry)
+    const flow: Flow = {
+      id: 'work',
+      nodes: [
+        { id: 'source', type: 'github-source', config: { kind: 'notifications' } },
+        { id: 'notifications', type: 'feed', config: {} },
+        { id: 'review-requests-filter', type: 'github-filter', config: { reasons: ['review_requested'] } },
+        { id: 'review-requests', type: 'feed', config: { notify: { title: 'Review requested' } } },
+      ],
+      wires: [
+        { from: 'source', to: 'notifications' },
+        { from: 'source', to: 'review-requests-filter' },
+        { from: 'review-requests-filter', out: 0, to: 'review-requests' },
+      ],
+    }
+    const reviewRequest = msg('1', { reason: 'review_requested' }, 'source:work/source')
+    const comment = msg('2', { reason: 'comment' }, 'source:work/source')
+
+    const result = await runGraph(flow, [reviewRequest, comment], transport)
+
+    expect(result.outputs.filter((out) => out.sink.targetId === 'work/notifications').map((out) => out.key)).toEqual(['1', '2'])
+    expect(result.outputs.filter((out) => out.sink.kind === 'notify')).toEqual([
+      expect.objectContaining({ sink: { kind: 'notify', targetId: 'work/review-requests' }, key: '1' }),
+    ])
+  })
+
   it('a webhook-source entry ingests only its own flow-qualified topic and passes msgs through', async () => {
     const transport = new InProcessTransport(processorRegistry)
     const flow: Flow = {

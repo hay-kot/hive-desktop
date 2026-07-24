@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, type Ref } from 'vue'
 import {
   NotificationSettings as GetNotificationSettings,
   SetNotificationSettings,
@@ -11,6 +11,17 @@ import type { NotificationSettings } from '../../bindings/github.com/hay-kot/hiv
 
 export type NotificationPermission = 'granted' | 'denied' | 'not-requested'
 
+/**
+ * Where an eligible notification is surfaced. Mirrors Go's closed
+ * DeliveryAuto/DeliverySystem/DeliveryApp set.
+ * - `auto` — an OS banner only while Hive is unfocused, a toast while focused.
+ * - `system` — always an OS banner, focused or not.
+ * - `app` — never an OS banner; notifications stay in-app.
+ */
+export type NotificationDelivery = 'auto' | 'system' | 'app'
+
+export const notificationDeliveryModes: ReadonlyArray<NotificationDelivery> = ['auto', 'system', 'app']
+
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
@@ -20,10 +31,16 @@ function toPermissionStatus(value: string): NotificationPermission {
   return 'not-requested'
 }
 
+// An unrecognized mode from a settings.yaml written by a newer build heals to
+// the default rather than wedging delivery, matching Go's own tolerance.
+function toDelivery(value: string): NotificationDelivery {
+  return (notificationDeliveryModes as readonly string[]).includes(value) ? value as NotificationDelivery : 'auto'
+}
+
 // Notification preferences are application-lifetime state: useNotify will use
 // the same values later, so every caller intentionally shares these refs.
 const notificationsEnabled = ref(true)
-const systemNotificationsEnabled = ref(true)
+const delivery = ref<NotificationDelivery>('auto')
 const notificationSound = ref(true)
 const permission = ref<NotificationPermission>('not-requested')
 const loading = ref(false)
@@ -39,7 +56,7 @@ let permissionVersion = 0
 function currentSettings(): NotificationSettings {
   return {
     notificationsEnabled: notificationsEnabled.value,
-    systemNotificationsEnabled: systemNotificationsEnabled.value,
+    delivery: delivery.value,
     notificationSound: notificationSound.value,
   }
 }
@@ -63,7 +80,7 @@ async function refresh(): Promise<void> {
       if (settingsResult.status === 'fulfilled') {
         if (settingsVersion === settingsSnapshot) {
           notificationsEnabled.value = settingsResult.value.notificationsEnabled
-          systemNotificationsEnabled.value = settingsResult.value.systemNotificationsEnabled
+          delivery.value = toDelivery(settingsResult.value.delivery)
           notificationSound.value = settingsResult.value.notificationSound
         }
       } else {
@@ -83,7 +100,9 @@ async function refresh(): Promise<void> {
   return refreshInFlight
 }
 
-async function persist(value: boolean, setting: typeof notificationsEnabled): Promise<void> {
+// persist is generic over the setting's value type so the delivery mode
+// (a string) shares the optimistic-apply-and-roll-back path with the booleans.
+async function persist<T>(value: T, setting: Ref<T>): Promise<void> {
   const previous = setting.value
   const version = ++settingsVersion
   setting.value = value
@@ -101,8 +120,8 @@ async function setNotificationsEnabled(value: boolean): Promise<void> {
   await persist(value, notificationsEnabled)
 }
 
-async function setSystemNotificationsEnabled(value: boolean): Promise<void> {
-  await persist(value, systemNotificationsEnabled)
+async function setDelivery(value: NotificationDelivery): Promise<void> {
+  await persist(value, delivery)
 }
 
 async function setNotificationSound(value: boolean): Promise<void> {
@@ -140,7 +159,7 @@ export function useNotificationSettings() {
 
   return {
     notificationsEnabled,
-    systemNotificationsEnabled,
+    delivery,
     notificationSound,
     permission,
     loading,
@@ -148,7 +167,7 @@ export function useNotificationSettings() {
     error,
     refresh,
     setNotificationsEnabled,
-    setSystemNotificationsEnabled,
+    setDelivery,
     setNotificationSound,
     requestPermission,
   }
@@ -158,7 +177,7 @@ export function useNotificationSettings() {
 // singleton above for the lifetime of the desktop app.
 export function resetNotificationSettingsForTests(): void {
   notificationsEnabled.value = true
-  systemNotificationsEnabled.value = true
+  delivery.value = 'auto'
   notificationSound.value = true
   permission.value = 'not-requested'
   loading.value = false

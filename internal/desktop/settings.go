@@ -59,6 +59,19 @@ const (
 	ChannelDev    = "dev"
 )
 
+// Notification delivery modes form a closed set: where an eligible
+// notification is surfaced, independent of whether it is eligible at all
+// (that remains NotificationsEnabled's job).
+const (
+	// DeliveryAuto shows an OS banner only while Hive is unfocused, and an
+	// in-app toast while it is focused.
+	DeliveryAuto = "auto"
+	// DeliverySystem always shows an OS banner, focused or not.
+	DeliverySystem = "system"
+	// DeliveryApp never shows an OS banner; notifications stay in-app.
+	DeliveryApp = "app"
+)
+
 // Appearance holds presentation preferences owned by the frontend. Go stores
 // these as opaque strings: the closed set of valid values (and healing of an
 // unrecognized one) lives with the CSS that implements them, in the frontend's
@@ -84,9 +97,12 @@ type Settings struct {
 	// NotificationsEnabled controls Hive notifications. An absent key defaults
 	// to enabled so upgrades preserve the prior behavior.
 	NotificationsEnabled *bool `yaml:"notifications_enabled,omitempty"`
-	// SystemNotificationsEnabled controls OS banners while Hive is unfocused.
-	// It defaults to enabled when absent.
-	SystemNotificationsEnabled *bool `yaml:"system_notifications_enabled,omitempty"`
+	// NotificationDelivery selects how an eligible notification is surfaced:
+	// DeliveryAuto (an OS banner only while Hive is unfocused), DeliverySystem
+	// (always an OS banner), or DeliveryApp (always an in-app toast). An absent
+	// key defaults to DeliveryAuto. Resolve through
+	// NotificationDeliveryOrDefault rather than reading the field directly.
+	NotificationDelivery string `yaml:"notification_delivery,omitempty"`
 	// NotificationSound controls sound for OS notification banners. It defaults
 	// to enabled when absent.
 	NotificationSound *bool `yaml:"notification_sound,omitempty"`
@@ -187,13 +203,24 @@ func (s Settings) NotificationsEnabledOrDefault() bool {
 	return *s.NotificationsEnabled
 }
 
-// SystemNotificationsEnabledOrDefault resolves SystemNotificationsEnabled,
-// defaulting to true when the key is absent from settings.yaml.
-func (s Settings) SystemNotificationsEnabledOrDefault() bool {
-	if s.SystemNotificationsEnabled == nil {
-		return true
+// NotificationDeliveryOrDefault resolves NotificationDelivery against the
+// closed delivery set.
+func (s Settings) NotificationDeliveryOrDefault() string {
+	return ResolveNotificationDelivery(s.NotificationDelivery)
+}
+
+// ResolveNotificationDelivery maps value onto the closed delivery set, falling
+// back to DeliveryAuto for an empty or unknown one (the same tolerance
+// UpdateChannelOrDefault applies) so neither a hand-edited typo nor a stale
+// frontend can mint a delivery mode. Exported so a writer can normalize before
+// persisting rather than round-tripping an unknown value through settings.yaml.
+func ResolveNotificationDelivery(value string) string {
+	switch value {
+	case DeliverySystem, DeliveryApp:
+		return value
+	default:
+		return DeliveryAuto
 	}
-	return *s.SystemNotificationsEnabled
 }
 
 // NotificationSoundOrDefault resolves NotificationSound, defaulting to true

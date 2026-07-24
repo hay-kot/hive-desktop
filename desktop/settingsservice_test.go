@@ -33,10 +33,25 @@ func TestSettingsServiceNotificationSettings(t *testing.T) {
 	got, err := service.NotificationSettings()
 	require.NoError(t, err)
 	require.Equal(t, NotificationSettings{
-		NotificationsEnabled:       true,
-		SystemNotificationsEnabled: true,
-		NotificationSound:          true,
+		NotificationsEnabled: true,
+		Delivery:             desktop.DeliveryAuto,
+		NotificationSound:    true,
 	}, got)
+}
+
+func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
+	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	service := NewSettingsService(nil, nil, zerolog.Nop())
+
+	require.NoError(t, service.SetNotificationSettings(NotificationSettings{
+		NotificationsEnabled: true,
+		Delivery:             "banner",
+		NotificationSound:    true,
+	}))
+
+	got, err := desktop.LoadSettings()
+	require.NoError(t, err)
+	require.Equal(t, desktop.DeliveryAuto, got.NotificationDelivery)
 }
 
 func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testing.T) {
@@ -49,9 +64,9 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 	want := NotificationSettings{
-		NotificationsEnabled:       false,
-		SystemNotificationsEnabled: false,
-		NotificationSound:          false,
+		NotificationsEnabled: false,
+		Delivery:             desktop.DeliveryApp,
+		NotificationSound:    false,
 	}
 	require.NoError(t, service.SetNotificationSettings(want))
 
@@ -61,10 +76,9 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 	require.NotNil(t, got.AutoUpdate)
 	require.False(t, *got.AutoUpdate)
 	require.NotNil(t, got.NotificationsEnabled)
-	require.NotNil(t, got.SystemNotificationsEnabled)
 	require.NotNil(t, got.NotificationSound)
 	require.False(t, *got.NotificationsEnabled)
-	require.False(t, *got.SystemNotificationsEnabled)
+	require.Equal(t, desktop.DeliveryApp, got.NotificationDelivery)
 	require.False(t, *got.NotificationSound)
 }
 

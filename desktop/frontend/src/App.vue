@@ -38,7 +38,7 @@ import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
 import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
-import type { NotificationActivation, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
 import {
   isApplicationSettingsSection,
   isProfileSettingsSection,
@@ -439,6 +439,15 @@ let unsubscribeLog: (() => void) | undefined
 let unsubscribeFlowsRuntime: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 let unsubscribeNotification: (() => void) | undefined
+let unsubscribeNotificationToast: (() => void) | undefined
+
+// Go speaks the notify vocabulary (info/success/warning/error); the toast
+// stack speaks its own. Anything unrecognized reads as info rather than
+// being dropped — the message still matters.
+function toastSeverity(severity: string): 'info' | 'success' | 'warning' | 'error' {
+  const known = ['info', 'success', 'warning', 'error'] as const
+  return known.includes(severity as (typeof known)[number]) ? severity as (typeof known)[number] : 'info'
+}
 onMounted(() => {
   unsubscribeLog = Events.On('log:appended', () => { void session.pump() })
   // The app owns this subscription, rather than FlowsView, because deployed
@@ -458,12 +467,21 @@ onMounted(() => {
     const payload = Array.isArray(event.data) ? event.data[0] : event.data
     if (payload) void revealNotification(payload)
   })
+  // A flow notification the user chose to receive in-app rather than as an OS
+  // banner (Settings -> Notifications -> Delivery). Go has already applied the
+  // kill switch and picked this channel; the toast stack is the same one every
+  // other in-app notification uses.
+  unsubscribeNotificationToast = Events.On('notification:toast', (event: { data: NotificationToast | NotificationToast[] }) => {
+    const payload = Array.isArray(event.data) ? event.data[0] : event.data
+    if (payload?.title) showToast(payload.title, { body: payload.body, severity: toastSeverity(payload.severity) })
+  })
 })
 onUnmounted(() => {
   unsubscribeLog?.()
   unsubscribeFlowsRuntime?.()
   unsubscribeUpdate?.()
   unsubscribeNotification?.()
+  unsubscribeNotificationToast?.()
   session.disposeRuntime()
 })
 

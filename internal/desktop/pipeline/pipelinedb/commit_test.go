@@ -112,7 +112,10 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 		ExternalID:  "item-1",
 		SourceKind:  "github",
 		SourceScope: "source-a",
-		Item:        json.RawMessage(`{"repo":"acme/api"}`),
+		// Carried so a delivery that only wants genuinely new activity can ask
+		// ingestion what it made of this observation.
+		OccurrenceKey: "item-1@2",
+		Item:          json.RawMessage(`{"repo":"acme/api"}`),
 	}, cmd)
 
 	// The same occurrence arriving again — a re-emitted, unchanged item —

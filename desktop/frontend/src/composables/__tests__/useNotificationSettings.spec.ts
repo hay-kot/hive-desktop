@@ -22,7 +22,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notifications
 
 const enabledSettings = {
   notificationsEnabled: true,
-  systemNotificationsEnabled: true,
+  delivery: 'auto',
   notificationSound: true,
 }
 
@@ -39,7 +39,7 @@ describe('useNotificationSettings', () => {
   it('automatically refreshes persisted settings and live permission on first use', async () => {
     mocks.NotificationSettings.mockResolvedValue({
       notificationsEnabled: false,
-      systemNotificationsEnabled: true,
+      delivery: 'system',
       notificationSound: false,
     })
     mocks.PermissionStatus.mockResolvedValue('granted')
@@ -48,7 +48,7 @@ describe('useNotificationSettings', () => {
 
     await vi.waitFor(() => {
       expect(settings.notificationsEnabled.value).toBe(false)
-      expect(settings.systemNotificationsEnabled.value).toBe(true)
+      expect(settings.delivery.value).toBe('system')
       expect(settings.notificationSound.value).toBe(false)
       expect(settings.permission.value).toBe('granted')
     })
@@ -65,7 +65,7 @@ describe('useNotificationSettings', () => {
     expect(settings.notificationsEnabled.value).toBe(false)
     expect(mocks.SetNotificationSettings).toHaveBeenCalledWith({
       notificationsEnabled: false,
-      systemNotificationsEnabled: true,
+      delivery: 'auto',
       notificationSound: true,
     })
 
@@ -86,6 +86,29 @@ describe('useNotificationSettings', () => {
     await settings.refresh()
 
     expect(settings.notificationsEnabled.value).toBe(false)
+  })
+
+  it('heals an unrecognized persisted delivery mode to the default', async () => {
+    // A settings.yaml written by a newer build (or by hand) must not wedge
+    // delivery — Go applies the same tolerance on its side.
+    mocks.NotificationSettings.mockResolvedValue({ ...enabledSettings, delivery: 'banner' })
+
+    const settings = useNotificationSettings()
+
+    await vi.waitFor(() => { expect(settings.delivery.value).toBe('auto') })
+  })
+
+  it('persists the delivery mode', async () => {
+    const settings = useNotificationSettings()
+
+    await settings.setDelivery('app')
+
+    expect(settings.delivery.value).toBe('app')
+    expect(mocks.SetNotificationSettings).toHaveBeenCalledWith({
+      notificationsEnabled: true,
+      delivery: 'app',
+      notificationSound: true,
+    })
   })
 
   it('uses the request result and then refreshes the live permission state', async () => {

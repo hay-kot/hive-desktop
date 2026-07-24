@@ -461,6 +461,32 @@ func (q *Queries) GetConsumerOffset(ctx context.Context, consumer string) (Consu
 	return i, err
 }
 
+const getInboxEventByOccurrence = `-- name: GetInboxEventByOccurrence :one
+SELECT id, item_id, kind, transition, attention, occurrence_key, summary, detail, created_at FROM inbox_event WHERE item_id = ? AND occurrence_key = ?
+`
+
+type GetInboxEventByOccurrenceParams struct {
+	ItemID        int64          `json:"item_id"`
+	OccurrenceKey sql.NullString `json:"occurrence_key"`
+}
+
+func (q *Queries) GetInboxEventByOccurrence(ctx context.Context, arg GetInboxEventByOccurrenceParams) (InboxEvent, error) {
+	row := q.db.QueryRowContext(ctx, getInboxEventByOccurrence, arg.ItemID, arg.OccurrenceKey)
+	var i InboxEvent
+	err := row.Scan(
+		&i.ID,
+		&i.ItemID,
+		&i.Kind,
+		&i.Transition,
+		&i.Attention,
+		&i.OccurrenceKey,
+		&i.Summary,
+		&i.Detail,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const getInboxItemByExternalID = `-- name: GetInboxItemByExternalID :one
 SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item
 WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?

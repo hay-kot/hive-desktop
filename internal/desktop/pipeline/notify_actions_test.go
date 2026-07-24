@@ -104,3 +104,39 @@ func TestNotifyActionConfig_RequiresATitle(t *testing.T) {
 	require.NoError(t, (&NotifyActionConfig{Title: "hi"}).Validate())
 	require.Error(t, (&NotifyActionConfig{}).Validate())
 }
+
+// A notifying feed resolves through the same synthetic action id a notify
+// node does — one delivery path for both — and is the only shape that carries
+// the new-activity restriction.
+func TestFlowNotifyActions_ResolvesANotifyingFeed(t *testing.T) {
+	quiet := false
+	flows := flowListerTest{flows: []flow.Flow{{ID: "triage", Nodes: []flow.Node{
+		{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &flow.FeedConfig{
+			Icon: "eye",
+			Notify: &flow.NotifyConfig{
+				Title:    "Review requested",
+				Body:     "{{ .Payload.repo }}",
+				Severity: "warning",
+				Sound:    &quiet,
+			},
+		}},
+		{ID: "quiet", Type: "feed", Config: &flow.FeedConfig{}},
+	}}}}
+
+	action, ok := NewFlowNotifyActions(flows, nil).Get(NotifyActionID("triage/review-requests"))
+	require.True(t, ok)
+	assert.Equal(t, ActionTypeNotify, action.Type)
+	assert.Equal(t, "Review requests", action.Label)
+	assert.Equal(t, &NotifyActionConfig{
+		Title:       "Review requested",
+		Body:        "{{ .Payload.repo }}",
+		Severity:    "warning",
+		Sound:       false,
+		OnlyWhenNew: true,
+	}, action.Config)
+
+	// A feed that does not notify has nothing to resolve: reaching here for
+	// one means the flow was edited after the command was queued.
+	_, ok = NewFlowNotifyActions(flows, nil).Get(NotifyActionID("triage/quiet"))
+	assert.False(t, ok)
+}

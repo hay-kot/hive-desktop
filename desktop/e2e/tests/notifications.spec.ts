@@ -10,16 +10,20 @@ test('persists notification preferences from application settings', async ({ pag
 
   const master = page.getByTestId('notification-enable')
   await expect(master).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('notification-system')).toBeVisible()
+  await expect(page.getByTestId('notification-delivery-auto')).toBeChecked()
   await expect(page.getByTestId('notification-sound')).toBeVisible()
+
+  await page.getByTestId('notification-delivery-app').check()
+  await expect(page.getByTestId('notification-delivery-app')).toBeChecked()
 
   await master.click()
   await expect(master).toHaveAttribute('aria-checked', 'false')
-  await expect(page.getByTestId('notification-system')).toBeDisabled()
+  await expect(page.getByTestId('notification-delivery-auto')).toBeDisabled()
 
   await page.reload()
   await expect(page.getByTestId('notification-settings')).toBeVisible()
   await expect(page.getByTestId('notification-enable')).toHaveAttribute('aria-checked', 'false')
+  await expect(page.getByTestId('notification-delivery-app')).toBeChecked()
 })
 
 test('records focused profile rename feedback in both toast and Activity', async ({ page }) => {
