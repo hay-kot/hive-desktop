@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
 import { defaults, descriptionMaxLen, notifyBodyMaxLen, notifySink, notifyTitleMaxLen, sink, validate } from '../config'
+import { chooseOption } from '../../../../test-utils/select'
 
 describe('feed editor', () => {
   it('renders the feed node body with icon and description fields', () => {
@@ -13,10 +14,10 @@ describe('feed editor', () => {
 
   it('emits the chosen icon from the searchable picker', async () => {
     const wrapper = mount(Editor, { props: { config: {} } })
-    await wrapper.get('[data-testid="feed-editor-icon"]').trigger('click')
-    await wrapper.get('[data-testid="feed-editor-icon-option-sparkles"]').trigger('click')
+    await chooseOption(wrapper, 'feed-editor-icon', 'sparkles')
     const events = wrapper.emitted('update:config')
     expect(events?.at(-1)?.[0]).toEqual({ icon: 'sparkles' })
+    wrapper.unmount()
   })
 
   it('emits the typed description', async () => {
@@ -71,8 +72,9 @@ describe('feed notify editor', () => {
 
   it('omits the notification defaults rather than writing them out', async () => {
     const wrapper = mount(Editor, { props: { config: { notify: { title: 'x', severity: 'warning' } } } })
-    await wrapper.get('[data-testid="feed-editor-notify-severity"]').setValue('info')
+    await chooseOption(wrapper, 'feed-editor-notify-severity', 'info')
     expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: 'x', severity: undefined } })
+    wrapper.unmount()
 
     const silenced = mount(Editor, { props: { config: { notify: { title: 'x', sound: false } } } })
     await silenced.get('[data-testid="feed-editor-notify-sound"]').setValue(true)

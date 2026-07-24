@@ -11,7 +11,7 @@ import { Capture, Info } from '../../../../bindings/github.com/hay-kot/hive-desk
 import BaseButton from '../../../components/BaseButton.vue'
 import { useClipboard } from '../../../composables/useClipboard'
 import { defaultWebhookSourceIcon, feedIconOptions } from '../../../lib/feedIcons'
-import { SearchableSelectField, TextField } from '../../fields'
+import { SelectField, TextField } from '../../fields'
 import IconRefresh from '~icons/lucide/refresh-cw'
 import { randomPath, randomSecret } from './config'
 import type { Config } from './config'
@@ -168,10 +168,11 @@ async function onCopyPrompt(): Promise<void> {
         ><IconRefresh class="size-[14px]" /></button>
       </template>
     </TextField>
-    <SearchableSelectField
+    <SelectField
       label="Item icon"
       :model-value="config.icon || defaultWebhookSourceIcon"
       :options="iconOptions"
+      searchable
       search-placeholder="Search icons…"
       hint="Shown on this source's items in feeds."
       testid="webhook-source-editor-icon"

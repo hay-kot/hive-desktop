@@ -5,6 +5,7 @@ import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-d
 import { useNotificationSettings } from '../composables/useNotificationSettings'
 import { notifySeverityMapping, useNotify, type NotifySeverity } from '../composables/useNotify'
 import { useToasts } from '../composables/useToasts'
+import AppSelect from './AppSelect.vue'
 import BaseCard from './BaseCard.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import ViewHeader from './settings/ViewHeader.vue'
@@ -12,6 +13,9 @@ import ViewHeader from './settings/ViewHeader.vue'
 const emit = defineEmits<{ close: [] }>()
 
 type NotificationTestChannel = 'auto' | 'force-toast' | 'force-system'
+
+const severityOptions = (['info', 'success', 'warning', 'error'] as const).map((value) => ({ value, label: value }))
+const channelOptions = (['auto', 'force-toast', 'force-system'] as const).map((value) => ({ value, label: value }))
 
 const severity = ref<NotifySeverity>('info')
 const channel = ref<NotificationTestChannel>('auto')
@@ -111,27 +115,24 @@ onUnmounted(() => {
             </div>
             <template #actions>
               <div class="flex shrink-0 items-center gap-2">
-                <select
-                  v-model="severity"
-                  data-testid="dev-notification-severity"
+                <AppSelect
+                  size="sm"
+                  class="w-[92px] font-medium"
+                  :model-value="severity"
+                  :options="severityOptions"
+                  testid="dev-notification-severity"
                   aria-label="Notification severity"
-                  class="cursor-pointer rounded-md border border-strong bg-app px-2 py-1.5 text-[11px] font-medium text-text"
-                >
-                  <option value="info">info</option>
-                  <option value="success">success</option>
-                  <option value="warning">warning</option>
-                  <option value="error">error</option>
-                </select>
-                <select
-                  v-model="channel"
-                  data-testid="dev-notification-channel"
+                  @update:model-value="severity = $event as NotifySeverity"
+                />
+                <AppSelect
+                  size="sm"
+                  class="w-[124px] font-medium"
+                  :model-value="channel"
+                  :options="channelOptions"
+                  testid="dev-notification-channel"
                   aria-label="Notification channel"
-                  class="cursor-pointer rounded-md border border-strong bg-app px-2 py-1.5 text-[11px] font-medium text-text"
-                >
-                  <option value="auto">auto</option>
-                  <option value="force-toast">force-toast</option>
-                  <option value="force-system">force-system</option>
-                </select>
+                  @update:model-value="channel = $event as NotificationTestChannel"
+                />
                 <label class="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-text-2">
                   <input v-model="delay" data-testid="dev-notification-delay" type="checkbox" class="size-3.5 accent-accent" />
                   delay 3s

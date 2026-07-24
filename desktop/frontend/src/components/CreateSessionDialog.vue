@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import IconPlay from '~icons/lucide/play'
+import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
@@ -15,6 +16,8 @@ const agent = ref(props.options.defaultAgent)
 const validationError = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
 const canSubmit = computed(() => repository.value.trim() !== '' && name.value.trim() !== '')
+// The empty value is a real choice here — it defers to whatever agent the action declares.
+const agentOptions = computed(() => [{ value: '', label: 'Use action default' }, ...(props.options.agents ?? []).map((key) => ({ value: key, label: key }))])
 
 function submit() {
   if (props.busy) return
@@ -57,9 +60,15 @@ useAutofocus(nameInput)
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
         <input ref="nameInput" v-model="name" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="session-name">
       </label>
-      <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent <span class="font-normal text-text-4">(optional)</span>
-        <select v-model="agent" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" data-testid="session-agent"><option value="">Use action default</option><option v-for="key in options.agents" :key="key" :value="key">{{ key }}</option></select>
-      </label>
+      <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent <span class="font-normal text-text-4">(optional)</span>
+        <AppSelect
+          :model-value="agent"
+          :options="agentOptions"
+          testid="session-agent"
+          aria-label="Agent"
+          @update:model-value="agent = $event"
+        />
+      </div>
       <p v-if="validationError || error" class="text-xs text-severity-error" data-testid="create-session-error">{{ validationError || error }}</p>
     </form>
     <template #footer>

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
 import { bodyMaxLen, defaults, sink, titleMaxLen, validate } from '../config'
+import { chooseOption } from '../../../../test-utils/select'
 
 describe('notify editor', () => {
   it('renders the notify node body with its template and delivery fields', () => {
@@ -28,12 +29,14 @@ describe('notify editor', () => {
   // the author never touched.
   it('stores severity only when it differs from the default', async () => {
     const wrapper = mount(Editor, { props: { config: { title: 'hi' } } })
-    await wrapper.get('[data-testid="notify-node-editor-severity"]').setValue('warning')
+    await chooseOption(wrapper, 'notify-node-editor-severity', 'warning')
     expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', severity: 'warning' })
+    wrapper.unmount()
 
     const warned = mount(Editor, { props: { config: { title: 'hi', severity: 'warning' } } })
-    await warned.get('[data-testid="notify-node-editor-severity"]').setValue('info')
+    await chooseOption(warned, 'notify-node-editor-severity', 'info')
     expect(warned.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', severity: undefined })
+    warned.unmount()
   })
 
   it('stores sound only when the node is silenced', async () => {
