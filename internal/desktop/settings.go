@@ -26,6 +26,18 @@ const (
 	ChannelDev    = "dev"
 )
 
+// Appearance holds presentation preferences owned by the frontend. Go stores
+// these as opaque strings: the closed set of valid values (and healing of an
+// unrecognized one) lives with the CSS that implements them, in the frontend's
+// useTheme. Validating here would duplicate that list and would make an older
+// build reject a settings.yaml written by a newer one.
+type Appearance struct {
+	// Theme is the selected frontend theme id, e.g. "dark". An empty value
+	// means the frontend has never persisted a choice, which is what triggers
+	// the one-time adoption of a pre-existing localStorage theme.
+	Theme string `yaml:"theme,omitempty"`
+}
+
 // Settings holds user-tunable desktop behavior. Zero-valued fields mean use
 // the application's default.
 type Settings struct {
@@ -51,6 +63,11 @@ type Settings struct {
 	// track their channel without configuration. Resolve through
 	// UpdateChannelOrDefault rather than reading the field directly.
 	UpdateChannel string `yaml:"update_channel,omitempty"`
+	// Appearance holds frontend presentation preferences. It is a value (not a
+	// pointer) because an absent section and an empty one are equivalent: both
+	// mean "no choice persisted yet". omitempty keeps the section out of
+	// settings.yaml until something is actually set.
+	Appearance Appearance `yaml:"appearance,omitempty"`
 }
 
 // SettingsPath is the settings.yaml location under the desktop config root.

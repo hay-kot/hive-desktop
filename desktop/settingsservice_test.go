@@ -132,3 +132,35 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.Equal(t, 1, source.callCount(), "saved settings reset the live producer cadence")
 	})
 }
+
+func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
+	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	service := NewSettingsService(nil, nil, zerolog.Nop())
+
+	got, err := service.AppearanceSettings()
+	require.NoError(t, err)
+	require.Equal(t, AppearanceSettings{}, got)
+}
+
+func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing.T) {
+	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	autoUpdate := false
+	require.NoError(t, desktop.SaveSettings(desktop.Settings{
+		PollInterval: "5m",
+		AutoUpdate:   &autoUpdate,
+	}))
+
+	service := NewSettingsService(nil, nil, zerolog.Nop())
+	require.NoError(t, service.SetAppearanceSettings(AppearanceSettings{Theme: "midnight"}))
+
+	got, err := desktop.LoadSettings()
+	require.NoError(t, err)
+	require.Equal(t, "midnight", got.Appearance.Theme)
+	require.Equal(t, "5m", got.PollInterval)
+	require.NotNil(t, got.AutoUpdate)
+	require.False(t, *got.AutoUpdate)
+
+	roundTripped, err := service.AppearanceSettings()
+	require.NoError(t, err)
+	require.Equal(t, AppearanceSettings{Theme: "midnight"}, roundTripped)
+}

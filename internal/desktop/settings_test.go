@@ -139,3 +139,39 @@ func TestSettingsAutoUpdateRoundTrip(t *testing.T) {
 	require.False(t, got.AutoUpdateOrDefault())
 	require.Equal(t, "2m", got.PollInterval)
 }
+
+func TestSettingsAppearanceRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
+
+	// An absent appearance section reads as no persisted theme, which is the
+	// frontend's cue to adopt its localStorage value.
+	require.NoError(t, os.MkdirAll(filepath.Dir(SettingsPath()), 0o755))
+	require.NoError(t, os.WriteFile(SettingsPath(), []byte("poll_interval: 2m\n"), 0o600))
+	got, err := LoadSettings()
+	require.NoError(t, err)
+	require.Empty(t, got.Appearance.Theme)
+
+	// A theme persists, round-trips, and is written as a nested section so
+	// appearance has room for the other presentation preferences.
+	require.NoError(t, SaveSettings(Settings{PollInterval: "2m", Appearance: Appearance{Theme: "gruvbox"}}))
+	got, err = LoadSettings()
+	require.NoError(t, err)
+	require.Equal(t, "gruvbox", got.Appearance.Theme)
+	require.Equal(t, "2m", got.PollInterval)
+
+	contents, err := os.ReadFile(SettingsPath())
+	require.NoError(t, err)
+	require.Contains(t, string(contents), "appearance:\n    theme: gruvbox")
+}
+
+func TestSettingsAppearanceOmittedWhenUnset(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
+
+	require.NoError(t, SaveSettings(Settings{PollInterval: "2m"}))
+
+	contents, err := os.ReadFile(SettingsPath())
+	require.NoError(t, err)
+	require.NotContains(t, string(contents), "appearance")
+}
