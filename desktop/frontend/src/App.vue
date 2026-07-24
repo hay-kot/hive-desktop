@@ -39,7 +39,7 @@ import { isEditableTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
 import type { UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
 import type { ApplicationSettingsSection, ProfileSettingsSection } from './router'
-import type { InboxView, SidebarSelection } from './types/feed'
+import type { SidebarSelection } from './types/feed'
 import { githubPayload } from './lib/feedPresentation'
 
 // Only true when Vite is serving in dev mode (under `wails3 dev`). Keeping
@@ -58,8 +58,9 @@ const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, visibleItems, unreadCount, search, loadError,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, renameProfile, setProfileEnabled, deleteProfile,
-  reorderFeeds, selectProfile, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
-  toggleUnread, markItemUnread, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openSelectedInBrowser, hideWindow,
+  visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
+  reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
+  toggleUnread, markItemUnread, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
 } = useFeedState()
 
 // The feed-item kinds currently in the system — what the actions editor
@@ -160,14 +161,14 @@ watch([profilesLoaded, () => route.fullPath], async ([loaded]) => {
     ? rawFeedId
     : null
   const wantsUnread = route.query.unread === '1'
-  const rawView = route.query.view
-  const view: InboxView = typeof rawView === 'string' && ['open', 'archive', 'all', 'ignored'].includes(rawView)
-    ? rawView as InboxView
-    : 'inbox'
   if (feedId) await selectSidebar({ type: 'feed', feedId })
-  else await selectSidebar({ type: 'view', view })
+  else if (route.query.view === 'trash') await selectSidebar({ type: 'trash' })
+  // A bare feed route means "the workspace default": last-selected feed,
+  // else the first feed in sidebar order. Defaults are never persisted as
+  // the remembered selection.
+  else await selectSidebar(defaultSelection(rawProfileId), { persist: false })
 
-  // Unread narrows whichever feed or inbox view the route selected.
+  // Unread narrows whichever feed the route selected.
   // selectSidebar clears the flag, so apply it after loading that list.
   if (wantsUnread && !unreadOnly.value) await toggleUnread()
 }, { immediate: true })
@@ -237,7 +238,7 @@ function navigateSidebar(nextSelection: SidebarSelection): void {
   if (!activeProfileId.value) return
   const query = nextSelection.type === 'feed'
     ? { feed: nextSelection.feedId }
-    : nextSelection.view === 'inbox' ? {} : { view: nextSelection.view }
+    : { view: 'trash' }
   void router.push({ name: 'feed', params: { profileId: activeProfileId.value }, query })
 }
 
@@ -245,7 +246,7 @@ function navigateUnreadFilter(value: boolean): void {
   if (!activeProfileId.value) return
   const query: Record<string, string> = {}
   if (selection.value.type === 'feed') query.feed = selection.value.feedId
-  else if (selection.value.view !== 'inbox') query.view = selection.value.view
+  else query.view = 'trash'
   if (value) query.unread = '1'
   void router.push({ name: 'feed', params: { profileId: activeProfileId.value }, query })
 }
@@ -303,7 +304,8 @@ async function openJobRun(commandID: number): Promise<void> {
   if (!job || !activeProfileId.value) return
   await router.push({ name: 'feed', params: { profileId: activeProfileId.value } })
   if (route.name !== 'feed') return
-  await selectSidebar({ type: 'view', view: 'inbox' })
+  // The route watcher applied the workspace default selection; the run opens
+  // only if its item is present in that list.
   await openActionRun(Number(job.target), job.actionId, commandID)
 }
 
@@ -547,12 +549,12 @@ useCommands(computed(() => {
   const profileName = activeProfile.value?.name
 
   cmds.push({
-    id: 'feed:all',
-    title: 'Select feed: All items',
+    id: 'view:trash',
+    title: 'Open Trash',
     group: 'Feeds',
     icon: IconList,
     hint: profileName,
-    run: () => navigateSidebar({ type: 'view', view: 'inbox' }),
+    run: () => navigateSidebar({ type: 'trash' }),
   })
 
   for (const f of activeProfile.value?.feeds ?? []) {
@@ -779,7 +781,11 @@ onUnmounted(() => {
               :selected-id="selectedId"
               :unread-only="unreadOnly"
               :unread-count="unreadCount"
-              :view="selection.type === 'view' ? selection.view : 'inbox'"
+              :archived-items="visibleArchivedItems"
+              :archived-count="archivedCount"
+              :archived-expanded="archivedExpanded"
+              :trash="selection.type === 'trash'"
+              :trash-filter="trashFilter"
               :search="search"
               :sort="feedSort"
               :load-error="loadError"
@@ -787,9 +793,18 @@ onUnmounted(() => {
               @update:search="(value) => (search = value)"
               @set-sort="setFeedSort"
               @set-unread="navigateUnreadFilter"
+              @toggle-archived="toggleArchivedSection"
+              @set-trash-filter="setTrashFilter"
               @refresh="refresh"
+              @item-set-unread="markItemUnread"
+              @item-toggle-archive="toggleArchive"
+              @item-toggle-ignored="toggleIgnored"
+              @item-open-browser="openItemInBrowser"
+              @item-copy-link="copyItemLink"
+              @item-copy-contents="copyItemContents"
+              @item-run-action="runItemAction"
             />
-            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :pending-action="pendingAction" :action-runs="actionRuns" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @edit="requestOpenActionsSettings" />
+            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :pending-action="pendingAction" :action-runs="actionRuns" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @edit="requestOpenActionsSettings" />
           </section>
           <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 font-mono text-xs text-text-4">
             <template v-if="profilesError">

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { onClickOutside } from '@vueuse/core'
 import ActionCard from './ActionCard.vue'
+import ItemActionMenu from './ItemActionMenu.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SourceMark from './SourceMark.vue'
 import { useResizablePanel } from '../composables/useResizablePanel'
@@ -11,11 +11,8 @@ import { renderGithubMarkdown } from '../lib/githubMarkdown'
 import IconCircleDot from '~icons/lucide/circle-dot'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
-import IconArchive from '~icons/lucide/archive'
 import IconEllipsis from '~icons/lucide/ellipsis'
-import IconEyeOff from '~icons/lucide/eye-off'
 import IconInfo from '~icons/lucide/info'
-import IconMail from '~icons/lucide/mail'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
@@ -29,19 +26,13 @@ const emit = defineEmits<{
   'set-unread': [unread: boolean]
   'toggle-archive': []
   'toggle-ignored': []
+  'copy-link': []
+  'copy-contents': []
   edit: []
 }>()
 
-const itemMenu = ref<HTMLElement | null>(null)
+const itemMenuToggle = ref<HTMLElement | null>(null)
 const itemMenuOpen = ref(false)
-onClickOutside(itemMenu, () => { itemMenuOpen.value = false })
-function chooseItemAction(action: () => void): void {
-  itemMenuOpen.value = false
-  action()
-}
-function toggleRead(): void {
-  if (props.item) emit('set-unread', !props.item.unread)
-}
 
 // The detail header leads with the item's source badge and type. The badge
 // already identifies the provider, so the adjacent context stays focused on
@@ -105,13 +96,23 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
           <span class="min-w-0 truncate font-mono text-xs text-text-3">{{ github?.repo }} #{{ github?.num }}</span>
           <span class="flex-1" />
           <button class="open-button shrink-0" @click="emit('open-browser')">open <IconExternalLink class="size-3" /></button>
-          <div ref="itemMenu" class="relative shrink-0">
-            <button class="more-button" aria-label="Item actions" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsis class="size-4" /></button>
-            <div v-if="itemMenuOpen" class="item-menu" role="menu" data-testid="item-actions-menu">
-              <button class="item-menu-entry" role="menuitem" @click="chooseItemAction(toggleRead)"><IconMail class="size-3.5" />{{ item.unread ? 'Mark as read' : 'Mark as unread' }}</button>
-              <button class="item-menu-entry" role="menuitem" @click="chooseItemAction(() => emit('toggle-archive'))"><IconArchive class="size-3.5" />{{ item.archivedAt ? 'Move to inbox' : 'Archive' }}</button>
-              <button class="item-menu-entry" role="menuitem" @click="chooseItemAction(() => emit('toggle-ignored'))"><IconEyeOff class="size-3.5" />{{ item.ignoredAt ? 'Stop ignoring' : 'Ignore' }}</button>
-            </div>
+          <div class="relative shrink-0">
+            <button ref="itemMenuToggle" class="more-button" aria-label="Item actions" aria-haspopup="menu" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsis class="size-4" /></button>
+            <ItemActionMenu
+              v-if="itemMenuOpen"
+              :item="item"
+              :actions="actions"
+              :ignore="[itemMenuToggle]"
+              testid="item-actions-menu"
+              @close="itemMenuOpen = false"
+              @set-unread="(value) => emit('set-unread', value)"
+              @toggle-archive="emit('toggle-archive')"
+              @toggle-ignored="emit('toggle-ignored')"
+              @open-browser="emit('open-browser')"
+              @copy-link="emit('copy-link')"
+              @copy-contents="emit('copy-contents')"
+              @run-action="(actionId) => emit('run-action', actionId)"
+            />
           </div>
         </div>
         <h1 class="text-[17px] font-semibold leading-[1.3] tracking-[-.01em]">{{ item.title }}</h1>
@@ -153,9 +154,6 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .edit-button { border-radius: 5px; padding: 3px 8px; font-family: var(--font-sans); }
 .more-button { height: 24px; padding: 0 5px; }
 .open-button:hover, .edit-button:hover, .more-button:hover, .more-button[aria-expanded="true"] { border-color: var(--color-strong); color: var(--color-text); }
-.item-menu { position: absolute; right: 0; top: calc(100% + 5px); z-index: 30; width: 170px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 18px 45px -12px rgb(0 0 0 / .55); }
-.item-menu-entry { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12px; text-align: left; }
-.item-menu-entry:hover { background: var(--color-hover); color: var(--color-text); }
 .action-footer-meta { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 
 /* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline

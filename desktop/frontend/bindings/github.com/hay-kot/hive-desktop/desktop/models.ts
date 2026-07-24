@@ -50,11 +50,6 @@ export interface GithubSettings {
 }
 
 /**
- * ENUM(inbox, open, archive, all, ignored)
- */
-export type InboxView = string;
-
-/**
  * NotificationSettings is the desktop notification configuration resolved
  * from settings.yaml. All fields are explicit booleans for the frontend.
  */

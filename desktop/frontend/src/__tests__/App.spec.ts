@@ -25,10 +25,10 @@ const mocks = vi.hoisted(() => ({
   UpdateAction: vi.fn(),
   DeleteAction: vi.fn(),
   // pipelineservice
-  ListInboxItems: vi.fn(),
   ListInboxItemsByFeed: vi.fn(),
+  ListArchivedInboxItemsByFeed: vi.fn(),
+  ListInboxItemsTrash: vi.fn(),
   FeedCounts: vi.fn(),
-  InboxCounts: vi.fn(),
   MarkInboxItemUnread: vi.fn(),
   ToggleInboxItemArchived: vi.fn(),
   ToggleInboxItemIgnored: vi.fn(),
@@ -89,10 +89,10 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice',
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
-  ListInboxItems: mocks.ListInboxItems,
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
+  ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed,
+  ListInboxItemsTrash: mocks.ListInboxItemsTrash,
   FeedCounts: mocks.FeedCounts,
-  InboxCounts: mocks.InboxCounts,
   MarkInboxItemUnread: mocks.MarkInboxItemUnread,
   ToggleInboxItemArchived: mocks.ToggleInboxItemArchived,
   ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored,
@@ -187,10 +187,10 @@ describe('App', () => {
     mocks.GetLayout.mockResolvedValue({ nodes: {} })
     mocks.GetSidebar.mockResolvedValue({ items: [] })
     mocks.SaveSidebar.mockResolvedValue(undefined)
-    mocks.ListInboxItems.mockResolvedValue([])
     mocks.ListInboxItemsByFeed.mockResolvedValue([])
-    mocks.FeedCounts.mockResolvedValue([{ feedId: 'personal/desktop', total: 1, unread: 0 }])
-    mocks.InboxCounts.mockResolvedValue({ inboxTotal: 1, inboxUnread: 0 })
+    mocks.ListArchivedInboxItemsByFeed.mockResolvedValue([])
+    mocks.ListInboxItemsTrash.mockResolvedValue([])
+    mocks.FeedCounts.mockResolvedValue([{ feedId: 'personal/desktop', total: 1, unread: 0, archived: 0 }])
     mocks.InboxItemEvents.mockResolvedValue([])
     mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' })
     mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [], defaultRepository: '', agents: [], defaultAgent: '' })
@@ -225,7 +225,7 @@ describe('App', () => {
 
     const ids = results.value.map((cmd) => cmd.id)
     expect(ids).toContain('flow:edit')
-    expect(ids).toContain('feed:all')
+    expect(ids).toContain('view:trash')
     expect(ids).toContain('feed:personal/desktop')
     expect(ids).toContain('profile:new')
     // Feed/source editing folded into the node drawer — these are gone.
@@ -502,7 +502,8 @@ describe('App', () => {
     router.back()
     await flushPromises()
     expect(router.currentRoute.value.query).toEqual({})
-    expect(wrapper.find('[data-testid="inbox-view-inbox"]').classes()).toContain('sidebar-entry-selected')
+    // A bare feed route selects the workspace default: the last-selected feed.
+    expect(wrapper.find('[data-testid="sidebar-feed"][data-id="personal/desktop"]').classes()).toContain('sidebar-entry-selected')
 
     router.forward()
     await flushPromises()
@@ -511,19 +512,14 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('preserves a non-default inbox view when toggling unread', async () => {
+  it('routes to trash and loads it via the dedicated trash query', async () => {
     const { wrapper, router } = await mountAppWithRouter()
 
-    await wrapper.get('[data-testid="inbox-view-archive"]').trigger('click')
+    await wrapper.get('[data-testid="sidebar-trash"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.query).toEqual({ view: 'archive' })
-
-    await wrapper.get('[data-testid="filter-unread"]').trigger('click')
-    await flushPromises()
-
-    expect(router.currentRoute.value.query).toEqual({ view: 'archive', unread: '1' })
-    expect(mocks.ListInboxItems).toHaveBeenLastCalledWith('personal', 'archive', 500)
-    expect(wrapper.get('[data-testid="inbox-view-archive"]').classes()).toContain('sidebar-entry-selected')
+    expect(router.currentRoute.value.query).toEqual({ view: 'trash' })
+    expect(mocks.ListInboxItemsTrash).toHaveBeenLastCalledWith('personal', 500)
+    expect(wrapper.get('[data-testid="sidebar-trash"]').classes()).toContain('footer-entry-selected')
     wrapper.unmount()
   })
 
@@ -534,7 +530,7 @@ describe('App', () => {
     ]
     let rejectSecond!: (error: Error) => void
     const secondEvents = new Promise<never>((_, reject) => { rejectSecond = reject })
-    mocks.ListInboxItems.mockResolvedValue(items)
+    mocks.ListInboxItemsByFeed.mockResolvedValue(items)
     mocks.InboxItemEvents.mockImplementation((id: number) => id === 1
       ? Promise.resolve([{ id: 1, itemId: 1, kind: 'observed', transition: 'none', attention: 'activity', summary: 'first event', detail: {}, createdAt: 1 }])
       : secondEvents)
@@ -865,7 +861,7 @@ describe('App', () => {
     const callOrder: string[] = []
     mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
     mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.InboxCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return { inboxTotal: 0, inboxUnread: 0 } })
+    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
 
     const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
     expect(logHandler).toBeDefined()
@@ -889,7 +885,7 @@ describe('App', () => {
     const callOrder: string[] = []
     mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
     mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.InboxCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return { inboxTotal: 0, inboxUnread: 0 } })
+    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
 
     const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
     expect(logHandler).toBeDefined()

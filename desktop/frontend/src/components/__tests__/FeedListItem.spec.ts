@@ -24,15 +24,45 @@ describe('FeedListItem', () => {
     expect(issue.find('[data-testid="unread-dot"]').exists()).toBe(false)
   })
 
-  it('uses archive reason only in archive presentation and keeps selection styling', () => {
-    const wrapper = mount(FeedListItem, { props: { item: { ...baseItem, archivedReason: 'manual' }, view: 'archive', selected: true } })
+  it('uses archive reason only in archived presentation and keeps selection styling', () => {
+    const wrapper = mount(FeedListItem, { props: { item: { ...baseItem, archivedReason: 'manual' }, archived: true, selected: true } })
     expect(wrapper.get('[data-testid="archive-reason"]').text()).toBe('manual')
-    expect(wrapper.get('button.feed-item').classes()).toContain('selected')
+    expect(wrapper.get('[data-testid="feed-item"]').classes()).toContain('selected')
   })
 
-  it('emits selection intent', async () => {
+  it('emits selection intent on click and keyboard activation', async () => {
     const wrapper = mountItem()
-    await wrapper.get('button.feed-item').trigger('click')
-    expect(wrapper.emitted('select')).toHaveLength(1)
+    await wrapper.get('[data-testid="feed-item"]').trigger('click')
+    await wrapper.get('[data-testid="feed-item"]').trigger('keydown.enter')
+    expect(wrapper.emitted('select')).toHaveLength(2)
+  })
+
+  it('offers archive and open-in-browser from the hover pill without selecting the row', async () => {
+    const wrapper = mountItem()
+    await wrapper.get('[data-testid="row-archive"]').trigger('click')
+    await wrapper.get('[data-testid="row-open"]').trigger('click')
+    expect(wrapper.emitted('toggle-archive')).toHaveLength(1)
+    expect(wrapper.emitted('open-browser')).toHaveLength(1)
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
+  it('swaps the archive slot for stop-ignoring in trash presentation', () => {
+    const wrapper = mount(FeedListItem, { props: { item: { ...baseItem, ignoredAt: 5 }, trash: true, selected: false } })
+    expect(wrapper.find('[data-testid="row-archive"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="row-restore"]').attributes('aria-label')).toBe('Stop ignoring')
+  })
+
+  it('opens the item menu from the kebab and from right-click and relays its intents', async () => {
+    const wrapper = mountItem()
+    await wrapper.get('[data-testid="row-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="menu-copy-link"]').trigger('click')
+    expect(wrapper.emitted('copy-link')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="row-menu"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="feed-item"]').trigger('contextmenu')
+    expect(wrapper.find('[data-testid="row-menu"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="menu-toggle-read"]').trigger('click')
+    expect(wrapper.emitted('set-unread')).toEqual([[false]])
+    expect(wrapper.emitted('select')).toBeUndefined()
   })
 })

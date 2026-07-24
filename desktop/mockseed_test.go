@@ -86,7 +86,7 @@ func TestSeedMockInboxItems_WritesExpectedRows(t *testing.T) {
 	assert.False(t, rows.Next())
 	require.NoError(t, rows.Err())
 
-	visible, err := db.ListInboxItems(context.Background(), MockFlowID, "inbox", len(mockInboxItems))
+	visible, err := db.ListInboxItemsByFeed(context.Background(), MockFlowID, MockFlowID+"/"+MockFeedNodeID, len(mockInboxItems))
 	require.NoError(t, err)
 	assert.Len(t, visible, len(mockInboxItems))
 
