@@ -65,4 +65,14 @@ describe('summarize', () => {
   it('returns an empty string for a heading-only doc', () => {
     expect(summarize('# Title')).toBe('')
   })
+
+  it('strips bold and inline-code markers', () => {
+    const src = ['# Action', '', 'An **action** node creates a durable `output_command`.'].join('\n')
+    expect(summarize(src)).toBe('An action node creates a durable output_command.')
+  })
+
+  it('strips markers spanning a line wrap', () => {
+    const src = ['# Action', '', 'An **action', 'node** is a terminal.'].join('\n')
+    expect(summarize(src)).toBe('An action node is a terminal.')
+  })
 })
