@@ -1,6 +1,8 @@
 # Webhook source
 
-A **webhook source** node turns anything that can send an HTTP request into a flow input. The desktop runs a local listener on `127.0.0.1` (port `webhook_port` in settings.yaml, default `4483`); JSON POSTed to `http://127.0.0.1:<port>/hooks/<path>` becomes messages on this node's output, exactly like a github-source poll would produce them.
+A **webhook source** node turns anything that can send an HTTP request into a flow input. The desktop runs a local listener on `127.0.0.1`; JSON POSTed to `http://127.0.0.1:<port>/hooks/<path>` becomes messages on this node's output, exactly like a github-source poll would produce them.
+
+The port is picked at random the first time Hive starts and then kept, so it differs per machine — the **Endpoint** row below shows this install's full URL. Settings → Integrations → Webhooks changes the port or turns the listener off entirely.
 
 ## Fields
 

@@ -98,8 +98,10 @@ policy.
 
 `webhook-source` nodes are push-driven and bypass the producer entirely
 (docs/decisions/0007). `pipeline.WebhookListener` binds `127.0.0.1` (port
-`webhook_port` in settings.yaml, default 4483, env override
-`HIVE_DESKTOP_WEBHOOK_PORT`) and resolves `/hooks/<path>` routes per request
+`webhook_port` in settings.yaml — drawn at random from 20000–32767 on first
+run and persisted, env override `HIVE_DESKTOP_WEBHOOK_PORT`; the whole
+listener is switched off by `webhook_enabled: false`, and Settings →
+Integrations → Webhooks edits both) and resolves `/hooks/<path>` routes per request
 from the current flow set. A delivery calls `IngestObservation` under topic
 `source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
 a top-level `id` is the stable key (else the body's SHA-256, deduplicating
