@@ -116,7 +116,7 @@ echo "==> building universal .app"
     mise x -- wails3 task darwin:package:universal
 )
 
-APP="desktop/bin/hive-desktop.app"
+APP="desktop/bin/Hive.app"
 [[ -d "$APP" ]] || { echo "build did not produce $APP" >&2; exit 1; }
 
 # ---- sign -------------------------------------------------------------------
@@ -199,7 +199,7 @@ ZIP_NAME="Hive-${VERSION}-darwin-universal.zip"
 echo "==> packaging $ZIP_NAME"
 (
   cd desktop/bin
-  ditto -c -k --keepParent hive-desktop.app "$ZIP_NAME"
+  ditto -c -k --keepParent Hive.app "$ZIP_NAME"
   # SHA256SUMS is a manual-verification/audit sidecar; the in-app updater
   # verifies the sha256 published in the channel manifest.
   shasum -a 256 "$ZIP_NAME" > SHA256SUMS
