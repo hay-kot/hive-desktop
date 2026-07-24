@@ -5,12 +5,14 @@ import FeedListItem from './FeedListItem.vue'
 import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconGitBranch from '~icons/lucide/git-branch'
+import IconMailCheck from '~icons/lucide/mail-check'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSlidersHorizontal from '~icons/lucide/sliders-horizontal'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconArchive from '~icons/lucide/archive'
 import { groupItemsByDate } from '../lib/dateGroups'
+import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import type { FeedSort, InboxItem } from '../types/feed'
 
 // Presentation-only: the store (useFeedState) owns the search text and the
@@ -38,6 +40,7 @@ const emit = defineEmits<{
   'toggle-archived': []
   'set-trash-filter': [value: 'all' | 'ignored']
   refresh: []
+  'mark-all-read': []
   'update:search': [value: string]
   'set-sort': [value: FeedSort]
   // Row-level intents from a FeedListItem's hover pill / "…" menu, re-emitted
@@ -79,6 +82,16 @@ const activeViewOptionCount = computed(() => props.sort === 'newest' ? 0 : 1)
 function closeViewMenu(): void { viewMenuOpen.value = false }
 function chooseSort(value: FeedSort): void { emit('set-sort', value); closeViewMenu() }
 function refreshFromMenu(): void { emit('refresh'); closeViewMenu() }
+function markAllReadFromMenu(): void { emit('mark-all-read'); closeViewMenu() }
+
+// The list-level actions carry their shortcut so the menu teaches the keymap
+// rather than replacing it. Trash has no unread semantics, so it gets no
+// mark-all-read entry at all.
+const { combosFor } = useKeybindings()
+const markAllReadHint = computed(() => {
+  const combo = combosFor('feed.mark-all-read')[0]
+  return combo ? formatCombo(combo) : ''
+})
 function onDocumentKeydown(event: KeyboardEvent): void {
   if (viewMenuOpen.value && event.key === 'Escape') closeViewMenu()
 }
@@ -141,6 +154,11 @@ watch(() => props.selectedId, async (id) => {
             <span>{{ option.label }}</span>
           </button>
           <div class="view-menu-divider" />
+          <button v-if="!trash" type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-mark-read" @click="markAllReadFromMenu">
+            <IconMailCheck class="size-3.5 text-text-3" />
+            <span>Mark all as read</span>
+            <span v-if="markAllReadHint" class="view-menu-kbd">{{ markAllReadHint }}</span>
+          </button>
           <button type="button" class="view-menu-item" role="menuitem" data-testid="view-menu-refresh" @click="refreshFromMenu">
             <IconRefreshCw class="size-3.5 text-text-3" />
             <span>Refresh</span>
@@ -247,10 +265,13 @@ watch(() => props.selectedId, async (id) => {
 .view-trigger:hover, .view-trigger[aria-expanded="true"] { color: var(--color-text); }
 .view-trigger[aria-expanded="true"] { border-color: var(--color-accent); }
 .view-count { display: inline-flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; border-radius: 999px; background: var(--color-accent); padding: 0 4px; color: var(--color-accent-contrast); font-family: var(--font-mono); font-size: 9px; font-weight: 600; }
-.view-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 170px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }
+/* Wide enough for the longest action label plus its shortcut hint; the sort
+   rows just get roomier. */
+.view-menu { position: absolute; top: calc(100% + 6px); right: 0; z-index: 20; width: 200px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); padding: 5px; box-shadow: 0 20px 50px -14px rgb(0 0 0 / .5); }
 .view-menu-label { padding: 5px 9px 4px; color: var(--color-text-3); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
 .view-menu-item { display: flex; width: 100%; align-items: center; gap: 8px; cursor: pointer; border-radius: 6px; padding: 7px 9px; color: var(--color-text-2); font-size: 12.5px; text-align: left; }
 .view-menu-item:hover { background: var(--color-hover); color: var(--color-text); }
+.view-menu-kbd { margin-left: auto; padding-left: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 .view-menu-divider { height: 1px; background: var(--color-row); margin: 4px; }
 /* A compact full-bleed strip on a raised background: the tier on the left, its
    row count on the right, padded to land on the row's title and age columns.

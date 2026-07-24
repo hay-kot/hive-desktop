@@ -914,6 +914,7 @@ onUnmounted(() => {
               @toggle-archived="toggleArchivedSection"
               @set-trash-filter="setTrashFilter"
               @refresh="refresh"
+              @mark-all-read="markSelectedFeedRead"
               @item-set-unread="markItemUnread"
               @item-toggle-archive="toggleArchive"
               @item-toggle-ignored="toggleIgnored"

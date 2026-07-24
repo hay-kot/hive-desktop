@@ -45,6 +45,26 @@ describe('FeedList', () => {
     expect(wrapper.emitted('refresh')).toHaveLength(1)
   })
 
+  it('offers mark all as read in the view menu, with its shortcut, and closes after', async () => {
+    const wrapper = mountList()
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+
+    const entry = wrapper.get('[data-testid="view-menu-mark-read"]')
+    expect(entry.text()).toContain('Mark all as read')
+    expect(entry.text()).toMatch(/[⇧A]|Shift/) // teaches the keymap rather than replacing it
+
+    await entry.trigger('click')
+    expect(wrapper.emitted('mark-all-read')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="view-menu"]').exists()).toBe(false)
+  })
+
+  it('omits mark all as read in trash, which carries no unread semantics', async () => {
+    const wrapper = mountList({ trash: true })
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="view-menu-mark-read"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="view-menu-refresh"]').exists()).toBe(true)
+  })
+
   it('relays search input without owning filtering', async () => {
     const wrapper = mountList()
     await wrapper.get('[data-testid="feed-search"]').setValue('oauth')
