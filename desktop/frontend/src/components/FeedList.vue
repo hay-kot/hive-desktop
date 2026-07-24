@@ -252,8 +252,10 @@ watch(() => props.selectedId, async (id) => {
 /* A centered chip on a hairline rule, breathing on both sides so tiers read as
    section breaks rather than another row. Deliberately hueless — the rows
    already carry color (kind pills, unread dots) and a tinted separator
-   competed with them. Scrolls away with its group rather than sticking. */
-.date-divider { display: flex; align-items: center; gap: 12px; padding: 26px 0 22px; background: var(--color-list); }
+   competed with them. Scrolls away with its group rather than sticking.
+   The band closes with a row-weight rule so it is bounded on both sides —
+   the line above it is the preceding row's own border-bottom. */
+.date-divider { display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--color-row); padding: 24px 0; background: var(--color-list); }
 /* No horizontal padding: the rules run the full content width, landing on the
    same edges as every row's border-bottom instead of floating inset. */
 .date-divider::before, .date-divider::after { content: ''; flex: 1; height: 1px; background: var(--color-row); }
