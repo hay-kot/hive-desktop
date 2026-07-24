@@ -14,6 +14,8 @@ func TestWebhookSourceConfigValidate(t *testing.T) {
 		{name: "simple path", config: WebhookSourceConfig{Path: "ci-alerts"}},
 		{name: "nested path", config: WebhookSourceConfig{Path: "ci/deploys/prod_1"}},
 		{name: "with secret", config: WebhookSourceConfig{Path: "ci", Secret: "s3cret-token_9"}},
+		{name: "with icon", config: WebhookSourceConfig{Path: "ci", Icon: "bell"}},
+		{name: "unknown icon", config: WebhookSourceConfig{Path: "ci", Icon: "no-such-icon"}, wantErr: "not a supported feed icon"},
 		{name: "missing path", config: WebhookSourceConfig{}, wantErr: "path is required"},
 		{name: "blank path", config: WebhookSourceConfig{Path: "   "}, wantErr: "path is required"},
 		{name: "uppercase", config: WebhookSourceConfig{Path: "CI"}, wantErr: "invalid path"},

@@ -8,6 +8,8 @@
 
 import IconWebhook from '~icons/lucide/webhook'
 
+import { isFeedIcon } from '../../../lib/feedIcons'
+
 export const type = 'webhook-source'
 export const role = 'source' as const
 
@@ -22,6 +24,11 @@ export interface Config {
    * the X-Hive-Secret request header.
    */
   secret?: string
+  /**
+   * Optional glyph feed rows render for this node's items, from the shared
+   * feed icon set. Empty means the default webhook glyph.
+   */
+  icon?: string
 }
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -53,5 +60,6 @@ export function validate(config: Config): string[] {
   const secret = config.secret ?? ''
   if (secret.length > 128) errors.push('secret caps at 128 characters')
   else if (secret && !/^[!-~]+$/.test(secret)) errors.push('secret must be printable ASCII without spaces')
+  if (config.icon && !isFeedIcon(config.icon)) errors.push(`"${config.icon}" is not a supported feed icon`)
   return errors
 }

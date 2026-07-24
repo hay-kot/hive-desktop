@@ -10,7 +10,8 @@ import { computed, onMounted, ref } from 'vue'
 import { Capture, Info } from '../../../../bindings/github.com/hay-kot/hive-desktop/desktop/webhookservice'
 import BaseButton from '../../../components/BaseButton.vue'
 import { useClipboard } from '../../../composables/useClipboard'
-import { TextField } from '../../fields'
+import { defaultWebhookSourceIcon, feedIconOptions } from '../../../lib/feedIcons'
+import { SearchableSelectField, TextField } from '../../fields'
 import type { Config } from './config'
 import { buildTransformPrompt } from './prompt'
 
@@ -69,6 +70,12 @@ function updateSecret(secret: string) {
   emit('update:config', { ...props.config, secret: secret || undefined })
 }
 
+const iconOptions = feedIconOptions.map((o) => ({ value: o.value, label: o.label, icon: o.component }))
+
+function updateIcon(icon: string) {
+  emit('update:config', { ...props.config, icon: icon || undefined })
+}
+
 const endpointUrl = computed(() => {
   if (!info.value || !props.config.path?.trim()) return ''
   return info.value.baseUrl + props.config.path
@@ -117,6 +124,15 @@ function onCopyPrompt() {
       monospace
       testid="webhook-source-editor-secret"
       @update:model-value="updateSecret"
+    />
+    <SearchableSelectField
+      label="Item icon"
+      :model-value="config.icon || defaultWebhookSourceIcon"
+      :options="iconOptions"
+      search-placeholder="Search icons…"
+      hint="Shown on this source's items in feeds."
+      testid="webhook-source-editor-icon"
+      @update:model-value="updateIcon"
     />
 
     <div v-if="endpointUrl">

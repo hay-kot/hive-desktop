@@ -63,8 +63,12 @@ const entries = computed<MenuEntry[]>(() => {
     { kind: 'action', id: 'toggle-archive', label: item.archivedAt ? 'Move to inbox' : 'Archive', icon: IconArchive, kbd: kbdFor('feed.toggle-archive'), testid: 'menu-toggle-archive' },
     { kind: 'action', id: 'toggle-ignored', label: item.ignoredAt ? 'Stop ignoring' : 'Ignore', icon: IconEyeOff, testid: 'menu-toggle-ignored' },
     { kind: 'separator' },
-    { kind: 'action', id: 'open-browser', label: 'Open in browser', icon: IconExternalLink, kbd: kbdFor('feed.open-in-browser'), testid: 'menu-open-browser' },
-    { kind: 'action', id: 'copy-link', label: 'Copy link', icon: IconLink, testid: 'menu-copy-link' },
+    // Link entries only when the item carries a URL — webhook payloads
+    // without one have nothing to open or copy.
+    ...(item.url ? [
+      { kind: 'action', id: 'open-browser', label: 'Open in browser', icon: IconExternalLink, kbd: kbdFor('feed.open-in-browser'), testid: 'menu-open-browser' },
+      { kind: 'action', id: 'copy-link', label: 'Copy link', icon: IconLink, testid: 'menu-copy-link' },
+    ] satisfies MenuEntry[] : []),
     { kind: 'action', id: 'copy-contents', label: 'Copy contents', icon: IconCopy, testid: 'menu-copy-contents' },
   ]
   if (menuActions.value.length) {

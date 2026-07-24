@@ -39,4 +39,10 @@ describe('webhook-source validate', () => {
     bad({ path: 'ci', secret: 's'.repeat(129) }, 'secret caps at 128')
     bad({ path: 'ci', secret: 'no spaces' }, 'printable ASCII')
   })
+
+  it('accepts feed icons and rejects unknown ones', () => {
+    ok({ path: 'ci', icon: 'bell' })
+    ok({ path: 'ci', icon: 'webhook' })
+    bad({ path: 'ci', icon: 'no-such-icon' }, 'not a supported feed icon')
+  })
 })

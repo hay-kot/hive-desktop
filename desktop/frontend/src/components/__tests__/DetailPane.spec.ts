@@ -87,6 +87,29 @@ describe('DetailPane', () => {
     expect(wrapper.emitted('run-action')).toEqual([['summarize']])
   })
 
+  it('labels non-GitHub items with the neutral kind pill instead of Issue', () => {
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', status: 'failure' } }
+    const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
+    expect(wrapper.get('[data-testid="kind-pill"]').text()).toBe('Item')
+    expect(wrapper.get('[data-testid="kind-pill"]').classes()).toContain('kind-pill-neutral')
+    expect(wrapper.get('[data-testid="source-badge"]').attributes('data-source')).toBe('webhook')
+    expect(wrapper.text()).not.toContain('#42')
+  })
+
+  it('hides the open button and the ACTIONS block for webhook items', () => {
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1' } }
+    const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
+    expect(wrapper.find('button.open-button').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('ACTIONS')
+    expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
+  })
+
+  it('keeps the open button for webhook items that carry a URL', () => {
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', payload: { id: 'run-1', url: 'https://ci.example.com/run/1' } }
+    const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
+    expect(wrapper.find('button.open-button').exists()).toBe(true)
+  })
+
   it('renders the Observed activity timeline in supplied chronological order', () => {
     const wrapper = mount(DetailPane, { props: { item, actions, events: [
       { id: 1, itemId: 42, kind: 'created', transition: 'created', attention: 'activity', summary: 'first observation', createdAt: 1 },

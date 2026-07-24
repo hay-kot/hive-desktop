@@ -28,6 +28,10 @@ type WebhookSourceConfig struct {
 	// Secret, when set, requires senders to present the same value in the
 	// X-Hive-Secret request header. Requests without it are rejected 401.
 	Secret string `json:"secret,omitempty" yaml:"secret,omitempty"`
+	// Icon is the glyph feed rows render for this node's items, from the
+	// shared feed icon set. Purely cosmetic; empty means the default webhook
+	// glyph.
+	Icon string `json:"icon,omitempty" yaml:"icon,omitempty"`
 }
 
 func (c *WebhookSourceConfig) Inputs() int  { return 0 }
@@ -53,6 +57,9 @@ func (c *WebhookSourceConfig) Validate(Refs) error {
 		if r < '!' || r > '~' {
 			return fmt.Errorf("webhook-source: secret must be printable ASCII without spaces")
 		}
+	}
+	if c.Icon != "" && !feedIcons[c.Icon] {
+		return fmt.Errorf("webhook-source: icon %q is not a supported feed icon", c.Icon)
 	}
 	return nil
 }

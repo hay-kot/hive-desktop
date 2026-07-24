@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import ItemActionMenu from './ItemActionMenu.vue'
 import SourceMark from './SourceMark.vue'
 import { relativeAge } from '../lib/age'
+import { defaultWebhookSourceIcon, feedIconComponent } from '../lib/feedIcons'
 import { bodySnippet, feedSource, githubPayload, typeLabel } from '../lib/feedPresentation'
 import IconArchive from '~icons/lucide/archive'
 import IconEllipsis from '~icons/lucide/ellipsis'
@@ -10,7 +11,7 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
 import type { InboxItem } from '../types/feed'
 
-const props = defineProps<{ item: InboxItem; archived?: boolean; trash?: boolean; selected: boolean }>()
+const props = defineProps<{ item: InboxItem; archived?: boolean; trash?: boolean; selected: boolean; sourceIcons?: Record<string, string> }>()
 const emit = defineEmits<{
   select: []
   'set-unread': [unread: boolean]
@@ -22,6 +23,9 @@ const emit = defineEmits<{
   'run-action': [actionId: string]
 }>()
 const source = computed(() => feedSource(props.item))
+// Webhook items render their source node's configured feed icon (falling
+// back to the webhook glyph); GitHub keeps its brand mark inside SourceMark.
+const sourceIcon = computed(() => source.value.key === 'webhook' ? feedIconComponent(props.sourceIcons?.[props.item.sourceScope] || defaultWebhookSourceIcon) : undefined)
 const github = computed(() => githubPayload(props.item))
 const type = computed(() => typeLabel(github.value.kind))
 const snippet = computed(() => bodySnippet(github.value.body))
@@ -52,10 +56,10 @@ function toggleMenu(): void {
        select like the button did (`.self` so pill keystrokes don't select). -->
   <div ref="root" class="feed-item" :class="{ selected, 'menu-open': menuOpen }" role="button" tabindex="0" :data-id="item.externalId" :data-inbox-id="item.id" data-testid="feed-item" @click="emit('select')" @keydown.enter.self.prevent="emit('select')" @keydown.space.self.prevent="emit('select')" @contextmenu.prevent="openMenu()">
     <div class="relative flex items-start gap-3">
-      <span class="source-badge" :data-source="source.key" data-testid="source-badge"><SourceMark :source="source" class="size-4" /></span>
+      <span class="source-badge" :data-source="source.key" data-testid="source-badge"><SourceMark :source="source" :icon="sourceIcon" class="size-4" /></span>
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2.5"><div class="min-w-0 flex-1 truncate text-left text-[13.5px] leading-[1.35]" :class="item.unread ? 'font-semibold text-text' : 'font-normal text-text-2'">{{ item.title }}</div><div class="meta-right flex shrink-0 items-center gap-2"><span v-if="item.unread" data-testid="unread-dot" class="unread-dot" /><span class="font-mono text-[11px] text-text-4">{{ relativeAge(item.lastEventAt) }}</span></div></div>
-        <div class="mt-[5px] flex min-w-0 items-center gap-2"><span v-if="archived && item.archivedReason" class="type-pill type-pill-neutral" data-testid="archive-reason">{{ item.archivedReason }}</span><span v-if="trash && item.ignoredAt != null" class="type-pill type-pill-neutral" data-testid="ignored-pill">ignored</span><span class="type-pill" :class="typePillClass" data-testid="type-pill" :data-kind="github.kind">{{ type }}</span><span class="min-w-0 truncate font-mono text-[11px] text-text-3">{{ source.label }} · {{ github.repo }} #{{ github.num }}</span></div>
+        <div class="mt-[5px] flex min-w-0 items-center gap-2"><span v-if="archived && item.archivedReason" class="type-pill type-pill-neutral" data-testid="archive-reason">{{ item.archivedReason }}</span><span v-if="trash && item.ignoredAt != null" class="type-pill type-pill-neutral" data-testid="ignored-pill">ignored</span><span class="type-pill" :class="typePillClass" data-testid="type-pill" :data-kind="github.kind">{{ type }}</span><span class="min-w-0 truncate font-mono text-[11px] text-text-3">{{ source.label }}<template v-if="github.repo"> · {{ github.repo }}</template><template v-if="github.num"> #{{ github.num }}</template></span></div>
         <div v-if="github.author || snippet" class="mt-[5px] truncate text-left text-[12px] leading-[1.4] text-text-3" data-testid="item-snippet"><span v-if="github.author" class="text-text-2">{{ github.author }}</span><template v-if="github.author && snippet"> — </template>{{ snippet }}</div>
       </div>
     </div>
@@ -64,7 +68,7 @@ function toggleMenu(): void {
     <div class="hover-actions" data-testid="row-hover-actions" @click.stop>
       <button v-if="trash" class="hover-action" type="button" title="Stop ignoring" aria-label="Stop ignoring" data-testid="row-restore" @click="emit('toggle-ignored')"><IconEye class="size-[15px]" /></button>
       <button v-else class="hover-action" type="button" :title="item.archivedAt ? 'Move to inbox' : 'Archive'" :aria-label="item.archivedAt ? 'Move to inbox' : 'Archive'" data-testid="row-archive" @click="emit('toggle-archive')"><IconArchive class="size-[15px]" /></button>
-      <button class="hover-action" type="button" title="Open in browser" aria-label="Open in browser" data-testid="row-open" @click="emit('open-browser')"><IconExternalLink class="size-[15px]" /></button>
+      <button v-if="item.url" class="hover-action" type="button" title="Open in browser" aria-label="Open in browser" data-testid="row-open" @click="emit('open-browser')"><IconExternalLink class="size-[15px]" /></button>
       <div class="relative">
         <button ref="menuToggle" class="hover-action" type="button" title="More actions" aria-label="More actions" aria-haspopup="menu" :aria-expanded="menuOpen" data-testid="row-menu-toggle" @click="toggleMenu()"><IconEllipsis class="size-[15px]" /></button>
         <ItemActionMenu

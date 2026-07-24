@@ -40,6 +40,13 @@ describe('ItemActionMenu', () => {
     expect(wrapper.find('.app-menu-label').exists()).toBe(false)
   })
 
+  it('hides the link entries when the item has no URL', () => {
+    const wrapper = mountMenu({ url: '' })
+    expect(wrapper.find('[data-testid="menu-open-browser"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="menu-copy-link"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="menu-copy-contents"]').exists()).toBe(true)
+  })
+
   it('emits a semantic event plus close for every built-in entry', async () => {
     const wrapper = mountMenu()
     await wrapper.get('[data-testid="menu-toggle-read"]').trigger('click')

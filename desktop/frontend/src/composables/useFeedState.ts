@@ -62,6 +62,10 @@ export function useFeedState() {
   // the rows the user sees. Cleared on feed/profile switch (see selectSidebar).
   const search = ref('')
   const items = ref<InboxItem[]>([])
+  // Per-source-node feed icons for the active flow (node id → icon key),
+  // read from webhook-source configs in loadFeeds. Feed rows and the detail
+  // pane look up an item's glyph by its sourceScope (the source node id).
+  const sourceIcons = ref<Record<string, string>>({})
   // The selected feed's archived section: collapsed by default, lazy-loaded
   // when expanded. Never populated for trash.
   const archivedItems = ref<InboxItem[]>([])
@@ -291,6 +295,11 @@ export function useFeedState() {
           const c = countByFeed.get(feedId)
           return { id: feedId, name: n.name || n.id, count: c?.total ?? 0, newCount: c?.unread ?? 0, archivedCount: c?.archived ?? 0, icon: n.icon, description: n.description }
         })
+      const icons: Record<string, string> = {}
+      for (const n of nodes) {
+        if (n.type === 'webhook-source' && n.icon) icons[n.id] = n.icon
+      }
+      sourceIcons.value = icons
       const sourceCount = nodes.filter((n) => n.type === 'github-source').length
       const profile = profiles.value.find((p) => p.id === flowId)
       if (profile) {
@@ -885,6 +894,7 @@ export function useFeedState() {
     activeProfileId,
     selection,
     items,
+    sourceIcons,
     visibleItems,
     visibleArchivedItems,
     archivedExpanded,

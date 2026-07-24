@@ -52,6 +52,28 @@ describe('FeedListItem', () => {
     expect(wrapper.get('[data-testid="row-restore"]').attributes('aria-label')).toBe('Stop ignoring')
   })
 
+  it('renders webhook items with the source node icon and no open affordance without a URL', () => {
+    const wrapper = mount(FeedListItem, { props: {
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', status: 'failure' } },
+      selected: false,
+      sourceIcons: { 'webhook-source-1': 'bell' },
+    } })
+    const badge = wrapper.get('[data-testid="source-badge"]')
+    expect(badge.attributes('data-source')).toBe('webhook')
+    expect(badge.find('svg').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="type-pill"]').text()).toBe('Item')
+    expect(wrapper.find('[data-testid="row-open"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('#')
+  })
+
+  it('falls back to the webhook glyph when the source node has no configured icon', () => {
+    const wrapper = mount(FeedListItem, { props: {
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: {} },
+      selected: false,
+    } })
+    expect(wrapper.get('[data-testid="source-badge"]').find('svg').exists()).toBe(true)
+  })
+
   it('opens the item menu from the kebab and from right-click and relays its intents', async () => {
     const wrapper = mountItem()
     await wrapper.get('[data-testid="row-menu-toggle"]').trigger('click')

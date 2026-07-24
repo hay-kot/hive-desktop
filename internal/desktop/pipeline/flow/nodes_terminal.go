@@ -5,11 +5,12 @@ import (
 	"unicode/utf8"
 )
 
-// feedIcons is the scoped set of sidebar glyphs a feed node may carry. It is
-// intentionally small (a curated list rather than every available icon) and
-// must stay in sync with the frontend's feed icon registry
+// feedIcons is the scoped set of glyphs a feed node (sidebar entry) or
+// webhook-source node (feed-item rows) may carry. It is intentionally small
+// (a curated list rather than every available icon) and must stay in sync
+// with the frontend's feed icon registry
 // (desktop/frontend/src/lib/feedIcons.ts). An empty Icon means "use the
-// sidebar default", so the empty string is always allowed.
+// default", so the empty string is always allowed.
 var feedIcons = map[string]bool{
 	"git-branch":       true,
 	"git-pull-request": true,
@@ -17,6 +18,7 @@ var feedIcons = map[string]bool{
 	"message-square":   true,
 	"at-sign":          true,
 	"rss":              true,
+	"webhook":          true,
 	"bell":             true,
 	"eye":              true,
 	"star":             true,
