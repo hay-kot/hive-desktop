@@ -47,27 +47,29 @@ desktop/
 
 ## Publish flow
 
-The pipeline is the Go CLI in `cmd/release`. Its `publish` command builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, verifies the extracted archive's signature and stapled ticket, writes `SHA256SUMS`, uploads to `releases/<semver>/`, and writes channel manifests. `next`, `prepare`, and `verify` handle version selection, preflight validation, and live artifact verification without separate scripts. Channel routing and cascade follow the rules below.
+The pipeline is the Go CLI in `cmd/release`. Its `publish` command builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, verifies the extracted archive's signature and stapled ticket, writes `SHA256SUMS`, uploads to `releases/<semver>/`, writes channel manifests, and verifies the live artifact. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
-**CI release** (the normal path): push a `desktop-v<semver>` tag; `.github/workflows/desktop-publish.yml` wraps the same script on a macOS runner using the repo secrets.
+**Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise; tag afterwards):
+
+```bash
+go run ./cmd/release prepare dev 1.4.0-dev.1
+mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --force
+git tag desktop-v1.4.0-dev.1             # local only; do not push after a local upload
+```
+
+`publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256 before it succeeds. `verify` remains available for later diagnostics without rebuilding.
+
+**CI release** (explicit alternative): create and push `desktop-v<semver>` at the current `main` commit. `.github/workflows/desktop-publish.yml` runs the same gates as the local release procedure, then wraps the publisher on a macOS runner using repository secrets.
 
 ```bash
 git tag desktop-v1.4.0-dev.1 && git push origin desktop-v1.4.0-dev.1
 ```
 
-**Local release** (secrets from the gitignored repo-root `.env`, loaded by mise; tag afterwards):
-
-```bash
-go run ./cmd/release prepare dev 1.4.0-dev.1
-mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --force
-go run ./cmd/release verify 1.4.0-dev.1
-git tag desktop-v1.4.0-dev.1             # local only; do not push after a local upload
-```
-
 Rules enforced by the script:
-1. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
-2. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
-3. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+1. Release preparation requires a clean, current `main`. Publishing requires the same state locally, or a detached CI checkout whose exact version tag points at a commit on `origin/main`. Source state is checked again immediately before upload.
+2. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
+3. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
+4. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
 
 ## Auto-update
 

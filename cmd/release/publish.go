@@ -46,8 +46,6 @@ type publisher struct {
 	workDir           string
 	keychainPath      string
 	originalKeychains []string
-	plistPath         string
-	plistContents     []byte
 }
 
 func publish(ctx context.Context, args []string) error {
@@ -56,6 +54,9 @@ func publish(ctx context.Context, args []string) error {
 		return err
 	}
 	if !options.skipUpload {
+		if err := validatePublishSource(ctx, options.version); err != nil {
+			return err
+		}
 		manifests, err := readManifests(ctx)
 		if err != nil {
 			return err
@@ -170,11 +171,6 @@ func (p *publisher) run(ctx context.Context) error {
 		return fmt.Errorf("create release work directory: %w", err)
 	}
 	p.workDir = workDir
-	p.plistPath = filepath.Join("desktop", "build", "darwin", "Info.plist")
-	p.plistContents, err = os.ReadFile(p.plistPath)
-	if err != nil {
-		return fmt.Errorf("read Info.plist: %w", err)
-	}
 	defer func() {
 		if err := p.cleanup(); err != nil {
 			fmt.Fprintf(os.Stderr, "warning: release cleanup failed: %v\n", err)
@@ -203,9 +199,12 @@ func (p *publisher) run(ctx context.Context) error {
 		fmt.Printf("==> skipping upload (--skip-upload); artifact at %s\n", zipPath)
 		return nil
 	}
-	// Re-read immediately before the irreversible upload. The build and Apple
-	// notarization can take hours, so the channel may have advanced since the
-	// fail-fast validation at command startup.
+	// Re-check source state and manifests immediately before the irreversible
+	// upload. The build and Apple notarization can take hours, so either may have
+	// changed since the fail-fast validation at command startup.
+	if err := validatePublishSource(ctx, p.options.version); err != nil {
+		return err
+	}
 	manifests, err := readManifests(ctx)
 	if err != nil {
 		return err
@@ -253,26 +252,20 @@ func (p *publisher) cleanup() error {
 	if err := os.RemoveAll(p.workDir); cleanupErr == nil && err != nil {
 		cleanupErr = err
 	}
-	if err := os.WriteFile(p.plistPath, p.plistContents, 0o644); cleanupErr == nil && err != nil {
-		cleanupErr = fmt.Errorf("restore Info.plist: %w", err)
-	}
 	return cleanupErr
 }
 
 func (p *publisher) build(ctx context.Context) error {
-	base := p.options.version.base
-	baseText := fmt.Sprintf("%d.%d.%d", base.major, base.minor, base.patch)
-	for _, key := range []string{"CFBundleShortVersionString", "CFBundleVersion"} {
-		if err := runCommand(ctx, "/usr/libexec/PlistBuddy", "-c", "Set :"+key+" "+baseText, p.plistPath); err != nil {
-			return err
-		}
+	commit, err := gitHead(ctx)
+	if err != nil {
+		return err
 	}
 	fmt.Println("==> building universal .app")
 	command := exec.CommandContext(ctx, "mise", "x", "--", "wails3", "task", "darwin:package:universal")
 	command.Dir = "desktop"
 	command.Env = append(os.Environ(),
 		"HIVE_DESKTOP_VERSION="+p.options.version.String(),
-		"HIVE_DESKTOP_COMMIT="+gitHead(ctx),
+		"HIVE_DESKTOP_COMMIT="+commit,
 		"HIVE_DESKTOP_DATE="+time.Now().UTC().Format(time.RFC3339),
 	)
 	command.Stdout = os.Stdout
@@ -280,18 +273,27 @@ func (p *publisher) build(ctx context.Context) error {
 	if err := command.Run(); err != nil {
 		return fmt.Errorf("build universal app: %w", err)
 	}
-	if info, err := os.Stat(filepath.Join("desktop", "bin", "Hive.app")); err != nil || !info.IsDir() {
+	app := filepath.Join("desktop", "bin", "Hive.app")
+	if info, err := os.Stat(app); err != nil || !info.IsDir() {
 		return errors.New("build did not produce desktop/bin/Hive.app")
+	}
+	base := p.options.version.base
+	baseText := fmt.Sprintf("%d.%d.%d", base.major, base.minor, base.patch)
+	plistPath := filepath.Join(app, "Contents", "Info.plist")
+	for _, key := range []string{"CFBundleShortVersionString", "CFBundleVersion"} {
+		if err := runCommand(ctx, "/usr/libexec/PlistBuddy", "-c", "Set :"+key+" "+baseText, plistPath); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-func gitHead(ctx context.Context) string {
+func gitHead(ctx context.Context) (string, error) {
 	output, err := commandOutput(ctx, "git", "rev-parse", "HEAD")
 	if err != nil {
-		return "HEAD"
+		return "", fmt.Errorf("resolve build commit: %w", err)
 	}
-	return strings.TrimSpace(output)
+	return strings.TrimSpace(output), nil
 }
 
 func (p *publisher) sign(ctx context.Context) error {
