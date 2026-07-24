@@ -23,6 +23,17 @@ Release CI signs and notarizes the macOS app, then uploads versioned artifacts p
 - Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them.
 - Concrete distribution facts (bucket, domains, manifest schema, publish/rollback runbook, credentials) live in `docs/distribution.md` — keep it current when infra changes.
 
+## Quality gates
+
+Every gate is a mise task (`mise tasks`); lefthook runs the relevant ones as git hooks so they fire without anyone remembering to. `mise install` wires them up (mise `postinstall` → `scripts/hooks/install.sh`); re-run `mise run setup` after editing `lefthook.yml`. CI remains the source of truth — hooks are a fast local mirror.
+
+- **pre-commit** (~0.1s): formats staged Go files (`golangci-lint fmt`) and re-stages them; blocks edits to vendored `internal/hivecore/`; when a generator input is staged, regenerates and blocks if the committed output differs. A partially staged Go file gets its unstaged hunks staged too — stage whole files.
+- **pre-push** (~2s, ~6s when the push touches `desktop/frontend/`): `check:generate`, `check:tidy`, `lint`, `test`, and the frontend unit tests. Jobs are piped, so the first failure stops the rest.
+
+Wails TS bindings and the e2e suite are deliberately not hooked — both need a full app build. Run `mise run desktop:generate` / `mise run desktop:e2e` when the change warrants it; CI covers them either way.
+
+**Never bypass a hook** — no `LEFTHOOK=0`, `git commit -n`, or `git push --no-verify`. The escape hatch exists for human emergencies; a failing gate is a task to finish, not a flag to add.
+
 ## Git standards
 
 - Never push to main; branch and PR (`feat/`, `chore/`, `fix/` prefixes).

@@ -4,6 +4,7 @@
 "go:github.com/abice/go-enum" = "v0.9.4"
 "github:sqlc-dev/sqlc" = "v1.31.1"
 golangci-lint = "2.12.2"
+lefthook = "2.1.10"
 
 [env]
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
@@ -11,6 +12,15 @@ golangci-lint = "2.12.2"
 GOPRIVATE = "github.com/colonyops/hive"
 # Local secrets (release signing/notary/R2). Gitignored; absent in CI.
 _.file = { path = ".env", redact = true }
+
+# Wires .git/hooks to lefthook after `mise install`, so a fresh clone gets the
+# quality gates without a separate manual step. Idempotent; safe to re-run.
+[hooks]
+postinstall = "{{config_root}}/scripts/hooks/install.sh"
+
+[tasks.setup]
+description = "Install the lefthook git hooks (runs automatically after `mise install`)"
+run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
 description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
@@ -53,9 +63,41 @@ run = "golangci-lint run ./..."
 description = "Run golangci-lint fmt"
 run = "golangci-lint fmt ./..."
 
+[tasks."fmt:files"]
+description = "Run golangci-lint fmt on the given Go files (pre-commit hook target)"
+run = "golangci-lint fmt"
+
 [tasks.check]
 description = "Run tidy, lint, and test"
 run = ["go mod tidy", { tasks = ["lint", "test"] }]
+
+[tasks."check:tidy"]
+description = "Verify go.mod/go.sum are tidy without rewriting them"
+run = "go mod tidy -diff"
+
+[tasks."check:generate"]
+description = "Verify generated code (enums, sqlc) matches its sources"
+run = """
+mise run --force generate
+git diff --exit-code -- '*_enum.go' internal/desktop/pipeline/pipelinedb || {
+  echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
+  exit 1
+}
+"""
+
+[tasks."check:vendor"]
+description = "Verify internal/hivecore matches the pinned hive commit (network: fetches hive)"
+run = """
+go run ./scripts/vendorhive -skip-gomod
+# -N registers files vendorhive created that the checkout lacks (e.g. a new
+# embed asset) so git diff reports them as drift too — plain git diff cannot
+# see untracked files.
+git add -N internal/hivecore
+git diff --exit-code -- internal/hivecore || {
+  echo "internal/hivecore has drifted. Never edit vendored code; run 'mise run vendor' after landing changes in hive." >&2
+  exit 1
+}
+"""
 
 [tasks."desktop:dev"]
 description = "Run the desktop app in dev mode (wails3 dev). Picks a free Vite port so instances run concurrently; injects the git branch for the dev bar."
@@ -92,9 +134,15 @@ run = [
   "./desktop/bin/hive-desktop-server",
 ]
 
+[tasks."desktop:test:frontend"]
+description = "Run desktop frontend unit tests (vitest)"
+dir = "desktop/frontend"
+run = "npm test"
+
 [tasks."desktop:test"]
 description = "Run desktop frontend + Go tests"
-run = ["cd desktop/frontend && npm test", "go test ./desktop/... ./internal/desktop/..."]
+depends = ["desktop:test:frontend"]
+run = "go test ./desktop/... ./internal/desktop/..."
 
 [tasks."desktop:e2e"]
 description = "Run desktop e2e tests in the pinned Docker/Playwright environment"

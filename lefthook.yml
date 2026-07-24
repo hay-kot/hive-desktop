@@ -1,0 +1,93 @@
+# Git hooks, managed by lefthook. Installed by `mise install` (see the
+# [hooks] postinstall in mise.toml) or `mise run setup`.
+#
+# Jobs delegate to mise tasks so the gate definitions live in mise.toml alone
+# and cannot drift from what CI runs. CI stays the source of truth; these hooks
+# are a fast local mirror of it, not a replacement.
+#
+# Emergency escape hatch: `LEFTHOOK=0 git commit ...` / `git push --no-verify`.
+# Agents must never use it — see AGENTS.md.
+
+assert_lefthook_installed: true
+
+# Seconds, not minutes: formatting and cheap hygiene only. Anything that
+# compiles or tests belongs in pre-push.
+#
+# piped, not parallel: `mise run fmt:files` and the generators both rewrite .go
+# files that the other reads, so running them concurrently risks a torn read
+# and a failure nobody can reproduce. Sequential costs ~0.5s at worst.
+pre-commit:
+  piped: true
+  jobs:
+    # internal/hivecore is vendored; edits belong in colonyops/hive followed by
+    # `mise run vendor`. The real drift check needs the network, so pre-commit
+    # only catches the local case: hivecore changing without the pin moving.
+    # CI runs the authoritative check (`mise run check:vendor`). First in the
+    # pipe: cheapest, and the most useful failure to see on its own.
+    - name: vendored-code
+      # lefthook globs are separator-blind: `*` matches nested paths too, and
+      # `internal/hivecore/**/*` would miss files sitting directly in that dir.
+      glob: "internal/hivecore/*"
+      fail_text: "internal/hivecore is vendored from colonyops/hive — never edit it here. Land the change in hive, then run 'mise run vendor'."
+      run: |
+        if [ -n "$(git diff --cached --name-only -- scripts/vendorhive/vendor.lock)" ]; then
+          exit 0
+        fi
+        exit 1
+
+    # Formats staged Go files in place and re-stages them, rather than failing
+    # the commit — an agent loop that has to re-run and re-commit for
+    # whitespace wastes a turn. Caveat: a file that is only partially staged
+    # gets its unstaged hunks staged along with the formatting.
+    - name: gofmt
+      glob: "*.go"
+      exclude:
+        - "internal/hivecore/*"
+      run: mise run fmt:files {staged_files}
+      stage_fixed: true
+
+    # Only fires when a generator input is staged, so ordinary commits pay
+    # nothing for it.
+    - name: generated-code
+      glob:
+        - "sqlc.yaml"
+        - "internal/desktop/pipeline/pipelinedb/queries/*.sql"
+        - "internal/desktop/pipeline/pipelinedb/migrations/*.sql"
+        - "internal/desktop/activity/activity.go"
+        - "internal/desktop/jobs/jobs.go"
+        - "internal/desktop/pipeline/pipelinedb/classify.go"
+        - "internal/desktop/pipeline/flow/flow.go"
+        - "desktop/pipelineservice.go"
+      run: mise run check:generate
+
+# Push is the meaningful boundary for headless work — the wrap/PR step — so the
+# full gates run here. Wails TS bindings and the e2e suite are deliberately
+# absent: both need a full app build (minutes), and CI covers them.
+#
+# piped for the same reason as pre-commit: check:generate rewrites the .go files
+# that lint and test are reading. ~3s for a Go-only push, ~7s with the frontend.
+pre-push:
+  piped: true
+  jobs:
+    # First: it rewrites generated files, so nothing else may be reading them.
+    - name: generated-code
+      run: mise run check:generate
+
+    - name: tidy
+      fail_text: "go.mod/go.sum are not tidy. Run 'go mod tidy' and commit the result."
+      run: mise run check:tidy
+
+    - name: lint
+      run: mise run lint
+
+    - name: test
+      run: mise run test
+
+    - name: frontend-test
+      glob: "desktop/frontend/*"
+      run: |
+        if [ ! -d desktop/frontend/node_modules ]; then
+          echo "SKIP frontend tests: desktop/frontend/node_modules is missing (run 'cd desktop/frontend && npm ci')." >&2
+          exit 0
+        fi
+        mise run desktop:test:frontend

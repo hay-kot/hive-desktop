@@ -13,6 +13,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0003](decisions/0003-r2-manifest-distribution.md) | Distribution and auto-update via R2 + channel manifests |
 | [0004](decisions/0004-release-channels.md) | Release channels: stable, beta, dev |
 | [0005](decisions/0005-web-workers-static-assets.md) | Landing page as Cloudflare Workers static assets |
+| [0006](decisions/0006-lefthook-quality-gates.md) | Quality gates enforced by lefthook git hooks |
 
 ## References
 
