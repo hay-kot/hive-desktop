@@ -12,7 +12,7 @@ import (
 // Build information for the desktop app. Populated at build time via
 // -ldflags "-X main.version=... -X main.commit=... -X main.date=...". The
 // production build in desktop/build/darwin/Taskfile.yml and the release
-// pipeline (scripts/release/release-desktop.sh, wrapped by the
+// pipeline (cmd/release, wrapped by the
 // desktop-publish workflow) stamp the release version, commit SHA, and build
 // date here so the running app can report exactly what it is.
 //
@@ -85,7 +85,7 @@ func releaseURL(version string) string {
 }
 
 // releaseVersionRE matches the closed set of publishable versions enforced by
-// scripts/release/release-desktop.sh: X.Y.Z with an optional -dev.N / -beta.N
+// cmd/release: X.Y.Z with an optional -dev.N / -beta.N
 // prerelease identifier.
 var releaseVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-(dev|beta)\.[0-9A-Za-z.]+)?$`)
 

@@ -3,18 +3,14 @@
 // in vendor.lock; hive pkg/ packages stay a normal go.mod dependency pinned to
 // the same commit. Vendored code is read-only — change hive first, re-run this.
 //
-// Usage:
-//
-//	go run ./scripts/vendorhive [-repo-path /path/to/hive] [-update <ref>] [-skip-gomod]
-//
-// With -repo-path the source tree is materialized from that local checkout
+// With --repo-path the source tree is materialized from that local checkout
 // (git archive); otherwise the repo from vendor.lock is cloned shallowly.
-// -update resolves <ref> to a commit SHA, rewrites vendor.lock, then syncs.
+// --update resolves a ref to a commit SHA, rewrites vendor.lock, then syncs.
 package main
 
 import (
+	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"go/parser"
 	"go/token"
@@ -24,10 +20,12 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/urfave/cli/v3"
 )
 
 const (
-	lockPath    = "scripts/vendorhive/vendor.lock"
+	lockPath    = "cmd/vendorhive/vendor.lock"
 	vendorDir   = "internal/hivecore"
 	hiveModule  = "github.com/colonyops/hive"
 	selfModule  = "github.com/hay-kot/hive-desktop"
@@ -41,12 +39,41 @@ type lockFile struct {
 }
 
 func main() {
-	repoPath := flag.String("repo-path", "", "local hive checkout to read from (default: clone)")
-	update := flag.String("update", "", "resolve this ref, rewrite vendor.lock, then sync")
-	skipGomod := flag.Bool("skip-gomod", false, "skip go get/go mod tidy after sync")
-	flag.Parse()
-
-	if err := run(*repoPath, *update, *skipGomod); err != nil {
+	command := &cli.Command{
+		Name:  "vendorhive",
+		Usage: "sync Hive internal packages into internal/hivecore",
+		Description: "Reads the commit pinned in cmd/vendorhive/vendor.lock, computes the transitive " +
+			"closure of imported Hive internal packages, copies them into internal/hivecore, rewrites imports, " +
+			"and keeps the Hive module dependency at the same commit.",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "repo-path",
+				Usage: "materialize the pinned commit from a local Hive checkout instead of cloning",
+			},
+			&cli.StringFlag{
+				Name:  "update",
+				Usage: "resolve `REF`, update vendor.lock, then sync",
+			},
+			&cli.BoolFlag{
+				Name:  "skip-gomod",
+				Usage: "skip go get and go mod tidy after syncing",
+			},
+		},
+		Action: func(_ context.Context, cmd *cli.Command) error {
+			if cmd.NArg() != 0 {
+				return cli.Exit("vendorhive does not accept positional arguments", 2)
+			}
+			root, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+			if err != nil {
+				return fmt.Errorf("resolve repository root: %w", err)
+			}
+			if err := os.Chdir(strings.TrimSpace(string(root))); err != nil {
+				return fmt.Errorf("change to repository root: %w", err)
+			}
+			return run(cmd.String("repo-path"), cmd.String("update"), cmd.Bool("skip-gomod"))
+		},
+	}
+	if err := command.Run(context.Background(), os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, "vendorhive:", err)
 		os.Exit(1)
 	}
@@ -371,7 +398,7 @@ func writeMeta(src string, lock lockFile, pkgs []string) error {
 	}
 	var b strings.Builder
 	b.WriteString("# Vendored hive core\n\n")
-	fmt.Fprintf(&b, "Vendored from `%s` at `%s` by `scripts/vendorhive`.\n\n", lock.Repo, lock.Ref)
+	fmt.Fprintf(&b, "Vendored from `%s` at `%s` by `cmd/vendorhive`.\n\n", lock.Repo, lock.Ref)
 	b.WriteString("**Do not edit anything in this tree.** Change hive first, then re-run\n`mise run vendor`. CI fails on drift. License: see LICENSE (MIT, upstream).\n\nPackages:\n\n")
 	for _, p := range pkgs {
 		fmt.Fprintf(&b, "- %s\n", p)

@@ -31,7 +31,7 @@
   // eight entries restore that default and must stay.
   //
   // internal/hivecore is script-vendored from colonyops/hive at the SHA in
-  // scripts/vendorhive/vendor.lock, and CI fails on any drift — it changes
+  // cmd/vendorhive/vendor.lock, and CI fails on any drift — it changes
   // only via `mise run vendor`. desktop/build is wails3-generated scaffolding
   // that `wails3 update build-assets` regenerates, so bot edits there would be
   // silently reverted (Dockerfile.cross and Dockerfile.server both parse as

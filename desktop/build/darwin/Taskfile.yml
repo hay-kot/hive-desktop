@@ -46,7 +46,7 @@ tasks:
       # HIVE_DESKTOP_{VERSION,COMMIT,DATE} are stamped into the binary's build
       # info vars (desktop/buildinfo.go) so the running app can report its exact
       # version in System settings. The release pipeline
-      # (scripts/release/release-desktop.sh) exports them; local production
+      # (cmd/release) exports them; local production
       # builds fall back to the dev defaults via ${VAR:-...}.
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"'
     vars:

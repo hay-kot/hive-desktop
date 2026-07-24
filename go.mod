@@ -13,6 +13,7 @@ require (
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/rs/zerolog v1.35.1
 	github.com/stretchr/testify v1.11.1
+	github.com/urfave/cli/v3 v3.10.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/mod v0.38.0

@@ -9,9 +9,9 @@ The desktop app imports ~12 packages from hive's `internal/` tree (core config, 
 
 ## Decision
 
-Copy the required hive `internal/` closure into `internal/hivecore/` via an automated sync tool (`scripts/vendorhive`), with imports rewritten to this module's path.
+Copy the required hive `internal/` closure into `internal/hivecore/` via an automated sync tool (`cmd/vendorhive`), with imports rewritten to this module's path.
 
-- `scripts/vendorhive/vendor.lock` pins the hive commit; prefer pinning to tagged hive releases.
+- `cmd/vendorhive/vendor.lock` pins the hive commit; prefer pinning to tagged hive releases.
 - The tool computes the package closure automatically (`go list -deps` over the seed imports in a clone of hive at the pinned SHA), so the vendored surface shrinks as coupling shrinks.
 - Hive's `pkg/**` packages are importable cross-module and stay a normal `go.mod` dependency, pinned to the same SHA by the tool.
 - **Vendored code is read-only.** Changes land in `colonyops/hive` first, then re-vendor. CI runs the tool at the pinned SHA and fails on drift.

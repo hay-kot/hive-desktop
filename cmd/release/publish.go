@@ -1,0 +1,593 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+)
+
+const (
+	defaultR2Bucket    = "hive-desktop-releases"
+	defaultR2AccountID = "bce6b95e4e84d92b1972d3b55b6cfaf6"
+)
+
+type publishOptions struct {
+	version         releaseVersion
+	skipNotarize    bool
+	skipUpload      bool
+	force           bool
+	r2Bucket        string
+	r2AccountID     string
+	r2AccessKey     string
+	r2SecretKey     string
+	downloadBase    string
+	signCertificate string
+	signPassword    string
+	signIdentity    string
+	notaryKey       string
+	notaryKeyID     string
+	notaryIssuerID  string
+}
+
+type publisher struct {
+	options           publishOptions
+	workDir           string
+	keychainPath      string
+	originalKeychains []string
+	plistPath         string
+	plistContents     []byte
+}
+
+func publish(ctx context.Context, args []string) error {
+	options, err := parsePublishOptions(args)
+	if err != nil {
+		return err
+	}
+	if !options.skipUpload {
+		manifests, err := readManifests(ctx)
+		if err != nil {
+			return err
+		}
+		if err := validateManifestAdvancement(options.version, manifests); err != nil {
+			return err
+		}
+	}
+	p := &publisher{options: options}
+	if err := p.run(ctx); err != nil {
+		return err
+	}
+	if options.skipUpload {
+		return nil
+	}
+	return verifyLive(ctx, options.version)
+}
+
+func parsePublishOptions(args []string) (publishOptions, error) {
+	var versionText string
+	options := publishOptions{
+		r2Bucket:     envDefault("R2_BUCKET", defaultR2Bucket),
+		r2AccountID:  envDefault("R2_ACCOUNT_ID", defaultR2AccountID),
+		downloadBase: downloadBaseURL(),
+	}
+	for _, arg := range args {
+		switch arg {
+		case "--skip-notarize":
+			options.skipNotarize = true
+		case "--skip-upload":
+			options.skipUpload = true
+		case "--force":
+			options.force = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return publishOptions{}, fmt.Errorf("unknown flag %s", arg)
+			}
+			if versionText != "" {
+				return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--force]")
+			}
+			versionText = arg
+		}
+	}
+	if versionText == "" {
+		return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--force]")
+	}
+	if options.skipNotarize && !options.skipUpload {
+		return publishOptions{}, errors.New("--skip-notarize requires --skip-upload; public releases must be notarized")
+	}
+	version, err := parsePublishVersion(versionText)
+	if err != nil {
+		return publishOptions{}, fmt.Errorf("invalid version %q: %w", versionText, err)
+	}
+	options.version = version
+	options.signCertificate = os.Getenv("MACOS_CERTIFICATE")
+	options.signPassword = os.Getenv("MACOS_CERTIFICATE_PWD")
+	options.signIdentity = os.Getenv("MACOS_SIGN_IDENTITY")
+	options.notaryKey = os.Getenv("AC_API_KEY")
+	options.notaryKeyID = os.Getenv("AC_API_KEY_ID")
+	options.notaryIssuerID = os.Getenv("AC_API_ISSUER_ID")
+	options.r2AccessKey = os.Getenv("R2_ACCESS_KEY_ID")
+	options.r2SecretKey = os.Getenv("R2_SECRET_ACCESS_KEY")
+
+	missing := missingValues(map[string]string{
+		"MACOS_CERTIFICATE":     options.signCertificate,
+		"MACOS_CERTIFICATE_PWD": options.signPassword,
+		"MACOS_SIGN_IDENTITY":   options.signIdentity,
+	})
+	if !options.skipNotarize {
+		missing = append(missing, missingValues(map[string]string{
+			"AC_API_KEY":       options.notaryKey,
+			"AC_API_KEY_ID":    options.notaryKeyID,
+			"AC_API_ISSUER_ID": options.notaryIssuerID,
+		})...)
+	}
+	if !options.skipUpload {
+		missing = append(missing, missingValues(map[string]string{
+			"R2_ACCESS_KEY_ID":     options.r2AccessKey,
+			"R2_SECRET_ACCESS_KEY": options.r2SecretKey,
+		})...)
+	}
+	if len(missing) > 0 {
+		return publishOptions{}, fmt.Errorf("missing required environment variables: %s", strings.Join(missing, ", "))
+	}
+	return options, nil
+}
+
+func missingValues(values map[string]string) []string {
+	var missing []string
+	for name, value := range values {
+		if value == "" {
+			missing = append(missing, name)
+		}
+	}
+	slices.Sort(missing)
+	return missing
+}
+
+func envDefault(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
+func (p *publisher) run(ctx context.Context) error {
+	if err := p.preflight(ctx); err != nil {
+		return err
+	}
+	workDir, err := os.MkdirTemp("", "hive-desktop-release.*")
+	if err != nil {
+		return fmt.Errorf("create release work directory: %w", err)
+	}
+	p.workDir = workDir
+	p.plistPath = filepath.Join("desktop", "build", "darwin", "Info.plist")
+	p.plistContents, err = os.ReadFile(p.plistPath)
+	if err != nil {
+		return fmt.Errorf("read Info.plist: %w", err)
+	}
+	defer func() {
+		if err := p.cleanup(); err != nil {
+			fmt.Fprintf(os.Stderr, "warning: release cleanup failed: %v\n", err)
+		}
+	}()
+
+	fmt.Printf("==> releasing %s (channel: %s -> manifests: %s)\n", p.options.version, p.options.version.channel(), strings.Join(p.options.version.affectedChannels(), " "))
+	if err := p.build(ctx); err != nil {
+		return err
+	}
+	if err := p.sign(ctx); err != nil {
+		return err
+	}
+	if !p.options.skipNotarize {
+		if err := p.notarize(ctx); err != nil {
+			return err
+		}
+	} else {
+		fmt.Println("==> skipping notarization (--skip-notarize)")
+	}
+	zipPath, checksum, size, err := p.packageApp(ctx)
+	if err != nil {
+		return err
+	}
+	if p.options.skipUpload {
+		fmt.Printf("==> skipping upload (--skip-upload); artifact at %s\n", zipPath)
+		return nil
+	}
+	// Re-read immediately before the irreversible upload. The build and Apple
+	// notarization can take hours, so the channel may have advanced since the
+	// fail-fast validation at command startup.
+	manifests, err := readManifests(ctx)
+	if err != nil {
+		return err
+	}
+	if err := validateManifestAdvancement(p.options.version, manifests); err != nil {
+		return err
+	}
+	return p.upload(ctx, zipPath, checksum, size)
+}
+
+func (p *publisher) preflight(ctx context.Context) error {
+	tools := []string{"/usr/libexec/PlistBuddy", "codesign", "ditto", "mise", "openssl", "security", "/usr/bin/unzip"}
+	if !p.options.skipNotarize {
+		tools = append(tools, "xcrun")
+	}
+	if !p.options.skipUpload {
+		tools = append(tools, "curl")
+	}
+	for _, tool := range tools {
+		if _, err := exec.LookPath(tool); err != nil {
+			return fmt.Errorf("required tool %s: %w", tool, err)
+		}
+	}
+	if !p.options.skipUpload {
+		output, err := commandOutput(ctx, "curl", "--help", "all")
+		if err != nil {
+			return err
+		}
+		if !strings.Contains(output, "--aws-sigv4") {
+			return errors.New("curl with --aws-sigv4 support is required (curl >= 7.86)")
+		}
+	}
+	return nil
+}
+
+func (p *publisher) cleanup() error {
+	var cleanupErr error
+	if p.keychainPath != "" {
+		args := append([]string{"list-keychains", "-d", "user", "-s"}, p.originalKeychains...)
+		if err := quietCommand(context.Background(), "security", args...); err != nil {
+			cleanupErr = err
+		}
+		_ = quietCommand(context.Background(), "security", "delete-keychain", p.keychainPath)
+	}
+	if err := os.RemoveAll(p.workDir); cleanupErr == nil && err != nil {
+		cleanupErr = err
+	}
+	if err := os.WriteFile(p.plistPath, p.plistContents, 0o644); cleanupErr == nil && err != nil {
+		cleanupErr = fmt.Errorf("restore Info.plist: %w", err)
+	}
+	return cleanupErr
+}
+
+func (p *publisher) build(ctx context.Context) error {
+	base := p.options.version.base
+	baseText := fmt.Sprintf("%d.%d.%d", base.major, base.minor, base.patch)
+	for _, key := range []string{"CFBundleShortVersionString", "CFBundleVersion"} {
+		if err := runCommand(ctx, "/usr/libexec/PlistBuddy", "-c", "Set :"+key+" "+baseText, p.plistPath); err != nil {
+			return err
+		}
+	}
+	fmt.Println("==> building universal .app")
+	command := exec.CommandContext(ctx, "mise", "x", "--", "wails3", "task", "darwin:package:universal")
+	command.Dir = "desktop"
+	command.Env = append(os.Environ(),
+		"HIVE_DESKTOP_VERSION="+p.options.version.String(),
+		"HIVE_DESKTOP_COMMIT="+gitHead(ctx),
+		"HIVE_DESKTOP_DATE="+time.Now().UTC().Format(time.RFC3339),
+	)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("build universal app: %w", err)
+	}
+	if info, err := os.Stat(filepath.Join("desktop", "bin", "Hive.app")); err != nil || !info.IsDir() {
+		return errors.New("build did not produce desktop/bin/Hive.app")
+	}
+	return nil
+}
+
+func gitHead(ctx context.Context) string {
+	output, err := commandOutput(ctx, "git", "rev-parse", "HEAD")
+	if err != nil {
+		return "HEAD"
+	}
+	return strings.TrimSpace(output)
+}
+
+func (p *publisher) sign(ctx context.Context) error {
+	fmt.Println("==> importing Developer ID certificate into an ephemeral keychain")
+	p.keychainPath = filepath.Join(p.workDir, "signing.keychain-db")
+	password, err := commandOutput(ctx, "openssl", "rand", "-base64", "24")
+	if err != nil {
+		return err
+	}
+	password = strings.TrimSpace(password)
+	keychains, err := commandOutput(ctx, "security", "list-keychains", "-d", "user")
+	if err != nil {
+		return err
+	}
+	for line := range strings.Lines(keychains) {
+		if path := strings.Trim(strings.TrimSpace(line), `"`); path != "" {
+			p.originalKeychains = append(p.originalKeychains, path)
+		}
+	}
+	certPath := filepath.Join(p.workDir, "cert.p12")
+	if err := decodeSecret(p.options.signCertificate, certPath); err != nil {
+		return fmt.Errorf("decode MACOS_CERTIFICATE: %w", err)
+	}
+	if err := runCommand(ctx, "security", "create-keychain", "-p", password, p.keychainPath); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "security", "set-keychain-settings", "-lut", "3600", p.keychainPath); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "security", "unlock-keychain", "-p", password, p.keychainPath); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "security", "import", certPath, "-P", p.options.signPassword, "-k", p.keychainPath, "-T", "/usr/bin/codesign"); err != nil {
+		return err
+	}
+	if err := quietCommand(ctx, "security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, p.keychainPath); err != nil {
+		return err
+	}
+	args := append([]string{"list-keychains", "-d", "user", "-s", p.keychainPath}, p.originalKeychains...)
+	if err := runCommand(ctx, "security", args...); err != nil {
+		return err
+	}
+	if err := os.Remove(certPath); err != nil {
+		return err
+	}
+
+	fmt.Println("==> codesigning (Developer ID, hardened runtime)")
+	app := filepath.Join("desktop", "bin", "Hive.app")
+	if err := runCommand(ctx, "codesign", "--force", "--deep", "--timestamp", "--options", "runtime", "--entitlements", filepath.Join("desktop", "build", "darwin", "entitlements.plist"), "--sign", p.options.signIdentity, app); err != nil {
+		return err
+	}
+	return runCommand(ctx, "codesign", "--verify", "--strict", "--verbose=2", app)
+}
+
+func decodeSecret(value, path string) error {
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, decoded, 0o600)
+}
+
+type notaryResponse struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+func (p *publisher) notarize(ctx context.Context) error {
+	fmt.Println("==> notarizing")
+	keyPath := filepath.Join(p.workDir, "ac_api_key.p8")
+	if err := decodeSecret(p.options.notaryKey, keyPath); err != nil {
+		return fmt.Errorf("decode AC_API_KEY: %w", err)
+	}
+	archive := filepath.Join(p.workDir, "notarize.zip")
+	app := filepath.Join("desktop", "bin", "Hive.app")
+	if err := runCommand(ctx, "ditto", "-c", "-k", "--keepParent", app, archive); err != nil {
+		return err
+	}
+	output, err := commandOutput(ctx, "xcrun", "notarytool", "submit", archive, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID, "--output-format", "json")
+	if err != nil {
+		return err
+	}
+	var submission notaryResponse
+	if err := json.Unmarshal([]byte(output), &submission); err != nil {
+		return fmt.Errorf("decode notary submission: %w", err)
+	}
+	if submission.ID == "" {
+		return errors.New("decode notary submission: missing id")
+	}
+	fmt.Printf("    submission: %s\n", submission.ID)
+
+	deadline := time.Now().Add(2 * time.Hour)
+	consecutiveErrors := 0
+	for time.Now().Before(deadline) {
+		output, err := commandOutput(ctx, "xcrun", "notarytool", "info", submission.ID, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID, "--output-format", "json")
+		if err != nil {
+			consecutiveErrors++
+			fmt.Fprintf(os.Stderr, "    status check failed (%d/10)\n", consecutiveErrors)
+			if consecutiveErrors >= 10 {
+				return errors.New("too many notarytool errors")
+			}
+		} else {
+			consecutiveErrors = 0
+			var info notaryResponse
+			if err := json.Unmarshal([]byte(output), &info); err != nil {
+				return fmt.Errorf("decode notarization status: %w", err)
+			}
+			fmt.Printf("    status: %s\n", info.Status)
+			switch info.Status {
+			case "Accepted":
+				if err := runCommand(ctx, "xcrun", "stapler", "staple", app); err != nil {
+					return err
+				}
+				return runCommand(ctx, "xcrun", "stapler", "validate", app)
+			case "In Progress":
+			case "Invalid", "Rejected":
+				_ = runCommand(ctx, "xcrun", "notarytool", "log", submission.ID, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID)
+				return fmt.Errorf("notarization failed: %s", info.Status)
+			default:
+				return fmt.Errorf("unexpected notarization status: %s", info.Status)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(30 * time.Second):
+		}
+	}
+	return errors.New("timed out waiting for notarization")
+}
+
+func (p *publisher) packageApp(ctx context.Context) (string, string, int64, error) {
+	zipName := fmt.Sprintf("Hive-%s-darwin-universal.zip", p.options.version)
+	zipPath := filepath.Join("desktop", "bin", zipName)
+	fmt.Printf("==> packaging %s\n", zipName)
+	// ditto must run in desktop/bin so the archive has Hive.app at its root.
+	command := exec.CommandContext(ctx, "ditto", "-c", "-k", "--norsrc", "--noextattr", "--noacl", "--keepParent", "Hive.app", zipName)
+	command.Dir = filepath.Join("desktop", "bin")
+	command.Stdout, command.Stderr = os.Stdout, os.Stderr
+	if err := command.Run(); err != nil {
+		return "", "", 0, fmt.Errorf("package app: %w", err)
+	}
+	checksum, size, err := fileChecksum(zipPath)
+	if err != nil {
+		return "", "", 0, err
+	}
+	sumsPath := filepath.Join("desktop", "bin", "SHA256SUMS")
+	if err := os.WriteFile(sumsPath, []byte(checksum+"  "+zipName+"\n"), 0o644); err != nil {
+		return "", "", 0, err
+	}
+	fmt.Printf("%s  %s\n", checksum, zipName)
+
+	fmt.Println("==> verifying packaged app after plain ZIP extraction")
+	extracted := filepath.Join(p.workDir, "extracted")
+	if err := os.MkdirAll(extracted, 0o755); err != nil {
+		return "", "", 0, err
+	}
+	if err := runCommand(ctx, "/usr/bin/unzip", "-q", zipPath, "-d", extracted); err != nil {
+		return "", "", 0, err
+	}
+	extractedApp := filepath.Join(extracted, "Hive.app")
+	err = filepath.WalkDir(extractedApp, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(entry.Name(), "._") {
+			return fmt.Errorf("packaged app contains signature-breaking AppleDouble file: %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		return "", "", 0, err
+	}
+	if err := runCommand(ctx, "codesign", "--verify", "--deep", "--strict", "--verbose=2", extractedApp); err != nil {
+		return "", "", 0, err
+	}
+	if !p.options.skipNotarize {
+		if err := runCommand(ctx, "xcrun", "stapler", "validate", extractedApp); err != nil {
+			return "", "", 0, err
+		}
+	}
+	return zipPath, checksum, size, nil
+}
+
+func fileChecksum(path string) (string, int64, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", 0, err
+	}
+	defer func() { _ = file.Close() }()
+	hash := sha256.New()
+	size, err := io.Copy(hash, file)
+	if err != nil {
+		return "", 0, err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), size, nil
+}
+
+func (p *publisher) upload(ctx context.Context, zipPath, checksum string, size int64) error {
+	zipName := filepath.Base(zipPath)
+	releasePrefix := "desktop/releases/" + p.options.version.String()
+	exists, err := p.r2Exists(ctx, releasePrefix+"/"+zipName)
+	if err != nil {
+		return err
+	}
+	if exists && !p.options.force {
+		return fmt.Errorf("release %s already exists in the bucket (immutable); use --force to overwrite", p.options.version)
+	}
+	fmt.Printf("==> uploading artifacts to r2://%s/%s/\n", p.options.r2Bucket, releasePrefix)
+	if err := p.r2Put(ctx, releasePrefix+"/"+zipName, zipPath, "application/zip", "public, max-age=31536000, immutable"); err != nil {
+		return err
+	}
+	if err := p.r2Put(ctx, releasePrefix+"/SHA256SUMS", filepath.Join("desktop", "bin", "SHA256SUMS"), "text/plain", "public, max-age=31536000, immutable"); err != nil {
+		return err
+	}
+
+	pubDate := time.Now().UTC().Format(time.RFC3339)
+	for _, channel := range p.options.version.affectedChannels() {
+		fmt.Printf("==> writing channel manifest: %s\n", channel)
+		manifest := channelManifest{
+			Channel: channel,
+			Version: p.options.version.String(),
+			PubDate: pubDate,
+			Platforms: map[string]platformManifest{
+				"darwin-universal": {
+					URL:    fmt.Sprintf("%s/%s/%s", p.options.downloadBase, releasePrefix, zipName),
+					SHA256: checksum,
+					Size:   size,
+				},
+			},
+		}
+		contents, err := json.MarshalIndent(manifest, "", "  ")
+		if err != nil {
+			return err
+		}
+		manifestPath := filepath.Join(p.workDir, "latest-"+channel+".json")
+		if err := os.WriteFile(manifestPath, append(contents, '\n'), 0o644); err != nil {
+			return err
+		}
+		if err := p.r2Put(ctx, "desktop/channels/"+channel+"/latest.json", manifestPath, "application/json", "no-cache"); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("Release %s published to the %s channel.\n", p.options.version, p.options.version.channel())
+	fmt.Printf("  artifact: %s/%s/%s\n", p.options.downloadBase, releasePrefix, zipName)
+	fmt.Printf("  manifests updated: %s\n", strings.Join(p.options.version.affectedChannels(), " "))
+	return nil
+}
+
+func (p *publisher) r2Endpoint(key string) string {
+	return fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s", p.options.r2AccountID, p.options.r2Bucket, key)
+}
+
+func (p *publisher) r2AuthArgs() []string {
+	return []string{"--aws-sigv4", "aws:amz:auto:s3", "--user", p.options.r2AccessKey + ":" + p.options.r2SecretKey}
+}
+
+func (p *publisher) r2Exists(ctx context.Context, key string) (bool, error) {
+	args := []string{"--silent", "--show-error", "--output", "/dev/null", "--write-out", "%{http_code}", "--head"}
+	args = append(args, p.r2AuthArgs()...)
+	args = append(args, p.r2Endpoint(key))
+	output, err := commandOutput(ctx, "curl", args...)
+	if err != nil {
+		return false, err
+	}
+	switch strings.TrimSpace(output) {
+	case strconv.Itoa(200):
+		return true, nil
+	case strconv.Itoa(404):
+		return false, nil
+	default:
+		return false, fmt.Errorf("check R2 object: HTTP %s", strings.TrimSpace(output))
+	}
+}
+
+func (p *publisher) r2Put(ctx context.Context, key, path, contentType, cacheControl string) error {
+	args := []string{"--fail", "--silent", "--show-error", "--request", "PUT", "--upload-file", path, "--header", "Content-Type: " + contentType, "--header", "Cache-Control: " + cacheControl}
+	args = append(args, p.r2AuthArgs()...)
+	args = append(args, p.r2Endpoint(key))
+	return runCommand(ctx, "curl", args...)
+}
+
+func runCommand(ctx context.Context, name string, args ...string) error {
+	command := exec.CommandContext(ctx, name, args...)
+	command.Stdout = os.Stdout
+	command.Stderr = os.Stderr
+	if err := command.Run(); err != nil {
+		return fmt.Errorf("%s failed: %w", name, err)
+	}
+	return nil
+}
+
+func quietCommand(ctx context.Context, name string, args ...string) error {
+	command := exec.CommandContext(ctx, name, args...)
+	if output, err := command.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s failed: %s", name, strings.TrimSpace(string(output)))
+	}
+	return nil
+}

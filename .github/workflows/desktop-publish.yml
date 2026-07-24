@@ -1,7 +1,7 @@
 name: Publish Desktop
 
-# Publishes the desktop app by wrapping scripts/release/release-desktop.sh —
-# the same pipeline used for local releases (docs/distribution.md). Pushing a
+# Publishes the desktop app through the Go release CLI in cmd/release — the
+# same pipeline used for local releases (docs/distribution.md). Pushing a
 # desktop-v<semver> tag builds the universal macOS .app, signs it with a
 # Developer ID certificate, notarizes + staples it, uploads the zip and
 # SHA256SUMS to the immutable R2 release prefix, and rewrites the channel
@@ -32,6 +32,12 @@ on:
 
 env:
   GOPRIVATE: github.com/colonyops/hive
+
+# Serialize tag publishers so an older, slower release cannot overwrite a
+# channel manifest after a newer release has advanced it.
+concurrency:
+  group: desktop-publish
+  cancel-in-progress: false
 
 jobs:
   publish:
@@ -66,4 +72,4 @@ jobs:
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: ./scripts/release/release-desktop.sh "${GITHUB_REF_NAME#desktop-v}"
+        run: go run ./cmd/release publish "${GITHUB_REF_NAME#desktop-v}"

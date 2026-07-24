@@ -9,8 +9,8 @@ disable-model-invocation: true
 
 Cut a release through the local publisher by default. `mise` loads release
 credentials automatically; never read `.env`, inspect secret values, or invoke
-the release script outside `mise`. Use the tag-triggered GitHub Actions publisher
-only when the user explicitly requests the CI workflow.
+the release CLI's `publish` command outside `mise`. Use the tag-triggered GitHub
+Actions publisher only when the user explicitly requests the CI workflow.
 
 Never upload locally and then push the same tag: pushing the tag would trigger
 CI to republish an immutable version and fail. In the default local flow, create
@@ -40,24 +40,27 @@ Reject missing or unknown channels instead of guessing.
 
    Stop and explain the mismatch if any check fails. Do not stash, reset, merge,
    pull, switch branches, or discard work automatically.
-4. If no explicit version was supplied, run:
+4. Select and validate the candidate with the Go release CLI. If no explicit
+   version was supplied, run:
 
    ```bash
-   go run .agents/skills/release/scripts/next_version.go <channel>
+   go run ./cmd/release prepare <channel>
    ```
 
-5. Read all existing channel manifests from
-   `https://dl.hivedesktop.com/desktop/channels/<channel>/latest.json`, treating
-   404 as an empty channel. Validate the candidate against the publish format:
-   - `dev` must be `X.Y.Z-dev.N`;
-   - `beta` must be `X.Y.Z-beta.N`;
-   - `stable` must be bare `X.Y.Z`;
-   - `desktop-v<version>` must not already exist locally or on `origin`;
-   - the candidate must advance the selected channel under SemVer precedence.
+   Otherwise run:
 
-   Stop if manifests are unreachable or malformed. Never choose from repository
-   tags alone: the R2 history predates this repository and may contain a newer
-   version than any local tag.
+   ```bash
+   go run ./cmd/release prepare <channel> <version>
+   ```
+
+5. Use the candidate and manifest state printed by `prepare`. It reads all live
+   stable, beta, and dev manifests (treating 404 as an empty channel), includes
+   both manifests and `desktop-v*` tags when selecting the next version, checks
+   the channel-specific format and dev → beta → stable advancement across every
+   affected manifest, and rejects a tag
+   that already exists locally or on `origin`. Stop if it reports any error.
+   Never choose from repository tags alone: the R2 history predates this
+   repository and may contain a newer version than any local tag.
 6. Show the candidate version, channel, exact commit SHA and subject, and
    affected manifests (`dev`; `beta+dev`; or `stable+beta+dev`). Ask for an
    explicit confirmation before doing anything that publishes. Prefer the
@@ -84,12 +87,17 @@ Reject missing or unknown channels instead of guessing.
    ```
 
    Do not read `.env`, print credential environment variables, or call
-   `scripts/release/release-desktop.sh` directly. Stop on failure. Do not rerun
+   `go run ./cmd/release publish` directly. Stop on failure. Do not rerun
    with `--force`, overwrite artifacts, or invent a replacement version without
    explicit user approval.
-9. Verify the affected live manifests and published artifact URL. They must
-   report the candidate version, expected channel cascade, and the checksum
-   produced by the publisher.
+9. Verify every affected live manifest and the downloaded artifact with:
+
+   ```bash
+   go run ./cmd/release verify <version>
+   ```
+
+   It must report the candidate version, expected channel cascade, artifact URL,
+   size, and the checksum produced by the publisher. Stop on failure.
 10. After successful verification, create the lightweight release tag locally:
 
     ```bash
@@ -116,7 +124,7 @@ steps 8-10 with:
 
 ## Version selection rules
 
-The helper uses the highest numeric base version found across both
+The Go release CLI uses the highest numeric base version found across both
 `desktop-v*` tags and the live stable, beta, and dev manifests. Including the
 manifests is essential because the R2 release history predates this repository;
 for example, a `0.1.1-dev.1` tag cannot update clients already on

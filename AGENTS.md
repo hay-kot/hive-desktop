@@ -10,7 +10,7 @@ Private product monorepo: Hive desktop app, future admin server, and landing pag
 
 ## Vendored code — `internal/hivecore/`
 
-- Vendored from `colonyops/hive` `internal/` packages at the SHA pinned in `scripts/vendorhive/vendor.lock`; import paths are rewritten by the sync tool.
+- Vendored from `colonyops/hive` `internal/` packages at the SHA pinned in `cmd/vendorhive/vendor.lock`; import paths are rewritten by the sync tool.
 - **Never edit vendored files.** Changes land in `colonyops/hive` first, then re-run the vendor sync. CI enforces this with a drift check.
 - `pkg/` packages from hive are a normal `go.mod` dependency, pinned to the same SHA by the sync tool.
 

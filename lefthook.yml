@@ -30,7 +30,7 @@ pre-commit:
       glob: "internal/hivecore/*"
       fail_text: "internal/hivecore is vendored from colonyops/hive — never edit it here. Land the change in hive, then run 'mise run vendor'."
       run: |
-        if [ -n "$(git diff --cached --name-only -- scripts/vendorhive/vendor.lock)" ]; then
+        if [ -n "$(git diff --cached --name-only -- cmd/vendorhive/vendor.lock)" ]; then
           exit 0
         fi
         exit 1

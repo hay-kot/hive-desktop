@@ -47,7 +47,7 @@ desktop/
 
 ## Publish flow
 
-The pipeline is `scripts/release/release-desktop.sh` — build universal .app, Developer ID sign (ephemeral keychain), notarize + staple, zip without macOS AppleDouble metadata, verify the extracted archive's signature and stapled ticket, write `SHA256SUMS`, upload to `releases/<semver>/`, and write channel manifests. Channel routing and cascade per the rules below.
+The pipeline is the Go CLI in `cmd/release`. Its `publish` command builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, verifies the extracted archive's signature and stapled ticket, writes `SHA256SUMS`, uploads to `releases/<semver>/`, and writes channel manifests. `next`, `prepare`, and `verify` handle version selection, preflight validation, and live artifact verification without separate scripts. Channel routing and cascade follow the rules below.
 
 **CI release** (the normal path): push a `desktop-v<semver>` tag; `.github/workflows/desktop-publish.yml` wraps the same script on a macOS runner using the repo secrets.
 
@@ -58,8 +58,10 @@ git tag desktop-v1.4.0-dev.1 && git push origin desktop-v1.4.0-dev.1
 **Local release** (secrets from the gitignored repo-root `.env`, loaded by mise; tag afterwards):
 
 ```bash
-mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-notarize --skip-upload --force
-git tag desktop-v1.4.0-dev.1 && git push origin desktop-v1.4.0-dev.1
+go run ./cmd/release prepare dev 1.4.0-dev.1
+mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --force
+go run ./cmd/release verify 1.4.0-dev.1
+git tag desktop-v1.4.0-dev.1             # local only; do not push after a local upload
 ```
 
 Rules enforced by the script:

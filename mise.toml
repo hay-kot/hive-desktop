@@ -24,11 +24,11 @@ run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
 description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
-run = "./scripts/release/release-desktop.sh"
+run = "go run ./cmd/release publish"
 
 [tasks.vendor]
-description = "Sync internal/hivecore from the pinned hive commit (see scripts/vendorhive)"
-run = "go run ./scripts/vendorhive"
+description = "Sync internal/hivecore from the pinned hive commit (see cmd/vendorhive)"
+run = "go run ./cmd/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
@@ -88,7 +88,7 @@ git diff --exit-code -- '*_enum.go' internal/desktop/pipeline/pipelinedb || {
 [tasks."check:vendor"]
 description = "Verify internal/hivecore matches the pinned hive commit (network: fetches hive)"
 run = """
-go run ./scripts/vendorhive -skip-gomod
+go run ./cmd/vendorhive --skip-gomod
 # -N registers files vendorhive created that the checkout lacks (e.g. a new
 # embed asset) so git diff reports them as drift too — plain git diff cannot
 # see untracked files.

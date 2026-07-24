@@ -17,7 +17,7 @@ import (
 )
 
 // manifestServer serves a channel latest.json plus the artifact zip it points
-// at, mirroring the bucket layout release-desktop.sh publishes.
+// at, mirroring the bucket layout the release CLI publishes.
 type manifestServer struct {
 	*httptest.Server
 	zipBody []byte
