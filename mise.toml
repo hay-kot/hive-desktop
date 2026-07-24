@@ -22,9 +22,9 @@ run = "go run ./scripts/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
-sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/desktop/pipeline/pipelinedb/classify.go", "internal/desktop/pipeline/flow/flow.go", "desktop/pipelineservice.go"]
-outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/desktop/pipeline/pipelinedb/classify_enum.go", "internal/desktop/pipeline/flow/flow_enum.go", "desktop/pipelineservice_enum.go"]
-run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/desktop/pipeline/pipelinedb/classify.go -f internal/desktop/pipeline/flow/flow.go -f desktop/pipelineservice.go"
+sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/desktop/pipeline/pipelinedb/classify.go", "internal/desktop/pipeline/flow/flow.go"]
+outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/desktop/pipeline/pipelinedb/classify_enum.go", "internal/desktop/pipeline/flow/flow_enum.go"]
+run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/desktop/pipeline/pipelinedb/classify.go -f internal/desktop/pipeline/flow/flow.go"
 
 [tasks.generate]
 description = "Run all code generators (vendored hivecore is generated upstream)"
