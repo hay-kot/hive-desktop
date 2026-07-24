@@ -53,6 +53,17 @@ func (s *ActionsService) UpdateAction(id string, a actions.EditableAction) (acti
 	return out, err
 }
 
+// ReorderActions persists the catalog order the settings list was dragged
+// into. ids must be the full catalog; a stale list (a hand edit added or
+// removed an action meanwhile) is rejected so the caller reloads.
+func (s *ActionsService) ReorderActions(ids []string) error {
+	err := s.store.Reorder(ids)
+	if err == nil {
+		s.wake()
+	}
+	return err
+}
+
 func (s *ActionsService) DeleteAction(id string) error {
 	err := s.store.Delete(id)
 	if err == nil {

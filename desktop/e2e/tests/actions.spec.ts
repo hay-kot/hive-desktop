@@ -25,6 +25,18 @@ async function select(page: Page, id: string): Promise<void> {
 
 function action(runID: string, suffix: string): string { return `smoke-${runID}-${suffix}` }
 
+// The three surfaces the catalog's order has to agree on: the settings list,
+// the file itself, and the detail pane's action cards.
+async function rowIds(page: Page): Promise<string[]> {
+  return page.locator('[data-testid^="action-row-"]').evaluateAll((rows) => rows.map((row) => (row as HTMLElement).dataset.testid!.slice('action-row-'.length)))
+}
+function fileIds(yaml: string): string[] {
+  return [...yaml.matchAll(/- id: (\S+)/g)].map((match) => match[1])
+}
+async function cardIds(page: Page): Promise<string[]> {
+  return page.getByTestId('action-card').evaluateAll((cards) => cards.map((card) => (card as HTMLElement).dataset.id!))
+}
+
 // Serial: later tests read durable rows earlier tests create, so this file is
 // one ordered journey. It opts out of the per-test reset (which would sever
 // that chain) in favor of one reset per file execution: a serial-group retry
@@ -109,6 +121,34 @@ test('creates, edits, and deletes through the slideover and common confirmation 
   await expect(page.getByRole('alertdialog')).toContainText('Delete action')
   await page.getByRole('button', { name: 'Delete action' }).click()
   await expect(page.getByTestId('action-row-smoke-created')).toHaveCount(0)
+})
+
+test('drag-reorders the catalog and honors that order in settings, the detail pane, and on disk', async ({ page }) => {
+  const state = await smoke(page)
+  const original = await readFile(state.actionsPath, 'utf8')
+  const moved = action(state.runId, 'failed-shell')
+  const first = action(state.runId, 'pr')
+  const inDetail = [first, action(state.runId, 'message'), action(state.runId, 'template-launch')]
+  await page.getByTestId('application-settings').click()
+  await page.getByTestId('settings-category-actions').click()
+  await expect(page.getByTestId(`action-row-${moved}`)).toBeVisible()
+  const before = await rowIds(page)
+  expect(before[0]).toBe(first)
+
+  // Drop on the top edge of the first row: the catalog's new head.
+  await page.getByTestId(`action-row-${moved}`).dragTo(page.getByTestId(`action-row-${first}`), { targetPosition: { x: 60, y: 3 } })
+  const reordered = [moved, ...before.filter((id) => id !== moved)]
+  await expect.poll(() => rowIds(page)).toEqual(reordered)
+  await expect.poll(async () => fileIds(await readFile(state.actionsPath, 'utf8'))).toEqual(reordered)
+
+  // The detail pane renders that order, still filtered to applicable actions.
+  await page.goto(actionServer)
+  await select(page, 'pr2841')
+  await expect.poll(() => cardIds(page)).toEqual([moved, ...inDetail])
+
+  // A hand edit to the file's order is picked up by the watcher and wins.
+  await writeFile(state.actionsPath, original, 'utf8')
+  await expect.poll(() => cardIds(page)).toEqual([...inDetail, moved])
 })
 
 test('external malformed actions keep last-good catalog and recover after repair', async ({ page }) => {

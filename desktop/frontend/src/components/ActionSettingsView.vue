@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import IconGripVertical from '~icons/lucide/grip-vertical'
 import IconPlus from '~icons/lucide/plus'
 import IconTrash2 from '~icons/lucide/trash-2'
 import BaseBadge from './BaseBadge.vue'
@@ -13,10 +14,11 @@ import EmptyState from './settings/EmptyState.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import { useConfirmation } from '../composables/useConfirmation'
 import { actionTypeMeta } from '../lib/actionPresentation'
+import { moveId, type OrderDropTarget } from '../lib/listOrder'
 import { useActionsSettings, type EditableAction } from '../composables/useActionsSettings'
 
 const props = withDefaults(defineProps<{ knownTypes?: string[] }>(), { knownTypes: () => [] })
-const { actions, loading, error, create, update, remove } = useActionsSettings()
+const { actions, loading, error, create, update, remove, reorder } = useActionsSettings()
 // What the editor autocompletes and validates against: live feed-item kinds
 // (passed down from the app) unioned with types already configured on actions,
 // deduped case-insensitively with the first-seen casing kept as canonical.
@@ -37,6 +39,38 @@ function createNew(event: MouseEvent): void { setEditorTrigger(event); editing.v
 function edit(action: EditableAction, event: MouseEvent): void { setEditorTrigger(event); editing.value = JSON.parse(JSON.stringify(action)) as EditableAction }
 async function save(): Promise<void> { if (!editing.value || saving.value) return; saving.value = true; try { const saved = isNew.value ? await create(editing.value) : await update(editing.value.id, editing.value); if (saved) editing.value = null } finally { saving.value = false } }
 function requestDelete(action: EditableAction): void { confirmation.request({ title: 'Delete action', description: `Delete ${action.label}? Existing flows or active commands can block this action.`, confirmLabel: 'Delete action', onConfirm: async () => { if (!await remove(action.id)) throw new Error(error.value || 'Could not delete action.') } }) }
+
+// ── drag-and-drop ─────────────────────────────────────────────────────────
+// The catalog list order is what the detail pane and item menu render, so a
+// drop rewrites actions.yml's sequence. Native HTML5 DnD like the sidebar: the
+// dragged id lives in a ref (dataTransfer can't be read during dragover) and
+// the hovered edge drives the insertion indicator. The MIME payload is set so
+// the drag carries data (some engines refuse to start an empty one) and is
+// identifiable as this list's; the drop handlers read the ref, not the payload.
+const ACTION_DRAG_MIME = 'application/x-hive-action'
+const dragId = ref<string | null>(null)
+const dropTarget = ref<OrderDropTarget | null>(null)
+
+function onDragStart(event: DragEvent, id: string): void {
+  dragId.value = id
+  if (event.dataTransfer) { event.dataTransfer.effectAllowed = 'move'; event.dataTransfer.setData(ACTION_DRAG_MIME, id) }
+}
+function onDragOver(event: DragEvent, id: string): void {
+  if (!dragId.value) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  dropTarget.value = { id, edge: event.clientY < rect.top + rect.height / 2 ? 'before' : 'after' }
+}
+function onDrop(): void {
+  const order = dragId.value && dropTarget.value ? moveId(actions.value.map((action) => action.id), dragId.value, dropTarget.value) : null
+  onDragEnd()
+  if (order) void reorder(order)
+}
+function onDragEnd(): void { dragId.value = null; dropTarget.value = null }
+function dropClass(id: string): Record<string, boolean> {
+  const target = dropTarget.value
+  return { dragging: dragId.value === id, 'drop-before': target?.id === id && target.edge === 'before', 'drop-after': target?.id === id && target.edge === 'after' }
+}
 </script>
 
 <template>
@@ -44,7 +78,7 @@ function requestDelete(action: EditableAction): void { confirmation.request({ ti
     <div class="mb-5 flex items-start gap-4">
       <SettingsSection
         title="Actions"
-        description="Detail visibility controls only manual feed-item buttons. Flow nodes can still target any action."
+        description="Drag to set the order they appear on an item. Detail visibility controls only manual feed-item buttons; flow nodes can still target any action."
         class="flex-1"
       />
       <BaseButton
@@ -63,10 +97,17 @@ function requestDelete(action: EditableAction): void { confirmation.request({ ti
         v-for="action in actions"
         :key="action.id"
         :padded="false"
-        class="gap-4 rounded-[11px] border border-card bg-raised px-4 py-3.5 transition-colors hover:border-strong"
+        class="action-row gap-4 rounded-[11px] border border-card bg-raised px-4 py-3.5 transition-colors hover:border-strong"
+        :class="dropClass(action.id)"
         :data-testid="`action-row-${action.id}`"
+        draggable="true"
+        @dragstart="onDragStart($event, action.id)"
+        @dragover.prevent="onDragOver($event, action.id)"
+        @drop.prevent="onDrop"
+        @dragend="onDragEnd"
       >
         <template #icon>
+          <span class="drag-grip" aria-hidden="true" :data-testid="`action-grip-${action.id}`"><IconGripVertical class="size-[15px]" /></span>
           <BaseIconBadge :size="38" rounded="rounded-[10px]" class="border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.13)] text-accent">
             <AppIcon :name="actionTypeMeta(action.type).icon" class="size-[17px]" />
           </BaseIconBadge>
@@ -97,3 +138,24 @@ function requestDelete(action: EditableAction): void { confirmation.request({ ti
     <ConfirmationDialog v-if="confirmation.open.value && confirmation.options.value" :title="confirmation.options.value.title" :description="confirmation.options.value.description" :confirm-label="confirmation.options.value.confirmLabel" :busy="confirmation.busy.value" :error="confirmation.error.value" @confirm="confirmation.confirm" @cancel="confirmation.cancel" />
   </div>
 </template>
+
+<style scoped>
+/* The grip is the affordance; the whole row is the drag source, so a drag can
+   start anywhere on it (its buttons still take their own clicks). */
+.drag-grip { display: flex; flex: none; align-items: center; justify-content: center; width: 12px; margin: 0 -6px; color: var(--color-text-4); cursor: grab; opacity: 0; transition: opacity .12s ease; }
+.action-row:hover .drag-grip, .action-row.dragging .drag-grip { opacity: 1; }
+.action-row.dragging { opacity: .45; }
+
+/* The insertion line floats in the gap between cards rather than lighting up a
+   card's own border, which reads as an edit to that card and sits badly against
+   the 11px corners. */
+.action-row { position: relative; }
+.action-row::before, .action-row::after {
+  content: ''; position: absolute; left: 8px; right: 8px; height: 2px;
+  border-radius: 1px; background: var(--color-accent);
+  opacity: 0; pointer-events: none;
+}
+.action-row::before { top: -7px; }
+.action-row::after { bottom: -7px; }
+.action-row.drop-before::before, .action-row.drop-after::after { opacity: 1; }
+</style>

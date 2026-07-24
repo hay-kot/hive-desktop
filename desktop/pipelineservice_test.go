@@ -136,9 +136,11 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	// applies.
 	views, err := service.ActionViews(prID)
 	require.NoError(t, err)
+	// Views arrive in actions.yml order — the user-controlled presentation
+	// order — not sorted by id.
 	assert.Equal(t, []actions.View{
-		{ID: "launch-interactive", Label: "Launch", Type: "launch-session", ShowInDetail: true, RequiresSessionInput: true},
 		{ID: "review-pr", Label: "Review PR", Type: "launch-session", ShowInDetail: true},
+		{ID: "launch-interactive", Label: "Launch", Type: "launch-session", ShowInDetail: true, RequiresSessionInput: true},
 		{ID: "triage-any", Label: "Triage", Type: "shell", ShowInDetail: true},
 	}, views)
 

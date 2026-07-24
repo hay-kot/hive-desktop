@@ -1,5 +1,5 @@
 import { onMounted, ref } from 'vue'
-import { CreateAction, DeleteAction, ListActions, UpdateAction } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice'
+import { CreateAction, DeleteAction, ListActions, ReorderActions, UpdateAction } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice'
 import type { EditableAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions/models'
 import { useWailsEvent } from './useWailsEvent'
 
@@ -58,6 +58,25 @@ export function useActionsSettings() {
   async function remove(id: string): Promise<boolean> {
     try { await DeleteAction(id); await reload(); return true } catch (err) { error.value = message(err, 'Could not delete action.'); return false }
   }
+  // The catalog order is the file's order, so a drop shows its result
+  // immediately and the write confirms it. A rejected order (the catalog
+  // changed underneath the drag) restores what was on screen and re-reads.
+  async function reorder(ids: string[]): Promise<boolean> {
+    const previous = actions.value
+    const byId = new Map(previous.map((action) => [action.id, action]))
+    const next = ids.map((id) => byId.get(id)).filter((action): action is EditableAction => !!action)
+    if (next.length !== previous.length) { await reload(); return false }
+    actions.value = next
+    try { await ReorderActions(ids); await reload(); return true } catch (err) {
+      // Put the list back, then re-read: a rejected order means the catalog
+      // moved underneath the drag. The message is set after the reload because
+      // the reload rewrites error with the catalog's own parse state.
+      actions.value = previous
+      await reload()
+      error.value = message(err, 'Could not reorder actions.')
+      return false
+    }
+  }
   onMounted(() => { void reload(); useWailsEvent('actions:updated', wake) })
-  return { actions, loading, error, reload, create, update, remove }
+  return { actions, loading, error, reload, create, update, remove, reorder }
 }

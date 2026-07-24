@@ -9,7 +9,7 @@ flow `action` node, which fires it automatically for every message routed there.
 ## Top-level schema
 
 - `version` — must be `1`.
-- `actions` — the list. Every action has:
+- `actions` — the list, in presentation order: the detail pane and the item action menu offer applicable actions in the order they appear here. Every action has:
   - `id` — a slug (lowercase letters, digits, hyphens, starting with a letter or digit), unique across the file. This is what a flow `action` node references.
   - `label` — the human-readable name shown on the button.
   - `type` — one of the action types documented below.
