@@ -207,6 +207,22 @@ mise run desktop:dev      # Start Wails development mode.
 `desktop:dev` runs `wails3 dev -config ./build/config.yml` from the desktop
 application directory. The equivalent Taskfile command is `wails3 task dev`.
 
+Dev mode runs against an **ephemeral copy** of local state, never the real
+thing: `build/scripts/dev-data-dir.sh` snapshots the install's databases
+(`hive.db`, `desktop/desktop-pipeline.db`, via `VACUUM INTO`), the small
+desktop state files, and the desktop config tree (`$XDG_CONFIG_HOME/hive/
+desktop/` — flows, `actions.yml`, `settings.yaml`) into a per-worktree cache
+dir, and launches with `HIVE_DATA_DIR` / `HIVE_DESKTOP_CONFIG` pointing there.
+Config isolation matters as much as the databases: both apps hot-reload the
+flows/actions directories, so a shared tree means an edit or delete in dev
+instantly applies to the release app. The copy is remade on every launch, so
+dev always starts from the install's current state. An explicitly set
+`HIVE_DATA_DIR` or `HIVE_DESKTOP_CONFIG` is respected and not copied over;
+setting both deliberately runs dev against real state. Not isolated: the OS
+keychain (dev uses the real GitHub token — a dev sign-out deletes it) and
+`bootstrap.yaml` (the System settings directory-override screen writes the
+real pointer file).
+
 The alpha supports server builds. `desktop:serve` builds the frontend, then
 compiles the pure HTTP-server variant without GUI dependencies to
 `desktop/bin/hive-desktop-server` and runs it. The assets are `//go:embed`ded,

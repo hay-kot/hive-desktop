@@ -48,7 +48,7 @@ function twoSourceReplayWireFlow(): WireFlow {
 }
 
 function msg(id: string): Msg {
-  return { ID: id, Key: id, Topic: 'source:test', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'acme/app' }
+  return { ID: id, Key: id, Topic: 'source:test', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'acme/app', Snapshot: null }
 }
 
 function fakeEditorClient(overrides: Partial<PipelineEditorClient> = {}): PipelineEditorClient {

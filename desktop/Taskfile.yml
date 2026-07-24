@@ -36,7 +36,10 @@ tasks:
   dev:
     summary: Runs the application in development mode
     # Resolve a free Vite port (honoring an explicit WAILS_VITE_PORT) so multiple
-    # dev instances can run at once, and inject the git branch for the dev bar.
+    # dev instances can run at once, inject the git branch for the dev bar, and
+    # snapshot the local data dir + desktop config into an ephemeral per-worktree
+    # copy so dev never mutates real user state (explicit HIVE_DATA_DIR /
+    # HIVE_DESKTOP_CONFIG overrides win).
     vars:
       VITE_PORT:
         sh: ./build/scripts/dev-port.sh
@@ -45,7 +48,9 @@ tasks:
     env:
       VITE_HIVE_DEV_BRANCH: '{{.DEV_BRANCH}}'
     cmds:
-      - wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - |
+        eval "$(./build/scripts/dev-data-dir.sh)"
+        wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)

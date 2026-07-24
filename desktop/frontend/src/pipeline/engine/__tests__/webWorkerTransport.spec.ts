@@ -4,7 +4,7 @@ import { NodeTimeoutError } from '../transport'
 import type { Msg } from '../../types'
 
 function msg(id: string): Msg {
-  return { ID: id, Key: id, Topic: 'source:test', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'acme/app' }
+  return { ID: id, Key: id, Topic: 'source:test', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'acme/app', Snapshot: null }
 }
 
 // A fake WorkerLike: echoes the request's msg back as the result and merges

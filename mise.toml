@@ -100,11 +100,12 @@ git diff --exit-code -- internal/hivecore || {
 """
 
 [tasks."desktop:dev"]
-description = "Run the desktop app in dev mode (wails3 dev). Picks a free Vite port so instances run concurrently; injects the git branch for the dev bar."
+description = "Run the desktop app in dev mode (wails3 dev). Picks a free Vite port so instances run concurrently; injects the git branch for the dev bar; runs against an ephemeral per-worktree copy of the local data dir and desktop config (set HIVE_DATA_DIR / HIVE_DESKTOP_CONFIG to override)."
 dir = "desktop"
 run = """
 port="$(./build/scripts/dev-port.sh)"
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+eval "$(./build/scripts/dev-data-dir.sh)"
 echo "hive desktop dev: vite port ${port}, branch ${branch}"
 WAILS_VITE_PORT="${port}" VITE_HIVE_DEV_BRANCH="${branch}" wails3 dev -config ./build/config.yml
 """
