@@ -4,7 +4,7 @@ import { Browser, Window } from '@wailsio/runtime'
 import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
-import { clipboardText, kind, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
+import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
 import { useToasts } from './useToasts'
@@ -504,13 +504,9 @@ export function useFeedState() {
 
   async function loadActions(item: InboxItem | null) {
     const token = ++actionLoadSeq
-    // Detail-pane actions are GitHub-only: the backend's InvokeAction
-    // resolves the item as a GitHub action item and rejects other source
-    // kinds, so offering them for e.g. webhook items would only render
-    // buttons that fail on click.
-    if (!item || item.sourceKind !== 'github') { actions.value = []; return }
+    if (!item) { actions.value = []; return }
     try {
-      const available = (await ActionViews(kind(item))) ?? []
+      const available = (await ActionViews(item.id)) ?? []
       if (token !== actionLoadSeq || selectedId.value !== item.id) return
       actions.value = available
       await Promise.all(available.map(async (action) => {

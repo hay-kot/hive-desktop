@@ -26,12 +26,12 @@ export function ActionRun(commandID: number): $CancellablePromise<pipeline$0.Act
 }
 
 /**
- * ActionViews returns the configured actions available for an item kind
- * ("PR"/"Issue"). The actions store is the single source for both these
- * detail-pane views and flow output actions.
+ * ActionViews returns the configured actions applicable to an inbox item:
+ * shown-in-detail, applies_to matches the item's canonical kind, and every
+ * hard template capability is satisfiable for the item's payload.
  */
-export function ActionViews(kind: string): $CancellablePromise<actions$0.View[] | null> {
-    return $Call.ByID(2696790941, kind);
+export function ActionViews(itemID: number): $CancellablePromise<actions$0.View[] | null> {
+    return $Call.ByID(2696790941, itemID);
 }
 
 /**

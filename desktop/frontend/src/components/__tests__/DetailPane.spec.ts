@@ -96,10 +96,24 @@ describe('DetailPane', () => {
     expect(wrapper.text()).not.toContain('#42')
   })
 
-  it('hides the open button and the ACTIONS block for webhook items', () => {
+  it('hides the open button for webhook items without a URL, and the ACTIONS block when it has no applicable actions', () => {
     const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
     expect(wrapper.find('button.open-button').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('ACTIONS')
+    expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
+  })
+
+  it('shows the ACTIONS block for a webhook item with applicable actions, without a branch footer', () => {
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', kind: 'deploy' } }
+    const wrapper = mount(DetailPane, { props: { item: webhookItem, actions } })
+    expect(wrapper.text()).toContain('ACTIONS')
+    expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(1)
+    expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
+  })
+
+  it('hides the ACTIONS block for a GitHub item with no applicable actions', () => {
+    const wrapper = mount(DetailPane, { props: { item, actions: [] } })
     expect(wrapper.text()).not.toContain('ACTIONS')
     expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
   })

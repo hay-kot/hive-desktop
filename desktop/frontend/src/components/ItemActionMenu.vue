@@ -4,7 +4,6 @@ import AppMenu from './AppMenu.vue'
 import { ActionViews } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { actionTypeMeta } from '../lib/actionPresentation'
-import { kind } from '../lib/itemPresentation'
 import IconArchive from '~icons/lucide/archive'
 import IconCopy from '~icons/lucide/copy'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -22,7 +21,7 @@ import type { MenuEntry } from '../types/menu'
 // fetches them itself — the menu is ephemeral, so no caching.
 const props = defineProps<{
   item: InboxItem
-  /** Pre-loaded configured actions; omit to have the menu fetch per item kind. */
+  /** Pre-loaded configured actions; omit to have the menu fetch per item id. */
   actions?: ActionView[]
   flip?: boolean
   ignore?: (HTMLElement | null)[]
@@ -44,7 +43,7 @@ const menuActions = computed(() => props.actions ?? fetchedActions.value)
 onMounted(async () => {
   if (props.actions !== undefined) return
   try {
-    fetchedActions.value = (await ActionViews(kind(props.item))) ?? []
+    fetchedActions.value = (await ActionViews(props.item.id)) ?? []
   } catch (error) {
     console.warn('Unable to load actions for item menu', error)
   }

@@ -135,10 +135,11 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
       </div>
 
       <div class="px-5 pb-5 pt-4">
-        <!-- Actions are GitHub-only today (loadActions clears them for other
-             sources), so the whole block hides for webhook items instead of
-             rendering an empty header and a blank branch line. -->
-        <template v-if="item.sourceKind === 'github'">
+        <!-- Actions are capability-gated, not provider-gated: the block shows
+             whenever the backend offered at least one applicable action
+             (ActionApplicability — applies_to + payload capability), so it
+             never renders an empty header for an item with zero matches. -->
+        <template v-if="actions.length">
           <div class="mb-[13px] flex items-center gap-2">
             <span class="font-mono text-[10.5px] tracking-[.12em] text-accent">ACTIONS</span>
             <span class="font-mono text-[10.5px] text-text-4">· for {{ itemKind }}</span>
@@ -148,7 +149,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
           <div class="flex flex-col gap-[9px]">
             <ActionCard v-for="action in actions" :key="action.id" :action="action" :pending="pendingAction === action.id" :run="actionRuns?.[action.id]" @run="emit('run-action', action.id)" />
           </div>
-          <div class="action-footer-meta mt-3.5 font-mono text-[11px] text-text-3" data-testid="action-footer-meta"><IconInfo class="mt-0.5 size-3 shrink-0 text-accent" /><div class="min-w-0"><span class="block">Runs headless (batch) on</span><span class="block break-words text-text-2" data-testid="action-footer-branch">{{ actionContextLine }}</span></div></div>
+          <div v-if="actionContextLine" class="action-footer-meta mt-3.5 font-mono text-[11px] text-text-3" data-testid="action-footer-meta"><IconInfo class="mt-0.5 size-3 shrink-0 text-accent" /><div class="min-w-0"><span class="block">Runs headless (batch) on</span><span class="block break-words text-text-2" data-testid="action-footer-branch">{{ actionContextLine }}</span></div></div>
           <div class="mt-1.5 pl-[19px] font-mono text-[11px] text-text-4">Actions defined in desktop actions.yml</div>
         </template>
         <section v-if="(events ?? []).length" class="mt-6 border-t border-border pt-4" data-testid="observed-activity">

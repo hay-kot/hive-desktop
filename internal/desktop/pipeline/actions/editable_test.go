@@ -45,14 +45,21 @@ func TestActionStoreEditableCRUDPreservesUnrelatedCommentsAndRejectsBadLatestDis
 	require.NoError(t, err)
 }
 
-func TestActionStoreViewsForRequiresDetailFlagAndFiltersKind(t *testing.T) {
+func TestActionStoreListPreservesDetailFlagAndAppliesToIsCaseInsensitive(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "actions.yml")
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions:\n  - id: visible\n    label: Visible\n    type: shell\n    show_in_detail: true\n    applies_to: [PR]\n    command_template: true\n  - id: hidden\n    label: Hidden\n    type: shell\n    applies_to: [pr]\n    command_template: true\n"), 0o600))
 	s := NewActionStore(path)
-	views := s.ViewsFor("pr")
-	require.Len(t, views, 1)
-	assert.Equal(t, "visible", views[0].ID)
-	assert.Empty(t, s.ViewsFor("issue"))
+	require.Len(t, s.List(), 2)
+
+	visible, ok := s.Get("visible")
+	require.True(t, ok)
+	assert.True(t, visible.ShowInDetail)
+	assert.True(t, AppliesTo(visible, "pr"), "applies_to matching is case-insensitive")
+	assert.False(t, AppliesTo(visible, "issue"))
+
+	hidden, ok := s.Get("hidden")
+	require.True(t, ok)
+	assert.False(t, hidden.ShowInDetail)
 }
 
 func mustRead(t *testing.T, path string) []byte {

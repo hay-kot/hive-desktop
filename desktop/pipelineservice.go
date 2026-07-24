@@ -113,11 +113,29 @@ func (s *PipelineService) FeedCounts(profileID string) ([]pipelinedb.FeedInboxCo
 	return s.db.FeedCounts(context.Background(), profileID)
 }
 
-// ActionViews returns the configured actions available for an item kind
-// ("PR"/"Issue"). The actions store is the single source for both these
-// detail-pane views and flow output actions.
-func (s *PipelineService) ActionViews(kind string) []actions.View {
-	return s.actions.ViewsFor(kind)
+// ActionViews returns the configured actions applicable to an inbox item:
+// shown-in-detail, applies_to matches the item's canonical kind, and every
+// hard template capability is satisfiable for the item's payload.
+func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
+	row, err := s.db.Queries().GetInboxItemByID(context.Background(), itemID)
+	if err != nil {
+		return nil, fmt.Errorf("reading inbox item %d: %w", itemID, err)
+	}
+	item, err := pipeline.DecodeActionItem(row.Payload, row.ExternalID)
+	if err != nil {
+		return nil, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
+	}
+	views := make([]actions.View, 0)
+	for _, action := range s.actions.List() {
+		if !action.ShowInDetail {
+			continue
+		}
+		if ok, _ := pipeline.ActionApplicability(action, item); !ok {
+			continue
+		}
+		views = append(views, action.View())
+	}
+	return views, nil
 }
 
 // SessionLaunchOptions supplies the configured repository and agent choices
@@ -138,12 +156,9 @@ func (s *PipelineService) InvokeAction(actionID string, itemID int64, input pipe
 	if err != nil {
 		return pipeline.ActionRunView{}, fmt.Errorf("reading inbox item %d: %w", itemID, err)
 	}
-	if row.SourceKind != "github" {
-		return pipeline.ActionRunView{}, fmt.Errorf("unsupported action source kind %q", row.SourceKind)
-	}
-	item, err := pipeline.DecodeGitHubActionItem(row.Payload, row.ExternalID)
+	item, err := pipeline.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {
-		return pipeline.ActionRunView{}, fmt.Errorf("decode GitHub inbox item %d payload: %w", itemID, err)
+		return pipeline.ActionRunView{}, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
 	}
 	action, ok := s.actions.Get(actionID)
 	if !ok {
@@ -152,8 +167,8 @@ func (s *PipelineService) InvokeAction(actionID string, itemID int64, input pipe
 	if !action.ShowInDetail {
 		return pipeline.ActionRunView{}, fmt.Errorf("action %q is not available in the detail pane", actionID)
 	}
-	if !actions.AppliesTo(action, item.Kind) {
-		return pipeline.ActionRunView{}, fmt.Errorf("action %q does not apply to %q", actionID, item.Kind)
+	if applicable, reason := pipeline.ActionApplicability(action, item); !applicable {
+		return pipeline.ActionRunView{}, fmt.Errorf("action %q does not apply to item %d: %s", actionID, itemID, reason)
 	}
 	if item.ID == "" {
 		return pipeline.ActionRunView{}, fmt.Errorf("action %q: item id is required", actionID)
