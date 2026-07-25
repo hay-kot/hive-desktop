@@ -7,9 +7,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
 )
 
 // NotifyInput is the frontend-facing request for a native notification.
@@ -24,7 +24,7 @@ type NotifyInput struct {
 
 // notificationNotifier is the small notification API exposed to the binding.
 type notificationNotifier interface {
-	Notify(notify.Input) error
+	Notify(wailsui.Input) error
 	PermissionStatus() (string, error)
 	RequestPermission() (bool, error)
 }
@@ -54,7 +54,7 @@ func NewUnavailableNotificationService(err error) *NotificationService {
 
 // Notify sends a native notification.
 func (s *NotificationService) Notify(in NotifyInput) error {
-	return s.notifier.Notify(notify.Input{
+	return s.notifier.Notify(wailsui.Input{
 		Title:    in.Title,
 		Subtitle: in.Subtitle,
 		Body:     in.Body,
@@ -106,7 +106,7 @@ func (n flowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) 
 	if n.notifier == nil {
 		return errors.New("native notifications unavailable")
 	}
-	return n.notifier.Notify(notify.Input{
+	return n.notifier.Notify(wailsui.Input{
 		Title:    in.Title,
 		Body:     in.Body,
 		Severity: in.Severity,
@@ -171,7 +171,7 @@ type unavailableNotifier struct {
 	err error
 }
 
-func (n unavailableNotifier) Notify(notify.Input) error {
+func (n unavailableNotifier) Notify(wailsui.Input) error {
 	return fmt.Errorf("native notifications unavailable: %w", n.err)
 }
 

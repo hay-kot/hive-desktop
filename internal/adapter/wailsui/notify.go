@@ -1,5 +1,8 @@
-// Package notify adapts Hive notification requests to Wails native notifications.
-package notify
+// Package wailsui is the Wails driving adapter: the service structs the
+// frontend calls over RPC, the native shell (window, tray, updater,
+// notifications), and the event signals it emits. It is the only package
+// allowed to import Wails; internal/app knows nothing about it.
+package wailsui
 
 import (
 	"errors"
@@ -49,9 +52,9 @@ type Notifier struct {
 	requested bool
 }
 
-// New constructs a Notifier and materializes iconPNG at the stable per-user
-// cache path needed by Wails notification attachments.
-func New(svc sender, iconPNG []byte) (*Notifier, error) {
+// NewNotifier constructs a Notifier and materializes iconPNG at the stable
+// per-user cache path needed by Wails notification attachments.
+func NewNotifier(svc sender, iconPNG []byte) (*Notifier, error) {
 	if svc == nil {
 		return nil, errors.New("notification sender is required")
 	}

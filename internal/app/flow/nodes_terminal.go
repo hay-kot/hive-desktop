@@ -108,7 +108,7 @@ func (c *ActionConfig) Validate(refs Refs) error {
 
 // notifySeverities is the closed set a notify node may declare. It is the
 // same vocabulary the app-level notification path already speaks
-// (internal/desktop/notify's Input.Severity), so a flow node and a built-in
+// (internal/adapter/wailsui's Input.Severity), so a flow node and a built-in
 // notification map to the same native interruption level rather than
 // inventing a second urgency scale.
 var notifySeverities = map[string]bool{

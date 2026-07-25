@@ -16,6 +16,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
@@ -28,7 +29,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
-	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -502,7 +502,7 @@ func main() {
 	var nativeNotifications *wailsnotify.NotificationService
 	if settings.MockMode() == "" {
 		nativeNotifications = wailsnotify.New()
-		notifier, err := desktopnotify.New(nativeNotifications, appIcon)
+		notifier, err := wailsui.NewNotifier(nativeNotifications, appIcon)
 		if err != nil {
 			logger.Warn().Err(err).Msg("native notifications unavailable")
 			notificationService = NewUnavailableNotificationService(err)
