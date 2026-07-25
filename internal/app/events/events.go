@@ -11,6 +11,16 @@ package events
 // least one row to the event log.
 type LogAppended struct{ NextOffset int64 }
 
+// InboxUpdated reports that the flow engine committed at least one run — feed
+// membership, queued actions, or node-run metrics may all have changed.
+//
+// This is a distinct event from LogAppended, not a duplicate of it. The log
+// growing says a source observed something; it says nothing about whether any
+// flow routed it anywhere. A reader that refreshes on LogAppended reads before
+// the engine has committed, and one that never sees this event misses a
+// membership change a replay made with no new log rows at all.
+type InboxUpdated struct{}
+
 // ActivityAppended reports a new row in the user-facing activity log.
 type ActivityAppended struct{ ID int64 }
 
@@ -52,6 +62,7 @@ type UpdateChecked struct {
 }
 
 func (LogAppended) eventName() string        { return "log.appended" }
+func (InboxUpdated) eventName() string       { return "inbox.updated" }
 func (ActivityAppended) eventName() string   { return "activity.appended" }
 func (JobsUpdated) eventName() string        { return "jobs.updated" }
 func (FlowsUpdated) eventName() string       { return "flows.updated" }

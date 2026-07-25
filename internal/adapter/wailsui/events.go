@@ -30,6 +30,10 @@ func registerEvents() struct{} {
 	// receipt.
 	application.RegisterEvent[string]("auth:updated")
 	application.RegisterEvent[int64]("log:appended")
+	// inbox:updated fires after the flow engine commits at least one run. It
+	// is the signal a feed re-read keys off: log:appended only says a source
+	// observed something, which may route nowhere at all.
+	application.RegisterEvent[string]("inbox:updated")
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
 	application.RegisterEvent[string]("jobs:updated")
@@ -74,6 +78,9 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		events.Subscribe(ctx, bus, "wailsui.log", events.Coalesce(), func(_ context.Context, e events.LogAppended) {
 			emitLogAppended(e.NextOffset)
 		}),
+		events.Subscribe(ctx, bus, "wailsui.inbox", events.Coalesce(), func(context.Context, events.InboxUpdated) {
+			emitInboxUpdated()
+		}),
 		events.Subscribe(ctx, bus, "wailsui.activity", events.Coalesce(), func(_ context.Context, e events.ActivityAppended) {
 			emitActivityAppended(e.ID)
 		}),
@@ -108,6 +115,14 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 func emitLogAppended(nextOffset int64) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("log:appended", nextOffset)
+	}
+}
+
+// emitInboxUpdated wakes the feed views after the flow engine committed a run:
+// membership claims, queued actions and node-run metrics may all have changed.
+func emitInboxUpdated() {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("inbox:updated", "changed")
 	}
 }
 

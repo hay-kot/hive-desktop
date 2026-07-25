@@ -114,6 +114,20 @@ func ActionFailed(label, reason string) Event {
 	}
 }
 
+// FlowRuntimeFailed records a flow the engine could not put into service. The
+// last known-good version of that flow keeps running, which is exactly why
+// this has to be recorded: without it the failure is invisible and the app
+// silently executes an older graph than the one on disk.
+func FlowRuntimeFailed(flowID string, err error) Event {
+	return Event{
+		Category: CategoryConfig,
+		Severity: SeverityError,
+		Title:    fmt.Sprintf("Flow %s could not be deployed", flowID),
+		Body:     err.Error(),
+		Source:   flowID,
+	}
+}
+
 // ConfigReloaded records a config file reload, reporting the resulting action
 // count.
 func ConfigReloaded(file string, actions int) Event {

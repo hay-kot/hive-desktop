@@ -20,6 +20,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
+	"github.com/hay-kot/hive-desktop/internal/app/runtime"
+	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
@@ -84,6 +86,7 @@ type App struct {
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager is a later phase.
 	Producer    *ingest.Producer
+	Engine      *runtime.Engine
 	Outputs     *dispatch.Worker
 	Retention   *ingest.Maintenance
 	Webhook     *webhook.Listener
@@ -176,6 +179,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.Outputs = a.buildOutputWorker(cfg)
 	a.Retention = ingest.NewMaintenance(db, a.FlowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.Engine = a.buildEngine(cfg.Logger)
 	a.Producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
@@ -210,6 +214,13 @@ func (a *App) Start(ctx context.Context) error {
 		a.Outputs.Start(ctx)
 	}
 	a.Retention.Start(ctx)
+	// The engine starts before anything that can append to the log. Its flow
+	// installation is synchronous, so by the time a producer tick, a webhook
+	// delivery or a test harness can append, there is a runner ready to route
+	// it — no window in which a wake-up has nothing to wake.
+	if err := a.Engine.Start(ctx); err != nil {
+		return fmt.Errorf("start flow engine: %w", err)
+	}
 	if a.Producer != nil {
 		a.Producer.Start(ctx)
 	}
@@ -233,6 +244,7 @@ func (a *App) Close() error {
 	if a.Producer != nil {
 		a.Producer.Stop()
 	}
+	a.Engine.Stop()
 	a.Retention.Stop()
 	a.Outputs.Stop()
 	if a.flowsWatcher != nil {
@@ -338,18 +350,45 @@ func (a *App) openFlows(logger zerolog.Logger) {
 	a.flowsWatcher = watcher
 }
 
-// PublishLogAppended announces that the event log grew. The producer and the
-// webhook listener publish it themselves; this is for the one caller that
-// writes through the store directly — the e2e source-to-commit harness, which
-// stands in for a producer tick.
+// PublishLogAppended announces that the event log grew and wakes the engine to
+// route it. The producer and the webhook listener go through the same path;
+// this method is exported for the one caller that writes through the store
+// directly — the e2e source-to-commit harness, which stands in for a producer
+// tick.
 func (a *App) PublishLogAppended(nextOffset int64) {
+	a.Engine.Wake()
 	a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
 }
 
-// PublishFlowsUpdated announces a change to the flow set. The app's own
-// writes go through it too, so a save and an external edit are one path.
+// PublishFlowsUpdated announces a change to the flow set and reinstalls the
+// engine's runners against it. The app's own writes go through it too, so a
+// save and an external edit are one path.
 func (a *App) PublishFlowsUpdated(reason string) {
+	a.Engine.Reload()
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
+}
+
+// buildEngine wires the flow engine over the store and the live flow set. It
+// runs in every mode, including the mock ones: a fixture that seeds inbox
+// items also appends the source snapshot they came from, so the engine's
+// replay recomputes exactly the membership the fixture declared rather than
+// contradicting it.
+func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
+	scripts := runtime.NewScriptRegistry()
+	scripts.Register(js.New(runtime.NewScriptPool(0)))
+
+	return runtime.NewEngine(runtime.EngineOptions{
+		Store:   a.Store,
+		Flows:   a.FlowStore,
+		Scripts: scripts,
+		Logger:  logger,
+		OnCommitted: func() {
+			a.Events.Publish(a.ctx, events.InboxUpdated{})
+		},
+		OnFlowError: func(flowID string, err error) {
+			a.ActivityStore.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
+		},
+	})
 }
 
 // buildProducer starts nothing; it wires the event-log producer over every
@@ -359,9 +398,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	if a.Fetcher == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.Store, ghsource.NewFlowSourceLister(a.Fetcher, a.FlowStore), a.PollInterval, func(nextOffset int64) {
-		a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
-	}, logger)
+	producer := ingest.NewProducer(a.Store, ghsource.NewFlowSourceLister(a.Fetcher, a.FlowStore), a.PollInterval, a.PublishLogAppended, logger)
 	producer.SetRecorder(a.ActivityStore)
 	producer.SetPrefetcher(a.Fetcher)
 	producer.SetSourceAdapter(ghsource.NewGithubSourceAdapter(a.Fetcher))
@@ -410,9 +447,7 @@ func (a *App) openWebhook(ctx context.Context, cfg Config) {
 		return
 	}
 
-	a.Webhook = webhook.NewListener(a.Store, a.FlowStore, port, func(nextOffset int64) {
-		a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
-	}, cfg.Logger)
+	a.Webhook = webhook.NewListener(a.Store, a.FlowStore, port, a.PublishLogAppended, cfg.Logger)
 	a.Webhook.SetRecorder(a.ActivityStore)
 }
 
