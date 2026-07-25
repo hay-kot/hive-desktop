@@ -49,6 +49,16 @@ func main() {
 		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
 	}
 
+	// A redirected API base means every item this run shows may be stale or
+	// deliberately rewritten by cmd/devserver. That is invisible in the UI, so
+	// it is worth a line in the log before anything fetches.
+	if base := cfg.GitHubAPIBase(); base != "" {
+		logger.Warn().
+			Str("api_base", base).
+			Bool("from_env", cfg.EnvironmentOverridden(settings.EnvGitHubAPIBase)).
+			Msg("GitHub API base overridden; not talking to api.github.com")
+	}
+
 	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
 	// defer, and shutdown is the one path both exits take.
 	ctx, cancel := context.WithCancel(context.Background())

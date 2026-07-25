@@ -254,6 +254,7 @@ more expensive, which is the whole reason it is being done now.
   development:
     mocks: {mode: live}
     instance: {id: ""}
+    github: {api_base: ""}   # loopback-only devserver override (ADR 0017)
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
     pprof: {enabled: false, host: 127.0.0.1, port: 0}
@@ -342,6 +343,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_WEBHOOKS_PORT` | Webhook port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
+| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |

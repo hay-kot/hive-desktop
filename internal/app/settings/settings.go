@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -112,13 +113,30 @@ type DebugSettings struct {
 	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT"`
 }
 
+// EnvGitHubAPIBase is the environment name behind development.github.api_base.
+// It is named here because startup reports whether the value it is running
+// with came from the environment or from settings.yaml.
+const EnvGitHubAPIBase = "HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"
+
+// GitHubDevSettings redirects the GitHub REST/GraphQL base at cmd/devserver,
+// the development caching proxy and event simulator (ADR 0017). Empty — the
+// shipped value — means api.github.com.
+//
+// Only the API base moves. The OAuth base stays github.com: a device-flow
+// token exchange has no business passing through dev tooling, and it draws no
+// rate-limit budget, so redirecting it would be all risk and no benefit.
+type GitHubDevSettings struct {
+	APIBase string `yaml:"api_base,omitempty" env:"HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"`
+}
+
 type DevelopmentSettings struct {
-	Mocks    MockSettings     `yaml:"mocks"`
-	Instance InstanceSettings `yaml:"instance,omitempty"`
-	Vite     ServerSettings   `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
-	Wails    ServerSettings   `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
-	Pprof    PprofSettings    `yaml:"pprof"`
-	Debug    DebugSettings    `yaml:"debug"`
+	Mocks    MockSettings      `yaml:"mocks"`
+	Instance InstanceSettings  `yaml:"instance,omitempty"`
+	GitHub   GitHubDevSettings `yaml:"github,omitempty"`
+	Vite     ServerSettings    `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
+	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
+	Pprof    PprofSettings     `yaml:"pprof"`
+	Debug    DebugSettings     `yaml:"debug"`
 }
 
 // Settings is the typed settings.yaml schema. Environment override provenance
@@ -156,6 +174,17 @@ func (s Settings) MockMode() string {
 		return ""
 	}
 	return s.Development.Mocks.Mode
+}
+
+// GitHubAPIBase returns the canonical API base override, or "" for the
+// client's own api.github.com default. The trailing slash is trimmed because
+// the client concatenates paths onto this value directly.
+func (s Settings) GitHubAPIBase() string {
+	return normalizeAPIBase(s.Development.GitHub.APIBase)
+}
+
+func normalizeAPIBase(base string) string {
+	return strings.TrimSuffix(strings.TrimSpace(base), "/")
 }
 
 func ResolveNotificationDelivery(value string) string {
@@ -214,6 +243,32 @@ func (s Settings) Validate() error {
 	}
 	if s.Development.Instance.ID != "" && strings.ContainsAny(s.Development.Instance.ID, `/\\`) {
 		return fmt.Errorf("development.instance.id must not contain path separators")
+	}
+	// Loopback-only, for the same reason the webhook listener is (ADR 0007):
+	// this value redirects an authenticated GitHub client, so the only host
+	// allowed to receive that traffic is one on this machine. Because it is
+	// enforced here, it holds for a value arriving from settings.yaml and from
+	// the environment alike — a persisted setting cannot aim the app at a
+	// remote collector.
+	if err := validateGitHubAPIBase(s.GitHubAPIBase()); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validateGitHubAPIBase(base string) error {
+	if base == "" {
+		return nil
+	}
+	parsed, err := url.Parse(base)
+	if err != nil {
+		return fmt.Errorf("development.github.api_base must be a valid URL: %w", err)
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("development.github.api_base must use http or https")
+	}
+	if !validListenerHost(parsed.Hostname()) {
+		return fmt.Errorf("development.github.api_base must point at a loopback host")
 	}
 	return nil
 }

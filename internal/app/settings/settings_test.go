@@ -3,6 +3,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -154,6 +155,18 @@ func TestSettingsValidation(t *testing.T) {
 		{"pprof host", func(s *Settings) { s.Development.Pprof.Host = "::" }},
 		{"negative pause", func(s *Settings) { s.Development.Debug.PauseCommit = Duration(-time.Second) }},
 		{"excessive pause", func(s *Settings) { s.Development.Debug.PauseIngest = Duration(MaxDebugPause + time.Second) }},
+		{"github api base remote host", func(s *Settings) {
+			s.Development.GitHub.APIBase = "https://api.github.example.com"
+		}},
+		{"github api base public ip", func(s *Settings) {
+			s.Development.GitHub.APIBase = "http://10.0.0.5:8080"
+		}},
+		{"github api base scheme", func(s *Settings) {
+			s.Development.GitHub.APIBase = "ftp://127.0.0.1:8080"
+		}},
+		{"github api base missing scheme", func(s *Settings) {
+			s.Development.GitHub.APIBase = "127.0.0.1:8080"
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -162,6 +175,64 @@ func TestSettingsValidation(t *testing.T) {
 			require.Error(t, cfg.Validate())
 		})
 	}
+}
+
+// A struct tag cannot reference a constant, so the env name is written twice.
+// EnvironmentOverridden lookups key off the constant while the parser keys off
+// the tag, and a silent drift between them would report "not overridden" for a
+// value that was in fact overridden.
+func TestEnvGitHubAPIBaseMatchesStructTag(t *testing.T) {
+	field, ok := reflect.TypeOf(GitHubDevSettings{}).FieldByName("APIBase")
+	require.True(t, ok)
+	assert.Equal(t, EnvGitHubAPIBase, field.Tag.Get("env"))
+}
+
+func TestGitHubAPIBaseAcceptsLoopbackAndNormalizes(t *testing.T) {
+	tests := []struct {
+		name string
+		set  string
+		want string
+	}{
+		{"unset means api.github.com", "", ""},
+		{"loopback ip", "http://127.0.0.1:8080", "http://127.0.0.1:8080"},
+		{"localhost", "http://localhost:8080", "http://localhost:8080"},
+		{"ipv6 loopback", "http://[::1]:8080", "http://[::1]:8080"},
+		{"trailing slash trimmed", "http://127.0.0.1:8080/", "http://127.0.0.1:8080"},
+		{"surrounding space trimmed", "  http://127.0.0.1:8080  ", "http://127.0.0.1:8080"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DefaultSettings()
+			cfg.Development.GitHub.APIBase = tt.set
+			require.NoError(t, cfg.Validate())
+			assert.Equal(t, tt.want, cfg.GitHubAPIBase())
+		})
+	}
+}
+
+// The override is loopback-only wherever it comes from: being a persisted
+// setting must not make it a way to aim a shipped app at a remote host.
+func TestGitHubAPIBaseRejectsRemoteHostFromEnvironment(t *testing.T) {
+	t.Setenv(EnvGitHubAPIBase, "https://api.github.example.com")
+	_, err := NewStore(isolateSettings(t)).Effective()
+	require.Error(t, err)
+}
+
+func TestGitHubAPIBaseEnvironmentOverrideIsNotPersisted(t *testing.T) {
+	store := NewStore(isolateSettings(t))
+	t.Setenv(EnvGitHubAPIBase, "http://127.0.0.1:9999")
+
+	effective, err := store.Update(func(cfg *Settings) error {
+		cfg.Appearance.Theme = "dark"
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "http://127.0.0.1:9999", effective.GitHubAPIBase())
+	assert.True(t, effective.EnvironmentOverridden(EnvGitHubAPIBase))
+
+	persisted, err := store.Persisted()
+	require.NoError(t, err)
+	assert.Empty(t, persisted.GitHubAPIBase())
 }
 
 func TestStoreUpdateReappliesEnvironmentWithoutMaterializingIt(t *testing.T) {
