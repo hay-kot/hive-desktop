@@ -402,6 +402,41 @@ func writeConfig(t *testing.T, body string) string {
 	return path
 }
 
+func TestResolveConfigPath(t *testing.T) {
+	existing := writeConfig(t, "listen: 127.0.0.1:1\n")
+
+	got, err := ResolveConfigPath(existing)
+	require.NoError(t, err)
+	assert.Equal(t, existing, got)
+
+	// An explicit path that does not exist must fail rather than silently
+	// degrading to a bare proxy — that would look like the config was ignored.
+	_, err = ResolveConfigPath(filepath.Join(t.TempDir(), "absent.yaml"))
+	require.Error(t, err)
+
+	// No flag falls back to the personal location, which is allowed to be
+	// missing. `mise run devserver` always passes --config instead.
+	got, err = ResolveConfigPath("")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultConfigPath(), got)
+}
+
+// TestRepoConfigIsValidAndInert guards the checked-in development config that
+// `mise run devserver` passes. It must parse, and it must declare no overlays:
+// a config that rewrote data the moment devserver started would make every
+// subsequent bug suspect.
+func TestRepoConfigIsValidAndInert(t *testing.T) {
+	cfg, err := LoadConfig(filepath.Join("..", "..", RepoConfigPath))
+	require.NoError(t, err, "the shipped config must parse")
+
+	assert.Empty(t, cfg.Overlays, "the shipped config must not seed overlays")
+	assert.NotEmpty(t, cfg.Scenarios, "it should give the dashboard something to run")
+	assert.NotEmpty(t, cfg.Webhooks.Payloads, "it should give the pusher something to send")
+	// Targets cannot be shipped: the desktop's webhook port is random per
+	// install, so any committed URL would just fail.
+	assert.Empty(t, cfg.Webhooks.Targets)
+}
+
 func TestLoadConfigMissingFileYieldsWorkingDefaults(t *testing.T) {
 	cfg, err := LoadConfig(filepath.Join(t.TempDir(), "absent.yaml"))
 	require.NoError(t, err)

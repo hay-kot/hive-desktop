@@ -218,6 +218,25 @@ func LoadConfig(path string) (Config, error) {
 	return cfg, nil
 }
 
+// ResolveConfigPath returns the config file to load: an explicit --config, or
+// the personal one at DefaultConfigPath().
+//
+// An explicit path that does not exist is an error — a typo in a path the
+// author typed must not silently degrade to a bare proxy. The default path is
+// allowed to be missing, which LoadConfig turns into built-in defaults.
+//
+// `mise run devserver` always passes --config, pointing at the checked-in
+// RepoConfigPath, so a fresh clone works with no setup.
+func ResolveConfigPath(explicit string) (string, error) {
+	if explicit == "" {
+		return DefaultConfigPath(), nil
+	}
+	if _, err := os.Stat(explicit); err != nil {
+		return "", fmt.Errorf("read %s: %w", explicit, err)
+	}
+	return explicit, nil
+}
+
 // normalize fills defaults and rejects configuration that cannot work. It is
 // strict about overlays and scenarios — a typo there produces a silently wrong
 // simulation, which is worse than a startup failure.
@@ -291,9 +310,9 @@ func validateMutations(m Mutations) error {
 	return nil
 }
 
-// DefaultConfigPath is where devserver looks for its config when no --config
-// is given: the desktop config root, so it sits beside flows/ and actions.yml
-// in the same dotfiles-managed directory.
+// DefaultConfigPath is the personal config location: the desktop config root,
+// so it sits beside flows/ and actions.yml in the same dotfiles-managed
+// directory. It is gitignored territory — put your own overlays here.
 func DefaultConfigPath() string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
@@ -302,6 +321,15 @@ func DefaultConfigPath() string {
 	}
 	return filepath.Join(configHome, "hive", "desktop", "devserver.yaml")
 }
+
+// RepoConfigPath is the checked-in development config, relative to the
+// repository root. `mise run devserver` passes it as --config so a fresh clone
+// gets working scenarios and payloads with no setup step.
+//
+// It declares no overlays: everything in it is inert until something is
+// clicked, so starting devserver never silently rewrites what a connected
+// instance sees.
+const RepoConfigPath = "cmd/devserver/devserver.yaml"
 
 // DefaultCachePath is the cache database's default location. It follows the
 // data-dir convention the desktop uses (HIVE_DATA_DIR, then XDG_DATA_HOME,

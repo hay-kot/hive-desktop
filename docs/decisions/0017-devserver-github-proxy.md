@@ -37,15 +37,17 @@ A development-only binary, `cmd/devserver`, that sits between development instan
 
 7. **A dashboard** at the listen root drives both, over a JSON control API under `/_ctl/`. Assets are embedded and self-contained; the page is a plain 2s poll of one `/_ctl/state` read.
 
-8. **The app opts in through `development.github.api_base`** (`HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE`), applied via the client's `WithAPIBase` option in `ghsource.NewProductionClient`. One client template backs both the fetch layer and the connect flow, so a redirected instance cannot split its traffic between the proxy and real GitHub.
+8. **A checked-in development config**, `cmd/devserver/devserver.yaml`, passed as `--config` by `mise run devserver` so a fresh clone works with no setup. It ships scenarios and webhook payloads but **declares no overlays**: a config that rewrote responses from the first request would mean a developer who never opened the dashboard could still be looking at fabricated data, and every subsequent bug would be suspect. Personal configuration goes at `$XDG_CONFIG_HOME/hive/desktop/devserver.yaml`, which is the default when `--config` is absent.
+
+9. **The app opts in through `development.github.api_base`** (`HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE`), applied via the client's `WithAPIBase` option in `ghsource.NewProductionClient`. One client template backs both the fetch layer and the connect flow, so a redirected instance cannot split its traffic between the proxy and real GitHub.
 
    This is a development setting rather than a bare environment variable, which reverses the position an earlier draft of this ADR took. That draft was written before ADR 0014: there was no `development` namespace, so "not a setting" was the only way to say "not a user-facing knob". ADR 0014 created a better place to say it — `development.*` is where dev-only configuration lives, alongside `mocks.mode`, which is at least as consequential — and being a typed setting is what buys the guarantee below.
 
-9. **Loopback only, enforced by validation.** `Settings.Validate()` rejects any `api_base` that is not an `http`/`https` URL on a loopback host, following the fail-closed posture ADR 0014 set for every dev-only listener. Because validation runs on the persisted value *and* on the effective value after environment overrides, this holds no matter where the value came from.
+10. **Loopback only, enforced by validation.** `Settings.Validate()` rejects any `api_base` that is not an `http`/`https` URL on a loopback host, following the fail-closed posture ADR 0014 set for every dev-only listener. Because validation runs on the persisted value *and* on the effective value after environment overrides, this holds no matter where the value came from.
 
-   This is a stronger guarantee than the env-only design it replaces, which read whatever string it was handed. devserver fronts a GitHub token and can change what an instance sees; neither belongs on a LAN, and now nothing can put them there.
+    This is a stronger guarantee than the env-only design it replaces, which read whatever string it was handed. devserver fronts a GitHub token and can change what an instance sees; neither belongs on a LAN, and now nothing can put them there.
 
-10. **The OAuth base is never redirected.** Only the API base moves. A device-flow token exchange has no business passing through dev tooling, and it draws no rate-limit budget, so redirecting it would be all risk and no benefit. Sign-in reaches github.com even on a fully proxied instance.
+11. **The OAuth base is never redirected.** Only the API base moves. A device-flow token exchange has no business passing through dev tooling, and it draws no rate-limit budget, so redirecting it would be all risk and no benefit. Sign-in reaches github.com even on a fully proxied instance.
 
 ## Consequences
 

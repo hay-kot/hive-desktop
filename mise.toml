@@ -37,7 +37,7 @@ run = "go run ./cmd/vendorhive"
 
 [tasks.devserver]
 description = "Run the dev GitHub proxy + event simulator (see cmd/devserver). Point instances at it with HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE."
-run = "go run ./cmd/devserver"
+run = "go run ./cmd/devserver --config cmd/devserver/devserver.yaml"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"

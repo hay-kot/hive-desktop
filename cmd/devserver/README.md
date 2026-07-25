@@ -14,7 +14,9 @@ mise run devserver                                    # starts on 127.0.0.1:7777
 HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=http://127.0.0.1:7777 mise run desktop:dev
 ```
 
-Open <http://127.0.0.1:7777> for the dashboard. With no config file at all you get the caching proxy, which is the whole fix for the rate-limit problem.
+Open <http://127.0.0.1:7777> for the dashboard. No setup step: the mise task passes the checked-in [`devserver.yaml`](devserver.yaml), which ships working scenarios and webhook payloads.
+
+That config declares **no overlays**, so starting devserver never rewrites what a connected instance sees — you get the caching proxy, which is the whole fix for the rate-limit problem, and nothing changes until you click something. A proxy that silently faked data the moment it started would make every subsequent bug suspect.
 
 The app logs a warning at startup when the override is set, and every proxied response carries an `X-Devserver-Outcome` header (`hit`, `miss`, `revalidated`, `stale`, `passthrough`).
 
@@ -30,7 +32,11 @@ devserver also stores ETags and revalidates with `If-None-Match`. A 304 costs no
 
 ## Config
 
-Default path `$XDG_CONFIG_HOME/hive/desktop/devserver.yaml`, or `--config`. Everything is optional. A full example is in [`devserver.example.yaml`](devserver.example.yaml).
+`mise run devserver` passes the checked-in `cmd/devserver/devserver.yaml`. Edit it freely — it is a development default, not a fixture.
+
+For a personal config that stays out of git, write `$XDG_CONFIG_HOME/hive/desktop/devserver.yaml` and run `go run ./cmd/devserver` with no `--config`; that path is the default when the flag is absent. An explicit `--config` that does not exist is an error rather than a silent fallback.
+
+Every section is optional — the annotated shipped file is the reference.
 
 ```yaml
 listen: 127.0.0.1:7777
@@ -38,15 +44,18 @@ upstream: https://api.github.com
 cache:
   ttl: 5m                       # how long before revalidating
 
-overlays:                       # seed state; the dashboard mutates from here
+# Not set in the shipped config — anything here applies from the first request,
+# before you have touched the dashboard. Add entries only to pin a state you
+# want back on every restart.
+overlays:
   - match: {repo: hay-kot/hive-desktop, num: 58}
     set:
       reason: approval_requested
       labels: [needs-review]
 
 scenarios:                      # multi-step sequences, one dashboard click
-  pr-approval-flow:
-    description: Review requested, then approved, then merged
+  pr-review-cycle:
+    description: Review requested, then approval requested, then merged
     steps:
       - match: {repo: hay-kot/hive-desktop, num: 58}
         set: {reason: review_requested}
@@ -55,13 +64,15 @@ scenarios:                      # multi-step sequences, one dashboard click
         set: {state: merged, absent: true}
 
 webhooks:
+  # Commented out in the shipped config: the desktop's webhook port is random
+  # per install, so no committed URL can be right.
   targets:
     - name: local-desktop
       url: http://127.0.0.1:24681/hooks/devserver   # from Settings ▸ Webhooks
       secret: dev-secret                            # the node's X-Hive-Secret
   payloads:
     pr-opened:
-      id: pr-1
+      id: devserver-pr-1
       kind: PR
       repo: acme/widgets
       title: Add retry to fetch
@@ -70,6 +81,8 @@ webhooks:
 ```
 
 Overlay state is in-memory. Config seeds it; the dashboard and control API mutate it; a restart returns to exactly what the file says. A debugging session cannot leave permanent fake data behind.
+
+The shipped scenarios point at `hay-kot/hive-desktop#58` as a placeholder. Retarget them at an item your feed actually shows — the dashboard lists everything the proxy has observed, so start devserver, let an instance poll once, and copy a repo and number from there.
 
 ### Mutation fields
 
@@ -123,7 +136,7 @@ curl -XPOST localhost:7777/_ctl/overlay \
 
 curl -XPOST localhost:7777/_ctl/overlay/clear -d '{"repo":"hay-kot/hive-desktop","num":58}'
 curl -XPOST localhost:7777/_ctl/overlays/clear
-curl -XPOST localhost:7777/_ctl/scenarios/pr-approval-flow/run
+curl -XPOST localhost:7777/_ctl/scenarios/pr-review-cycle/run
 curl -XPOST localhost:7777/_ctl/cache/purge
 
 # push a webhook; overrides merge over the named payload

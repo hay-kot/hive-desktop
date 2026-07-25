@@ -50,7 +50,8 @@ func newDevserverCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "config",
 				Aliases: []string{"c"},
-				Usage:   "path to devserver.yaml (default: $XDG_CONFIG_HOME/hive/desktop/devserver.yaml)",
+				Usage: "path to a config file (default: $XDG_CONFIG_HOME/hive/desktop/devserver.yaml; " +
+					"`mise run devserver` passes " + RepoConfigPath + ")",
 			},
 			&cli.StringFlag{Name: "listen", Usage: "override the configured bind address"},
 			&cli.StringFlag{Name: "upstream", Usage: "override the configured GitHub API base URL"},
@@ -62,9 +63,9 @@ func newDevserverCommand() *cli.Command {
 }
 
 func run(ctx context.Context, cmd *cli.Command) error {
-	configPath := cmd.String("config")
-	if configPath == "" {
-		configPath = DefaultConfigPath()
+	configPath, err := ResolveConfigPath(cmd.String("config"))
+	if err != nil {
+		return err
 	}
 	cfg, err := LoadConfig(configPath)
 	if err != nil {
@@ -112,7 +113,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	server := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
+	// Naming the config is the point: an overlay silently rewriting data is
+	// exactly the confusion this tool could otherwise cause.
 	logger.Info().
+		Str("config", configPath).
 		Str("listen", cfg.Listen).
 		Str("upstream", cfg.Upstream).
 		Str("cache", cfg.Cache.Path).
@@ -121,6 +125,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		Int("scenarios", len(cfg.Scenarios)).
 		Int("targets", len(cfg.Webhooks.Targets)).
 		Msg("devserver started")
+	if len(cfg.Overlays) > 0 {
+		logger.Warn().Int("overlays", len(cfg.Overlays)).
+			Msg("config seeds overlays; connected instances see rewritten data from the first request")
+	}
 	logger.Info().Msgf("dashboard: http://%s", cfg.Listen)
 	logger.Info().Msgf("point a desktop instance at it: HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=http://%s mise run desktop:dev", cfg.Listen)
 
