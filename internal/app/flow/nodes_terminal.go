@@ -135,7 +135,7 @@ const (
 // arriving message enqueues an output_command that the notify executor
 // delivers as a native OS notification, with Title/Body rendered as Go
 // text/templates over the message (the same templating story as an action's
-// prompt_template — see internal/desktop/pipeline/actions/launch_session.go).
+// prompt_template — see internal/app/actions/launch_session.go).
 //
 // The node cannot override the app's notification settings: the executor
 // checks the global kill switch before every delivery, so "notifications

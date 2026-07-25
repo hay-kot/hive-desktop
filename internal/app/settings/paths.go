@@ -93,7 +93,7 @@ const EnvWebhookPort = "HIVE_DESKTOP_WEBHOOK_PORT"
 // ActionsPath is the actions.yml file location: launch-session/shell/
 // publish-message action definitions consumed by the desktop pipeline's
 // output worker and detail-pane action picker (see
-// internal/desktop/pipeline/actions). The design doc calls this
+// internal/app/actions). The design doc calls this
 // ".hive/actions.yml" (repo-scoped), but the desktop app's config is global
 // rather than repo-scoped — there is no single repo it belongs to — so it
 // lives in the desktop config root instead. EnvActionsPath overrides the

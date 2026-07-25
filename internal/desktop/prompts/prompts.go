@@ -32,8 +32,8 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
 //go:embed templates/*.tmpl

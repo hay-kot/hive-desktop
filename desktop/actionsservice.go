@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
 // ActionsService is the explicit editor API for the global actions catalog.

@@ -16,6 +16,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -25,7 +26,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
 	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -233,7 +233,7 @@ func emitAuthUpdated() {
 // restart to pick up.
 func buildFlowsStore(actionStore *actions.ActionStore, onUpdated func(), logger zerolog.Logger) (*flow.FlowStore, *flow.FlowsWatcher) {
 	dir := settings.FlowsDir()
-	store := flow.NewFlowStore(dir, newActionsRefs(actionStore))
+	store := flow.NewFlowStore(dir, actions.NewRefs(actionStore))
 
 	watcher, err := flow.NewFlowsWatcher(dir, func() {
 		if err := store.Reload(); err != nil {

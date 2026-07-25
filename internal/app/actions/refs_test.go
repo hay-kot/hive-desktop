@@ -1,4 +1,4 @@
-package main
+package actions
 
 import (
 	"os"
@@ -7,8 +7,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
 func TestActionsRefs_ResolveAction_ResolvesLoadedActionID(t *testing.T) {
@@ -22,9 +20,9 @@ actions:
     command_template: "true"
 `), 0o644))
 
-	store := actions.NewActionStore(path)
-	require.NoError(t, store.Reload())
-	adapter := newActionsRefs(store)
+	catalog := NewActionStore(path)
+	require.NoError(t, catalog.Reload())
+	adapter := NewRefs(catalog)
 
 	assert.True(t, adapter.ResolveAction("spawn-review"))
 	assert.False(t, adapter.ResolveAction("does-not-exist"))

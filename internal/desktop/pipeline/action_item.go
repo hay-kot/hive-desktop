@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/colonyops/hive/pkg/tmpl"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 )
 
 // DefaultItemKind is the kind an item carries when its payload declares

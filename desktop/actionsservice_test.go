@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 )
 
 func serviceAction(id string) actions.EditableAction {
@@ -100,7 +100,7 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	}}
 	_, err := actionStore.Create(headless)
 	require.NoError(t, err)
-	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(actionStore))
+	flows := flow.NewFlowStore(t.TempDir(), actions.NewRefs(actionStore))
 	require.NoError(t, flows.Save(flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
 		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
@@ -129,7 +129,7 @@ func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T
 	actionStore, _ := newServiceStore(t)
 	_, err := actionStore.Create(serviceAction("used"))
 	require.NoError(t, err)
-	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(actionStore))
+	flows := flow.NewFlowStore(t.TempDir(), actions.NewRefs(actionStore))
 	f := flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
 		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
