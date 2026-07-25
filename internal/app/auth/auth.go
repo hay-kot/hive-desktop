@@ -305,6 +305,12 @@ func authenticatedStatus(user github.User) Status {
 // "feed" mock mode it starts authenticated; in "onboarding" mode it starts
 // signed out and grants the fake device flow after a short delay.
 type mockAuth struct {
+	// creds is written on grant and cleared on sign-out, exactly as the live
+	// backend does. A mock that only flipped a status flag would leave the
+	// credential store empty, and everything downstream that resolves an
+	// account — a source node's credential, seeding a workspace — would fail
+	// in mock mode only.
+	creds    credentials.Store
 	onChange func()
 
 	mu     sync.Mutex
@@ -318,16 +324,34 @@ type mockAuth struct {
 
 const mockGrantDelay = 1500 * time.Millisecond
 
-func NewMockBackend(authenticated bool, onChange func()) Backend {
-	status := Status{State: StateUnauthenticated}
+func NewMockBackend(authenticated bool, creds credentials.Store, onChange func()) Backend {
+	a := &mockAuth{creds: creds, status: Status{State: StateUnauthenticated}, onChange: onChange}
 	if authenticated {
-		status = mockAuthenticatedStatus()
+		a.status = mockAuthenticatedStatus()
+		a.connect()
 	}
-	return &mockAuth{status: status, onChange: onChange}
+	return a
 }
 
+// mockLogin is the account every mock mode is signed in as.
+const mockLogin = "hayden"
+
 func mockAuthenticatedStatus() Status {
-	return Status{State: StateAuthenticated, Login: "hayden", Name: "Hayden"}
+	return Status{State: StateAuthenticated, Login: mockLogin, Name: "Hayden"}
+}
+
+// connect stores the fake credential. Errors are ignored: the store is always
+// the in-memory one in mock modes, where a write cannot fail.
+func (a *mockAuth) connect() {
+	if a.creds != nil {
+		_ = a.creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: mockLogin}, "mock-token")
+	}
+}
+
+func (a *mockAuth) disconnect() {
+	if a.creds != nil {
+		_ = a.creds.Delete(credentials.Ref{Provider: ghsource.Provider, Account: mockLogin})
+	}
 }
 
 func (a *mockAuth) Status(context.Context) Status {
@@ -351,6 +375,7 @@ func (a *mockAuth) StartDeviceFlow(context.Context) (DeviceFlowInfo, error) {
 			return
 		}
 		a.status = mockAuthenticatedStatus()
+		a.connect()
 		a.mu.Unlock()
 		if a.onChange != nil {
 			a.onChange()
@@ -376,6 +401,7 @@ func (a *mockAuth) SetToken(_ context.Context, token string) (Status, error) {
 	a.mu.Lock()
 	a.flowSeq++ // a pending device grant must not re-fire over an explicit token
 	a.status = mockAuthenticatedStatus()
+	a.connect()
 	a.mu.Unlock()
 	if a.onChange != nil {
 		a.onChange()
@@ -387,6 +413,7 @@ func (a *mockAuth) SignOut() error {
 	a.CancelDeviceFlow()
 	a.mu.Lock()
 	a.status = Status{State: StateUnauthenticated}
+	a.disconnect()
 	a.mu.Unlock()
 	if a.onChange != nil {
 		a.onChange()

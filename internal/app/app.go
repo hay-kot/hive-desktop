@@ -304,9 +304,9 @@ func resolvePollInterval(cfg settings.Settings, logger zerolog.Logger) time.Dura
 func buildAuthBackend(mock string, creds credentials.Store, onChange func()) auth.Backend {
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
-		return auth.NewMockBackend(true, onChange)
+		return auth.NewMockBackend(true, creds, onChange)
 	case "onboarding":
-		return auth.NewMockBackend(false, onChange)
+		return auth.NewMockBackend(false, creds, onChange)
 	default:
 		return auth.NewLiveBackend(github.NewClient(), creds, onChange)
 	}

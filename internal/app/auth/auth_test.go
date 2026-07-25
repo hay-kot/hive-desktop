@@ -253,15 +253,15 @@ func TestLiveAuthSignOutClearsToken(t *testing.T) {
 func TestMockAuthModes(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, StateAuthenticated, NewMockBackend(true, nil).Status(t.Context()).State)
-	assert.Equal(t, StateUnauthenticated, NewMockBackend(false, nil).Status(t.Context()).State)
+	assert.Equal(t, StateAuthenticated, NewMockBackend(true, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
+	assert.Equal(t, StateUnauthenticated, NewMockBackend(false, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
 }
 
 func TestMockAuthDeviceFlowAutoGrants(t *testing.T) {
 	t.Parallel()
 
 	changed := make(chan struct{}, 1)
-	auth := NewMockBackend(false, func() { changed <- struct{}{} })
+	auth := NewMockBackend(false, credentials.NewMemoryStore(), func() { changed <- struct{}{} })
 
 	info, err := auth.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
@@ -276,11 +276,52 @@ func TestMockAuthDeviceFlowAutoGrants(t *testing.T) {
 	assert.Equal(t, "hayden", auth.Status(t.Context()).Login)
 }
 
+// A mock backend that only flipped a status flag would leave the credential
+// store empty, and everything that resolves an account off it — a source
+// node's credential, seeding a workspace — would fail in mock modes only.
+// That is a whole class of e2e failure that never reproduces live, so the
+// mock writes and clears a credential exactly as the live backend does.
+func TestMockAuthConnectsAndDisconnectsTheCredential(t *testing.T) {
+	t.Parallel()
+
+	t.Run("authenticated modes start connected", func(t *testing.T) {
+		t.Parallel()
+		creds := credentials.NewMemoryStore()
+		NewMockBackend(true, creds, nil)
+		assert.Equal(t, "mock-token", storedToken(t, creds))
+	})
+
+	t.Run("onboarding starts disconnected and connects on grant", func(t *testing.T) {
+		t.Parallel()
+		creds := credentials.NewMemoryStore()
+		changed := make(chan struct{}, 1)
+		auth := NewMockBackend(false, creds, func() { changed <- struct{}{} })
+		assert.Empty(t, storedToken(t, creds))
+
+		_, err := auth.StartDeviceFlow(t.Context())
+		require.NoError(t, err)
+		select {
+		case <-changed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("mock device flow did not grant")
+		}
+		assert.Equal(t, "mock-token", storedToken(t, creds))
+	})
+
+	t.Run("sign out clears it", func(t *testing.T) {
+		t.Parallel()
+		creds := credentials.NewMemoryStore()
+		auth := NewMockBackend(true, creds, nil)
+		require.NoError(t, auth.SignOut())
+		assert.Empty(t, storedToken(t, creds))
+	})
+}
+
 func TestMockAuthCancelPreventsLateGrant(t *testing.T) {
 	t.Parallel()
 
 	changed := make(chan struct{}, 1)
-	auth := NewMockBackend(false, func() {
+	auth := NewMockBackend(false, credentials.NewMemoryStore(), func() {
 		select {
 		case changed <- struct{}{}:
 		default:
@@ -304,7 +345,7 @@ func TestMockAuthCancelPreventsLateGrant(t *testing.T) {
 func TestMockAuthSetTokenAndSignOut(t *testing.T) {
 	t.Parallel()
 
-	auth := NewMockBackend(false, nil)
+	auth := NewMockBackend(false, credentials.NewMemoryStore(), nil)
 
 	_, err := auth.SetToken(t.Context(), "")
 	require.Error(t, err)
