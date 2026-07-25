@@ -21,7 +21,7 @@ func seedLookupItem(t *testing.T, database *DB, ctx context.Context, externalID 
 
 func TestInboxItemID(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	want := seedLookupItem(t, database, ctx, "item-1")
 
 	got, err := database.InboxItemID(ctx, "flow-1", "github", "source-a", "item-1")
@@ -44,7 +44,7 @@ func TestInboxItemID(t *testing.T) {
 
 func TestInboxItemFeedID(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	itemID := seedLookupItem(t, database, ctx, "item-1")
 
 	// An unrouted item belongs to no feed; the UI shows it in Trash.
@@ -70,7 +70,7 @@ func TestInboxItemFeedID(t *testing.T) {
 
 func TestInboxItemNotifiable(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	seed := func(t *testing.T, externalID string, unread int64, occurrence string) {
 		t.Helper()

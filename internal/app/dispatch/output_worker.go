@@ -141,16 +141,18 @@ func (w *Worker) jobLogger(id int64, actionID string) zerolog.Logger {
 	return w.logger.With().Int64("job_id", id).Str("action_id", actionID).Logger()
 }
 
-func (w *Worker) Start() {
+func (w *Worker) Start(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(w.interval)
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-w.stop:
 				return
 			case <-ticker.C:
-				w.Tick(context.Background())
+				w.Tick(ctx)
 			}
 		}
 	}()

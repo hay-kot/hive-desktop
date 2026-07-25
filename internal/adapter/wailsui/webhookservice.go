@@ -84,7 +84,7 @@ func (s *WebhookService) Settings() (WebhookSettings, error) {
 		return WebhookSettings{}, err
 	}
 
-	port, err := settings.ResolveWebhookPort(cfg)
+	port, err := settings.ResolveWebhookPort(context.Background(), cfg)
 	if err != nil {
 		return WebhookSettings{}, err
 	}
@@ -132,7 +132,7 @@ func (s *WebhookService) SetSettings(next WebhookSettings) error {
 // persisting it: the settings pane offers it as a candidate, and saving is
 // what commits it.
 func (s *WebhookService) GeneratePort() (int, error) {
-	return settings.AllocateWebhookPort()
+	return settings.AllocateWebhookPort(context.Background())
 }
 
 func webhookBaseURL(port int) string {

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -30,7 +29,7 @@ func activityClassifier(key string) testClassifier {
 
 func TestIngestObservation_DuplicatePayloadWritesNothing(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	current := observation(`{"v":1}`)
 	first, err := db.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
 	require.NoError(t, err)
@@ -75,7 +74,7 @@ func TestIngestObservation_TrivialChangeUpdatesItemWithoutEvent(t *testing.T) {
 
 func TestIngestObservation_ConcurrentRevisionsAreMonotonic(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	var wg sync.WaitGroup
 	errs := make(chan error, 12)
 	for i := range 12 {
@@ -210,7 +209,7 @@ func TestIngestObservation_BackfillsMissingOccurrenceKeyWithOffset(t *testing.T)
 
 func TestIngestObservation_NullOccurrenceDoesNotDeduplicate(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	for i := range 2 {
 		cur := observation(fmt.Sprintf(`{"v":%d}`, i))
 		cur.ObservedAt = int64(i + 1)

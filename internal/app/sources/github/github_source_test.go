@@ -1,7 +1,6 @@
 package github
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -103,7 +102,7 @@ func TestGithubSource_Produce_EmitsWireItems(t *testing.T) {
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open is:pr author:@me"}, topic: "source:triage/in-prs"}
 
 	var emitted []ingest.Msg
-	err := src.Produce(context.Background(), func(msg ingest.Msg) error {
+	err := src.Produce(t.Context(), func(msg ingest.Msg) error {
 		emitted = append(emitted, msg)
 		return nil
 	})
@@ -132,7 +131,7 @@ func TestGithubSource_Produce_ReusesCoalescedFetch(t *testing.T) {
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open is:pr author:@me"}, topic: "source:triage/in-prs"}
 
 	for range 3 {
-		err := src.Produce(context.Background(), func(ingest.Msg) error { return nil })
+		err := src.Produce(t.Context(), func(ingest.Msg) error { return nil })
 		require.NoError(t, err)
 	}
 
@@ -148,7 +147,7 @@ func TestGithubSource_Produce_PropagatesFetchError(t *testing.T) {
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open"}, topic: "source:triage/in-prs"}
 
 	called := false
-	err := src.Produce(context.Background(), func(ingest.Msg) error {
+	err := src.Produce(t.Context(), func(ingest.Msg) error {
 		called = true
 		return nil
 	})
@@ -181,7 +180,7 @@ func TestNewFlowSourceLister_ResolvesEnabledSourceNodesAcrossFlows(t *testing.T)
 	}
 
 	lister := NewFlowSourceLister(live, flows)
-	sources, err := lister(context.Background())
+	sources, err := lister(t.Context())
 	require.NoError(t, err)
 
 	// Only the one enabled node in the one enabled flow, keyed flow-qualified.
@@ -304,10 +303,10 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 		appendedOffsets = append(appendedOffsets, offset)
 	}, zerolog.Nop())
 
-	producer.Tick(context.Background())
+	producer.Tick(t.Context())
 	require.Len(t, appendedOffsets, 1)
 
-	msgs, _, err := db.ReadFrom(context.Background(), 0, 10)
+	msgs, _, err := db.ReadFrom(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, msgs, 2)
 	assert.Equal(t, "source:triage/in-prs", msgs[0].Topic)
@@ -316,8 +315,8 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 
 	// A second tick with unchanged upstream data must not re-append (dedup)
 	// even though githubSource re-emits the (cached) item every tick.
-	producer.Tick(context.Background())
-	msgs, _, err = db.ReadFrom(context.Background(), 0, 10)
+	producer.Tick(t.Context())
+	msgs, _, err = db.ReadFrom(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 3, "unchanged items are deduplicated while every successful tick appends a snapshot")
 	assert.Equal(t, int32(1), api.calls.Load(), "still one API request: the second tick's fetch was cache-served")

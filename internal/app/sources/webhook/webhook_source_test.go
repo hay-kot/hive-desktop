@@ -222,7 +222,7 @@ func TestWebhookListenerRejections(t *testing.T) {
 
 func TestWebhookListenerStartStop(t *testing.T) {
 	listener, _, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
-	require.NoError(t, listener.Start())
+	require.NoError(t, listener.Start(t.Context()))
 	defer listener.Stop()
 
 	require.True(t, listener.Running())

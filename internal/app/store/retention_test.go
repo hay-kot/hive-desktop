@@ -12,7 +12,7 @@ import (
 
 func TestPrune_EventLogIsNotGatedByConsumerOffsets(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for i := range 5 {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
@@ -33,7 +33,7 @@ func TestPrune_EventLogIsNotGatedByConsumerOffsets(t *testing.T) {
 
 func TestPrune_EventLogUsesAgeWithoutConsumers(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := database.Append(ctx, "source:test", "old", []byte(`{}`))
 	require.NoError(t, err)
 	_, err = database.Append(ctx, "source:test", "new", []byte(`{}`))
@@ -53,7 +53,7 @@ func TestPrune_EventLogUsesAgeWithoutConsumers(t *testing.T) {
 
 func TestPrune_EventLogUsesPerTopicCountWithoutConsumers(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for i := range 3 {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
@@ -102,7 +102,7 @@ func TestPrune_PreservesLatestSourceSnapshotForReplay(t *testing.T) {
 
 func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for i := range 3 {
 		_, err := database.Conn().ExecContext(ctx, `
@@ -156,7 +156,7 @@ func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 
 func TestPrune_RejectsNegativeJobLimit(t *testing.T) {
 	database := openTestDB(t)
-	_, err := database.Prune(context.Background(), nil, RetentionPolicy{JobLimit: -1})
+	_, err := database.Prune(t.Context(), nil, RetentionPolicy{JobLimit: -1})
 	require.EqualError(t, err, "job retention limit must not be negative")
 }
 
@@ -218,17 +218,7 @@ func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 		require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_event WHERE item_id = ?`, want.itemID).Scan(&eventCount))
 		assert.Equal(t, 2, eventCount)
 
-		rows, err := database.Conn().QueryContext(ctx, `SELECT id FROM inbox_event WHERE item_id = ? ORDER BY id`, want.itemID)
-		require.NoError(t, err)
-		var ids []int64
-		for rows.Next() {
-			var id int64
-			require.NoError(t, rows.Scan(&id))
-			ids = append(ids, id)
-		}
-		require.NoError(t, rows.Close())
-		require.NoError(t, rows.Err())
-		assert.Equal(t, want.ids, ids)
+		assert.Equal(t, want.ids, inboxEventIDs(t, ctx, database, want.itemID))
 	}
 
 	_, err = database.Prune(ctx, nil, RetentionPolicy{EventPerItemLimit: 0})
@@ -250,7 +240,7 @@ func TestPrune_RejectsNegativeInboxRetentionLimits(t *testing.T) {
 
 func TestOpen_FreshDB_HasRetentionIndexes(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for _, index := range []string{
 		"idx_node_run_ended_at",
@@ -263,4 +253,23 @@ func TestOpen_FreshDB_HasRetentionIndexes(t *testing.T) {
 		).Scan(&count))
 		assert.Equal(t, 1, count, "%s should exist", index)
 	}
+}
+
+// inboxEventIDs reads one item's surviving event ids. It is a function rather
+// than an inline loop so rows.Close can be deferred per query instead of
+// accumulating across the caller's iterations.
+func inboxEventIDs(t *testing.T, ctx context.Context, database *DB, itemID int64) []int64 {
+	t.Helper()
+	rows, err := database.Conn().QueryContext(ctx, `SELECT id FROM inbox_event WHERE item_id = ? ORDER BY id`, itemID)
+	require.NoError(t, err)
+	defer func() { _ = rows.Close() }()
+
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		require.NoError(t, rows.Scan(&id))
+		ids = append(ids, id)
+	}
+	require.NoError(t, rows.Err())
+	return ids
 }

@@ -148,8 +148,9 @@ func (l *Listener) SetRecorder(r activity.Recorder) { l.recorder = r }
 // use) is returned to the caller, which logs and continues — a busy webhook
 // port must never take the desktop app down with it — and is retained for
 // StartError so settings can surface it instead of leaving it in the log.
-func (l *Listener) Start() error {
-	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(l.port)))
+func (l *Listener) Start(ctx context.Context) error {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(l.port)))
 	if err != nil {
 		l.startErr = fmt.Errorf("webhook listener: %w", err)
 		return l.startErr

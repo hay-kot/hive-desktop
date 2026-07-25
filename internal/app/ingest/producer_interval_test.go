@@ -20,7 +20,7 @@ func TestProducer_SetInterval(t *testing.T) {
 			wakes++
 			mu.Unlock()
 		}, zerolog.Nop())
-		producer.Start()
+		producer.Start(t.Context())
 		producer.SetInterval(10 * time.Millisecond)
 		time.Sleep(10 * time.Millisecond)
 		synctest.Wait()

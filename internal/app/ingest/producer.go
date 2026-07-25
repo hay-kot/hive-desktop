@@ -95,7 +95,7 @@ func NewProducer(db Appender, sources SourceLister, interval time.Duration, onAp
 }
 
 // Start runs the poll loop in a goroutine until Stop.
-func (pr *Producer) Start() {
+func (pr *Producer) Start(ctx context.Context) {
 	pr.intervalMu.Lock()
 	interval := pr.interval
 	pr.intervalMu.Unlock()
@@ -104,12 +104,14 @@ func (pr *Producer) Start() {
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-pr.stop:
 				return
 			case interval := <-pr.intervalCh:
 				ticker.Reset(interval)
 			case <-ticker.C:
-				pr.Tick(context.Background())
+				pr.Tick(ctx)
 			}
 		}
 	}()

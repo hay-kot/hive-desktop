@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -12,7 +11,7 @@ import (
 
 func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	var offsets []int64
 	for i := range 3 {
@@ -55,7 +54,7 @@ func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 
 func TestAppendIfChanged_DedupesByTopicAndKey(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, appended, err := database.AppendIfChanged(ctx, "source:one", "shared", []byte(`{"v":1}`))
 	require.NoError(t, err)
@@ -85,7 +84,7 @@ func TestAppendIfChanged_DedupesByTopicAndKey(t *testing.T) {
 
 func TestAppendIfChanged_RollsBackHeadOnAppendFailure(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, appended, err := database.AppendIfChanged(ctx, "source:test", "item", []byte(`{"v":1}`))
 	require.NoError(t, err)
@@ -123,7 +122,7 @@ func TestAppendIfChanged_RollsBackHeadOnAppendFailure(t *testing.T) {
 
 func TestReadForConsumer_ResumesFromPersistedOffset(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for i := range 3 {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
@@ -139,7 +138,7 @@ func TestReadForConsumer_ResumesFromPersistedOffset(t *testing.T) {
 
 func TestReadFrom_EmptySnapshotSurvivesJSON(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := database.AppendSnapshot(ctx, "source:test", "github", "", []SnapshotItem{})
 	require.NoError(t, err)

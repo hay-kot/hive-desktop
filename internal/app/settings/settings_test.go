@@ -216,7 +216,7 @@ func TestWebhookPortOverride(t *testing.T) {
 }
 
 func TestAllocateWebhookPort(t *testing.T) {
-	port, err := AllocateWebhookPort()
+	port, err := AllocateWebhookPort(t.Context())
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, port, WebhookPortMin)
 	require.LessOrEqual(t, port, WebhookPortMax)
@@ -235,7 +235,7 @@ func TestResolveWebhookPort(t *testing.T) {
 		t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
 		t.Setenv(EnvWebhookPort, "4499")
 
-		port, err := ResolveWebhookPort(Settings{WebhookPort: 9001})
+		port, err := ResolveWebhookPort(t.Context(), Settings{WebhookPort: 9001})
 		require.NoError(t, err)
 		require.Equal(t, 4499, port)
 		require.NoFileExists(t, SettingsPath())
@@ -246,7 +246,7 @@ func TestResolveWebhookPort(t *testing.T) {
 		t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
 		t.Setenv(EnvWebhookPort, "")
 
-		port, err := ResolveWebhookPort(Settings{WebhookPort: 9001})
+		port, err := ResolveWebhookPort(t.Context(), Settings{WebhookPort: 9001})
 		require.NoError(t, err)
 		require.Equal(t, 9001, port)
 	})
@@ -257,7 +257,7 @@ func TestResolveWebhookPort(t *testing.T) {
 		t.Setenv(EnvWebhookPort, "")
 		require.NoError(t, SaveSettings(Settings{PollInterval: "2m"}))
 
-		port, err := ResolveWebhookPort(Settings{PollInterval: "2m"})
+		port, err := ResolveWebhookPort(t.Context(), Settings{PollInterval: "2m"})
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, port, WebhookPortMin)
 		require.LessOrEqual(t, port, WebhookPortMax)
@@ -270,7 +270,7 @@ func TestResolveWebhookPort(t *testing.T) {
 		require.Equal(t, "2m", saved.PollInterval)
 
 		// A second resolve is stable rather than re-rolling.
-		again, err := ResolveWebhookPort(saved)
+		again, err := ResolveWebhookPort(t.Context(), saved)
 		require.NoError(t, err)
 		require.Equal(t, port, again)
 	})
@@ -280,7 +280,7 @@ func TestResolveWebhookPort(t *testing.T) {
 		t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
 		t.Setenv(EnvWebhookPort, "")
 
-		port, err := ResolveWebhookPort(Settings{WebhookPort: 70000})
+		port, err := ResolveWebhookPort(t.Context(), Settings{WebhookPort: 70000})
 		require.NoError(t, err)
 		require.GreaterOrEqual(t, port, WebhookPortMin)
 		require.LessOrEqual(t, port, WebhookPortMax)

@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,7 +9,7 @@ import (
 
 func TestJobs_LifecyclePagingAndActiveWindow(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, err := database.InsertJob(ctx, JobRecord{
 		CreatedAt: 100, UpdatedAt: 100, Status: "queued", Label: "First",
@@ -74,7 +73,7 @@ func TestJobs_LifecyclePagingAndActiveWindow(t *testing.T) {
 
 func TestJobs_ActiveJobPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 	database, err := Open(dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	_, err = database.Conn().ExecContext(ctx, `

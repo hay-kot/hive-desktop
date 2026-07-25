@@ -139,7 +139,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.Equal(t, 120, got.PollIntervalSeconds)
 		require.Equal(t, 60, got.MinPollIntervalSeconds)
 
-		producer.Start()
+		producer.Start(t.Context())
 		time.Sleep(2 * time.Minute)
 		synctest.Wait()
 		producer.Stop()

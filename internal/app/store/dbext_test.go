@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -21,7 +20,7 @@ func openTestDB(t *testing.T) *DB {
 
 func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for _, table := range []string{
 		"activity_event", "consumer_offset", "event_log", "feed_membership_claim",
@@ -44,7 +43,7 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 
 func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	dir := t.TempDir()
-	ctx := context.Background()
+	ctx := t.Context()
 	first, err := Open(dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, first, "review", "item-1")
@@ -86,7 +85,7 @@ func TestOpen_Idempotent(t *testing.T) {
 	first, err := Open(dir, DefaultOpenOptions())
 	require.NoError(t, err)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	appliedFirst, err := migrate.AppliedVersions(ctx, first.Conn())
 	require.NoError(t, err)
 	require.NoError(t, first.Close())
@@ -107,7 +106,7 @@ func TestOpen_CreatesMissingParentDir(t *testing.T) {
 	require.NoError(t, err, "Open should create the target directory when it does not exist")
 	t.Cleanup(func() { _ = database.Close() })
 
-	ctx := context.Background()
+	ctx := t.Context()
 	offset, err := database.Append(ctx, "source:test", "key-1", []byte(`{"v":1}`))
 	require.NoError(t, err)
 

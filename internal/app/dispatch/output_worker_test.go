@@ -30,7 +30,7 @@ func openTestPipelineDB(t *testing.T) *store.DB {
 // dedup/enqueue behavior rather than inserting rows by hand.
 func enqueueTestCommand(t *testing.T, db *store.DB, actionID, key, payload string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(context.Background(), store.CommitBatch{
+	require.NoError(t, db.CommitBatch(t.Context(), store.CommitBatch{
 		Consumer:   "test-consumer-" + actionID + "-" + key,
 		UpToOffset: "1",
 		Outputs: []store.Output{

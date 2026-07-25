@@ -79,8 +79,22 @@ run = "go mod tidy -diff"
 description = "Verify generated code (enums, sqlc) matches its sources"
 run = """
 mise run --force generate
-git diff --exit-code -- '*_enum.go' internal/app/store || {
+git diff --exit-code -- '*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
+  exit 1
+}
+"""
+
+[tasks."check:bindings"]
+description = "Verify the committed Wails TS bindings match the Go service surface"
+run = """
+mise run desktop:generate
+# -N registers files the generator created that the checkout lacks, for the
+# same reason check:vendor does: -clean=true deletes and recreates the tree,
+# and plain git diff cannot see an untracked file.
+git add -N desktop/frontend/bindings
+git diff --exit-code -- desktop/frontend/bindings || {
+  echo "Wails bindings are out of date. Run 'mise run desktop:generate' and commit the result." >&2
   exit 1
 }
 """

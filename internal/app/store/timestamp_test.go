@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -17,7 +16,7 @@ func requireUnixMilliNow(t *testing.T, timestamp, before, after int64) {
 
 func TestEventLogWritesUseUnixMilliseconds(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	before := time.Now().UnixMilli()
 
 	_, err := database.Append(ctx, "source:test", "append", []byte(`{}`))
@@ -39,7 +38,7 @@ func TestEventLogWritesUseUnixMilliseconds(t *testing.T) {
 
 func TestCommitBatchWritesUseUnixMilliseconds(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	before := time.Now().UnixMilli()
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{

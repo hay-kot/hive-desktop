@@ -359,7 +359,7 @@ func main() {
 
 	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, wailsui.NewFlowNotifier(notificationService), focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
 	if settings.MockMode() == "" {
-		outputWorker.Start()
+		outputWorker.Start(context.Background())
 	}
 
 	maintenance := ingest.NewMaintenance(
@@ -369,11 +369,11 @@ func main() {
 		ingest.DefaultRetentionInterval,
 		logger,
 	)
-	maintenance.Start()
+	maintenance.Start(context.Background())
 
 	producer := buildPipelineProducer(pipelineDB, fetcher, flowsStore, activityStore, interval, logger)
 	if producer != nil {
-		producer.Start()
+		producer.Start(context.Background())
 	}
 
 	// The webhook listener is the push-driven counterpart to the poll
@@ -384,7 +384,7 @@ func main() {
 	// instances never fight over one. The port is drawn at random on first
 	// run and persisted; a failure to find one, like a bind failure, logs and
 	// the app runs on without webhooks.
-	webhookPort, err := settings.ResolveWebhookPort(cfg)
+	webhookPort, err := settings.ResolveWebhookPort(context.Background(), cfg)
 	if err != nil {
 		logger.Warn().Err(err).Msg("webhook port unavailable")
 	}
@@ -393,7 +393,7 @@ func main() {
 	if webhookEnabled && webhookPort > 0 && (settings.MockMode() == "" || os.Getenv(settings.EnvWebhookPort) != "") {
 		webhookListener = webhook.NewListener(pipelineDB, flowsStore, webhookPort, wailsui.EmitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
-		if err := webhookListener.Start(); err != nil {
+		if err := webhookListener.Start(context.Background()); err != nil {
 			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")
 		}
 	}

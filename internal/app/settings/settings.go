@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"context"
 	"fmt"
 	"math/rand/v2"
 	"net"
@@ -282,7 +283,8 @@ func WebhookPortOverride() int {
 // not reserved and binds on 127.0.0.1 right now. The bind is released before
 // returning, so the result is a strong hint rather than a reservation — the
 // listener still has to tolerate a bind failure, which it does.
-func AllocateWebhookPort() (int, error) {
+func AllocateWebhookPort(ctx context.Context) (int, error) {
+	var lc net.ListenConfig
 	const attempts = 64
 	span := WebhookPortMax - WebhookPortMin + 1
 	for range attempts {
@@ -290,7 +292,7 @@ func AllocateWebhookPort() (int, error) {
 		if reservedWebhookPorts[port] {
 			continue
 		}
-		ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 		if err != nil {
 			continue
 		}
@@ -306,7 +308,7 @@ func AllocateWebhookPort() (int, error) {
 // value) is replaced by a freshly allocated random port that is written back
 // to settings.yaml so the endpoint URLs users paste into sending systems stay
 // stable across restarts.
-func ResolveWebhookPort(settings Settings) (int, error) {
+func ResolveWebhookPort(ctx context.Context, settings Settings) (int, error) {
 	if port := WebhookPortOverride(); port > 0 {
 		return port, nil
 	}
@@ -314,7 +316,7 @@ func ResolveWebhookPort(settings Settings) (int, error) {
 		return settings.WebhookPort, nil
 	}
 
-	port, err := AllocateWebhookPort()
+	port, err := AllocateWebhookPort(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("allocate webhook port: %w", err)
 	}

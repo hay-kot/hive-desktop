@@ -1,7 +1,6 @@
 package activity
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ func TestStoreAppendRoundTrip(t *testing.T) {
 	emitted := 0
 	var lastEmittedID int64
 	recorder := newTestStore(t, Options{Emit: func(id int64) { emitted++; lastEmittedID = id }})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	stored, err := recorder.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
 	require.NoError(t, err)
@@ -44,7 +43,7 @@ func TestStoreListNewestFirstAndCursor(t *testing.T) {
 	// ordering itself is by the autoincrement id, not the timestamp.
 	now := time.Unix(0, 0)
 	recorder := newTestStore(t, Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	for i := 0; i < 5; i++ {
 		_, err := recorder.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
@@ -65,7 +64,7 @@ func TestStoreListNewestFirstAndCursor(t *testing.T) {
 
 func TestStoreAppendRejectsBadInput(t *testing.T) {
 	recorder := newTestStore(t, Options{})
-	ctx := context.Background()
+	ctx := t.Context()
 
 	_, err := recorder.Append(ctx, Event{Category: CategorySystem, Severity: SeverityInfo})
 	require.Error(t, err, "missing title is rejected")
@@ -76,7 +75,7 @@ func TestStoreAppendRejectsBadInput(t *testing.T) {
 
 func TestStoreAppendDefaultsCategoryAndSeverity(t *testing.T) {
 	recorder := newTestStore(t, Options{})
-	stored, err := recorder.Append(context.Background(), Event{Title: "something happened"})
+	stored, err := recorder.Append(t.Context(), Event{Title: "something happened"})
 	require.NoError(t, err)
 	require.Equal(t, CategorySystem, stored.Category)
 	require.Equal(t, SeverityInfo, stored.Severity)

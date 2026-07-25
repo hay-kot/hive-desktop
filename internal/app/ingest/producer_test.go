@@ -308,7 +308,7 @@ func TestProducer_StartStop(t *testing.T) {
 			mu.Unlock()
 		}, zerolog.Nop())
 
-		producer.Start()
+		producer.Start(t.Context())
 		time.Sleep(50 * time.Millisecond) // fake time: the ticker fires deterministically
 		synctest.Wait()                   // let the in-flight tick's append settle
 		producer.Stop()

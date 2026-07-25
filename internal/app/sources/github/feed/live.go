@@ -127,7 +127,7 @@ func (p *LiveProvider) inCooldown() (bool, error) {
 // noteRateLimit starts or extends the token-wide cooldown. A server reset
 // takes precedence over the local fallback; an existing later cooldown is
 // retained so concurrent failures cannot shorten it.
-func (p *LiveProvider) noteRateLimit(err error) {
+func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
 	if !errors.Is(err, github.ErrRateLimited) {
 		return
 	}
@@ -161,7 +161,7 @@ func (p *LiveProvider) noteRateLimit(err error) {
 	}
 	p.logger.Warn().Err(err).Time("resume_at", until).Msg("github rate limited; fetches paused")
 	if recorder != nil {
-		recorder.Record(context.Background(), activity.RefreshFailed("github", fmt.Sprintf("rate limited; fetches paused until %s", until.Format("15:04:05"))))
+		recorder.Record(ctx, activity.RefreshFailed("github", fmt.Sprintf("rate limited; fetches paused until %s", until.Format("15:04:05"))))
 	}
 }
 
@@ -299,7 +299,7 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 	results, err := p.client.WithTokenCopy(token).SearchIssuesBatch(ctx, reqs)
 	if err != nil {
 		if errors.Is(err, github.ErrRateLimited) {
-			p.noteRateLimit(err)
+			p.noteRateLimit(ctx, err)
 		}
 		p.recordSearchFailures(dueKeys, err)
 		return err
@@ -369,7 +369,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 		result, err := client.Notifications(ctx, src.effectiveLimit(), ifModifiedSince)
 		if err != nil {
 			if errors.Is(err, github.ErrRateLimited) {
-				p.noteRateLimit(err)
+				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
 		}
@@ -401,7 +401,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 		}})
 		if err != nil {
 			if errors.Is(err, github.ErrRateLimited) {
-				p.noteRateLimit(err)
+				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
 		}
@@ -441,7 +441,7 @@ func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int
 		issue, err = client.GetIssue(ctx, parts[0], parts[1], num)
 	}
 	if errors.Is(err, github.ErrRateLimited) {
-		p.noteRateLimit(err)
+		p.noteRateLimit(ctx, err)
 	}
 	return issue, err
 }

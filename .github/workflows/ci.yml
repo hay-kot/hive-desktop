@@ -16,11 +16,6 @@ env:
 jobs:
   go:
     runs-on: ubuntu-latest
-    env:
-      # The wails3 CLI is only needed by local desktop:dev/build/generate
-      # tasks; installing it in CI compiles wails' gtk-dependent packages
-      # for no benefit.
-      MISE_DISABLE_TOOLS: "go:github.com/wailsapp/wails/v3/cmd/wails3"
     steps:
       - uses: actions/checkout@v7
 
@@ -42,6 +37,12 @@ jobs:
       # is the single definition so the two can never drift.
       - name: Check generated files are up-to-date
         run: mise run check:generate
+
+      # Binding method IDs hash the Go package path, so a service that moved
+      # without a regenerate leaves committed TypeScript that typechecks and
+      # fails every RPC at runtime. Nothing else in this workflow can see it.
+      - name: Check Wails bindings are up-to-date
+        run: mise run check:bindings
 
       - name: Check vendored hivecore matches the pinned hive commit
         run: mise run check:vendor

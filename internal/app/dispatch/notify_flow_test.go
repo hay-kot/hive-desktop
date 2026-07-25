@@ -1,7 +1,6 @@
 package dispatch
 
 import (
-	"context"
 	"testing"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -16,7 +15,7 @@ import (
 // action resolution against the live flow set, and the executor. Only the OS
 // itself is faked.
 func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -80,7 +79,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 // A notify node the author deleted (or renamed) leaves its queued commands
 // unresolvable. They must fail visibly rather than hang in the queue.
 func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
-	ctx := context.Background()
+	ctx := t.Context()
 	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })

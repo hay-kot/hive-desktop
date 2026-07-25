@@ -54,7 +54,7 @@ func NewMaintenance(db RetentionStore, flows FlowLister, policy store.RetentionP
 // Start begins the periodic maintenance loop. The first run happens on the
 // first interval rather than app startup, avoiding needless write contention
 // while the frontend restores its durable flow consumers.
-func (m *Maintenance) Start() {
+func (m *Maintenance) Start(ctx context.Context) {
 	m.mu.Lock()
 	if m.started {
 		m.mu.Unlock()
@@ -69,10 +69,12 @@ func (m *Maintenance) Start() {
 		defer ticker.Stop()
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-m.stop:
 				return
 			case <-ticker.C:
-				m.Tick(context.Background())
+				m.Tick(ctx)
 			}
 		}
 	}()

@@ -66,7 +66,7 @@ func TestMaintenanceStop_WaitsForScheduledLoop(t *testing.T) {
 		time.Millisecond,
 		zerolog.Nop(),
 	)
-	maintenance.Start()
+	maintenance.Start(t.Context())
 
 	select {
 	case <-pruner.calls:

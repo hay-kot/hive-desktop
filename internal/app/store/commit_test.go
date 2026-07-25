@@ -11,7 +11,7 @@ import (
 
 func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := database.Queries().InsertInboxItem(ctx, InsertInboxItemParams{
 		ProfileID: "flow-1", SourceKind: "github", SourceScope: "source-a", ExternalID: "item-1",
 		Payload: []byte(`{"v":1}`), Lifecycle: "active",
@@ -33,7 +33,7 @@ func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 
 func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	countPending := func(t *testing.T) int {
 		t.Helper()
@@ -79,7 +79,7 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 
 func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	notifyOutput := func(occurrence string, payload string) Output {
 		return Output{
@@ -139,7 +139,7 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 // rather than the node notifying once and then going silent forever.
 func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	notifyOutput := func(payload string) Output {
 		return Output{
@@ -166,7 +166,7 @@ func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *test
 // Two notify nodes fed by the same message are independent destinations.
 func TestCommitBatch_NotifyOutput_IsPerNode(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
 		Consumer: "flow-1", UpToOffset: "1",
@@ -187,7 +187,7 @@ func countOutputCommands(t *testing.T, database *DB, ctx context.Context) int {
 
 func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
@@ -253,7 +253,7 @@ func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
 
 func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
@@ -307,7 +307,7 @@ func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 
 func TestCommitBatch_UnknownSinkKind_Errors(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",

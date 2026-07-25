@@ -1,7 +1,6 @@
 package jobs
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -21,7 +20,7 @@ func openJobsTestDB(t *testing.T) *store.DB {
 
 func TestStore_RecordsLifecycleLabelsAndEmits(t *testing.T) {
 	database := openJobsTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	now := time.UnixMilli(1_000)
 	var emitted []int64
 	jobStore := NewStore(database, Options{
@@ -83,7 +82,7 @@ func TestStepFor(t *testing.T) {
 
 func TestStore_ListActiveUsesBackendClockWindow(t *testing.T) {
 	database := openJobsTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 	now := time.UnixMilli(10_000)
 	jobStore := NewStore(database, Options{Now: func() time.Time { return now }})
 
@@ -111,11 +110,11 @@ func TestStore_BeginFailureAndZeroTransitionsAreNoOps(t *testing.T) {
 	database := openJobsTestDB(t)
 	require.NoError(t, database.Close())
 	jobStore := NewStore(database, Options{})
-	id := jobStore.Begin(context.Background(), "Review", "review", "pr-1")
+	id := jobStore.Begin(t.Context(), "Review", "review", "pr-1")
 	assert.Zero(t, id)
 	assert.NotPanics(t, func() {
-		jobStore.Running(context.Background(), 0, 1)
-		jobStore.Done(context.Background(), 0)
-		jobStore.Fail(context.Background(), 0, "ignored")
+		jobStore.Running(t.Context(), 0, 1)
+		jobStore.Done(t.Context(), 0)
+		jobStore.Fail(t.Context(), 0, "ignored")
 	})
 }

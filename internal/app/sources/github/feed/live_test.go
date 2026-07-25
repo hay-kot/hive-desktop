@@ -413,7 +413,7 @@ func TestPrefetchSearch_RecordsTokenErrors(t *testing.T) {
 	live, _ := newLiveProviderForTest(t, api, "")
 	defs := []SourceDef{{ID: "one", Kind: "search", Query: "is:open"}, {ID: "two", Kind: "search", Query: "is:pr"}}
 
-	err := live.PrefetchSearch(context.Background(), defs)
+	err := live.PrefetchSearch(t.Context(), defs)
 	require.ErrorIs(t, err, ErrNotAuthenticated)
 	for _, def := range defs {
 		_, err = live.SourceItems(t.Context(), def)

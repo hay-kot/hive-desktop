@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,7 +17,7 @@ func itemIDs(items []InboxItemView) []int64 {
 
 func TestMarkInboxItemsRead(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	insert := func(externalID string, unread int64) InboxItem {
 		row, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: externalID, Title: externalID, Payload: []byte(`{}`), Unread: unread, Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 1})
@@ -98,7 +97,7 @@ func TestMarkInboxItemsRead(t *testing.T) {
 
 func TestFeedViewsTriageAndCounts(t *testing.T) {
 	db := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	first, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{ProfileID: "p", SourceKind: "github", ExternalID: "one", Title: "one", Payload: []byte(`{}`), Unread: 1, Lifecycle: "active", FirstSeenAt: 1, LastEventAt: 2})
 	require.NoError(t, err)

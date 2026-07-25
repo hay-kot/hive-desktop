@@ -4,19 +4,25 @@ linters:
   enable:
     - asciicheck
     - bodyclose
+    - containedctx
+    - contextcheck
     - depguard
     - dogsled
     - errcheck
     - errorlint
     - exhaustive
+    - forbidigo
     - gochecknoinits
     - gocritic
     - goprintffuncname
     - govet
     - ineffassign
+    - interfacebloat
     - misspell
     - nakedret
+    - noctx
     - revive
+    - sqlclosecheck
     - staticcheck
     - tagalign
     - testifylint
@@ -37,11 +43,52 @@ linters:
                 details.
             - pkg: github.com/pkg/errors
               desc: Should be replaced by standard lib errors package
+        core:
+          files:
+            - "**/internal/app/**"
+          deny:
+            - pkg: github.com/wailsapp/wails/v3
+              desc: |
+                internal/app is the headless core: no transport, no Wails.
+                A Wails service struct belongs in internal/adapter/wailsui;
+                a core package that needs something from the outside declares
+                an interface and takes it as a constructor parameter.
+                See docs/architecture.md, "Layers and the dependency rule".
+            - pkg: github.com/hay-kot/hive-desktop/internal/adapter
+              desc: |
+                Dependencies point one way: adapter -> app -> hivecore.
+                A core package that needs something from an adapter has the
+                interface backwards — declare it in app and let the adapter
+                satisfy it structurally.
     exhaustive:
       default-signifies-exhaustive: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        - pattern: ^application\.Get$
+          msg: >-
+            Rule 2: application.Get() is only valid inside
+            internal/adapter/wailsui. Take what you need as a constructor
+            parameter instead.
+        - pattern: ^context\.Background$
+          msg: >-
+            Rule 3: context.Context is the first parameter of every core
+            method. context.Background() inside a service method makes CLI
+            cancellation and HTTP deadlines impossible.
+        - pattern: ^emit[A-Z]\w*$
+          msg: >-
+            Rule 5: the core publishes a typed payload to app/events. Wake-up
+            degradation belongs to the wailsui adapter subscriber.
     gocritic:
       enabled-checks:
         - ruleguard
+    interfacebloat:
+      # Not the default 10 and not 6. Consumer-defined interfaces here are
+      # narrow — ingest.Appender is four methods, flow.Refs is two — but
+      # dispatch.OutputCommandStore has seven that are the complete lifecycle
+      # of one entity, and the worker calls all seven. Splitting it to satisfy
+      # a linter is the opposite of the rule's intent.
+      max: 8
     revive:
       confidence: 3
       severity: warning
@@ -57,6 +104,30 @@ linters:
       enable-all: true
   exclusions:
     generated: lax
+    rules:
+      # forbidigo has no per-rule path filter, so the scope of the three rules
+      # above is carved here. The adapter and package main are where
+      # application.Get, context.Background and the emit helpers belong.
+      - path: internal/adapter/wailsui/
+        linters: [forbidigo]
+      - path: ^desktop/
+        linters: [forbidigo]
+      # Two legitimate context roots inside the core: the migration bootstrap
+      # in Open(), and the webhook listener's per-delivery timeout.
+      - path: internal/app/store/dbext\.go
+        linters: [forbidigo]
+      - path: internal/app/sources/webhook/
+        linters: [forbidigo]
+      # cmd/ holds one-shot build tooling (the release publisher, the vendor
+      # sync), not the app. A main() is a legitimate context root, and a git
+      # subprocess in a build tool needs no cancellation plumbing.
+      - path: ^cmd/
+        linters: [forbidigo, noctx, contextcheck]
+      # httptest.NewRequest and http.Post in tests. Rewriting seven test
+      # helpers to thread a context they do not use buys nothing; noctx exists
+      # here to catch an outbound request built without one in production.
+      - path: _test\.go
+        linters: [noctx]
     paths:
       - third_party$
       - builtin$

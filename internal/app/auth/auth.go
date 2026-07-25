@@ -124,7 +124,10 @@ func (a *liveAuth) StartDeviceFlow(ctx context.Context) (DeviceFlowInfo, error) 
 		return DeviceFlowInfo{}, fmt.Errorf("start device flow: %w", err)
 	}
 
-	pollCtx, cancel := context.WithTimeout(context.Background(), time.Duration(auth.ExpiresIn)*time.Second)
+	// Detached from the caller's context, not rooted at Background: the poll
+	// must outlive the StartDeviceFlow RPC that began it, but it should still
+	// carry that call's values.
+	pollCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Duration(auth.ExpiresIn)*time.Second)
 	a.mu.Lock()
 	if a.flowCancel != nil {
 		a.flowCancel()
@@ -152,7 +155,7 @@ func (a *liveAuth) pollFlow(ctx context.Context, auth github.DeviceAuth) {
 
 	// Not the poll context: its device-code deadline may be about to fire,
 	// and validating a just-granted token must not race it.
-	a.adoptToken(context.Background(), token)
+	a.adoptToken(context.WithoutCancel(ctx), token)
 }
 
 // flowFailureMessage maps device-flow failures onto user-facing text. The

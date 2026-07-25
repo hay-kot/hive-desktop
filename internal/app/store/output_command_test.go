@@ -1,7 +1,6 @@
 package store
 
 import (
-	"context"
 	"strings"
 	"testing"
 
@@ -11,7 +10,7 @@ import (
 
 func enqueueTestCommand(t *testing.T, db *DB, actionID, key string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(context.Background(), CommitBatch{
+	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{
 		Consumer:   "flow-" + actionID + "-" + key,
 		UpToOffset: "1",
 		Outputs: []Output{
@@ -26,7 +25,7 @@ func enqueueTestCommand(t *testing.T, db *DB, actionID, key string) {
 
 func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	enqueueTestCommand(t, database, "action-a", "k2")
@@ -43,7 +42,7 @@ func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {
 
 func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	enqueueTestCommand(t, database, "action-a", "k2")
@@ -56,7 +55,7 @@ func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
 
 func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	row, created, err := database.ConfirmOutputCommand(ctx, "action-a", "k1", []byte(`{"v":2}`))
@@ -94,7 +93,7 @@ func TestRerunOutputCommandRejectsActivePriorRun(t *testing.T) {
 
 func TestMarkOutputCommandDone_ExcludesFromRunnable(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	rows, err := database.ListRunnableOutputCommands(ctx, 10)
@@ -110,7 +109,7 @@ func TestMarkOutputCommandDone_ExcludesFromRunnable(t *testing.T) {
 
 func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	rows, err := database.ListRunnableOutputCommands(ctx, 10)
@@ -191,7 +190,7 @@ func TestExecutionResultAndLogsPersistAcrossReopenBeforeDone(t *testing.T) {
 
 func TestMarkOutputCommandFailed_ExcludesFromRunnable(t *testing.T) {
 	database := openTestDB(t)
-	ctx := context.Background()
+	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
 	rows, err := database.ListRunnableOutputCommands(ctx, 10)
