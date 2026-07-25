@@ -21,14 +21,14 @@ import (
 var _ = registerEvents()
 
 func registerEvents() struct{} {
-	// auth:updated carries the new auth state string; log:appended carries the
-	// pipeline event log's new tail offset after a producer tick appends at
-	// least one row; flows:updated fires after a flows/*.yaml directory reload
-	// (an external edit, or the app's own SaveFlow/SaveLayout — see
-	// buildFlowsStore); actions:updated fires after an actions.yml reload.
-	// All are wake-up signals: the frontend re-reads the relevant service on
-	// receipt.
-	application.RegisterEvent[string]("auth:updated")
+	// connection:updated carries the provider whose credentials changed;
+	// log:appended carries the pipeline event log's new tail offset after a
+	// producer tick appends at least one row; flows:updated fires after a
+	// flows/*.yaml directory reload (an external edit, or the app's own
+	// SaveFlow/SaveLayout — see buildFlowsStore); actions:updated fires after
+	// an actions.yml reload. All are wake-up signals: the frontend re-reads
+	// the relevant service on receipt.
+	application.RegisterEvent[string]("connection:updated")
 	application.RegisterEvent[int64]("log:appended")
 	// inbox:updated fires after the flow engine commits at least one run. It
 	// is the signal a feed re-read keys off: log:appended only says a source
@@ -92,8 +92,8 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
 			emitActionsUpdated()
 		}),
-		events.Subscribe(ctx, bus, "wailsui.auth", events.Coalesce(), func(context.Context, events.AuthUpdated) {
-			emitAuthUpdated()
+		events.Subscribe(ctx, bus, "wailsui.connection", events.Coalesce(), func(_ context.Context, e events.ConnectionUpdated) {
+			emitConnectionUpdated(e.Provider)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.flows", events.Coalesce(), func(context.Context, events.FlowsUpdated) {
 			emitFlowsUpdated()
@@ -193,11 +193,12 @@ func emitWindowBlur() {
 	}
 }
 
-// emitAuthUpdated pushes the auth:updated wake-up to the frontend. Safe to
-// call from any goroutine once the app is running.
-func emitAuthUpdated() {
+// emitConnectionUpdated pushes the connection:updated wake-up to the
+// frontend, naming the provider whose credentials changed. Safe to call from
+// any goroutine once the app is running.
+func emitConnectionUpdated(provider string) {
 	if app := application.Get(); app != nil {
-		app.Event.Emit("auth:updated", "changed")
+		app.Event.Emit("connection:updated", provider)
 	}
 }
 

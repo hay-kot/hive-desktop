@@ -39,8 +39,11 @@ type FlowsUpdated struct{ Reason string }
 // ActionsUpdated reports that the actions catalog was reloaded or mutated.
 type ActionsUpdated struct{ Count int }
 
-// AuthUpdated reports a change in authentication state.
-type AuthUpdated struct{ State string }
+// ConnectionUpdated reports that one provider's stored credentials changed —
+// connected, rotated, or disconnected. Provider names which ("github"), so a
+// consumer can ignore a provider it does not use; the new state is not in the
+// payload because the connector's own status is the authority on it.
+type ConnectionUpdated struct{ Provider string }
 
 // NotificationRaised reports that a flow's notify terminal fired. InApp
 // carries the user's delivery choice; routing it to a banner or a toast is
@@ -67,6 +70,6 @@ func (ActivityAppended) eventName() string   { return "activity.appended" }
 func (JobsUpdated) eventName() string        { return "jobs.updated" }
 func (FlowsUpdated) eventName() string       { return "flows.updated" }
 func (ActionsUpdated) eventName() string     { return "actions.updated" }
-func (AuthUpdated) eventName() string        { return "auth.updated" }
+func (ConnectionUpdated) eventName() string  { return "connection.updated" }
 func (NotificationRaised) eventName() string { return "notification.raised" }
 func (UpdateChecked) eventName() string      { return "update.checked" }

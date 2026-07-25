@@ -50,7 +50,7 @@ func TestAppLifecycle(t *testing.T) {
 	require.NotNil(t, core.Settings)
 	require.NotNil(t, core.System)
 	require.NotNil(t, core.Webhooks)
-	require.NotNil(t, core.Auth)
+	require.NotNil(t, core.GitHub)
 	require.NotNil(t, core.Activity)
 	require.NotNil(t, core.Jobs)
 	require.NotNil(t, core.Prompts)

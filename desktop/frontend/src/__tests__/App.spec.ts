@@ -38,12 +38,12 @@ const mocks = vi.hoisted(() => ({
   ActionViews: vi.fn(),
   InvokeAction: vi.fn(),
   NodeRuns: vi.fn(),
-  // auth service
+  // github connection service
   Status: vi.fn(),
   StartDeviceFlow: vi.fn(),
   CancelDeviceFlow: vi.fn(),
   SetToken: vi.fn(),
-  SignOut: vi.fn(),
+  Disconnect: vi.fn(),
   // updaterservice
   UpdaterStatus: vi.fn(),
   InstallUpdate: vi.fn(),
@@ -98,12 +98,12 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   NodeRuns: mocks.NodeRuns,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/authservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/githubservice', () => ({
   Status: mocks.Status,
   StartDeviceFlow: mocks.StartDeviceFlow,
   CancelDeviceFlow: mocks.CancelDeviceFlow,
   SetToken: mocks.SetToken,
-  SignOut: mocks.SignOut,
+  Disconnect: mocks.Disconnect,
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice', () => ({
@@ -169,7 +169,7 @@ describe('App', () => {
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
     localStorage.clear()
-    mocks.Status.mockResolvedValue({ state: 'authenticated', login: 'hay', name: 'Hay', avatarUrl: '', message: '' })
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
     mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Personal', enabled: true, valid: true }])
     mocks.GetFlow.mockResolvedValue(flow)
     mocks.GetLayout.mockResolvedValue({ nodes: {} })

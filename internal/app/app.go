@@ -14,7 +14,6 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/auth"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -66,7 +65,7 @@ type App struct {
 	Settings *SettingsService
 	System   *SystemService
 	Webhooks *WebhookService
-	Auth     *AuthService
+	GitHub   *GitHubService
 	Activity *ActivityService
 	Jobs     *JobService
 	Prompts  *PromptsService
@@ -82,9 +81,12 @@ type App struct {
 	FlowStore     *flow.FlowStore
 	ActivityStore *activity.Store
 	JobStore      *jobs.Store
-	AuthBackend   auth.Backend
 	Fetchers      *ghsource.Fetchers
 	Credentials   credentials.Store
+
+	// GitHubConnection acquires and releases GitHub credentials. It is one
+	// connector's, not the app's: nothing here is gated on it holding one.
+	GitHubConnection ghsource.Connection
 
 	// Sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -180,14 +182,17 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openFlows(cfg.Logger)
 	a.ActionStore.SetUsageChecker(newActionUsage(a.FlowStore, db))
 
-	a.AuthBackend = buildAuthBackend(cfg.MockMode, a.Credentials, func() {
-		// Every auth transition drops the fetch cache before anything is
-		// notified: a different account must never be served items fetched
-		// with the previous token.
+	a.GitHubConnection = buildGitHubConnection(cfg.MockMode, a.Credentials, func() {
+		// Every connection transition drops this provider's fetch caches
+		// before anything is notified: a different account must never be
+		// served items fetched with the previous token. Fetchers is already
+		// GitHub's alone, so invalidating all of them is exactly this
+		// provider's scope — and over-invalidating costs a refetch, where
+		// under-invalidating serves another account's items.
 		if a.Fetchers != nil {
 			a.Fetchers.InvalidateAll()
 		}
-		a.Events.Publish(a.ctx, events.AuthUpdated{State: a.AuthBackend.Status(a.ctx).State})
+		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: ghsource.Provider})
 	})
 
 	a.Outputs = a.buildOutputWorker(cfg)
@@ -205,7 +210,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Settings = newSettingsService(a.Producer, a.Fetchers)
 	a.System = newSystemService()
 	a.Webhooks = newWebhookService(db, a.Webhook, a.WebhookPort)
-	a.Auth = newAuthService(a.AuthBackend)
+	a.GitHub = newGitHubService(a.GitHubConnection)
 	a.Activity = newActivityService(a.ActivityStore)
 	a.Jobs = newJobService(a.JobStore)
 	a.Prompts = newPromptsService(a.Webhooks)
@@ -301,14 +306,14 @@ func resolvePollInterval(cfg settings.Settings, logger zerolog.Logger) time.Dura
 	return resolved
 }
 
-func buildAuthBackend(mock string, creds credentials.Store, onChange func()) auth.Backend {
+func buildGitHubConnection(mock string, creds credentials.Store, onChange func()) ghsource.Connection {
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
-		return auth.NewMockBackend(true, creds, onChange)
+		return ghsource.NewMockConnection(true, creds, onChange)
 	case "onboarding":
-		return auth.NewMockBackend(false, creds, onChange)
+		return ghsource.NewMockConnection(false, creds, onChange)
 	default:
-		return auth.NewLiveBackend(github.NewClient(), creds, onChange)
+		return ghsource.NewLiveConnection(github.NewClient(), creds, onChange)
 	}
 }
 

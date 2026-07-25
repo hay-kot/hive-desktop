@@ -6,10 +6,10 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/auth"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -121,27 +121,35 @@ func (s *JobService) ListActive(ctx context.Context) ([]jobs.Job, error) {
 	return out, Wrap(err, KindInternal, "listing active jobs")
 }
 
-// AuthService wraps the auth backend with context threading.
-type AuthService struct{ backend auth.Backend }
+// GitHubService wraps the GitHub connector's connection with context
+// threading. It is provider-specific because acquisition is: the device flow
+// is GitHub's, and a connector that takes a pasted API token needs none of
+// these methods. Enumerating what is connected, across every connector, is
+// the Integrations surface's job rather than this one's.
+type GitHubService struct{ conn ghsource.Connection }
 
-func newAuthService(backend auth.Backend) *AuthService { return &AuthService{backend: backend} }
+func newGitHubService(conn ghsource.Connection) *GitHubService {
+	return &GitHubService{conn: conn}
+}
 
-func (s *AuthService) Status(ctx context.Context) auth.Status { return s.backend.Status(ctx) }
+func (s *GitHubService) Status(ctx context.Context) ghsource.ConnectionStatus {
+	return s.conn.Status(ctx)
+}
 
-func (s *AuthService) StartDeviceFlow(ctx context.Context) (auth.DeviceFlowInfo, error) {
-	info, err := s.backend.StartDeviceFlow(ctx)
+func (s *GitHubService) StartDeviceFlow(ctx context.Context) (ghsource.DeviceFlowInfo, error) {
+	info, err := s.conn.StartDeviceFlow(ctx)
 	return info, Wrap(err, KindUnauthenticated, "starting the device flow")
 }
 
-func (s *AuthService) CancelDeviceFlow(context.Context) { s.backend.CancelDeviceFlow() }
+func (s *GitHubService) CancelDeviceFlow(context.Context) { s.conn.CancelDeviceFlow() }
 
-func (s *AuthService) SetToken(ctx context.Context, token string) (auth.Status, error) {
-	status, err := s.backend.SetToken(ctx, token)
+func (s *GitHubService) SetToken(ctx context.Context, token string) (ghsource.ConnectionStatus, error) {
+	status, err := s.conn.SetToken(ctx, token)
 	return status, Wrap(err, KindUnauthenticated, "accepting the token")
 }
 
-func (s *AuthService) SignOut(context.Context) error {
-	return Wrap(s.backend.SignOut(), KindInternal, "signing out")
+func (s *GitHubService) Disconnect(context.Context) error {
+	return Wrap(s.conn.Disconnect(), KindInternal, "disconnecting GitHub")
 }
 
 // PromptsService owns the paste-ready LLM prompts. Prompt text lives in

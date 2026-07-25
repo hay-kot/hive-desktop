@@ -4,13 +4,13 @@ import { Browser } from '@wailsio/runtime'
 import IconCheck from '~icons/lucide/check'
 import IconGithub from '~icons/lucide/github'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
-import type { DeviceFlowInfo } from '../types/auth'
-import type { OnboardingCard } from '../composables/useAuth'
+import type { DeviceFlowInfo } from '../types/github'
+import type { ConnectCard } from '../composables/useGitHubConnection'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
-  // 'workspace' is step 2, shown once authenticated with no workspaces yet.
-  card: OnboardingCard | 'workspace'
+  // 'workspace' is step 2, shown once GitHub is connected with no workspaces yet.
+  card: ConnectCard | 'workspace'
   deviceFlow: DeviceFlowInfo | null
   error: string | null
   busy: boolean
@@ -94,7 +94,7 @@ function submitWorkspace() {
         </div>
         <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ card === 'workspace' ? 'Create your first workspace' : 'Connect to GitHub' }}</h2>
 
-        <!-- workspace: step 2, once authenticated with no workspaces -->
+        <!-- workspace: step 2, once GitHub is connected with no workspaces -->
         <template v-if="card === 'workspace'">
           <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">A workspace groups your feeds. It starts with your open PRs, the notifications inbox, and cross-repo assignments.</p>
           <input

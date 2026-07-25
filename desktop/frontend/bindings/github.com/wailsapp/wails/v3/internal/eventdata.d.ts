@@ -14,7 +14,7 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "actions:updated": string;
             "activity:appended": number;
-            "auth:updated": string;
+            "connection:updated": string;
             "flows:updated": string;
             "inbox:updated": string;
             "jobs:updated": string;

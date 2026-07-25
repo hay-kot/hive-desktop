@@ -6,8 +6,8 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const screenshotsDir = join(here, '..', 'screenshots')
 
-// Dedicated onboarding-mode servers, one per browser project: the mock auth
-// backend is a per-process singleton that stays authenticated once the fake
+// Dedicated onboarding-mode servers, one per browser project: the mock GitHub
+// connection is a per-process singleton that stays connected once the fake
 // device flow grants, so projects must not share an instance. Ports match
 // scripts/serve.sh.
 const onboardingPorts: Record<string, number> = {
@@ -18,13 +18,13 @@ const onboardingPorts: Record<string, number> = {
 // The first-run story is one ordered walk on a per-browser onboarding server.
 // It used to be a single ~70-assertion test; splitting it into named steps
 // that share one page keeps the exact same end-to-end coverage but pins any
-// failure to a specific step (auth vs. workspace-create vs. flow-edit vs.
+// failure to a specific step (connect vs. workspace-create vs. flow-edit vs.
 // delete) instead of a line deep inside one giant test.
 //
 // The steps share a page and run serially because the device-flow grant is a
 // one-way server state change: the group therefore opts out of retries (a
-// retry would meet an already-authenticated server and could not replay the
-// pre-auth cards). Reliability comes from the app instead — the fine-grained
+// retry would meet an already-connected server and could not replay the
+// pre-connect cards). Reliability comes from the app instead — the fine-grained
 // reload/bind ordering this flow exercises is covered deterministically by unit
 // tests (useFeedState, useFlowsSession); this suite is the real-stack
 // integration smoke on top.
@@ -76,7 +76,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
   })
 
   test('creates the first workspace and lands on an empty feed', async () => {
-    // Authenticated with no workspaces — create the first one. "New profile"
+    // Connected with no workspaces — create the first one. "New profile"
     // seeds a real starter flow (flow.FlowStore.starterFlow — three
     // sources.github -> feed pairs plus a notifying "Review requests" feed), but
     // nothing has polled GitHub yet in mock

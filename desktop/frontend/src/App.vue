@@ -26,7 +26,7 @@ import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
 import OnboardingScreen from './components/OnboardingScreen.vue'
 import ToastStack from './components/ToastStack.vue'
-import { useAuth } from './composables/useAuth'
+import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
@@ -56,9 +56,9 @@ const DevBar = devMode ? defineAsyncComponent(() => import('./components/DevBar.
 const DevView = devMode ? defineAsyncComponent(() => import('./components/DevView.vue')) : null
 
 const {
-  status: authStatus, authenticated, deviceFlow, card: authCard, error: authError, busy: authBusy,
+  status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
   startDeviceFlow, useTokenInstead, backToStart, submitToken,
-} = useAuth()
+} = useGitHubConnection()
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, visibleItems, unreadCount, search, loadError,
@@ -544,15 +544,15 @@ async function confirmDeleteProfile() {
   openFeed()
 }
 
-// Booting while signed out leaves profiles unloaded (or the live backend
-// erroring); re-load the moment auth lands — and when the login changes, so
-// a different account never sees the previous account's data.
-watch(() => (authenticated.value ? authStatus.value?.login ?? '' : null), (key) => {
+// Booting with GitHub disconnected leaves profiles unloaded (or the live
+// connection erroring); re-load the moment it connects — and when the login
+// changes, so a different account never sees the previous account's data.
+watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (key) => {
   if (key !== null) void loadProfiles()
 })
 
-// Step 2 of onboarding: authenticated but no workspace exists yet.
-const needsWorkspace = computed(() => authenticated.value && profilesLoaded.value && profiles.value.length === 0)
+// Step 2 of onboarding: GitHub connected but no workspace exists yet.
+const needsWorkspace = computed(() => githubConnected.value && profilesLoaded.value && profiles.value.length === 0)
 
 // ── Layout chrome ─────────────────────────────────────────────────────────────
 // The feed sidebar and the detail preview both collapse to reclaim horizontal
@@ -562,7 +562,7 @@ const needsWorkspace = computed(() => authenticated.value && profilesLoaded.valu
 const sidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
-  authenticated.value && !needsWorkspace.value &&
+  githubConnected.value && !needsWorkspace.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
@@ -614,7 +614,7 @@ const catalogById = new Map(commandCatalog.map((command) => [command.id, command
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
 const feedNavActive = computed(() =>
-  route.name === 'feed' && authenticated.value && !needsWorkspace.value && !!activeProfile.value,
+  route.name === 'feed' && githubConnected.value && !needsWorkspace.value && !!activeProfile.value,
 )
 
 // While an overlay owns the screen, only the palette toggle stays live.
@@ -787,7 +787,7 @@ onUnmounted(() => {
   <main class="h-screen w-screen overflow-hidden bg-app text-text">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
-        :profile-name="authenticated && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"
+        :profile-name="githubConnected && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -813,15 +813,15 @@ onUnmounted(() => {
         @open-palette="togglePalette"
         @toggle-maximise="toggleMaximise"
       />
-      <!-- Hold an empty frame until auth status resolves so an authenticated
-           user never sees onboarding flash by. -->
-      <div v-if="authStatus === null" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
+      <!-- Hold an empty frame until the connection status resolves so a
+           connected user never sees onboarding flash by. -->
+      <div v-if="githubStatus === null" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
-        v-else-if="!authenticated || needsWorkspace"
-        :card="needsWorkspace ? 'workspace' : authCard"
+        v-else-if="!githubConnected || needsWorkspace"
+        :card="needsWorkspace ? 'workspace' : connectCard"
         :device-flow="deviceFlow"
-        :error="needsWorkspace ? createProfileError : authError"
-        :busy="needsWorkspace ? creatingProfile : authBusy"
+        :error="needsWorkspace ? createProfileError : connectError"
+        :busy="needsWorkspace ? creatingProfile : connectBusy"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
@@ -843,8 +843,8 @@ onUnmounted(() => {
         <DevView v-if="devMode && devActive" @close="closeSettings" />
         <SettingsView
           v-else-if="applicationSettingsActive"
-          :github-connected="authenticated"
-          :github-login="authStatus?.login"
+          :github-connected="githubConnected"
+          :github-login="githubStatus?.login"
           :active-category="applicationSettingsSection"
           :known-feed-types="knownFeedTypes"
           @close="closeSettings"

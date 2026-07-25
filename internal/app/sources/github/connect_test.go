@@ -1,4 +1,4 @@
-package auth
+package github_test
 
 import (
 	"net/http"
@@ -15,9 +15,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
-// authAPIServer fakes the two GitHub endpoints liveAuth touches: /user for
-// validation and the device flow pair.
-func authAPIServer(t *testing.T, validTokens map[string]string) *httptest.Server {
+// connectAPIServer fakes the two GitHub endpoints the live connection
+// touches: /user for validation and the device flow pair.
+func connectAPIServer(t *testing.T, validTokens map[string]string) *httptest.Server {
 	t.Helper()
 
 	mux := http.NewServeMux()
@@ -54,15 +54,15 @@ func parseBearer(header string) (string, bool) {
 	return header[len(prefix):], true
 }
 
-func newLiveAuthForTest(t *testing.T, creds credentials.Store, validTokens map[string]string, onChange func()) Backend {
+func newLiveConnectionForTest(t *testing.T, creds credentials.Store, validTokens map[string]string, onChange func()) ghsource.Connection {
 	t.Helper()
-	server := authAPIServer(t, validTokens)
+	server := connectAPIServer(t, validTokens)
 	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
-	return NewLiveBackend(client, creds, onChange)
+	return ghsource.NewLiveConnection(client, creds, onChange)
 }
 
 // seededCreds is a credential store already holding one GitHub account.
-// Credentials are keyed by login now, so "a token is stored" also has to say
+// Credentials are keyed by login, so "a token is stored" also has to say
 // whose it is.
 func seededCreds(t *testing.T, login, token string) credentials.Store {
 	t.Helper()
@@ -107,75 +107,75 @@ func deniedDeviceFlowServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-func TestLiveStatusNoToken(t *testing.T) {
+func TestLiveConnectionStatusNoToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, credentials.NewMemoryStore(), nil, nil)
-	status := auth.Status(t.Context())
-	assert.Equal(t, StateUnauthenticated, status.State)
+	conn := newLiveConnectionForTest(t, credentials.NewMemoryStore(), nil, nil)
+	status := conn.Status(t.Context())
+	assert.Equal(t, ghsource.StateDisconnected, status.State)
 	assert.Empty(t, status.Message)
 }
 
-func TestLiveStatusValidStoredToken(t *testing.T) {
+func TestLiveConnectionStatusValidStoredToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, seededCreds(t, "hayden", "tok1"), map[string]string{"tok1": "hayden"}, nil)
-	status := auth.Status(t.Context())
-	assert.Equal(t, StateAuthenticated, status.State)
-	assert.Equal(t, "hayden", status.Login)
+	conn := newLiveConnectionForTest(t, seededCreds(t, "octocat", "tok1"), map[string]string{"tok1": "octocat"}, nil)
+	status := conn.Status(t.Context())
+	assert.Equal(t, ghsource.StateConnected, status.State)
+	assert.Equal(t, "octocat", status.Login)
 }
 
-func TestLiveStatusRevokedToken(t *testing.T) {
+func TestLiveConnectionStatusRevokedToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, seededCreds(t, "hayden", "revoked"), map[string]string{}, nil)
-	status := auth.Status(t.Context())
-	assert.Equal(t, StateUnauthenticated, status.State)
+	conn := newLiveConnectionForTest(t, seededCreds(t, "octocat", "revoked"), map[string]string{}, nil)
+	status := conn.Status(t.Context())
+	assert.Equal(t, ghsource.StateDisconnected, status.State)
 	assert.NotEmpty(t, status.Message)
 }
 
-func TestLiveAuthSetTokenValidatesAndStores(t *testing.T) {
+func TestLiveConnectionSetTokenValidatesAndStores(t *testing.T) {
 	t.Parallel()
 
 	store := credentials.NewMemoryStore()
 	var notified sync.WaitGroup
 	notified.Add(1)
-	auth := newLiveAuthForTest(t, store, map[string]string{"pat-1": "hayden"}, notified.Done)
+	conn := newLiveConnectionForTest(t, store, map[string]string{"pat-1": "octocat"}, notified.Done)
 
-	status, err := auth.SetToken(t.Context(), " pat-1 ")
+	status, err := conn.SetToken(t.Context(), " pat-1 ")
 	require.NoError(t, err)
-	assert.Equal(t, StateAuthenticated, status.State)
-	assert.Equal(t, "hayden", status.Login)
+	assert.Equal(t, ghsource.StateConnected, status.State)
+	assert.Equal(t, "octocat", status.Login)
 
 	assert.Equal(t, "pat-1", storedToken(t, store))
 	notified.Wait()
 }
 
-func TestLiveAuthSetTokenRejected(t *testing.T) {
+func TestLiveConnectionSetTokenRejected(t *testing.T) {
 	t.Parallel()
 
 	store := credentials.NewMemoryStore()
-	auth := newLiveAuthForTest(t, store, map[string]string{}, nil)
+	conn := newLiveConnectionForTest(t, store, map[string]string{}, nil)
 
-	_, err := auth.SetToken(t.Context(), "bad-token")
+	_, err := conn.SetToken(t.Context(), "bad-token")
 	require.ErrorContains(t, err, "rejected")
 
 	assert.Empty(t, storedToken(t, store))
 }
 
-func TestLiveAuthDeviceFlowGrantStoresToken(t *testing.T) {
+func TestLiveConnectionDeviceFlowGrantStoresToken(t *testing.T) {
 	t.Parallel()
 
 	store := credentials.NewMemoryStore()
 	changed := make(chan struct{}, 1)
-	auth := newLiveAuthForTest(t, store, map[string]string{"granted-token": "hayden"}, func() {
+	conn := newLiveConnectionForTest(t, store, map[string]string{"granted-token": "octocat"}, func() {
 		select {
 		case changed <- struct{}{}:
 		default:
 		}
 	})
 
-	info, err := auth.StartDeviceFlow(t.Context())
+	info, err := conn.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "AAAA-BBBB", info.UserCode)
 	assert.Equal(t, "https://github.com/login/device", info.VerificationURI)
@@ -187,23 +187,23 @@ func TestLiveAuthDeviceFlowGrantStoresToken(t *testing.T) {
 	}
 
 	assert.Equal(t, "granted-token", storedToken(t, store))
-	assert.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
+	assert.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
 }
 
-func TestLiveAuthDeviceFlowDeniedSurfacesMessage(t *testing.T) {
+func TestLiveConnectionDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 	t.Parallel()
 
 	server := deniedDeviceFlowServer(t)
 	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
 	changed := make(chan struct{}, 1)
-	auth := NewLiveBackend(client, credentials.NewMemoryStore(), func() {
+	conn := ghsource.NewLiveConnection(client, credentials.NewMemoryStore(), func() {
 		select {
 		case changed <- struct{}{}:
 		default:
 		}
 	})
 
-	_, err := auth.StartDeviceFlow(t.Context())
+	_, err := conn.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
 
 	select {
@@ -212,58 +212,58 @@ func TestLiveAuthDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 		t.Fatal("device flow denial did not notify")
 	}
 
-	status := auth.Status(t.Context())
-	assert.Equal(t, StateUnauthenticated, status.State)
+	status := conn.Status(t.Context())
+	assert.Equal(t, ghsource.StateDisconnected, status.State)
 	assert.Contains(t, status.Message, "authorization denied")
 
 	// Starting a fresh attempt must clear the stale failure message right
 	// away, before the new attempt's own outcome (still ~1s out) arrives.
-	_, err = auth.StartDeviceFlow(t.Context())
+	_, err = conn.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
-	assert.Empty(t, auth.Status(t.Context()).Message)
+	assert.Empty(t, conn.Status(t.Context()).Message)
 }
 
-func TestLiveAuthSignOutWithEnvOverrideExplains(t *testing.T) {
+func TestLiveConnectionDisconnectWithEnvOverrideExplains(t *testing.T) {
 	t.Setenv(github.EnvToken, "env-token")
 
-	store := seededCreds(t, "hayden", "tok1")
-	auth := newLiveAuthForTest(t, store, map[string]string{"tok1": "hayden", "env-token": "hayden"}, nil)
-	require.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
+	store := seededCreds(t, "octocat", "tok1")
+	conn := newLiveConnectionForTest(t, store, map[string]string{"tok1": "octocat", "env-token": "octocat"}, nil)
+	require.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
 
-	require.NoError(t, auth.SignOut())
+	require.NoError(t, conn.Disconnect())
 
-	status := auth.Status(t.Context())
-	assert.Equal(t, StateUnauthenticated, status.State)
+	status := conn.Status(t.Context())
+	assert.Equal(t, ghsource.StateDisconnected, status.State)
 	assert.Contains(t, status.Message, github.EnvToken)
 }
 
-func TestLiveAuthSignOutClearsToken(t *testing.T) {
+func TestLiveConnectionDisconnectClearsToken(t *testing.T) {
 	t.Parallel()
 
-	store := seededCreds(t, "hayden", "tok1")
-	auth := newLiveAuthForTest(t, store, map[string]string{"tok1": "hayden"}, nil)
-	require.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
+	store := seededCreds(t, "octocat", "tok1")
+	conn := newLiveConnectionForTest(t, store, map[string]string{"tok1": "octocat"}, nil)
+	require.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
 
-	require.NoError(t, auth.SignOut())
+	require.NoError(t, conn.Disconnect())
 
 	assert.Empty(t, storedToken(t, store))
-	assert.Equal(t, StateUnauthenticated, auth.Status(t.Context()).State)
+	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 }
 
-func TestMockAuthModes(t *testing.T) {
+func TestMockConnectionModes(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, StateAuthenticated, NewMockBackend(true, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
-	assert.Equal(t, StateUnauthenticated, NewMockBackend(false, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
+	assert.Equal(t, ghsource.StateConnected, ghsource.NewMockConnection(true, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
+	assert.Equal(t, ghsource.StateDisconnected, ghsource.NewMockConnection(false, credentials.NewMemoryStore(), nil).Status(t.Context()).State)
 }
 
-func TestMockAuthDeviceFlowAutoGrants(t *testing.T) {
+func TestMockConnectionDeviceFlowAutoGrants(t *testing.T) {
 	t.Parallel()
 
 	changed := make(chan struct{}, 1)
-	auth := NewMockBackend(false, credentials.NewMemoryStore(), func() { changed <- struct{}{} })
+	conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() { changed <- struct{}{} })
 
-	info, err := auth.StartDeviceFlow(t.Context())
+	info, err := conn.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "7B4C-Q22F", info.UserCode)
 
@@ -272,22 +272,22 @@ func TestMockAuthDeviceFlowAutoGrants(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("mock device flow did not grant")
 	}
-	assert.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
-	assert.Equal(t, "hayden", auth.Status(t.Context()).Login)
+	assert.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
+	assert.Equal(t, "octocat", conn.Status(t.Context()).Login)
 }
 
-// A mock backend that only flipped a status flag would leave the credential
+// A mock connection that only flipped a status flag would leave the credential
 // store empty, and everything that resolves an account off it — a source
 // node's credential, seeding a workspace — would fail in mock modes only.
 // That is a whole class of e2e failure that never reproduces live, so the
-// mock writes and clears a credential exactly as the live backend does.
-func TestMockAuthConnectsAndDisconnectsTheCredential(t *testing.T) {
+// mock writes and clears a credential exactly as the live connection does.
+func TestMockConnectionConnectsAndDisconnectsTheCredential(t *testing.T) {
 	t.Parallel()
 
-	t.Run("authenticated modes start connected", func(t *testing.T) {
+	t.Run("connected modes start connected", func(t *testing.T) {
 		t.Parallel()
 		creds := credentials.NewMemoryStore()
-		NewMockBackend(true, creds, nil)
+		ghsource.NewMockConnection(true, creds, nil)
 		assert.Equal(t, "mock-token", storedToken(t, creds))
 	})
 
@@ -295,10 +295,10 @@ func TestMockAuthConnectsAndDisconnectsTheCredential(t *testing.T) {
 		t.Parallel()
 		creds := credentials.NewMemoryStore()
 		changed := make(chan struct{}, 1)
-		auth := NewMockBackend(false, creds, func() { changed <- struct{}{} })
+		conn := ghsource.NewMockConnection(false, creds, func() { changed <- struct{}{} })
 		assert.Empty(t, storedToken(t, creds))
 
-		_, err := auth.StartDeviceFlow(t.Context())
+		_, err := conn.StartDeviceFlow(t.Context())
 		require.NoError(t, err)
 		select {
 		case <-changed:
@@ -308,33 +308,33 @@ func TestMockAuthConnectsAndDisconnectsTheCredential(t *testing.T) {
 		assert.Equal(t, "mock-token", storedToken(t, creds))
 	})
 
-	t.Run("sign out clears it", func(t *testing.T) {
+	t.Run("disconnect clears it", func(t *testing.T) {
 		t.Parallel()
 		creds := credentials.NewMemoryStore()
-		auth := NewMockBackend(true, creds, nil)
-		require.NoError(t, auth.SignOut())
+		conn := ghsource.NewMockConnection(true, creds, nil)
+		require.NoError(t, conn.Disconnect())
 		assert.Empty(t, storedToken(t, creds))
 	})
 }
 
-func TestMockAuthCancelPreventsLateGrant(t *testing.T) {
+func TestMockConnectionCancelPreventsLateGrant(t *testing.T) {
 	t.Parallel()
 
 	changed := make(chan struct{}, 1)
-	auth := NewMockBackend(false, credentials.NewMemoryStore(), func() {
+	conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() {
 		select {
 		case changed <- struct{}{}:
 		default:
 		}
 	})
 
-	_, err := auth.StartDeviceFlow(t.Context())
+	_, err := conn.StartDeviceFlow(t.Context())
 	require.NoError(t, err)
-	auth.CancelDeviceFlow()
+	conn.CancelDeviceFlow()
 
-	time.Sleep(2 * time.Second) // past mockGrantDelay (1.5s)
+	time.Sleep(2 * time.Second) // past the mock grant delay (1.5s)
 
-	assert.Equal(t, StateUnauthenticated, auth.Status(t.Context()).State)
+	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 	select {
 	case <-changed:
 		t.Fatal("onChange fired after cancel")
@@ -342,18 +342,18 @@ func TestMockAuthCancelPreventsLateGrant(t *testing.T) {
 	}
 }
 
-func TestMockAuthSetTokenAndSignOut(t *testing.T) {
+func TestMockConnectionSetTokenAndDisconnect(t *testing.T) {
 	t.Parallel()
 
-	auth := NewMockBackend(false, credentials.NewMemoryStore(), nil)
+	conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), nil)
 
-	_, err := auth.SetToken(t.Context(), "")
+	_, err := conn.SetToken(t.Context(), "")
 	require.Error(t, err)
 
-	status, err := auth.SetToken(t.Context(), "anything")
+	status, err := conn.SetToken(t.Context(), "anything")
 	require.NoError(t, err)
-	assert.Equal(t, StateAuthenticated, status.State)
+	assert.Equal(t, ghsource.StateConnected, status.State)
 
-	require.NoError(t, auth.SignOut())
-	assert.Equal(t, StateUnauthenticated, auth.Status(t.Context()).State)
+	require.NoError(t, conn.Disconnect())
+	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 }
