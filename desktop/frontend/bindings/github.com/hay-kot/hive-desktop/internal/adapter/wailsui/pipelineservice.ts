@@ -3,8 +3,13 @@
 
 /**
  * PipelineService exposes the inbox to the frontend. Every method is a
- * request build plus one call into the core; the int64-as-string encodings
- * below are the transport precision workaround and stay on this side.
+ * request build plus one call into the core.
+ * 
+ * The event log is not on this surface. Reading it, committing runs against
+ * it, and the replay protocol used to be RPCs because the graph ran in the
+ * browser; with the engine in Go they are internal calls, and the
+ * decimal-string offset encoding they needed to survive the JavaScript number
+ * boundary went with them.
  * @module
  */
 
@@ -28,22 +33,6 @@ export function ActionRun(commandID: number): $CancellablePromise<dispatch$0.Act
 
 export function ActionViews(itemID: number): $CancellablePromise<actions$0.View[] | null> {
     return $Call.ByID(3356906731, itemID);
-}
-
-export function ActivateReplay(profileID: string, tail: string, claims: store$0.FeedMembershipClaim[] | null, feedIDs: string[] | null, sourceIDs: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(404315423, profileID, tail, claims, feedIDs, sourceIDs);
-}
-
-export function Commit(batch: store$0.CommitBatch): $CancellablePromise<void> {
-    return $Call.ByID(1748285836, batch);
-}
-
-/**
- * EventLogTailOffset returns a Wails-safe decimal tail for the startup/deploy
- * replay protocol. The core deals in int64.
- */
-export function EventLogTailOffset(): $CancellablePromise<string> {
-    return $Call.ByID(1303973178);
 }
 
 export function FeedCounts(profileID: string): $CancellablePromise<store$0.FeedInboxCount[] | null> {
@@ -74,14 +63,6 @@ export function ListInboxItemsTrash(profileID: string, limit: number): $Cancella
     return $Call.ByID(31725505, profileID, limit);
 }
 
-export function ListReplaySourceSnapshots(profileID: string, throughOffset: string): $CancellablePromise<store$0.Msg[] | null> {
-    return $Call.ByID(3559261984, profileID, throughOffset);
-}
-
-export function ListUnarchivedInboxItems(profileID: string): $CancellablePromise<store$0.InboxItemView[] | null> {
-    return $Call.ByID(3455889604, profileID);
-}
-
 export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<store$0.InboxItemView> {
     return $Call.ByID(4238206404, itemID, revision, unread);
 }
@@ -92,10 +73,6 @@ export function MarkInboxItemsRead(profileID: string, feedID: string): $Cancella
 
 export function NodeRuns(flowID: string, limit: number): $CancellablePromise<store$0.NodeRunRecord[] | null> {
     return $Call.ByID(3592664483, flowID, limit);
-}
-
-export function ReadFrom(consumer: string, limit: number): $CancellablePromise<store$0.Msg[] | null> {
-    return $Call.ByID(1752659845, consumer, limit);
 }
 
 export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {

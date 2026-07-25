@@ -2,7 +2,6 @@ package wailsui
 
 import (
 	"context"
-	"strconv"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
@@ -11,58 +10,19 @@ import (
 )
 
 // PipelineService exposes the inbox to the frontend. Every method is a
-// request build plus one call into the core; the int64-as-string encodings
-// below are the transport precision workaround and stay on this side.
+// request build plus one call into the core.
+//
+// The event log is not on this surface. Reading it, committing runs against
+// it, and the replay protocol used to be RPCs because the graph ran in the
+// browser; with the engine in Go they are internal calls, and the
+// decimal-string offset encoding they needed to survive the JavaScript number
+// boundary went with them.
 type PipelineService struct {
 	inbox *app.InboxService
 }
 
 func NewPipelineService(inbox *app.InboxService) *PipelineService {
 	return &PipelineService{inbox: inbox}
-}
-
-func (s *PipelineService) ReadFrom(ctx context.Context, consumer string, limit int) ([]store.Msg, error) {
-	return s.inbox.ReadFrom(ctx, consumer, limit)
-}
-
-func (s *PipelineService) Commit(ctx context.Context, batch store.CommitBatch) error {
-	return s.inbox.Commit(ctx, batch)
-}
-
-// EventLogTailOffset returns a Wails-safe decimal tail for the startup/deploy
-// replay protocol. The core deals in int64.
-func (s *PipelineService) EventLogTailOffset(ctx context.Context) (string, error) {
-	tail, err := s.inbox.EventLogTailOffset(ctx)
-	if err != nil {
-		return "", err
-	}
-	return strconv.FormatInt(tail, 10), nil
-}
-
-func (s *PipelineService) ActivateReplay(ctx context.Context, profileID, tail string, claims []store.FeedMembershipClaim, feedIDs, sourceIDs []string) error {
-	offset, err := parseOffset(tail, "event log tail")
-	if err != nil {
-		return err
-	}
-	return s.inbox.ActivateReplay(ctx, app.ActivateReplayRequest{
-		ProfileID: profileID,
-		Tail:      offset,
-		Claims:    claims,
-		FeedIDs:   feedIDs,
-		SourceIDs: sourceIDs,
-	})
-}
-
-func (s *PipelineService) ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]store.InboxItemView, error) {
-	return s.inbox.ListUnarchivedInboxItems(ctx, profileID)
-}
-
-func (s *PipelineService) ListReplaySourceSnapshots(ctx context.Context, profileID, throughOffset string) ([]store.Msg, error) {
-	offset, err := parseOffset(throughOffset, "replay snapshot offset")
-	if err != nil {
-		return nil, err
-	}
-	return s.inbox.ListReplaySourceSnapshots(ctx, profileID, offset)
 }
 
 func (s *PipelineService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
@@ -127,15 +87,4 @@ func (s *PipelineService) NodeRuns(ctx context.Context, flowID string, limit int
 
 func (s *PipelineService) ActionRun(ctx context.Context, commandID int64) (dispatch.ActionRunView, error) {
 	return s.inbox.ActionRun(ctx, commandID)
-}
-
-// parseOffset decodes one of the decimal-string offsets the binding carries.
-// It is the only place the encoding is undone, and a malformed value is the
-// caller's mistake rather than ours.
-func parseOffset(raw, what string) (int64, error) {
-	offset, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || offset < 0 {
-		return 0, app.Errorf(app.KindInvalid, "invalid %s %q", what, raw)
-	}
-	return offset, nil
 }

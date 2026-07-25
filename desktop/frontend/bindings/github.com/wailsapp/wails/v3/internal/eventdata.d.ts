@@ -16,6 +16,7 @@ declare module "@wailsio/runtime" {
             "activity:appended": number;
             "auth:updated": string;
             "flows:updated": string;
+            "inbox:updated": string;
             "jobs:updated": string;
             "log:appended": number;
             "notification:activated": wailsui$0.NotificationActivation;

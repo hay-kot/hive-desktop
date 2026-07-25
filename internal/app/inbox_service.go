@@ -12,9 +12,14 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// InboxService owns the durable inbox: the event log a graph runtime reads
-// and commits, the item views the sidebar renders, and the explicit action
-// invocations a user confirms from the detail pane.
+// InboxService owns the durable inbox as a *reader and triager* sees it: the
+// item views the sidebar renders and the explicit action invocations a user
+// confirms from the detail pane.
+//
+// The event log itself is deliberately not here. Reading it, committing runs
+// against it, and the replay protocol are the flow engine's, and the engine
+// talks to the store directly — routing them through a service would only put
+// a facade between two parts of the core with no caller in between.
 type InboxService struct {
 	db      *store.DB
 	actions *actions.ActionStore
@@ -24,67 +29,6 @@ type InboxService struct {
 
 func newInboxService(db *store.DB, catalog *actions.ActionStore, worker *dispatch.Worker, launch dispatch.SessionLaunchOptionsProvider) *InboxService {
 	return &InboxService{db: db, actions: catalog, worker: worker, launch: launch}
-}
-
-// ReadFrom returns up to limit event_log rows after consumer's persisted
-// offset, in ascending order. Callers never supply an offset: the SQLite
-// checkpoint is the source of truth across restarts.
-func (s *InboxService) ReadFrom(ctx context.Context, consumer string, limit int) ([]store.Msg, error) {
-	msgs, err := s.db.ReadForConsumer(ctx, consumer, limit)
-	return msgs, Wrap(err, KindInternal, "reading the event log for %q", consumer)
-}
-
-// Commit applies a graph runtime's batch atomically. Feed outputs are accepted
-// without durable effect until membership claims land; action outputs,
-// node-run metrics and the consumer offset are persisted together. Idempotent
-// by offset: replaying a batch already applied is a no-op.
-func (s *InboxService) Commit(ctx context.Context, batch store.CommitBatch) error {
-	return Wrap(s.db.CommitBatch(ctx, batch), KindInternal, "committing batch for %q", batch.Consumer)
-}
-
-// EventLogTailOffset returns the tail as an int64. The decimal-string
-// encoding the Wails binding needs is a transport concern and stays in the
-// adapter.
-func (s *InboxService) EventLogTailOffset(ctx context.Context) (int64, error) {
-	tail, err := s.db.EventLogTailOffset(ctx)
-	return tail, Wrap(err, KindInternal, "reading the event log tail")
-}
-
-// ActivateReplayRequest is the prepared membership state a startup or deploy
-// replay installs.
-type ActivateReplayRequest struct {
-	ProfileID string
-	Tail      int64
-	Claims    []store.FeedMembershipClaim
-	FeedIDs   []string
-	SourceIDs []string
-}
-
-// ActivateReplay atomically advances the consumer and installs the prepared
-// membership state.
-func (s *InboxService) ActivateReplay(ctx context.Context, req ActivateReplayRequest) error {
-	if req.Tail < 0 {
-		return Errorf(KindInvalid, "event log tail must not be negative")
-	}
-	err := s.db.ActivateReplay(ctx, req.ProfileID, req.Tail, req.Claims, req.FeedIDs, req.SourceIDs)
-	return Wrap(err, KindInternal, "activating replay for %q", req.ProfileID)
-}
-
-// ListUnarchivedInboxItems returns the immutable inbox identity and payload
-// needed for claims-only synthetic replay.
-func (s *InboxService) ListUnarchivedInboxItems(ctx context.Context, profileID string) ([]store.InboxItemView, error) {
-	items, err := s.db.ListUnarchivedInboxItems(ctx, profileID)
-	return items, Wrap(err, KindInternal, "listing inbox items for %q", profileID)
-}
-
-// ListReplaySourceSnapshots returns each source's latest authoritative
-// snapshot so membership replay preserves source provenance.
-func (s *InboxService) ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]store.Msg, error) {
-	if throughOffset < 0 {
-		return nil, Errorf(KindInvalid, "replay snapshot offset must not be negative")
-	}
-	msgs, err := s.db.ListReplaySourceSnapshots(ctx, profileID, throughOffset)
-	return msgs, Wrap(err, KindInternal, "listing replay snapshots for %q", profileID)
 }
 
 func (s *InboxService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
