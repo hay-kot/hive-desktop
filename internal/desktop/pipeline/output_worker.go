@@ -7,10 +7,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 
@@ -57,10 +57,10 @@ type ActionLister interface {
 	Get(string) (actions.Action, bool)
 }
 type OutputCommandStore interface {
-	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]pipelinedb.OutputCommand, error)
-	ConfirmOutputCommand(context.Context, string, string, []byte) (pipelinedb.OutputCommand, bool, error)
-	RerunOutputCommand(context.Context, string, string, []byte) (pipelinedb.OutputCommand, error)
-	OutputCommand(context.Context, int64) (pipelinedb.OutputCommand, error)
+	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]store.OutputCommand, error)
+	ConfirmOutputCommand(context.Context, string, string, []byte) (store.OutputCommand, bool, error)
+	RerunOutputCommand(context.Context, string, string, []byte) (store.OutputCommand, error)
+	OutputCommand(context.Context, int64) (store.OutputCommand, error)
 	MarkOutputCommandDone(context.Context, int64, ...string) error
 	MarkOutputCommandFailed(context.Context, int64, string, ...string) error
 	RetryOutputCommand(context.Context, int64, string, ...string) error
@@ -159,7 +159,7 @@ func (w *Worker) Stop() { w.stopOnce.Do(func() { close(w.stop) }) }
 func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, input ActionInvocationInput) (ActionRunView, error) {
 	w.runMu.Lock()
 	defer w.runMu.Unlock()
-	var row pipelinedb.OutputCommand
+	var row store.OutputCommand
 	var err error
 	if input.Rerun {
 		row, err = w.db.RerunOutputCommand(ctx, actionID, key, payload)
@@ -257,7 +257,7 @@ func (w *Worker) Tick(ctx context.Context) {
 	}
 }
 
-func (w *Worker) process(ctx context.Context, row pipelinedb.OutputCommand) {
+func (w *Worker) process(ctx context.Context, row store.OutputCommand) {
 	a, ok := w.actions.Get(row.ActionID)
 	label := row.ActionID
 	if ok {
@@ -313,7 +313,7 @@ func actionLabel(action actions.Action) string {
 
 func (w *Worker) execute(
 	ctx context.Context,
-	row pipelinedb.OutputCommand,
+	row store.OutputCommand,
 	a actions.Action,
 	input ActionInvocationInput,
 	logger zerolog.Logger,
@@ -331,7 +331,7 @@ func (w *Worker) execute(
 
 func (w *Worker) fail(
 	ctx context.Context,
-	row pipelinedb.OutputCommand,
+	row store.OutputCommand,
 	result ExecutionResult,
 	execErr error,
 	jobID int64,
@@ -377,7 +377,7 @@ func boundExecutionStream(stream string) string {
 	return stream[:maxExecutionStreamBytes-len(truncatedStreamMarker)] + truncatedStreamMarker
 }
 
-func actionRunView(row pipelinedb.OutputCommand) ActionRunView {
+func actionRunView(row store.OutputCommand) ActionRunView {
 	v := ActionRunView{CommandID: row.ID, Status: row.Status}
 	if row.LastError.Valid {
 		v.Error = row.LastError.String

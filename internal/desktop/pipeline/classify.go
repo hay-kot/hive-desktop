@@ -1,18 +1,18 @@
 package pipeline
 
-import "github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+import "github.com/hay-kot/hive-desktop/internal/app/store"
 
 // Re-export the adapter-neutral contract at the producer boundary. The leaf
-// pipelinedb package owns it because ingestion invokes classifiers in-tx.
+// store package owns it because ingestion invokes classifiers in-tx.
 type (
-	Observation      = pipelinedb.Observation
-	Lifecycle        = pipelinedb.Lifecycle
-	Transition       = pipelinedb.Transition
-	Attention        = pipelinedb.Attention
-	ArchivedActor    = pipelinedb.ArchivedActor
-	Classification   = pipelinedb.Classification
-	Classifier       = pipelinedb.Classifier
-	AbsenceVerdict   = pipelinedb.AbsenceVerdict
-	AbsenceConfirmer = pipelinedb.AbsenceConfirmer
-	SourceAdapter    = pipelinedb.SourceAdapter
+	Observation      = store.Observation
+	Lifecycle        = store.Lifecycle
+	Transition       = store.Transition
+	Attention        = store.Attention
+	ArchivedActor    = store.ArchivedActor
+	Classification   = store.Classification
+	Classifier       = store.Classifier
+	AbsenceVerdict   = store.AbsenceVerdict
+	AbsenceConfirmer = store.AbsenceConfirmer
+	SourceAdapter    = store.SourceAdapter
 )

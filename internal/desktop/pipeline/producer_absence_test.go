@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -57,8 +57,8 @@ type activeAbsenceClassifier struct{}
 
 func (activeAbsenceClassifier) Classify(_ *Observation, current Observation) Classification {
 	return Classification{
-		Kind: "updated", Attention: pipelinedb.AttentionTrivial,
-		Transition: pipelinedb.TransitionNone, Lifecycle: pipelinedb.LifecycleActive,
+		Kind: "updated", Attention: store.AttentionTrivial,
+		Transition: store.TransitionNone, Lifecycle: store.LifecycleActive,
 		Summary: current.Title,
 	}
 }
@@ -66,10 +66,10 @@ func (activeAbsenceClassifier) Classify(_ *Observation, current Observation) Cla
 func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
 	db := openTestPipelineDB(t)
 	classifier := genericClassifier{}
-	_, err := db.IngestObservation(t.Context(), classifier, pipelinedb.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: pipelinedb.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
+	_, err := db.IngestObservation(t.Context(), classifier, store.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: store.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
 	require.NoError(t, err)
 	absence := &countingAbsence{}
-	producer := NewProducer(db, listerOf(map[string]Source{"profile/first": metadataFakeSource{fakeSource: &fakeSource{}, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: pipelinedb.ResurfacePolicyStateChanges}}}), time.Hour, nil, zerolog.Nop())
+	producer := NewProducer(db, listerOf(map[string]Source{"profile/first": metadataFakeSource{fakeSource: &fakeSource{}, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}}}), time.Hour, nil, zerolog.Nop())
 	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: absence})
 	producer.Tick(t.Context())
 	assert.Zero(t, absence.calls.Load(), "a sibling source topic must not be considered absent")
@@ -85,7 +85,7 @@ func TestProducerAbsenceHydrationPreservesInboxMetadata(t *testing.T) {
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: true}
 	producer := NewProducer(db, listerOf(map[string]Source{
-		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: pipelinedb.ResurfacePolicyStateChanges}},
+		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}},
 	}), time.Hour, nil, zerolog.Nop())
 	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: genericClassifier{}, AbsenceConfirmer: absence})
 
@@ -114,7 +114,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 	}}}}
 	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
 	producer := NewProducer(db, listerOf(map[string]Source{
-		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: pipelinedb.ResurfacePolicyStateChanges}},
+		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}},
 	}), time.Hour, nil, zerolog.Nop())
 	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: activeAbsenceClassifier{}, AbsenceConfirmer: absence})
 
@@ -126,7 +126,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 	var archivedAt *int64
 	var lastEventAt int64
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT lifecycle, archived_at, last_event_at FROM inbox_item`).Scan(&lifecycle, &archivedAt, &lastEventAt))
-	assert.Equal(t, pipelinedb.LifecycleActive.String(), lifecycle)
+	assert.Equal(t, store.LifecycleActive.String(), lifecycle)
 	assert.Nil(t, archivedAt)
 	assert.Equal(t, int64(200), lastEventAt)
 }

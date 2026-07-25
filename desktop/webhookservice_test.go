@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // isolateSettings points the desktop config root at a temp dir so settings
@@ -29,7 +29,7 @@ func TestWebhookServiceInfoWithoutListener(t *testing.T) {
 }
 
 func TestWebhookServiceCapture(t *testing.T) {
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	service := NewWebhookService(db, nil, 24483)
@@ -40,7 +40,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 	assert.Zero(t, view.ReceivedAt)
 
 	ctx := context.Background()
-	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, pipelinedb.UpsertWebhookCaptureParams{
+	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
 		Topic: "source:triage/hook", ReceivedAt: 42, Body: []byte(`{"event":"deploy"}`),
 	}))
 	view, err = service.Capture("triage", "hook")
@@ -50,7 +50,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 	assert.False(t, view.FeedShaped)
 	assert.Equal(t, []string{"id", "kind", "repo", "title", "url"}, view.MissingFields)
 
-	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, pipelinedb.UpsertWebhookCaptureParams{
+	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
 		Topic: "source:triage/hook", ReceivedAt: 43,
 		Body: []byte(`{"id":"1","kind":"Alert","repo":"o/r","title":"t","url":"https://x"}`),
 	}))

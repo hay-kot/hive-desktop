@@ -8,31 +8,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func TestJobService_ListAndListActive(t *testing.T) {
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
-	store := jobs.NewStore(db, jobs.Options{Now: func() time.Time { return now }})
-	service := NewJobService(store)
+	jobStore := jobs.NewStore(db, jobs.Options{Now: func() time.Time { return now }})
+	service := NewJobService(jobStore)
 	ctx := context.Background()
 
-	outside, err := db.InsertJob(ctx, pipelinedb.JobRecord{
+	outside, err := db.InsertJob(ctx, store.JobRecord{
 		CreatedAt: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now.Add(-jobs.DefaultLingerWindow - time.Millisecond).UnixMilli(),
 		Status: "done", Label: "Outside", Step: "Completed",
 	})
 	require.NoError(t, err)
-	inside, err := db.InsertJob(ctx, pipelinedb.JobRecord{
+	inside, err := db.InsertJob(ctx, store.JobRecord{
 		CreatedAt: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now.Add(-jobs.DefaultLingerWindow + time.Millisecond).UnixMilli(),
 		Status: "failed", Label: "Inside", Step: "Failed",
 	})
 	require.NoError(t, err)
-	queued, err := db.InsertJob(ctx, pipelinedb.JobRecord{
+	queued, err := db.InsertJob(ctx, store.JobRecord{
 		CreatedAt: now.Add(-time.Hour).UnixMilli(), UpdatedAt: now.Add(-time.Hour).UnixMilli(),
 		Status: "queued", Label: "Queued", Step: "Queued",
 	})

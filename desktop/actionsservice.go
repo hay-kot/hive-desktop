@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // ActionsService is the explicit editor API for the global actions catalog.
@@ -18,11 +18,11 @@ type ActionsService struct {
 
 // NewActionsService accepts the wake callback explicitly so successful-write
 // notification is testable without Wails global state.
-func NewActionsService(store *actions.ActionStore, wake func()) *ActionsService {
+func NewActionsService(catalog *actions.ActionStore, wake func()) *ActionsService {
 	if wake == nil {
 		wake = func() {}
 	}
-	return &ActionsService{store: store, wake: wake}
+	return &ActionsService{store: catalog, wake: wake}
 }
 
 // ListActions returns the effective last-good catalog and a current parse
@@ -75,7 +75,7 @@ func (s *ActionsService) DeleteAction(id string) error {
 // actionUsageChecker joins the loaded flows and nonterminal output commands.
 type actionUsageChecker struct {
 	flows *flow.FlowStore
-	db    *pipelinedb.DB
+	db    *store.DB
 }
 
 func (c actionUsageChecker) Usage(id string) (actions.ActionUsage, error) {

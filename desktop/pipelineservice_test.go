@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 type recordingActionExecutor struct {
@@ -43,7 +43,7 @@ func (l *recordingSessionLauncher) LaunchSession(_ context.Context, req pipeline
 	return pipeline.SessionExecutionOutcome{ID: "session-1", Name: req.Name}, nil
 }
 
-func insertActionItem(t *testing.T, db *pipelinedb.DB, id, kind, title string) int64 {
+func insertActionItem(t *testing.T, db *store.DB, id, kind, title string) int64 {
 	t.Helper()
 	return insertActionItemSource(t, db, "github", id, kind, title, nil)
 }
@@ -51,7 +51,7 @@ func insertActionItem(t *testing.T, db *pipelinedb.DB, id, kind, title string) i
 // insertActionItemSource inserts an inbox row with the given source kind and
 // an arbitrary payload merged over the canonical id/kind/title fields — used
 // by tests that need a non-GitHub source or extra payload fields (e.g. repo).
-func insertActionItemSource(t *testing.T, db *pipelinedb.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
+func insertActionItemSource(t *testing.T, db *store.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
 	t.Helper()
 	fields := map[string]any{"id": id, "kind": kind, "title": title}
 	for k, v := range extra {
@@ -59,7 +59,7 @@ func insertActionItemSource(t *testing.T, db *pipelinedb.DB, sourceKind, id, kin
 	}
 	payload, err := json.Marshal(fields)
 	require.NoError(t, err)
-	row, err := db.Queries().InsertInboxItem(t.Context(), pipelinedb.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
+	row, err := db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})
 	require.NoError(t, err)
 	return row.ID
 }
@@ -98,34 +98,34 @@ actions:
     show_in_detail: false
     command_template: "true"
 `), 0o644))
-	store := actions.NewActionStore(path)
-	require.NoError(t, store.Reload())
-	return store
+	actionStore := actions.NewActionStore(path)
+	require.NoError(t, actionStore.Reload())
+	return actionStore
 }
 
 func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
-	store := configuredActionStore(t)
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	expected := pipeline.SessionLaunchOptions{Repositories: []pipeline.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
-	service := NewPipelineService(db, store, nil, recordingLaunchOptions{options: expected})
+	service := NewPipelineService(db, actionStore, nil, recordingLaunchOptions{options: expected})
 	got, err := service.SessionLaunchOptions()
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
 }
 
 func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
-	store := configuredActionStore(t)
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	executor := &recordingActionExecutor{}
-	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{
+	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, store, worker, nil)
+	service := NewPipelineService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 	issueID := insertActionItem(t, db, "issue-1", "Issue", "")
 	hiddenID := insertActionItem(t, db, "pr-2", "PR", "")
@@ -173,16 +173,16 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 // webhook item regardless of payload shape. (d) an unknown itemID errors
 // (no panic) from both ActionViews and InvokeAction.
 func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t *testing.T) {
-	store := configuredActionStore(t)
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	executor := &recordingActionExecutor{}
-	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{
+	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, store, worker, nil)
+	service := NewPipelineService(db, actionStore, worker, nil)
 
 	t.Run("webhook item with a matching repo_template action gets and runs it", func(t *testing.T) {
 		itemID := insertActionItemSource(t, db, "webhook", "hook-1", "deploy", "Deploy prod", map[string]any{"repo": "acme/site"})
@@ -238,15 +238,15 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 }
 
 func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T) {
-	store := configuredActionStore(t)
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	// Use a dispatcher executor that records a dispatched side effect failure.
 	failed := &attemptedFailureExecutor{}
-	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
-	service := NewPipelineService(db, store, worker, nil)
+	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
+	service := NewPipelineService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
 	view, err := service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
@@ -268,36 +268,36 @@ func (attemptedFailureExecutor) Execute(context.Context, actions.Action, pipelin
 }
 
 func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
-	store := configuredActionStore(t)
+	actionStore := configuredActionStore(t)
 	dir := t.TempDir()
-	db, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	failed := &attemptedFailureExecutor{}
-	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
+	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
-	view, err := NewPipelineService(db, store, worker, nil).InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	view, err := NewPipelineService(db, actionStore, worker, nil).InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	reopened, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	reopened, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
-	afterRestart, err := NewPipelineService(reopened, store, nil, nil).ActionRun(view.CommandID)
+	afterRestart, err := NewPipelineService(reopened, actionStore, nil, nil).ActionRun(view.CommandID)
 	require.NoError(t, err)
 	assert.Equal(t, view, afterRestart)
 }
 
 func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing.T) {
-	store := configuredActionStore(t)
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	launcher := &recordingSessionLauncher{}
-	worker := pipeline.NewWorker(db, store, pipeline.NewDispatcher(map[string]pipeline.Executor{
+	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
 		"launch-session": pipeline.NewLaunchSessionExecutor(launcher),
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, store, worker, nil)
+	service := NewPipelineService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
 	_, err = service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})

@@ -12,9 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
@@ -120,7 +120,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 		provider := feed.NewLiveProvider(github.NewClient(), nil, zerolog.Nop())
-		db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+		db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}

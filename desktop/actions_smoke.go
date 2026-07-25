@@ -12,7 +12,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	_ "modernc.org/sqlite"
@@ -60,13 +60,13 @@ type actionSmokeState struct {
 // desktopSmokeMiddleware composes the narrow test-only routes — the two
 // smoke readers plus the /_e2e/reset harness — without changing the normal
 // asset handler or exposing any of them in production.
-func desktopSmokeMiddleware(pipeline *pipelinedb.DB, core *coredb.DB, reset *stateReset) application.Middleware {
+func desktopSmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *stateReset) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline)(stateResetMiddleware(reset)(next)))
 	}
 }
 
-func actionSmokeMiddleware(pipeline *pipelinedb.DB, core *coredb.DB) application.Middleware {
+func actionSmokeMiddleware(pipeline *store.DB, core *coredb.DB) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if !actionSmokeHarnessEnabled() {
 			return next
@@ -98,7 +98,7 @@ func actionSmokeMiddleware(pipeline *pipelinedb.DB, core *coredb.DB) application
 // It compares the live snapshot to separately reopened, read-only SQLite
 // connections and returns the reopened rows. Neither reopen can migrate,
 // recover commands, or create a database file.
-func readActionSmokeState(ctx context.Context, pipeline *pipelinedb.DB, core *coredb.DB) (actionSmokeState, error) {
+func readActionSmokeState(ctx context.Context, pipeline *store.DB, core *coredb.DB) (actionSmokeState, error) {
 	runID := desktopSmokeRunID()
 	if runID == "" {
 		return actionSmokeState{}, fmt.Errorf("action smoke run id is required")

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // FlowSummary is one flow file's listing row for the flows picker: identity
@@ -26,12 +26,12 @@ type FlowSummary struct {
 // FeedService/PipelineService's thin-glue style.
 type FlowsService struct {
 	store     *flow.FlowStore
-	db        *pipelinedb.DB
+	db        *store.DB
 	onUpdated func()
 }
 
-func NewFlowsService(store *flow.FlowStore, db *pipelinedb.DB, onUpdated func()) *FlowsService {
-	return &FlowsService{store: store, db: db, onUpdated: onUpdated}
+func NewFlowsService(flows *flow.FlowStore, db *store.DB, onUpdated func()) *FlowsService {
+	return &FlowsService{store: flows, db: db, onUpdated: onUpdated}
 }
 
 func (s *FlowsService) notifyUpdated() {

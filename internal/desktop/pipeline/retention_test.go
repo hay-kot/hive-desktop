@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 
@@ -26,7 +26,7 @@ type retentionStore struct {
 	calls     chan struct{}
 }
 
-func (s *retentionStore) Prune(_ context.Context, consumers []string, _ pipelinedb.RetentionPolicy) (pipelinedb.RetentionResult, error) {
+func (s *retentionStore) Prune(_ context.Context, consumers []string, _ store.RetentionPolicy) (store.RetentionResult, error) {
 	s.mu.Lock()
 	s.consumers = append(s.consumers, append([]string(nil), consumers...))
 	s.mu.Unlock()
@@ -36,50 +36,50 @@ func (s *retentionStore) Prune(_ context.Context, consumers []string, _ pipeline
 		default:
 		}
 	}
-	return pipelinedb.RetentionResult{}, nil
+	return store.RetentionResult{}, nil
 }
 
 func TestMaintenanceTick_UsesOnlyEnabledFlowIDs(t *testing.T) {
-	store := &retentionStore{}
+	pruner := &retentionStore{}
 	maintenance := NewMaintenance(
-		store,
+		pruner,
 		retentionFlowLister{flows: []flow.Flow{{ID: "enabled", Enabled: true}, {ID: "disabled", Enabled: false}}},
-		pipelinedb.DefaultRetentionPolicy(),
+		store.DefaultRetentionPolicy(),
 		time.Hour,
 		zerolog.Nop(),
 	)
 
 	maintenance.Tick(t.Context())
 
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	require.Len(t, store.consumers, 1)
-	assert.Equal(t, []string{"enabled"}, store.consumers[0])
+	pruner.mu.Lock()
+	defer pruner.mu.Unlock()
+	require.Len(t, pruner.consumers, 1)
+	assert.Equal(t, []string{"enabled"}, pruner.consumers[0])
 }
 
 func TestMaintenanceStop_WaitsForScheduledLoop(t *testing.T) {
-	store := &retentionStore{calls: make(chan struct{}, 1)}
+	pruner := &retentionStore{calls: make(chan struct{}, 1)}
 	maintenance := NewMaintenance(
-		store,
+		pruner,
 		retentionFlowLister{flows: []flow.Flow{{ID: "enabled", Enabled: true}}},
-		pipelinedb.DefaultRetentionPolicy(),
+		store.DefaultRetentionPolicy(),
 		time.Millisecond,
 		zerolog.Nop(),
 	)
 	maintenance.Start()
 
 	select {
-	case <-store.calls:
+	case <-pruner.calls:
 	case <-time.After(time.Second):
 		t.Fatal("maintenance did not run on its scheduled interval")
 	}
 	maintenance.Stop()
 
-	store.mu.Lock()
-	calls := len(store.consumers)
-	store.mu.Unlock()
+	pruner.mu.Lock()
+	calls := len(pruner.consumers)
+	pruner.mu.Unlock()
 	time.Sleep(5 * time.Millisecond)
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	assert.Len(t, store.consumers, calls, "Stop must prevent further database maintenance")
+	pruner.mu.Lock()
+	defer pruner.mu.Unlock()
+	assert.Len(t, pruner.consumers, calls, "Stop must prevent further database maintenance")
 }

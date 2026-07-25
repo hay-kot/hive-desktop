@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 )
 
@@ -23,7 +23,7 @@ import (
 // Source deduplication: a source's Produce re-emits every current item on
 // every tick, even when nothing changed upstream (githubSource's fetch
 // layer may itself be cache-hit, but the cached items are still emitted).
-// Producer delegates to pipelinedb.AppendIfChanged, which stores the last
+// Producer delegates to store.AppendIfChanged, which stores the last
 // payload by (topic, key) in the database and atomically appends a changed
 // event with its new head, so deduplication survives restarts and a failed
 // append never suppresses a retry. Successful ticks also append a source
@@ -172,24 +172,24 @@ func (pr *Producer) Tick(ctx context.Context) {
 	)
 	for id, src := range sources {
 		topic := "source:" + id
-		meta := sourceMetadata{ProfileID: id, SourceKind: "generic", Policy: pipelinedb.ResurfacePolicyStateChanges}
+		meta := sourceMetadata{ProfileID: id, SourceKind: "generic", Policy: store.ResurfacePolicyStateChanges}
 		if described, ok := src.(metadataSource); ok {
 			meta = described.ingestMetadata()
 		}
 		if meta.Policy == "" {
-			meta.Policy = pipelinedb.ResurfacePolicyStateChanges
+			meta.Policy = store.ResurfacePolicyStateChanges
 		}
 		adapter, ok := pr.adapters[meta.SourceKind]
 		if !ok {
 			adapter = SourceAdapter{SourceKind: meta.SourceKind, Classifier: genericClassifier{}}
 		}
-		items := make([]pipelinedb.SnapshotItem, 0)
+		items := make([]store.SnapshotItem, 0)
 		observed := make(map[string]struct{})
 		err := src.Produce(ctx, func(msg Msg) error {
 			if msg.Topic != topic {
 				return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
 			}
-			items = append(items, pipelinedb.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
+			items = append(items, store.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
 			if msg.Key == "" {
 				return nil
 			}
@@ -198,7 +198,7 @@ func (pr *Producer) Tick(ctx context.Context) {
 			if msg.SourceKind != "" {
 				kind = msg.SourceKind
 			}
-			result, err := pr.db.IngestObservation(ctx, adapter.Classifier, pipelinedb.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+			result, err := pr.db.IngestObservation(ctx, adapter.Classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
 			if err != nil {
 				return err
 			}
@@ -235,7 +235,7 @@ func (pr *Producer) Tick(ctx context.Context) {
 				// upstream observation time when it returns a hydrated Current.
 				prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
 				verdict, err := adapter.ConfirmAbsence(ctx, prev)
-				pipelinedb.DebugPauseIngest(ctx)
+				store.DebugPauseIngest(ctx)
 				if err != nil {
 					pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
 					continue
@@ -243,7 +243,7 @@ func (pr *Producer) Tick(ctx context.Context) {
 				if verdict.Current == nil {
 					continue
 				}
-				result, err := pr.db.IngestObservation(ctx, adapter.Classifier, pipelinedb.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
+				result, err := pr.db.IngestObservation(ctx, adapter.Classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
 				if err != nil {
 					pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence ingestion failed")
 					continue
@@ -280,7 +280,7 @@ func (pr *Producer) record(ctx context.Context, e activity.Event) {
 
 // genericClassifier keeps non-GitHub/test sources ingestible while adapters
 // supply richer semantics for real source kinds.
-func observationFromMsg(msg Msg, sourceKind, sourceScope string) pipelinedb.Observation {
+func observationFromMsg(msg Msg, sourceKind, sourceScope string) store.Observation {
 	var wire struct {
 		Title     string `json:"title"`
 		URL       string `json:"url"`
@@ -293,14 +293,14 @@ func observationFromMsg(msg Msg, sourceKind, sourceScope string) pipelinedb.Obse
 	if wire.UpdatedAt == 0 {
 		wire.UpdatedAt = time.Now().UnixMilli()
 	}
-	return pipelinedb.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
+	return store.Observation{ExternalID: msg.Key, Title: wire.Title, URL: wire.URL, SourceKind: sourceKind, SourceScope: sourceScope, ObservedAt: wire.UpdatedAt, Payload: msg.Payload}
 }
 
 type genericClassifier struct{}
 
-func (genericClassifier) Classify(previous *pipelinedb.Observation, current pipelinedb.Observation) pipelinedb.Classification {
+func (genericClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	if previous == nil {
-		return pipelinedb.Classification{Kind: "observed", Transition: pipelinedb.TransitionNone, Attention: pipelinedb.AttentionActivity, Lifecycle: pipelinedb.LifecycleUnknown, Summary: current.Title}
+		return store.Classification{Kind: "observed", Transition: store.TransitionNone, Attention: store.AttentionActivity, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
 	}
-	return pipelinedb.Classification{Kind: "updated", Transition: pipelinedb.TransitionNone, Attention: pipelinedb.AttentionTrivial, Lifecycle: pipelinedb.LifecycleUnknown, Summary: current.Title}
+	return store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: store.LifecycleUnknown, Summary: current.Title}
 }

@@ -8,13 +8,13 @@ package pipeline
 import (
 	"context"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// Msg is the pipeline's generic log record. It is pipelinedb.Msg verbatim —
+// Msg is the pipeline's generic log record. It is store.Msg verbatim —
 // Source implementations build one per item and Producer appends it as-is,
 // so there is no separate wire type to keep in sync.
-type Msg = pipelinedb.Msg
+type Msg = store.Msg
 
 // Source produces the current state of one data source as a sequence of
 // Msg, calling emit once per item. Produce is called synchronously from a
@@ -42,14 +42,14 @@ type sourceMetadata struct {
 	ProfileID   string
 	SourceKind  string
 	SourceScope string
-	Policy      pipelinedb.ResurfacePolicy
+	Policy      store.ResurfacePolicy
 }
 type metadataSource interface{ ingestMetadata() sourceMetadata }
 
-// Appender is the subset of *pipelinedb.DB a Producer needs.
+// Appender is the subset of *store.DB a Producer needs.
 type Appender interface {
-	IngestObservation(ctx context.Context, classifier pipelinedb.Classifier, p pipelinedb.IngestObservationParams) (pipelinedb.IngestResult, error)
-	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []pipelinedb.SnapshotItem) (offset int64, err error)
+	IngestObservation(ctx context.Context, classifier store.Classifier, p store.IngestObservationParams) (store.IngestResult, error)
+	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []store.SnapshotItem) (offset int64, err error)
 	ListSourceHeadKeys(ctx context.Context, topic string) ([]string, error)
 	SourceHeadPayload(ctx context.Context, topic, key string) ([]byte, error)
 }

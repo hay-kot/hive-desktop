@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
@@ -90,17 +90,17 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	require.NoError(t, err)
 	_, err = db.Append(ctx, "source:"+MockFlowID+"/"+MockSourceNodeID, "extra", []byte(`{"mutated":true}`))
 	require.NoError(t, err)
-	require.NoError(t, db.Queries().CommitConsumerOffset(ctx, pipelinedb.CommitConsumerOffsetParams{Consumer: "frontend", Offset: 5}))
-	require.NoError(t, db.Queries().UpsertSourceHead(ctx, pipelinedb.UpsertSourceHeadParams{Topic: "source:x", Key: "k", Payload: []byte(`{}`)}))
+	require.NoError(t, db.Queries().CommitConsumerOffset(ctx, store.CommitConsumerOffsetParams{Consumer: "frontend", Offset: 5}))
+	require.NoError(t, db.Queries().UpsertSourceHead(ctx, store.UpsertSourceHeadParams{Topic: "source:x", Key: "k", Payload: []byte(`{}`)}))
 	command, created, err := db.ConfirmOutputCommand(ctx, "smoke-shell", "pr2841", []byte(`{}`))
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, db.MarkOutputCommandDone(ctx, command.ID, `{"ok":true}`, "out", "err"))
-	_, err = db.AppendActivityEvent(ctx, pipelinedb.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
+	_, err = db.AppendActivityEvent(ctx, store.ActivityRecord{CreatedAt: time.Now().UnixMilli(), Category: "action", Severity: "info", Title: "mutated"})
 	require.NoError(t, err)
-	_, err = db.InsertJob(ctx, pipelinedb.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
+	_, err = db.InsertJob(ctx, store.JobRecord{CreatedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(), Status: "done", Label: "mutated"})
 	require.NoError(t, err)
-	require.NoError(t, db.Queries().InsertNodeRun(ctx, pipelinedb.InsertNodeRunParams{FlowID: MockFlowID, NodeID: MockSourceNodeID, Ok: 1, EndedAt: time.Now().UnixMilli()}))
+	require.NoError(t, db.Queries().InsertNodeRun(ctx, store.InsertNodeRunParams{FlowID: MockFlowID, NodeID: MockSourceNodeID, Ok: 1, EndedAt: time.Now().UnixMilli()}))
 
 	// Mutate the core action tables the way a launch-session/publish-message
 	// action does.
@@ -126,7 +126,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 
 	// The pipeline database now equals a freshly seeded instance — including
 	// restarted AUTOINCREMENT ids and event offsets.
-	fresh, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	fresh, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, fresh.Close()) })
 	require.NoError(t, seedMockInboxItems(fresh))
@@ -190,9 +190,9 @@ func setStateResetEnv(t *testing.T, mode string) string {
 	return root
 }
 
-func openStateResetPipelineDB(t *testing.T) *pipelinedb.DB {
+func openStateResetPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(settings.StateDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
@@ -203,7 +203,7 @@ func openStateResetPipelineDB(t *testing.T) *pipelinedb.DB {
 // differ between two seeding runs. Including ids, event offsets, and
 // sqlite_sequence proves the reset restarts AUTOINCREMENT counters exactly
 // like a fresh database.
-func dumpStableState(t *testing.T, db *pipelinedb.DB) map[string][][]string {
+func dumpStableState(t *testing.T, db *store.DB) map[string][][]string {
 	t.Helper()
 	queries := map[string]string{
 		"event_log":             `SELECT "offset", topic, key, snapshot, source_kind, source_scope, payload FROM event_log ORDER BY "offset"`,
@@ -225,7 +225,7 @@ func dumpStableState(t *testing.T, db *pipelinedb.DB) map[string][][]string {
 	return out
 }
 
-func dumpRows(t *testing.T, db *pipelinedb.DB, query string) [][]string {
+func dumpRows(t *testing.T, db *store.DB, query string) [][]string {
 	t.Helper()
 	rows, err := db.Conn().QueryContext(context.Background(), query)
 	require.NoError(t, err)

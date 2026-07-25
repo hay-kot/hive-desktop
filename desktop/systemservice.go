@@ -9,7 +9,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/osopen"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -54,7 +54,7 @@ func (s *SystemService) Info() SystemInfo {
 		DataDir:   pathInfo(settings.DataDir(), b.DataDir != ""),
 		ConfigDir: pathInfo(settings.ConfigDir(), b.ConfigDir != ""),
 		LogFile:   pathInfo(settings.LogFile(), false),
-		Database:  pathInfo(pipelinedb.DatabasePath(settings.StateDir()), false),
+		Database:  pathInfo(store.DatabasePath(settings.StateDir()), false),
 	}
 }
 
@@ -190,10 +190,10 @@ func clearOverride(mutate func(*settings.Bootstrap)) error {
 // locations, cleaned for comparison.
 func (s *SystemService) checkAllowed(path string) error {
 	allowed := map[string]struct{}{
-		filepath.Clean(settings.DataDir()):                           {},
-		filepath.Clean(settings.ConfigDir()):                         {},
-		filepath.Clean(settings.LogFile()):                           {},
-		filepath.Clean(pipelinedb.DatabasePath(settings.StateDir())): {},
+		filepath.Clean(settings.DataDir()):                      {},
+		filepath.Clean(settings.ConfigDir()):                    {},
+		filepath.Clean(settings.LogFile()):                      {},
+		filepath.Clean(store.DatabasePath(settings.StateDir())): {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return fmt.Errorf("path is not a known system location: %s", path)

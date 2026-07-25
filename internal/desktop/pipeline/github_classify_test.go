@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -33,10 +33,10 @@ func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
 	previous := Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
 	closed := Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
 	entered := classifier.Classify(&previous, closed)
-	assert.Equal(t, pipelinedb.TransitionEnteredTerminal, entered.Transition)
+	assert.Equal(t, store.TransitionEnteredTerminal, entered.Transition)
 	assert.Equal(t, "Closed", entered.Summary)
 	reopened := classifier.Classify(&closed, previous)
-	assert.Equal(t, pipelinedb.TransitionLeftTerminal, reopened.Transition)
+	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition)
 	assert.Equal(t, "Reopened", reopened.Summary)
 }
 
@@ -56,7 +56,7 @@ func TestGithubClassifierDescribesObservedActivity(t *testing.T) {
 			got := classifier.Classify(&previous, Observation{ExternalID: "o/r#1", Payload: []byte(tt.current)})
 			assert.Equal(t, tt.kind, got.Kind)
 			assert.Equal(t, tt.summary, got.Summary)
-			assert.Equal(t, pipelinedb.AttentionActivity, got.Attention)
+			assert.Equal(t, store.AttentionActivity, got.Attention)
 			assert.NotEmpty(t, got.Detail)
 		})
 	}

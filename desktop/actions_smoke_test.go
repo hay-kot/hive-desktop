@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
@@ -123,11 +123,11 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	assert.Equal(t, int64(2), countRows(t, pipeline, "output_command"))
 }
 
-func newActionSmokeDatabases(t *testing.T) (*pipelinedb.DB, *coredb.DB) {
+func newActionSmokeDatabases(t *testing.T) (*store.DB, *coredb.DB) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HIVE_DATA_DIR", root)
-	pipeline, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
+	pipeline, err := store.Open(settings.StateDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)

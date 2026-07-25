@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,11 +17,11 @@ import (
 // itself is faked.
 func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	ctx := context.Background()
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	item, err := db.Queries().InsertInboxItem(ctx, pipelinedb.InsertInboxItemParams{
+	item, err := db.Queries().InsertInboxItem(ctx, store.InsertInboxItemParams{
 		ProfileID: "triage", SourceKind: "github", SourceScope: "src", ExternalID: "acme/api#12",
 		Payload: []byte(`{"repo":"acme/api","title":"Fix the flake"}`), Lifecycle: "active",
 	})
@@ -44,10 +44,10 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	// terminal (see engine/runGraph.ts).
 	commit := func(offset, occurrence string) {
 		t.Helper()
-		require.NoError(t, db.CommitBatch(ctx, pipelinedb.CommitBatch{
+		require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
 			Consumer: "triage", UpToOffset: offset,
-			Outputs: []pipelinedb.Output{{
-				Sink:          pipelinedb.Sink{Kind: pipelinedb.SinkKindNotify, TargetID: "triage/tell-me"},
+			Outputs: []store.Output{{
+				Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: "triage/tell-me"},
 				Key:           "acme/api#12",
 				OccurrenceKey: occurrence,
 				SourceKind:    "github",
@@ -81,7 +81,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 // unresolvable. They must fail visibly rather than hang in the queue.
 func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	ctx := context.Background()
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -91,10 +91,10 @@ func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	})
 	worker := NewWorker(db, NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
-	require.NoError(t, db.CommitBatch(ctx, pipelinedb.CommitBatch{
+	require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
 		Consumer: "triage", UpToOffset: "1",
-		Outputs: []pipelinedb.Output{{
-			Sink:          pipelinedb.Sink{Kind: pipelinedb.SinkKindNotify, TargetID: "triage/deleted"},
+		Outputs: []store.Output{{
+			Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: "triage/deleted"},
 			Key:           "acme/api#12",
 			OccurrenceKey: "occ",
 			Payload:       []byte(`{}`),

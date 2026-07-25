@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // MockFlowID, MockSourceNodeID, and MockFeedNodeID identify the fixture graph
@@ -96,7 +96,7 @@ var mockInboxItems = []feed.Item{
 
 // seedMockInboxItems writes deterministic inbox rows directly rather than
 // using the ingestion transaction. This is intentionally fixture-only.
-func seedMockInboxItems(db *pipelinedb.DB) error {
+func seedMockInboxItems(db *store.DB) error {
 	return db.WithTx(context.Background(), seedMockInboxItemsTx)
 }
 
@@ -104,14 +104,14 @@ func seedMockInboxItems(db *pipelinedb.DB) error {
 // wraps it in its own transaction (seedMockInboxItems); the /_e2e/reset
 // harness reuses it inside ResetAllState's wipe transaction so the delete and
 // reseed commit atomically.
-func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
+func seedMockInboxItemsTx(q *store.Queries) error {
 	if len(mockItemAges) != len(mockInboxItems) {
 		return fmt.Errorf("mock seed: %d ages for %d items", len(mockItemAges), len(mockInboxItems))
 	}
 	base := time.Now().UnixMilli()
 	ctx := context.Background()
 	sourceTopic := "source:" + MockFlowID + "/" + MockSourceNodeID
-	snapshot := make([]pipelinedb.SnapshotItem, 0, len(mockInboxItems))
+	snapshot := make([]store.SnapshotItem, 0, len(mockInboxItems))
 
 	for i, item := range mockInboxItems {
 		payload, err := json.Marshal(item)
@@ -119,7 +119,7 @@ func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
 			return fmt.Errorf("mock seed: encode item %q: %w", item.ID, err)
 		}
 		seenAt := base - mockItemAges[i].Milliseconds()
-		row, err := q.InsertInboxItem(ctx, pipelinedb.InsertInboxItemParams{
+		row, err := q.InsertInboxItem(ctx, store.InsertInboxItemParams{
 			ProfileID:   MockFlowID,
 			SourceKind:  "github",
 			SourceScope: "",
@@ -135,12 +135,12 @@ func seedMockInboxItemsTx(q *pipelinedb.Queries) error {
 		if err != nil {
 			return fmt.Errorf("mock seed: insert item %q: %w", item.ID, err)
 		}
-		if err := q.UpsertFeedMembershipClaim(ctx, pipelinedb.UpsertFeedMembershipClaimParams{
+		if err := q.UpsertFeedMembershipClaim(ctx, store.UpsertFeedMembershipClaimParams{
 			ProfileID: MockFlowID, FeedID: MockFlowID + "/" + MockFeedNodeID, ItemID: row.ID, SourceID: sourceTopic,
 		}); err != nil {
 			return fmt.Errorf("mock seed: claim item %q: %w", item.ID, err)
 		}
-		snapshot = append(snapshot, pipelinedb.SnapshotItem{Key: item.ID, Payload: payload})
+		snapshot = append(snapshot, store.SnapshotItem{Key: item.ID, Payload: payload})
 	}
 	if _, err := q.AppendSnapshot(ctx, sourceTopic, "github", "", snapshot); err != nil {
 		return fmt.Errorf("mock seed: append source snapshot: %w", err)
@@ -155,7 +155,7 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-func seedMockInboxItemsOrWarn(db *pipelinedb.DB, logger zerolog.Logger) {
+func seedMockInboxItemsOrWarn(db *store.DB, logger zerolog.Logger) {
 	if err := seedMockInboxItems(db); err != nil {
 		logger.Warn().Err(err).Msg("mock inbox seed failed")
 	}

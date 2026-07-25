@@ -17,9 +17,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // WebhookSourceKind is the inbox source_kind for webhook observations.
@@ -65,17 +65,17 @@ func decodeWebhookState(payload []byte) string {
 // action dedup fires once per change.
 type webhookClassifier struct{}
 
-func (webhookClassifier) Classify(previous *pipelinedb.Observation, current pipelinedb.Observation) pipelinedb.Classification {
+func (webhookClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	state := decodeWebhookState(current.Payload)
 	curTerminal := webhookTerminalStates[state]
-	lifecycle := pipelinedb.LifecycleActive
+	lifecycle := store.LifecycleActive
 	if curTerminal {
-		lifecycle = pipelinedb.LifecycleTerminal
+		lifecycle = store.LifecycleTerminal
 	}
-	out := pipelinedb.Classification{
+	out := store.Classification{
 		Kind:          "updated",
-		Transition:    pipelinedb.TransitionNone,
-		Attention:     pipelinedb.AttentionActivity,
+		Transition:    store.TransitionNone,
+		Attention:     store.AttentionActivity,
 		Lifecycle:     lifecycle,
 		SourceState:   state,
 		OccurrenceKey: current.ExternalID + "@" + strconv.FormatInt(current.ObservedAt, 10),
@@ -88,9 +88,9 @@ func (webhookClassifier) Classify(previous *pipelinedb.Observation, current pipe
 	prevTerminal := webhookTerminalStates[decodeWebhookState(previous.Payload)]
 	switch {
 	case !prevTerminal && curTerminal:
-		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, titleCase(state), pipelinedb.TransitionEnteredTerminal, state
+		out.Kind, out.Summary, out.Transition, out.ArchivedReason = state, titleCase(state), store.TransitionEnteredTerminal, state
 	case prevTerminal && !curTerminal:
-		out.Kind, out.Summary, out.Transition = "reopened", "Reopened", pipelinedb.TransitionLeftTerminal
+		out.Kind, out.Summary, out.Transition = "reopened", "Reopened", store.TransitionLeftTerminal
 	}
 	return out
 }
@@ -104,7 +104,7 @@ func (webhookClassifier) Classify(previous *pipelinedb.Observation, current pipe
 // boundary — then appends the topic's authoritative snapshot so membership
 // replay keeps webhook-fed feeds intact across deploys and restarts.
 type WebhookListener struct {
-	db         *pipelinedb.DB
+	db         *store.DB
 	flows      FlowLister
 	onAppended func(nextOffset int64)
 	logger     zerolog.Logger
@@ -119,7 +119,7 @@ type WebhookListener struct {
 // NewWebhookListener builds a listener bound to 127.0.0.1:port at Start.
 // onAppended fires after a delivery appends event-log rows, with the offset
 // of the last row (main.go wires the Wails "log:appended" wake-up).
-func NewWebhookListener(db *pipelinedb.DB, flows FlowLister, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *WebhookListener {
+func NewWebhookListener(db *store.DB, flows FlowLister, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *WebhookListener {
 	return &WebhookListener{db: db, flows: flows, port: port, onAppended: onAppended, logger: logger}
 }
 
@@ -191,7 +191,7 @@ type webhookTarget struct {
 	flowID string
 	nodeID string
 	secret string
-	policy pipelinedb.ResurfacePolicy
+	policy store.ResurfacePolicy
 }
 
 func (t webhookTarget) topic() string { return "source:" + t.flowID + "/" + t.nodeID }
@@ -217,7 +217,7 @@ func (l *WebhookListener) resolveTargets(path string) []webhookTarget {
 				flowID: f.ID,
 				nodeID: node.ID,
 				secret: cfg.Secret,
-				policy: pipelinedb.ResurfacePolicy(f.Resurface),
+				policy: store.ResurfacePolicy(f.Resurface),
 			})
 		}
 	}
@@ -305,11 +305,11 @@ func (l *WebhookListener) handleHook(w http.ResponseWriter, r *http.Request) {
 func (l *WebhookListener) ingest(ctx context.Context, t webhookTarget, key, title, url string, body []byte, now int64) (int64, error) {
 	topic := t.topic()
 
-	result, err := l.db.IngestObservation(ctx, webhookClassifier{}, pipelinedb.IngestObservationParams{
+	result, err := l.db.IngestObservation(ctx, webhookClassifier{}, store.IngestObservationParams{
 		ProfileID: t.flowID,
 		Topic:     topic,
 		Policy:    t.policy,
-		Current: pipelinedb.Observation{
+		Current: store.Observation{
 			ExternalID:  key,
 			Title:       title,
 			URL:         url,
@@ -323,7 +323,7 @@ func (l *WebhookListener) ingest(ctx context.Context, t webhookTarget, key, titl
 		return 0, fmt.Errorf("ingesting webhook observation %q: %w", key, err)
 	}
 
-	if err := l.db.Queries().UpsertWebhookCapture(ctx, pipelinedb.UpsertWebhookCaptureParams{
+	if err := l.db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
 		Topic: topic, ReceivedAt: now, Body: body,
 	}); err != nil {
 		// The capture only powers editor affordances; losing it must not
@@ -335,15 +335,15 @@ func (l *WebhookListener) ingest(ctx context.Context, t webhookTarget, key, titl
 		return 0, nil
 	}
 
-	rows, err := l.db.Queries().ListUnarchivedInboxItemsBySource(ctx, pipelinedb.ListUnarchivedInboxItemsBySourceParams{
+	rows, err := l.db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
 		ProfileID: t.flowID, SourceKind: WebhookSourceKind, SourceScope: t.nodeID,
 	})
 	if err != nil {
 		return result.Offset, fmt.Errorf("listing webhook snapshot items for %q: %w", topic, err)
 	}
-	items := make([]pipelinedb.SnapshotItem, 0, len(rows))
+	items := make([]store.SnapshotItem, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, pipelinedb.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
+		items = append(items, store.SnapshotItem{Key: row.ExternalID, Payload: row.Payload})
 	}
 	offset, err := l.db.AppendSnapshot(ctx, topic, WebhookSourceKind, t.nodeID, items)
 	if err != nil {

@@ -7,28 +7,28 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // PipelineService is the Wails service exposing the desktop pipeline's
 // event log, configured actions, and commit protocol to the frontend.
 type PipelineService struct {
-	db            *pipelinedb.DB
+	db            *store.DB
 	actions       *actions.ActionStore
 	worker        *pipeline.Worker
 	launchOptions pipeline.SessionLaunchOptionsProvider
 }
 
-func NewPipelineService(db *pipelinedb.DB, actionStore *actions.ActionStore, worker *pipeline.Worker, launchOptions pipeline.SessionLaunchOptionsProvider) *PipelineService {
+func NewPipelineService(db *store.DB, actionStore *actions.ActionStore, worker *pipeline.Worker, launchOptions pipeline.SessionLaunchOptionsProvider) *PipelineService {
 	return &PipelineService{db: db, actions: actionStore, worker: worker, launchOptions: launchOptions}
 }
 
 // ReadFrom returns up to limit event_log rows after consumer's persisted
 // offset, in ascending order. The frontend never supplies an offset: the
 // SQLite checkpoint is the source of truth across runtime restarts.
-func (s *PipelineService) ReadFrom(consumer string, limit int) ([]pipelinedb.Msg, error) {
+func (s *PipelineService) ReadFrom(consumer string, limit int) ([]store.Msg, error) {
 	return s.db.ReadForConsumer(context.Background(), consumer, limit)
 }
 
@@ -53,7 +53,7 @@ func (s *PipelineService) EventLogTailOffset() (string, error) {
 
 // ActivateReplay atomically advances the consumer and installs the prepared
 // membership state for a startup or deploy replay.
-func (s *PipelineService) ActivateReplay(profileID, tail string, claims []pipelinedb.FeedMembershipClaim, feedIDs, sourceIDs []string) error {
+func (s *PipelineService) ActivateReplay(profileID, tail string, claims []store.FeedMembershipClaim, feedIDs, sourceIDs []string) error {
 	offset, err := strconv.ParseInt(tail, 10, 64)
 	if err != nil || offset < 0 {
 		return fmt.Errorf("invalid event log tail %q", tail)
@@ -63,13 +63,13 @@ func (s *PipelineService) ActivateReplay(profileID, tail string, claims []pipeli
 
 // ListUnarchivedInboxItems returns the JSON/Wails-friendly immutable inbox
 // identity and payload needed for claims-only synthetic replay.
-func (s *PipelineService) ListUnarchivedInboxItems(profileID string) ([]pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ListUnarchivedInboxItems(profileID string) ([]store.InboxItemView, error) {
 	return s.db.ListUnarchivedInboxItems(context.Background(), profileID)
 }
 
 // ListReplaySourceSnapshots returns each source's latest authoritative
 // snapshot so membership replay preserves source provenance.
-func (s *PipelineService) ListReplaySourceSnapshots(profileID, throughOffset string) ([]pipelinedb.Msg, error) {
+func (s *PipelineService) ListReplaySourceSnapshots(profileID, throughOffset string) ([]store.Msg, error) {
 	offset, err := strconv.ParseInt(throughOffset, 10, 64)
 	if err != nil || offset < 0 {
 		return nil, fmt.Errorf("invalid replay snapshot offset %q", throughOffset)
@@ -77,19 +77,19 @@ func (s *PipelineService) ListReplaySourceSnapshots(profileID, throughOffset str
 	return s.db.ListReplaySourceSnapshots(context.Background(), profileID, offset)
 }
 
-func (s *PipelineService) ListInboxItemsByFeed(profileID, feedID string, limit int) ([]pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ListInboxItemsByFeed(profileID, feedID string, limit int) ([]store.InboxItemView, error) {
 	return s.db.ListInboxItemsByFeed(context.Background(), profileID, feedID, limit)
 }
 
 // ListArchivedInboxItemsByFeed returns a feed's archived section, loaded
 // lazily when the user expands the archived divider.
-func (s *PipelineService) ListArchivedInboxItemsByFeed(profileID, feedID string, limit int) ([]pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ListArchivedInboxItemsByFeed(profileID, feedID string, limit int) ([]store.InboxItemView, error) {
 	return s.db.ListArchivedInboxItemsByFeed(context.Background(), profileID, feedID, limit)
 }
 
 // ListInboxItemsTrash returns unrouted and ignored items for the Trash
 // utility view.
-func (s *PipelineService) ListInboxItemsTrash(profileID string, limit int) ([]pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ListInboxItemsTrash(profileID string, limit int) ([]store.InboxItemView, error) {
 	return s.db.ListInboxItemsTrash(context.Background(), profileID, limit)
 }
 
@@ -100,11 +100,11 @@ func (s *PipelineService) InboxItemFeed(profileID string, itemID int64) (string,
 	return s.db.InboxItemFeedID(context.Background(), profileID, itemID)
 }
 
-func (s *PipelineService) InboxItemEvents(itemID int64, limit int) ([]pipelinedb.InboxEventView, error) {
+func (s *PipelineService) InboxItemEvents(itemID int64, limit int) ([]store.InboxEventView, error) {
 	return s.db.InboxItemEvents(context.Background(), itemID, limit)
 }
 
-func (s *PipelineService) MarkInboxItemUnread(itemID, revision int64, unread bool) (pipelinedb.InboxItemView, error) {
+func (s *PipelineService) MarkInboxItemUnread(itemID, revision int64, unread bool) (store.InboxItemView, error) {
 	return s.db.SetInboxItemUnread(context.Background(), itemID, revision, unread)
 }
 
@@ -116,15 +116,15 @@ func (s *PipelineService) MarkInboxItemsRead(profileID, feedID string) (int64, e
 	return s.db.MarkInboxItemsRead(context.Background(), profileID, feedID)
 }
 
-func (s *PipelineService) ToggleInboxItemArchived(itemID, revision int64) (pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ToggleInboxItemArchived(itemID, revision int64) (store.InboxItemView, error) {
 	return s.db.ToggleInboxItemArchived(context.Background(), itemID, revision, time.Now().UnixMilli())
 }
 
-func (s *PipelineService) ToggleInboxItemIgnored(itemID, revision int64) (pipelinedb.InboxItemView, error) {
+func (s *PipelineService) ToggleInboxItemIgnored(itemID, revision int64) (store.InboxItemView, error) {
 	return s.db.ToggleInboxItemIgnored(context.Background(), itemID, revision, time.Now().UnixMilli())
 }
 
-func (s *PipelineService) FeedCounts(profileID string) ([]pipelinedb.FeedInboxCount, error) {
+func (s *PipelineService) FeedCounts(profileID string) ([]store.FeedInboxCount, error) {
 	return s.db.FeedCounts(context.Background(), profileID)
 }
 

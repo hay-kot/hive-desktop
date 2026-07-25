@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 const (
@@ -32,7 +32,7 @@ type Recorder interface {
 
 // Store persists and reads jobs in the shared desktop pipeline database.
 type Store struct {
-	db   *pipelinedb.DB
+	db   *store.DB
 	now  func() time.Time
 	emit func(id int64)
 	log  *slog.Logger
@@ -49,7 +49,7 @@ type Options struct {
 }
 
 // NewStore builds a Store over db.
-func NewStore(db *pipelinedb.DB, opts Options) *Store {
+func NewStore(db *store.DB, opts Options) *Store {
 	s := &Store{db: db, now: opts.Now, emit: opts.Emit, log: opts.Log}
 	if s.now == nil {
 		s.now = time.Now
@@ -64,7 +64,7 @@ func NewStore(db *pipelinedb.DB, opts Options) *Store {
 // failure, preserving the fire-and-forget Recorder contract.
 func (s *Store) Begin(ctx context.Context, label, actionID, target string) int64 {
 	now := s.now().UnixMilli()
-	rec, err := s.db.InsertJob(ctx, pipelinedb.JobRecord{
+	rec, err := s.db.InsertJob(ctx, store.JobRecord{
 		CreatedAt: now,
 		UpdatedAt: now,
 		Status:    JobStatusQueued.String(),
@@ -158,7 +158,7 @@ func (s *Store) emitUpdate(id int64) {
 	}
 }
 
-func jobsFromRecords(recs []pipelinedb.JobRecord) []Job {
+func jobsFromRecords(recs []store.JobRecord) []Job {
 	out := make([]Job, 0, len(recs))
 	for _, rec := range recs {
 		out = append(out, jobFromRecord(rec))
@@ -166,7 +166,7 @@ func jobsFromRecords(recs []pipelinedb.JobRecord) []Job {
 	return out
 }
 
-func jobFromRecord(rec pipelinedb.JobRecord) Job {
+func jobFromRecord(rec store.JobRecord) Job {
 	return Job{
 		ID:        rec.ID,
 		CreatedAt: rec.CreatedAt,

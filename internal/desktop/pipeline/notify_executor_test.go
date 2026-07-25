@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,15 +59,15 @@ func notifyAction() actions.Action {
 	}
 }
 
-func notifyData(t *testing.T, cmd pipelinedb.NotifyCommand) OutputData {
+func notifyData(t *testing.T, cmd store.NotifyCommand) OutputData {
 	t.Helper()
 	raw, err := json.Marshal(cmd)
 	require.NoError(t, err)
 	return OutputData{Key: "occurrence-1", Raw: raw, CreatedAt: time.Now().UnixMilli(), CommandID: 7}
 }
 
-func notifyCommand() pipelinedb.NotifyCommand {
-	return pipelinedb.NotifyCommand{
+func notifyCommand() store.NotifyCommand {
+	return store.NotifyCommand{
 		ProfileID:   "triage",
 		ExternalID:  "acme/api#12",
 		SourceKind:  "github",

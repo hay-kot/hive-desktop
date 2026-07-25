@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 const fixtureFlowPath = "e2e/fixtures/flows/frontend-triage.yaml"
@@ -48,7 +48,7 @@ func TestFixtureFlow_LoadsAndMatchesSeedConstants(t *testing.T) {
 }
 
 func TestSeedMockInboxItems_WritesExpectedRows(t *testing.T) {
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

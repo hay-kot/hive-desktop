@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func serviceAction(id string) actions.EditableAction {
@@ -26,9 +26,9 @@ func newServiceStore(t *testing.T) (*actions.ActionStore, string) {
 }
 
 func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
-	store, _ := newServiceStore(t)
+	actionStore, _ := newServiceStore(t)
 	wakes := 0
-	service := NewActionsService(store, func() { wakes++ })
+	service := NewActionsService(actionStore, func() { wakes++ })
 
 	created, err := service.CreateAction(serviceAction("run"))
 	require.NoError(t, err)
@@ -45,7 +45,7 @@ func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
 	_, err = service.UpdateAction("run", updated)
 	require.NoError(t, err)
 	assert.Equal(t, 2, wakes)
-	assert.Equal(t, "Run now", store.ListEditable().Actions[0].Label, "service and runtime share one store")
+	assert.Equal(t, "Run now", actionStore.ListEditable().Actions[0].Label, "service and runtime share one actionStore")
 
 	_, err = service.CreateAction(serviceAction("run"))
 	require.Error(t, err)
@@ -60,9 +60,9 @@ func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
 }
 
 func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
-	store, _ := newServiceStore(t)
+	actionStore, _ := newServiceStore(t)
 	wakes := 0
-	service := NewActionsService(store, func() { wakes++ })
+	service := NewActionsService(actionStore, func() { wakes++ })
 	for _, id := range []string{"one", "two"} {
 		_, err := service.CreateAction(serviceAction(id))
 		require.NoError(t, err)
@@ -80,12 +80,12 @@ func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
 }
 
 func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *testing.T) {
-	store, path := newServiceStore(t)
-	service := NewActionsService(store, nil)
+	actionStore, path := newServiceStore(t)
+	service := NewActionsService(actionStore, nil)
 	_, err := service.CreateAction(serviceAction("good"))
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions: ["), 0o600))
-	require.Error(t, store.Reload())
+	require.Error(t, actionStore.Reload())
 
 	catalog := service.ListActions()
 	require.Len(t, catalog.Actions, 1)
@@ -94,24 +94,24 @@ func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *test
 }
 
 func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
-	store, _ := newServiceStore(t)
+	actionStore, _ := newServiceStore(t)
 	headless := actions.EditableAction{ID: "used", Label: "Used", Type: "launch-session", Launch: &actions.EditableLaunchConfig{
 		PromptTemplate: "Review", RepoTemplate: "https://github.com/owner/repo.git",
 	}}
-	_, err := store.Create(headless)
+	_, err := actionStore.Create(headless)
 	require.NoError(t, err)
-	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(store))
+	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(actionStore))
 	require.NoError(t, flows.Save(flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
 		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
 	}, Wires: []flow.Wire{{From: "source", To: "action"}}}))
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	store.SetUsageChecker(actionUsageChecker{flows: flows, db: db})
+	actionStore.SetUsageChecker(actionUsageChecker{flows: flows, db: db})
 
 	wakes := 0
-	service := NewActionsService(store, func() { wakes++ })
+	service := NewActionsService(actionStore, func() { wakes++ })
 	interactive := headless
 	interactive.Launch = &actions.EditableLaunchConfig{PromptTemplate: "Review"}
 	_, err = service.UpdateAction("used", interactive)
@@ -126,17 +126,17 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 }
 
 func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T) {
-	store, _ := newServiceStore(t)
-	_, err := store.Create(serviceAction("used"))
+	actionStore, _ := newServiceStore(t)
+	_, err := actionStore.Create(serviceAction("used"))
 	require.NoError(t, err)
-	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(store))
+	flows := flow.NewFlowStore(t.TempDir(), newActionsRefs(actionStore))
 	f := flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
 		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
 	}, Wires: []flow.Wire{{From: "source", To: "action"}}}
 	require.NoError(t, flows.Save(f))
 
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	for _, status := range []string{"pending", "running", "done", "failed"} {
@@ -150,8 +150,8 @@ func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T
 	assert.Equal(t, []string{"flow-a"}, usage.FlowIDs)
 	assert.EqualValues(t, 2, usage.ActiveCommands)
 
-	store.SetUsageChecker(checker)
-	err = store.Delete("used")
+	actionStore.SetUsageChecker(checker)
+	err = actionStore.Delete("used")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "flow-a")
 	assert.Contains(t, err.Error(), "2 nonterminal output command")
@@ -161,5 +161,5 @@ func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T
 	require.NoError(t, flows.Delete("flow-a"))
 	_, err = db.Conn().ExecContext(context.Background(), `UPDATE output_command SET status = 'done' WHERE status IN ('pending', 'running')`)
 	require.NoError(t, err)
-	require.NoError(t, store.Delete("used"))
+	require.NoError(t, actionStore.Delete("used"))
 }

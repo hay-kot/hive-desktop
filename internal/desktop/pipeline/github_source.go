@@ -5,9 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // githubSource is the Source that produces one flow github-source node's
@@ -25,7 +25,7 @@ type githubSource struct {
 }
 
 func (s *githubSource) ingestMetadata() sourceMetadata {
-	return sourceMetadata{ProfileID: s.profileID, SourceKind: "github", Policy: pipelinedb.ResurfacePolicy(s.policy)}
+	return sourceMetadata{ProfileID: s.profileID, SourceKind: "github", Policy: store.ResurfacePolicy(s.policy)}
 }
 
 // searchDef exposes this source's definition for the producer's batched

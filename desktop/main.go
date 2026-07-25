@@ -17,6 +17,7 @@ import (
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
@@ -25,7 +26,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -109,7 +109,7 @@ func buildSourceFetcher(logger zerolog.Logger) *feed.LiveProvider {
 // buildPipelineProducer starts the pipeline event-log producer over every
 // enabled github-source node across all flows (via flows), or returns nil when
 // there is nothing to poll (mock mode, so fetcher is nil).
-func buildPipelineProducer(db *pipelinedb.DB, fetcher *feed.LiveProvider, flows pipeline.FlowLister, recorder activity.Recorder, interval time.Duration, logger zerolog.Logger) *pipeline.Producer {
+func buildPipelineProducer(db *store.DB, fetcher *feed.LiveProvider, flows pipeline.FlowLister, recorder activity.Recorder, interval time.Duration, logger zerolog.Logger) *pipeline.Producer {
 	if fetcher == nil {
 		return nil
 	}
@@ -396,7 +396,7 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // a notify node's config lives in its flow, not in actions.yml, so the
 // worker resolves those ids from the live flow set and everything else from
 // the authored catalog.
-func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, focus *focusState, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
+func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, focus *focusState, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
 	dispatcher := pipeline.NewDispatcher(map[string]pipeline.Executor{
 		pipeline.ActionTypeLaunchSession: pipeline.NewLaunchSessionExecutor(launcher),
 		"shell":                          pipeline.NewShellExecutor(logger),
@@ -442,7 +442,7 @@ func main() {
 		fetcher.SetSearchTTL(interval)
 	}
 
-	pipelineDB, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
+	pipelineDB, err := store.Open(settings.StateDir(), store.DefaultOpenOptions())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -516,7 +516,7 @@ func main() {
 	maintenance := pipeline.NewMaintenance(
 		pipelineDB,
 		flowsStore,
-		pipelinedb.DefaultRetentionPolicy(),
+		store.DefaultRetentionPolicy(),
 		pipeline.DefaultRetentionInterval,
 		logger,
 	)

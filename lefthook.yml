@@ -51,11 +51,11 @@ pre-commit:
     - name: generated-code
       glob:
         - "sqlc.yaml"
-        - "internal/desktop/pipeline/pipelinedb/queries/*.sql"
-        - "internal/desktop/pipeline/pipelinedb/migrations/*.sql"
+        - "internal/app/store/queries/*.sql"
+        - "internal/app/store/migrations/*.sql"
         - "internal/desktop/activity/activity.go"
         - "internal/desktop/jobs/jobs.go"
-        - "internal/desktop/pipeline/pipelinedb/classify.go"
+        - "internal/app/store/classify.go"
         - "internal/desktop/pipeline/flow/flow.go"
         - "desktop/pipelineservice.go"
       run: mise run check:generate

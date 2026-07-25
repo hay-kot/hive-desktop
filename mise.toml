@@ -32,22 +32,22 @@ run = "go run ./cmd/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
-sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/desktop/pipeline/pipelinedb/classify.go", "internal/desktop/pipeline/flow/flow.go"]
-outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/desktop/pipeline/pipelinedb/classify_enum.go", "internal/desktop/pipeline/flow/flow_enum.go"]
-run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/desktop/pipeline/pipelinedb/classify.go -f internal/desktop/pipeline/flow/flow.go"
+sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/app/store/classify.go", "internal/desktop/pipeline/flow/flow.go"]
+outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/app/store/classify_enum.go", "internal/desktop/pipeline/flow/flow_enum.go"]
+run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/app/store/classify.go -f internal/desktop/pipeline/flow/flow.go"
 
 [tasks.generate]
 description = "Run all code generators (vendored hivecore is generated upstream)"
 depends = ["generate:enums"]
 sources = [
-  "internal/desktop/pipeline/pipelinedb/queries/queries.sql",
-  "internal/desktop/pipeline/pipelinedb/migrations/*.up.sql",
+  "internal/app/store/queries/queries.sql",
+  "internal/app/store/migrations/*.up.sql",
   "sqlc.yaml",
 ]
 outputs = [
-  "internal/desktop/pipeline/pipelinedb/db.go",
-  "internal/desktop/pipeline/pipelinedb/models.go",
-  "internal/desktop/pipeline/pipelinedb/queries.sql.go",
+  "internal/app/store/db.go",
+  "internal/app/store/models.go",
+  "internal/app/store/queries.sql.go",
 ]
 run = "sqlc generate"
 
@@ -79,7 +79,7 @@ run = "go mod tidy -diff"
 description = "Verify generated code (enums, sqlc) matches its sources"
 run = """
 mise run --force generate
-git diff --exit-code -- '*_enum.go' internal/desktop/pipeline/pipelinedb || {
+git diff --exit-code -- '*_enum.go' internal/app/store || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }

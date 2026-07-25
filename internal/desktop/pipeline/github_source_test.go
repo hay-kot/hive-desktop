@@ -223,7 +223,7 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 
 // TestProducer_WithGithubSource_AppendsAcrossTicks is an end-to-end slice of
 // the producer path: a real feed.LiveProvider fetching from a fake GitHub
-// API, through a real githubSource, into a real pipelinedb event log.
+// API, through a real githubSource, into a real store event log.
 func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	t.Parallel()
 

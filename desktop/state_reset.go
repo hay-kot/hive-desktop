@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -52,7 +52,7 @@ type pristineFile struct {
 // external edit — including recording the same reload activity a hand edit
 // would.
 type stateReset struct {
-	db       *pipelinedb.DB
+	db       *store.DB
 	core     *coredb.DB
 	logger   zerolog.Logger
 	flowsDir string
@@ -63,7 +63,7 @@ type stateReset struct {
 // route must stay unmounted (live mode, or no valid harness marker). It must
 // run after startup seeding — the mock inbox rows and actions.yml defaults —
 // so the captured baseline is the post-boot state a fresh server would show.
-func newStateResetHarness(db *pipelinedb.DB, core *coredb.DB, logger zerolog.Logger) *stateReset {
+func newStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) *stateReset {
 	if settings.MockMode() == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
@@ -104,7 +104,7 @@ func (r *stateReset) capture(path string) {
 // concurrent frontend read sees either the old state or the baseline, never
 // an empty store; see the type comment for the full ordering.
 func (r *stateReset) Reset(ctx context.Context) error {
-	var reseed func(*pipelinedb.Queries) error
+	var reseed func(*store.Queries) error
 	switch settings.MockMode() {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.

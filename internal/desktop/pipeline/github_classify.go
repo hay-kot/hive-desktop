@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 type githubAbsenceConfirmer struct{ live *feed.LiveProvider }
@@ -51,16 +51,16 @@ func (c *githubClassifier) ConfirmAbsence(ctx context.Context, prev Observation)
 
 func (c *githubClassifier) Classify(previous *Observation, current Observation) Classification {
 	cur := decodeGithub(current.Payload)
-	lifecycle := pipelinedb.LifecycleUnknown
+	lifecycle := store.LifecycleUnknown
 	if cur.State == "open" {
-		lifecycle = pipelinedb.LifecycleActive
+		lifecycle = store.LifecycleActive
 	}
 	if cur.State == "closed" || cur.State == "merged" {
-		lifecycle = pipelinedb.LifecycleTerminal
+		lifecycle = store.LifecycleTerminal
 	}
-	out := Classification{Kind: "updated", Transition: pipelinedb.TransitionNone, Attention: pipelinedb.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
+	out := Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
 	if previous == nil {
-		out.Attention, out.Kind, out.Summary, out.OccurrenceKey = pipelinedb.AttentionActivity, "observed", "Added to workspace", githubOccurrence(current.ExternalID, cur)
+		out.Attention, out.Kind, out.Summary, out.OccurrenceKey = store.AttentionActivity, "observed", "Added to workspace", githubOccurrence(current.ExternalID, cur)
 		out.Detail = githubDetail(nil, cur)
 		return out
 	}
@@ -69,20 +69,20 @@ func (c *githubClassifier) Classify(previous *Observation, current Observation) 
 	curTerminal := cur.State == "closed" || cur.State == "merged"
 	switch {
 	case !prevTerminal && curTerminal:
-		out.Kind, out.Summary, out.Transition, out.Attention, out.ArchivedReason = cur.State, titleCase(cur.State), pipelinedb.TransitionEnteredTerminal, pipelinedb.AttentionActivity, cur.State
+		out.Kind, out.Summary, out.Transition, out.Attention, out.ArchivedReason = cur.State, titleCase(cur.State), store.TransitionEnteredTerminal, store.AttentionActivity, cur.State
 	case prevTerminal && !curTerminal && cur.State == "open":
-		out.Kind, out.Summary, out.Transition, out.Attention = "reopened", "Reopened", pipelinedb.TransitionLeftTerminal, pipelinedb.AttentionActivity
+		out.Kind, out.Summary, out.Transition, out.Attention = "reopened", "Reopened", store.TransitionLeftTerminal, store.AttentionActivity
 	case cur.UpdatedAt > prev.UpdatedAt && cur.Reason != "":
 		// Notification payloads do not carry labels, while search payloads do.
 		// Prefer GitHub's explicit notification reason before comparing labels
 		// so a comment cannot look like every label was removed.
 		out.Kind, out.Summary, out.Attention = githubActivity(cur.Reason)
 	case !sameLabels(cur.Labels, prev.Labels):
-		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), pipelinedb.AttentionActivity
+		out.Kind, out.Summary, out.Attention = "labels", labelChangeSummary(prev.Labels, cur.Labels), store.AttentionActivity
 	case cur.UpdatedAt > prev.UpdatedAt:
 		out.Kind, out.Summary, out.Attention = githubActivity(cur.Reason)
 	}
-	if out.Attention == pipelinedb.AttentionActivity || out.Transition != pipelinedb.TransitionNone {
+	if out.Attention == store.AttentionActivity || out.Transition != store.TransitionNone {
 		out.OccurrenceKey = githubOccurrence(current.ExternalID, cur)
 		out.Detail = githubDetail(&prev, cur)
 	}
@@ -130,7 +130,7 @@ func githubDetail(previous *githubPayload, current githubPayload) []byte {
 	return b
 }
 
-func githubActivity(reason string) (kind, summary string, attention pipelinedb.Attention) {
+func githubActivity(reason string) (kind, summary string, attention store.Attention) {
 	summaries := map[string]string{
 		"approval_requested": "Approval requested",
 		"assign":             "Assigned on GitHub",
@@ -150,7 +150,7 @@ func githubActivity(reason string) (kind, summary string, attention pipelinedb.A
 	if kind == "" {
 		kind = "updated"
 	}
-	return kind, summary, pipelinedb.AttentionActivity
+	return kind, summary, store.AttentionActivity
 }
 
 func labelChangeSummary(previous, current []string) string {

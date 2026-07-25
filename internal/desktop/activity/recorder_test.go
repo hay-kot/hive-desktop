@@ -5,13 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/require"
 )
 
 func newTestStore(t *testing.T, opts Options) *Store {
 	t.Helper()
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return NewStore(db, opts)
@@ -20,10 +20,10 @@ func newTestStore(t *testing.T, opts Options) *Store {
 func TestStoreAppendRoundTrip(t *testing.T) {
 	emitted := 0
 	var lastEmittedID int64
-	store := newTestStore(t, Options{Emit: func(id int64) { emitted++; lastEmittedID = id }})
+	recorder := newTestStore(t, Options{Emit: func(id int64) { emitted++; lastEmittedID = id }})
 	ctx := context.Background()
 
-	stored, err := store.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
+	stored, err := recorder.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
 	require.NoError(t, err)
 	require.NotZero(t, stored.ID)
 	require.NotZero(t, stored.CreatedAt)
@@ -33,7 +33,7 @@ func TestStoreAppendRoundTrip(t *testing.T) {
 	require.Equal(t, 1, emitted, "emit fires once per successful append")
 	require.Equal(t, stored.ID, lastEmittedID, "emit carries the new event id")
 
-	events, err := store.List(ctx, 0, 50)
+	events, err := recorder.List(ctx, 0, 50)
 	require.NoError(t, err)
 	require.Len(t, events, 1)
 	require.Equal(t, stored, events[0])
@@ -43,40 +43,40 @@ func TestStoreListNewestFirstAndCursor(t *testing.T) {
 	// A fixed, monotonically advancing clock keeps created_at deterministic;
 	// ordering itself is by the autoincrement id, not the timestamp.
 	now := time.Unix(0, 0)
-	store := newTestStore(t, Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
+	recorder := newTestStore(t, Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
 	ctx := context.Background()
 
 	for i := 0; i < 5; i++ {
-		_, err := store.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
+		_, err := recorder.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
 		require.NoError(t, err)
 	}
 
-	page1, err := store.List(ctx, 0, 3)
+	page1, err := recorder.List(ctx, 0, 3)
 	require.NoError(t, err)
 	require.Len(t, page1, 3)
 	require.Greater(t, page1[0].ID, page1[1].ID, "newest first")
 	require.Greater(t, page1[1].ID, page1[2].ID)
 
-	page2, err := store.List(ctx, page1[2].ID, 3)
+	page2, err := recorder.List(ctx, page1[2].ID, 3)
 	require.NoError(t, err)
 	require.Len(t, page2, 2, "cursor pages the remainder")
 	require.Less(t, page2[0].ID, page1[2].ID)
 }
 
 func TestStoreAppendRejectsBadInput(t *testing.T) {
-	store := newTestStore(t, Options{})
+	recorder := newTestStore(t, Options{})
 	ctx := context.Background()
 
-	_, err := store.Append(ctx, Event{Category: CategorySystem, Severity: SeverityInfo})
+	_, err := recorder.Append(ctx, Event{Category: CategorySystem, Severity: SeverityInfo})
 	require.Error(t, err, "missing title is rejected")
 
-	_, err = store.Append(ctx, Event{Title: "bad", Category: Category("nope"), Severity: SeverityInfo})
+	_, err = recorder.Append(ctx, Event{Title: "bad", Category: Category("nope"), Severity: SeverityInfo})
 	require.Error(t, err, "invalid category is rejected")
 }
 
 func TestStoreAppendDefaultsCategoryAndSeverity(t *testing.T) {
-	store := newTestStore(t, Options{})
-	stored, err := store.Append(context.Background(), Event{Title: "something happened"})
+	recorder := newTestStore(t, Options{})
+	stored, err := recorder.Append(context.Background(), Event{Title: "something happened"})
 	require.NoError(t, err)
 	require.Equal(t, CategorySystem, stored.Category)
 	require.Equal(t, SeverityInfo, stored.Severity)

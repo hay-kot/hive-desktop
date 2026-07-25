@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 func webhookFlow(flowID, nodeID, path, secret string) flow.Flow {
@@ -28,9 +28,9 @@ func webhookFlow(flowID, nodeID, path, secret string) flow.Flow {
 	}
 }
 
-func newWebhookTestListener(t *testing.T, flows fakeFlows) (*WebhookListener, *pipelinedb.DB, *int64) {
+func newWebhookTestListener(t *testing.T, flows fakeFlows) (*WebhookListener, *store.DB, *int64) {
 	t.Helper()
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -60,7 +60,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 	assert.JSONEq(t, `{"delivered":1}`, rec.Body.String())
 
 	ctx := context.Background()
-	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "build-42",
 	})
 	require.NoError(t, err)
@@ -116,7 +116,7 @@ func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","n":2}`, nil).Code)
 
 	ctx := context.Background()
-	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
@@ -138,7 +138,7 @@ func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"event":"b"}`, nil).Code)
 
 	ctx := context.Background()
-	rows, err := db.Queries().ListUnarchivedInboxItemsBySource(ctx, pipelinedb.ListUnarchivedInboxItemsBySourceParams{
+	rows, err := db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook",
 	})
 	require.NoError(t, err)
@@ -151,7 +151,7 @@ func TestWebhookListenerNumericID(t *testing.T) {
 	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
 	require.Equal(t, http.StatusAccepted, postHook(t, listener.Handler(), "/hooks/ci", `{"id":1234}`, nil).Code)
 
-	_, err := db.Queries().GetInboxItemByExternalID(context.Background(), pipelinedb.GetInboxItemByExternalIDParams{
+	_, err := db.Queries().GetInboxItemByExternalID(context.Background(), store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "1234",
 	})
 	require.NoError(t, err)
@@ -184,11 +184,11 @@ func TestWebhookListenerFansOutToMatchingNodes(t *testing.T) {
 	assert.JSONEq(t, `{"delivered":2}`, rec.Body.String())
 
 	ctx := context.Background()
-	_, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	_, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "alpha", SourceKind: WebhookSourceKind, SourceScope: "hook-a", ExternalID: "2",
 	})
 	require.NoError(t, err)
-	_, err = db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	_, err = db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "beta", SourceKind: WebhookSourceKind, SourceScope: "hook-b", ExternalID: "2",
 	})
 	require.NoError(t, err)
@@ -241,76 +241,76 @@ func TestMissingFeedItemFields(t *testing.T) {
 // --- Classifier-level tests: pure webhookClassifier.Classify calls, no DB. ---
 
 func TestWebhookClassifier_FirstDeliveryActiveState(t *testing.T) {
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"open"}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"open"}`)}
 	got := webhookClassifier{}.Classify(nil, current)
 
 	assert.Equal(t, "received", got.Kind)
-	assert.Equal(t, pipelinedb.TransitionNone, got.Transition)
-	assert.Equal(t, pipelinedb.AttentionActivity, got.Attention)
-	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, store.TransitionNone, got.Transition)
+	assert.Equal(t, store.AttentionActivity, got.Attention)
+	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Equal(t, "open", got.SourceState)
 	assert.Equal(t, "x@100", got.OccurrenceKey)
 	assert.Empty(t, got.ArchivedReason)
 }
 
 func TestWebhookClassifier_MissingStateStaysActive(t *testing.T) {
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x"}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x"}`)}
 	got := webhookClassifier{}.Classify(nil, current)
-	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Empty(t, got.SourceState)
 
-	nonObject := pipelinedb.Observation{ExternalID: "y", Title: "t", ObservedAt: 100, Payload: []byte(`[1,2,3]`)}
+	nonObject := store.Observation{ExternalID: "y", Title: "t", ObservedAt: 100, Payload: []byte(`[1,2,3]`)}
 	got = webhookClassifier{}.Classify(nil, nonObject)
-	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Empty(t, got.SourceState)
 }
 
 func TestWebhookClassifier_FirstDeliveryAlreadyTerminal(t *testing.T) {
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"done"}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"done"}`)}
 	got := webhookClassifier{}.Classify(nil, current)
 
 	assert.Equal(t, "received", got.Kind)
-	assert.Equal(t, pipelinedb.LifecycleTerminal, got.Lifecycle)
-	assert.Equal(t, pipelinedb.TransitionNone, got.Transition, "first-seen terminal is not auto-archived, matching GitHub")
+	assert.Equal(t, store.LifecycleTerminal, got.Lifecycle)
+	assert.Equal(t, store.TransitionNone, got.Transition, "first-seen terminal is not auto-archived, matching GitHub")
 	assert.Equal(t, "done", got.SourceState)
 	assert.Empty(t, got.ArchivedReason)
 }
 
 func TestWebhookClassifier_EntersTerminalCaseInsensitive(t *testing.T) {
-	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"open"}`)}
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"Resolved"}`)}
+	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"open"}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"Resolved"}`)}
 	got := webhookClassifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "resolved", got.Kind)
 	assert.Equal(t, "Resolved", got.Summary)
-	assert.Equal(t, pipelinedb.TransitionEnteredTerminal, got.Transition)
-	assert.Equal(t, pipelinedb.AttentionActivity, got.Attention)
+	assert.Equal(t, store.TransitionEnteredTerminal, got.Transition)
+	assert.Equal(t, store.AttentionActivity, got.Attention)
 	assert.Equal(t, "resolved", got.ArchivedReason)
 	assert.Equal(t, "resolved", got.SourceState)
-	assert.Equal(t, pipelinedb.LifecycleTerminal, got.Lifecycle)
+	assert.Equal(t, store.LifecycleTerminal, got.Lifecycle)
 }
 
 func TestWebhookClassifier_LeavesTerminalReopens(t *testing.T) {
-	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"closed"}`)}
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"open"}`)}
+	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"closed"}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"open"}`)}
 	got := webhookClassifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "reopened", got.Kind)
 	assert.Equal(t, "Reopened", got.Summary)
-	assert.Equal(t, pipelinedb.TransitionLeftTerminal, got.Transition)
-	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, store.TransitionLeftTerminal, got.Transition)
+	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Empty(t, got.ArchivedReason)
 }
 
 func TestWebhookClassifier_UnchangedActiveStateIsUpdated(t *testing.T) {
-	prev := pipelinedb.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","n":1}`)}
-	current := pipelinedb.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","n":2}`)}
+	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","n":1}`)}
+	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","n":2}`)}
 	got := webhookClassifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "updated", got.Kind)
 	assert.Equal(t, current.Title, got.Summary)
-	assert.Equal(t, pipelinedb.TransitionNone, got.Transition)
-	assert.Equal(t, pipelinedb.LifecycleActive, got.Lifecycle)
+	assert.Equal(t, store.TransitionNone, got.Transition)
+	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 }
 
 // --- Listener-level tests: real SQLite through IngestObservation + applyTransition. ---
@@ -324,7 +324,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"Resolved"}`, nil).Code)
 
 	ctx := context.Background()
-	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
@@ -334,7 +334,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 	assert.Equal(t, "resolved", item.SourceState.String)
 	assert.Equal(t, "terminal", item.Lifecycle)
 
-	events, err := db.Queries().ListInboxEventsByItem(ctx, pipelinedb.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	events, err := db.Queries().ListInboxEventsByItem(ctx, store.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 	assert.Equal(t, "resolved", events[0].Kind, "latest event is first (ORDER BY id DESC)")
@@ -351,7 +351,7 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
 
 	ctx := context.Background()
-	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
@@ -360,7 +360,7 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 	assert.Equal(t, "active", item.Lifecycle)
 	assert.Equal(t, "open", item.SourceState.String)
 
-	events, err := db.Queries().ListInboxEventsByItem(ctx, pipelinedb.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
+	events, err := db.Queries().ListInboxEventsByItem(ctx, store.ListInboxEventsByItemParams{ItemID: item.ID, Limit: 10})
 	require.NoError(t, err)
 	require.NotEmpty(t, events)
 	assert.Equal(t, "reopened", events[0].Kind)
@@ -373,7 +373,7 @@ func TestWebhookListenerFirstDeliveryTerminalNotArchived(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"done"}`, nil).Code)
 
 	ctx := context.Background()
-	item, err := db.Queries().GetInboxItemByExternalID(ctx, pipelinedb.GetInboxItemByExternalIDParams{
+	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)

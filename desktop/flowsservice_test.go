@@ -4,21 +4,21 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *testing.T) {
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	store := flow.NewFlowStore(t.TempDir(), nil)
-	service := NewFlowsService(store, db, nil)
+	flows := flow.NewFlowStore(t.TempDir(), nil)
+	service := NewFlowsService(flows, db, nil)
 	created, err := service.CreateFlow("Profile")
 	require.NoError(t, err)
-	_, err = db.Queries().InsertInboxItem(context.Background(), pipelinedb.InsertInboxItemParams{
+	_, err = db.Queries().InsertInboxItem(context.Background(), store.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
@@ -37,12 +37,12 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 }
 
 func TestFlowsServiceSetFlowEnabled(t *testing.T) {
-	store := flow.NewFlowStore(t.TempDir(), nil)
-	created, err := store.Create("Triage")
+	flows := flow.NewFlowStore(t.TempDir(), nil)
+	created, err := flows.Create("Triage")
 	require.NoError(t, err)
 
 	updates := 0
-	service := NewFlowsService(store, nil, func() { updates++ })
+	service := NewFlowsService(flows, nil, func() { updates++ })
 	summary, err := service.SetFlowEnabled(created.ID, false)
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, summary.ID)
@@ -50,7 +50,7 @@ func TestFlowsServiceSetFlowEnabled(t *testing.T) {
 	assert.True(t, summary.Valid)
 	assert.Equal(t, 1, updates)
 
-	stored, ok := store.Get(created.ID)
+	stored, ok := flows.Get(created.ID)
 	require.True(t, ok)
 	assert.False(t, stored.Enabled)
 }

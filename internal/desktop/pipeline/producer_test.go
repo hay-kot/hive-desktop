@@ -12,8 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // fakeSource drives Producer.Tick with canned batches, one per call to
@@ -55,23 +55,23 @@ func listerOf(sources map[string]Source) SourceLister {
 type fakeAppender struct {
 	mu        sync.Mutex
 	nextOff   int64
-	calls     []pipelinedb.Msg
+	calls     []store.Msg
 	snapshots int
 }
 
-func (a *fakeAppender) IngestObservation(_ context.Context, _ pipelinedb.Classifier, p pipelinedb.IngestObservationParams) (pipelinedb.IngestResult, error) {
+func (a *fakeAppender) IngestObservation(_ context.Context, _ store.Classifier, p store.IngestObservationParams) (store.IngestResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.nextOff++
-	a.calls = append(a.calls, pipelinedb.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
-	return pipelinedb.IngestResult{Wrote: true, Offset: a.nextOff}, nil
+	a.calls = append(a.calls, store.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
+	return store.IngestResult{Wrote: true, Offset: a.nextOff}, nil
 }
 func (a *fakeAppender) ListSourceHeadKeys(context.Context, string) ([]string, error) { return nil, nil }
 func (a *fakeAppender) SourceHeadPayload(context.Context, string, string) ([]byte, error) {
 	return nil, nil
 }
 
-func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []pipelinedb.SnapshotItem) (int64, error) {
+func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []store.SnapshotItem) (int64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.nextOff++
@@ -93,9 +93,9 @@ func (r *activityRecorder) Record(_ context.Context, event activity.Event) {
 	r.events = append(r.events, event)
 }
 
-func openTestPipelineDB(t *testing.T) *pipelinedb.DB {
+func openTestPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -252,7 +252,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	firstDB, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	firstDB, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 
 	first := NewProducer(firstDB, listerOf(map[string]Source{
@@ -261,7 +261,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	first.Tick(t.Context())
 	require.NoError(t, firstDB.Close())
 
-	secondDB, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	secondDB, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = secondDB.Close() })
 	second := NewProducer(secondDB, listerOf(map[string]Source{

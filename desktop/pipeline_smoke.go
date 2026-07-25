@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -45,8 +45,8 @@ var sourceToCommitSmokeItems = []feed.Item{
 }
 
 type sourceToCommitSmokeState struct {
-	Claims   []pipelinedb.InboxItemView `json:"claims"`
-	NodeRuns []pipelinedb.NodeRunRecord `json:"nodeRuns"`
+	Claims   []store.InboxItemView `json:"claims"`
+	NodeRuns []store.NodeRunRecord `json:"nodeRuns"`
 }
 
 // sourceToCommitSmokeClassifier is the deliberately small source-side
@@ -56,11 +56,11 @@ type sourceToCommitSmokeState struct {
 // pre-seeded claim.
 type sourceToCommitSmokeClassifier struct{}
 
-func (sourceToCommitSmokeClassifier) Classify(previous *pipelinedb.Observation, current pipelinedb.Observation) pipelinedb.Classification {
+func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	if previous == nil {
-		return pipelinedb.Classification{Kind: "observed", Transition: pipelinedb.TransitionNone, Attention: pipelinedb.AttentionActivity, Lifecycle: pipelinedb.LifecycleActive, Summary: current.Title}
+		return store.Classification{Kind: "observed", Transition: store.TransitionNone, Attention: store.AttentionActivity, Lifecycle: store.LifecycleActive, Summary: current.Title}
 	}
-	return pipelinedb.Classification{Kind: "updated", Transition: pipelinedb.TransitionNone, Attention: pipelinedb.AttentionTrivial, Lifecycle: pipelinedb.LifecycleActive, Summary: current.Title}
+	return store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: store.LifecycleActive, Summary: current.Title}
 }
 
 // sourceToCommitSmokeMiddleware is a narrow, mock-only harness around the
@@ -68,7 +68,7 @@ func (sourceToCommitSmokeClassifier) Classify(previous *pipelinedb.Observation, 
 // event, executes the production TS graph and Worker, then calls
 // PipelineService.Commit; this middleware merely supplies deterministic Go
 // source input and reads the persisted node runs back for Playwright.
-func sourceToCommitSmokeMiddleware(db *pipelinedb.DB) application.Middleware {
+func sourceToCommitSmokeMiddleware(db *store.DB) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if settings.MockMode() != "pipeline" {
 			return next
@@ -103,7 +103,7 @@ func sourceToCommitSmokeMiddleware(db *pipelinedb.DB) application.Middleware {
 	}
 }
 
-func appendSourceToCommitSmokeItems(ctx context.Context, db *pipelinedb.DB) error {
+func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB) error {
 	var lastOffset int64
 	for _, item := range sourceToCommitSmokeItems {
 		payload, err := json.Marshal(item)
@@ -113,11 +113,11 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *pipelinedb.DB) erro
 		// IngestObservation is the production source boundary. It creates the
 		// inbox identity and appends the event log record; the graph still has to
 		// traverse all nodes and Commit has to create the feed claim.
-		result, err := db.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, pipelinedb.IngestObservationParams{
+		result, err := db.IngestObservation(ctx, sourceToCommitSmokeClassifier{}, store.IngestObservationParams{
 			ProfileID: sourceToCommitSmokeFlowID,
 			Topic:     "source:" + sourceToCommitSmokeFlowID + "/" + sourceToCommitSmokeSourceID,
-			Policy:    pipelinedb.ResurfacePolicyStateChanges,
-			Current: pipelinedb.Observation{
+			Policy:    store.ResurfacePolicyStateChanges,
+			Current: store.Observation{
 				ExternalID: item.ID, Title: item.Title, URL: item.URL,
 				SourceKind: "github", SourceScope: sourceToCommitSmokeSourceID,
 				ObservedAt: time.Now().UnixMilli(), Payload: payload,
@@ -136,7 +136,7 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *pipelinedb.DB) erro
 	return nil
 }
 
-func readSourceToCommitSmokeState(ctx context.Context, db *pipelinedb.DB) (sourceToCommitSmokeState, error) {
+func readSourceToCommitSmokeState(ctx context.Context, db *store.DB) (sourceToCommitSmokeState, error) {
 	claims, err := db.ListInboxItemsByFeed(ctx, sourceToCommitSmokeFlowID, sourceToCommitSmokeFeedID, 100)
 	if err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("read smoke claims: %w", err)

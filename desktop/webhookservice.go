@@ -7,15 +7,15 @@ import (
 	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // WebhookService is the Wails service exposing the local webhook listener's
 // endpoint info, its user-tunable settings, and each webhook-source node's
 // last captured delivery to the frontend.
 type WebhookService struct {
-	db       *pipelinedb.DB
+	db       *store.DB
 	listener *pipeline.WebhookListener
 	port     int
 }
@@ -24,7 +24,7 @@ type WebhookService struct {
 // disabled, or in mock modes without an explicit port claim; port is the
 // configured port either way, so the editor can render the endpoint URL a
 // live run would serve.
-func NewWebhookService(db *pipelinedb.DB, listener *pipeline.WebhookListener, port int) *WebhookService {
+func NewWebhookService(db *store.DB, listener *pipeline.WebhookListener, port int) *WebhookService {
 	return &WebhookService{db: db, listener: listener, port: port}
 }
 

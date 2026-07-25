@@ -11,21 +11,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
 // enqueueTestCommand enqueues one output_command row via CommitBatch (the
 // only production path that ever writes one), so tests exercise the real
 // dedup/enqueue behavior rather than inserting rows by hand.
-func enqueueTestCommand(t *testing.T, db *pipelinedb.DB, actionID, key, payload string) {
+func enqueueTestCommand(t *testing.T, db *store.DB, actionID, key, payload string) {
 	t.Helper()
-	require.NoError(t, db.CommitBatch(context.Background(), pipelinedb.CommitBatch{
+	require.NoError(t, db.CommitBatch(context.Background(), store.CommitBatch{
 		Consumer:   "test-consumer-" + actionID + "-" + key,
 		UpToOffset: "1",
-		Outputs: []pipelinedb.Output{
+		Outputs: []store.Output{
 			{
-				Sink:          pipelinedb.Sink{Kind: pipelinedb.SinkKindAction, TargetID: actionID},
+				Sink:          store.Sink{Kind: store.SinkKindAction, TargetID: actionID},
 				OccurrenceKey: key,
 				Payload:       []byte(payload),
 			},
@@ -390,7 +390,7 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 
 func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.T) {
 	dir := t.TempDir()
-	db, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	db, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
 	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`))
@@ -398,7 +398,7 @@ func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.
 	require.True(t, created)
 	require.NoError(t, db.Close())
 
-	reopened, err := pipelinedb.Open(dir, pipelinedb.DefaultOpenOptions())
+	reopened, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	exec := &fakeExecutor{}
