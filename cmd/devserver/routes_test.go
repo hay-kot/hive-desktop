@@ -146,3 +146,36 @@ func TestRootServesDashboardAndOnlyExactly(t *testing.T) {
 	// A non-root path must proxy, not serve HTML — {$} exists for this.
 	assert.Contains(t, get(t, handler, "/anything").Body.String(), "proxied")
 }
+
+// TestDashboardItemsPanelScales pins the structure that keeps the items panel
+// usable against a real feed. A feed observing hundreds of items previously
+// rendered every one as a card with the full eleven-button action set, which
+// is thousands of buttons tall.
+//
+// The JS behaviour itself has no automated coverage — this asserts the hooks
+// it depends on exist, so a refactor cannot quietly drop them.
+func TestDashboardItemsPanelScales(t *testing.T) {
+	html := string(dashboardHTML)
+
+	// Filter and toggle live outside the polled region; re-creating them every
+	// 2s would steal focus and wipe what is being typed.
+	require.Contains(t, html, `id="items-filter"`)
+	require.Contains(t, html, `id="items-overlaid"`)
+	assert.Contains(t, html, `id="items-count"`)
+	assert.Contains(t, html, `id="items-more"`)
+
+	// Paged rather than rendering everything.
+	assert.Contains(t, html, "ITEMS_PAGE")
+	assert.Contains(t, html, "itemsView.limit")
+
+	// Actions render only for the open row.
+	assert.Contains(t, html, "itemsView.open")
+
+	// View state must not be reset by the poll.
+	assert.Contains(t, html, "const itemsView")
+	filterIdx := strings.Index(html, "const itemsView")
+	refreshIdx := strings.Index(html, "async function refresh")
+	require.Positive(t, filterIdx)
+	require.Positive(t, refreshIdx)
+	assert.Less(t, filterIdx, refreshIdx, "view state must be declared outside render/refresh")
+}

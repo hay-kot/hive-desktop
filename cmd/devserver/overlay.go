@@ -102,6 +102,13 @@ func (s *Store) Overlays() map[string]Mutations {
 	return out
 }
 
+// maxObservedItems bounds the observed-item list. Every distinct item that
+// ever flows through is remembered, so a long-running devserver watching a
+// churning feed would accumulate indefinitely and hand the dashboard an
+// ever-growing list. Well above a realistic feed's working set, so eviction
+// stays a backstop rather than something you notice.
+const maxObservedItems = 500
+
 // observe records that an item passed through the proxy. The stored values are
 // pre-overlay: the dashboard shows what upstream actually says alongside the
 // overlay that is changing it.
@@ -114,6 +121,7 @@ func (s *Store) observe(repo string, num int, kind, title, state string) {
 	defer s.mu.Unlock()
 	item, ok := s.observed[key]
 	if !ok {
+		s.evictLocked()
 		item = &Item{Repo: repo, Num: num}
 		s.observed[key] = item
 	}
@@ -129,7 +137,46 @@ func (s *Store) observe(repo string, num int, kind, title, state string) {
 	}
 }
 
-// Items returns every observed item, newest-seen first, with Overlaid set.
+// evictLocked drops the least recently seen items once the list is full,
+// making room for one new entry. Overlaid items are never evicted: they are
+// what the author is actively simulating, and dropping one would silently
+// remove it from the dashboard while its overlay stayed in force.
+//
+// Callers must hold s.mu.
+func (s *Store) evictLocked() {
+	if len(s.observed) < maxObservedItems {
+		return
+	}
+	type aged struct {
+		key  string
+		seen time.Time
+	}
+	candidates := make([]aged, 0, len(s.observed))
+	for key, item := range s.observed {
+		if _, overlaid := s.overlays[key]; overlaid {
+			continue
+		}
+		candidates = append(candidates, aged{key: key, seen: item.LastSeen})
+	}
+	sort.Slice(candidates, func(i, j int) bool { return candidates[i].seen.Before(candidates[j].seen) })
+
+	// Trim to one below the cap so the incoming item fits. If overlays account
+	// for the whole list there is nothing to evict, and it grows past the cap
+	// rather than discarding state the author asked for.
+	for _, candidate := range candidates {
+		if len(s.observed) < maxObservedItems {
+			return
+		}
+		delete(s.observed, candidate.key)
+	}
+}
+
+// Items returns every observed item with Overlaid set, overlaid items first
+// and newest-seen within each group.
+//
+// A real feed observes hundreds of items, so the ones being actively
+// simulated have to float to the top; ordering by recency alone buries them
+// under whatever the last poll happened to return.
 func (s *Store) Items() []Item {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -140,6 +187,9 @@ func (s *Store) Items() []Item {
 		out = append(out, copied)
 	}
 	sort.Slice(out, func(i, j int) bool {
+		if out[i].Overlaid != out[j].Overlaid {
+			return out[i].Overlaid
+		}
 		if !out[i].LastSeen.Equal(out[j].LastSeen) {
 			return out[i].LastSeen.After(out[j].LastSeen)
 		}

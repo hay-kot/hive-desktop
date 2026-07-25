@@ -54,6 +54,29 @@
   .muted { color: var(--muted); }
   .scroll { max-height: 260px; overflow-y: auto; }
   .empty { color: var(--muted); font-style: italic; }
+  /* Items list. A real feed produces hundreds of observed items, so rows are
+     one line and actions only render for the open row — otherwise the panel is
+     thousands of buttons tall. */
+  .controls { display: flex; gap: .5rem; align-items: center; margin-bottom: .5rem; }
+  .controls input[type=search] { flex: 1; min-width: 0; }
+  .controls label {
+    display: flex; align-items: center; gap: .3rem; cursor: pointer;
+    color: var(--muted); font-size: .75rem; white-space: nowrap;
+  }
+  #items { max-height: 420px; overflow-y: auto; }
+  .row {
+    display: flex; gap: .5rem; align-items: baseline;
+    padding: .3rem 0; border-top: 1px solid var(--line); cursor: pointer;
+  }
+  .row:first-child { border-top: 0; }
+  .row:hover { background: color-mix(in srgb, currentColor 6%, transparent); }
+  .row .caret { flex: none; width: .7rem; color: var(--muted); }
+  .row .key { flex: none; }
+  .row .row-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+  .row .dot { flex: none; color: var(--warn); }
+  .detail { padding: .1rem 0 .7rem 1.2rem; }
+  .detail .overlay-json { font-size: .7rem; color: var(--muted); margin-bottom: .4rem; word-break: break-all; }
+  .more { padding-top: .5rem; display: flex; gap: .5rem; align-items: center; }
   #toast {
     position: fixed; bottom: 1rem; right: 1rem; background: var(--panel);
     border: 1px solid var(--line); border-radius: 6px; padding: .5rem .75rem;
@@ -69,8 +92,17 @@
 
 <div class="grid">
   <div class="panel">
-    <h2>Items <button id="clear-all" class="danger">clear overlays</button></h2>
+    <h2>Items <span id="items-count" class="muted"></span>
+      <button id="clear-all" class="danger">clear overlays</button></h2>
+    <!-- Rendered once, outside the polled region: re-creating the input every
+         2s would steal focus and wipe what is being typed. -->
+    <div class="controls">
+      <input id="items-filter" type="search" placeholder="filter by repo, number, or title…"
+             autocomplete="off" spellcheck="false">
+      <label><input type="checkbox" id="items-overlaid"> overlaid only</label>
+    </div>
     <div id="items"></div>
+    <div id="items-more" class="more"></div>
   </div>
 
   <div class="panel">
@@ -146,34 +178,66 @@ function renderStats() {
   ].map(([label, value]) => `<div class="stat"><b>${value}</b><span>${label}</span></div>`).join('');
 }
 
+// View state for the items list. Kept outside render so the 2s poll does not
+// reset what you filtered, opened, or scrolled past.
+const itemsView = {filter: '', overlaidOnly: false, open: null, limit: 25};
+const ITEMS_PAGE = 25;
+
+function matchesFilter(item, needle) {
+  if (!needle) return true;
+  return (item.repo + '#' + item.num + ' ' + (item.title || '')).toLowerCase().includes(needle);
+}
+
 function renderItems() {
-  const items = state.items || [];
-  if (!items.length) {
+  const all = state.items || [];
+  const overlays = state.overlays || {};
+  const needle = itemsView.filter.trim().toLowerCase();
+  const matching = all.filter((item) =>
+    matchesFilter(item, needle) && (!itemsView.overlaidOnly || overlays[item.repo + '#' + item.num]));
+
+  $('items-count').textContent = needle || itemsView.overlaidOnly
+    ? `${matching.length} of ${all.length}` : `${all.length}`;
+
+  if (!all.length) {
     $('items').innerHTML = '<p class="empty">No items observed yet. Start a desktop instance pointed at this proxy.</p>';
+    $('items-more').innerHTML = '';
     return;
   }
-  $('items').innerHTML = items.map((item) => {
+  if (!matching.length) {
+    $('items').innerHTML = '<p class="empty">No items match.</p>';
+    $('items-more').innerHTML = '';
+    return;
+  }
+
+  const visible = matching.slice(0, itemsView.limit);
+  $('items').innerHTML = visible.map((item) => {
     const key = item.repo + '#' + item.num;
-    const overlay = (state.overlays || {})[key];
+    const overlay = overlays[key];
+    const open = itemsView.open === key;
+    const row = `<div class="row" data-row="${escapeHtml(key)}">
+      <span class="caret">${open ? '▾' : '▸'}</span>
+      <strong class="key">${escapeHtml(key)}</strong>
+      <span class="tag">${escapeHtml(item.kind || '?')}</span>
+      <span class="tag">${escapeHtml(item.state || '?')}</span>
+      <span class="row-title">${escapeHtml(item.title || '')}</span>
+      ${overlay ? '<span class="dot" title="overlaid">●</span>' : ''}
+    </div>`;
+    if (!open) return row;
+
     const buttons = (state.actions || [])
-      .map((a) => `<button data-action="${a.name}" data-repo="${item.repo}" data-num="${item.num}">${a.label}</button>`)
+      .map((a) => `<button data-action="${a.name}" data-repo="${escapeHtml(item.repo)}" data-num="${item.num}">${escapeHtml(a.label)}</button>`)
       .join('');
     const clear = overlay
-      ? `<button class="danger" data-clear="1" data-repo="${item.repo}" data-num="${item.num}">clear</button>` : '';
-    const badge = overlay ? '<span class="tag warn">overlaid</span>' : '';
-    const detail = overlay ? `<div class="muted" style="font-size:.7rem">${escapeHtml(JSON.stringify(overlay))}</div>` : '';
-    return `<div class="item">
-      <div class="item-head">
-        <strong>${escapeHtml(key)}</strong>
-        <span class="tag">${escapeHtml(item.kind || '?')}</span>
-        <span class="tag">${escapeHtml(item.state || 'unknown')}</span>
-        ${badge}
-      </div>
-      <div class="item-title">${escapeHtml(item.title || '')}</div>
-      ${detail}
-      <div class="btns">${buttons}${clear}</div>
-    </div>`;
+      ? `<button class="danger" data-clear="1" data-repo="${escapeHtml(item.repo)}" data-num="${item.num}">clear</button>` : '';
+    const json = overlay
+      ? `<div class="overlay-json">${escapeHtml(JSON.stringify(overlay))}</div>` : '';
+    return row + `<div class="detail">${json}<div class="btns">${buttons}${clear}</div></div>`;
   }).join('');
+
+  $('items-more').innerHTML = matching.length > visible.length
+    ? `<button id="items-show-more">show ${Math.min(ITEMS_PAGE, matching.length - visible.length)} more</button>
+       <span class="muted">showing ${visible.length} of ${matching.length}</span>`
+    : '';
 }
 
 function renderScenarios() {
@@ -243,9 +307,37 @@ async function refresh() {
   renderStats(); renderItems(); renderScenarios(); renderPusher(); renderRecent(); renderPushes();
 }
 
+// Filter and toggle re-render immediately from cached state; they never need
+// to wait for the next poll.
+$('items-filter').addEventListener('input', (event) => {
+  itemsView.filter = event.target.value;
+  itemsView.limit = ITEMS_PAGE;   // a new filter starts from the top
+  renderItems();
+});
+$('items-overlaid').addEventListener('change', (event) => {
+  itemsView.overlaidOnly = event.target.checked;
+  itemsView.limit = ITEMS_PAGE;
+  renderItems();
+});
+
+// Row clicks toggle the open row. One at a time: the action set is eleven
+// buttons, and showing several at once is what made this panel unusable.
+document.addEventListener('click', (event) => {
+  const row = event.target.closest('.row');
+  if (!row || event.target.closest('button')) return;
+  itemsView.open = itemsView.open === row.dataset.row ? null : row.dataset.row;
+  renderItems();
+});
+
 document.addEventListener('click', async (event) => {
   const el = event.target.closest('button');
   if (!el) return;
+
+  if (el.id === 'items-show-more') {
+    itemsView.limit += ITEMS_PAGE;
+    renderItems();
+    return;
+  }
 
   if (el.dataset.action) {
     const done = await post('/_ctl/action',

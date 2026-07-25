@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -278,4 +280,64 @@ func TestNumberFromAPIURL(t *testing.T) {
 	for url, want := range cases {
 		assert.Equal(t, want, numberFromAPIURL(url), url)
 	}
+}
+
+func TestItemsSortOverlaidFirst(t *testing.T) {
+	store := fixedStore(t)
+	base := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	for i, key := range []string{"a/b#1", "a/b#2", "a/b#3"} {
+		store.now = func() time.Time { return base.Add(time.Duration(i) * time.Minute) }
+		parts := strings.SplitN(key, "#", 2)
+		num, _ := strconv.Atoi(parts[1])
+		store.observe(parts[0], num, "PR", "t", "open")
+	}
+	// The oldest-seen item is the overlaid one, so recency alone would bury it.
+	store.Apply("a/b#1", Mutations{State: stringPtr("closed")})
+
+	items := store.Items()
+	require.Len(t, items, 3)
+	assert.Equal(t, "a/b#1", items[0].Key(), "the item being simulated must be findable at the top")
+	assert.True(t, items[0].Overlaid)
+	assert.False(t, items[1].Overlaid)
+}
+
+func TestObservedItemsAreBounded(t *testing.T) {
+	store := fixedStore(t)
+	base := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+	for i := range maxObservedItems + 50 {
+		store.now = func() time.Time { return base.Add(time.Duration(i) * time.Second) }
+		store.observe("a/b", i+1, "PR", "t", "open")
+	}
+	assert.Len(t, store.Items(), maxObservedItems,
+		"a long-running devserver must not accumulate items indefinitely")
+
+	// Eviction is least-recently-seen, so the earliest items are the ones gone.
+	keys := map[string]bool{}
+	for _, item := range store.Items() {
+		keys[item.Key()] = true
+	}
+	assert.False(t, keys["a/b#1"])
+	assert.True(t, keys["a/b#"+strconv.Itoa(maxObservedItems+50)])
+}
+
+func TestOverlaidItemsSurviveEviction(t *testing.T) {
+	store := fixedStore(t)
+	base := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
+
+	// Observed first, so least-recently-seen, and overlaid — it must survive
+	// anyway. Evicting it would hide an item whose overlay is still in force.
+	store.now = func() time.Time { return base }
+	store.observe("a/b", 1, "PR", "pinned", "open")
+	store.Apply("a/b#1", Mutations{State: stringPtr("merged")})
+
+	for i := range maxObservedItems + 50 {
+		store.now = func() time.Time { return base.Add(time.Duration(i+1) * time.Second) }
+		store.observe("c/d", i+1, "PR", "t", "open")
+	}
+
+	keys := map[string]bool{}
+	for _, item := range store.Items() {
+		keys[item.Key()] = true
+	}
+	assert.True(t, keys["a/b#1"], "an overlaid item must never be evicted")
 }
