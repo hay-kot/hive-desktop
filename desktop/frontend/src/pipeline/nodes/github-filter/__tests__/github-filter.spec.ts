@@ -16,7 +16,7 @@ describe('github-filter validate', () => {
     const groups: Config[] = [
       { repos: ['acme/*'] },
       { exclude_repos: ['acme/*'] },
-      { authors: ['hayden'] },
+      { authors: ['octocat'] },
       { exclude_authors: ['*[bot]'] },
       { labels: ['bug'] },
       { exclude_labels: ['wontfix'] },

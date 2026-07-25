@@ -41,7 +41,7 @@ type Ref struct {
 	Account string
 }
 
-// String is the wire and storage form, "github/hayden". It is also the
+// String is the wire and storage form, "github/octocat". It is also the
 // keychain account name, which is why the separator may not appear in either
 // half.
 func (r Ref) String() string { return r.Provider + "/" + r.Account }

@@ -50,7 +50,7 @@ var mockInboxItems = []feed.Item{
 	{
 		ID: "iss1190", Kind: "Issue", Repo: "hive/desktop", Num: 1190,
 		Title:  "Feed source: mirror GitHub notifications inbox",
-		Author: "hayden", Unread: true, Reason: "mention", Labels: []string{"feature", "mvp"},
+		Author: "octocat", Unread: true, Reason: "mention", Labels: []string{"feature", "mvp"},
 		Branch: "feat/1190-notifications-feed",
 		Body:   "Add a notifications-based feed source that mirrors the user's GitHub inbox, with local read/dismiss state so triage does not touch GitHub until the user acts.",
 		Prompt: "Implement a notifications-based feed source mirroring the GitHub inbox, with app-local read/dismiss triage state.",
@@ -86,7 +86,7 @@ var mockInboxItems = []feed.Item{
 	{
 		ID: "iss1177", Kind: "Issue", Repo: "hive/desktop", Num: 1177,
 		Title:  "Cross-repo query: PRs assigned to me across the org",
-		Author: "hayden", Unread: false, Labels: []string{"feature"},
+		Author: "octocat", Unread: false, Labels: []string{"feature"},
 		Branch: "feat/1177-cross-repo-query",
 		Body:   "Support GitHub search-style cross-repo queries as a feed source, e.g. \"PRs assigned to me across the org\", saveable as a workspace source.",
 		Prompt: "Implement a cross-repo query feed source using GitHub search syntax, saveable into a workspace.",

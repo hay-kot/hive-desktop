@@ -13,7 +13,7 @@ type GlobKey = 'repos' | 'exclude_repos' | 'authors' | 'exclude_authors' | 'labe
 const globGroups: Array<{ key: GlobKey; label: string; placeholder: string; testid: string }> = [
   { key: 'repos', label: 'Repos', placeholder: 'colonyops/*', testid: 'github-filter-editor-repos' },
   { key: 'exclude_repos', label: 'Exclude repos', placeholder: 'colonyops/sandbox', testid: 'github-filter-editor-exclude-repos' },
-  { key: 'authors', label: 'Authors', placeholder: 'hay-kot', testid: 'github-filter-editor-authors' },
+  { key: 'authors', label: 'Authors', placeholder: 'octocat', testid: 'github-filter-editor-authors' },
   { key: 'exclude_authors', label: 'Exclude authors', placeholder: '*[bot]', testid: 'github-filter-editor-exclude-authors' },
   { key: 'labels', label: 'Labels', placeholder: 'area/*', testid: 'github-filter-editor-labels' },
   { key: 'exclude_labels', label: 'Exclude labels', placeholder: 'wontfix', testid: 'github-filter-editor-exclude-labels' },

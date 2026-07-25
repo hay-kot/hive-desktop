@@ -46,7 +46,7 @@ afterEach(() => {
 
 describe('SettingsView', () => {
   it('only exposes settings backed by application behavior', () => {
-    const wrapper = mount(SettingsView, { props: { githubConnected: true, githubLogin: 'hayden', activeCategory: 'appearance' } })
+    const wrapper = mount(SettingsView, { props: { githubConnected: true, githubLogin: 'octocat', activeCategory: 'appearance' } })
 
     expect(wrapper.find('[data-testid="settings-category-appearance"]').attributes('aria-current')).toBe('true')
     expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').exists()).toBe(true)
@@ -72,14 +72,14 @@ describe('SettingsView', () => {
   })
 
   it('shows the connected GitHub source and outlined future connections', async () => {
-    const wrapper = mount(SettingsView, { props: { githubConnected: true, githubLogin: 'hayden', activeCategory: 'appearance' } })
+    const wrapper = mount(SettingsView, { props: { githubConnected: true, githubLogin: 'octocat', activeCategory: 'appearance' } })
 
     await wrapper.find('[data-testid="settings-category-integrations"]').trigger('click')
     expect(wrapper.emitted('select-category')).toEqual([['integrations']])
     await wrapper.setProps({ activeCategory: 'integrations' })
 
     expect(wrapper.find('[data-testid="integration-github-status"]').text()).toBe('Connected')
-    expect(wrapper.find('[data-testid="integration-github"]').text()).toContain('Connected as hayden')
+    expect(wrapper.find('[data-testid="integration-github"]').text()).toContain('Connected as octocat')
     for (const id of ['grafana', 'posthog', 'slack']) {
       expect(wrapper.find(`[data-testid="integration-${id}"] img`).exists()).toBe(true)
       expect(wrapper.find(`[data-testid="integration-${id}-add"]`).attributes('disabled')).toBeDefined()

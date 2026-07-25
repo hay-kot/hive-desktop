@@ -99,7 +99,7 @@ func (a *singleSearchAPI) handler() http.Handler {
 			"state":      "OPEN",
 			"url":        "https://github.com/o/r/pull/7",
 			"isDraft":    false,
-			"author":     map[string]any{"login": "hayden"},
+			"author":     map[string]any{"login": "octocat"},
 			"repository": map[string]any{"nameWithOwner": "o/r"},
 			"labels":     map[string]any{"nodes": []any{}},
 			"updatedAt":  "2026-07-18T10:00:00Z",

@@ -15,7 +15,7 @@ func TestRefStringAndParseAreInverses(t *testing.T) {
 	t.Parallel()
 
 	for _, ref := range []Ref{
-		{Provider: "github", Account: "hayden"},
+		{Provider: "github", Account: "octocat"},
 		{Provider: "grafana", Account: "prod"},
 		{Provider: "grafana", Account: "stack.example.com:3000"},
 	} {
@@ -31,7 +31,7 @@ func TestParseRefRejectsMalformedInput(t *testing.T) {
 	cases := map[string]string{
 		"no separator":        "github",
 		"empty":               "",
-		"no provider":         "/hayden",
+		"no provider":         "/octocat",
 		"no account":          "github/",
 		"account has a slash": "github/hay/den",
 	}
@@ -53,7 +53,7 @@ func TestStoreContract(t *testing.T) {
 		"keychain": func(t *testing.T) Store { return newTestKeychainStore(t) },
 	} {
 		t.Run(name, func(t *testing.T) {
-			ref := Ref{Provider: "github", Account: "hayden"}
+			ref := Ref{Provider: "github", Account: "octocat"}
 
 			t.Run("get is not found before set", func(t *testing.T) {
 				store := newStore(t)

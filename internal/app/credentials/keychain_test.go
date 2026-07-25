@@ -29,12 +29,12 @@ func newTestKeychainStore(t *testing.T) *KeychainStore {
 func TestIndexHoldsRefsAndNeverValues(t *testing.T) {
 	store := newTestKeychainStore(t)
 	const token = "ghp_realtokenvalue"
-	require.NoError(t, store.Set(Ref{Provider: "github", Account: "hayden"}, token))
+	require.NoError(t, store.Set(Ref{Provider: "github", Account: "octocat"}, token))
 
 	raw, err := os.ReadFile(store.indexPath)
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), token)
-	assert.Contains(t, string(raw), "github/hayden")
+	assert.Contains(t, string(raw), "github/octocat")
 }
 
 // The keychain is the truth and the index is a cache. A credential revoked
@@ -44,7 +44,7 @@ func TestIndexHoldsRefsAndNeverValues(t *testing.T) {
 // the user's only clue would be an empty feed.
 func TestGetPrunesTheIndexWhenTheKeychainEntryIsGone(t *testing.T) {
 	store := newTestKeychainStore(t)
-	ref := Ref{Provider: "github", Account: "hayden"}
+	ref := Ref{Provider: "github", Account: "octocat"}
 	require.NoError(t, store.Set(ref, "token-value"))
 
 	// Out-of-band removal: the keychain loses the value, the index does not
@@ -64,11 +64,11 @@ func TestGetPrunesTheIndexWhenTheKeychainEntryIsGone(t *testing.T) {
 // "everything is gone" is re-authenticating every provider.
 func TestListSkipsMalformedIndexEntries(t *testing.T) {
 	store := newTestKeychainStore(t)
-	good := Ref{Provider: "github", Account: "hayden"}
+	good := Ref{Provider: "github", Account: "octocat"}
 	require.NoError(t, store.Set(good, "token-value"))
 
 	require.NoError(t, os.WriteFile(store.indexPath,
-		[]byte(`{"refs":["github/hayden","","not-a-ref","/no-provider"]}`), 0o600))
+		[]byte(`{"refs":["github/octocat","","not-a-ref","/no-provider"]}`), 0o600))
 
 	refs, err := store.List()
 	require.NoError(t, err)
@@ -90,9 +90,9 @@ func TestListOnAMissingIndexIsEmpty(t *testing.T) {
 // behind in its place.
 func TestIndexWriteLeavesNoTemporaryFiles(t *testing.T) {
 	store := newTestKeychainStore(t)
-	require.NoError(t, store.Set(Ref{Provider: "github", Account: "hayden"}, "token-value"))
+	require.NoError(t, store.Set(Ref{Provider: "github", Account: "octocat"}, "token-value"))
 	require.NoError(t, store.Set(Ref{Provider: "grafana", Account: "prod"}, "token-value"))
-	require.NoError(t, store.Delete(Ref{Provider: "github", Account: "hayden"}))
+	require.NoError(t, store.Delete(Ref{Provider: "github", Account: "octocat"}))
 
 	entries, err := os.ReadDir(filepath.Dir(store.indexPath))
 	require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestConcurrentSetsAllReachTheIndex(t *testing.T) {
 // information, and the directory is created by this package on first write.
 func TestIndexIsWrittenPrivately(t *testing.T) {
 	store := newTestKeychainStore(t)
-	require.NoError(t, store.Set(Ref{Provider: "github", Account: "hayden"}, "token-value"))
+	require.NoError(t, store.Set(Ref{Provider: "github", Account: "octocat"}, "token-value"))
 
 	info, err := os.Stat(store.indexPath)
 	require.NoError(t, err)
@@ -147,12 +147,12 @@ func TestIndexIsWrittenPrivately(t *testing.T) {
 func TestIndexOnDiskShape(t *testing.T) {
 	store := newTestKeychainStore(t)
 	require.NoError(t, store.Set(Ref{Provider: "grafana", Account: "prod"}, "token-value"))
-	require.NoError(t, store.Set(Ref{Provider: "github", Account: "hayden"}, "token-value"))
+	require.NoError(t, store.Set(Ref{Provider: "github", Account: "octocat"}, "token-value"))
 
 	raw, err := os.ReadFile(store.indexPath)
 	require.NoError(t, err)
 
 	var idx index
 	require.NoError(t, json.Unmarshal(raw, &idx))
-	assert.Equal(t, []string{"github/hayden", "grafana/prod"}, idx.Refs)
+	assert.Equal(t, []string{"github/octocat", "grafana/prod"}, idx.Refs)
 }
