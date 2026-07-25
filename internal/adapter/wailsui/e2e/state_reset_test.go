@@ -79,7 +79,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 
 	harness := NewStateResetHarness(db, core, zerolog.Nop())
 	require.NotNil(t, harness)
-	h := SmokeMiddleware(db, core, harness)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, core, harness, nil)(http.NotFoundHandler())
 
 	// Mutate durable state the way a test run does: read state, event log,
 	// consumer checkpoint, source head, commands, activity, jobs, node runs.
@@ -155,14 +155,14 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 
 	// The pipeline smoke fixture's own server-side append plus a command, the
 	// state a source-to-commit run leaves behind.
-	require.NoError(t, appendSourceToCommitSmokeItems(ctx, db))
+	require.NoError(t, appendSourceToCommitSmokeItems(ctx, db, nil))
 	_, created, err := db.ConfirmOutputCommand(ctx, "launch", "smoke-pr", []byte(`{}`))
 	require.NoError(t, err)
 	require.True(t, created)
 
 	harness := NewStateResetHarness(db, nil, zerolog.Nop())
 	require.NotNil(t, harness)
-	h := SmokeMiddleware(db, nil, harness)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, nil, harness, nil)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, stateResetPath, nil))
 	require.Equal(t, http.StatusNoContent, r.Code, r.Body.String())

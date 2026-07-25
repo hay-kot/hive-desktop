@@ -72,24 +72,24 @@ func registerEvents() struct{} {
 func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (cancel func()) {
 	cancels := []func(){
 		events.Subscribe(ctx, bus, "wailsui.log", events.Coalesce(), func(_ context.Context, e events.LogAppended) {
-			EmitLogAppended(e.NextOffset)
+			emitLogAppended(e.NextOffset)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.activity", events.Coalesce(), func(_ context.Context, e events.ActivityAppended) {
-			EmitActivityAppended(e.ID)
+			emitActivityAppended(e.ID)
 		}),
 		events.Subscribe(ctx, bus, "wailsui.jobs", events.Coalesce(), func(context.Context, events.JobsUpdated) {
 			// The core carries the job id; the frontend re-reads the job list,
 			// so this is the degradation the wake-up contract asks for.
-			EmitJobsUpdated()
+			emitJobsUpdated()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
-			EmitActionsUpdated()
+			emitActionsUpdated()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.auth", events.Coalesce(), func(context.Context, events.AuthUpdated) {
-			EmitAuthUpdated()
+			emitAuthUpdated()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.flows", events.Coalesce(), func(context.Context, events.FlowsUpdated) {
-			EmitFlowsUpdated()
+			emitFlowsUpdated()
 			if onFlowsUpdated != nil {
 				onFlowsUpdated()
 			}
@@ -102,35 +102,35 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 	}
 }
 
-// EmitLogAppended pushes the pipeline event log's new tail offset to the
+// emitLogAppended pushes the pipeline event log's new tail offset to the
 // frontend after a producer tick appends at least one row. Safe to call
 // from the producer goroutine once the app is running.
-func EmitLogAppended(nextOffset int64) {
+func emitLogAppended(nextOffset int64) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("log:appended", nextOffset)
 	}
 }
 
-// EmitActivityAppended pushes the activity:appended wake-up (carrying the new
+// emitActivityAppended pushes the activity:appended wake-up (carrying the new
 // event's id) to the frontend after any subsystem records an activity event.
 // Safe to call from any goroutine once the app is running.
-func EmitActivityAppended(id int64) {
+func emitActivityAppended(id int64) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("activity:appended", id)
 	}
 }
 
-// EmitJobsUpdated wakes frontend consumers after any successful job lifecycle
+// emitJobsUpdated wakes frontend consumers after any successful job lifecycle
 // transition. The payload is intentionally only a wake-up signal.
-func EmitJobsUpdated() {
+func emitJobsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("jobs:updated", "changed")
 	}
 }
 
-// EmitNotificationActivated tells the frontend which item a clicked
+// emitNotificationActivated tells the frontend which item a clicked
 // notification came from, so it can route to it.
-func EmitNotificationActivated(activation NotificationActivation) {
+func emitNotificationActivated(activation NotificationActivation) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("notification:activated", activation)
 	}
@@ -162,41 +162,41 @@ func NotificationActivationFrom(result wailsnotify.NotificationResult) (Notifica
 	return activation, true
 }
 
-// EmitWindowFocus pushes the current focused state to the frontend. Safe to
+// emitWindowFocus pushes the current focused state to the frontend. Safe to
 // call from native window event callbacks once the app is running.
-func EmitWindowFocus() {
+func emitWindowFocus() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("window:focus", true)
 	}
 }
 
-// EmitWindowBlur pushes the current unfocused state to the frontend. Safe to
+// emitWindowBlur pushes the current unfocused state to the frontend. Safe to
 // call from native window event callbacks once the app is running.
-func EmitWindowBlur() {
+func emitWindowBlur() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("window:blur", false)
 	}
 }
 
-// EmitAuthUpdated pushes the auth:updated wake-up to the frontend. Safe to
+// emitAuthUpdated pushes the auth:updated wake-up to the frontend. Safe to
 // call from any goroutine once the app is running.
-func EmitAuthUpdated() {
+func emitAuthUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("auth:updated", "changed")
 	}
 }
 
-// EmitFlowsUpdated pushes the flows:updated wake-up to the frontend. Safe to
+// emitFlowsUpdated pushes the flows:updated wake-up to the frontend. Safe to
 // call from any goroutine once the app is running.
-func EmitFlowsUpdated() {
+func emitFlowsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("flows:updated", "changed")
 	}
 }
 
-// EmitActionsUpdated wakes frontend consumers after a successful catalog
+// emitActionsUpdated wakes frontend consumers after a successful catalog
 // change or a watcher reload. Service mutations call it only after success.
-func EmitActionsUpdated() {
+func emitActionsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("actions:updated", "changed")
 	}

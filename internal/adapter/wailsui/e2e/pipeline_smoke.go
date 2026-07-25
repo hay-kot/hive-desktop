@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -69,7 +68,11 @@ func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, curre
 // event, executes the production TS graph and Worker, then calls
 // PipelineService.Commit; this middleware merely supplies deterministic Go
 // source input and reads the persisted node runs back for Playwright.
-func sourceToCommitSmokeMiddleware(db *store.DB) application.Middleware {
+//
+// onAppended announces that the event log grew, exactly as the producer does.
+// It is supplied rather than called directly so this package does not have to
+// import the adapter that mounts it.
+func sourceToCommitSmokeMiddleware(db *store.DB, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if settings.MockMode() != "pipeline" {
 			return next
@@ -82,7 +85,7 @@ func sourceToCommitSmokeMiddleware(db *store.DB) application.Middleware {
 
 			switch r.Method {
 			case http.MethodPost:
-				if err := appendSourceToCommitSmokeItems(r.Context(), db); err != nil {
+				if err := appendSourceToCommitSmokeItems(r.Context(), db, onAppended); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -104,7 +107,7 @@ func sourceToCommitSmokeMiddleware(db *store.DB) application.Middleware {
 	}
 }
 
-func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB) error {
+func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, onAppended func(nextOffset int64)) error {
 	var lastOffset int64
 	for _, item := range sourceToCommitSmokeItems {
 		payload, err := json.Marshal(item)
@@ -131,8 +134,8 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB) error {
 			lastOffset = result.Offset
 		}
 	}
-	if lastOffset > 0 {
-		wailsui.EmitLogAppended(lastOffset)
+	if lastOffset > 0 && onAppended != nil {
+		onAppended(lastOffset)
 	}
 	return nil
 }

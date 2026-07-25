@@ -60,9 +60,9 @@ type actionSmokeState struct {
 // SmokeMiddleware composes the narrow test-only routes — the two
 // smoke readers plus the /_e2e/reset harness — without changing the normal
 // asset handler or exposing any of them in production.
-func SmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *StateReset) application.Middleware {
+func SmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
-		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline)(stateResetMiddleware(reset)(next)))
+		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline, onAppended)(stateResetMiddleware(reset)(next)))
 	}
 }
 

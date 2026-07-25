@@ -338,6 +338,14 @@ func (a *App) openFlows(logger zerolog.Logger) {
 	a.flowsWatcher = watcher
 }
 
+// PublishLogAppended announces that the event log grew. The producer and the
+// webhook listener publish it themselves; this is for the one caller that
+// writes through the store directly — the e2e source-to-commit harness, which
+// stands in for a producer tick.
+func (a *App) PublishLogAppended(nextOffset int64) {
+	a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
+}
+
 // PublishFlowsUpdated announces a change to the flow set. The app's own
 // writes go through it too, so a save and an external edit are one path.
 func (a *App) PublishFlowsUpdated(reason string) {
