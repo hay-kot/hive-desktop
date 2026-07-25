@@ -2,15 +2,13 @@ package wailsui
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// FlowSummary is one flow file's listing row for the flows picker: identity
-// plus load/validity status, so a broken flow file shows up (with its
-// error) instead of silently vanishing from the list.
+// FlowSummary is one flow file's listing row: identity plus load status, so a
+// broken flow file shows up with its error instead of silently vanishing.
 type FlowSummary struct {
 	ID       string   `json:"id"`
 	Name     string   `json:"name"`
@@ -20,30 +18,18 @@ type FlowSummary struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// FlowsService is the Wails service exposing the desktop pipeline's flow
-// definitions to the frontend graph editor. All data comes from the
-// injected *flow.FlowStore; this type is wire glue only, matching
-// FeedService/PipelineService's thin-glue style.
+// FlowsService exposes the flow definitions to the frontend graph editor.
 type FlowsService struct {
-	store     *flow.FlowStore
-	db        *store.DB
-	onUpdated func()
+	flows *app.FlowsService
 }
 
-func NewFlowsService(flows *flow.FlowStore, db *store.DB, onUpdated func()) *FlowsService {
-	return &FlowsService{store: flows, db: db, onUpdated: onUpdated}
+func NewFlowsService(flows *app.FlowsService) *FlowsService {
+	return &FlowsService{flows: flows}
 }
 
-func (s *FlowsService) notifyUpdated() {
-	if s.onUpdated != nil {
-		s.onUpdated()
-	}
-}
-
-// ListFlows returns one summary per flow file — valid and invalid alike —
-// for the flows picker.
+// ListFlows returns one summary per flow file, valid and invalid alike.
 func (s *FlowsService) ListFlows() ([]FlowSummary, error) {
-	statuses := s.store.Statuses()
+	statuses := s.flows.Statuses(context.Background())
 	out := make([]FlowSummary, 0, len(statuses))
 	for _, st := range statuses {
 		summary := FlowSummary{ID: st.ID, Valid: st.Valid, Warnings: st.Warnings}
@@ -58,90 +44,52 @@ func (s *FlowsService) ListFlows() ([]FlowSummary, error) {
 	return out, nil
 }
 
-// CreateFlow seeds a new flow (a new "profile") named name and returns its
-// listing summary, so the frontend can select it immediately.
 func (s *FlowsService) CreateFlow(name string) (FlowSummary, error) {
-	f, err := s.store.Create(name)
-	if err != nil {
-		return FlowSummary{}, err
-	}
-	s.notifyUpdated()
-	return FlowSummary{ID: f.ID, Name: f.Name, Enabled: f.Enabled, Valid: true}, nil
+	return summarize(s.flows.Create(context.Background(), name))
 }
 
-// RenameFlow changes a flow's profile-facing display name while preserving its
-// stable id and graph definition.
 func (s *FlowsService) RenameFlow(id, name string) (FlowSummary, error) {
-	f, err := s.store.Rename(id, name)
-	if err != nil {
-		return FlowSummary{}, err
-	}
-	s.notifyUpdated()
-	return FlowSummary{ID: f.ID, Name: f.Name, Enabled: f.Enabled, Valid: true}, nil
+	return summarize(s.flows.Rename(context.Background(), id, name))
 }
 
-// SetFlowEnabled controls whether a profile participates in polling and flow
-// execution while preserving its existing feed data and graph definition.
 func (s *FlowsService) SetFlowEnabled(id string, enabled bool) (FlowSummary, error) {
-	f, err := s.store.SetEnabled(id, enabled)
+	return summarize(s.flows.SetEnabled(context.Background(), id, enabled))
+}
+
+func (s *FlowsService) DeleteFlow(id string) error {
+	return s.flows.Delete(context.Background(), id)
+}
+
+func (s *FlowsService) GetFlow(id string) (flow.Flow, error) {
+	return s.flows.Get(context.Background(), id)
+}
+
+func (s *FlowsService) SaveFlow(f flow.Flow) error {
+	return s.flows.Save(context.Background(), f)
+}
+
+func (s *FlowsService) GetLayout(id string) flow.Layout {
+	return s.flows.Layout(context.Background(), id)
+}
+
+func (s *FlowsService) SaveLayout(id string, layout flow.Layout) error {
+	return s.flows.SaveLayout(context.Background(), id, layout)
+}
+
+func (s *FlowsService) GetSidebar(id string) flow.SidebarLayout {
+	return s.flows.Sidebar(context.Background(), id)
+}
+
+func (s *FlowsService) SaveSidebar(id string, layout flow.SidebarLayout) error {
+	return s.flows.SaveSidebar(context.Background(), id, layout)
+}
+
+// summarize projects a freshly written flow onto the listing row the editor
+// selects with. A flow that just round-tripped through Save is valid by
+// construction.
+func summarize(f flow.Flow, err error) (FlowSummary, error) {
 	if err != nil {
 		return FlowSummary{}, err
 	}
-	s.notifyUpdated()
 	return FlowSummary{ID: f.ID, Name: f.Name, Enabled: f.Enabled, Valid: true}, nil
-}
-
-// DeleteFlow removes a flow (a profile) and its files before purging durable
-// pipeline state. FlowStore.Delete treats an already-missing file as success,
-// which makes a retry after a files-first partial deletion idempotent.
-func (s *FlowsService) DeleteFlow(id string) error {
-	if err := s.store.Delete(id); err != nil {
-		return err
-	}
-	s.notifyUpdated()
-	if s.db == nil {
-		return fmt.Errorf("pipeline database is unavailable")
-	}
-	return s.db.PurgeProfile(context.Background(), id)
-}
-
-// GetFlow returns one flow's full definition for the editor.
-func (s *FlowsService) GetFlow(id string) (flow.Flow, error) {
-	f, ok := s.store.Get(id)
-	if !ok {
-		return flow.Flow{}, fmt.Errorf("flow %q not found", id)
-	}
-	return f, nil
-}
-
-// SaveFlow validates and persists a flow's definition. An invalid flow is
-// rejected and the last-good file on disk — and the store's served flow —
-// are left untouched.
-func (s *FlowsService) SaveFlow(f flow.Flow) error {
-	return s.store.Save(f)
-}
-
-// GetLayout returns a flow's node layout (canvas positions). A missing or
-// broken layout file is not an error: it returns an empty Layout so the
-// editor lays out nodes fresh.
-func (s *FlowsService) GetLayout(id string) flow.Layout {
-	return s.store.GetLayout(id)
-}
-
-// SaveLayout persists a flow's node layout.
-func (s *FlowsService) SaveLayout(id string, layout flow.Layout) error {
-	return s.store.SaveLayout(id, layout)
-}
-
-// GetSidebar returns a flow's sidebar layout: how its feed nodes are grouped
-// into folders and ordered in the sidebar's FEEDS section. A missing or broken
-// file is not an error — it returns an empty layout so the sidebar falls back
-// to flow-node order.
-func (s *FlowsService) GetSidebar(id string) flow.SidebarLayout {
-	return s.store.GetSidebar(id)
-}
-
-// SaveSidebar persists a flow's sidebar layout (feed folders + ordering).
-func (s *FlowsService) SaveSidebar(id string, layout flow.SidebarLayout) error {
-	return s.store.SaveSidebar(id, layout)
 }

@@ -1,7 +1,6 @@
-package wailsui
+package app
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -19,8 +18,8 @@ func TestJobService_ListAndListActive(t *testing.T) {
 
 	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
 	jobStore := jobs.NewStore(db, jobs.Options{Now: func() time.Time { return now }})
-	service := NewJobService(jobStore)
-	ctx := context.Background()
+	service := newJobService(jobStore)
+	ctx := t.Context()
 
 	outside, err := db.InsertJob(ctx, store.JobRecord{
 		CreatedAt: now.Add(-time.Minute).UnixMilli(), UpdatedAt: now.Add(-jobs.DefaultLingerWindow - time.Millisecond).UnixMilli(),
@@ -38,17 +37,17 @@ func TestJobService_ListAndListActive(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	active, err := service.ListActive()
+	active, err := service.ListActive(ctx)
 	require.NoError(t, err)
 	require.Len(t, active, 2)
 	assert.Equal(t, []int64{queued.ID, inside.ID}, []int64{active[0].ID, active[1].ID})
 
-	page, err := service.List(0, 2)
+	page, err := service.List(ctx, 0, 2)
 	require.NoError(t, err)
 	require.Len(t, page, 2)
 	assert.Equal(t, []int64{queued.ID, inside.ID}, []int64{page[0].ID, page[1].ID})
 
-	older, err := service.List(page[1].ID, 2)
+	older, err := service.List(ctx, page[1].ID, 2)
 	require.NoError(t, err)
 	require.Len(t, older, 1)
 	assert.Equal(t, outside.ID, older[0].ID)

@@ -2,30 +2,19 @@ package wailsui
 
 import (
 	"context"
-	"database/sql"
-	"errors"
-	"fmt"
 
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app"
 )
 
-// WebhookService is the Wails service exposing the local webhook listener's
-// endpoint info, its user-tunable settings, and each webhook-source node's
-// last captured delivery to the frontend.
+// WebhookService exposes the local webhook listener's endpoint info, its
+// user-tunable settings, and each webhook-source node's last captured
+// delivery to the frontend.
 type WebhookService struct {
-	db       *store.DB
-	listener *webhook.Listener
-	port     int
+	webhooks *app.WebhookService
 }
 
-// NewWebhookService wires the service. listener is nil when the listener is
-// disabled, or in mock modes without an explicit port claim; port is the
-// configured port either way, so the editor can render the endpoint URL a
-// live run would serve.
-func NewWebhookService(db *store.DB, listener *webhook.Listener, port int) *WebhookService {
-	return &WebhookService{db: db, listener: listener, port: port}
+func NewWebhookService(w *app.WebhookService) *WebhookService {
+	return &WebhookService{webhooks: w}
 }
 
 // WebhookInfo describes the local webhook listener for the node editor.
@@ -35,24 +24,15 @@ type WebhookInfo struct {
 	BaseURL string `json:"baseUrl"`
 }
 
-// Info returns the listener's state and the base URL webhook-source paths
-// are served under (endpoint URL = BaseURL + node path).
+// Info returns the listener's state and the base URL webhook-source paths are
+// served under (endpoint URL = BaseURL + node path).
 func (s *WebhookService) Info() WebhookInfo {
-	port := s.port
-	running := false
-	if s.listener != nil && s.listener.Running() {
-		port = s.listener.Port()
-		running = true
-	}
-	return WebhookInfo{
-		Running: running,
-		Port:    port,
-		BaseURL: webhookBaseURL(port),
-	}
+	running, port := s.webhooks.Endpoint(context.Background())
+	return WebhookInfo{Running: running, Port: port, BaseURL: app.WebhookBaseURL(port)}
 }
 
-// WebhookSettings is the local listener's editable configuration joined with
-// the running listener's actual state, so the settings pane can show what is
+// WebhookSettings is the listener's editable configuration joined with the
+// running listener's actual state, so the settings pane can show what is
 // configured and what is live in one read.
 type WebhookSettings struct {
 	// Enabled and Port are the persisted configuration.
@@ -76,67 +56,38 @@ type WebhookSettings struct {
 	RestartRequired bool `json:"restartRequired"`
 }
 
-// Settings returns the persisted webhook configuration alongside the state of
-// this session's listener.
 func (s *WebhookService) Settings() (WebhookSettings, error) {
-	cfg, err := settings.LoadSettings()
+	state, err := s.webhooks.State(context.Background())
 	if err != nil {
 		return WebhookSettings{}, err
 	}
-
-	port, err := settings.ResolveWebhookPort(context.Background(), cfg)
-	if err != nil {
-		return WebhookSettings{}, err
-	}
-	enabled := cfg.WebhookEnabledOrDefault()
-
 	view := WebhookSettings{
-		Enabled:        enabled,
-		Port:           port,
-		PortMin:        settings.WebhookPortMin,
-		PortMax:        settings.WebhookPortMax,
-		PortOverridden: settings.WebhookPortOverride() > 0,
-		BaseURL:        webhookBaseURL(port),
+		Enabled:         state.Enabled,
+		Port:            state.Port,
+		PortMin:         state.PortMin,
+		PortMax:         state.PortMax,
+		PortOverridden:  state.PortOverridden,
+		Running:         state.Running,
+		BoundPort:       state.BoundPort,
+		StartError:      state.StartError,
+		RestartRequired: state.RestartRequired,
 	}
-	if s.listener != nil {
-		view.Running = s.listener.Running()
-		if err := s.listener.StartError(); err != nil {
-			view.StartError = err.Error()
-		}
-	}
+	view.BaseURL = app.WebhookBaseURL(state.Port)
 	if view.Running {
-		view.BoundPort = s.listener.Port()
-		view.BaseURL = webhookBaseURL(view.BoundPort)
+		view.BaseURL = app.WebhookBaseURL(view.BoundPort)
 	}
-	view.RestartRequired = enabled != view.Running || (view.Running && view.BoundPort != port)
 	return view, nil
 }
 
-// SetSettings persists the enable toggle and port, preserving all unrelated
-// desktop settings. Neither is applied to the running listener: both are
-// startup-time decisions, and Settings reports the pending restart.
+// SetSettings persists the enable toggle and port.
 func (s *WebhookService) SetSettings(next WebhookSettings) error {
-	if !settings.ValidWebhookPort(next.Port) {
-		return fmt.Errorf("port must be between 1024 and 65535")
-	}
-	current, err := settings.LoadSettings()
-	if err != nil {
-		return err
-	}
-	current.WebhookEnabled = &next.Enabled
-	current.WebhookPort = next.Port
-	return settings.SaveSettings(current)
+	return s.webhooks.SetState(context.Background(), next.Enabled, next.Port)
 }
 
-// GeneratePort returns a fresh random port from the generation range without
-// persisting it: the settings pane offers it as a candidate, and saving is
-// what commits it.
+// GeneratePort returns a fresh random port without persisting it: the
+// settings pane offers it as a candidate, and saving is what commits it.
 func (s *WebhookService) GeneratePort() (int, error) {
-	return settings.AllocateWebhookPort(context.Background())
-}
-
-func webhookBaseURL(port int) string {
-	return fmt.Sprintf("http://127.0.0.1:%d%s", port, webhook.WebhookPathPrefix)
+	return s.webhooks.GeneratePort(context.Background())
 }
 
 // WebhookCaptureView is one webhook-source node's most recent delivery.
@@ -148,23 +99,17 @@ type WebhookCaptureView struct {
 	MissingFields []string `json:"missingFields"`
 }
 
-// Capture returns the last request body POSTed to a webhook-source node,
-// with the non-blocking feed-shape verdict the editor surfaces (a payload
-// missing feed-item fields ingests fine but renders minimally in feeds).
+// Capture returns the last request body POSTed to a webhook-source node, with
+// the non-blocking feed-shape verdict the editor surfaces.
 func (s *WebhookService) Capture(flowID, nodeID string) (WebhookCaptureView, error) {
-	topic := "source:" + flowID + "/" + nodeID
-	row, err := s.db.Queries().GetWebhookCapture(context.Background(), topic)
-	if errors.Is(err, sql.ErrNoRows) {
-		return WebhookCaptureView{}, nil
-	}
+	capture, err := s.webhooks.Capture(context.Background(), flowID, nodeID)
 	if err != nil {
-		return WebhookCaptureView{}, fmt.Errorf("reading webhook capture for %s: %w", topic, err)
+		return WebhookCaptureView{}, err
 	}
-	missing := webhook.MissingFeedItemFields(row.Body)
 	return WebhookCaptureView{
-		ReceivedAt:    row.ReceivedAt,
-		Body:          string(row.Body),
-		FeedShaped:    len(missing) == 0,
-		MissingFields: missing,
+		ReceivedAt:    capture.ReceivedAt,
+		Body:          string(capture.Body),
+		FeedShaped:    capture.FeedShaped,
+		MissingFields: capture.MissingFields,
 	}, nil
 }

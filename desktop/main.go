@@ -104,17 +104,18 @@ func main() {
 	updaterVersion, _, _ := resolvedBuildInfo()
 	updaterService := wailsui.NewUpdaterService(updaterVersion, cfg.AutoUpdateOrDefault(), wailsui.DefaultUpdateCheckInterval, logger)
 
+	version, commit, date := resolvedBuildInfo()
 	services := []application.Service{
-		application.NewService(wailsui.NewAuthService(core.AuthBackend)),
-		application.NewService(wailsui.NewPipelineService(core.Store, core.ActionStore, core.Outputs, core.Launcher)),
-		application.NewService(wailsui.NewFlowsService(core.FlowStore, core.Store, func() { core.PublishFlowsUpdated("save") })),
-		application.NewService(wailsui.NewActionsService(core.ActionStore, wailsui.EmitActionsUpdated)),
-		application.NewService(wailsui.NewActivityService(core.ActivityStore)),
-		application.NewService(wailsui.NewJobService(core.JobStore)),
-		application.NewService(wailsui.NewSystemService(resolvedBuildInfo())),
-		application.NewService(wailsui.NewSettingsService(core.Producer, core.Fetcher, logger)),
-		application.NewService(wailsui.NewWebhookService(core.Store, core.Webhook, core.WebhookPort)),
-		application.NewService(wailsui.NewPromptsService(core.Webhook, core.WebhookPort)),
+		application.NewService(wailsui.NewAuthService(core.Auth)),
+		application.NewService(wailsui.NewPipelineService(core.Inbox)),
+		application.NewService(wailsui.NewFlowsService(core.Flows)),
+		application.NewService(wailsui.NewActionsService(core.Actions)),
+		application.NewService(wailsui.NewActivityService(core.Activity)),
+		application.NewService(wailsui.NewJobService(core.Jobs)),
+		application.NewService(wailsui.NewSystemService(core.System, version, commit, date)),
+		application.NewService(wailsui.NewSettingsService(core.Settings)),
+		application.NewService(wailsui.NewWebhookService(core.Webhooks)),
+		application.NewService(wailsui.NewPromptsService(core.Prompts)),
 		application.NewService(updaterService),
 	}
 	if nativeNotifications != nil {

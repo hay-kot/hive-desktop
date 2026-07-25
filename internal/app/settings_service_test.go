@@ -1,4 +1,4 @@
-package wailsui
+package app
 
 import (
 	"context"
@@ -20,33 +20,28 @@ import (
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-	service := NewSettingsService(nil, nil, zerolog.Nop())
+	service := newSettingsService(nil, nil)
 
-	err := service.SetGithubSettings(GithubSettings{PollIntervalSeconds: int(settings.MinPollInterval/time.Second) - 1})
+	err := service.SetGithub(t.Context(), GithubSettings{PollInterval: settings.MinPollInterval - time.Second})
 	require.Error(t, err)
+	require.Equal(t, KindInvalid, KindOf(err), "a caller below the floor is asking for something invalid, not hitting a fault")
 }
 
 func TestSettingsServiceNotificationSettings(t *testing.T) {
 	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-	service := NewSettingsService(nil, nil, zerolog.Nop())
+	service := newSettingsService(nil, nil)
 
-	got, err := service.NotificationSettings()
+	got, err := service.Notifications(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, NotificationSettings{
-		NotificationsEnabled: true,
-		Delivery:             settings.DeliveryAuto,
-		NotificationSound:    true,
-	}, got)
+	require.Equal(t, NotificationSettings{Enabled: true, Delivery: settings.DeliveryAuto, Sound: true}, got)
 }
 
 func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
 	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-	service := NewSettingsService(nil, nil, zerolog.Nop())
+	service := newSettingsService(nil, nil)
 
-	require.NoError(t, service.SetNotificationSettings(NotificationSettings{
-		NotificationsEnabled: true,
-		Delivery:             "banner",
-		NotificationSound:    true,
+	require.NoError(t, service.SetNotifications(t.Context(), NotificationSettings{
+		Enabled: true, Delivery: "banner", Sound: true,
 	}))
 
 	got, err := settings.LoadSettings()
@@ -62,13 +57,9 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 		AutoUpdate:   &autoUpdate,
 	}))
 
-	service := NewSettingsService(nil, nil, zerolog.Nop())
-	want := NotificationSettings{
-		NotificationsEnabled: false,
-		Delivery:             settings.DeliveryApp,
-		NotificationSound:    false,
-	}
-	require.NoError(t, service.SetNotificationSettings(want))
+	service := newSettingsService(nil, nil)
+	want := NotificationSettings{Enabled: false, Delivery: settings.DeliveryApp, Sound: false}
+	require.NoError(t, service.SetNotifications(t.Context(), want))
 
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
@@ -88,8 +79,8 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 	disabled := false
 	require.NoError(t, settings.SaveSettings(settings.Settings{PollInterval: "5m", AutoUpdate: &disabled}))
 
-	service := NewSettingsService(nil, nil, zerolog.Nop())
-	require.NoError(t, service.SetGithubSettings(GithubSettings{PollIntervalSeconds: 120}))
+	service := newSettingsService(nil, nil)
+	require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
@@ -127,17 +118,17 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		producer := ingest.NewProducer(db, func(context.Context) (map[string]ingest.Source, error) {
 			return map[string]ingest.Source{"github": source}, nil
 		}, time.Hour, nil, zerolog.Nop())
-		service := NewSettingsService(producer, provider, zerolog.Nop())
+		service := newSettingsService(producer, provider)
 
-		require.NoError(t, service.SetGithubSettings(GithubSettings{PollIntervalSeconds: 120}))
-		settings, err := settings.LoadSettings()
+		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
+		saved, err := settings.LoadSettings()
 		require.NoError(t, err)
-		require.Equal(t, "2m0s", settings.PollInterval)
+		require.Equal(t, "2m0s", saved.PollInterval)
 
-		got, err := service.GithubSettings()
+		got, err := service.Github(t.Context())
 		require.NoError(t, err)
-		require.Equal(t, 120, got.PollIntervalSeconds)
-		require.Equal(t, 60, got.MinPollIntervalSeconds)
+		require.Equal(t, 2*time.Minute, got.PollInterval)
+		require.Equal(t, settings.MinPollInterval, got.MinPollInterval)
 
 		producer.Start(t.Context())
 		time.Sleep(2 * time.Minute)
@@ -149,11 +140,11 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-	service := NewSettingsService(nil, nil, zerolog.Nop())
+	service := newSettingsService(nil, nil)
 
-	got, err := service.AppearanceSettings()
+	got, err := service.Theme(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, AppearanceSettings{}, got)
+	require.Empty(t, got)
 }
 
 func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing.T) {
@@ -164,8 +155,8 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 		AutoUpdate:   &autoUpdate,
 	}))
 
-	service := NewSettingsService(nil, nil, zerolog.Nop())
-	require.NoError(t, service.SetAppearanceSettings(AppearanceSettings{Theme: "midnight"}))
+	service := newSettingsService(nil, nil)
+	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
 
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
@@ -174,7 +165,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.NotNil(t, got.AutoUpdate)
 	require.False(t, *got.AutoUpdate)
 
-	roundTripped, err := service.AppearanceSettings()
+	roundTripped, err := service.Theme(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, AppearanceSettings{Theme: "midnight"}, roundTripped)
+	require.Equal(t, "midnight", roundTripped)
 }

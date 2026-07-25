@@ -37,8 +37,12 @@ func TestWrap_NilErrorIsNil(t *testing.T) {
 	t.Parallel()
 
 	// Returning Wrap(err, ...) unconditionally has to stay safe, or every
-	// call site grows an if.
-	require.Nil(t, Wrap(nil, KindInvalid, "unused"))
+	// call site grows an if — and it has to be nil through an error-typed
+	// return, not a non-nil interface holding a nil pointer. Wrap returning
+	// *Error passes an errors.Is check and still reports every success as a
+	// failure.
+	passthrough := func() error { return Wrap(nil, KindInvalid, "unused") }
+	require.NoError(t, passthrough())
 }
 
 func TestError_MessageAndJSON(t *testing.T) {

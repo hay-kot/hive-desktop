@@ -4,11 +4,10 @@
 /**
  * PromptsService exposes the paste-ready LLM prompts to the frontend: the
  * "LLM prompts" settings section lists Catalog(), and context-scoped surfaces
- * (a webhook node's transform prompt) call Render() with instance data.
+ * call Render() with instance data.
  * 
  * Prompt text lives in internal/app/prompts, not here and not in any Vue
- * component — this is transport plus the one thing the frontend cannot know
- * on its own, the real config paths on this machine.
+ * component — this is transport only.
  * @module
  */
 
@@ -20,19 +19,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as prompts$0 from "../../app/prompts/models.js";
 
-/**
- * Catalog returns every prompt that belongs in the settings listing, rendered
- * against this install. input carries the frontend-owned bindable command
- * catalog the keybindings prompt needs.
- */
 export function Catalog(input: prompts$0.Input): $CancellablePromise<prompts$0.Prompt[] | null> {
     return $Call.ByID(1139739111, input);
 }
 
-/**
- * Render returns one prompt by id, including the context-scoped prompts
- * Catalog omits.
- */
 export function Render(id: string, input: prompts$0.Input): $CancellablePromise<prompts$0.Prompt> {
     return $Call.ByID(2301335768, id, input);
 }

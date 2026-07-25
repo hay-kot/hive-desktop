@@ -12,11 +12,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// serviceAction builds a minimal shell action for the usage tests.
-func serviceAction(id string) actions.EditableAction {
-	return actions.EditableAction{ID: id, Label: id, Type: "shell", Shell: &actions.EditableShellConfig{CommandTemplate: "true"}}
-}
-
 func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T) {
 	actionStore := actions.NewActionStore(filepath.Join(t.TempDir(), "actions.yml"))
 	_, err := actionStore.Create(serviceAction("used"))

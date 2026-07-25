@@ -1,44 +1,38 @@
 package wailsui
 
 import (
+	"context"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 
-	"github.com/colonyops/hive/pkg/osopen"
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// SystemService exposes the desktop app's on-disk locations (data dir, config
-// dir, log file, database) to the System settings screen, along with the
-// actions that screen offers: open/reveal a path in the OS, pick a new
-// directory, and persist point-only data/config directory overrides.
-//
-// Directory overrides are point-only and take effect after a restart: they are
-// written to the bootstrap pointer file (see internal/settings.Bootstrap) and
-// seeded into the environment at next launch. Nothing is moved.
+// SystemService exposes the app's on-disk locations to the System settings
+// screen, plus the two things only a GUI can do: pick a directory natively
+// and quit. Everything else — the path allowlist, the override validation
+// with its write probe — is core logic behind app.SystemService.
 type SystemService struct {
+	system *app.SystemService
 	// build is the running binary's version/commit/date. It is passed in
 	// rather than read here because the ldflags that populate it bind to
 	// package main (-X main.version), which cannot move to this package.
 	build BuildInfo
 }
 
-// NewSystemService constructs the service over the running binary's build
-// info. Every other method reads live from the desktop path resolvers and the
-// bootstrap file.
-func NewSystemService(version, commit, date string) *SystemService {
-	return &SystemService{build: BuildInfo{
-		Version:    version,
-		Commit:     ShortCommit(commit),
-		Date:       date,
-		RepoURL:    RepoURL(),
-		ReleaseURL: ReleaseURL(version),
-	}}
+// NewSystemService constructs the service over the core's system service and
+// the running binary's build info.
+func NewSystemService(system *app.SystemService, version, commit, date string) *SystemService {
+	return &SystemService{
+		system: system,
+		build: BuildInfo{
+			Version:    version,
+			Commit:     ShortCommit(commit),
+			Date:       date,
+			RepoURL:    RepoURL(),
+			ReleaseURL: ReleaseURL(version),
+		},
+	}
 }
 
 // PathInfo describes a single on-disk location surfaced in settings.
@@ -63,22 +57,21 @@ type SystemInfo struct {
 // Info returns the effective locations for this running process plus whether
 // the data/config directories are backed by a stored override.
 func (s *SystemService) Info() SystemInfo {
-	b, _ := settings.LoadBootstrap()
+	info := s.system.Info(context.Background())
 	return SystemInfo{
-		DataDir:   pathInfo(settings.DataDir(), b.DataDir != ""),
-		ConfigDir: pathInfo(settings.ConfigDir(), b.ConfigDir != ""),
-		LogFile:   pathInfo(settings.LogFile(), false),
-		Database:  pathInfo(store.DatabasePath(settings.StateDir()), false),
+		DataDir:   pathInfo(info.DataDir),
+		ConfigDir: pathInfo(info.ConfigDir),
+		LogFile:   pathInfo(info.LogFile),
+		Database:  pathInfo(info.Database),
 	}
 }
 
-func pathInfo(path string, overridden bool) PathInfo {
-	_, err := os.Stat(path)
-	return PathInfo{Path: path, Exists: err == nil, Overridden: overridden}
+func pathInfo(p app.PathInfo) PathInfo {
+	return PathInfo{Path: p.Path, Exists: p.Exists, Overridden: p.Overridden}
 }
 
-// BuildInfo describes the running desktop build so users can see and report the
-// exact version they are on from the System settings screen.
+// BuildInfo describes the running desktop build so users can see and report
+// the exact version they are on from the System settings screen.
 type BuildInfo struct {
 	Version string `json:"version"`
 	// Commit is the short (7-character) git revision the build was cut from.
@@ -92,39 +85,29 @@ type BuildInfo struct {
 	ReleaseURL string `json:"releaseUrl"`
 }
 
-// Build returns the version, commit, and date this desktop app was built from,
-// plus a link to the matching GitHub release when the build corresponds to a
-// published version.
+// Build returns the version, commit, and date this desktop app was built from.
 func (s *SystemService) Build() BuildInfo { return s.build }
 
 // OpenPath opens one of the known system locations in the OS default
-// application. The path is validated against the current location set so this
-// RPC cannot be used to open arbitrary files.
+// application. The core validates the path against the current location set,
+// so this RPC cannot be used to open arbitrary files.
 func (s *SystemService) OpenPath(path string) error {
-	if err := s.checkAllowed(path); err != nil {
-		return err
-	}
-	return osopen.Open(path)
+	return s.system.OpenPath(context.Background(), path)
 }
 
 // RevealPath reveals one of the known system locations in the OS file manager.
-// Validated the same way as OpenPath.
 func (s *SystemService) RevealPath(path string) error {
-	if err := s.checkAllowed(path); err != nil {
-		return err
-	}
-	return osopen.Reveal(path)
+	return s.system.RevealPath(context.Background(), path)
 }
 
 // ChooseDirectory opens a native directory picker and returns the chosen path,
-// or "" if the user cancels. Used by the Change… actions before SetDataDir /
-// SetConfigDir.
+// or "" if the user cancels. GUI-only, so it stays here.
 func (s *SystemService) ChooseDirectory(title string) (string, error) {
-	app := application.Get()
-	if app == nil {
+	wailsApp := application.Get()
+	if wailsApp == nil {
 		return "", errors.New("no application context for directory picker")
 	}
-	dialog := app.Dialog.OpenFile().
+	dialog := wailsApp.Dialog.OpenFile().
 		CanChooseDirectories(true).
 		CanChooseFiles(false).
 		CanCreateDirectories(true)
@@ -134,101 +117,31 @@ func (s *SystemService) ChooseDirectory(title string) (string, error) {
 	return dialog.PromptForSingleSelection()
 }
 
-// SetDataDir persists a data-directory override. It validates the target and
-// creates it if missing, but does not move existing data — the override takes
-// effect on the next launch.
+// SetDataDir persists a data-directory override. It takes effect on the next
+// launch; nothing is moved.
 func (s *SystemService) SetDataDir(path string) error {
-	if err := validateDirOverride(path); err != nil {
-		return err
-	}
-	b, err := settings.LoadBootstrap()
-	if err != nil {
-		return err
-	}
-	b.DataDir = filepath.Clean(path)
-	return settings.SaveBootstrap(b)
+	return s.system.SetDataDir(context.Background(), path)
 }
 
-// SetConfigDir persists a config-directory override (profiles/flows/actions).
-// Same semantics as SetDataDir.
+// SetConfigDir persists a config-directory override (flows, actions).
 func (s *SystemService) SetConfigDir(path string) error {
-	if err := validateDirOverride(path); err != nil {
-		return err
-	}
-	b, err := settings.LoadBootstrap()
-	if err != nil {
-		return err
-	}
-	b.ConfigDir = filepath.Clean(path)
-	return settings.SaveBootstrap(b)
+	return s.system.SetConfigDir(context.Background(), path)
 }
 
-// ClearDataDir removes the data-directory override, reverting to the default
-// location on the next launch.
+// ClearDataDir removes the data-directory override.
 func (s *SystemService) ClearDataDir() error {
-	return clearOverride(func(b *settings.Bootstrap) { b.DataDir = "" })
+	return s.system.ClearDataDir(context.Background())
 }
 
 // ClearConfigDir removes the config-directory override.
 func (s *SystemService) ClearConfigDir() error {
-	return clearOverride(func(b *settings.Bootstrap) { b.ConfigDir = "" })
+	return s.system.ClearConfigDir(context.Background())
 }
 
 // Quit terminates the app so the user can relaunch and apply a directory
-// override in one click from the restart-required banner.
+// override in one click from the restart-required banner. GUI-only.
 func (s *SystemService) Quit() {
-	if app := application.Get(); app != nil {
-		app.Quit()
+	if wailsApp := application.Get(); wailsApp != nil {
+		wailsApp.Quit()
 	}
-}
-
-func clearOverride(mutate func(*settings.Bootstrap)) error {
-	b, err := settings.LoadBootstrap()
-	if err != nil {
-		return err
-	}
-	mutate(&b)
-	return settings.SaveBootstrap(b)
-}
-
-// checkAllowed rejects any path that is not one of the four known system
-// locations, cleaned for comparison.
-func (s *SystemService) checkAllowed(path string) error {
-	allowed := map[string]struct{}{
-		filepath.Clean(settings.DataDir()):                      {},
-		filepath.Clean(settings.ConfigDir()):                    {},
-		filepath.Clean(settings.LogFile()):                      {},
-		filepath.Clean(store.DatabasePath(settings.StateDir())): {},
-	}
-	if _, ok := allowed[filepath.Clean(path)]; !ok {
-		return fmt.Errorf("path is not a known system location: %s", path)
-	}
-	return nil
-}
-
-// validateDirOverride ensures path is an absolute, creatable, writable
-// directory before it is stored as an override.
-func validateDirOverride(path string) error {
-	if strings.TrimSpace(path) == "" {
-		return errors.New("directory path is required")
-	}
-	if !filepath.IsAbs(path) {
-		return fmt.Errorf("directory path must be absolute: %s", path)
-	}
-	if err := os.MkdirAll(path, 0o755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("stat directory: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("not a directory: %s", path)
-	}
-	probe := filepath.Join(path, ".hive-write-test")
-	if err := os.WriteFile(probe, nil, 0o600); err != nil {
-		return fmt.Errorf("directory is not writable: %w", err)
-	}
-	_ = os.Remove(probe)
-	return nil
 }

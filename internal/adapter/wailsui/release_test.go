@@ -68,7 +68,7 @@ func TestReleaseChannel(t *testing.T) {
 func TestSystemServiceBuild(t *testing.T) {
 	// The package defaults ("dev") mean no release link is offered, and the
 	// short "HEAD" commit passes through untouched.
-	info := NewSystemService("dev", "HEAD", "now").Build()
+	info := NewSystemService(nil, "dev", "HEAD", "now").Build()
 	require.Equal(t, "dev", info.Version)
 	require.Equal(t, "HEAD", info.Commit)
 	require.Equal(t, "https://github.com/hay-kot/hive-desktop", info.RepoURL)

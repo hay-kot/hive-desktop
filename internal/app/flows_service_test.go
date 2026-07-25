@@ -1,7 +1,6 @@
-package wailsui
+package app
 
 import (
-	"context"
 	"testing"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -15,23 +14,23 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	service := NewFlowsService(flows, db, nil)
-	created, err := service.CreateFlow("Profile")
+	service := newFlowsService(flows, db, nil)
+	created, err := service.Create(t.Context(), "Profile")
 	require.NoError(t, err)
-	_, err = db.Queries().InsertInboxItem(context.Background(), store.InsertInboxItemParams{
+	_, err = db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
 		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
 	})
 	require.NoError(t, err)
-	_, err = db.Append(context.Background(), "source:"+created.ID+"/source", "item", []byte(`{}`))
+	_, err = db.Append(t.Context(), "source:"+created.ID+"/source", "item", []byte(`{}`))
 	require.NoError(t, err)
 
-	require.NoError(t, service.DeleteFlow(created.ID))
+	require.NoError(t, service.Delete(t.Context(), created.ID))
 	// The second call is the files-first retry path: the yaml file is already
 	// gone, but PurgeProfile remains an idempotent no-op.
-	require.NoError(t, service.DeleteFlow(created.ID))
+	require.NoError(t, service.Delete(t.Context(), created.ID))
 	for _, table := range []string{"inbox_item", "event_log", "consumer_offset", "source_head"} {
 		var count int
-		require.NoError(t, db.Conn().QueryRowContext(context.Background(), "SELECT COUNT(*) FROM "+table).Scan(&count))
+		require.NoError(t, db.Conn().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count))
 		assert.Zero(t, count, table)
 	}
 }
@@ -42,12 +41,11 @@ func TestFlowsServiceSetFlowEnabled(t *testing.T) {
 	require.NoError(t, err)
 
 	updates := 0
-	service := NewFlowsService(flows, nil, func() { updates++ })
-	summary, err := service.SetFlowEnabled(created.ID, false)
+	service := newFlowsService(flows, nil, func() { updates++ })
+	summary, err := service.SetEnabled(t.Context(), created.ID, false)
 	require.NoError(t, err)
 	assert.Equal(t, created.ID, summary.ID)
 	assert.False(t, summary.Enabled)
-	assert.True(t, summary.Valid)
 	assert.Equal(t, 1, updates)
 
 	stored, ok := flows.Get(created.ID)
@@ -57,9 +55,9 @@ func TestFlowsServiceSetFlowEnabled(t *testing.T) {
 
 func TestFlowsServiceSetFlowEnabledDoesNotEmitOnFailure(t *testing.T) {
 	updates := 0
-	service := NewFlowsService(flow.NewFlowStore(t.TempDir(), nil), nil, func() { updates++ })
+	service := newFlowsService(flow.NewFlowStore(t.TempDir(), nil), nil, func() { updates++ })
 
-	_, err := service.SetFlowEnabled("missing", false)
+	_, err := service.SetEnabled(t.Context(), "missing", false)
 	require.Error(t, err)
 	assert.Zero(t, updates)
 }

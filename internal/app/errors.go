@@ -71,8 +71,11 @@ func Errorf(kind Kind, format string, args ...any) *Error {
 }
 
 // Wrap classifies an existing failure. It returns nil for a nil err so a
-// caller can wrap unconditionally.
-func Wrap(err error, kind Kind, format string, args ...any) *Error {
+// caller can wrap unconditionally — which is the whole point of it, and the
+// reason it returns error rather than *Error: a nil *Error assigned to an
+// error return is a non-nil interface holding a nil pointer, so every
+// `return x, Wrap(err, ...)` would report success as a failure.
+func Wrap(err error, kind Kind, format string, args ...any) error {
 	if err == nil {
 		return nil
 	}

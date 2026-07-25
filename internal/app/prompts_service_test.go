@@ -1,4 +1,4 @@
-package wailsui
+package app
 
 import (
 	"path/filepath"
@@ -30,9 +30,9 @@ func testCatalogInput() prompts.Input {
 // copied prompt has to name the paths on this machine.
 func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 	dir := isolateConfig(t)
-	svc := NewPromptsService(nil, 24917)
+	svc := newPromptsService(newWebhookService(nil, nil, 24917))
 
-	catalog, err := svc.Catalog(testCatalogInput())
+	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
 	require.NoError(t, err)
 	require.NotEmpty(t, catalog)
 
@@ -53,16 +53,16 @@ func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 // fresh install, before any config file exists.
 func TestCatalogSurvivesAnEmptyConfigRoot(t *testing.T) {
 	isolateConfig(t)
-	catalog, err := NewPromptsService(nil, 0).Catalog(testCatalogInput())
+	catalog, err := newPromptsService(newWebhookService(nil, nil, 0)).Catalog(t.Context(), testCatalogInput())
 	require.NoError(t, err)
 	assert.NotEmpty(t, catalog)
 }
 
 func TestRenderReturnsContextScopedPrompts(t *testing.T) {
 	isolateConfig(t)
-	svc := NewPromptsService(nil, 24917)
+	svc := newPromptsService(newWebhookService(nil, nil, 24917))
 
-	prompt, err := svc.Render("webhook-transform", prompts.Input{
+	prompt, err := svc.Render(t.Context(), "webhook-transform", prompts.Input{
 		WebhookPath:   "ci-alerts",
 		WebhookSample: `{"event":"deploy"}`,
 	})
@@ -70,7 +70,7 @@ func TestRenderReturnsContextScopedPrompts(t *testing.T) {
 	assert.Contains(t, prompt.Text, "ci-alerts")
 	assert.Contains(t, prompt.Text, `{"event":"deploy"}`)
 
-	_, err = svc.Render("not-a-prompt", prompts.Input{})
+	_, err = svc.Render(t.Context(), "not-a-prompt", prompts.Input{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown prompt")
 }

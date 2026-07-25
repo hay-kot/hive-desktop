@@ -1,7 +1,6 @@
-package wailsui
+package app
 
 import (
-	"context"
 	"path/filepath"
 	"testing"
 
@@ -21,32 +20,32 @@ func isolateSettings(t *testing.T) {
 }
 
 func TestWebhookServiceInfoWithoutListener(t *testing.T) {
-	service := NewWebhookService(nil, nil, 24483)
-	info := service.Info()
-	assert.False(t, info.Running)
-	assert.Equal(t, 24483, info.Port)
-	assert.Equal(t, "http://127.0.0.1:24483/hooks/", info.BaseURL)
+	service := newWebhookService(nil, nil, 24483)
+	running, port := service.Endpoint(t.Context())
+	assert.False(t, running)
+	assert.Equal(t, 24483, port)
+	assert.Equal(t, "http://127.0.0.1:24483/hooks/", WebhookBaseURL(port))
 }
 
 func TestWebhookServiceCapture(t *testing.T) {
 	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	service := NewWebhookService(db, nil, 24483)
+	service := newWebhookService(db, nil, 24483)
 
 	// No delivery captured yet: zero view, no error.
-	view, err := service.Capture("triage", "hook")
+	view, err := service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Zero(t, view.ReceivedAt)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	require.NoError(t, db.Queries().UpsertWebhookCapture(ctx, store.UpsertWebhookCaptureParams{
 		Topic: "source:triage/hook", ReceivedAt: 42, Body: []byte(`{"event":"deploy"}`),
 	}))
-	view, err = service.Capture("triage", "hook")
+	view, err = service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), view.ReceivedAt)
-	assert.JSONEq(t, `{"event":"deploy"}`, view.Body)
+	assert.JSONEq(t, `{"event":"deploy"}`, string(view.Body))
 	assert.False(t, view.FeedShaped)
 	assert.Equal(t, []string{"id", "kind", "repo", "title", "url"}, view.MissingFields)
 
@@ -54,7 +53,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 		Topic: "source:triage/hook", ReceivedAt: 43,
 		Body: []byte(`{"id":"1","kind":"Alert","repo":"o/r","title":"t","url":"https://x"}`),
 	}))
-	view, err = service.Capture("triage", "hook")
+	view, err = service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
 	assert.True(t, view.FeedShaped)
 	assert.Empty(t, view.MissingFields)
@@ -62,9 +61,9 @@ func TestWebhookServiceCapture(t *testing.T) {
 
 func TestWebhookServiceSettingsFirstRun(t *testing.T) {
 	isolateSettings(t)
-	service := NewWebhookService(nil, nil, 0)
+	service := newWebhookService(nil, nil, 0)
 
-	view, err := service.Settings()
+	view, err := service.State(t.Context())
 	require.NoError(t, err)
 	assert.True(t, view.Enabled, "webhooks default to enabled")
 	assert.False(t, view.PortOverridden)
@@ -75,7 +74,7 @@ func TestWebhookServiceSettingsFirstRun(t *testing.T) {
 	assert.Empty(t, view.StartError)
 
 	// Reading settings allocated and persisted a port, so it is stable.
-	again, err := service.Settings()
+	again, err := service.State(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, view.Port, again.Port)
 
@@ -89,27 +88,27 @@ func TestWebhookServiceSettingsFirstRun(t *testing.T) {
 func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 	isolateSettings(t)
 	t.Setenv(settings.EnvWebhookPort, "24499")
-	service := NewWebhookService(nil, nil, 24499)
+	service := newWebhookService(nil, nil, 24499)
 
-	view, err := service.Settings()
+	view, err := service.State(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 24499, view.Port)
 	assert.True(t, view.PortOverridden)
-	assert.Equal(t, "http://127.0.0.1:24499/hooks/", view.BaseURL)
+	assert.Equal(t, "http://127.0.0.1:24499/hooks/", WebhookBaseURL(view.Port))
 }
 
 func TestWebhookServiceSetSettings(t *testing.T) {
 	isolateSettings(t)
-	service := NewWebhookService(nil, nil, 0)
+	service := newWebhookService(nil, nil, 0)
 	require.NoError(t, settings.SaveSettings(settings.Settings{PollInterval: "2m"}))
 
-	require.NoError(t, service.SetSettings(WebhookSettings{Enabled: false, Port: 27777}))
+	require.NoError(t, service.SetState(t.Context(), false, 27777))
 
-	view, err := service.Settings()
+	view, err := service.State(t.Context())
 	require.NoError(t, err)
 	assert.False(t, view.Enabled)
 	assert.Equal(t, 27777, view.Port)
-	assert.Equal(t, "http://127.0.0.1:27777/hooks/", view.BaseURL)
+	assert.Equal(t, "http://127.0.0.1:27777/hooks/", WebhookBaseURL(view.Port))
 	// Disabled and not running agree, so nothing is pending.
 	assert.False(t, view.RestartRequired)
 
@@ -121,18 +120,20 @@ func TestWebhookServiceSetSettings(t *testing.T) {
 
 func TestWebhookServiceSetSettingsRejectsInvalidPort(t *testing.T) {
 	isolateSettings(t)
-	service := NewWebhookService(nil, nil, 0)
+	service := newWebhookService(nil, nil, 0)
 
 	for _, port := range []int{0, 80, 1023, 65536} {
-		require.Error(t, service.SetSettings(WebhookSettings{Enabled: true, Port: port}), "port %d", port)
+		err := service.SetState(t.Context(), true, port)
+		require.Error(t, err, "port %d", port)
+		require.Equal(t, KindInvalid, KindOf(err), "port %d", port)
 	}
 }
 
 func TestWebhookServiceGeneratePort(t *testing.T) {
 	isolateSettings(t)
-	service := NewWebhookService(nil, nil, 0)
+	service := newWebhookService(nil, nil, 0)
 
-	port, err := service.GeneratePort()
+	port, err := service.GeneratePort(t.Context())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, settings.WebhookPortMin)
 	assert.LessOrEqual(t, port, settings.WebhookPortMax)

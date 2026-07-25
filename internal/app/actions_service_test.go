@@ -1,4 +1,4 @@
-package wailsui
+package app
 
 import (
 	"context"
@@ -27,66 +27,68 @@ func newServiceStore(t *testing.T) (*actions.ActionStore, string) {
 func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
 	wakes := 0
-	service := NewActionsService(actionStore, func() { wakes++ })
+	service := newActionsService(actionStore, func() { wakes++ })
 
-	created, err := service.CreateAction(serviceAction("run"))
+	created, err := service.Create(t.Context(), serviceAction("run"))
 	require.NoError(t, err)
 	assert.Equal(t, "run", created.ID)
 	assert.Equal(t, 1, wakes)
-	got, err := service.GetAction("run")
+	got, err := service.Get(t.Context(), "run")
 	require.NoError(t, err)
 	assert.Equal(t, created, got)
-	_, err = service.GetAction("missing")
+	_, err = service.Get(t.Context(), "missing")
 	require.ErrorContains(t, err, "not found")
 
 	updated := serviceAction("run")
 	updated.Label = "Run now"
-	_, err = service.UpdateAction("run", updated)
+	_, err = service.Update(t.Context(), "run", updated)
 	require.NoError(t, err)
 	assert.Equal(t, 2, wakes)
 	assert.Equal(t, "Run now", actionStore.ListEditable().Actions[0].Label, "service and runtime share one actionStore")
 
-	_, err = service.CreateAction(serviceAction("run"))
+	_, err = service.Create(t.Context(), serviceAction("run"))
 	require.Error(t, err)
-	_, err = service.UpdateAction("other", updated)
+	_, err = service.Update(t.Context(), "other", updated)
 	require.ErrorContains(t, err, "immutable")
 	assert.Equal(t, 2, wakes)
 
-	require.NoError(t, service.DeleteAction("run"))
+	require.NoError(t, service.Delete(t.Context(), "run"))
 	assert.Equal(t, 3, wakes)
-	require.Error(t, service.DeleteAction("run"))
+	require.Error(t, service.Delete(t.Context(), "run"))
 	assert.Equal(t, 3, wakes)
 }
 
 func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
 	wakes := 0
-	service := NewActionsService(actionStore, func() { wakes++ })
+	service := newActionsService(actionStore, func() { wakes++ })
 	for _, id := range []string{"one", "two"} {
-		_, err := service.CreateAction(serviceAction(id))
+		_, err := service.Create(t.Context(), serviceAction(id))
 		require.NoError(t, err)
 	}
 	wakes = 0
 
-	require.NoError(t, service.ReorderActions([]string{"two", "one"}))
+	require.NoError(t, service.Reorder(t.Context(), []string{"two", "one"}))
 	assert.Equal(t, 1, wakes)
-	catalog := service.ListActions()
+	catalog := service.List(t.Context())
 	require.Len(t, catalog.Actions, 2)
 	assert.Equal(t, "two", catalog.Actions[0].ID)
 
-	require.ErrorContains(t, service.ReorderActions([]string{"two"}), "the catalog changed")
+	reorderErr := service.Reorder(t.Context(), []string{"two"})
+	require.ErrorContains(t, reorderErr, "the catalog changed")
+	assert.Equal(t, KindConflict, KindOf(reorderErr), "a stale catalog is the caller's view having moved")
 	assert.Equal(t, 1, wakes)
 }
 
 func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *testing.T) {
 	actionStore, path := newServiceStore(t)
-	service := NewActionsService(actionStore, nil)
-	_, err := service.CreateAction(serviceAction("good"))
+	service := newActionsService(actionStore, nil)
+	_, err := service.Create(t.Context(), serviceAction("good"))
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions: ["), 0o600))
 	require.Error(t, actionStore.Reload())
 
-	catalog := service.ListActions()
+	catalog := service.List(t.Context())
 	require.Len(t, catalog.Actions, 1)
 	assert.Equal(t, "good", catalog.Actions[0].ID)
 	assert.Contains(t, catalog.Error, "actions")
@@ -107,16 +109,16 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	actionStore.SetUsageChecker(flowOnlyUsage{flows: flows})
 
 	wakes := 0
-	service := NewActionsService(actionStore, func() { wakes++ })
+	service := newActionsService(actionStore, func() { wakes++ })
 	interactive := headless
 	interactive.Launch = &actions.EditableLaunchConfig{PromptTemplate: "Review"}
-	_, err = service.UpdateAction("used", interactive)
+	_, err = service.Update(t.Context(), "used", interactive)
 	require.ErrorContains(t, err, "flow-a")
 	assert.Equal(t, 0, wakes)
 
 	// Existing flows do not prevent an update that remains headless.
 	headless.Label = "Updated"
-	_, err = service.UpdateAction("used", headless)
+	_, err = service.Update(t.Context(), "used", headless)
 	require.NoError(t, err)
 	assert.Equal(t, 1, wakes)
 }

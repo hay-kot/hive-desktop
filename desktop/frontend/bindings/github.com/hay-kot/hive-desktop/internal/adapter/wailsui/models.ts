@@ -11,8 +11,8 @@ export interface AppearanceSettings {
 }
 
 /**
- * BuildInfo describes the running desktop build so users can see and report the
- * exact version they are on from the System settings screen.
+ * BuildInfo describes the running desktop build so users can see and report
+ * the exact version they are on from the System settings screen.
  */
 export interface BuildInfo {
     "version": string;
@@ -37,9 +37,8 @@ export interface BuildInfo {
 }
 
 /**
- * FlowSummary is one flow file's listing row for the flows picker: identity
- * plus load/validity status, so a broken flow file shows up (with its
- * error) instead of silently vanishing from the list.
+ * FlowSummary is one flow file's listing row: identity plus load status, so a
+ * broken flow file shows up with its error instead of silently vanishing.
  */
 export interface FlowSummary {
     "id": string;
@@ -51,7 +50,8 @@ export interface FlowSummary {
 }
 
 /**
- * GithubSettings is the GitHub integration's editable configuration.
+ * GithubSettings is the GitHub integration's editable configuration. Seconds
+ * rather than a duration string: this is the wire shape the frontend edits.
  */
 export interface GithubSettings {
     "pollIntervalSeconds": number;
@@ -61,7 +61,7 @@ export interface GithubSettings {
 /**
  * KeybindingSettings carries keyboard shortcut overrides keyed by command id.
  * Like AppearanceSettings the values are opaque to Go: the frontend owns the
- * command vocabulary and the combo grammar, so this is transport only.
+ * command vocabulary and the combo grammar.
  * 
  * An id absent from Overrides keeps its catalog default; an id mapped to an
  * empty list is explicitly unbound.
@@ -83,9 +83,8 @@ export interface NotificationActivation {
 }
 
 /**
- * NotificationSettings is the desktop notification configuration resolved
- * from settings.yaml. Delivery is carried as a resolved string from the
- * closed set settings.DeliveryAuto/DeliverySystem/DeliveryApp.
+ * NotificationSettings is the desktop notification configuration. Delivery is
+ * carried as a resolved string from the closed set auto/system/app.
  */
 export interface NotificationSettings {
     "notificationsEnabled": boolean;
@@ -186,8 +185,8 @@ export interface WebhookInfo {
 }
 
 /**
- * WebhookSettings is the local listener's editable configuration joined with
- * the running listener's actual state, so the settings pane can show what is
+ * WebhookSettings is the listener's editable configuration joined with the
+ * running listener's actual state, so the settings pane can show what is
  * configured and what is live in one read.
  */
 export interface WebhookSettings {

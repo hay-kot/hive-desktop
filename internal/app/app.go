@@ -54,6 +54,19 @@ type Config struct {
 // App is the headless core. Driving adapters hold *App and the concrete
 // types on it; there are no driving-port interfaces.
 type App struct {
+	// The per-domain services. Driving adapters call these; the stores below
+	// are what they are built over.
+	Inbox    *InboxService
+	Flows    *FlowsService
+	Actions  *ActionsService
+	Settings *SettingsService
+	System   *SystemService
+	Webhooks *WebhookService
+	Auth     *AuthService
+	Activity *ActivityService
+	Jobs     *JobService
+	Prompts  *PromptsService
+
 	Events *events.Bus
 	Store  *store.DB
 	Logger zerolog.Logger
@@ -165,6 +178,19 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Retention = ingest.NewMaintenance(db, a.FlowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.Producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
+
+	a.Inbox = newInboxService(db, a.ActionStore, a.Outputs, a.Launcher)
+	a.Flows = newFlowsService(a.FlowStore, db, func() { a.PublishFlowsUpdated("save") })
+	a.Actions = newActionsService(a.ActionStore, func() {
+		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.ActionStore.List())})
+	})
+	a.Settings = newSettingsService(a.Producer, a.Fetcher)
+	a.System = newSystemService()
+	a.Webhooks = newWebhookService(db, a.Webhook, a.WebhookPort)
+	a.Auth = newAuthService(a.AuthBackend)
+	a.Activity = newActivityService(a.ActivityStore)
+	a.Jobs = newJobService(a.JobStore)
+	a.Prompts = newPromptsService(a.Webhooks)
 
 	return a, nil
 }

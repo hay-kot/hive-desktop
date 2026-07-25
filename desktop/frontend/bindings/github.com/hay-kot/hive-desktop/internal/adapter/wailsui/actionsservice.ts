@@ -26,18 +26,13 @@ export function GetAction(id: string): $CancellablePromise<actions$0.EditableAct
     return $Call.ByID(1642808218, id);
 }
 
-/**
- * ListActions returns the effective last-good catalog and a current parse
- * error, if a hand edit made the latest actions.yml invalid.
- */
 export function ListActions(): $CancellablePromise<actions$0.EditableCatalog> {
     return $Call.ByID(998142743);
 }
 
 /**
  * ReorderActions persists the catalog order the settings list was dragged
- * into. ids must be the full catalog; a stale list (a hand edit added or
- * removed an action meanwhile) is rejected so the caller reloads.
+ * into. ids must be the full catalog.
  */
 export function ReorderActions(ids: string[] | null): $CancellablePromise<void> {
     return $Call.ByID(8930906, ids);

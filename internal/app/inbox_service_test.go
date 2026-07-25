@@ -1,4 +1,4 @@
-package wailsui
+package app
 
 import (
 	"context"
@@ -109,8 +109,8 @@ func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	expected := dispatch.SessionLaunchOptions{Repositories: []dispatch.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
-	service := NewPipelineService(db, actionStore, nil, recordingLaunchOptions{options: expected})
-	got, err := service.SessionLaunchOptions()
+	service := newInboxService(db, actionStore, nil, recordingLaunchOptions{options: expected})
+	got, err := service.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
 }
@@ -125,7 +125,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 	issueID := insertActionItem(t, db, "issue-1", "Issue", "")
 	hiddenID := insertActionItem(t, db, "pr-2", "PR", "")
@@ -134,7 +134,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	// field, so the repo_template render errors and the action is
 	// inapplicable. launch-interactive has no repo_template, so it always
 	// applies.
-	views, err := service.ActionViews(prID)
+	views, err := service.ActionViews(t.Context(), prID)
 	require.NoError(t, err)
 	// Views arrive in actions.yml order — the user-controlled presentation
 	// order — not sorted by id.
@@ -144,23 +144,29 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 		{ID: "triage-any", Label: "Triage", Type: "shell", ShowInDetail: true},
 	}, views)
 
-	_, err = service.InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{})
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
 	require.NoError(t, err)
 	assert.Equal(t, 1, executor.calls)
 	assert.Equal(t, "pr-1", executor.data.Key)
 	assert.Equal(t, "Fix it", executor.data.Payload["title"])
-	duplicate, err := service.InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{})
+	duplicate, err := service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
 	require.NoError(t, err)
 	assert.True(t, duplicate.ConfirmationRequired)
 	assert.Equal(t, 1, executor.calls)
-	rerun, err := service.InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{Rerun: true})
+	rerun, err := service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{Rerun: true}})
 	require.NoError(t, err)
 	assert.False(t, rerun.ConfirmationRequired)
 	assert.Equal(t, 2, executor.calls)
-	_, err = service.InvokeAction("review-pr", issueID, dispatch.ActionInvocationInput{})
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: issueID, Input: dispatch.ActionInvocationInput{}})
 	require.Error(t, err)
-	_, err = service.InvokeAction("hidden", hiddenID, dispatch.ActionInvocationInput{})
-	assert.ErrorContains(t, err, "not available in the detail pane", "backend must reject a trusted caller bypassing ActionViews")
+	assert.Equal(t, KindInvalid, KindOf(err), "an inapplicable action is a bad request, not a fault")
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "hidden", ItemID: hiddenID, Input: dispatch.ActionInvocationInput{}})
+	require.ErrorContains(t, err, "not available in the detail pane", "backend must reject a trusted caller bypassing ActionViews")
+	assert.Equal(t, KindInvalid, KindOf(err))
+
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "does-not-exist", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err), "an unknown action id is not found, not invalid")
 }
 
 // TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated
@@ -182,12 +188,12 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker, nil)
 
 	t.Run("webhook item with a matching repo_template action gets and runs it", func(t *testing.T) {
 		itemID := insertActionItemSource(t, db, "webhook", "hook-1", "deploy", "Deploy prod", map[string]any{"repo": "acme/site"})
 
-		views, err := service.ActionViews(itemID)
+		views, err := service.ActionViews(t.Context(), itemID)
 		require.NoError(t, err)
 		ids := make([]string, len(views))
 		for i, v := range views {
@@ -195,7 +201,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 		}
 		assert.Contains(t, ids, "deploy-repo")
 
-		_, err = service.InvokeAction("deploy-repo", itemID, dispatch.ActionInvocationInput{})
+		_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "deploy-repo", ItemID: itemID, Input: dispatch.ActionInvocationInput{}})
 		require.NoError(t, err)
 		assert.Equal(t, "hook-1", executor.data.Key)
 	})
@@ -203,13 +209,13 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	t.Run("repo_template action is absent and rejected with the render reason when the payload lacks repo", func(t *testing.T) {
 		itemID := insertActionItemSource(t, db, "webhook", "hook-2", "deploy", "No repo", nil)
 
-		views, err := service.ActionViews(itemID)
+		views, err := service.ActionViews(t.Context(), itemID)
 		require.NoError(t, err)
 		for _, v := range views {
 			assert.NotEqual(t, "deploy-repo", v.ID, "repo_template action must be absent when the payload lacks repo")
 		}
 
-		_, err = service.InvokeAction("deploy-repo", itemID, dispatch.ActionInvocationInput{})
+		_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "deploy-repo", ItemID: itemID, Input: dispatch.ActionInvocationInput{}})
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "repo_template")
 	})
@@ -217,7 +223,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	t.Run("interactive launch-session action is offered for a webhook item", func(t *testing.T) {
 		itemID := insertActionItemSource(t, db, "webhook", "hook-3", "deploy", "Investigate", nil)
 
-		views, err := service.ActionViews(itemID)
+		views, err := service.ActionViews(t.Context(), itemID)
 		require.NoError(t, err)
 		var found *actions.View
 		for i := range views {
@@ -230,10 +236,12 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	})
 
 	t.Run("unknown itemID errors from both ActionViews and InvokeAction", func(t *testing.T) {
-		_, err := service.ActionViews(999999)
+		_, err := service.ActionViews(t.Context(), 999999)
 		require.Error(t, err)
-		_, err = service.InvokeAction("review-pr", 999999, dispatch.ActionInvocationInput{})
+		assert.Equal(t, KindNotFound, KindOf(err))
+		_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: 999999, Input: dispatch.ActionInvocationInput{}})
 		require.Error(t, err)
+		assert.Equal(t, KindNotFound, KindOf(err))
 	})
 }
 
@@ -246,17 +254,17 @@ func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T)
 	// Use a dispatcher executor that records a dispatched side effect failure.
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
-	service := NewPipelineService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
-	view, err := service.InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{})
+	view, err := service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
 	require.NoError(t, err)
 	assert.Equal(t, "failed", view.Status)
 	assert.Equal(t, "side effect failed", view.Error)
 	assert.Equal(t, "partial stdout", view.Stdout)
 	assert.Equal(t, "partial stderr", view.Stderr)
 
-	afterNavigation, err := service.ActionRun(view.CommandID)
+	afterNavigation, err := service.ActionRun(t.Context(), view.CommandID)
 	require.NoError(t, err)
 	assert.Equal(t, view, afterNavigation)
 }
@@ -275,14 +283,14 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
-	view, err := NewPipelineService(db, actionStore, worker, nil).InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{})
+	view, err := newInboxService(db, actionStore, worker, nil).InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
-	afterRestart, err := NewPipelineService(reopened, actionStore, nil, nil).ActionRun(view.CommandID)
+	afterRestart, err := newInboxService(reopened, actionStore, nil, nil).ActionRun(t.Context(), view.CommandID)
 	require.NoError(t, err)
 	assert.Equal(t, view, afterRestart)
 }
@@ -297,10 +305,10 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": dispatch.NewLaunchSessionExecutor(launcher),
 	}), 0, zerolog.Nop())
-	service := NewPipelineService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
-	_, err = service.InvokeAction("review-pr", prID, dispatch.ActionInvocationInput{})
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
 	require.NoError(t, err)
 	require.Equal(t, []dispatch.LaunchSessionRequest{{
 		Name: "review-pr-pr-1", Prompt: "Review Fix it", Repo: "git@example/repo.git",
