@@ -7,6 +7,14 @@ shell, pinned versions, parent-module adaptations, icons, and the flows/actions
 data model. **Read `README.md` before changing native-shell, build, or icon
 wiring; do not duplicate its detail here.**
 
+**Read [`../docs/architecture.md`](../docs/architecture.md) before adding a
+subsystem, an entrypoint, or an extension point.** It names the pattern each
+part of the app follows and maps "what you are building" to the section that
+specifies it. This file describes how the code is arranged *today*;
+`architecture.md` describes the shape it is moving to. Where they disagree,
+`architecture.md` wins for new work — the differences are called out under
+[Patterns and gotchas](#patterns-and-gotchas).
+
 ## What this app is
 
 A Wails v3 desktop shell (Vue 3 + TypeScript frontend, Go backend) that renders
@@ -48,6 +56,17 @@ Frontend (`frontend/src/`): `App.vue` + `components/` (feed UI), `composables/`
 palette, in-browser graph engine in `pipeline/engine/`), `lib/` (presentation
 helpers), `types/`. TS bindings to Go services are **generated** into
 `frontend/bindings/` — see Code generation.
+
+**The in-browser graph engine is being removed.** `pipeline/engine/`,
+`driver.ts`, `processors.ts` and `nodes/*/runtime.ts` currently own topological
+execution, filter matching and function-node evaluation — Go ingests and
+executes, but the browser routes. That split makes the desktop window a hard
+dependency of flow execution and puts the correctness-critical parts out of
+reach of any headless surface, so the engine moves to Go. **Do not add node
+execution logic to the frontend.** A new node type gets its editor
+(`nodes/<type>/{config.ts,editor.vue,index.ts}`) in the frontend and its
+schema, validation, docs and — once the Go engine lands — its execution in Go.
+See `architecture.md` ▸ Execution model.
 
 ## Development
 
@@ -113,6 +132,11 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
 
 ## Patterns and gotchas
 
+These describe the code **as it is today**. Two are being replaced and are
+marked as such. For new work follow `../docs/architecture.md` — extending a
+superseded pattern makes the migration more expensive, which is the whole
+reason it is being done now.
+
 - **Single Go module.** `desktop/` has no `go.mod`; it is the
   `github.com/colonyops/hive/desktop` package inside the root module. Because
   the package is `main` and named `desktop`, you **must** give the binary an
@@ -128,6 +152,13 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
   "something changed" (only `log:appended` carries meaningful data — the new
   tail offset). Adding a new signal means registering it in `registerEvents()`
   and adding an `emit*` helper.
+
+  **Being replaced.** The wake-up contract is right for a GUI and stays *at the
+  Wails boundary*, but it is moving out of the core: `app/events` will carry
+  typed payloads and the `wailsui` adapter will degrade them to these same
+  signals. An MCP client cannot cheaply "re-read the service", and a streaming
+  consumer needs the delta. New core events carry a payload; no new
+  package-level `emit*` functions. See `architecture.md` ▸ Events.
 - **Mock modes** (`HIVE_DESKTOP_MOCK`): `feed`/`pipeline`/`action-smoke` start
   authenticated; `onboarding` starts signed out with a fake device flow that
   grants after ~1.5s. Unset → live backends. In mock modes the live producer
@@ -150,6 +181,17 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
   `github.NewKeychainStore()`. `HIVE_GITHUB_TOKEN` is a read-only headless
   override; `HIVE_GITHUB_CLIENT_ID` overrides the device-flow client id. Never
   log or persist tokens elsewhere.
+
+  **Being replaced.** That store is single-slot — the vendored
+  `internal/hivecore/github/token.go` pins its keychain account to a fixed
+  constant, so it has no provider or account dimension and cannot hold a second
+  provider's credentials. It becomes `app/credentials` keyed by
+  `Ref{Provider, Account}`, with a separate index of refs because keychains
+  cannot enumerate. Two rules already apply to new work: **config holds refs,
+  never tokens** (`flows/` is dotfiles-managed, so an embedded token is a token
+  in a git repo), and **GitHub is a connector, not a login** — do not add code
+  that gates the app on being signed in to GitHub. See `architecture.md` ▸
+  Credentials.
 - **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
   `internal/desktop/prompts/templates/`; nothing in the frontend builds a
   prompt string. Adding one is a template plus a `definitions` entry — Settings

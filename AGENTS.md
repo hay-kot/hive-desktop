@@ -2,6 +2,24 @@
 
 Private product monorepo: Hive desktop app, future admin server, and landing page.
 
+## Before building a feature
+
+**Read [`docs/architecture.md`](docs/architecture.md) first.** It is the
+standing reference for how this app is structured and how it should grow —
+the core/adapter shape, the named patterns each part of the app follows, the
+directory layout, the four extension points, and the rules every PR is
+reviewed against.
+
+Two tables in it answer most "how do I build this?" questions directly:
+**Named patterns** (what each pattern is called and where it applies) and
+**Which pattern governs what** (what you are building → the section that
+specifies it). Use the pattern names in code review and commit messages —
+naming them is what keeps independently-built features consistent.
+
+The document describes a **target state**; parts of it are not built yet and
+are marked as such. Where the current code and the document disagree, the
+document wins for new work — do not extend the shape it is replacing.
+
 ## Module layout
 
 - **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/desktop/`) and vendored hive core (`internal/hivecore/`).
@@ -20,7 +38,8 @@ Release CI signs and notarizes the macOS app, then uploads versioned artifacts p
 
 ## Documentation
 
-- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them.
+- `docs/architecture.md` is the standing architectural reference — see [Before building a feature](#before-building-a-feature). Keep it current when the shape changes; it is reviewed as a spec, not as prose.
+- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them. An ADR records *why one choice was made*; `architecture.md` records *the shape that resulted*. A decision that changes the shape updates both.
 - Concrete distribution facts (bucket, domains, manifest schema, publish/rollback runbook, credentials) live in `docs/distribution.md` — keep it current when infra changes.
 
 ## Quality gates

@@ -22,8 +22,8 @@ One headless core, several thin adapters, all in one process.
 ```
                     ┌──────────────────────────────┐
    Wails UI ───────►│                              │
-   HTTP API ───────►│      internal/app (core)      │──► SQLite, GitHub, keychain,
-   MCP server ─────►│   no transport, no globals    │    tmux, filesystem
+   HTTP API ───────►│      internal/app (core)     │──► SQLite, GitHub, keychain,
+   MCP server ─────►│   no transport, no globals   │    tmux, filesystem
    embedded agent ─►│                              │
                     └──────────────────────────────┘
 ```
@@ -39,14 +39,73 @@ this document says "CLI", it means a future surface of *this* binary.
 
 ### Named patterns
 
-| Pattern | Where it applies | Notes |
+Each row is a canonical pattern name plus the local rule that specialises it.
+The name is there so the shape can be recognised and reused without deriving
+it; the rule is there because the name alone never determines the constraint
+that actually matters here. **Use these names in code review, commit messages,
+and doc comments** — a pattern that is named consistently gets built
+consistently.
+
+Provenance is marked where it helps: (GoF) Gang of Four, (DDD)
+Domain-Driven Design, (Go) an idiom specific to the language.
+
+**Structure — how the app is divided**
+
+| Pattern | Where it applies | The rule here |
 | --- | --- | --- |
-| **Ports & Adapters (hexagonal)** | the `app` ↔ `adapter` boundary | With the Go amendment below — driving adapters take concrete types. |
-| **Application Service + facade** | `app.App` aggregating per-domain services | Mirrors the vendored `internal/hivecore/hive/app.go`, whose doc comment already states the intent: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
-| **Consumer-defined interfaces** | every dependency edge | Already the house style: `pipeline.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. |
-| **Registry** | the four extension points | Explicit maps, not `init()` self-registration — `gochecknoinits` is enabled. |
-| **Typed event bus** | core → adapters | Payload-carrying, per-subscriber delivery policy. |
-| **Typed errors + adapter-side mapping** | every boundary | One `Kind` enum in core; each adapter maps once. |
+| **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
+| **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
+| **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
+| **Anti-Corruption Layer** (DDD) | the `internal/hivecore` seam | Declare a narrow local interface describing only what we need, let the vendored concrete type satisfy it structurally, convert types at the seam. An upstream signature change then breaks one adapter file rather than the app. The idiom is `hive_adapters.go`. |
+| **Bounded Context** (DDD) | `app` vs `internal/hivecore` | Two models that must not merge. `hive` is a separate external product with its own vocabulary; its types stop at the ACL and never appear in an `app` signature. This is also why the vendored code is read-only. |
+
+**Behaviour — how variation is handled**
+
+| Pattern | Where it applies | The rule here |
+| --- | --- | --- |
+| **Strategy** (GoF) | action executors, event delivery, script runtimes | One implementation per variant behind one interface, selected by a registry lookup — never a `switch` that grows a case per type. For event delivery the strategy is *constructed*, not an enum: `events.Coalesce()` / `events.Buffer(n)`, so "coalesce with a queue size" is unrepresentable rather than merely wrong. |
+| **Command** (GoF) | action dispatch | An `output_command` row is a durable, replayable command carrying everything its executor needs. Its `UNIQUE (action_id, key)` index is the only thing preventing an already-run action from re-firing — treat it as load-bearing. |
+| **Registry** | the four [extension points](#extension-points) | An explicit map keyed by a type string, declared in one file, with per-type config carrying its own `Validate`. Never `init()` self-registration — `gochecknoinits` is enabled. A registry used for enumeration (MCP tool listing, CLI generation) carries *metadata only*, never dispatch. |
+| **Factory Method** (GoF) | node config decoding, connector instances | The registry stores a constructor, not an instance. `func() NodeConfig` must return a **distinct** value per call because the decoder mutates it in place. For connectors, a `Descriptor` (schema, capabilities, stability) is what gets registered; instances are constructed per-use from parsed config. |
+| **Observer** (GoF) — typed and payload-carrying | core → adapters | Core events carry payloads and each subscriber declares a delivery policy. The Wails adapter degrades them to wake-up signals; **the core never does**, because an MCP client cannot cheaply "re-read the service" and a streaming consumer needs the delta. |
+| **Declared capabilities** | connectors, any pluggable type | A type states what it supports. Never `if s, ok := x.(Backfiller)` — sniffing hides capability from the editor, the docs, and an LLM, all of which need to know before calling. |
+| **Unit of Work** (PoEAA) | operations spanning two domains | The transaction is ambient on the `context`, not a parameter threaded through every signature. A store method begins `db := db.Ctx(ctx)` and thereby joins whatever transaction is already open; `WithinTx` **joins** an ambient transaction rather than nesting, because SQLite has none and a second `BEGIN IMMEDIATE` deadlocks against the first. Only the outermost caller commits. |
+
+**Modelling and Go idiom**
+
+| Pattern | Where it applies | The rule here |
+| --- | --- | --- |
+| **Value Object** (DDD) | `Ref{Provider, Account}`, `Sink`, `secret.Secret` | Immutable, compared by value, self-validating, no identity of its own. A credential reference is a `Ref`, never a bare string; a secret is `secret.Secret` so it redacts when marshalled. |
+| **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `pipeline.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
+| **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR 0009. This is the pattern every new extension point should extend. |
+| **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
+| **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
+| **One instance per process** | producer, output worker, flow engine | Constructed once by `App` and injected. Deliberately **not** GoF Singleton: no global access point and no lazy self-construction — the constraint is "exactly one exists", not "anyone can reach it". Two would double-poll sources and re-execute actions. |
+
+### Which pattern governs what
+
+An agent adding a feature should be able to find its shape here without
+reading the whole document. Left column is what you are building; right
+column is the section that specifies it.
+
+| Building… | Patterns that govern it | Specified in |
+| --- | --- | --- |
+| A new **node type** | Registry, Factory Method, Single declaration | [Extension points](#extension-points) |
+| A new **action type** | Registry, Command, Strategy (the `Executor`) | [Extension points](#extension-points) |
+| A new **source connector** | Factory Method (`Descriptor` → instance), Declared capabilities, Value Object (credential `Ref`) | [Source connectors](#source-connectors) |
+| A new **script language** | Strategy behind the `ScriptRuntime` port, Registry | [Script nodes](#script-nodes) |
+| A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
+| A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
+| A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
+| A new **background subsystem** | One instance per process, registered with the plugs manager | [Background lifecycle](#background-lifecycle) |
+| A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
+| An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
+| A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
+| Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
+| A new **outbound HTTP call** | `appkit/httpclient` with composable middleware, not a bespoke client | [Background lifecycle](#background-lifecycle) |
+
+If what you are building is not on this list, it is probably a service method
+on `App` — see [Placement rules](#placement-rules).
 
 ### The Go amendment to hexagonal
 
