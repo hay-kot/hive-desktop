@@ -18,6 +18,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui/e2e"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/auth"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
@@ -27,7 +28,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -416,7 +416,7 @@ func main() {
 	updaterService := wailsui.NewUpdaterService(updaterVersion, cfg.AutoUpdateOrDefault(), wailsui.DefaultUpdateCheckInterval, logger)
 
 	services := []application.Service{
-		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
+		application.NewService(wailsui.NewAuthService(buildAuthBackend(onAuthChange))),
 		application.NewService(wailsui.NewPipelineService(pipelineDB, actionStore, outputWorker, actionRuntime.launcher)),
 		application.NewService(wailsui.NewFlowsService(flowsStore, pipelineDB, onFlowsUpdated)),
 		application.NewService(wailsui.NewActionsService(actionStore, wailsui.EmitActionsUpdated)),

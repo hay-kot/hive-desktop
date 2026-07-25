@@ -1,7 +1,7 @@
 // Package auth implements GitHub authentication for the Hive desktop app:
-// the Wails auth service, its live (device flow + PAT) and mock backends,
-// and the wire types the onboarding UI consumes. Desktop-only code lives
-// under internal/desktop; the GitHub client itself is internal/github.
+// the live (device flow + PAT) and mock backends and the wire types the
+// onboarding UI consumes. The Wails service over them is
+// wailsui.AuthService; the GitHub client itself is internal/hivecore/github.
 package auth
 
 import (
@@ -60,37 +60,6 @@ type Backend interface {
 	CancelDeviceFlow()
 	SetToken(ctx context.Context, token string) (Status, error)
 	SignOut() error
-}
-
-// Service is the Wails service exposing authentication to the frontend.
-// State changes are pushed via the auth:updated event; the frontend re-reads
-// Status on receipt.
-type Service struct {
-	backend Backend
-}
-
-func NewService(backend Backend) *Service {
-	return &Service{backend: backend}
-}
-
-func (s *Service) Status() Status {
-	return s.backend.Status(context.Background())
-}
-
-func (s *Service) StartDeviceFlow() (DeviceFlowInfo, error) {
-	return s.backend.StartDeviceFlow(context.Background())
-}
-
-func (s *Service) CancelDeviceFlow() {
-	s.backend.CancelDeviceFlow()
-}
-
-func (s *Service) SetToken(token string) (Status, error) {
-	return s.backend.SetToken(context.Background(), token)
-}
-
-func (s *Service) SignOut() error {
-	return s.backend.SignOut()
 }
 
 // ── Live backend ─────────────────────────────────────────────────────────────
