@@ -51,6 +51,15 @@ func StateDir() string {
 	return filepath.Join(dataHome, "hive", "desktop")
 }
 
+// CredentialsIndexPath is the credential ref index: which provider accounts
+// are configured, never their values. It lives in the state dir rather than
+// the config dir because it is app-local state — a ref index sitting beside
+// dotfiles-managed flows/ would invite hand-editing it into disagreement with
+// the keychain, which holds the actual secrets.
+func CredentialsIndexPath() string {
+	return filepath.Join(StateDir(), "credentials.json")
+}
+
 // ConfigPath is the legacy profiles config file path. The flow-backed
 // desktop no longer reads this file directly, but FlowsDir and ActionsPath
 // still derive their default config root from its directory for compatibility

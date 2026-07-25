@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
@@ -52,11 +54,37 @@ func parseBearer(header string) (string, bool) {
 	return header[len(prefix):], true
 }
 
-func newLiveAuthForTest(t *testing.T, tokens github.TokenStore, validTokens map[string]string, onChange func()) Backend {
+func newLiveAuthForTest(t *testing.T, creds credentials.Store, validTokens map[string]string, onChange func()) Backend {
 	t.Helper()
 	server := authAPIServer(t, validTokens)
 	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
-	return NewLiveBackend(client, tokens, onChange)
+	return NewLiveBackend(client, creds, onChange)
+}
+
+// seededCreds is a credential store already holding one GitHub account.
+// Credentials are keyed by login now, so "a token is stored" also has to say
+// whose it is.
+func seededCreds(t *testing.T, login, token string) credentials.Store {
+	t.Helper()
+	creds := credentials.NewMemoryStore()
+	if token != "" {
+		require.NoError(t, creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: login}, token))
+	}
+	return creds
+}
+
+// storedToken reads the one stored GitHub token directly, bypassing the
+// environment override so a test can tell "stored" from "overridden".
+func storedToken(t *testing.T, creds credentials.Store) string {
+	t.Helper()
+	refs, err := credentials.ListProvider(creds, ghsource.Provider)
+	require.NoError(t, err)
+	if len(refs) == 0 {
+		return ""
+	}
+	value, err := creds.Get(refs[0])
+	require.NoError(t, err)
+	return value
 }
 
 // deniedDeviceFlowServer fakes a device flow whose token endpoint always
@@ -82,7 +110,7 @@ func deniedDeviceFlowServer(t *testing.T) *httptest.Server {
 func TestLiveStatusNoToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, github.NewMemoryTokenStore(""), nil, nil)
+	auth := newLiveAuthForTest(t, credentials.NewMemoryStore(), nil, nil)
 	status := auth.Status(t.Context())
 	assert.Equal(t, StateUnauthenticated, status.State)
 	assert.Empty(t, status.Message)
@@ -91,7 +119,7 @@ func TestLiveStatusNoToken(t *testing.T) {
 func TestLiveStatusValidStoredToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, github.NewMemoryTokenStore("tok1"), map[string]string{"tok1": "hayden"}, nil)
+	auth := newLiveAuthForTest(t, seededCreds(t, "hayden", "tok1"), map[string]string{"tok1": "hayden"}, nil)
 	status := auth.Status(t.Context())
 	assert.Equal(t, StateAuthenticated, status.State)
 	assert.Equal(t, "hayden", status.Login)
@@ -100,7 +128,7 @@ func TestLiveStatusValidStoredToken(t *testing.T) {
 func TestLiveStatusRevokedToken(t *testing.T) {
 	t.Parallel()
 
-	auth := newLiveAuthForTest(t, github.NewMemoryTokenStore("revoked"), map[string]string{}, nil)
+	auth := newLiveAuthForTest(t, seededCreds(t, "hayden", "revoked"), map[string]string{}, nil)
 	status := auth.Status(t.Context())
 	assert.Equal(t, StateUnauthenticated, status.State)
 	assert.NotEmpty(t, status.Message)
@@ -109,7 +137,7 @@ func TestLiveStatusRevokedToken(t *testing.T) {
 func TestLiveAuthSetTokenValidatesAndStores(t *testing.T) {
 	t.Parallel()
 
-	store := github.NewMemoryTokenStore("")
+	store := credentials.NewMemoryStore()
 	var notified sync.WaitGroup
 	notified.Add(1)
 	auth := newLiveAuthForTest(t, store, map[string]string{"pat-1": "hayden"}, notified.Done)
@@ -119,30 +147,26 @@ func TestLiveAuthSetTokenValidatesAndStores(t *testing.T) {
 	assert.Equal(t, StateAuthenticated, status.State)
 	assert.Equal(t, "hayden", status.Login)
 
-	stored, err := store.Token()
-	require.NoError(t, err)
-	assert.Equal(t, "pat-1", stored)
+	assert.Equal(t, "pat-1", storedToken(t, store))
 	notified.Wait()
 }
 
 func TestLiveAuthSetTokenRejected(t *testing.T) {
 	t.Parallel()
 
-	store := github.NewMemoryTokenStore("")
+	store := credentials.NewMemoryStore()
 	auth := newLiveAuthForTest(t, store, map[string]string{}, nil)
 
 	_, err := auth.SetToken(t.Context(), "bad-token")
 	require.ErrorContains(t, err, "rejected")
 
-	stored, err := store.Token()
-	require.NoError(t, err)
-	assert.Empty(t, stored)
+	assert.Empty(t, storedToken(t, store))
 }
 
 func TestLiveAuthDeviceFlowGrantStoresToken(t *testing.T) {
 	t.Parallel()
 
-	store := github.NewMemoryTokenStore("")
+	store := credentials.NewMemoryStore()
 	changed := make(chan struct{}, 1)
 	auth := newLiveAuthForTest(t, store, map[string]string{"granted-token": "hayden"}, func() {
 		select {
@@ -162,9 +186,7 @@ func TestLiveAuthDeviceFlowGrantStoresToken(t *testing.T) {
 		t.Fatal("device flow grant did not notify")
 	}
 
-	stored, err := store.Token()
-	require.NoError(t, err)
-	assert.Equal(t, "granted-token", stored)
+	assert.Equal(t, "granted-token", storedToken(t, store))
 	assert.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
 }
 
@@ -174,7 +196,7 @@ func TestLiveAuthDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 	server := deniedDeviceFlowServer(t)
 	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
 	changed := make(chan struct{}, 1)
-	auth := NewLiveBackend(client, github.NewMemoryTokenStore(""), func() {
+	auth := NewLiveBackend(client, credentials.NewMemoryStore(), func() {
 		select {
 		case changed <- struct{}{}:
 		default:
@@ -204,8 +226,8 @@ func TestLiveAuthDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 func TestLiveAuthSignOutWithEnvOverrideExplains(t *testing.T) {
 	t.Setenv(github.EnvToken, "env-token")
 
-	store := github.NewMemoryTokenStore("tok1")
-	auth := newLiveAuthForTest(t, store, map[string]string{"tok1": "hayden"}, nil)
+	store := seededCreds(t, "hayden", "tok1")
+	auth := newLiveAuthForTest(t, store, map[string]string{"tok1": "hayden", "env-token": "hayden"}, nil)
 	require.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
 
 	require.NoError(t, auth.SignOut())
@@ -218,15 +240,13 @@ func TestLiveAuthSignOutWithEnvOverrideExplains(t *testing.T) {
 func TestLiveAuthSignOutClearsToken(t *testing.T) {
 	t.Parallel()
 
-	store := github.NewMemoryTokenStore("tok1")
+	store := seededCreds(t, "hayden", "tok1")
 	auth := newLiveAuthForTest(t, store, map[string]string{"tok1": "hayden"}, nil)
 	require.Equal(t, StateAuthenticated, auth.Status(t.Context()).State)
 
 	require.NoError(t, auth.SignOut())
 
-	stored, err := store.Token()
-	require.NoError(t, err)
-	assert.Empty(t, stored)
+	assert.Empty(t, storedToken(t, store))
 	assert.Equal(t, StateUnauthenticated, auth.Status(t.Context()).State)
 }
 

@@ -27,7 +27,7 @@ func notifyFlows() flowListerTest {
 	return flowListerTest{flows: []flow.Flow{{
 		ID: "triage",
 		Nodes: []flow.Node{
-			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{})},
+			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat"})},
 			{ID: "tell-me", Type: "notify", Name: "Tell me", Config: &flow.NotifyConfig{
 				Title: "{{ .Payload.repo }}", Body: "{{ .Payload.title }}", Severity: "warning", Sound: &silent,
 			}},

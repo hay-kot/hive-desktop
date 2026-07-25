@@ -11,6 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// testCredential is the account a seeded starter graph fetches as. Source
+// nodes carry a credential ref, so creating a flow has to name one.
+const testCredential = "github/octocat"
+
 func TestFlowStore_ListGet(t *testing.T) {
 	dir := t.TempDir()
 	writeFlow(t, dir, "triage.yaml", minimalValidFlowYAML())
@@ -66,7 +70,7 @@ func TestFlowStore_Save_PersistsAndReloads(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},
@@ -91,7 +95,7 @@ func TestFlowStore_Save_InvalidFlowRejected_LeavesLastGood(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},
@@ -101,7 +105,7 @@ func TestFlowStore_Save_InvalidFlowRejected_LeavesLastGood(t *testing.T) {
 	// An invalid edit: the source now has an unknown kind.
 	bad := good
 	bad.Nodes = append([]Node{}, good.Nodes...)
-	bad.Nodes[0] = Node{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "webhook"})}
+	bad.Nodes[0] = Node{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "webhook"})}
 
 	err := store.Save(bad)
 	require.Error(t, err)
@@ -140,7 +144,7 @@ func TestFlowStore_Create_SeedsStarterFlowWithUniqueID(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
 
-	f, err := store.Create("Frontend Triage")
+	f, err := store.Create("Frontend Triage", testCredential)
 	require.NoError(t, err)
 	assert.Equal(t, "frontend-triage", f.ID)
 	assert.Equal(t, "Frontend Triage", f.Name)
@@ -155,7 +159,7 @@ func TestFlowStore_Create_SeedsStarterFlowWithUniqueID(t *testing.T) {
 	assert.Equal(t, "Frontend Triage", loaded.Name)
 
 	// A second create of the same name gets a unique id, not a clobber.
-	f2, err := store.Create("Frontend Triage")
+	f2, err := store.Create("Frontend Triage", testCredential)
 	require.NoError(t, err)
 	assert.Equal(t, "frontend-triage-2", f2.ID)
 
@@ -168,7 +172,7 @@ func TestFlowStore_Create_SeedsANotifyingReviewRequestsFeed(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
 
-	f, err := store.Create("Work")
+	f, err := store.Create("Work", testCredential)
 	require.NoError(t, err)
 
 	nodesByID := map[string]Node{}
@@ -202,7 +206,7 @@ func TestFlowStore_Create_SeedsANotifyingReviewRequestsFeed(t *testing.T) {
 func TestFlowStore_Rename_UpdatesOnlyDisplayName(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	created, err := store.Create("Frontend Triage")
+	created, err := store.Create("Frontend Triage", testCredential)
 	require.NoError(t, err)
 
 	renamed, err := store.Rename(created.ID, "  Team Triage  ")
@@ -225,7 +229,7 @@ func TestFlowStore_Rename_UpdatesOnlyDisplayName(t *testing.T) {
 func TestFlowStore_SetEnabled_PreservesFlowAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	created, err := store.Create("Triage")
+	created, err := store.Create("Triage", testCredential)
 	require.NoError(t, err)
 
 	disabled, err := store.SetEnabled(created.ID, false)
@@ -256,7 +260,7 @@ func TestFlowStore_SetEnabled_PreservesFlowAndPersists(t *testing.T) {
 func TestFlowStore_Delete_RemovesFlowAndLayout(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	f, err := store.Create("Triage")
+	f, err := store.Create("Triage", testCredential)
 	require.NoError(t, err)
 
 	require.NoError(t, store.Delete(f.ID))

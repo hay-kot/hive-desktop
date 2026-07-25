@@ -79,7 +79,7 @@ func TestLoadFlow_IDIsFilenameStem(t *testing.T) {
 func minimalValidFlowYAML() string {
 	return `version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
   - { id: sink, type: feed }
 wires:
   - { from: src, to: sink }

@@ -13,6 +13,7 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
@@ -35,7 +36,7 @@ const (
 // GitHub-fetch implementation in the desktop.
 type LiveProvider struct {
 	client *github.Client
-	tokens github.TokenStore
+	tokens credentials.Resolver
 	logger zerolog.Logger
 	now    func() time.Time
 
@@ -79,7 +80,7 @@ func sourceKey(src SourceDef) string {
 	return src.Kind + "\x00" + src.Query + "\x00" + strconv.Itoa(src.effectiveLimit())
 }
 
-func NewLiveProvider(client *github.Client, tokens github.TokenStore, logger zerolog.Logger) *LiveProvider {
+func NewLiveProvider(client *github.Client, tokens credentials.Resolver, logger zerolog.Logger) *LiveProvider {
 	return &LiveProvider{
 		client:         client,
 		tokens:         tokens,
@@ -283,7 +284,7 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 		return cooldownErr
 	}
 
-	token, err := p.tokens.Token()
+	token, err := p.tokens()
 	if err == nil && token == "" {
 		err = ErrNotAuthenticated
 	}
@@ -346,7 +347,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 		return nil, err
 	}
 
-	token, err := p.tokens.Token()
+	token, err := p.tokens()
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +427,7 @@ func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || num <= 0 {
 		return github.Issue{}, fmt.Errorf("feed: invalid GitHub item %q#%d", repo, num)
 	}
-	token, err := p.tokens.Token()
+	token, err := p.tokens()
 	if err != nil {
 		return github.Issue{}, err
 	}

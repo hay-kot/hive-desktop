@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -38,25 +39,38 @@ var Descriptor = connector.Descriptor{
 }
 
 // NewFactory builds the instance half of the declaration over the live GitHub
-// fetch path. Two nodes with identical fetch config still share one API
-// request — LiveProvider keys its cache on kind+query+limit, not on id —
-// while producing distinct topics, so each flow ingests only its own rows.
-func NewFactory(live *feed.LiveProvider) connector.Factory {
-	events := newClassifier(&absenceConfirmer{live: live})
-
+// fetch path. The node's credential is resolved here, at construction: two
+// nodes on the same account share one fetcher — and therefore one API request
+// for identical fetch config, since LiveProvider keys its cache on
+// kind+query+limit rather than on id — while nodes on different accounts get
+// separate fetchers and cannot see each other's items.
+func NewFactory(fetchers *Fetchers) connector.Factory {
 	return connector.Factory{
 		New: func(node connector.Node, cfg connector.Config) (connector.Instance, error) {
 			config, ok := cfg.(*Config)
 			if !ok {
 				return connector.Instance{}, fmt.Errorf("github source %q: config is %T, want *github.Config", node.ID(), cfg)
 			}
+			ref, err := config.CredentialRef()
+			if err != nil {
+				return connector.Instance{}, fmt.Errorf("github source %q: %w", node.ID(), err)
+			}
+
+			live := fetchers.For(ref)
+			// Per instance rather than per factory: the absence confirmer
+			// fetches, so it has to fetch as the same account the source did.
+			events := newClassifier(&absenceConfirmer{live: live})
+
 			return connector.Instance{
 				Type: Descriptor.Type,
 				Node: node,
 				Metadata: connector.Metadata{
 					ProfileID:  node.FlowID,
 					SourceKind: SourceKind,
-					Policy:     node.Policy,
+					// The account distinguishes several GitHub sources within
+					// one flow, which is what SourceScope is for.
+					SourceScope: ref.Account,
+					Policy:      node.Policy,
 				},
 				Pull:       &source{live: live, def: sourceDef(node, config), topic: node.Topic()},
 				Classifier: events,
@@ -65,18 +79,27 @@ func NewFactory(live *feed.LiveProvider) connector.Factory {
 			}, nil
 		},
 		Prefetch: func(ctx context.Context, instances []connector.Instance) error {
-			defs := make([]feed.SourceDef, 0, len(instances))
+			// Bucketed by account: a batched search is one API request on one
+			// token, so instances on different accounts cannot share one.
+			byRef := map[credentials.Ref][]feed.SourceDef{}
 			for _, inst := range instances {
 				config, ok := inst.Config.(*Config)
 				if !ok || config.Kind != KindSearch {
 					continue
 				}
-				defs = append(defs, sourceDef(inst.Node, config))
+				ref, err := config.CredentialRef()
+				if err != nil {
+					continue
+				}
+				byRef[ref] = append(byRef[ref], sourceDef(inst.Node, config))
 			}
-			if len(defs) == 0 {
-				return nil
+
+			for ref, defs := range byRef {
+				if err := fetchers.For(ref).PrefetchSearch(ctx, defs); err != nil {
+					return fmt.Errorf("github prefetch for %s: %w", ref, err)
+				}
 			}
-			return live.PrefetchSearch(ctx, defs)
+			return nil
 		},
 	}
 }

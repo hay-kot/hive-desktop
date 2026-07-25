@@ -79,7 +79,7 @@ func newLiveProviderForTest(t *testing.T, api *searchBatchAPI, token string) (*L
 	server := httptest.NewServer(http.HandlerFunc(api.handler))
 	t.Cleanup(server.Close)
 	tokens := github.NewMemoryTokenStore(token)
-	live := NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), tokens, zerolog.Nop())
+	live := NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), tokens.Token, zerolog.Nop())
 	return live, tokens
 }
 
@@ -197,7 +197,7 @@ func newLiveProviderWithHandler(t *testing.T, handler http.HandlerFunc) *LivePro
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), github.NewMemoryTokenStore("token"), zerolog.Nop())
+	return NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), github.NewMemoryTokenStore("token").Token, zerolog.Nop())
 }
 
 func writeSearchResponse(w http.ResponseWriter) {

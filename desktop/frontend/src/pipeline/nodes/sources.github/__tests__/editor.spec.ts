@@ -6,14 +6,14 @@ import { chooseOption } from '../../../../test-utils/select'
 
 describe('sources.github editor', () => {
   it('renders the current kind and query', () => {
-    const config: Config = { kind: 'search', query: 'is:open is:pr' }
+    const config: Config = { credential: 'github/octocat', kind: 'search', query: 'is:open is:pr' }
     const wrapper = mount(Editor, { props: { config } })
     expect(wrapper.get('[data-testid="sources.github-editor-kind"]').text()).toContain('Search')
     expect(wrapper.get<HTMLInputElement>('[data-testid="sources.github-editor-query"]').element.value).toBe('is:open is:pr')
   })
 
   it('emits an immutable update:config on query edit, without mutating the config prop', async () => {
-    const config: Config = { kind: 'search', query: '' }
+    const config: Config = { credential: 'github/octocat', kind: 'search', query: '' }
     const wrapper = mount(Editor, { props: { config } })
 
     const input = wrapper.get<HTMLInputElement>('[data-testid="sources.github-editor-query"]').element
@@ -22,34 +22,48 @@ describe('sources.github editor', () => {
     await wrapper.vm.$nextTick()
 
     expect(config.query).toBe('') // prop untouched
-    expect(wrapper.emitted('update:config')).toEqual([[{ kind: 'search', query: 'is:open' }]])
+    expect(wrapper.emitted('update:config')).toEqual([[{ credential: 'github/octocat', kind: 'search', query: 'is:open' }]])
   })
 
   it('hides the query field and clears it when switching to notifications', async () => {
-    const config: Config = { kind: 'search', query: 'is:open' }
+    const config: Config = { credential: 'github/octocat', kind: 'search', query: 'is:open' }
     const wrapper = mount(Editor, { props: { config } })
 
     await chooseOption(wrapper, 'sources.github-editor-kind', 'notifications')
 
-    expect(wrapper.emitted('update:config')).toEqual([[{ kind: 'notifications', query: '' }]])
+    expect(wrapper.emitted('update:config')).toEqual([[{ credential: 'github/octocat', kind: 'notifications', query: '' }]])
     wrapper.unmount()
   })
 })
 
 describe('sources.github validate', () => {
   it('requires a query for search sources', () => {
-    expect(validate(defaults)).toEqual(['a search source requires a query'])
-    expect(validate({ kind: 'search', query: '  ' })).toEqual(['a search source requires a query'])
-    expect(validate({ kind: 'search', query: 'is:open' })).toEqual([])
+    expect(validate({ credential: 'github/octocat', kind: 'search', query: '  ' })).toEqual(['a search source requires a query'])
+    expect(validate({ credential: 'github/octocat', kind: 'search', query: 'is:open' })).toEqual([])
+  })
+
+  // A freshly dropped node names no account, exactly as it carries no query.
+  // Both are things the user supplies, so both are reported at once rather
+  // than one after the other.
+  it('reports the unset account alongside the unset query', () => {
+    expect(validate(defaults)).toEqual([
+      'a source needs a connected GitHub account',
+      'a search source requires a query',
+    ])
+  })
+
+  it('rejects a credential that is not a github ref', () => {
+    expect(validate({ credential: 'octocat', kind: 'notifications' })).toEqual(['credential must look like "github/<login>"'])
+    expect(validate({ credential: 'grafana/prod', kind: 'notifications' })).toEqual(['credential must look like "github/<login>"'])
   })
 
   it('rejects a query on notifications sources', () => {
-    expect(validate({ kind: 'notifications' })).toEqual([])
-    expect(validate({ kind: 'notifications', query: 'is:open' })).toEqual(['a notifications source takes no query'])
+    expect(validate({ credential: 'github/octocat', kind: 'notifications' })).toEqual([])
+    expect(validate({ credential: 'github/octocat', kind: 'notifications', query: 'is:open' })).toEqual(['a notifications source takes no query'])
   })
 
   it('enforces per-kind limit caps', () => {
-    expect(validate({ kind: 'search', query: 'x', limit: 101 })).toEqual(['search limit caps at 100'])
-    expect(validate({ kind: 'notifications', limit: 51 })).toEqual(['notifications limit caps at 50'])
+    expect(validate({ credential: 'github/octocat', kind: 'search', query: 'x', limit: 101 })).toEqual(['search limit caps at 100'])
+    expect(validate({ credential: 'github/octocat', kind: 'notifications', limit: 51 })).toEqual(['notifications limit caps at 50'])
   })
 })

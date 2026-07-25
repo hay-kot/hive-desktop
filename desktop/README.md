@@ -140,6 +140,7 @@ enabled: true
 nodes:
   - id: my-work
     type: sources.github
+    credential: github/octocat
     kind: search
     query: "is:open involves:@me archived:false"
     limit: 50

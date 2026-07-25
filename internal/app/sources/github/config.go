@@ -3,7 +3,15 @@ package github
 import (
 	"fmt"
 	"strings"
+
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 )
+
+// Provider is the credentials provider name every GitHub credential is filed
+// under. A ref is "github/<login>": the account half is the authenticated
+// user's login, which the vendored single-slot token store — pinned to one
+// constant keychain account — had no room to express.
+const Provider = "github"
 
 // The two fetch shapes a GitHub source can take. A search source runs a
 // query; a notifications source drains the authenticated user's inbox.
@@ -25,6 +33,10 @@ const (
 // strictly, so an unknown key is an error — and calls Validate for the
 // cross-field rules a schema cannot state.
 type Config struct {
+	// Credential names the account this source fetches as, "github/<login>".
+	// A ref and never a token: flows/ is dotfiles-managed, so an embedded
+	// token would be a token in a git repo.
+	Credential string `json:"credential" yaml:"credential" jsonschema:"title=Credential,description=The connected GitHub account to fetch as, as 'github/<login>'."`
 	// Kind selects the fetch shape.
 	Kind string `json:"kind" yaml:"kind" jsonschema:"title=Kind,enum=search,enum=notifications,description=search runs a GitHub search query; notifications drains the authenticated user's inbox."`
 	// Query is the GitHub search query. Required for kind "search"; a
@@ -37,6 +49,9 @@ type Config struct {
 // Validate mirrors the GitHub API's own constraints: search needs a query and
 // caps at one page of 100, notifications takes no query and caps at 50.
 func (c *Config) Validate() error {
+	if _, err := c.CredentialRef(); err != nil {
+		return err
+	}
 	switch c.Kind {
 	case KindSearch:
 		if strings.TrimSpace(c.Query) == "" {
@@ -61,4 +76,22 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("github source: limit must not be negative")
 	}
 	return nil
+}
+
+// CredentialRef is the parsed credential ref. A ref naming another provider
+// is rejected here rather than at fetch time: "grafana/prod" on a GitHub
+// source is a config mistake, and failing it at load says so, where failing
+// it at fetch surfaces as an empty feed.
+func (c *Config) CredentialRef() (credentials.Ref, error) {
+	if strings.TrimSpace(c.Credential) == "" {
+		return credentials.Ref{}, fmt.Errorf("github source: credential is required (e.g. %q)", Provider+"/octocat")
+	}
+	ref, err := credentials.ParseRef(c.Credential)
+	if err != nil {
+		return credentials.Ref{}, fmt.Errorf("github source: %w", err)
+	}
+	if ref.Provider != Provider {
+		return credentials.Ref{}, fmt.Errorf("github source: credential %q is not a %s credential", c.Credential, Provider)
+	}
+	return ref, nil
 }

@@ -124,13 +124,18 @@ func (s *FlowStore) Save(f Flow) error {
 // a flow id unique among existing flows, writes a starter graph plus its
 // layout, reloads, and returns the loaded flow. A profile is a flow, so this
 // is how the app's "New profile" affordance is backed.
-func (s *FlowStore) Create(name string) (Flow, error) {
+//
+// credential is the account the starter graph's source nodes fetch as, as
+// "github/<login>". A source node carries a credential ref, so a starter
+// graph cannot be seeded before one exists — which is why connecting an
+// account is the step before creating a workspace, not after.
+func (s *FlowStore) Create(name, credential string) (Flow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
 
 	id := s.uniqueIDLocked(slugify(name))
-	f, layout := starterFlow(id, name)
+	f, layout := starterFlow(id, name, credential)
 	if _, err := validateFlow(&f, s.refs); err != nil {
 		return Flow{}, fmt.Errorf("flow %q: %w", id, err)
 	}
@@ -248,7 +253,7 @@ func (s *FlowStore) uniqueIDLocked(base string) string {
 // review something" is the case a quiet feed cannot serve — the item sits
 // unread until you happen to look — and it should not require hand-authoring a
 // flow to get.
-func starterFlow(id, name string) (Flow, Layout) {
+func starterFlow(id, name, credential string) (Flow, Layout) {
 	seeds := []struct {
 		feedID, feedName, kind, query string
 	}{
@@ -265,7 +270,7 @@ func starterFlow(id, name string) (Flow, Layout) {
 	for i, seed := range seeds {
 		srcID := seed.feedID + "-src"
 		nodes = append(nodes,
-			Node{ID: srcID, Type: github.Descriptor.Type, Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: seed.kind, Query: seed.query})},
+			Node{ID: srcID, Type: github.Descriptor.Type, Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: credential, Kind: seed.kind, Query: seed.query})},
 			Node{ID: seed.feedID, Type: "feed", Name: seed.feedName, Config: &FeedConfig{}},
 		)
 		wires = append(wires, Wire{From: srcID, To: seed.feedID})

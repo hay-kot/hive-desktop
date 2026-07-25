@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -23,14 +24,18 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
+// testCredential is the account every fixture source fetches as. Sources
+// carry a credential ref now, so a test source has to name one.
+const testCredential = ghsource.Provider + "/octocat"
+
 // newSource constructs the connector the way the resolver does — through its
 // own factory — so these tests exercise the seam the producer uses rather
 // than an internal struct.
-func newSource(t *testing.T, live *feed.LiveProvider, kind, query string) connector.PullSource {
+func newSource(t *testing.T, fetchers *ghsource.Fetchers, kind, query string) connector.PullSource {
 	t.Helper()
-	instance, err := ghsource.NewFactory(live).New(
+	instance, err := ghsource.NewFactory(fetchers).New(
 		connector.Node{FlowID: "triage", NodeID: "in-prs"},
-		&ghsource.Config{Kind: kind, Query: query},
+		&ghsource.Config{Credential: testCredential, Kind: kind, Query: query},
 	)
 	require.NoError(t, err)
 	return instance.Pull
@@ -42,14 +47,14 @@ func sourceNode(id, kind, query string) flow.Node {
 	return flow.Node{
 		ID:     id,
 		Type:   ghsource.Descriptor.Type,
-		Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Kind: kind, Query: query}),
+		Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: testCredential, Kind: kind, Query: query}),
 	}
 }
 
 // newResolver wires the registry's instance half over the fake GitHub API.
-func newResolver(live *feed.LiveProvider, flows fakeFlows) *ingest.Resolver {
+func newResolver(fetchers *ghsource.Fetchers, flows fakeFlows) *ingest.Resolver {
 	return ingest.NewResolver(flows, map[string]connector.Factory{
-		ghsource.Descriptor.Type: ghsource.NewFactory(live),
+		ghsource.Descriptor.Type: ghsource.NewFactory(fetchers),
 	}, zerolog.Nop())
 }
 
@@ -113,25 +118,35 @@ func (a *singleSearchAPI) handler() http.Handler {
 	return mux
 }
 
-// newLiveProviderFixture constructs a real feed.LiveProvider against a fake
-// GitHub API. Source config now lives in the flow's sources.github nodes, not
-// a profiles config, so the provider needs no store.
-func newLiveProviderFixture(t *testing.T, api *singleSearchAPI) *feed.LiveProvider {
+// newFetchersFixture builds the per-account fetcher registry against a fake
+// GitHub API, with testCredential already connected.
+func newFetchersFixture(t *testing.T, api *singleSearchAPI) *ghsource.Fetchers {
 	t.Helper()
 	server := httptest.NewServer(api.handler())
 	t.Cleanup(server.Close)
 
+	creds := credentials.NewMemoryStore()
+	ref, err := credentials.ParseRef(testCredential)
+	require.NoError(t, err)
+	require.NoError(t, creds.Set(ref, "tok"))
+
 	client := github.NewClient(github.WithAPIBase(server.URL))
-	return feed.NewLiveProvider(client, github.NewMemoryTokenStore("tok"), zerolog.Nop())
+	return ghsource.NewFetchers(client, creds, zerolog.Nop())
+}
+
+// newUnconnectedFetchers has no credential stored, so every fetch fails with
+// ErrNotAuthenticated before reaching the network.
+func newUnconnectedFetchers() *ghsource.Fetchers {
+	return ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 func TestGithubSource_Produce_EmitsWireItems(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
+	fetchers := newFetchersFixture(t, api)
 
-	src := newSource(t, live, "search", "is:open is:pr author:@me")
+	src := newSource(t, fetchers, "search", "is:open is:pr author:@me")
 
 	var emitted []ingest.Msg
 	err := src.Produce(t.Context(), func(msg ingest.Msg) error {
@@ -159,8 +174,8 @@ func TestGithubSource_Produce_ReusesCoalescedFetch(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
-	src := newSource(t, live, "search", "is:open is:pr author:@me")
+	fetchers := newFetchersFixture(t, api)
+	src := newSource(t, fetchers, "search", "is:open is:pr author:@me")
 
 	for range 3 {
 		err := src.Produce(t.Context(), func(ingest.Msg) error { return nil })
@@ -173,10 +188,9 @@ func TestGithubSource_Produce_ReusesCoalescedFetch(t *testing.T) {
 func TestGithubSource_Produce_PropagatesFetchError(t *testing.T) {
 	t.Parallel()
 
-	// No token: LiveProvider.SourceItems fails with ErrNotAuthenticated
-	// before ever hitting the network.
-	live := feed.NewLiveProvider(github.NewClient(), github.NewMemoryTokenStore(""), zerolog.Nop())
-	src := newSource(t, live, "search", "is:open")
+	// No connected account: LiveProvider.SourceItems fails with
+	// ErrNotAuthenticated before ever hitting the network.
+	src := newSource(t, newUnconnectedFetchers(), "search", "is:open")
 
 	called := false
 	err := src.Produce(t.Context(), func(ingest.Msg) error {
@@ -191,7 +205,7 @@ func TestResolver_ResolvesEnabledSourceNodesAcrossFlows(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
+	fetchers := newFetchersFixture(t, api)
 
 	off := sourceNode("off", "notifications", "")
 	off.Disabled = true
@@ -214,7 +228,7 @@ func TestResolver_ResolvesEnabledSourceNodesAcrossFlows(t *testing.T) {
 		},
 	}
 
-	instances := newResolver(live, flows).PullInstances()
+	instances := newResolver(fetchers, flows).PullInstances()
 
 	// Only the one enabled node in the one enabled flow, addressed
 	// flow-qualified.
@@ -231,7 +245,7 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
+	fetchers := newFetchersFixture(t, api)
 	db := openTestPipelineDB(t)
 	flows := fakeFlows{
 		{
@@ -249,7 +263,7 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 			},
 		},
 	}
-	producer := ingest.NewProducer(db, newResolver(live, flows), time.Hour, nil, zerolog.Nop())
+	producer := ingest.NewProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
 
 	producer.Tick(t.Context())
 
@@ -275,7 +289,7 @@ func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
+	fetchers := newFetchersFixture(t, api)
 	db := openTestPipelineDB(t)
 
 	flows := fakeFlows{{
@@ -286,7 +300,7 @@ func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
 		},
 	}}
 
-	producer := ingest.NewProducer(db, newResolver(live, flows), time.Hour, nil, zerolog.Nop())
+	producer := ingest.NewProducer(db, newResolver(fetchers, flows), time.Hour, nil, zerolog.Nop())
 	producer.Tick(t.Context())
 
 	// source_kind alone does not prove it: Produce stamps "github" on every
@@ -318,7 +332,7 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	t.Parallel()
 
 	api := &singleSearchAPI{}
-	live := newLiveProviderFixture(t, api)
+	fetchers := newFetchersFixture(t, api)
 	db := openTestPipelineDB(t)
 
 	flows := fakeFlows{{
@@ -330,7 +344,7 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	}}
 
 	var appendedOffsets []int64
-	producer := ingest.NewProducer(db, newResolver(live, flows), 0, func(offset int64) {
+	producer := ingest.NewProducer(db, newResolver(fetchers, flows), 0, func(offset int64) {
 		appendedOffsets = append(appendedOffsets, offset)
 	}, zerolog.Nop())
 

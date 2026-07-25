@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
@@ -65,8 +67,11 @@ type Backend interface {
 // ── Live backend ─────────────────────────────────────────────────────────────
 
 type liveAuth struct {
-	client   *github.Client
-	tokens   github.TokenStore
+	client *github.Client
+	// creds is the credential store. A token is keyed by the login it belongs
+	// to, so storing one needs the user lookup that validation already
+	// performs.
+	creds    credentials.Store
 	clientID string
 	// onChange is called after every state transition (device flow grant or
 	// failure, token set, sign-out). main.go wires it to the auth:updated
@@ -78,12 +83,37 @@ type liveAuth struct {
 	cached     *Status
 }
 
-func NewLiveBackend(client *github.Client, tokens github.TokenStore, onChange func()) Backend {
+func NewLiveBackend(client *github.Client, creds credentials.Store, onChange func()) Backend {
 	clientID := os.Getenv(EnvGitHubClientID)
 	if clientID == "" {
 		clientID = defaultClientID
 	}
-	return &liveAuth{client: client, tokens: tokens, clientID: clientID, onChange: onChange}
+	return &liveAuth{
+		client:   client,
+		creds:    creds,
+		clientID: clientID,
+		onChange: onChange,
+	}
+}
+
+// connectedRefs is every stored GitHub credential. Several are representable
+// now that credentials are keyed by account; this backend still speaks of one
+// signed-in user, which is the shape the Integrations screen replaces.
+func (a *liveAuth) connectedRefs() ([]credentials.Ref, error) {
+	return credentials.ListProvider(a.creds, ghsource.Provider)
+}
+
+// token is the token to validate against, preferring the environment
+// override so a headless run needs no stored credential at all.
+func (a *liveAuth) token() (string, error) {
+	if value := os.Getenv(credentials.EnvOverrideName(ghsource.Provider)); value != "" {
+		return value, nil
+	}
+	refs, err := a.connectedRefs()
+	if err != nil || len(refs) == 0 {
+		return "", err
+	}
+	return credentials.Resolve(a.creds, refs[0])
 }
 
 func (a *liveAuth) Status(ctx context.Context) Status {
@@ -94,7 +124,7 @@ func (a *liveAuth) Status(ctx context.Context) Status {
 	}
 	a.mu.Unlock()
 
-	token, err := a.tokens.Token()
+	token, err := a.token()
 	if err != nil {
 		return Status{State: StateUnauthenticated, Message: err.Error()}
 	}
@@ -182,7 +212,7 @@ func (a *liveAuth) SetToken(ctx context.Context, token string) (Status, error) {
 		return Status{}, fmt.Errorf("validate token: %w", err)
 	}
 
-	if err := a.tokens.SetToken(token); err != nil {
+	if err := a.creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: user.Login}, token); err != nil {
 		return Status{}, err
 	}
 	status := authenticatedStatus(user)
@@ -201,7 +231,7 @@ func (a *liveAuth) adoptToken(ctx context.Context, token string) {
 		a.notify()
 		return
 	}
-	if err := a.tokens.SetToken(token); err != nil {
+	if err := a.creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: user.Login}, token); err != nil {
 		a.setCached(Status{State: StateUnauthenticated, Message: err.Error()})
 		a.notify()
 		return
@@ -221,15 +251,24 @@ func (a *liveAuth) CancelDeviceFlow() {
 
 func (a *liveAuth) SignOut() error {
 	a.CancelDeviceFlow()
-	if err := a.tokens.DeleteToken(); err != nil {
+	// Every connected account, not just one: sign-out means "this app holds
+	// no GitHub credentials", and leaving one behind would keep the feed
+	// fetching as an account the user believes they removed.
+	refs, err := a.connectedRefs()
+	if err != nil {
 		return err
+	}
+	for _, ref := range refs {
+		if err := a.creds.Delete(ref); err != nil {
+			return err
+		}
 	}
 	status := Status{State: StateUnauthenticated}
 	// The env override outranks the keychain, so deleting the keychain entry
 	// cannot revoke access; say so instead of silently bouncing back to
 	// authenticated on the next Status read.
-	if os.Getenv(github.EnvToken) != "" {
-		status.Message = "Signed out, but the " + github.EnvToken + " environment override is still set and keeps this session authenticated."
+	if envName := credentials.EnvOverrideName(ghsource.Provider); os.Getenv(envName) != "" {
+		status.Message = "Signed out, but the " + envName + " environment override is still set and keeps this session authenticated."
 	}
 	a.setCached(status)
 	a.notify()

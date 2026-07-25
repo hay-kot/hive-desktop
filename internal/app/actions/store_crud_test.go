@@ -289,7 +289,7 @@ func TestActionStoreDeleteDoesNotInvertActionAndFlowLocks(t *testing.T) {
 	refs := &blockingActionRefs{store: actions, entered: make(chan struct{}), release: make(chan struct{})}
 	flows := flow.NewFlowStore(t.TempDir(), refs)
 	f := flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
-		{ID: "source", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Kind: "search", Query: "is:open"})},
+		{ID: "source", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
 	}, Wires: []flow.Wire{{From: "source", To: "action"}}}
 

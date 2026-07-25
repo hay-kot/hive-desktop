@@ -11,10 +11,11 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
@@ -127,13 +128,13 @@ func (s *settingsServiceSource) callCount() int {
 func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-		provider := feed.NewLiveProvider(github.NewClient(), nil, zerolog.Nop())
+		fetchers := ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 		db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
 		producer := ingest.NewProducer(db, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
-		service := newSettingsService(producer, provider)
+		service := newSettingsService(producer, fetchers)
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 		saved, err := settings.LoadSettings()

@@ -37,7 +37,7 @@ func TestNode_JSONRoundTrip(t *testing.T) {
 }
 
 func TestNode_JSON_DisabledAndNameOmitEmpty(t *testing.T) {
-	n := Node{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})}
+	n := Node{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})}
 	data, err := json.Marshal(n)
 	require.NoError(t, err)
 	assert.NotContains(t, string(data), `"name"`)
@@ -66,7 +66,7 @@ func TestFlow_JSONRoundTrip(t *testing.T) {
 		Name:    "Frontend Triage",
 		Enabled: true,
 		Nodes: []Node{
-			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},

@@ -3,7 +3,9 @@ package app
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -12,11 +14,33 @@ import (
 type FlowsService struct {
 	flows     *flow.FlowStore
 	db        *store.DB
+	creds     credentials.Store
 	onUpdated func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, db: db, creds: creds, onUpdated: onUpdated}
+}
+
+// seedCredential is the account a new workspace's starter graph fetches as.
+//
+// Exactly one connected account is the case this resolves; several is
+// reported rather than guessed at, because seeding a whole workspace against
+// the wrong account is not something a user would notice until the feed was
+// already wrong.
+func (s *FlowsService) seedCredential() (string, error) {
+	refs, err := credentials.ListProvider(s.creds, ghsource.Provider)
+	if err != nil {
+		return "", Wrap(err, KindInternal, "reading credentials")
+	}
+	switch len(refs) {
+	case 0:
+		return "", Errorf(KindInvalid, "Connect a GitHub account before creating a workspace.")
+	case 1:
+		return refs[0].String(), nil
+	default:
+		return "", Errorf(KindInvalid, "Several GitHub accounts are connected; pick one to create a workspace with.")
+	}
 }
 
 func (s *FlowsService) notifyUpdated() {
@@ -31,9 +55,19 @@ func (s *FlowsService) Statuses(context.Context) []flow.FlowStatus {
 	return s.flows.Statuses()
 }
 
-// Create seeds a new flow named name.
+// Create seeds a new flow named name, whose starter graph fetches as the
+// connected GitHub account.
+//
+// No connected account is a KindInvalid failure rather than an empty starter
+// graph: the graph is the point of creating a workspace, and a workspace of
+// sources that cannot fetch is a worse first impression than being told to
+// connect an account first.
 func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error) {
-	f, err := s.flows.Create(name)
+	credential, err := s.seedCredential()
+	if err != nil {
+		return flow.Flow{}, err
+	}
+	f, err := s.flows.Create(name, credential)
 	if err != nil {
 		return flow.Flow{}, Wrap(err, KindInvalid, "creating flow %q", name)
 	}

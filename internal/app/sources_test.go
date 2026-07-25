@@ -8,18 +8,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
-// testFetcher builds a live provider without touching the network. Only its
-// identity matters here — the factories hold it, they do not call it.
-func testFetcher() *feed.LiveProvider {
-	return feed.NewLiveProvider(github.NewClient(), github.NewKeychainStore(), zerolog.Nop())
+// testFetchers builds the per-account fetcher registry without touching the
+// network or a keychain. Only its identity matters here — the factories hold
+// it, they do not fetch through it.
+func testFetchers() *ghsource.Fetchers {
+	return ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 // A connector's declaration is in two halves: the descriptor says what it is
@@ -31,7 +32,7 @@ func testFetcher() *feed.LiveProvider {
 func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetcher())
+	factories := sourceFactories(testFetchers())
 
 	for _, connectorType := range sources.Types() {
 		factory, ok := factories[connectorType]
@@ -53,7 +54,7 @@ func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetcher())
+	factories := sourceFactories(testFetchers())
 
 	for _, connectorType := range sources.Types() {
 		descriptor, _ := sources.Lookup(connectorType)
@@ -91,8 +92,8 @@ func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 	}
 }
 
-// Mock modes construct no fetcher. The GitHub connector must then be absent
-// from the factory map rather than present with a nil provider, because the
+// Mock modes construct no fetchers. The GitHub connector must then be absent
+// from the factory map rather than present with a nil registry, because the
 // resolver skips a connector with no factory and would dereference one that
 // has a broken factory.
 func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
@@ -114,6 +115,7 @@ func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
 func seedValidConfig(config connector.Config) error {
 	switch c := config.(type) {
 	case *ghsource.Config:
+		c.Credential = ghsource.Provider + "/octocat"
 		c.Kind, c.Query = ghsource.KindSearch, "is:open is:pr"
 	case *webhook.Config:
 		c.Path = "ci-alerts"

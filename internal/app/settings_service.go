@@ -6,6 +6,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
@@ -17,14 +18,14 @@ import (
 // fresh single-field Settings would clobber them.
 type SettingsService struct {
 	producer *ingest.Producer
-	fetcher  *feed.LiveProvider
+	fetchers *ghsource.Fetchers
 }
 
-// newSettingsService builds the service. producer and fetcher are nil in mock
-// mode, where persistence still works and there is simply nothing live to
-// apply a change to.
-func newSettingsService(producer *ingest.Producer, fetcher *feed.LiveProvider) *SettingsService {
-	return &SettingsService{producer: producer, fetcher: fetcher}
+// newSettingsService builds the service. producer and fetchers are nil in
+// mock mode, where persistence still works and there is simply nothing live
+// to apply a change to.
+func newSettingsService(producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
+	return &SettingsService{producer: producer, fetchers: fetchers}
 }
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.
@@ -149,8 +150,8 @@ func (s *SettingsService) SetGithub(_ context.Context, in GithubSettings) error 
 	if s.producer != nil {
 		s.producer.SetInterval(in.PollInterval)
 	}
-	if s.fetcher != nil {
-		s.fetcher.SetSearchTTL(in.PollInterval)
+	if s.fetchers != nil {
+		s.fetchers.SetSearchTTL(in.PollInterval)
 	}
 	return nil
 }

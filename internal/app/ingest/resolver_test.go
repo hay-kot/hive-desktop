@@ -40,7 +40,7 @@ func githubNode(id, kind, query string) flow.Node {
 	return flow.Node{
 		ID:     id,
 		Type:   ghsource.Descriptor.Type,
-		Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Kind: kind, Query: query}),
+		Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat", Kind: kind, Query: query}),
 	}
 }
 

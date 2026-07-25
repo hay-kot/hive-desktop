@@ -54,7 +54,7 @@ func triageFlow(id string, enabled bool) flow.Flow {
 		Name:    id,
 		Enabled: enabled,
 		Nodes: []flow.Node{
-			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Kind: "search", Query: "is:open"})},
+			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
 			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
 		},
 		Wires: []flow.Wire{{From: "src", To: "inbox"}},

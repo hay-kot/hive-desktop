@@ -15,6 +15,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/auth"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -82,7 +83,8 @@ type App struct {
 	ActivityStore *activity.Store
 	JobStore      *jobs.Store
 	AuthBackend   auth.Backend
-	Fetcher       *feed.LiveProvider
+	Fetchers      *ghsource.Fetchers
+	Credentials   credentials.Store
 
 	// Sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -139,9 +141,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.PollInterval = resolvePollInterval(cfg.Settings, cfg.Logger)
 
+	// Mock modes get an in-memory credential store: a keychain read can
+	// prompt, and a fixture run that prompts is a fixture run that hangs.
+	a.Credentials = buildCredentialStore(cfg.MockMode)
+
 	if cfg.MockMode == "" {
-		a.Fetcher = feed.NewLiveProvider(github.NewClient(), github.NewKeychainStore(), cfg.Logger)
-		a.Fetcher.SetSearchTTL(a.PollInterval)
+		a.Fetchers = ghsource.NewFetchers(github.NewClient(), a.Credentials, cfg.Logger)
+		a.Fetchers.SetSearchTTL(a.PollInterval)
 	}
 
 	db, err := store.Open(ctx, settings.StateDir(), store.DefaultOpenOptions())
@@ -160,8 +166,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.JobStore = jobs.NewStore(db, jobs.Options{Emit: func(id int64) {
 		a.Events.Publish(a.ctx, events.JobsUpdated{JobID: id})
 	}})
-	if a.Fetcher != nil {
-		a.Fetcher.SetRecorder(a.ActivityStore)
+	if a.Fetchers != nil {
+		a.Fetchers.SetRecorder(a.ActivityStore)
 	}
 
 	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
@@ -174,12 +180,12 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openFlows(cfg.Logger)
 	a.ActionStore.SetUsageChecker(newActionUsage(a.FlowStore, db))
 
-	a.AuthBackend = buildAuthBackend(cfg.MockMode, func() {
+	a.AuthBackend = buildAuthBackend(cfg.MockMode, a.Credentials, func() {
 		// Every auth transition drops the fetch cache before anything is
 		// notified: a different account must never be served items fetched
 		// with the previous token.
-		if a.Fetcher != nil {
-			a.Fetcher.Invalidate()
+		if a.Fetchers != nil {
+			a.Fetchers.InvalidateAll()
 		}
 		a.Events.Publish(a.ctx, events.AuthUpdated{State: a.AuthBackend.Status(a.ctx).State})
 	})
@@ -192,11 +198,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.ActionStore, a.Outputs, a.Launcher)
-	a.Flows = newFlowsService(a.FlowStore, db, func() { a.PublishFlowsUpdated("save") })
+	a.Flows = newFlowsService(a.FlowStore, db, a.Credentials, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.ActionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.ActionStore.List())})
 	})
-	a.Settings = newSettingsService(a.Producer, a.Fetcher)
+	a.Settings = newSettingsService(a.Producer, a.Fetchers)
 	a.System = newSystemService()
 	a.Webhooks = newWebhookService(db, a.Webhook, a.WebhookPort)
 	a.Auth = newAuthService(a.AuthBackend)
@@ -295,15 +301,25 @@ func resolvePollInterval(cfg settings.Settings, logger zerolog.Logger) time.Dura
 	return resolved
 }
 
-func buildAuthBackend(mock string, onChange func()) auth.Backend {
+func buildAuthBackend(mock string, creds credentials.Store, onChange func()) auth.Backend {
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
 		return auth.NewMockBackend(true, onChange)
 	case "onboarding":
 		return auth.NewMockBackend(false, onChange)
 	default:
-		return auth.NewLiveBackend(github.NewClient(), github.NewKeychainStore(), onChange)
+		return auth.NewLiveBackend(github.NewClient(), creds, onChange)
 	}
+}
+
+// buildCredentialStore picks the credential backing. Mock modes never touch
+// the OS keychain: reading one can prompt, and the e2e harness has no way to
+// answer.
+func buildCredentialStore(mock string) credentials.Store {
+	if mock != "" {
+		return credentials.NewMemoryStore()
+	}
+	return credentials.NewKeychainStore(settings.CredentialsIndexPath())
 }
 
 // openActions loads actions.yml eagerly — rather than waiting for the first
@@ -409,21 +425,21 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.FlowStore, sourceFactories(a.Fetcher), logger)
+	return ingest.NewResolver(a.FlowStore, sourceFactories(a.Fetchers), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetcher *feed.LiveProvider) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
 		webhook.Descriptor.Type: webhook.NewFactory(),
 	}
-	// Mock modes have no fetcher, so the GitHub connector has nothing to
+	// Mock modes have no fetchers, so the GitHub connector has nothing to
 	// construct instances over and is left out of the map: resolving one logs
 	// and skips rather than dereferencing nil.
-	if fetcher != nil {
-		factories[ghsource.Descriptor.Type] = ghsource.NewFactory(fetcher)
+	if fetchers != nil {
+		factories[ghsource.Descriptor.Type] = ghsource.NewFactory(fetchers)
 	}
 	return factories
 }
@@ -432,7 +448,7 @@ func sourceFactories(fetcher *feed.LiveProvider) map[string]connector.Factory {
 // enabled pull-mode source node across all flows. Mock modes have no fetcher
 // and therefore no producer.
 func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
-	if a.Fetcher == nil {
+	if a.Fetchers == nil {
 		return nil
 	}
 	producer := ingest.NewProducer(a.Store, a.Sources, a.PollInterval, a.PublishLogAppended, logger)

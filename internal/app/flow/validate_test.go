@@ -44,7 +44,7 @@ wires:
 func TestValidate_OutOfRangeWirePort(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
   - { id: sink, type: feed }
 wires:
   - { from: src, out: 1, to: sink }
@@ -56,8 +56,8 @@ wires:
 func TestValidate_WireIntoSource_IsError(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src1, type: sources.github, kind: search, query: "is:open" }
-  - { id: src2, type: sources.github, kind: search, query: "is:open" }
+  - { id: src1, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
+  - { id: src2, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
 wires:
   - { from: src1, to: src2 }
 `), nil)
@@ -80,8 +80,8 @@ wires:
 func TestValidate_DuplicateNodeID(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: dup, type: sources.github, kind: search, query: "is:open" }
-  - { id: dup, type: sources.github, kind: search, query: "is:open" }
+  - { id: dup, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
+  - { id: dup, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate node id")
@@ -90,7 +90,7 @@ nodes:
 func TestValidate_DuplicateWire(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
   - { id: sink, type: feed }
 wires:
   - { from: src, out: 0, to: sink }
@@ -121,7 +121,7 @@ nodes:
 func TestValidate_BadSlug(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: "Not_A_Slug!", type: sources.github, kind: search, query: "is:open" }
+  - { id: "Not_A_Slug!", type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "slug")
@@ -141,7 +141,7 @@ nodes:
 func TestValidate_GithubSource_KindRequired(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github }
+  - { id: src, type: sources.github, credential: github/octocat }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "kind is required")
@@ -150,7 +150,7 @@ nodes:
 func TestValidate_GithubSource_SearchNeedsQuery(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "requires a query")
@@ -159,7 +159,7 @@ nodes:
 func TestValidate_GithubSource_NotificationsRejectsQuery(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: notifications, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: notifications, query: "is:open" }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "takes no query")
@@ -168,7 +168,7 @@ nodes:
 func TestValidate_GithubSource_UnknownKind(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: webhook }
+  - { id: src, type: sources.github, credential: github/octocat, kind: webhook }
 `), nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown kind")
@@ -177,7 +177,7 @@ nodes:
 func TestValidate_GithubSource_NotificationsOK(t *testing.T) {
 	_, _, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: notifications }
+  - { id: src, type: sources.github, credential: github/octocat, kind: notifications }
 `), nil)
 	require.NoError(t, err)
 }
@@ -216,7 +216,7 @@ nodes:
 func TestValidate_DisabledNode_IsWarningNotError(t *testing.T) {
 	f, warnings, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open", disabled: true }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open", disabled: true }
   - { id: sink, type: feed }
 wires:
   - { from: src, to: sink }
@@ -236,7 +236,7 @@ wires:
 func TestValidate_UntargetedTerminal_IsWarningNotError(t *testing.T) {
 	_, warnings, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
   - { id: sink, type: feed }
 wires: []
 `), nil)
@@ -253,7 +253,7 @@ wires: []
 func TestValidate_NoTerminal_IsWarningNotError(t *testing.T) {
 	_, warnings, err := parseFlow("f", []byte(`version: 1
 nodes:
-  - { id: src, type: sources.github, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
 `), nil)
 	require.NoError(t, err)
 	found := false

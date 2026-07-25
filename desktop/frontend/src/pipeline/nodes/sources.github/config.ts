@@ -23,6 +23,12 @@ export const sourceKind = 'github'
 export type SourceKind = 'search' | 'notifications'
 
 export interface Config {
+  /**
+   * The connected account this source fetches as, as "github/<login>". A ref
+   * and never a token: flows/ is dotfiles-managed, so an embedded token would
+   * be a token in a git repo.
+   */
+  credential: string
   /** "search" runs a GitHub search query; "notifications" drains the inbox. */
   kind: SourceKind
   /** Search query (required for kind "search"; unused for "notifications"). */
@@ -41,6 +47,7 @@ export const accentToken = 'var(--color-node-blue)'
 export const tint = 'var(--color-node-blue-tint)'
 
 export const defaults: Config = {
+  credential: '',
   kind: 'search',
   query: '',
 }
@@ -48,6 +55,11 @@ export const defaults: Config = {
 /** UX-only — Go's SaveFlow validator is authoritative. */
 export function validate(config: Config): string[] {
   const errors: string[] = []
+  if (!config.credential || !config.credential.trim()) {
+    errors.push('a source needs a connected GitHub account')
+  } else if (!/^github\/[^/]+$/.test(config.credential.trim())) {
+    errors.push('credential must look like "github/<login>"')
+  }
   if (config.kind === 'search') {
     if (!config.query || !config.query.trim()) errors.push('a search source requires a query')
     if (typeof config.limit === 'number' && config.limit > 100) errors.push('search limit caps at 100')

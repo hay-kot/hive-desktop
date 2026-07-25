@@ -11,7 +11,7 @@
 version: 1
 name: Frontend Triage
 nodes:
-  - { id: gh-source, type: sources.github, kind: search, query: "is:open is:pr archived:false" }
+  - { id: gh-source, type: sources.github, credential: github/octocat, kind: search, query: "is:open is:pr archived:false" }
   - { id: notifications-inbox, type: feed, name: "Notifications inbox" }
 wires:
   - { from: gh-source, to: notifications-inbox }

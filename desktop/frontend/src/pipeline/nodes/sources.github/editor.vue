@@ -17,6 +17,10 @@ const KIND_OPTIONS: SelectOption[] = [
 
 const isSearch = computed(() => props.config.kind === 'search')
 
+function updateCredential(credential: string) {
+  emit('update:config', { ...props.config, credential })
+}
+
 function updateKind(kind: string) {
   // Switching to notifications clears the now-meaningless query.
   const next: Config = { ...props.config, kind: kind as SourceKind }
@@ -35,6 +39,15 @@ function updateLimit(limit: number) {
 
 <template>
   <div class="flex flex-col gap-4">
+    <TextField
+      label="Account"
+      :model-value="config.credential ?? ''"
+      placeholder="github/octocat"
+      hint="The connected GitHub account to fetch as. Connect one in Settings ▸ Integrations."
+      monospace
+      testid="sources.github-editor-credential"
+      @update:model-value="updateCredential"
+    />
     <SelectField
       label="Kind"
       :model-value="config.kind"

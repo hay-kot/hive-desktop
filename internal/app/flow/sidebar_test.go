@@ -65,7 +65,7 @@ func TestFlowStore_SidebarRoundTrip(t *testing.T) {
 func TestFlowStore_Delete_RemovesSidebarFile(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	f, err := store.Create("Triage")
+	f, err := store.Create("Triage", testCredential)
 	require.NoError(t, err)
 	require.NoError(t, store.SaveSidebar(f.ID, sampleSidebar()))
 

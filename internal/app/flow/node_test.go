@@ -20,6 +20,7 @@ func decodeNode(t *testing.T, yamlStr string) (Node, error) {
 func TestNode_DecodesReservedFieldsAndConfig(t *testing.T) {
 	n, err := decodeNode(t, `id: src
 type: sources.github
+credential: github/octocat
 name: My Source
 disabled: true
 kind: search
@@ -54,6 +55,7 @@ type: not-a-real-type
 func TestNode_UnknownPerTypeField_IsHardError(t *testing.T) {
 	_, err := decodeNode(t, `id: src
 type: sources.github
+credential: github/octocat
 kind: search
 query: "is:open"
 extra_field: nope
