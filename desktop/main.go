@@ -3,13 +3,11 @@ package main
 import (
 	"context"
 	"embed"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -54,49 +52,6 @@ var appIcon []byte
 //go:embed build/icons/tray-templateTemplate@2x.png
 var trayIcon []byte
 
-// Package-variable initialization instead of init(): this repo enables
-// gochecknoinits.
-var _ = registerEvents()
-
-func registerEvents() struct{} {
-	// auth:updated carries the new auth state string; log:appended carries the
-	// pipeline event log's new tail offset after a producer tick appends at
-	// least one row; flows:updated fires after a flows/*.yaml directory reload
-	// (an external edit, or the app's own SaveFlow/SaveLayout — see
-	// buildFlowsStore); actions:updated fires after an actions.yml reload.
-	// All are wake-up signals: the frontend re-reads the relevant service on
-	// receipt.
-	application.RegisterEvent[string]("auth:updated")
-	application.RegisterEvent[int64]("log:appended")
-	application.RegisterEvent[string]("flows:updated")
-	application.RegisterEvent[string]("actions:updated")
-	application.RegisterEvent[string]("jobs:updated")
-	// window:focus and window:blur carry the current focus state. Consumers use
-	// them to update focus-sensitive UI without querying the native window.
-	application.RegisterEvent[bool]("window:focus")
-	application.RegisterEvent[bool]("window:blur")
-	// activity:appended carries the new event's id after any subsystem (or the
-	// frontend, via wailsui.ActivityService.Record) appends to the activity log. The
-	// Activity view re-reads its latest page and advances its unseen marker.
-	application.RegisterEvent[int64]("activity:appended")
-	// update:available carries the latest wailsui.UpdateInfo when a self-update check
-	// finds a newer desktop release; update:none fires when the check confirms
-	// the app is current. The title bar reacts to update:available.
-	application.RegisterEvent[wailsui.UpdateInfo]("update:available")
-	application.RegisterEvent[wailsui.UpdateInfo]("update:none")
-	// notification:activated carries the workspace and inbox item behind a
-	// native notification the user clicked. Unlike the wake-up signals above
-	// its payload is the whole message: the window is already being raised by
-	// the time it fires, and the frontend's job is only to route to that item.
-	application.RegisterEvent[wailsui.NotificationActivation]("notification:activated")
-	// notification:toast carries a flow notification the user chose to receive
-	// inside Hive rather than as an OS banner (Settings -> Notifications ->
-	// Delivery). The frontend surfaces it through the same toast stack every
-	// other in-app notification uses.
-	application.RegisterEvent[wailsui.NotificationToast]("notification:toast")
-	return struct{}{}
-}
-
 // buildSourceFetcher builds the GitHub fetch layer the pipeline producer polls
 // through, or nil in a mock mode (where the producer is skipped anyway — see
 // buildPipelineProducer). Now that a profile is a flow, there is no profiles
@@ -116,20 +71,11 @@ func buildPipelineProducer(db *store.DB, fetcher *feed.LiveProvider, flows inges
 	if fetcher == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(db, ghsource.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
+	producer := ingest.NewProducer(db, ghsource.NewFlowSourceLister(fetcher, flows), interval, wailsui.EmitLogAppended, logger)
 	producer.SetRecorder(recorder)
 	producer.SetPrefetcher(fetcher)
 	producer.SetSourceAdapter(ghsource.NewGithubSourceAdapter(fetcher))
 	return producer
-}
-
-// emitLogAppended pushes the pipeline event log's new tail offset to the
-// frontend after a producer tick appends at least one row. Safe to call
-// from the producer goroutine once the app is running.
-func emitLogAppended(nextOffset int64) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("log:appended", nextOffset)
-	}
 }
 
 func buildAuthBackend(onChange func()) auth.Backend {
@@ -140,81 +86,6 @@ func buildAuthBackend(onChange func()) auth.Backend {
 		return auth.NewMockBackend(false, onChange)
 	default:
 		return auth.NewLiveBackend(github.NewClient(), github.NewKeychainStore(), onChange)
-	}
-}
-
-// emitActivityAppended pushes the activity:appended wake-up (carrying the new
-// event's id) to the frontend after any subsystem records an activity event.
-// Safe to call from any goroutine once the app is running.
-func emitActivityAppended(id int64) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("activity:appended", id)
-	}
-}
-
-// emitJobsUpdated wakes frontend consumers after any successful job lifecycle
-// transition. The payload is intentionally only a wake-up signal.
-func emitJobsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("jobs:updated", "changed")
-	}
-}
-
-// emitNotificationActivated tells the frontend which item a clicked
-// notification came from, so it can route to it.
-func emitNotificationActivated(activation wailsui.NotificationActivation) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("notification:activated", activation)
-	}
-}
-
-// notificationActivation reads the item a clicked notification was sent
-// about out of the payload the notify executor attached to it. The user info
-// makes a native round trip, so its numbers come back in whatever shape the
-// platform's serialization chose — hence the tolerant decode. App-level
-// notifications carry no such payload and report false.
-func notificationActivation(result wailsnotify.NotificationResult) (wailsui.NotificationActivation, bool) {
-	profileID, _ := result.Response.UserInfo["profileId"].(string)
-	if profileID == "" {
-		return wailsui.NotificationActivation{}, false
-	}
-	activation := wailsui.NotificationActivation{ProfileID: profileID}
-	switch id := result.Response.UserInfo["itemId"].(type) {
-	case float64:
-		activation.ItemID = int64(id)
-	case int64:
-		activation.ItemID = id
-	case int:
-		activation.ItemID = int64(id)
-	case json.Number:
-		activation.ItemID, _ = id.Int64()
-	case string:
-		activation.ItemID, _ = strconv.ParseInt(id, 10, 64)
-	}
-	return activation, true
-}
-
-// emitWindowFocus pushes the current focused state to the frontend. Safe to
-// call from native window event callbacks once the app is running.
-func emitWindowFocus() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("window:focus", true)
-	}
-}
-
-// emitWindowBlur pushes the current unfocused state to the frontend. Safe to
-// call from native window event callbacks once the app is running.
-func emitWindowBlur() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("window:blur", false)
-	}
-}
-
-// emitAuthUpdated pushes the auth:updated wake-up to the frontend. Safe to
-// call from any goroutine once the app is running.
-func emitAuthUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("auth:updated", "changed")
 	}
 }
 
@@ -243,22 +114,6 @@ func buildFlowsStore(actionStore *actions.ActionStore, onUpdated func(), logger 
 	return store, watcher
 }
 
-// emitFlowsUpdated pushes the flows:updated wake-up to the frontend. Safe to
-// call from any goroutine once the app is running.
-func emitFlowsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("flows:updated", "changed")
-	}
-}
-
-// emitActionsUpdated wakes frontend consumers after a successful catalog
-// change or a watcher reload. Service mutations call it only after success.
-func emitActionsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("actions:updated", "changed")
-	}
-}
-
 // buildActionStore constructs the actions.ActionStore over
 // settings.ActionsPath(), loading it eagerly (rather than waiting for the
 // first lazy List/Get) so a broken actions.yml is logged at startup instead
@@ -281,7 +136,7 @@ func buildActionStore(recorder activity.Recorder, logger zerolog.Logger) (*actio
 		if err := store.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("actions.yml reload failed")
 		}
-		emitActionsUpdated()
+		wailsui.EmitActionsUpdated()
 		// A hand edit (or the app's own write) reloaded actions.yml: record the
 		// now-effective action count so the change is auditable.
 		if recorder != nil {
@@ -444,8 +299,8 @@ func main() {
 	// Activity view (producer, worker, session launcher, config watcher) and by
 	// the wailsui.ActivityService the frontend reads/writes. It emits activity:appended
 	// on each append so open views refresh.
-	activityStore := activity.NewStore(pipelineDB, activity.Options{Emit: emitActivityAppended})
-	jobStore := jobs.NewStore(pipelineDB, jobs.Options{Emit: func(int64) { emitJobsUpdated() }})
+	activityStore := activity.NewStore(pipelineDB, activity.Options{Emit: wailsui.EmitActivityAppended})
+	jobStore := jobs.NewStore(pipelineDB, jobs.Options{Emit: func(int64) { wailsui.EmitJobsUpdated() }})
 	if fetcher != nil {
 		fetcher.SetRecorder(activityStore)
 	}
@@ -468,7 +323,7 @@ func main() {
 
 	var refreshProfileTray func()
 	onFlowsUpdated := func() {
-		emitFlowsUpdated()
+		wailsui.EmitFlowsUpdated()
 		if refreshProfileTray != nil {
 			refreshProfileTray()
 		}
@@ -535,7 +390,7 @@ func main() {
 	webhookEnabled := cfg.WebhookEnabledOrDefault()
 	var webhookListener *webhook.Listener
 	if webhookEnabled && webhookPort > 0 && (settings.MockMode() == "" || os.Getenv(settings.EnvWebhookPort) != "") {
-		webhookListener = webhook.NewListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
+		webhookListener = webhook.NewListener(pipelineDB, flowsStore, webhookPort, wailsui.EmitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
 		if err := webhookListener.Start(); err != nil {
 			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")
@@ -549,7 +404,7 @@ func main() {
 		if fetcher != nil {
 			fetcher.Invalidate()
 		}
-		emitAuthUpdated()
+		wailsui.EmitAuthUpdated()
 	}
 
 	// The updater service is created before the app (it goes in the Services
@@ -563,7 +418,7 @@ func main() {
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
 		application.NewService(wailsui.NewPipelineService(pipelineDB, actionStore, outputWorker, actionRuntime.launcher)),
 		application.NewService(wailsui.NewFlowsService(flowsStore, pipelineDB, onFlowsUpdated)),
-		application.NewService(wailsui.NewActionsService(actionStore, emitActionsUpdated)),
+		application.NewService(wailsui.NewActionsService(actionStore, wailsui.EmitActionsUpdated)),
 		application.NewService(wailsui.NewActivityService(activityStore)),
 		application.NewService(wailsui.NewJobService(jobStore)),
 		application.NewService(wailsui.NewSystemService(resolvedBuildInfo())),
@@ -652,20 +507,20 @@ func main() {
 		nativeNotifications.OnNotificationResponse(func(result wailsnotify.NotificationResult) {
 			window.Show()
 			window.Focus()
-			if activation, ok := notificationActivation(result); ok {
-				emitNotificationActivated(activation)
+			if activation, ok := wailsui.NotificationActivationFrom(result); ok {
+				wailsui.EmitNotificationActivated(activation)
 			}
 		})
 	}
 
 	window.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
 		if focus.Set(true) {
-			emitWindowFocus()
+			wailsui.EmitWindowFocus()
 		}
 	})
 	window.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
 		if focus.Set(false) {
-			emitWindowBlur()
+			wailsui.EmitWindowBlur()
 		}
 	})
 
@@ -677,7 +532,7 @@ func main() {
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		window.Hide()
 		if focus.Set(false) {
-			emitWindowBlur()
+			wailsui.EmitWindowBlur()
 		}
 		e.Cancel()
 	})

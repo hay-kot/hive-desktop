@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -131,7 +132,7 @@ func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB) error {
 		}
 	}
 	if lastOffset > 0 {
-		emitLogAppended(lastOffset)
+		wailsui.EmitLogAppended(lastOffset)
 	}
 	return nil
 }
