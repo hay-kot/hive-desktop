@@ -7,6 +7,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/colonyops/hive v0.57.1-0.20260723192937-81bc4a047d45
+	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
 	github.com/hay-kot/criterio v1.0.0
@@ -40,9 +41,12 @@ require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/dlclark/regexp2/v2 v2.5.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
+	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/google/pprof v0.0.0-20250317173921-a4b03ec1a45e // indirect
 	github.com/gorilla/css v1.0.1 // indirect
 	github.com/jchv/go-winloader v0.0.0-20250406163304-c1995be93bd1 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
