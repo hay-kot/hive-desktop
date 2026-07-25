@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 )
 
 // githubSource is the Source that produces one flow github-source node's

@@ -8,8 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 )
 
 // MockFlowID, MockSourceNodeID, and MockFeedNodeID identify the fixture graph

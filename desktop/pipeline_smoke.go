@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 

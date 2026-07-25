@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 )
 
 type githubAbsenceConfirmer struct{ live *feed.LiveProvider }
