@@ -53,9 +53,9 @@ internal/app/             # the headless core — no transport, no Wails
   actions/                # actions.yml store, watcher, seed, editable model, Refs
     docs/                 # per-action-type markdown, rendered into the prompt
   ingest/                 # the producer loop and retention: sources -> event log
-  runtime/                # the graph engine: a flow + a batch -> a CommitBatch
+  runtime/                # the flow engine: index a flow, run a batch, commit
     js/                   # the ScriptRuntime port's goja implementation
-    testdata/parity/      # fixtures both engines execute (see below)
+    testdata/parity/      # fixture flows + expected commits (see Testing)
   dispatch/               # output worker, dispatcher, executors
   sources/github/         # the GitHub connector; feed/ is its fetch layer
   sources/webhook/        # the local webhook ingress
@@ -67,27 +67,24 @@ The dependency rule is enforced, not just documented: `depguard` fails any
 
 Frontend (`frontend/src/`): `App.vue` + `components/` (feed UI), `composables/`
 (`useFeedState`, `useAuth`, …), `pipeline/` (the flow editor — canvas, node
-palette, in-browser graph engine in `pipeline/engine/`), `lib/` (presentation
+palette, node editors), `lib/` (presentation
 helpers), `types/`. TS bindings to Go services are **generated** into
 `frontend/bindings/` — see Code generation.
 
-**The in-browser graph engine is being removed, and its replacement already
-exists.** `internal/app/runtime` is the Go engine (ADR 0011); `pipeline/engine/`,
-`driver.ts`, `processors.ts` and `nodes/*/runtime.ts` are still what executes
-deployed flows until the cutover. **Do not add node execution logic to the
-frontend.** A new node type gets its editor
-(`nodes/<type>/{config.ts,editor.vue,index.ts}`) in the frontend, and its
-schema, validation, docs *and execution* in Go. See `architecture.md` ▸
-Execution model.
+**Flow execution is Go's, and nothing about it lives here.**
+`internal/app/runtime` owns graph execution and `app.Engine` drives it: it
+installs a runner per enabled flow at startup, reinstalls on a flows change,
+and drains the event log on every append — all with this window closed (ADRs
+0010, 0011). **Do not add node execution logic to the frontend.** A new node
+type gets its editor (`nodes/<type>/{config.ts,editor.vue,index.ts}`) here,
+and its schema, validation, docs *and execution* in Go. See `architecture.md`
+▸ Execution model. `pipeline/__tests__/import-hygiene.spec.ts` fails if a
+`nodes/*/runtime.ts` reappears.
 
-While both engines exist they are held to the same answer by
-`internal/app/runtime/testdata/parity/*.json`: `internal/app/runtime/parity_test.go`
-runs every fixture through the Go engine and
-`pipeline/engine/__tests__/parity.spec.ts` runs the same files through this
-one, each comparing against the same expected `CommitBatch`. A change to
-routing, sink tagging or accounting belongs in a fixture — if only one engine
-satisfies it, the port is not finished. Only `durMs` and `err` are normalized
-away, because one is wall-clock and the other is each engine's own wording.
+The frontend learns that a run landed from **`inbox:updated`**, not
+`log:appended`. The log growing only says a source observed something, which
+may route nowhere; `inbox:updated` fires after the engine has committed, which
+is the moment membership claims and inbox items are readable.
 
 ## Development
 
@@ -127,9 +124,14 @@ verification concern — it cannot be checked headlessly.
 ## Testing
 
 - **Unit** (`mise run desktop:test`): Go logic (`go test ./desktop/...
-  ./internal/app/... ./internal/adapter/...`) + frontend `vitest`. `store`
-  tests use real SQLite. This is the default gate for backend/frontend
-  changes.
+  ./internal/app/... ./internal/adapter/...`) + frontend `vitest`. `store` and
+  `runtime` tests use real SQLite. This is the default gate for
+  backend/frontend changes.
+- **Engine fixtures** (`internal/app/runtime/testdata/parity/*.json`): a flow, a
+  batch of log messages, and the exact `CommitBatch` they are worth. A change
+  to routing, sink tagging or node-run accounting belongs in one of these; they
+  are cheaper to read than the engine and they were the proof the port off the
+  browser engine was faithful (ADR 0011).
 - **E2E** (`mise run desktop:e2e`): **Docker-only.** Builds the digest-pinned
   Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright inside it
   against private feed / onboarding / pipeline / action-smoke server instances.
@@ -177,6 +179,11 @@ reason it is being done now.
   event the frontend already knows — `auth:updated`, `log:appended`,
   `flows:updated`, `actions:updated`. On receipt the frontend re-reads the
   relevant service; the signal just says "something changed".
+
+  `inbox:updated` is the one that matters most for the feed: the flow engine
+  publishes `InboxUpdated` after it commits, and that — not `log:appended` — is
+  when membership claims and inbox items are readable. A log row may route
+  nowhere at all.
 
   Adding an event is three things: a payload type in `app/events/events.go`
   (its `eventName` method is unexported, so an adapter cannot invent one), a

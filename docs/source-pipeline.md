@@ -1,10 +1,10 @@
 # The desktop source pipeline
 
 Hive Desktop is an inbox-first system for GitHub observations. Each profile is
-a flow. Sources collect observations, Go classifies and durably persists them,
-and the frontend flow engine decides which unarchived items belong to each
-sidebar feed. This separation keeps an item’s identity and triage state stable
-while flows, filters, and feed membership change.
+a flow. Sources collect observations, ingestion classifies and durably persists
+them, and the flow engine decides which unarchived items belong to each sidebar
+feed. This separation keeps an item’s identity and triage state stable while
+flows, filters, and feed membership change.
 
 ## Architecture
 
@@ -15,13 +15,13 @@ The pipeline has three cooperating parts:
    corresponding `inbox_item`; noteworthy classifications also append an
    `inbox_event`. Ingestion owns item identity, payload, revision, lifecycle,
    unread state, and archive state.
-2. **The frontend engine** evaluates each enabled flow. Its ordinary event-log
-   pass advances a durable consumer offset, records node-run diagnostics, and
-   can enqueue deduplicated actions. On startup and deploy, its synthetic replay
-   evaluates each source node's latest authoritative snapshot and resolves
-   outputs against the current unarchived inbox. It then atomically installs
-   those membership claims and fast-forwards the consumer to the captured log
-   tail without enqueuing actions.
+2. **The flow engine** (`internal/app/runtime`) evaluates each enabled flow.
+   Its ordinary event-log pass advances a durable consumer offset, records
+   node-run diagnostics, and can enqueue deduplicated actions. On startup and
+   deploy, its synthetic replay evaluates each source node's latest
+   authoritative snapshot and resolves outputs against the current unarchived
+   inbox. It then atomically installs those membership claims and fast-forwards
+   the consumer to the captured log tail without enqueuing actions.
 3. **The desktop UI** reads inbox views and feed membership claims. It provides
    triage controls over the same durable inbox state rather than maintaining a
    separate read-state store.
@@ -37,7 +37,7 @@ github-source → Go producer → classify and persist
             inbox_item                   inbox_event
                  │                           │
                  ▼                           ▼
-      frontend flow engine             observed history
+         flow engine                   observed history
                  │
                  ▼
      feed_membership_claim ───► inbox and feed views
@@ -66,7 +66,7 @@ services in `internal/app/`.
 | --- | --- | --- |
 | `inbox_item` | Canonical per-profile observation identity, latest payload, revision, lifecycle, unread state, and archive metadata. Its unique key is profile, source kind, source scope, and external id. | Archived rows are removed 90 days after `archived_at`. Deleting a row cascades to its events and membership claims. |
 | `inbox_event` | Significant observation history for an inbox item: classification, transition, summary, detail, and occurrence key. Trivial payload refreshes do not add a row. | The newest 500 rows per item are retained. Older rows are removed first. |
-| `feed_membership_claim` | A frontend engine assertion that an item belongs in a profile feed for a source node. | Removed when its item is deleted. Unarchived claims are replaced during synthetic replay; archived claims remain frozen. |
+| `feed_membership_claim` | A flow engine assertion that an item belongs in a profile feed for a source node. | Removed when its item is deleted. Unarchived claims are replaced during synthetic replay; archived claims remain frozen. |
 | `event_log` | Append-only transport log used by enabled flow runtimes; their durable offsets are stored separately in `consumer_offset`. | Optional age and per-topic limits are applied by maintenance, while each source topic's newest authoritative snapshot is retained for membership replay. |
 | `consumer_offset` | Last ordinary log offset fully committed by a flow. | A monotonic upsert prevents replay from moving a cursor backward. |
 | `source_head` | Latest source payload for change detection across producer restarts. | Deleted with a profile purge. |
@@ -193,22 +193,18 @@ applies to manual triage, not to an item’s source identity or event history.
 
 ## Engine and membership replay
 
-> The engine described here is moving into Go. `internal/app/runtime` already
-> implements it (ADRs 0010 and 0011) and is not yet driving anything; the
-> browser still executes deployed flows. Shared fixtures in
-> `internal/app/runtime/testdata/parity/` are executed by both engines against
-> the same expected `CommitBatch`, so the behaviour below is one description of
-> two implementations until the cutover.
-
-The frontend engine runs processor nodes in a worker and walks the flow as a
-DAG. Normal processing reads after the flow’s durable offset. A committed
+The engine runs in Go (`internal/app/runtime`, ADRs 0010 and 0011) and walks
+the flow as a DAG, evaluating `function` nodes through goja. `app.Engine`
+drives it: it installs a runner per enabled flow at startup, reinstalls them
+when the flow set changes, and drains on every append. Nothing about execution
+depends on a window being open. Normal processing reads after the flow’s durable offset. A committed
 batch atomically writes feed membership claims, enqueues action commands,
 records node metrics, and advances its offset; replaying an already committed
 offset is a no-op. `Discard` values are accounting input rather than persisted
 rows: their aggregate is reflected in each node run’s drop count. Action
 commands are deduplicated by action id and source occurrence key.
 
-Startup and deploy use a different path. The client captures the current
+Startup and deploy use a different path. The engine captures the current
 log tail, evaluates each current source node's latest authoritative snapshot
 while preserving the source topic that observed each item, and resolves feed
 outputs against the current unarchived inbox. `ActivateReplay` then atomically
@@ -246,14 +242,15 @@ and failure diagnostics are retained with the command record.
 
 Go tests under `internal/app/...` use temporary real SQLite databases to
 cover ingestion, classification, membership replay, retention, and action
-behavior. Frontend Vitest tests cover the graph engine, node
+behavior. Frontend Vitest tests cover the flow editor, node
 registries, views, keybindings, and triage state. Docker Playwright tests
 exercise the desktop UI against isolated fixtures.
 
-The two graph engines are held to one answer by the fixtures in
-`internal/app/runtime/testdata/parity/`, which both `runtime`'s Go test and
-`pipeline/engine/__tests__/parity.spec.ts` execute. A change to routing, sink
-tagging or node-run accounting belongs in a fixture.
+The engine's own fixtures are `internal/app/runtime/testdata/parity/*.json`: a
+flow, a batch, and the exact `CommitBatch` it is worth. They began as the proof
+that the port off the browser engine was faithful — both engines executed them
+and had to agree — and remain the place a change to routing, sink tagging or
+node-run accounting belongs.
 
 Run the project checks with:
 
@@ -293,6 +290,6 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 | Wails pipeline API | `internal/adapter/wailsui/pipelineservice.go` |
 | Subsystem wiring and lifecycle | `internal/app/app.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |
-| Go graph engine | `internal/app/runtime/` |
-| Frontend graph engine (until the cutover) | `desktop/frontend/src/pipeline/engine/` |
+| Flow engine | `internal/app/runtime/` |
+| Flow editor | `desktop/frontend/src/pipeline/` |
 | Keybinding catalog | `desktop/frontend/src/keybindings/catalog.ts` |

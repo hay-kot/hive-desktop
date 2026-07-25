@@ -23,17 +23,16 @@ individual choices; this document describes the shape everything fits into.
 > `mise run check:bindings` fails a service that moved without regenerating
 > its bindings.
 >
-> The Go flow engine exists: `internal/app/runtime` owns graph execution and
-> `runtime/js` implements the `ScriptRuntime` port with goja (ADRs 0010 and
-> 0011). It is **built but not yet driving** — the browser still executes
-> deployed flows, and shared fixtures in
-> `internal/app/runtime/testdata/parity/` are executed by both engines so the
-> two are held to the same answer until the cutover.
+> The flow engine runs in Go: `internal/app/runtime` owns graph execution,
+> `runtime/js` implements the `ScriptRuntime` port with goja, and `app.Engine`
+> drives it — a runner per enabled flow, reinstalled on a flows change,
+> draining the log on every append (ADRs 0010 and 0011). The browser engine is
+> gone, and with it the six RPCs that existed only to feed it. Flow execution
+> no longer depends on a window being open.
 >
-> Not yet built: the engine's cutover (the pump, the replay protocol, deleting
-> the frontend engine), the source and credential registries, and the
-> plugs-managed lifecycle — see [Migration path](#migration-path). New work
-> should move toward this shape rather than extending the current one.
+> Not yet built: the source and credential registries, and the plugs-managed
+> lifecycle — see [Migration path](#migration-path). New work should move
+> toward this shape rather than extending the current one.
 
 ## The shape
 
@@ -393,8 +392,20 @@ Two registries describe a node type between them: `flow`'s says how it is
 configured, `runtime`'s says what it does when a message arrives. Neither the
 router nor the executor branches on a type string.
 
-Correctness across the port is established by fixtures both engines execute —
-see [Migration path](#migration-path) — not by review. ADR 0011.
+`app.Engine` is what drives it. It is level-triggered: `Wake` and `Reload` set
+a latch rather than queueing, so a signal arriving mid-pass is serviced by the
+next pass instead of being dropped or piling up. Installation is synchronous in
+`Start`, before anything that can append to the log is running, so no append
+can arrive with no runner to route it.
+
+A flow that cannot be built keeps its predecessor in service and reports the
+failure to the activity log — taking a working flow offline for an authoring
+mistake would lose messages the last-known-good version handles.
+
+`internal/app/runtime/testdata/parity/*.json` are the engine's fixtures: a
+flow, a batch, and the exact commit it is worth. They began as the proof the
+port off the browser engine was faithful, and a change to routing, sink tagging
+or accounting still belongs in one. ADR 0011.
 
 ### Script nodes
 
@@ -466,14 +477,17 @@ The target is reached in this order; each step is independently shippable.
    orchestration currently stranded in `package main` (`InvokeAction`, the
    action usage checker's raw SQL, poll-interval validation). **Done.**
 3. **Go flow engine + goja**, with parity tests against the TypeScript engine
-   before cutover. The largest step. **Done.** `internal/app/runtime` exists
-   and is not yet driving anything; `internal/app/runtime/testdata/parity/`
-   holds fixtures that *both* engines execute and compare against the same
-   expected commit, so while both exist they are held to the same answer. A
-   fixture only one of them satisfies means the port is not finished. ADRs
-   0010 and 0011.
+   before cutover. The largest step. **Done.** ADRs 0010 and 0011. The shared
+   fixtures both engines had to satisfy live on in
+   `internal/app/runtime/testdata/parity/` as the engine's own regression
+   suite.
 4. **Delete the frontend engine** — `engine/`, `driver.ts`, the runtime
    pump — and collapse the six frontend-only RPCs into internal calls.
+   **Done.** `app.Engine` drives the runners and owns the replay protocol;
+   `PipelineService` no longer carries `ReadFrom`, `Commit`,
+   `EventLogTailOffset`, `ActivateReplay`, `ListReplaySourceSnapshots` or
+   `ListUnarchivedInboxItems`, and the int64-as-string offset encoding they
+   needed went with them.
 5. **Source registry** — now a pure Go change, with no silent-failure edits
    required in frontend routing.
 6. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle.
