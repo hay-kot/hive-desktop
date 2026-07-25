@@ -57,12 +57,6 @@ type AbsenceConfirmer interface {
 	ConfirmAbsence(context.Context, Observation) (AbsenceVerdict, error)
 }
 
-type SourceAdapter struct {
-	SourceKind string
-	Classifier
-	AbsenceConfirmer
-}
-
 func boundEventDetail(detail []byte) []byte {
 	if len(detail) <= maxEventDetailBytes {
 		return detail

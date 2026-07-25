@@ -100,9 +100,9 @@ func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
 
 	factories := sourceFactories(nil)
 
-	_, ok := factories["sources.github"]
+	_, ok := factories[ghsource.Descriptor.Type]
 	assert.False(t, ok, "the GitHub connector is wired without a fetcher to construct it over")
-	_, ok = factories["sources.webhook"]
+	_, ok = factories[webhook.Descriptor.Type]
 	assert.True(t, ok, "the webhook connector needs no fetcher and must stay wired in mock modes")
 }
 
