@@ -4,6 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>hive devserver</title>
+<!-- Inline so the browser never requests /favicon.ico. That path shares an
+     origin with the GitHub passthrough, and a request for it would be proxied
+     upstream and counted as a real API call. -->
+<link rel="icon" href='data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7" fill="%236ea8fe"/></svg>'>
 <style>
   :root {
     --bg: #0f1115; --panel: #171a21; --line: #262b36; --text: #e6e9ef;

@@ -29,6 +29,54 @@ var dashboardHTML []byte
 // by upstreamTimeout, so anything longer is hung.
 const shutdownTimeout = 5 * time.Second
 
+// browserChromePaths are requests a browser makes on its own behalf when it
+// loads the dashboard. They must not reach the proxy: it would forward them to
+// api.github.com and count the result as an upstream call, so merely
+// refreshing the page would inflate the stats and generate the GitHub traffic
+// devserver exists to avoid.
+//
+// Deliberately only the two that actually occur against a localhost dashboard:
+// the favicon, and the probe Chrome DevTools makes whenever the panel is open.
+// Speculative entries (apple-touch-icon, robots.txt) would be dead weight.
+//
+// Matching on path rather than sniffing the caller — User-Agent, or the more
+// reliable Sec-Fetch-Dest — is the deliberate choice. A path list cannot
+// misclassify a real API call, because these are paths the desktop client
+// never requests; a caller check makes proxy behavior depend on who is asking,
+// which is far harder to debug when it eventually gets something wrong.
+var browserChromePaths = []string{
+	"/favicon.ico",
+	"/.well-known/appspecific/com.chrome.devtools.json",
+}
+
+func noContent(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+
+// newHandler wires devserver's routes. Ordering is by ServeMux specificity,
+// not registration order: the proxy takes "/" and everything more specific
+// wins over it.
+func newHandler(control *Control, proxy *Proxy, logger zerolog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	// {$} matches the root path exactly, leaving every other path to the
+	// proxy — GitHub's own API lives under paths the desktop actually calls.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := w.Write(dashboardHTML); err != nil {
+			logger.Debug().Err(err).Msg("writing dashboard")
+		}
+	})
+	mux.Handle("/_ctl/", control.Handler())
+	// Browser-chrome paths are answered here rather than falling through to
+	// the proxy. The dashboard shares an origin with the GitHub passthrough,
+	// so without this a page load forwards /favicon.ico to api.github.com:
+	// real upstream traffic, counted in the very stats you opened the
+	// dashboard to read. See browserChromePaths.
+	for _, path := range browserChromePaths {
+		mux.HandleFunc("GET "+path, noContent)
+	}
+	mux.Handle("/", proxy)
+	return mux
+}
+
 func main() {
 	command := newDevserverCommand()
 	if err := command.Run(context.Background(), os.Args); err != nil {
@@ -99,19 +147,11 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	pusher := NewPusher(cfg.Webhooks, logger)
 	control := NewControl(cfg, store, cache, proxy, pusher, logger)
 
-	mux := http.NewServeMux()
-	// {$} matches the root path exactly, leaving every other path to the
-	// proxy — GitHub's own API lives under paths the desktop actually calls.
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if _, err := w.Write(dashboardHTML); err != nil {
-			logger.Debug().Err(err).Msg("writing dashboard")
-		}
-	})
-	mux.Handle("/_ctl/", control.Handler())
-	mux.Handle("/", proxy)
-
-	server := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	server := &http.Server{
+		Addr:              cfg.Listen,
+		Handler:           newHandler(control, proxy, logger),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 
 	// Naming the config is the point: an overlay silently rewriting data is
 	// exactly the confusion this tool could otherwise cause.
