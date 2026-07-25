@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/ingest"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -17,11 +17,11 @@ import (
 type PipelineService struct {
 	db            *store.DB
 	actions       *actions.ActionStore
-	worker        *ingest.Worker
-	launchOptions ingest.SessionLaunchOptionsProvider
+	worker        *dispatch.Worker
+	launchOptions dispatch.SessionLaunchOptionsProvider
 }
 
-func NewPipelineService(db *store.DB, actionStore *actions.ActionStore, worker *ingest.Worker, launchOptions ingest.SessionLaunchOptionsProvider) *PipelineService {
+func NewPipelineService(db *store.DB, actionStore *actions.ActionStore, worker *dispatch.Worker, launchOptions dispatch.SessionLaunchOptionsProvider) *PipelineService {
 	return &PipelineService{db: db, actions: actionStore, worker: worker, launchOptions: launchOptions}
 }
 
@@ -136,7 +136,7 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading inbox item %d: %w", itemID, err)
 	}
-	item, err := ingest.DecodeActionItem(row.Payload, row.ExternalID)
+	item, err := dispatch.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {
 		return nil, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
 	}
@@ -145,7 +145,7 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 		if !action.ShowInDetail {
 			continue
 		}
-		if ok, _ := ingest.ActionApplicability(action, item); !ok {
+		if ok, _ := dispatch.ActionApplicability(action, item); !ok {
 			continue
 		}
 		views = append(views, action.View())
@@ -156,9 +156,9 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 // SessionLaunchOptions supplies the configured repository and agent choices
 // for interactive launch-session actions. It intentionally exposes no local
 // checkout paths or executable action configuration.
-func (s *PipelineService) SessionLaunchOptions() (ingest.SessionLaunchOptions, error) {
+func (s *PipelineService) SessionLaunchOptions() (dispatch.SessionLaunchOptions, error) {
 	if s.launchOptions == nil {
-		return ingest.SessionLaunchOptions{}, fmt.Errorf("session launch options are unavailable")
+		return dispatch.SessionLaunchOptions{}, fmt.Errorf("session launch options are unavailable")
 	}
 	return s.launchOptions.SessionLaunchOptions(context.Background())
 }
@@ -166,30 +166,30 @@ func (s *PipelineService) SessionLaunchOptions() (ingest.SessionLaunchOptions, e
 // InvokeAction records the user's explicit confirmation for actionID against
 // item and executes it. It accepts only actions that apply to the item's kind;
 // executable configuration is always re-resolved from ActionStore.
-func (s *PipelineService) InvokeAction(actionID string, itemID int64, input ingest.ActionInvocationInput) (ingest.ActionRunView, error) {
+func (s *PipelineService) InvokeAction(actionID string, itemID int64, input dispatch.ActionInvocationInput) (dispatch.ActionRunView, error) {
 	row, err := s.db.Queries().GetInboxItemByID(context.Background(), itemID)
 	if err != nil {
-		return ingest.ActionRunView{}, fmt.Errorf("reading inbox item %d: %w", itemID, err)
+		return dispatch.ActionRunView{}, fmt.Errorf("reading inbox item %d: %w", itemID, err)
 	}
-	item, err := ingest.DecodeActionItem(row.Payload, row.ExternalID)
+	item, err := dispatch.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {
-		return ingest.ActionRunView{}, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
+		return dispatch.ActionRunView{}, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
 	}
 	action, ok := s.actions.Get(actionID)
 	if !ok {
-		return ingest.ActionRunView{}, fmt.Errorf("unknown action %q", actionID)
+		return dispatch.ActionRunView{}, fmt.Errorf("unknown action %q", actionID)
 	}
 	if !action.ShowInDetail {
-		return ingest.ActionRunView{}, fmt.Errorf("action %q is not available in the detail pane", actionID)
+		return dispatch.ActionRunView{}, fmt.Errorf("action %q is not available in the detail pane", actionID)
 	}
-	if applicable, reason := ingest.ActionApplicability(action, item); !applicable {
-		return ingest.ActionRunView{}, fmt.Errorf("action %q does not apply to item %d: %s", actionID, itemID, reason)
+	if applicable, reason := dispatch.ActionApplicability(action, item); !applicable {
+		return dispatch.ActionRunView{}, fmt.Errorf("action %q does not apply to item %d: %s", actionID, itemID, reason)
 	}
 	if item.ID == "" {
-		return ingest.ActionRunView{}, fmt.Errorf("action %q: item id is required", actionID)
+		return dispatch.ActionRunView{}, fmt.Errorf("action %q: item id is required", actionID)
 	}
 	if s.worker == nil {
-		return ingest.ActionRunView{}, fmt.Errorf("action execution is unavailable")
+		return dispatch.ActionRunView{}, fmt.Errorf("action execution is unavailable")
 	}
 	return s.worker.Confirm(context.Background(), actionID, item.ID, item.Payload, input)
 }
@@ -201,12 +201,12 @@ func (s *PipelineService) NodeRuns(flowID string, limit int) ([]store.NodeRunRec
 	return s.db.NodeRuns(context.Background(), flowID, limit)
 }
 
-func (s *PipelineService) ActionRun(commandID int64) (ingest.ActionRunView, error) {
+func (s *PipelineService) ActionRun(commandID int64) (dispatch.ActionRunView, error) {
 	row, err := s.db.OutputCommand(context.Background(), commandID)
 	if err != nil {
-		return ingest.ActionRunView{}, err
+		return dispatch.ActionRunView{}, err
 	}
-	view := ingest.ActionRunView{CommandID: row.ID, Status: row.Status}
+	view := dispatch.ActionRunView{CommandID: row.ID, Status: row.Status}
 	if row.LastError.Valid {
 		view.Error = row.LastError.String
 	}
@@ -218,7 +218,7 @@ func (s *PipelineService) ActionRun(commandID int64) (ingest.ActionRunView, erro
 	}
 	if row.ResultJson.Valid {
 		if err := json.Unmarshal([]byte(row.ResultJson.String), &view.Result); err != nil {
-			return ingest.ActionRunView{}, fmt.Errorf("decode action run %d result: %w", commandID, err)
+			return dispatch.ActionRunView{}, fmt.Errorf("decode action run %d result: %w", commandID, err)
 		}
 	}
 	return view, nil

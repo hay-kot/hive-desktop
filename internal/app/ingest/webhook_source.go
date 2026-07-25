@@ -46,10 +46,10 @@ var webhookTerminalStates = map[string]bool{"resolved": true, "closed": true, "d
 
 // decodeWebhookState extracts the canonical top-level `state` string from a
 // delivery payload: lowercased and trimmed; "" for non-object payloads or a
-// missing/non-string state. Delegates to the shared canonicalFields decode
-// (action_item.go) — no second copy of the canonical-field parsing.
+// missing/non-string state. Delegates to store.CanonicalFields — no second
+// copy of the canonical-field parsing.
 func decodeWebhookState(payload []byte) string {
-	_, _, state := canonicalFields(payload)
+	_, _, state := store.CanonicalFields(payload)
 	return strings.ToLower(strings.TrimSpace(state))
 }
 

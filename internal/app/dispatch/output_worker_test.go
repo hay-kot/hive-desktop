@@ -1,4 +1,4 @@
-package ingest
+package dispatch
 
 import (
 	"context"
@@ -14,6 +14,16 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
+
+// openTestPipelineDB opens a throwaway store on a temp dir, migrated and
+// closed with the test.
+func openTestPipelineDB(t *testing.T) *store.DB {
+	t.Helper()
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
 
 // enqueueTestCommand enqueues one output_command row via CommitBatch (the
 // only production path that ever writes one), so tests exercise the real

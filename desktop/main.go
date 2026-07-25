@@ -18,6 +18,7 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
@@ -309,8 +310,8 @@ type hiveActionRuntime struct {
 	db     *coredb.DB
 	cancel context.CancelFunc
 
-	launcher  *ingest.HiveSessionLauncher
-	publisher ingest.MessagePublisher
+	launcher  *dispatch.HiveSessionLauncher
+	publisher dispatch.MessagePublisher
 }
 
 func (r *hiveActionRuntime) Close() {
@@ -375,14 +376,14 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 		io.Discard,
 	)
 
-	launcher := ingest.NewHiveSessionLauncher(sessions)
+	launcher := dispatch.NewHiveSessionLauncher(sessions)
 	launcher.SetRecorder(recorder)
 
 	return &hiveActionRuntime{
 		db:        database,
 		cancel:    cancel,
 		launcher:  launcher,
-		publisher: ingest.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, cfg.Messaging.MaxMessages), cfg, bus)),
+		publisher: dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, cfg.Messaging.MaxMessages), cfg, bus)),
 	}, nil
 }
 
@@ -396,14 +397,14 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // a notify node's config lives in its flow, not in actions.yml, so the
 // worker resolves those ids from the live flow set and everything else from
 // the authored catalog.
-func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows ingest.FlowLister, notifier ingest.SystemNotifier, focus *focusState, launcher ingest.SessionLauncher, publisher ingest.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *ingest.Worker {
-	dispatcher := ingest.NewDispatcher(map[string]ingest.Executor{
-		ingest.ActionTypeLaunchSession: ingest.NewLaunchSessionExecutor(launcher),
-		"shell":                        ingest.NewShellExecutor(logger),
-		"publish-message":              ingest.NewPublishMessageExecutor(publisher),
-		ingest.ActionTypeNotify:        ingest.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
+func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows dispatch.FlowLister, notifier dispatch.SystemNotifier, focus *focusState, launcher dispatch.SessionLauncher, publisher dispatch.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *dispatch.Worker {
+	dispatcher := dispatch.NewDispatcher(map[string]dispatch.Executor{
+		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(launcher),
+		"shell":                          dispatch.NewShellExecutor(logger),
+		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
+		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
 	})
-	worker := ingest.NewWorker(db, ingest.NewFlowNotifyActions(flows, actionStore), dispatcher, ingest.DefaultOutputWorkerInterval, logger)
+	worker := dispatch.NewWorker(db, dispatch.NewFlowNotifyActions(flows, actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, logger)
 	worker.SetRecorder(recorder)
 	worker.SetJobRecorder(jobRecorder)
 	return worker

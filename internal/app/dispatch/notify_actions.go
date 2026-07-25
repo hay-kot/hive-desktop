@@ -1,4 +1,4 @@
-package ingest
+package dispatch
 
 import (
 	"fmt"
@@ -44,6 +44,14 @@ func (c *NotifyActionConfig) Validate() error {
 		return fmt.Errorf("notify: title is required")
 	}
 	return nil
+}
+
+// FlowLister is the subset of *flow.FlowStore this package needs: the
+// current set of loaded flows. It is declared per consuming package rather
+// than shared, so a package's dependency on the flow store is exactly the
+// method it calls.
+type FlowLister interface {
+	List() []flow.Flow
 }
 
 // FlowNotifyActions is the output worker's ActionLister: it resolves

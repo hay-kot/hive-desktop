@@ -1,4 +1,4 @@
-package ingest
+package dispatch
 
 import (
 	"encoding/json"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // DefaultItemKind is the kind an item carries when its payload declares
@@ -41,7 +42,7 @@ type DecodedActionItem struct {
 // payloads: no migration, and the raw payload still answers "did the source
 // actually send a kind?".
 func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, error) {
-	id, kind, _ := canonicalFields(payload)
+	id, kind, _ := store.CanonicalFields(payload)
 	if kind == "" {
 		kind = DefaultItemKind
 	}
@@ -49,7 +50,7 @@ func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, err
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil || fields == nil {
 		// Non-object payload (array, scalar, null) or invalid JSON: pass
-		// through untouched. canonicalFields already returned "" for id
+		// through untouched. store.CanonicalFields already returned "" for id
 		// above. fields == nil also catches a literal `null` payload, which
 		// unmarshals into a nil map without error.
 		return DecodedActionItem{ID: externalID, Kind: kind, Payload: payload}, nil
@@ -72,42 +73,6 @@ func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, err
 		return DecodedActionItem{}, fmt.Errorf("encoding action item: %w", err)
 	}
 	return DecodedActionItem{ID: externalID, Kind: kind, Payload: encoded}, nil
-}
-
-// canonicalFields is the one shared decode for the canonical top-level
-// id/kind/state strings — reused by DecodeActionItem here and by Phase 3's
-// decodeWebhookState, and consistent with webhookIdentity's string-or-number
-// id rule, so the package grows no per-caller decode copies.
-func canonicalFields(payload []byte) (id, kind, state string) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil {
-		return "", "", ""
-	}
-
-	if raw, ok := fields["id"]; ok {
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			id = strings.TrimSpace(s)
-		} else {
-			var n json.Number
-			if err := json.Unmarshal(raw, &n); err == nil {
-				id = n.String()
-			}
-		}
-	}
-	if raw, ok := fields["kind"]; ok {
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			kind = strings.TrimSpace(s)
-		}
-	}
-	if raw, ok := fields["state"]; ok {
-		var s string
-		if err := json.Unmarshal(raw, &s); err == nil {
-			state = strings.TrimSpace(s)
-		}
-	}
-	return id, kind, state
 }
 
 // RenderRepoTarget renders a launch-session action's repo_template over the
