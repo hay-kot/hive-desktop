@@ -57,7 +57,7 @@ pre-commit:
         - "internal/app/jobs/jobs.go"
         - "internal/app/store/classify.go"
         - "internal/app/flow/flow.go"
-        - "desktop/pipelineservice.go"
+        - "internal/adapter/wailsui/pipelineservice.go"
       run: mise run check:generate
 
 # Push is the meaningful boundary for headless work — the wrap/PR step — so the

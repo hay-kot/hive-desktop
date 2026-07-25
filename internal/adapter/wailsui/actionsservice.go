@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"context"
@@ -72,13 +72,19 @@ func (s *ActionsService) DeleteAction(id string) error {
 	return err
 }
 
-// actionUsageChecker joins the loaded flows and nonterminal output commands.
-type actionUsageChecker struct {
+// ActionUsageChecker joins the loaded flows and nonterminal output commands.
+type ActionUsageChecker struct {
 	flows *flow.FlowStore
 	db    *store.DB
 }
 
-func (c actionUsageChecker) Usage(id string) (actions.ActionUsage, error) {
+// NewActionUsageChecker builds the checker the actions catalog consults
+// before allowing a delete.
+func NewActionUsageChecker(flows *flow.FlowStore, db *store.DB) ActionUsageChecker {
+	return ActionUsageChecker{flows: flows, db: db}
+}
+
+func (c ActionUsageChecker) Usage(id string) (actions.ActionUsage, error) {
 	usage := actions.ActionUsage{}
 	for _, f := range c.flows.List() {
 		for _, n := range f.Nodes {

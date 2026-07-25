@@ -1,15 +1,14 @@
-package main
+package wailsui
 
 import (
 	"errors"
 	"testing"
 
-	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/stretchr/testify/require"
 )
 
 type fakeNotificationNotifier struct {
-	input     wailsui.Input
+	input     Input
 	notifyErr error
 	status    string
 	statusErr error
@@ -17,7 +16,7 @@ type fakeNotificationNotifier struct {
 	grantErr  error
 }
 
-func (n *fakeNotificationNotifier) Notify(in wailsui.Input) error {
+func (n *fakeNotificationNotifier) Notify(in Input) error {
 	n.input = in
 	return n.notifyErr
 }
@@ -36,7 +35,7 @@ func TestNotificationServiceForwardsNotifierCalls(t *testing.T) {
 
 	err := service.Notify(NotifyInput{Title: "title", Subtitle: "subtitle", Body: "body", Severity: "warning", Sound: true, Data: map[string]any{"id": "1"}})
 	require.NoError(t, err)
-	require.Equal(t, wailsui.Input{Title: "title", Subtitle: "subtitle", Body: "body", Severity: "warning", Sound: true, Data: map[string]any{"id": "1"}}, notifier.input)
+	require.Equal(t, Input{Title: "title", Subtitle: "subtitle", Body: "body", Severity: "warning", Sound: true, Data: map[string]any{"id": "1"}}, notifier.input)
 
 	status, err := service.PermissionStatus()
 	require.NoError(t, err)

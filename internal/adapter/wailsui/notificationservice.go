@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"github.com/wailsapp/wails/v3/pkg/application"
 
-	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
@@ -24,7 +24,7 @@ type NotifyInput struct {
 
 // notificationNotifier is the small notification API exposed to the binding.
 type notificationNotifier interface {
-	Notify(wailsui.Input) error
+	Notify(Input) error
 	PermissionStatus() (string, error)
 	RequestPermission() (bool, error)
 }
@@ -52,16 +52,12 @@ func NewUnavailableNotificationService(err error) *NotificationService {
 	return &NotificationService{notifier: unavailableNotifier{err: err}}
 }
 
-// Notify sends a native notification.
+// Notify sends a native notification. NotifyInput and Input are the same
+// fields either side of the wire boundary -- the former carries the JSON tags
+// the binding needs, the latter does not -- so the hand-copy this used to do
+// is a conversion now that both live in this package.
 func (s *NotificationService) Notify(in NotifyInput) error {
-	return s.notifier.Notify(wailsui.Input{
-		Title:    in.Title,
-		Subtitle: in.Subtitle,
-		Body:     in.Body,
-		Severity: in.Severity,
-		Sound:    in.Sound,
-		Data:     in.Data,
-	})
+	return s.notifier.Notify(Input(in))
 }
 
 // PermissionStatus reports granted, denied, or not-requested.
@@ -85,12 +81,18 @@ type NotificationActivation struct {
 	ItemID    int64  `json:"itemId"`
 }
 
-// flowNotifier adapts the native notifier to the pipeline's SystemNotifier,
-// so a flow's notify node delivers through exactly the same native path (and
-// icon, and permission handling) as an app-level notification.
-type flowNotifier struct{ notifier notificationNotifier }
+// FlowNotifier adapts the native notifier to dispatch's SystemNotifier, so a
+// flow's notify node delivers through exactly the same native path (and icon,
+// and permission handling) as an app-level notification.
+type FlowNotifier struct{ notifier notificationNotifier }
 
-func (n flowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) error {
+// NewFlowNotifier wraps a notification service's notifier as the driven port
+// dispatch declares.
+func NewFlowNotifier(s *NotificationService) FlowNotifier {
+	return FlowNotifier{notifier: s.notifier}
+}
+
+func (n FlowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) error {
 	// The user asked for this one inside Hive, not as a banner. The frontend
 	// owns in-app presentation (see useToasts), so this hands the rendered
 	// notification over and is done — there is no native call to make, and no
@@ -106,13 +108,23 @@ func (n flowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) 
 	if n.notifier == nil {
 		return errors.New("native notifications unavailable")
 	}
-	return n.notifier.Notify(wailsui.Input{
+	return n.notifier.Notify(Input{
 		Title:    in.Title,
 		Body:     in.Body,
 		Severity: in.Severity,
 		Sound:    in.Sound,
 		Data:     in.Data,
 	})
+}
+
+// emitNotificationToast hands a flow notification to the frontend to surface
+// in-app. Safe to call from the output worker's goroutine once the app is
+// running; before that (or in a headless build) it is a no-op, which matches
+// the native path's own behavior when notifications are unavailable.
+func emitNotificationToast(toast NotificationToast) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("notification:toast", toast)
+	}
 }
 
 // NotificationToast is a flow notification the user chose to receive inside
@@ -124,7 +136,7 @@ type NotificationToast struct {
 	Severity string `json:"severity"`
 }
 
-// settingsNotificationGate resolves the app-level notification policy from
+// NotificationGate resolves the app-level notification policy from
 // settings.yaml on every delivery, so toggling notifications off in Settings
 // silences flow notify nodes immediately rather than at the next restart. An
 // unreadable settings file fails closed: never surface notifications the user
@@ -133,12 +145,17 @@ type NotificationToast struct {
 // It also resolves *where* a notification surfaces, which is why it holds the
 // window's focus state: the automatic delivery mode means "a banner only when
 // I'm looking elsewhere", and only this side of the app knows both halves.
-type settingsNotificationGate struct {
-	focus  *focusState
+type NotificationGate struct {
+	focus  *FocusState
 	logger zerolog.Logger
 }
 
-func (g settingsNotificationGate) NotificationPolicy() dispatch.NotificationPolicy {
+// NewNotificationGate builds the gate over the window's focus state.
+func NewNotificationGate(focus *FocusState, logger zerolog.Logger) NotificationGate {
+	return NotificationGate{focus: focus, logger: logger}
+}
+
+func (g NotificationGate) NotificationPolicy() dispatch.NotificationPolicy {
 	settings, err := settings.LoadSettings()
 	if err != nil {
 		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
@@ -156,14 +173,14 @@ func (g settingsNotificationGate) NotificationPolicy() dispatch.NotificationPoli
 // notification in-app only while the user is already looking at the window.
 // An unknown focus state (no window yet) counts as unfocused, so a
 // notification raised during startup still reaches the user.
-func (g settingsNotificationGate) inApp(delivery string) bool {
+func (g NotificationGate) inApp(delivery string) bool {
 	switch delivery {
 	case settings.DeliveryApp:
 		return true
 	case settings.DeliverySystem:
 		return false
 	default:
-		return g.focus != nil && g.focus.get()
+		return g.focus != nil && g.focus.Get()
 	}
 }
 
@@ -171,7 +188,7 @@ type unavailableNotifier struct {
 	err error
 }
 
-func (n unavailableNotifier) Notify(wailsui.Input) error {
+func (n unavailableNotifier) Notify(Input) error {
 	return fmt.Errorf("native notifications unavailable: %w", n.err)
 }
 

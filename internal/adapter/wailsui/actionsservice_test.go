@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"context"
@@ -108,7 +108,7 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	actionStore.SetUsageChecker(actionUsageChecker{flows: flows, db: db})
+	actionStore.SetUsageChecker(NewActionUsageChecker(flows, db))
 
 	wakes := 0
 	service := NewActionsService(actionStore, func() { wakes++ })
@@ -144,7 +144,7 @@ func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T
 		require.NoError(t, err)
 	}
 
-	checker := actionUsageChecker{flows: flows, db: db}
+	checker := NewActionUsageChecker(flows, db)
 	usage, err := checker.Usage("used")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"flow-a"}, usage.FlowIDs)

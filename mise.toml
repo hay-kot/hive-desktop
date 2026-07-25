@@ -143,7 +143,7 @@ run = "npm test"
 [tasks."desktop:test"]
 description = "Run desktop frontend + Go tests"
 depends = ["desktop:test:frontend"]
-run = "go test ./desktop/... ./internal/desktop/..."
+run = "go test ./desktop/... ./internal/app/... ./internal/adapter/..."
 
 [tasks."desktop:e2e"]
 description = "Run desktop e2e tests in the pinned Docker/Playwright environment"

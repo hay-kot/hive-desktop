@@ -76,7 +76,7 @@ func registerEvents() struct{} {
 	application.RegisterEvent[bool]("window:focus")
 	application.RegisterEvent[bool]("window:blur")
 	// activity:appended carries the new event's id after any subsystem (or the
-	// frontend, via ActivityService.Record) appends to the activity log. The
+	// frontend, via wailsui.ActivityService.Record) appends to the activity log. The
 	// Activity view re-reads its latest page and advances its unseen marker.
 	application.RegisterEvent[int64]("activity:appended")
 	// update:available carries the latest UpdateInfo when a self-update check
@@ -88,12 +88,12 @@ func registerEvents() struct{} {
 	// native notification the user clicked. Unlike the wake-up signals above
 	// its payload is the whole message: the window is already being raised by
 	// the time it fires, and the frontend's job is only to route to that item.
-	application.RegisterEvent[NotificationActivation]("notification:activated")
+	application.RegisterEvent[wailsui.NotificationActivation]("notification:activated")
 	// notification:toast carries a flow notification the user chose to receive
 	// inside Hive rather than as an OS banner (Settings -> Notifications ->
 	// Delivery). The frontend surfaces it through the same toast stack every
 	// other in-app notification uses.
-	application.RegisterEvent[NotificationToast]("notification:toast")
+	application.RegisterEvent[wailsui.NotificationToast]("notification:toast")
 	return struct{}{}
 }
 
@@ -162,19 +162,9 @@ func emitJobsUpdated() {
 
 // emitNotificationActivated tells the frontend which item a clicked
 // notification came from, so it can route to it.
-func emitNotificationActivated(activation NotificationActivation) {
+func emitNotificationActivated(activation wailsui.NotificationActivation) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("notification:activated", activation)
-	}
-}
-
-// emitNotificationToast hands a flow notification to the frontend to surface
-// in-app. Safe to call from the output worker's goroutine once the app is
-// running; before that (or in a headless build) it is a no-op, which matches
-// the native path's own behavior when notifications are unavailable.
-func emitNotificationToast(toast NotificationToast) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("notification:toast", toast)
 	}
 }
 
@@ -183,12 +173,12 @@ func emitNotificationToast(toast NotificationToast) {
 // makes a native round trip, so its numbers come back in whatever shape the
 // platform's serialization chose — hence the tolerant decode. App-level
 // notifications carry no such payload and report false.
-func notificationActivation(result wailsnotify.NotificationResult) (NotificationActivation, bool) {
+func notificationActivation(result wailsnotify.NotificationResult) (wailsui.NotificationActivation, bool) {
 	profileID, _ := result.Response.UserInfo["profileId"].(string)
 	if profileID == "" {
-		return NotificationActivation{}, false
+		return wailsui.NotificationActivation{}, false
 	}
-	activation := NotificationActivation{ProfileID: profileID}
+	activation := wailsui.NotificationActivation{ProfileID: profileID}
 	switch id := result.Response.UserInfo["itemId"].(type) {
 	case float64:
 		activation.ItemID = int64(id)
@@ -399,12 +389,12 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // a notify node's config lives in its flow, not in actions.yml, so the
 // worker resolves those ids from the live flow set and everything else from
 // the authored catalog.
-func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows dispatch.FlowLister, notifier dispatch.SystemNotifier, focus *focusState, launcher dispatch.SessionLauncher, publisher dispatch.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *dispatch.Worker {
+func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows dispatch.FlowLister, notifier dispatch.SystemNotifier, focus *wailsui.FocusState, launcher dispatch.SessionLauncher, publisher dispatch.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *dispatch.Worker {
 	dispatcher := dispatch.NewDispatcher(map[string]dispatch.Executor{
 		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(launcher),
 		"shell":                          dispatch.NewShellExecutor(logger),
 		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
-		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
+		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(notifier, wailsui.NewNotificationGate(focus, logger), db, logger),
 	})
 	worker := dispatch.NewWorker(db, dispatch.NewFlowNotifyActions(flows, actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, logger)
 	worker.SetRecorder(recorder)
@@ -452,7 +442,7 @@ func main() {
 
 	// The activity recorder is shared by every subsystem that reports to the
 	// Activity view (producer, worker, session launcher, config watcher) and by
-	// the ActivityService the frontend reads/writes. It emits activity:appended
+	// the wailsui.ActivityService the frontend reads/writes. It emits activity:appended
 	// on each append so open views refresh.
 	activityStore := activity.NewStore(pipelineDB, activity.Options{Emit: emitActivityAppended})
 	jobStore := jobs.NewStore(pipelineDB, jobs.Options{Emit: func(int64) { emitJobsUpdated() }})
@@ -487,31 +477,31 @@ func main() {
 	// The flows store must exist before the producer and retention maintenance:
 	// both resolve enabled flow IDs live from it.
 	flowsStore, flowsWatcher := buildFlowsStore(actionStore, onFlowsUpdated, logger)
-	actionStore.SetUsageChecker(actionUsageChecker{flows: flowsStore, db: pipelineDB})
+	actionStore.SetUsageChecker(wailsui.NewActionUsageChecker(flowsStore, pipelineDB))
 
 	// Mock/server builds deliberately do not start the native Wails
 	// Focus feeds both the frontend's focus-sensitive UI and the notification
 	// gate's automatic delivery mode, so it is built before the output worker
 	// that gate belongs to.
-	focus := newFocusState()
+	focus := wailsui.NewFocusState()
 	// notification service: E2E verifies preference persistence without an OS
 	// bus, banner, or permission prompt. The frontend still gets a descriptive
-	// unavailable binding through NotificationService. Built before the output
+	// unavailable binding through wailsui.NotificationService. Built before the output
 	// worker because a flow's notify node delivers through the same notifier.
-	notificationService := NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
+	notificationService := wailsui.NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
 	var nativeNotifications *wailsnotify.NotificationService
 	if settings.MockMode() == "" {
 		nativeNotifications = wailsnotify.New()
 		notifier, err := wailsui.NewNotifier(nativeNotifications, appIcon)
 		if err != nil {
 			logger.Warn().Err(err).Msg("native notifications unavailable")
-			notificationService = NewUnavailableNotificationService(err)
+			notificationService = wailsui.NewUnavailableNotificationService(err)
 		} else {
-			notificationService = NewNotificationService(notifier)
+			notificationService = wailsui.NewNotificationService(notifier)
 		}
 	}
 
-	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
+	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, wailsui.NewFlowNotifier(notificationService), focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
 	if settings.MockMode() == "" {
 		outputWorker.Start()
 	}
@@ -571,15 +561,15 @@ func main() {
 
 	services := []application.Service{
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
-		application.NewService(NewPipelineService(pipelineDB, actionStore, outputWorker, actionRuntime.launcher)),
-		application.NewService(NewFlowsService(flowsStore, pipelineDB, onFlowsUpdated)),
-		application.NewService(NewActionsService(actionStore, emitActionsUpdated)),
-		application.NewService(NewActivityService(activityStore)),
-		application.NewService(NewJobService(jobStore)),
+		application.NewService(wailsui.NewPipelineService(pipelineDB, actionStore, outputWorker, actionRuntime.launcher)),
+		application.NewService(wailsui.NewFlowsService(flowsStore, pipelineDB, onFlowsUpdated)),
+		application.NewService(wailsui.NewActionsService(actionStore, emitActionsUpdated)),
+		application.NewService(wailsui.NewActivityService(activityStore)),
+		application.NewService(wailsui.NewJobService(jobStore)),
 		application.NewService(NewSystemService()),
-		application.NewService(NewSettingsService(producer, fetcher, logger)),
-		application.NewService(NewWebhookService(pipelineDB, webhookListener, webhookPort)),
-		application.NewService(NewPromptsService(webhookListener, webhookPort)),
+		application.NewService(wailsui.NewSettingsService(producer, fetcher, logger)),
+		application.NewService(wailsui.NewWebhookService(pipelineDB, webhookListener, webhookPort)),
+		application.NewService(wailsui.NewPromptsService(webhookListener, webhookPort)),
 		application.NewService(updaterService),
 	}
 	if nativeNotifications != nil {
@@ -587,7 +577,7 @@ func main() {
 	}
 	services = append(services,
 		application.NewService(notificationService),
-		application.NewService(NewWindowService(focus)),
+		application.NewService(wailsui.NewWindowService(focus)),
 	)
 
 	// Test-only /_e2e/reset harness (nil outside the Docker e2e mock modes).
@@ -669,12 +659,12 @@ func main() {
 	}
 
 	window.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
-		if focus.set(true) {
+		if focus.Set(true) {
 			emitWindowFocus()
 		}
 	})
 	window.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
-		if focus.set(false) {
+		if focus.Set(false) {
 			emitWindowBlur()
 		}
 	})
@@ -686,7 +676,7 @@ func main() {
 	// which otherwise races this callback in a separate goroutine.
 	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		window.Hide()
-		if focus.set(false) {
+		if focus.Set(false) {
 			emitWindowBlur()
 		}
 		e.Cancel()
