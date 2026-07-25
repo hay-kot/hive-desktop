@@ -351,6 +351,55 @@ describe('useFeedState', () => {
     expect(mocks.ActionRun).toHaveBeenCalledTimes(2)
   })
 
+  // The Kind the Go core assigns is what decides whether a stale run id is
+  // dropped. Matching on the message used to do this by accident: any error
+  // whose text happened to contain "missing" silently forgot a live run.
+  function bindingError(kind: string): Error {
+    const error = new Error('a bound method returned an error')
+    ;(error as Error & { cause?: unknown }).cause = { kind, message: 'action run 41 not found' }
+    return error
+  }
+
+  it('drops a stale action run id when the core says not_found', async () => {
+    localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+    mocks.ActionRun.mockRejectedValue(bindingError('not_found'))
+
+    const get = mountState(); await flushPromises()
+
+    expect(get().actionRuns.value.review).toBeUndefined()
+    expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}')).toEqual({})
+  })
+
+  it('keeps a run id when the failure is not a missing row', async () => {
+    for (const kind of ['internal', 'unavailable', 'unauthenticated']) {
+      localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+      mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+      mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+      mocks.ActionRun.mockRejectedValue(bindingError(kind))
+
+      const get = mountState(); await flushPromises()
+
+      expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}'), kind)
+        .toEqual({ '1': { review: 41 } })
+      expect(get().actionRuns.value.review, kind).toBeUndefined()
+    }
+  })
+
+  it('keeps a run id when the failure carries no kind at all', async () => {
+    localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+    mocks.ActionRun.mockRejectedValue(new Error('the item was not found'))
+
+    mountState(); await flushPromises()
+
+    // The old regex matched this message and forgot the run. A message is
+    // not a contract.
+    expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}')).toEqual({ '1': { review: 41 } })
+  })
+
   it('rejects malformed persisted action run ids without restoring them', async () => {
     localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: '41', zero: 0 }, bad: [] }))
     mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])

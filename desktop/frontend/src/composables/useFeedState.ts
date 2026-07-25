@@ -4,6 +4,7 @@ import { Browser, Window } from '@wailsio/runtime'
 import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import { appErrorKind } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
@@ -519,7 +520,11 @@ export function useFeedState() {
           if (isCurrentActionRun(item.id, action.id, commandID, generation)) setActionRun(item.id, action.id, run)
         } catch (error) {
           console.warn('Unable to restore action run', error)
-          if (/not found|no rows|missing/i.test(error instanceof Error ? error.message : String(error)) && isCurrentActionRun(item.id, action.id, commandID, generation)) removeActionRunID(item.id, action.id)
+          // A run row deleted underneath us is not a failure: drop the stale
+          // id so the card disappears. Anything else is left alone, because
+          // forgetting a run id on a transient fault loses the user's link to
+          // work that is still running.
+          if (appErrorKind(error) === 'not_found' && isCurrentActionRun(item.id, action.id, commandID, generation)) removeActionRunID(item.id, action.id)
         }
       }))
     } catch (error) {

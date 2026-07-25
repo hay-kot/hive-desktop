@@ -137,6 +137,11 @@ func main() {
 		Description: "Hive desktop application",
 		Icon:        appIcon,
 		Services:    services,
+		// Every error a bound method returns reaches the frontend as the
+		// thrown exception's `cause`, carrying the Kind the core assigned.
+		// It is what lets the UI tell "sign in again" from "we broke"
+		// without matching on error text.
+		MarshalError: wailsui.MarshalError,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
 			Middleware: e2e.SmokeMiddleware(core.Store, core.HiveDB, resetHarness),

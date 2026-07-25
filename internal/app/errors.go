@@ -37,6 +37,13 @@ const (
 	KindUnavailable Kind = "unavailable"
 )
 
+// AllKinds is the closed set, in declaration order. It exists so a boundary
+// that has to mirror the vocabulary — the frontend's AppErrorKind union — can
+// be checked against it rather than kept in sync by hand.
+func AllKinds() []Kind {
+	return []Kind{KindInternal, KindInvalid, KindNotFound, KindConflict, KindUnauthenticated, KindUnavailable}
+}
+
 // Error is the only error type an app service returns across the adapter
 // boundary. Msg is safe to show a user; Err is the cause, kept for logs and
 // for errors.Is/As.
