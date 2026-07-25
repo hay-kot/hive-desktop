@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/prompts"
 )
 
@@ -16,7 +16,7 @@ import (
 func isolateConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(dir, "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(dir, "profiles.yaml"))
 	return dir
 }
 

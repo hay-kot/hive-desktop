@@ -16,7 +16,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
 	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
@@ -100,7 +100,7 @@ func registerEvents() struct{} {
 // config to load or hot-reload here: source config lives in the flow's
 // github-source nodes, and the producer enumerates them from the flow store.
 func buildSourceFetcher(logger zerolog.Logger) *feed.LiveProvider {
-	if desktop.MockMode() != "" {
+	if settings.MockMode() != "" {
 		return nil
 	}
 	return feed.NewLiveProvider(github.NewClient(), github.NewKeychainStore(), logger)
@@ -130,7 +130,7 @@ func emitLogAppended(nextOffset int64) {
 }
 
 func buildAuthBackend(onChange func()) auth.Backend {
-	switch desktop.MockMode() {
+	switch settings.MockMode() {
 	case "feed", "pipeline", "action-smoke":
 		return auth.NewMockBackend(true, onChange)
 	case "onboarding":
@@ -225,14 +225,14 @@ func emitAuthUpdated() {
 	}
 }
 
-// buildFlowsStore constructs the flow.FlowStore over desktop.FlowsDir(),
+// buildFlowsStore constructs the flow.FlowStore over settings.FlowsDir(),
 // backed by a Refs adapter over actionStore. It also starts a FlowsWatcher
 // that reloads the store and wakes the frontend on any flows/*.yaml change,
 // including the app's own SaveFlow/SaveLayout writes. A watcher that fails to
 // start degrades to no hot-reload: the app still works, edits just need a
 // restart to pick up.
 func buildFlowsStore(actionStore *actions.ActionStore, onUpdated func(), logger zerolog.Logger) (*flow.FlowStore, *flow.FlowsWatcher) {
-	dir := desktop.FlowsDir()
+	dir := settings.FlowsDir()
 	store := flow.NewFlowStore(dir, newActionsRefs(actionStore))
 
 	watcher, err := flow.NewFlowsWatcher(dir, func() {
@@ -267,7 +267,7 @@ func emitActionsUpdated() {
 }
 
 // buildActionStore constructs the actions.ActionStore over
-// desktop.ActionsPath(), loading it eagerly (rather than waiting for the
+// settings.ActionsPath(), loading it eagerly (rather than waiting for the
 // first lazy List/Get) so a broken actions.yml is logged at startup instead
 // of only surfacing silently as "no actions found" the first time something
 // asks. It also starts an ActionsWatcher so hand edits to actions.yml apply
@@ -275,7 +275,7 @@ func emitActionsUpdated() {
 // degrades to no hot-reload: the app still works, edits just need a restart
 // to pick up.
 func buildActionStore(recorder activity.Recorder, logger zerolog.Logger) (*actions.ActionStore, *actions.ActionsWatcher) {
-	path := desktop.ActionsPath()
+	path := settings.ActionsPath()
 	if _, err := actions.SeedDefaultsIfMissing(path); err != nil {
 		logger.Warn().Err(err).Msg("actions seed failed")
 	}
@@ -321,7 +321,7 @@ func (r *hiveActionRuntime) Close() {
 }
 
 func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (*hiveActionRuntime, error) {
-	dataDir := filepath.Dir(desktop.StateDir())
+	dataDir := filepath.Dir(settings.StateDir())
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create hive data directory: %w", err)
 	}
@@ -414,9 +414,9 @@ func main() {
 	// before any path is resolved, so a data/config directory override chosen
 	// in System settings applies to a dock-launched app. Must precede
 	// StateDir/ConfigPath use below. An explicit env var still wins.
-	bootstrapErr := desktop.ApplyBootstrap()
+	bootstrapErr := settings.ApplyBootstrap()
 
-	logger, logCloser, logErr := desktop.NewLogger()
+	logger, logCloser, logErr := settings.NewLogger()
 	if logErr != nil {
 		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
 	}
@@ -425,15 +425,15 @@ func main() {
 	}
 
 	interval := feed.DefaultPollInterval
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		logger.Warn().Err(err).Msg("desktop settings load failed; using defaults")
-	} else if resolved, err := settings.PollIntervalOrDefault(feed.DefaultPollInterval); err != nil {
+	} else if resolved, err := cfg.PollIntervalOrDefault(feed.DefaultPollInterval); err != nil {
 		logger.Warn().Err(err).Msg("desktop settings poll interval invalid; using defaults")
 	} else {
 		interval = resolved
-		if raw, parseErr := time.ParseDuration(settings.PollInterval); parseErr == nil && raw < desktop.MinPollInterval {
-			logger.Warn().Str("configured_interval", settings.PollInterval).Dur("interval", interval).Msg("desktop poll interval below minimum; clamped")
+		if raw, parseErr := time.ParseDuration(cfg.PollInterval); parseErr == nil && raw < settings.MinPollInterval {
+			logger.Warn().Str("configured_interval", cfg.PollInterval).Dur("interval", interval).Msg("desktop poll interval below minimum; clamped")
 		}
 	}
 
@@ -442,7 +442,7 @@ func main() {
 		fetcher.SetSearchTTL(interval)
 	}
 
-	pipelineDB, err := pipelinedb.Open(desktop.StateDir(), pipelinedb.DefaultOpenOptions())
+	pipelineDB, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -464,7 +464,7 @@ func main() {
 
 	// Mock mode has no live producer, so seed deterministic inbox rows for the
 	// fixture flow in desktop/e2e/fixtures/flows/frontend-triage.yaml.
-	if desktop.MockMode() == "feed" || desktop.MockMode() == "action-smoke" {
+	if settings.MockMode() == "feed" || settings.MockMode() == "action-smoke" {
 		seedMockInboxItemsOrWarn(pipelineDB, logger)
 	}
 
@@ -497,7 +497,7 @@ func main() {
 	// worker because a flow's notify node delivers through the same notifier.
 	notificationService := NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
 	var nativeNotifications *wailsnotify.NotificationService
-	if desktop.MockMode() == "" {
+	if settings.MockMode() == "" {
 		nativeNotifications = wailsnotify.New()
 		notifier, err := desktopnotify.New(nativeNotifications, appIcon)
 		if err != nil {
@@ -509,7 +509,7 @@ func main() {
 	}
 
 	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
-	if desktop.MockMode() == "" {
+	if settings.MockMode() == "" {
 		outputWorker.Start()
 	}
 
@@ -535,13 +535,13 @@ func main() {
 	// instances never fight over one. The port is drawn at random on first
 	// run and persisted; a failure to find one, like a bind failure, logs and
 	// the app runs on without webhooks.
-	webhookPort, err := desktop.ResolveWebhookPort(settings)
+	webhookPort, err := settings.ResolveWebhookPort(cfg)
 	if err != nil {
 		logger.Warn().Err(err).Msg("webhook port unavailable")
 	}
-	webhookEnabled := settings.WebhookEnabledOrDefault()
+	webhookEnabled := cfg.WebhookEnabledOrDefault()
 	var webhookListener *pipeline.WebhookListener
-	if webhookEnabled && webhookPort > 0 && (desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "") {
+	if webhookEnabled && webhookPort > 0 && (settings.MockMode() == "" || os.Getenv(settings.EnvWebhookPort) != "") {
 		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
 		if err := webhookListener.Start(); err != nil {
@@ -564,7 +564,7 @@ func main() {
 	// the live Updater is attached below. Auto-update defaults on; the persisted
 	// toggle seeds the initial state.
 	updaterVersion, _, _ := resolvedBuildInfo()
-	updaterService := NewUpdaterService(updaterVersion, settings.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
+	updaterService := NewUpdaterService(updaterVersion, cfg.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
 
 	services := []application.Service{
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
@@ -616,7 +616,7 @@ func main() {
 	// beta, per docs/decisions/0004) unless settings.yaml's update_channel
 	// overrides it.
 	if channel, ok := releaseChannel(updaterVersion); ok {
-		provider := newManifestProvider(defaultManifestBaseURL, settings.UpdateChannelOrDefault(channel))
+		provider := newManifestProvider(defaultManifestBaseURL, cfg.UpdateChannelOrDefault(channel))
 		if initErr := app.Updater.Init(updater.Config{
 			CurrentVersion: updaterVersion,
 			Providers:      []updater.Provider{provider},

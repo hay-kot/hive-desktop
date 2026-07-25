@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
@@ -33,8 +33,8 @@ func TestStateResetHarnessUnavailableOutsideMockHarness(t *testing.T) {
 		{name: "invalid harness marker", mode: "feed", marker: "not-a-256-bit-token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(desktop.EnvMockMode, tc.mode)
-			t.Setenv(desktop.EnvE2EHarness, tc.marker)
+			t.Setenv(settings.EnvMockMode, tc.mode)
+			t.Setenv(settings.EnvE2EHarness, tc.marker)
 			harness := newStateResetHarness(nil, nil, zerolog.Nop())
 			assert.Nil(t, harness)
 			h := stateResetMiddleware(harness)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
@@ -63,13 +63,13 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 
 	// Config baseline as the e2e launcher lays it out: a private flow file and
 	// actions.yml; settings.yaml deliberately absent, as on a fresh boot.
-	flowsDir := desktop.FlowsDir()
+	flowsDir := settings.FlowsDir()
 	require.NoError(t, os.MkdirAll(flowsDir, 0o755))
 	flowPath := filepath.Join(flowsDir, "frontend-triage.yaml")
 	pristineFlow := "id: frontend-triage\nname: Frontend Triage\n"
 	require.NoError(t, os.WriteFile(flowPath, []byte(pristineFlow), 0o644))
 	pristineActions := "version: 1\nactions: []\n"
-	require.NoError(t, os.WriteFile(desktop.ActionsPath(), []byte(pristineActions), 0o644))
+	require.NoError(t, os.WriteFile(settings.ActionsPath(), []byte(pristineActions), 0o644))
 
 	db := openStateResetPipelineDB(t)
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
@@ -117,8 +117,8 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	require.NoError(t, os.WriteFile(flowPath, []byte("id: frontend-triage\nname: Mutated\n"), 0o644))
 	extraFlow := filepath.Join(flowsDir, "minted-by-test.yaml")
 	require.NoError(t, os.WriteFile(extraFlow, []byte("id: minted-by-test\n"), 0o644))
-	require.NoError(t, os.WriteFile(desktop.ActionsPath(), []byte("version: 1\nactions:\n  - id: mutated\n"), 0o644))
-	require.NoError(t, desktop.SaveSettings(desktop.Settings{PollInterval: "2m"}))
+	require.NoError(t, os.WriteFile(settings.ActionsPath(), []byte("version: 1\nactions:\n  - id: mutated\n"), 0o644))
+	require.NoError(t, settings.SaveSettings(settings.Settings{PollInterval: "2m"}))
 
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, stateResetPath, nil))
@@ -141,11 +141,11 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	restoredFlow, err := os.ReadFile(flowPath)
 	require.NoError(t, err)
 	assert.Equal(t, pristineFlow, string(restoredFlow))
-	restoredActions, err := os.ReadFile(desktop.ActionsPath())
+	restoredActions, err := os.ReadFile(settings.ActionsPath())
 	require.NoError(t, err)
 	assert.Equal(t, pristineActions, string(restoredActions))
 	assert.NoFileExists(t, extraFlow)
-	assert.NoFileExists(t, desktop.SettingsPath())
+	assert.NoFileExists(t, settings.SettingsPath())
 }
 
 func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
@@ -181,18 +181,18 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 func setStateResetEnv(t *testing.T, mode string) string {
 	t.Helper()
 	root := t.TempDir()
-	t.Setenv(desktop.EnvMockMode, mode)
-	t.Setenv(desktop.EnvE2EHarness, smokeHarnessMarker)
+	t.Setenv(settings.EnvMockMode, mode)
+	t.Setenv(settings.EnvE2EHarness, smokeHarnessMarker)
 	t.Setenv("HIVE_DATA_DIR", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv(desktop.EnvFlowsDir, filepath.Join(root, "flows"))
-	t.Setenv(desktop.EnvActionsPath, filepath.Join(root, "actions.yml"))
+	t.Setenv(settings.EnvFlowsDir, filepath.Join(root, "flows"))
+	t.Setenv(settings.EnvActionsPath, filepath.Join(root, "actions.yml"))
 	return root
 }
 
 func openStateResetPipelineDB(t *testing.T) *pipelinedb.DB {
 	t.Helper()
-	db, err := pipelinedb.Open(desktop.StateDir(), pipelinedb.DefaultOpenOptions())
+	db, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db

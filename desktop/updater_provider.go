@@ -37,7 +37,7 @@ const artifactURLKey = "manifest.artifact.url"
 // credentials and never lists the bucket.
 type manifestProvider struct {
 	base    string // fronting domain, no trailing slash
-	channel string // one of desktop.ChannelStable/ChannelBeta/ChannelDev
+	channel string // one of settings.ChannelStable/ChannelBeta/ChannelDev
 	client  *http.Client
 }
 

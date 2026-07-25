@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // manifestServer serves a channel latest.json plus the artifact zip it points
@@ -68,14 +68,14 @@ func darwinCheck(current string) updater.CheckRequest {
 }
 
 func TestManifestProviderCheckNewer(t *testing.T) {
-	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
 	require.NotNil(t, rel)
 	require.Equal(t, "1.4.0", rel.Version)
-	require.Equal(t, desktop.ChannelStable, rel.Channel)
+	require.Equal(t, settings.ChannelStable, rel.Channel)
 	require.Equal(t, "Hive-1.4.0-darwin-universal.zip", rel.Artifact.Filename)
 	require.Equal(t, int64(len(ms.zipBody)), rel.Artifact.Size)
 	require.Equal(t, ms.URL+"/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip", rel.Metadata[artifactURLKey])
@@ -86,8 +86,8 @@ func TestManifestProviderCheckNewer(t *testing.T) {
 }
 
 func TestManifestProviderCheckUpToDate(t *testing.T) {
-	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	// Current equals the manifest version.
 	rel, err := p.Check(context.Background(), darwinCheck("1.4.0"))
@@ -101,8 +101,8 @@ func TestManifestProviderCheckUpToDate(t *testing.T) {
 }
 
 func TestManifestProviderCheckAcceptsPrefixedCurrent(t *testing.T) {
-	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	rel, err := p.Check(context.Background(), darwinCheck("desktop-v1.3.0"))
 	require.NoError(t, err)
@@ -138,8 +138,8 @@ func TestManifestProviderPrereleaseOrdering(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ms := newManifestServer(t, desktop.ChannelDev, devManifest(tt.manifest))
-			p := newManifestProvider(ms.URL, desktop.ChannelDev)
+			ms := newManifestServer(t, settings.ChannelDev, devManifest(tt.manifest))
+			p := newManifestProvider(ms.URL, settings.ChannelDev)
 			rel, err := p.Check(context.Background(), darwinCheck(tt.current))
 			require.NoError(t, err)
 			if tt.wantsRel {
@@ -157,8 +157,8 @@ func TestManifestProviderChannelMismatch(t *testing.T) {
 	betaOnStablePath := func(string) string {
 		return `{"channel":"beta","version":"1.4.0","platforms":{}}`
 	}
-	ms := newManifestServer(t, desktop.ChannelStable, betaOnStablePath)
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, betaOnStablePath)
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.Error(t, err)
@@ -170,7 +170,7 @@ func TestManifestProviderCheckNoManifest(t *testing.T) {
 	// reports up to date.
 	srv := httptest.NewServer(http.NotFoundHandler())
 	t.Cleanup(srv.Close)
-	p := newManifestProvider(srv.URL, desktop.ChannelStable)
+	p := newManifestProvider(srv.URL, settings.ChannelStable)
 
 	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
@@ -181,8 +181,8 @@ func TestManifestProviderCheckMissingPlatform(t *testing.T) {
 	noDarwin := func(string) string {
 		return `{"channel":"stable","version":"1.4.0","platforms":{"linux-amd64":{"url":"https://example/zip","sha256":"00","size":1}}}`
 	}
-	ms := newManifestServer(t, desktop.ChannelStable, noDarwin)
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, noDarwin)
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.Error(t, err)
@@ -194,8 +194,8 @@ func TestManifestProviderCheckMalformedSHA(t *testing.T) {
 		return fmt.Sprintf(`{"channel":"stable","version":"1.4.0",
   "platforms":{"darwin-universal":{"url":"%s/desktop/releases/1.4.0/z.zip","sha256":"not-hex","size":1}}}`, base)
 	}
-	ms := newManifestServer(t, desktop.ChannelStable, badSHA)
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, badSHA)
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.Error(t, err)
@@ -206,8 +206,8 @@ func TestManifestProviderCheckMalformedVersion(t *testing.T) {
 	badVersion := func(string) string {
 		return `{"channel":"stable","version":"not-a-version","platforms":{}}`
 	}
-	ms := newManifestServer(t, desktop.ChannelStable, badVersion)
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, badVersion)
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.Error(t, err)
@@ -215,8 +215,8 @@ func TestManifestProviderCheckMalformedVersion(t *testing.T) {
 }
 
 func TestManifestProviderDownload(t *testing.T) {
-	ms := newManifestServer(t, desktop.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
-	p := newManifestProvider(ms.URL, desktop.ChannelStable)
+	ms := newManifestServer(t, settings.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
+	p := newManifestProvider(ms.URL, settings.ChannelStable)
 
 	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
 	require.NoError(t, err)
@@ -234,7 +234,7 @@ func TestManifestProviderDownload(t *testing.T) {
 }
 
 func TestManifestProviderDownloadMissingMetadata(t *testing.T) {
-	p := newManifestProvider("https://example.invalid", desktop.ChannelStable)
+	p := newManifestProvider("https://example.invalid", settings.ChannelStable)
 	err := p.Download(context.Background(), &updater.Release{}, &bytes.Buffer{}, nil)
 	require.Error(t, err)
 }

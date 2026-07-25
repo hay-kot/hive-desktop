@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -108,12 +108,12 @@ func readActionSmokeState(ctx context.Context, pipeline *pipelinedb.DB, core *co
 		return actionSmokeState{}, err
 	}
 
-	reopenedCore, err := openSmokeReadOnly(filepath.Join(filepath.Dir(desktop.StateDir()), "hive.db"))
+	reopenedCore, err := openSmokeReadOnly(filepath.Join(filepath.Dir(settings.StateDir()), "hive.db"))
 	if err != nil {
 		return actionSmokeState{}, fmt.Errorf("reopen action smoke core database: %w", err)
 	}
 	defer func() { _ = reopenedCore.Close() }()
-	reopenedPipeline, err := openSmokeReadOnly(filepath.Join(desktop.StateDir(), "desktop-pipeline.db"))
+	reopenedPipeline, err := openSmokeReadOnly(filepath.Join(settings.StateDir(), "desktop-pipeline.db"))
 	if err != nil {
 		return actionSmokeState{}, fmt.Errorf("reopen action smoke pipeline database: %w", err)
 	}
@@ -136,7 +136,7 @@ func readActionSmokeSnapshot(ctx context.Context, core, pipeline *sql.DB, runID 
 	topic := "smoke." + runID
 	state := actionSmokeState{
 		RunID:          runID,
-		ActionsPath:    desktop.ActionsPath(),
+		ActionsPath:    settings.ActionsPath(),
 		Sessions:       []actionSmokeSession{},
 		Messages:       []actionSmokeMessage{},
 		OutputCommands: []actionSmokeCommand{},
@@ -216,7 +216,7 @@ func likePrefix(prefix string) string {
 }
 
 func actionSmokeHarnessEnabled() bool {
-	return desktop.MockMode() == "action-smoke" && desktopSmokeRunID() != "" && e2eHarnessMarkerValid()
+	return settings.MockMode() == "action-smoke" && desktopSmokeRunID() != "" && e2eHarnessMarkerValid()
 }
 
 func desktopSmokeRunID() string {

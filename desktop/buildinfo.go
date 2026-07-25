@@ -6,7 +6,7 @@ import (
 	"runtime/debug"
 	"strings"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // Build information for the desktop app. Populated at build time via
@@ -102,10 +102,10 @@ func releaseChannel(version string) (channel string, ok bool) {
 	}
 	switch m[1] {
 	case "dev":
-		return desktop.ChannelDev, true
+		return settings.ChannelDev, true
 	case "beta":
-		return desktop.ChannelBeta, true
+		return settings.ChannelBeta, true
 	default:
-		return desktop.ChannelStable, true
+		return settings.ChannelStable, true
 	}
 }

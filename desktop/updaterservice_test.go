@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // fakeEngine is a test double for the Updater. It records call counts and
@@ -117,7 +117,7 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 
 func TestUpdaterServiceDevGate(t *testing.T) {
 	silenceEmits(t)
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	// No engine attached => dev build.
 	s := NewUpdaterService("dev", true, time.Millisecond, zerolog.Nop())
 
@@ -128,7 +128,7 @@ func TestUpdaterServiceDevGate(t *testing.T) {
 	// SetEnabled persists but starts no ticker (engine nil), so it must not
 	// panic or spin.
 	require.NoError(t, s.SetEnabled(true))
-	got, err := desktop.LoadSettings()
+	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.NotNil(t, got.AutoUpdate)
 	require.True(t, *got.AutoUpdate)
@@ -138,7 +138,7 @@ func TestUpdaterServiceDevGate(t *testing.T) {
 func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 	silenceEmits(t)
 	synctest.Test(t, func(t *testing.T) {
-		t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 		engine := &fakeEngine{rel: nil}
 		s := NewUpdaterService("1.2.3", false, time.Minute, zerolog.Nop())
 		s.attach(engine)

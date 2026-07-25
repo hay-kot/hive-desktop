@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/prompts"
 )
@@ -34,10 +34,10 @@ func NewPromptsService(listener *pipeline.WebhookListener, webhookPort int) *Pro
 // handing out a stale port after the listener rebinds.
 func (s *PromptsService) service() (*prompts.Service, error) {
 	env := prompts.Env{
-		ConfigDir:    desktop.ConfigDir(),
-		FlowsDir:     desktop.FlowsDir(),
-		ActionsPath:  desktop.ActionsPath(),
-		SettingsPath: desktop.SettingsPath(),
+		ConfigDir:    settings.ConfigDir(),
+		FlowsDir:     settings.FlowsDir(),
+		ActionsPath:  settings.ActionsPath(),
+		SettingsPath: settings.SettingsPath(),
 	}
 
 	port := s.webhookPort
@@ -50,7 +50,7 @@ func (s *PromptsService) service() (*prompts.Service, error) {
 	// A settings read failure must not take the prompts page down with it:
 	// every other prompt is still correct, so fall back to reporting the
 	// listener as enabled and let the webhook settings pane surface the error.
-	if settings, err := desktop.LoadSettings(); err == nil {
+	if settings, err := settings.LoadSettings(); err == nil {
 		env.WebhookEnabled = settings.WebhookEnabledOrDefault()
 	} else {
 		env.WebhookEnabled = true

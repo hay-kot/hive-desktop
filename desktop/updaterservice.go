@@ -9,7 +9,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // defaultUpdateCheckInterval is how often the self-managed ticker polls for a
@@ -112,12 +112,12 @@ func (s *UpdaterService) Status() UpdateInfo {
 // atomically. On dev builds (no engine) it still persists the preference but
 // starts no ticker.
 func (s *UpdaterService) SetEnabled(enabled bool) error {
-	current, err := desktop.LoadSettings()
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
 	current.AutoUpdate = &enabled
-	if err := desktop.SaveSettings(current); err != nil {
+	if err := settings.SaveSettings(current); err != nil {
 		return err
 	}
 

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
 
@@ -16,8 +16,8 @@ import (
 // reads and writes never touch the developer's real settings.yaml.
 func isolateSettings(t *testing.T) {
 	t.Helper()
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
-	t.Setenv(desktop.EnvWebhookPort, "")
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvWebhookPort, "")
 }
 
 func TestWebhookServiceInfoWithoutListener(t *testing.T) {
@@ -68,10 +68,10 @@ func TestWebhookServiceSettingsFirstRun(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, view.Enabled, "webhooks default to enabled")
 	assert.False(t, view.PortOverridden)
-	assert.GreaterOrEqual(t, view.Port, desktop.WebhookPortMin)
-	assert.LessOrEqual(t, view.Port, desktop.WebhookPortMax)
-	assert.Equal(t, desktop.WebhookPortMin, view.PortMin)
-	assert.Equal(t, desktop.WebhookPortMax, view.PortMax)
+	assert.GreaterOrEqual(t, view.Port, settings.WebhookPortMin)
+	assert.LessOrEqual(t, view.Port, settings.WebhookPortMax)
+	assert.Equal(t, settings.WebhookPortMin, view.PortMin)
+	assert.Equal(t, settings.WebhookPortMax, view.PortMax)
 	assert.Empty(t, view.StartError)
 
 	// Reading settings allocated and persisted a port, so it is stable.
@@ -88,7 +88,7 @@ func TestWebhookServiceSettingsFirstRun(t *testing.T) {
 
 func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 	isolateSettings(t)
-	t.Setenv(desktop.EnvWebhookPort, "24499")
+	t.Setenv(settings.EnvWebhookPort, "24499")
 	service := NewWebhookService(nil, nil, 24499)
 
 	view, err := service.Settings()
@@ -101,7 +101,7 @@ func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 func TestWebhookServiceSetSettings(t *testing.T) {
 	isolateSettings(t)
 	service := NewWebhookService(nil, nil, 0)
-	require.NoError(t, desktop.SaveSettings(desktop.Settings{PollInterval: "2m"}))
+	require.NoError(t, settings.SaveSettings(settings.Settings{PollInterval: "2m"}))
 
 	require.NoError(t, service.SetSettings(WebhookSettings{Enabled: false, Port: 27777}))
 
@@ -114,7 +114,7 @@ func TestWebhookServiceSetSettings(t *testing.T) {
 	assert.False(t, view.RestartRequired)
 
 	// Unrelated settings survived the write.
-	saved, err := desktop.LoadSettings()
+	saved, err := settings.LoadSettings()
 	require.NoError(t, err)
 	assert.Equal(t, "2m", saved.PollInterval)
 }
@@ -134,11 +134,11 @@ func TestWebhookServiceGeneratePort(t *testing.T) {
 
 	port, err := service.GeneratePort()
 	require.NoError(t, err)
-	assert.GreaterOrEqual(t, port, desktop.WebhookPortMin)
-	assert.LessOrEqual(t, port, desktop.WebhookPortMax)
+	assert.GreaterOrEqual(t, port, settings.WebhookPortMin)
+	assert.LessOrEqual(t, port, settings.WebhookPortMax)
 
 	// Generating is a candidate only — nothing is persisted until save.
-	saved, err := desktop.LoadSettings()
+	saved, err := settings.LoadSettings()
 	require.NoError(t, err)
 	assert.Zero(t, saved.WebhookPort)
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
@@ -19,28 +19,28 @@ import (
 )
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 
-	err := service.SetGithubSettings(GithubSettings{PollIntervalSeconds: int(desktop.MinPollInterval/time.Second) - 1})
+	err := service.SetGithubSettings(GithubSettings{PollIntervalSeconds: int(settings.MinPollInterval/time.Second) - 1})
 	require.Error(t, err)
 }
 
 func TestSettingsServiceNotificationSettings(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 
 	got, err := service.NotificationSettings()
 	require.NoError(t, err)
 	require.Equal(t, NotificationSettings{
 		NotificationsEnabled: true,
-		Delivery:             desktop.DeliveryAuto,
+		Delivery:             settings.DeliveryAuto,
 		NotificationSound:    true,
 	}, got)
 }
 
 func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 
 	require.NoError(t, service.SetNotificationSettings(NotificationSettings{
@@ -49,15 +49,15 @@ func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T
 		NotificationSound:    true,
 	}))
 
-	got, err := desktop.LoadSettings()
+	got, err := settings.LoadSettings()
 	require.NoError(t, err)
-	require.Equal(t, desktop.DeliveryAuto, got.NotificationDelivery)
+	require.Equal(t, settings.DeliveryAuto, got.NotificationDelivery)
 }
 
 func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	autoUpdate := false
-	require.NoError(t, desktop.SaveSettings(desktop.Settings{
+	require.NoError(t, settings.SaveSettings(settings.Settings{
 		PollInterval: "5m",
 		AutoUpdate:   &autoUpdate,
 	}))
@@ -65,12 +65,12 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 	want := NotificationSettings{
 		NotificationsEnabled: false,
-		Delivery:             desktop.DeliveryApp,
+		Delivery:             settings.DeliveryApp,
 		NotificationSound:    false,
 	}
 	require.NoError(t, service.SetNotificationSettings(want))
 
-	got, err := desktop.LoadSettings()
+	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "5m", got.PollInterval)
 	require.NotNil(t, got.AutoUpdate)
@@ -78,20 +78,20 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 	require.NotNil(t, got.NotificationsEnabled)
 	require.NotNil(t, got.NotificationSound)
 	require.False(t, *got.NotificationsEnabled)
-	require.Equal(t, desktop.DeliveryApp, got.NotificationDelivery)
+	require.Equal(t, settings.DeliveryApp, got.NotificationDelivery)
 	require.False(t, *got.NotificationSound)
 }
 
 func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	// Seed an explicit auto_update:false alongside a poll interval.
 	disabled := false
-	require.NoError(t, desktop.SaveSettings(desktop.Settings{PollInterval: "5m", AutoUpdate: &disabled}))
+	require.NoError(t, settings.SaveSettings(settings.Settings{PollInterval: "5m", AutoUpdate: &disabled}))
 
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 	require.NoError(t, service.SetGithubSettings(GithubSettings{PollIntervalSeconds: 120}))
 
-	got, err := desktop.LoadSettings()
+	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "2m0s", got.PollInterval)
 	require.NotNil(t, got.AutoUpdate, "auto_update must survive a poll-interval save")
@@ -118,7 +118,7 @@ func (s *settingsServiceSource) callCount() int {
 
 func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 		provider := feed.NewLiveProvider(github.NewClient(), nil, zerolog.Nop())
 		db, err := pipelinedb.Open(t.TempDir(), pipelinedb.DefaultOpenOptions())
 		require.NoError(t, err)
@@ -130,7 +130,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		service := NewSettingsService(producer, provider, zerolog.Nop())
 
 		require.NoError(t, service.SetGithubSettings(GithubSettings{PollIntervalSeconds: 120}))
-		settings, err := desktop.LoadSettings()
+		settings, err := settings.LoadSettings()
 		require.NoError(t, err)
 		require.Equal(t, "2m0s", settings.PollInterval)
 
@@ -148,7 +148,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 }
 
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 
 	got, err := service.AppearanceSettings()
@@ -157,9 +157,9 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 }
 
 func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing.T) {
-	t.Setenv(desktop.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 	autoUpdate := false
-	require.NoError(t, desktop.SaveSettings(desktop.Settings{
+	require.NoError(t, settings.SaveSettings(settings.Settings{
 		PollInterval: "5m",
 		AutoUpdate:   &autoUpdate,
 	}))
@@ -167,7 +167,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	service := NewSettingsService(nil, nil, zerolog.Nop())
 	require.NoError(t, service.SetAppearanceSettings(AppearanceSettings{Theme: "midnight"}))
 
-	got, err := desktop.LoadSettings()
+	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
 	require.Equal(t, "5m", got.PollInterval)

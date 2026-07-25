@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
@@ -34,7 +34,7 @@ type GithubSettings struct {
 
 // NotificationSettings is the desktop notification configuration resolved
 // from settings.yaml. Delivery is carried as a resolved string from the
-// closed set desktop.DeliveryAuto/DeliverySystem/DeliveryApp.
+// closed set settings.DeliveryAuto/DeliverySystem/DeliveryApp.
 type NotificationSettings struct {
 	NotificationsEnabled bool `json:"notificationsEnabled"`
 	// Delivery is where an eligible notification is surfaced: "auto" (an OS
@@ -64,11 +64,11 @@ type KeybindingSettings struct {
 // KeybindingSettings returns the persisted shortcut overrides. A nil map is
 // normalized to an empty one so the frontend never has to null-check it.
 func (s *SettingsService) KeybindingSettings() (KeybindingSettings, error) {
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		return KeybindingSettings{}, err
 	}
-	overrides := settings.Keybindings
+	overrides := cfg.Keybindings
 	if overrides == nil {
 		overrides = map[string][]string{}
 	}
@@ -78,105 +78,105 @@ func (s *SettingsService) KeybindingSettings() (KeybindingSettings, error) {
 // SetKeybindingSettings persists the shortcut overrides while preserving all
 // unrelated desktop settings. An empty map clears the section entirely, which
 // is how "reset everything to defaults" is expressed.
-func (s *SettingsService) SetKeybindingSettings(settings KeybindingSettings) error {
-	current, err := desktop.LoadSettings()
+func (s *SettingsService) SetKeybindingSettings(in KeybindingSettings) error {
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
-	if len(settings.Overrides) == 0 {
+	if len(in.Overrides) == 0 {
 		current.Keybindings = nil
 	} else {
-		current.Keybindings = settings.Overrides
+		current.Keybindings = in.Overrides
 	}
-	return desktop.SaveSettings(current)
+	return settings.SaveSettings(current)
 }
 
 // AppearanceSettings returns the persisted appearance configuration. An empty
 // Theme tells the frontend no choice has been recorded, which is its cue to
 // adopt whatever theme its localStorage cache already holds.
 func (s *SettingsService) AppearanceSettings() (AppearanceSettings, error) {
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		return AppearanceSettings{}, err
 	}
-	return AppearanceSettings{Theme: settings.Appearance.Theme}, nil
+	return AppearanceSettings{Theme: cfg.Appearance.Theme}, nil
 }
 
 // SetAppearanceSettings persists the appearance configuration while preserving
 // all unrelated desktop settings.
-func (s *SettingsService) SetAppearanceSettings(settings AppearanceSettings) error {
-	current, err := desktop.LoadSettings()
+func (s *SettingsService) SetAppearanceSettings(in AppearanceSettings) error {
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
-	current.Appearance.Theme = settings.Theme
-	return desktop.SaveSettings(current)
+	current.Appearance.Theme = in.Theme
+	return settings.SaveSettings(current)
 }
 
 // NotificationSettings returns the current resolved notification settings.
 func (s *SettingsService) NotificationSettings() (NotificationSettings, error) {
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		return NotificationSettings{}, err
 	}
 	return NotificationSettings{
-		NotificationsEnabled: settings.NotificationsEnabledOrDefault(),
-		Delivery:             settings.NotificationDeliveryOrDefault(),
-		NotificationSound:    settings.NotificationSoundOrDefault(),
+		NotificationsEnabled: cfg.NotificationsEnabledOrDefault(),
+		Delivery:             cfg.NotificationDeliveryOrDefault(),
+		NotificationSound:    cfg.NotificationSoundOrDefault(),
 	}, nil
 }
 
 // SetNotificationSettings persists the notification configuration while
 // preserving all unrelated desktop settings.
-func (s *SettingsService) SetNotificationSettings(settings NotificationSettings) error {
-	current, err := desktop.LoadSettings()
+func (s *SettingsService) SetNotificationSettings(in NotificationSettings) error {
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
-	current.NotificationsEnabled = &settings.NotificationsEnabled
+	current.NotificationsEnabled = &in.NotificationsEnabled
 	// Persist the resolved mode: an unknown value from a stale frontend heals
 	// to the default here rather than being written back verbatim.
-	current.NotificationDelivery = desktop.ResolveNotificationDelivery(settings.Delivery)
-	current.NotificationSound = &settings.NotificationSound
-	return desktop.SaveSettings(current)
+	current.NotificationDelivery = settings.ResolveNotificationDelivery(in.Delivery)
+	current.NotificationSound = &in.NotificationSound
+	return settings.SaveSettings(current)
 }
 
 // GithubSettings returns the current resolved GitHub polling settings.
 func (s *SettingsService) GithubSettings() (GithubSettings, error) {
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		return GithubSettings{}, err
 	}
-	interval, err := settings.PollIntervalOrDefault(feed.DefaultPollInterval)
+	interval, err := cfg.PollIntervalOrDefault(feed.DefaultPollInterval)
 	if err != nil {
 		return GithubSettings{}, err
 	}
 	return GithubSettings{
 		PollIntervalSeconds:    int(interval / time.Second),
-		MinPollIntervalSeconds: int(desktop.MinPollInterval / time.Second),
+		MinPollIntervalSeconds: int(settings.MinPollInterval / time.Second),
 	}, nil
 }
 
 // SetGithubSettings validates, persists, and immediately applies the GitHub
 // poll interval. API callers below the floor are rejected rather than clamped.
-func (s *SettingsService) SetGithubSettings(settings GithubSettings) error {
-	minimum := int(desktop.MinPollInterval / time.Second)
-	if settings.PollIntervalSeconds < minimum {
+func (s *SettingsService) SetGithubSettings(in GithubSettings) error {
+	minimum := int(settings.MinPollInterval / time.Second)
+	if in.PollIntervalSeconds < minimum {
 		return fmt.Errorf("poll interval must be at least %d seconds", minimum)
 	}
-	if uint64(settings.PollIntervalSeconds) > uint64((time.Duration(1<<63-1))/time.Second) {
+	if uint64(in.PollIntervalSeconds) > uint64((time.Duration(1<<63-1))/time.Second) {
 		return fmt.Errorf("poll interval is too large")
 	}
 
-	interval := time.Duration(settings.PollIntervalSeconds) * time.Second
+	interval := time.Duration(in.PollIntervalSeconds) * time.Second
 	// Load-modify-save so unrelated fields (e.g. AutoUpdate) are preserved
 	// rather than clobbered by writing a fresh, single-field Settings value.
-	current, err := desktop.LoadSettings()
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
 	current.PollInterval = interval.String()
-	if err := desktop.SaveSettings(current); err != nil {
+	if err := settings.SaveSettings(current); err != nil {
 		return err
 	}
 	if s.producer != nil {

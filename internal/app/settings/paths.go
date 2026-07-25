@@ -1,9 +1,8 @@
-// Package desktop holds code that exists purely for the Hive desktop app.
-// Subpackages implement the desktop's service backends and pipeline support;
-// the desktop/ main package is thin Wails wiring over them. Anything reusable
-// beyond the desktop (the GitHub client, session/core logic) does not
-// belong here.
-package desktop
+// Package settings resolves the desktop app's on-disk locations (state,
+// config, flows, actions) and loads the user-editable settings and bootstrap
+// files that live there. It is the lowest layer of internal/app: it knows
+// where things are and what the user configured, and nothing else.
+package settings
 
 import (
 	"os"

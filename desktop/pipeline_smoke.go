@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -70,7 +70,7 @@ func (sourceToCommitSmokeClassifier) Classify(previous *pipelinedb.Observation, 
 // source input and reads the persisted node runs back for Playwright.
 func sourceToCommitSmokeMiddleware(db *pipelinedb.DB) application.Middleware {
 	return func(next http.Handler) http.Handler {
-		if desktop.MockMode() != "pipeline" {
+		if settings.MockMode() != "pipeline" {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

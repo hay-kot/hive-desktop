@@ -15,7 +15,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -64,12 +64,12 @@ type stateReset struct {
 // run after startup seeding — the mock inbox rows and actions.yml defaults —
 // so the captured baseline is the post-boot state a fresh server would show.
 func newStateResetHarness(db *pipelinedb.DB, core *coredb.DB, logger zerolog.Logger) *stateReset {
-	if desktop.MockMode() == "" || !e2eHarnessMarkerValid() {
+	if settings.MockMode() == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
-	r := &stateReset{db: db, core: core, logger: logger, flowsDir: desktop.FlowsDir()}
-	r.capture(desktop.ActionsPath())
-	r.capture(desktop.SettingsPath())
+	r := &stateReset{db: db, core: core, logger: logger, flowsDir: settings.FlowsDir()}
+	r.capture(settings.ActionsPath())
+	r.capture(settings.SettingsPath())
 	// SaveFlow/SaveLayout/SaveSidebar write per-flow files, so every file
 	// under the flows directory is baseline state, layout siblings included.
 	_ = filepath.WalkDir(r.flowsDir, func(path string, entry fs.DirEntry, err error) error {
@@ -105,7 +105,7 @@ func (r *stateReset) capture(path string) {
 // an empty store; see the type comment for the full ordering.
 func (r *stateReset) Reset(ctx context.Context) error {
 	var reseed func(*pipelinedb.Queries) error
-	switch desktop.MockMode() {
+	switch settings.MockMode() {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.
 		reseed = seedMockInboxItemsTx
@@ -232,7 +232,7 @@ func stateResetMiddleware(reset *stateReset) application.Middleware {
 // 256-bit hex marker desktop/e2e/scripts/run-docker.sh mints. It keeps mock
 // mode alone from enabling test-only routes.
 func e2eHarnessMarkerValid() bool {
-	marker := strings.TrimSpace(os.Getenv(desktop.EnvE2EHarness))
+	marker := strings.TrimSpace(os.Getenv(settings.EnvE2EHarness))
 	if len(marker) != 64 {
 		return false
 	}

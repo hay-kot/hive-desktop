@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 )
@@ -79,23 +79,23 @@ type WebhookSettings struct {
 // Settings returns the persisted webhook configuration alongside the state of
 // this session's listener.
 func (s *WebhookService) Settings() (WebhookSettings, error) {
-	settings, err := desktop.LoadSettings()
+	cfg, err := settings.LoadSettings()
 	if err != nil {
 		return WebhookSettings{}, err
 	}
 
-	port, err := desktop.ResolveWebhookPort(settings)
+	port, err := settings.ResolveWebhookPort(cfg)
 	if err != nil {
 		return WebhookSettings{}, err
 	}
-	enabled := settings.WebhookEnabledOrDefault()
+	enabled := cfg.WebhookEnabledOrDefault()
 
 	view := WebhookSettings{
 		Enabled:        enabled,
 		Port:           port,
-		PortMin:        desktop.WebhookPortMin,
-		PortMax:        desktop.WebhookPortMax,
-		PortOverridden: desktop.WebhookPortOverride() > 0,
+		PortMin:        settings.WebhookPortMin,
+		PortMax:        settings.WebhookPortMax,
+		PortOverridden: settings.WebhookPortOverride() > 0,
 		BaseURL:        webhookBaseURL(port),
 	}
 	if s.listener != nil {
@@ -116,23 +116,23 @@ func (s *WebhookService) Settings() (WebhookSettings, error) {
 // desktop settings. Neither is applied to the running listener: both are
 // startup-time decisions, and Settings reports the pending restart.
 func (s *WebhookService) SetSettings(next WebhookSettings) error {
-	if !desktop.ValidWebhookPort(next.Port) {
+	if !settings.ValidWebhookPort(next.Port) {
 		return fmt.Errorf("port must be between 1024 and 65535")
 	}
-	current, err := desktop.LoadSettings()
+	current, err := settings.LoadSettings()
 	if err != nil {
 		return err
 	}
 	current.WebhookEnabled = &next.Enabled
 	current.WebhookPort = next.Port
-	return desktop.SaveSettings(current)
+	return settings.SaveSettings(current)
 }
 
 // GeneratePort returns a fresh random port from the generation range without
 // persisting it: the settings pane offers it as a candidate, and saving is
 // what commits it.
 func (s *WebhookService) GeneratePort() (int, error) {
-	return desktop.AllocateWebhookPort()
+	return settings.AllocateWebhookPort()
 }
 
 func webhookBaseURL(port int) string {

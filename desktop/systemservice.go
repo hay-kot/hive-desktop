@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/colonyops/hive/pkg/osopen"
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -19,7 +19,7 @@ import (
 // directory, and persist point-only data/config directory overrides.
 //
 // Directory overrides are point-only and take effect after a restart: they are
-// written to the bootstrap pointer file (see internal/desktop.Bootstrap) and
+// written to the bootstrap pointer file (see internal/settings.Bootstrap) and
 // seeded into the environment at next launch. Nothing is moved.
 type SystemService struct{}
 
@@ -49,12 +49,12 @@ type SystemInfo struct {
 // Info returns the effective locations for this running process plus whether
 // the data/config directories are backed by a stored override.
 func (s *SystemService) Info() SystemInfo {
-	b, _ := desktop.LoadBootstrap()
+	b, _ := settings.LoadBootstrap()
 	return SystemInfo{
-		DataDir:   pathInfo(desktop.DataDir(), b.DataDir != ""),
-		ConfigDir: pathInfo(desktop.ConfigDir(), b.ConfigDir != ""),
-		LogFile:   pathInfo(desktop.LogFile(), false),
-		Database:  pathInfo(pipelinedb.DatabasePath(desktop.StateDir()), false),
+		DataDir:   pathInfo(settings.DataDir(), b.DataDir != ""),
+		ConfigDir: pathInfo(settings.ConfigDir(), b.ConfigDir != ""),
+		LogFile:   pathInfo(settings.LogFile(), false),
+		Database:  pathInfo(pipelinedb.DatabasePath(settings.StateDir()), false),
 	}
 }
 
@@ -136,12 +136,12 @@ func (s *SystemService) SetDataDir(path string) error {
 	if err := validateDirOverride(path); err != nil {
 		return err
 	}
-	b, err := desktop.LoadBootstrap()
+	b, err := settings.LoadBootstrap()
 	if err != nil {
 		return err
 	}
 	b.DataDir = filepath.Clean(path)
-	return desktop.SaveBootstrap(b)
+	return settings.SaveBootstrap(b)
 }
 
 // SetConfigDir persists a config-directory override (profiles/flows/actions).
@@ -150,23 +150,23 @@ func (s *SystemService) SetConfigDir(path string) error {
 	if err := validateDirOverride(path); err != nil {
 		return err
 	}
-	b, err := desktop.LoadBootstrap()
+	b, err := settings.LoadBootstrap()
 	if err != nil {
 		return err
 	}
 	b.ConfigDir = filepath.Clean(path)
-	return desktop.SaveBootstrap(b)
+	return settings.SaveBootstrap(b)
 }
 
 // ClearDataDir removes the data-directory override, reverting to the default
 // location on the next launch.
 func (s *SystemService) ClearDataDir() error {
-	return clearOverride(func(b *desktop.Bootstrap) { b.DataDir = "" })
+	return clearOverride(func(b *settings.Bootstrap) { b.DataDir = "" })
 }
 
 // ClearConfigDir removes the config-directory override.
 func (s *SystemService) ClearConfigDir() error {
-	return clearOverride(func(b *desktop.Bootstrap) { b.ConfigDir = "" })
+	return clearOverride(func(b *settings.Bootstrap) { b.ConfigDir = "" })
 }
 
 // Quit terminates the app so the user can relaunch and apply a directory
@@ -177,23 +177,23 @@ func (s *SystemService) Quit() {
 	}
 }
 
-func clearOverride(mutate func(*desktop.Bootstrap)) error {
-	b, err := desktop.LoadBootstrap()
+func clearOverride(mutate func(*settings.Bootstrap)) error {
+	b, err := settings.LoadBootstrap()
 	if err != nil {
 		return err
 	}
 	mutate(&b)
-	return desktop.SaveBootstrap(b)
+	return settings.SaveBootstrap(b)
 }
 
 // checkAllowed rejects any path that is not one of the four known system
 // locations, cleaned for comparison.
 func (s *SystemService) checkAllowed(path string) error {
 	allowed := map[string]struct{}{
-		filepath.Clean(desktop.DataDir()):                           {},
-		filepath.Clean(desktop.ConfigDir()):                         {},
-		filepath.Clean(desktop.LogFile()):                           {},
-		filepath.Clean(pipelinedb.DatabasePath(desktop.StateDir())): {},
+		filepath.Clean(settings.DataDir()):                           {},
+		filepath.Clean(settings.ConfigDir()):                         {},
+		filepath.Clean(settings.LogFile()):                           {},
+		filepath.Clean(pipelinedb.DatabasePath(settings.StateDir())): {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return fmt.Errorf("path is not a known system location: %s", path)

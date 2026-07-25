@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
@@ -34,9 +34,9 @@ func TestActionSmokeMiddlewareUnavailableOutsideDedicatedHarness(t *testing.T) {
 		{name: "invalid harness marker", mode: "action-smoke", runID: "unit", marker: "not-a-256-bit-token"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv(desktop.EnvMockMode, tc.mode)
+			t.Setenv(settings.EnvMockMode, tc.mode)
 			t.Setenv("HIVE_DESKTOP_SMOKE_RUN_ID", tc.runID)
-			t.Setenv(desktop.EnvE2EHarness, tc.marker)
+			t.Setenv(settings.EnvE2EHarness, tc.marker)
 			h := actionSmokeMiddleware(nil, nil)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 			r := httptest.NewRecorder()
 			h.ServeHTTP(r, httptest.NewRequest(http.MethodGet, actionSmokePath, nil))
@@ -49,9 +49,9 @@ const smokeHarnessMarker = "0123456789abcdef0123456789abcdef0123456789abcdef0123
 
 func TestActionSmokeMiddlewareGETOnly(t *testing.T) {
 	pipeline, core := newActionSmokeDatabases(t)
-	t.Setenv(desktop.EnvMockMode, "action-smoke")
+	t.Setenv(settings.EnvMockMode, "action-smoke")
 	t.Setenv("HIVE_DESKTOP_SMOKE_RUN_ID", "unit")
-	t.Setenv(desktop.EnvE2EHarness, smokeHarnessMarker)
+	t.Setenv(settings.EnvE2EHarness, smokeHarnessMarker)
 	h := actionSmokeMiddleware(pipeline, core)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, actionSmokePath, nil))
@@ -61,10 +61,10 @@ func TestActionSmokeMiddlewareGETOnly(t *testing.T) {
 
 func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	pipeline, core := newActionSmokeDatabases(t)
-	t.Setenv(desktop.EnvMockMode, "action-smoke")
+	t.Setenv(settings.EnvMockMode, "action-smoke")
 	t.Setenv("HIVE_DESKTOP_SMOKE_RUN_ID", "unit")
-	t.Setenv(desktop.EnvE2EHarness, smokeHarnessMarker)
-	t.Setenv(desktop.EnvActionsPath, filepath.Join(t.TempDir(), "private-actions.yml"))
+	t.Setenv(settings.EnvE2EHarness, smokeHarnessMarker)
+	t.Setenv(settings.EnvActionsPath, filepath.Join(t.TempDir(), "private-actions.yml"))
 	ctx := context.Background()
 
 	sessionStore := stores.NewSessionStore(core)
@@ -92,7 +92,7 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	var state actionSmokeState
 	require.NoError(t, json.Unmarshal(r.Body.Bytes(), &state))
 	assert.Equal(t, "unit", state.RunID)
-	assert.Equal(t, desktop.ActionsPath(), state.ActionsPath)
+	assert.Equal(t, settings.ActionsPath(), state.ActionsPath)
 	require.Len(t, state.Sessions, 1)
 	assert.Equal(t, "kept", state.Sessions[0].ID)
 	require.Len(t, state.Messages, 1)
@@ -127,7 +127,7 @@ func newActionSmokeDatabases(t *testing.T) (*pipelinedb.DB, *coredb.DB) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HIVE_DATA_DIR", root)
-	pipeline, err := pipelinedb.Open(desktop.StateDir(), pipelinedb.DefaultOpenOptions())
+	pipeline, err := pipelinedb.Open(settings.StateDir(), pipelinedb.DefaultOpenOptions())
 	require.NoError(t, err)
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)

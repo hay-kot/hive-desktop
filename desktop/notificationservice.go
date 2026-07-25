@@ -7,7 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
@@ -139,7 +139,7 @@ type settingsNotificationGate struct {
 }
 
 func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPolicy {
-	settings, err := desktop.LoadSettings()
+	settings, err := settings.LoadSettings()
 	if err != nil {
 		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
 		return pipeline.NotificationPolicy{}
@@ -158,9 +158,9 @@ func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPoli
 // notification raised during startup still reaches the user.
 func (g settingsNotificationGate) inApp(delivery string) bool {
 	switch delivery {
-	case desktop.DeliveryApp:
+	case settings.DeliveryApp:
 		return true
-	case desktop.DeliverySystem:
+	case settings.DeliverySystem:
 		return false
 	default:
 		return g.focus != nil && g.focus.get()
