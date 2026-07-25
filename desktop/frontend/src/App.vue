@@ -427,17 +427,6 @@ function openErrorNode(): void {
   if (firstErrorNodeId.value) openFlows(firstErrorNodeId.value)
 }
 
-// ── Always-on runtime pump (hc-8ft4yhm6) ─────────────────────────────────────
-// Drives every enabled runtime on each backend log append. The subscription
-// lives here so processing continues with the canvas closed and regardless of
-// profile selection. log:appended is a one-shot wake-up, so the session keeps
-// it sticky (level-triggered): a signal landing while a serialized operation
-// is still installing or replacing runtimes is drained by that operation's
-// trailing catch-up pump — never dropped. The feed re-read keys off pumpCount
-// rather than the pump() call so commits complete BEFORE useFeedState.refresh()
-// re-reads inbox items and membership claims, even when the servicing pass was
-// a boot/reload catch-up instead of the pump this event requested.
-watch(session.pumpCount, () => { void refresh() })
 // A clicked notification arrives with the workspace and item it was sent
 // about (see the notify node). The window is already raised by the time this
 // fires; routing to a feed route that reveals the item is all that is left.
@@ -462,7 +451,7 @@ async function revealNotification(activation: NotificationActivation): Promise<v
   void router.push({ name: 'feed', params: { profileId }, query })
 }
 
-let unsubscribeLog: (() => void) | undefined
+let unsubscribeInbox: (() => void) | undefined
 let unsubscribeFlowsRuntime: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 let unsubscribeNotification: (() => void) | undefined
@@ -476,11 +465,14 @@ function toastSeverity(severity: string): 'info' | 'success' | 'warning' | 'erro
   return known.includes(severity as (typeof known)[number]) ? severity as (typeof known)[number] : 'info'
 }
 onMounted(() => {
-  unsubscribeLog = Events.On('log:appended', () => { void session.pump() })
-  // The app owns this subscription, rather than FlowsView, because deployed
-  // graphs must reload even while the canvas is closed. The session keeps an
-  // unsaved editor draft private while replacing only its runtime snapshot.
-  unsubscribeFlowsRuntime = Events.On('flows:updated', () => { void session.reloadDeployed() })
+  // The Go flow engine commits before it announces, so this is the moment
+  // membership claims and inbox items are readable — not log:appended, which
+  // only says a source observed something that may route nowhere at all.
+  unsubscribeInbox = Events.On('inbox:updated', () => { void refresh() })
+  // The app owns this subscription, rather than FlowsView, because the flow
+  // listing feeds the sidebar whether or not the canvas is open. The session
+  // keeps an unsaved editor draft private while refreshing the rest.
+  unsubscribeFlowsRuntime = Events.On('flows:updated', () => { void session.reloadFlows() })
   // Seed the update chip from the last cached check, then react to background
   // checks. The event payload is the same UpdateInfo shape Status() returns.
   void UpdaterStatus().then((status) => { updateInfo.value = status }).catch((error) => {
@@ -504,12 +496,11 @@ onMounted(() => {
   })
 })
 onUnmounted(() => {
-  unsubscribeLog?.()
+  unsubscribeInbox?.()
   unsubscribeFlowsRuntime?.()
   unsubscribeUpdate?.()
   unsubscribeNotification?.()
   unsubscribeNotificationToast?.()
-  session.disposeRuntime()
 })
 
 // ── Profile create / delete overlays ─────────────────────────────────────────
@@ -793,11 +784,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- data-pipeline-ready is the test-visible readiness marker: stamped once
-       the flows session's boot reconcile + trailing catch-up pump completed
-       ("subscribed + caught up"), so e2e tests can gate backend event
-       injection on it. -->
-  <main class="h-screen w-screen overflow-hidden bg-app text-text" :data-pipeline-ready="session.ready.value || undefined">
+  <main class="h-screen w-screen overflow-hidden bg-app text-text">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
         :profile-name="authenticated && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"

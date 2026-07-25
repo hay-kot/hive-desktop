@@ -6,7 +6,6 @@
 // `sink`/`unread` directly rather than re-encoding the mapping.
 
 import IconRss from '~icons/lucide/rss'
-import type { Sink } from '../../types'
 import { isFeedIcon } from '../../../lib/feedIcons'
 import * as notifyNode from '../notify/config'
 
@@ -50,17 +49,11 @@ export const severities = notifyNode.severities
  * the feed's own id: the feed is what asked to interrupt, so Commit resolves
  * this back to the same node's notify config.
  */
-export function notifySink(flowId: string, nodeId: string): Sink {
-  return { kind: 'notify', targetId: `${flowId}/${nodeId}` }
-}
 
 /** Newly observed inbox items land unread until the user reads them. */
 export const unread = true
 
 /** The feed's durable key is the flow-qualified node id. */
-export function sink(flowId: string, nodeId: string): Sink {
-  return { kind: 'feed', targetId: `${flowId}/${nodeId}` }
-}
 
 // ── App-registry metadata ───────────────────────────────────────────────────
 

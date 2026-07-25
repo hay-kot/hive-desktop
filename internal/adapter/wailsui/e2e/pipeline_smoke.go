@@ -30,7 +30,7 @@ var sourceToCommitSmokeItems = []feed.Item{
 		ID: "smoke-pr", Kind: "PR", Repo: "hive/e2e", Num: 101,
 		Title: "Source-to-commit smoke PR", Author: "smoke", Unread: true,
 		Labels: []string{"e2e"}, Branch: "test/source-to-commit",
-		Body:   "Fixture item appended by Go and committed through the browser graph.",
+		Body:   "Fixture item appended by a source and committed through the flow engine.",
 		Prompt: "Verify the source-to-commit desktop smoke path.",
 		URL:    "https://example.invalid/hive/e2e/pull/101",
 	},
@@ -38,7 +38,7 @@ var sourceToCommitSmokeItems = []feed.Item{
 		ID: "smoke-issue", Kind: "Issue", Repo: "hive/e2e", Num: 102,
 		Title: "Source-to-commit smoke issue", Author: "smoke", Unread: true,
 		Labels: []string{"e2e"}, Branch: "test/source-to-commit",
-		Body:   "Second fixture item proves one frontend batch commits multiple outputs.",
+		Body:   "Second fixture item proves one batch commits multiple outputs.",
 		Prompt: "Verify one frontend batch processes multiple outputs.",
 		URL:    "https://example.invalid/hive/e2e/issues/102",
 	},
@@ -51,8 +51,8 @@ type sourceToCommitSmokeState struct {
 
 // sourceToCommitSmokeClassifier is the deliberately small source-side
 // classifier used by this fixture. IngestObservation remains the production
-// source boundary: it creates the inbox identity and appends the event that
-// the browser graph consumes. The smoke test therefore cannot pass from a
+// source boundary: it creates the inbox identity and appends the event the
+// flow engine consumes. The smoke test therefore cannot pass from a
 // pre-seeded claim.
 type sourceToCommitSmokeClassifier struct{}
 
@@ -64,14 +64,14 @@ func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, curre
 }
 
 // sourceToCommitSmokeMiddleware is a narrow, mock-only harness around the
-// real server build. The app still receives its messages via the normal Wails
-// event, executes the production TS graph and Worker, then calls
-// PipelineService.Commit; this middleware merely supplies deterministic Go
-// source input and reads the persisted node runs back for Playwright.
+// real server build. This middleware only supplies deterministic source input
+// and reads the persisted node runs back for Playwright; everything between
+// is production — the flow engine wakes, routes the batch through the fixture
+// graph, and commits.
 //
-// onAppended announces that the event log grew, exactly as the producer does.
-// It is supplied rather than called directly so this package does not have to
-// import the adapter that mounts it.
+// onAppended announces that the event log grew and wakes the engine, exactly
+// as the producer does. It is supplied rather than called directly so this
+// package does not have to import the adapter that mounts it.
 func sourceToCommitSmokeMiddleware(db *store.DB, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if settings.MockMode() != "pipeline" {

@@ -9,14 +9,13 @@ type SmokeState = {
   nodeRuns: Array<{ flowId: string; nodeId: string; ok: boolean; inCount: number; outCount: number; dropCount: number }>
 }
 
-test('commits Go-appended source messages through the frontend graph', async ({ page }) => {
+test('commits Go-appended source messages through the flow engine', async ({ page }) => {
   await page.goto('/')
   await expect(page.getByTestId('profile-tile')).toHaveCount(1)
-  // Gate the append on the app's readiness marker: the root is stamped once
-  // the flows session's boot reconcile + trailing catch-up pump completed, so
-  // this append can no longer race runtime installation (the lost-wakeup bug
-  // this spec used to trip on under load).
-  await expect(page.locator('main[data-pipeline-ready="true"]')).toBeAttached()
+  // No readiness gate: App.Start installs the engine's runners synchronously,
+  // before the server can serve anything, so this append cannot race runtime
+  // installation. That race is what the frontend runtime needed a
+  // data-pipeline-ready marker to close.
   const append = await page.request.post(smokePath)
   expect(append.ok()).toBeTruthy()
   await expect(append.json()).resolves.toEqual({ appended: 2 })
@@ -36,8 +35,8 @@ test('commits Go-appended source messages through the frontend graph', async ({ 
   expect(state.claims.map((item) => item.payload.title).sort()).toEqual(['Source-to-commit smoke PR', 'Source-to-commit smoke issue'])
   expect(state.claims.every((item) => item.unread)).toBe(true)
 
-  // These per-node facts prove the Go event crossed the source, browser
-  // worker, and feed terminal before the backend persisted its claims.
+  // These per-node facts prove the event crossed the source, the function
+  // node, and the feed terminal before the claims were persisted.
   for (const nodeId of ['fixture-source', 'worker-transform', 'smoke-feed']) {
     expect(state.nodeRuns).toContainEqual(expect.objectContaining({
       flowId: 'source-to-commit',

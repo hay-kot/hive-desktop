@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
-import { bodyMaxLen, defaults, sink, titleMaxLen, validate } from '../config'
+import { bodyMaxLen, defaults, titleMaxLen, validate } from '../config'
 import { chooseOption } from '../../../../test-utils/select'
 
 describe('notify editor', () => {
@@ -67,7 +67,4 @@ describe('notify config', () => {
     expect(validate({ title: 'hi', severity: 'error' })).toEqual([])
   })
 
-  it('sinks to the flow-qualified node id', () => {
-    expect(sink('triage', 'tell-me')).toEqual({ kind: 'notify', targetId: 'triage/tell-me' })
-  })
 })

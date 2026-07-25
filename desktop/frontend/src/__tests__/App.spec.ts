@@ -35,15 +35,9 @@ const mocks = vi.hoisted(() => ({
   InboxItemEvents: vi.fn(),
   ActionRun: vi.fn(),
   SessionLaunchOptions: vi.fn(),
-  EventLogTailOffset: vi.fn(),
-  ActivateReplay: vi.fn(),
-  ListUnarchivedInboxItems: vi.fn(),
-  ListReplaySourceSnapshots: vi.fn(),
   ActionViews: vi.fn(),
   InvokeAction: vi.fn(),
   NodeRuns: vi.fn(),
-  ReadFrom: vi.fn(),
-  Commit: vi.fn(),
   // auth service
   Status: vi.fn(),
   StartDeviceFlow: vi.fn(),
@@ -99,15 +93,9 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   InboxItemEvents: mocks.InboxItemEvents,
   ActionRun: mocks.ActionRun,
   SessionLaunchOptions: mocks.SessionLaunchOptions,
-  EventLogTailOffset: mocks.EventLogTailOffset,
-  ActivateReplay: mocks.ActivateReplay,
-  ListUnarchivedInboxItems: mocks.ListUnarchivedInboxItems,
-  ListReplaySourceSnapshots: mocks.ListReplaySourceSnapshots,
   ActionViews: mocks.ActionViews,
   InvokeAction: mocks.InvokeAction,
   NodeRuns: mocks.NodeRuns,
-  ReadFrom: mocks.ReadFrom,
-  Commit: mocks.Commit,
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/authservice', () => ({
@@ -194,10 +182,6 @@ describe('App', () => {
     mocks.InboxItemEvents.mockResolvedValue([])
     mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' })
     mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [], defaultRepository: '', agents: [], defaultAgent: '' })
-    mocks.EventLogTailOffset.mockResolvedValue('0')
-    mocks.ActivateReplay.mockResolvedValue(undefined)
-    mocks.ListUnarchivedInboxItems.mockResolvedValue([])
-    mocks.ListReplaySourceSnapshots.mockResolvedValue([])
     mocks.ActionViews.mockResolvedValue([])
     mocks.InvokeAction.mockResolvedValue(undefined)
     mocks.ListActions.mockResolvedValue({ actions: [], error: '' })
@@ -901,63 +885,26 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('on "log:appended", pumps the runtime (commit) BEFORE refreshing the feed — the commit must land before the re-read', async () => {
+  it('refreshes the feed on "inbox:updated" — the engine commits before it announces', async () => {
     const wrapper = await mountApp()
 
-    const callOrder: string[] = []
-    mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
-    mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
+    mocks.FeedCounts.mockClear()
+    const inboxHandler = mocks.On.mock.calls.find(([event]) => event === 'inbox:updated')?.[1] as (() => void) | undefined
+    expect(inboxHandler).toBeDefined()
 
-    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
-    expect(logHandler).toBeDefined()
-
-    logHandler?.()
-    // The drain yields between pages before its terminating empty read.
-    await vi.waitFor(() => expect(callOrder).toEqual(['commit', 'refresh']))
+    inboxHandler?.()
+    await vi.waitFor(() => expect(mocks.FeedCounts).toHaveBeenCalled())
 
     wrapper.unmount()
   })
 
-  it('a log:appended landing while the boot reconcile is still in flight is serviced by the boot tail (lost-wakeup regression)', async () => {
-    // Park the boot reconcile mid-operation, exactly where the e2e trace
-    // showed the race: no runtime is installed yet when the event lands.
-    // EventLogTailOffset is only called from the session's replay startup, so
-    // parking it cannot stall any other boot path.
-    let releaseBoot!: (tail: string) => void
-    mocks.EventLogTailOffset.mockImplementationOnce(() => new Promise<string>((resolve) => { releaseBoot = resolve }))
+  it('does not re-read on "log:appended" — a log row may route nowhere, and the engine has not committed yet', async () => {
     const wrapper = await mountApp()
 
-    const callOrder: string[] = []
-    mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
-    mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
-
-    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
-    expect(logHandler).toBeDefined()
-    logHandler?.() // the one-shot wake-up; nothing can read against it yet
-    await flushPromises()
-    expect(mocks.ReadFrom).not.toHaveBeenCalled()
-
-    releaseBoot('0')
-    // The boot operation's trailing catch-up pump commits the appended page,
-    // and the feed re-read runs only after that commit — the wake-up that
-    // raced boot was never lost.
-    await vi.waitFor(() => expect(callOrder).toEqual(['commit', 'refresh']))
+    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1]
+    expect(logHandler).toBeUndefined()
 
     wrapper.unmount()
   })
 
-  it('stamps data-pipeline-ready on the app root once the boot reconcile + catch-up pump completed', async () => {
-    const router = createAppRouter(createMemoryHistory())
-    await router.push('/')
-    await router.isReady()
-    const wrapper = mount(App, { global: { plugins: [router] } })
-    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBeUndefined()
-
-    await flushPromises()
-
-    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBe('true')
-    wrapper.unmount()
-  })
 })

@@ -3,10 +3,10 @@
 // (flow-selector · node/wire counts · zoom/Fit · Deploy), the canvas itself,
 // and a bottom status strip (dirty state + aggregate node status counts).
 //
-// This component reads editor state and deployed runtimes from the shared
-// useFlowsSession() singleton (App.vue is the session's first caller; see
-// useFlowsSession.ts's module docs). That runtime manager keeps every
-// enabled flow committing inbox items and membership claims while this view is closed.
+// This component reads editor state from the shared useFlowsSession()
+// singleton (App.vue is the session's first caller; see useFlowsSession.ts's
+// module docs). Execution is the Go engine's and continues with this view
+// closed — nothing here starts or stops a flow.
 //
 // Individual refs/actions are destructured out of useFlowsSession()
 // (rather than kept as one `session` object) so the template can use them
@@ -35,12 +35,12 @@ import AppSelect from '../../components/AppSelect.vue'
 const {
   flows, activeFlow, layout, dirty, nodeRuns, latestRunByNode, saving, error, flowFocusNodeId,
   refreshFlows, refreshNodeRuns, selectFlow, addNode, updateNode, deleteNode, addWire, removeWire, moveNode, deploy,
-  running: runtimeRunning, lastRun: runtimeLastRun, runtimeError, pump,
+  flowLoadError,
 } = useFlowsSession()
 
 // App.vue binds profile navigation to the editor selection, while the picker
 // below may independently choose another draft. This view only renders editor
-// state; deployed runtimes are managed separately for every enabled flow.
+// state; what is deployed is whatever is on disk, which the Go engine reloads.
 
 const { size: paletteWidth, startResize: startPaletteResize, step: stepPalette } =
   useResizablePanel({ storageKey: 'hive.panel.palette', defaultSize: 214, min: 170, max: 380, edge: 'right' })
@@ -141,16 +141,11 @@ async function onCopyPrompt(): Promise<void> {
   await copy(text)
 }
 
-// ── Deploy split-button menu — demotes Refresh now/Copy prompt/Show debug
-// panel behind the "▾" so the main Deploy action reads as one clear amber
-// affordance. Deploy updates the enabled flow's app-wide runtime, and the
-// runtime manager keeps every enabled flow running continuously. There is no
-// manual Run/Stop: stopping a selected graph would violate background
-// ingestion for that flow. What's left
-// that's still genuinely useful from the canvas is a one-shot manual pump
-// (session.pump(), the same call App.vue's "log:appended" listener makes)
-// so a change can be previewed in the debug panel immediately instead of
-// waiting for the next log event. ───────────────────────────────────────
+// ── Deploy split-button menu — demotes Copy prompt/Show debug panel behind
+// the "▾" so the main Deploy action reads as one clear amber affordance.
+// There is no Run/Stop and no manual refresh: the Go engine reinstalls itself
+// when a flow is written and drains on every append, so a "run it now" button
+// could only race what is already happening. ──────────────────────────────
 const deployMenuOpen = ref(false)
 
 function runDeployMenuAction(action: () => void) {
@@ -241,12 +236,6 @@ const showDebug = ref(false)
             data-testid="deploy-menu"
           >
             <button
-              class="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-[12.5px] text-text-2 hover:bg-hover hover:text-text disabled:cursor-default disabled:opacity-40"
-              :disabled="!activeFlow"
-              data-testid="deploy-menu-refresh"
-              @click="runDeployMenuAction(() => pump())"
-            >Refresh now</button>
-            <button
               class="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-[12.5px] text-text-2 hover:bg-hover hover:text-text"
               data-testid="deploy-menu-copy-prompt"
               @click="runDeployMenuAction(onCopyPrompt)"
@@ -292,8 +281,6 @@ const showDebug = ref(false)
               :flow="activeFlow"
               :latest-run-by-node="latestRunByNode"
               :node-runs="nodeRuns"
-              :runtime-summary="runtimeLastRun"
-              :running="runtimeRunning"
             />
           </div>
           <div class="flex min-h-0 flex-col border-t border-row" style="height: 40%">
@@ -318,7 +305,7 @@ const showDebug = ref(false)
         </span>
         <span v-else-if="activeFlow" data-testid="flow-saved-indicator">{{ filePath }}</span>
         <span v-if="error" class="max-w-[240px] truncate text-severity-error" data-testid="flow-editor-error">{{ error }}</span>
-        <span v-if="runtimeError" class="max-w-[200px] truncate text-severity-error" data-testid="flow-runtime-error">{{ runtimeError }}</span>
+        <span v-if="flowLoadError" class="max-w-[200px] truncate text-severity-error" data-testid="flow-load-error">{{ flowLoadError }}</span>
         <span v-if="copyStatus !== 'idle'" :class="copyStatus === 'success' ? 'text-severity-success' : 'text-severity-error'" data-testid="copy-prompt-status">
           {{ copyStatus === 'success' ? 'Prompt copied' : 'Could not copy' }}
         </span>

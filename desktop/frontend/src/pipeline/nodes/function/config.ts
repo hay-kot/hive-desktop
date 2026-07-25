@@ -1,18 +1,14 @@
-// function is the author-trusted JS processor node (1 in / N out). This
-// file is the single source of truth for its Config shape and the
-// compile()/checkSyntax() helpers — runtime.ts (the worker-side
-// ProcessorRuntime), config validation, and the drawer's live syntax check
-// import from here rather than duplicating the `new Function(...)` call.
-
-import type { Msg } from '../../types'
-import type { NodeResult } from '../../engine/transport'
+// function is the author-trusted JS processor node (1 in / N out). This file
+// is the editor's half: its Config shape, its palette metadata, and the
+// compile()/checkSyntax() helpers behind the drawer's live syntax check.
+//
+// The script is executed by Go (internal/app/runtime/js), through goja. The
+// two compilers are different engines, so this check is a fast local warning
+// about obvious syntax errors, not the authority — SaveFlow is, and it
+// compiles with the engine that will actually run the script.
 
 export const type = 'function'
 export const role = 'processor' as const
-// isolate:true — the engine (WebWorkerTransport) spawns a dedicated worker
-// per instance of this type so a timeout's terminate() only kills this one
-// node, never a sibling instance or the shared declarative-runtime worker.
-export const isolate = true
 
 export interface Config {
   /**
@@ -38,14 +34,13 @@ export function timeoutMs(config: Config): number {
   return config.timeout ?? DEFAULT_TIMEOUT_MS
 }
 
-export type CompiledFn = (msg: Msg, node: Record<string, any>, state: Record<string, any>) => NodeResult
+export type CompiledFn = (msg: unknown, node: Record<string, any>, state: Record<string, any>) => unknown
 
 /**
- * Compiles a JS body into a callable `(msg, node, state) => NodeResult`.
- * `new Function` is deliberate: the function node is author-trusted per the
- * design (D2) — no sandbox, the same posture Node-RED's own function node
- * takes. Construction (not just calling) throws a SyntaxError on invalid
- * source, which is what checkSyntax below relies on.
+ * Compiles a JS body so a syntax error surfaces while typing. Nothing calls
+ * the result — execution is Go's. `new Function` is used because construction
+ * (not just calling) throws a SyntaxError on invalid source, which is the
+ * whole point of checkSyntax below.
  */
 export function compile(src: string): CompiledFn {
   // eslint-disable-next-line no-new-func
