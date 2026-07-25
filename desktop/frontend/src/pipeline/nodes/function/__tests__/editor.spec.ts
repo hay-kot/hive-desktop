@@ -8,10 +8,10 @@ function fire(el: Element, type: string) {
 }
 
 describe('function editor', () => {
-  it('shows the on_message code field by default', () => {
+  it('shows on_message and nothing else — it is the node\'s whole lifecycle', () => {
     const wrapper = mount(Editor, { props: { config: defaults } })
     expect(wrapper.find('[data-testid="function-editor-on-message"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="function-editor-on-start"]').exists()).toBe(false)
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(0)
   })
 
   it('emits an immutable update:config on an on_message edit, without mutating the config prop', async () => {
@@ -25,21 +25,6 @@ describe('function editor', () => {
 
     expect(config.on_message).toBe('return msg')
     expect(wrapper.emitted('update:config')).toEqual([[{ on_message: 'return null' }]])
-  })
-
-  it('switches to the on_start tab and edits it independently', async () => {
-    const config: Config = { on_message: 'return msg' }
-    const wrapper = mount(Editor, { props: { config } })
-
-    await wrapper.get('[data-testid="function-editor-tab-on_start"]').trigger('click')
-    expect(wrapper.find('[data-testid="function-editor-on-start"]').exists()).toBe(true)
-
-    const textarea = wrapper.get<HTMLTextAreaElement>('[data-testid="function-editor-on-start"]').element
-    textarea.value = 'state.count = 0'
-    fire(textarea, 'input')
-    await wrapper.vm.$nextTick()
-
-    expect(wrapper.emitted('update:config')).toEqual([[{ on_message: 'return msg', on_start: 'state.count = 0' }]])
   })
 
   it('edits outputs as a number', async () => {
@@ -80,23 +65,12 @@ describe('function editor', () => {
     expect(wrapper.emitted('update:config')).toBeUndefined()
   })
 
-  it('lists the tabs in On start / On message / On stop order, defaulting to On message', () => {
-    const wrapper = mount(Editor, { props: { config: defaults } })
-    const tabs = wrapper.findAll('[role="tab"]')
-    expect(tabs.map((t) => t.text())).toEqual(['On start', 'On message', 'On stop'])
-    expect(wrapper.get('[data-testid="function-editor-tab-on_message"]').attributes('aria-selected')).toBe('true')
-  })
-
-  it('shows a green "no syntax errors" chip for valid source on the active tab, and a red error count for invalid source', async () => {
+  it('shows a green "no syntax errors" chip for valid source, and a red error count for invalid source', () => {
     const valid = mount(Editor, { props: { config: { on_message: 'return msg' } } })
     expect(valid.get('[data-testid="function-editor-syntax-status"]').text()).toBe('✓ no syntax errors')
 
     const invalid = mount(Editor, { props: { config: { on_message: 'return msg(' } } })
     expect(invalid.get('[data-testid="function-editor-syntax-status"]').text()).toContain('syntax error')
-
-    // Switching tabs re-targets the chip at the newly active tab's own source.
-    await invalid.get('[data-testid="function-editor-tab-on_start"]').trigger('click')
-    expect(invalid.get('[data-testid="function-editor-syntax-status"]').text()).toBe('✓ no syntax errors')
   })
 })
 

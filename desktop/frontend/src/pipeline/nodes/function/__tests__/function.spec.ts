@@ -59,28 +59,16 @@ describe('function node runtime', () => {
     expect(await functionRuntime.onMsg(msg('1', {}), c)).toBeNull()
   })
 
-  it('on_start initializes state that on_message reads and mutates across calls', async () => {
-    const c = ctx({
-      on_start: 'state.count = 0',
-      on_message: 'state.count++; msg.Payload.count = state.count; return msg',
-    })
-    await functionRuntime.start?.(c)
-    expect(c.state.count).toBe(0)
+  it('lazily initialized state survives across calls', async () => {
+    const c = ctx({ on_message: 'state.count = (state.count ?? 0) + 1; msg.Payload.count = state.count; return msg' })
     const r1 = (await functionRuntime.onMsg(msg('1', {}), c)) as Msg
     const r2 = (await functionRuntime.onMsg(msg('2', {}), c)) as Msg
     expect(r1.Payload.count).toBe(1)
     expect(r2.Payload.count).toBe(2)
   })
 
-  it('on_stop runs with access to the accumulated state', async () => {
-    const c = ctx({ on_message: 'return msg', on_stop: 'state.stopped = true' })
-    await functionRuntime.stop?.(c)
-    expect(c.state.stopped).toBe(true)
-  })
-
-  it('on_start/on_stop are no-ops when unset', () => {
-    const c = ctx({ on_message: 'return msg' })
-    expect(() => functionRuntime.start?.(c)).not.toThrow()
-    expect(() => functionRuntime.stop?.(c)).not.toThrow()
+  it('declares no lifecycle hooks — on_message is the whole contract', () => {
+    expect(functionRuntime.start).toBeUndefined()
+    expect(functionRuntime.stop).toBeUndefined()
   })
 })

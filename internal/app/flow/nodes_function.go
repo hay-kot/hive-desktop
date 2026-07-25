@@ -21,14 +21,18 @@ const (
 )
 
 // FunctionConfig is a function node: 1 input, N outputs (default 1). It
-// carries JavaScript lifecycle hooks evaluated by the frontend graph runtime;
-// this package only parses and validates the config.
+// carries the JavaScript the engine evaluates for each arriving message; this
+// package only parses and validates the config.
+//
+// on_message is the node's whole lifecycle. There are deliberately no start
+// or stop hooks: the node does no I/O, so a stop hook could only mutate state
+// that is about to be discarded, and a start hook is better written as lazy
+// initialisation inside on_message (`state.counts ??= {}`). Having exactly one
+// entry point also removes the pretence that `msg` may be undefined.
 type FunctionConfig struct {
-	OnMessage string   `json:"on_message"         yaml:"on_message"`
-	OnStart   string   `json:"on_start,omitempty" yaml:"on_start,omitempty"`
-	OnStop    string   `json:"on_stop,omitempty"  yaml:"on_stop,omitempty"`
-	OutputsN  int      `json:"outputs,omitempty"  yaml:"outputs,omitempty"`
-	Timeout   Duration `json:"timeout,omitempty"  yaml:"timeout,omitempty"`
+	OnMessage string   `json:"on_message"        yaml:"on_message"`
+	OutputsN  int      `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	Timeout   Duration `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 }
 
 func (c *FunctionConfig) Inputs() int { return 1 }

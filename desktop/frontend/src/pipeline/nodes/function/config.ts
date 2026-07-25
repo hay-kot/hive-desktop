@@ -15,12 +15,12 @@ export const role = 'processor' as const
 export const isolate = true
 
 export interface Config {
-  /** required — the body of `on_message(msg, node, state)`. */
+  /**
+   * required — the body of `on_message(msg, node, state)`, and the node's
+   * whole lifecycle. There are no start/stop hooks: the node does no I/O, so
+   * setup belongs in `on_message` as lazy init (`state.counts ??= {}`).
+   */
   on_message: string
-  /** optional — runs once per instance before the first message. */
-  on_start?: string
-  /** optional stop hook compiled by the runtime for transports that invoke lifecycle stop. */
-  on_stop?: string
   /** 1..16, default 1 (D1). */
   outputs?: number
   /** ms, 100..60000, default 5000 (D1). */
@@ -86,8 +86,6 @@ export function validate(config: Config): string[] {
   } else {
     errors.push(...checkSyntax(config.on_message))
   }
-  if (config.on_start) errors.push(...checkSyntax(config.on_start).map((e) => `on_start: ${e}`))
-  if (config.on_stop) errors.push(...checkSyntax(config.on_stop).map((e) => `on_stop: ${e}`))
   if (config.outputs !== undefined && (config.outputs < 1 || config.outputs > 16)) {
     errors.push('outputs must be between 1 and 16')
   }

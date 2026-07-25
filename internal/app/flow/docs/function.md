@@ -9,10 +9,14 @@ A **function** node runs author-trusted JavaScript against every message that re
   - an array of `msg` — multiple messages, all on port 0 (when `outputs` is 1)
   - a port-indexed array (e.g. `[msg, null]`) — `array[i]` goes out port `i`, once `outputs` is more than 1
   - `null` — discard (reported, never silently dropped)
-- `on_start` (optional) — runs once per instance before the first message; use it to initialize `state`.
-- `on_stop` (optional) — runs once per instance on teardown (Deploy drain).
 - `outputs` — 1 to 16, default 1.
 - `timeout` — how long a single `on_message` call may run before it's terminated and the message is discarded as an error. 100ms to 60s, default 5s.
+
+`on_message` is the whole lifecycle: there are no start or stop hooks. The node does no I/O, so a stop hook could only mutate state that is about to be discarded, and setup belongs inside `on_message` as lazy initialization:
+
+```
+state.counts ??= {};
+```
 
 ## The msg shape
 
@@ -24,6 +28,8 @@ msg.Topic     // "source:<source-id>"
 msg.ID        // unique per log record
 ```
 
+The message envelope is exactly these fields plus `Ts`, `SourceKind`, `SourceScope` and `OccurrenceKey`. Extra properties attached to `msg` itself are not carried to the next node — per-message data belongs in `msg.Payload`, which is opaque and passes through whole.
+
 ## Example
 
 ```
@@ -34,4 +40,6 @@ return msg;
 
 ## Behavior
 
-Runs in a dedicated Web Worker per node instance (`isolate: true`) — a timeout only terminates this node, never a sibling. `state` survives across messages for the lifetime of one Deploy, but is not durable across app restarts.
+Each node instance gets its own JavaScript VM, so a timeout only affects this node, never a sibling. `state` survives across messages for the lifetime of one Deploy, but is not durable across app restarts, and a node that times out is respawned with a fresh `state`.
+
+A timeout interrupts the script cooperatively. Code that neither allocates nor returns to the interpreter — a tight empty loop — can outlive its interrupt; the node's message is still discarded as an error, and the abandoned evaluation consumes part of a fixed process-wide budget rather than blocking anything else.

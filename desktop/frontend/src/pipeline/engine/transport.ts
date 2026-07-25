@@ -36,8 +36,8 @@ export interface NodeContext<C = Record<string, any>> {
 
 /**
  * ProcessorRuntime is the worker-side contract a node type's runtime.ts
- * implements (D2). start/stop are optional lifecycle hooks (only the
- * `function` node uses them, for on_start/on_stop); onMsg is required.
+ * implements (D2). onMsg is the whole contract; start/stop remain as optional
+ * transport-level hooks but no node type declares them.
  */
 export interface ProcessorRuntime<C = Record<string, any>> {
   type: string
