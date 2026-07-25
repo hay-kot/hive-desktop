@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
-	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
 	"github.com/rs/zerolog"
 )
 

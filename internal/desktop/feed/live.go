@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 

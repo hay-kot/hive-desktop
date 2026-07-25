@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
+	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 )
 
 // JobService exposes live action-run jobs to the desktop frontend. The

@@ -3,16 +3,16 @@ package main
 import (
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
-	"github.com/hay-kot/hive-desktop/internal/desktop/prompts"
 )
 
 // PromptsService exposes the paste-ready LLM prompts to the frontend: the
 // "LLM prompts" settings section lists Catalog(), and context-scoped surfaces
 // (a webhook node's transform prompt) call Render() with instance data.
 //
-// Prompt text lives in internal/desktop/prompts, not here and not in any Vue
+// Prompt text lives in internal/app/prompts, not here and not in any Vue
 // component — this is transport plus the one thing the frontend cannot know
 // on its own, the real config paths on this machine.
 type PromptsService struct {

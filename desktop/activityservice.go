@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 
-	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 )
 
 // ActivityService is the Wails service exposing the desktop's activity log to
@@ -12,7 +12,7 @@ import (
 // here — they hold the activity.Recorder directly (see main.go's wiring).
 //
 // Like FlowsService and PipelineService, this is thin wire glue; the real logic
-// lives in internal/desktop/activity.
+// lives in internal/app/activity.
 type ActivityService struct {
 	store *activity.Store
 }

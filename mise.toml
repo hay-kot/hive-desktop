@@ -32,9 +32,9 @@ run = "go run ./cmd/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
-sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/app/store/classify.go", "internal/app/flow/flow.go"]
-outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/app/store/classify_enum.go", "internal/app/flow/flow_enum.go"]
-run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/app/store/classify.go -f internal/app/flow/flow.go"
+sources = ["internal/app/activity/activity.go", "internal/app/jobs/jobs.go", "internal/app/store/classify.go", "internal/app/flow/flow.go"]
+outputs = ["internal/app/activity/activity_enum.go", "internal/app/jobs/jobs_enum.go", "internal/app/store/classify_enum.go", "internal/app/flow/flow_enum.go"]
+run = "go-enum --nocase --names --marshal -f internal/app/activity/activity.go -f internal/app/jobs/jobs.go -f internal/app/store/classify.go -f internal/app/flow/flow.go"
 
 [tasks.generate]
 description = "Run all code generators (vendored hivecore is generated upstream)"
