@@ -44,7 +44,7 @@ LIMIT 1
 // frontend concern this query deliberately does not reach into.
 func (db *DB) InboxItemFeedID(ctx context.Context, profileID string, itemID int64) (string, error) {
 	var feedID string
-	err := db.conn.QueryRowContext(ctx, getFeedIDForItem, profileID, itemID).Scan(&feedID)
+	err := db.querier().QueryRowContext(ctx, getFeedIDForItem, profileID, itemID).Scan(&feedID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

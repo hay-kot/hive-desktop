@@ -48,9 +48,25 @@ func DefaultOpenOptions() OpenOptions {
 
 // DB wraps a SQL database connection with sqlc queries plus the hand-written
 // event log API (see log.go).
+//
+// A DB is either pool-backed or bound to one transaction. Ctx (see ext.go)
+// produces the bound form from an ambient transaction on the context; every
+// query a bound DB runs joins that transaction.
 type DB struct {
 	conn    *sql.DB
+	tx      *sql.Tx
 	queries *Queries
+}
+
+// querier is what hand-written SQL in this package must run against: the
+// ambient transaction when this DB is bound to one, and the pool otherwise.
+// Reaching for db.conn directly in a bound DB would silently escape the
+// transaction.
+func (db *DB) querier() DBTX {
+	if db.tx != nil {
+		return db.tx
+	}
+	return db.conn
 }
 
 // DatabasePath returns the desktop-pipeline.db file path within dir. It is the
@@ -146,7 +162,10 @@ func (db *DB) Close() error {
 	return db.conn.Close()
 }
 
-// Conn returns the underlying *sql.DB connection.
+// Conn returns the underlying connection pool. It is the pool even on a
+// transaction-bound DB, because a pool is what its type promises — use
+// WithinTx and the generated queries for transactional work rather than
+// running raw SQL through this.
 func (db *DB) Conn() *sql.DB {
 	return db.conn
 }
