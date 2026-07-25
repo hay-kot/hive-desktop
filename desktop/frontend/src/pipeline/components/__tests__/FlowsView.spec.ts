@@ -30,12 +30,12 @@ const mocks = vi.hoisted(() => ({
 
 // Prompt text is assembled by the Go prompts service, so "Copy prompt" is a
 // service call followed by a clipboard write.
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice', () => ({
   Catalog: vi.fn(),
   Render: mocks.RenderPrompt,
 }))
 
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   GetLayout: mocks.GetLayout,
@@ -43,7 +43,7 @@ vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservi
   SaveLayout: mocks.SaveLayout,
 }))
 
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   ListUnarchivedInboxItems: mocks.ListUnarchivedInboxItems,
   ListReplaySourceSnapshots: mocks.ListReplaySourceSnapshots,

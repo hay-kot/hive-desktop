@@ -22,14 +22,14 @@ import * as $models from "./models.js";
  * adopt whatever theme its localStorage cache already holds.
  */
 export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSettings> {
-    return $Call.ByID(2825710563);
+    return $Call.ByID(2122138421);
 }
 
 /**
  * GithubSettings returns the current resolved GitHub polling settings.
  */
 export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
-    return $Call.ByID(2078919262);
+    return $Call.ByID(1295591268);
 }
 
 /**
@@ -37,30 +37,30 @@ export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
  * normalized to an empty one so the frontend never has to null-check it.
  */
 export function KeybindingSettings(): $CancellablePromise<$models.KeybindingSettings> {
-    return $Call.ByID(4264711753);
+    return $Call.ByID(3547481147);
 }
 
 /**
  * NotificationSettings returns the current resolved notification settings.
  */
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
-    return $Call.ByID(2998490926);
+    return $Call.ByID(256290300);
 }
 
 /**
  * SetAppearanceSettings persists the appearance configuration while preserving
  * all unrelated desktop settings.
  */
-export function SetAppearanceSettings(settings: $models.AppearanceSettings): $CancellablePromise<void> {
-    return $Call.ByID(870994635, settings);
+export function SetAppearanceSettings($in: $models.AppearanceSettings): $CancellablePromise<void> {
+    return $Call.ByID(215032261, $in);
 }
 
 /**
  * SetGithubSettings validates, persists, and immediately applies the GitHub
  * poll interval. API callers below the floor are rejected rather than clamped.
  */
-export function SetGithubSettings(settings: $models.GithubSettings): $CancellablePromise<void> {
-    return $Call.ByID(2361435926, settings);
+export function SetGithubSettings($in: $models.GithubSettings): $CancellablePromise<void> {
+    return $Call.ByID(3274038292, $in);
 }
 
 /**
@@ -68,14 +68,14 @@ export function SetGithubSettings(settings: $models.GithubSettings): $Cancellabl
  * unrelated desktop settings. An empty map clears the section entirely, which
  * is how "reset everything to defaults" is expressed.
  */
-export function SetKeybindingSettings(settings: $models.KeybindingSettings): $CancellablePromise<void> {
-    return $Call.ByID(2669604577, settings);
+export function SetKeybindingSettings($in: $models.KeybindingSettings): $CancellablePromise<void> {
+    return $Call.ByID(2513481483, $in);
 }
 
 /**
  * SetNotificationSettings persists the notification configuration while
  * preserving all unrelated desktop settings.
  */
-export function SetNotificationSettings(settings: $models.NotificationSettings): $CancellablePromise<void> {
-    return $Call.ByID(2828604310, settings);
+export function SetNotificationSettings($in: $models.NotificationSettings): $CancellablePromise<void> {
+    return $Call.ByID(460333036, $in);
 }

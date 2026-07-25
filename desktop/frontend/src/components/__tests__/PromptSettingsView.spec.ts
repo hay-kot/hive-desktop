@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   SetText: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice', () => ({
   Catalog: mocks.Catalog,
   Render: mocks.Render,
 }))

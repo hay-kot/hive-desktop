@@ -4,7 +4,7 @@ import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconClock3 from '~icons/lucide/clock-3'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconLoader from '~icons/lucide/loader'
-import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/jobs/models'
+import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/jobs/models'
 
 defineProps<{ jobs: Job[] }>()
 const emit = defineEmits<{ 'open-run': [commandId: number] }>()

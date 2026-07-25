@@ -16,17 +16,20 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * Notify sends a native notification.
+ * Notify sends a native notification. NotifyInput and Input are the same
+ * fields either side of the wire boundary -- the former carries the JSON tags
+ * the binding needs, the latter does not -- so the hand-copy this used to do
+ * is a conversion now that both live in this package.
  */
 export function Notify($in: $models.NotifyInput): $CancellablePromise<void> {
-    return $Call.ByID(2726372343, $in);
+    return $Call.ByID(3090483273, $in);
 }
 
 /**
  * PermissionStatus reports granted, denied, or not-requested.
  */
 export function PermissionStatus(): $CancellablePromise<string> {
-    return $Call.ByID(3503437175);
+    return $Call.ByID(488225617);
 }
 
 /**
@@ -34,5 +37,5 @@ export function PermissionStatus(): $CancellablePromise<string> {
  * authorization and returns whether it was granted.
  */
 export function RequestNotificationPermission(): $CancellablePromise<boolean> {
-    return $Call.ByID(1021023375);
+    return $Call.ByID(3064700653);
 }

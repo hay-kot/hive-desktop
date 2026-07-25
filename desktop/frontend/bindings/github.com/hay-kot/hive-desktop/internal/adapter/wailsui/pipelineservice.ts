@@ -13,16 +13,16 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as pipeline$0 from "../internal/desktop/pipeline/models.js";
+import * as actions$0 from "../../app/actions/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as actions$0 from "../internal/desktop/pipeline/actions/models.js";
+import * as dispatch$0 from "../../app/dispatch/models.js";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as pipelinedb$0 from "../internal/desktop/pipeline/pipelinedb/models.js";
+import * as store$0 from "../../app/store/models.js";
 
-export function ActionRun(commandID: number): $CancellablePromise<pipeline$0.ActionRunView> {
-    return $Call.ByID(2865983566, commandID);
+export function ActionRun(commandID: number): $CancellablePromise<dispatch$0.ActionRunView> {
+    return $Call.ByID(1655642280, commandID);
 }
 
 /**
@@ -31,15 +31,15 @@ export function ActionRun(commandID: number): $CancellablePromise<pipeline$0.Act
  * hard template capability is satisfiable for the item's payload.
  */
 export function ActionViews(itemID: number): $CancellablePromise<actions$0.View[] | null> {
-    return $Call.ByID(2696790941, itemID);
+    return $Call.ByID(3356906731, itemID);
 }
 
 /**
  * ActivateReplay atomically advances the consumer and installs the prepared
  * membership state for a startup or deploy replay.
  */
-export function ActivateReplay(profileID: string, tail: string, claims: pipelinedb$0.FeedMembershipClaim[] | null, feedIDs: string[] | null, sourceIDs: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(542565145, profileID, tail, claims, feedIDs, sourceIDs);
+export function ActivateReplay(profileID: string, tail: string, claims: store$0.FeedMembershipClaim[] | null, feedIDs: string[] | null, sourceIDs: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(404315423, profileID, tail, claims, feedIDs, sourceIDs);
 }
 
 /**
@@ -49,8 +49,8 @@ export function ActivateReplay(profileID: string, tail: string, claims: pipeline
  * Idempotent by offset: replaying a batch already applied (UpToOffset <= the
  * consumer's current offset) is a no-op.
  */
-export function Commit(batch: pipeline$0.CommitBatch): $CancellablePromise<void> {
-    return $Call.ByID(2833242122, batch);
+export function Commit(batch: store$0.CommitBatch): $CancellablePromise<void> {
+    return $Call.ByID(1748285836, batch);
 }
 
 /**
@@ -58,15 +58,15 @@ export function Commit(batch: pipeline$0.CommitBatch): $CancellablePromise<void>
  * replay protocol.
  */
 export function EventLogTailOffset(): $CancellablePromise<string> {
-    return $Call.ByID(255024248);
+    return $Call.ByID(1303973178);
 }
 
-export function FeedCounts(profileID: string): $CancellablePromise<pipelinedb$0.FeedInboxCount[] | null> {
-    return $Call.ByID(1308541807, profileID);
+export function FeedCounts(profileID: string): $CancellablePromise<store$0.FeedInboxCount[] | null> {
+    return $Call.ByID(444584149, profileID);
 }
 
-export function InboxItemEvents(itemID: number, limit: number): $CancellablePromise<pipelinedb$0.InboxEventView[] | null> {
-    return $Call.ByID(1702778487, itemID, limit);
+export function InboxItemEvents(itemID: number, limit: number): $CancellablePromise<store$0.InboxEventView[] | null> {
+    return $Call.ByID(1903831253, itemID, limit);
 }
 
 /**
@@ -75,7 +75,7 @@ export function InboxItemEvents(itemID: number, limit: number): $CancellableProm
  * a clicked notification into a feed route that reveals the item.
  */
 export function InboxItemFeed(profileID: string, itemID: number): $CancellablePromise<string> {
-    return $Call.ByID(3525173674, profileID, itemID);
+    return $Call.ByID(4206645656, profileID, itemID);
 }
 
 /**
@@ -83,48 +83,48 @@ export function InboxItemFeed(profileID: string, itemID: number): $CancellablePr
  * item and executes it. It accepts only actions that apply to the item's kind;
  * executable configuration is always re-resolved from ActionStore.
  */
-export function InvokeAction(actionID: string, itemID: number, input: pipeline$0.ActionInvocationInput): $CancellablePromise<pipeline$0.ActionRunView> {
-    return $Call.ByID(204589393, actionID, itemID, input);
+export function InvokeAction(actionID: string, itemID: number, input: dispatch$0.ActionInvocationInput): $CancellablePromise<dispatch$0.ActionRunView> {
+    return $Call.ByID(1680026695, actionID, itemID, input);
 }
 
 /**
  * ListArchivedInboxItemsByFeed returns a feed's archived section, loaded
  * lazily when the user expands the archived divider.
  */
-export function ListArchivedInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<pipelinedb$0.InboxItemView[] | null> {
-    return $Call.ByID(2639908520, profileID, feedID, limit);
+export function ListArchivedInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+    return $Call.ByID(2837386034, profileID, feedID, limit);
 }
 
-export function ListInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<pipelinedb$0.InboxItemView[] | null> {
-    return $Call.ByID(4276258094, profileID, feedID, limit);
+export function ListInboxItemsByFeed(profileID: string, feedID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+    return $Call.ByID(2653900732, profileID, feedID, limit);
 }
 
 /**
  * ListInboxItemsTrash returns unrouted and ignored items for the Trash
  * utility view.
  */
-export function ListInboxItemsTrash(profileID: string, limit: number): $CancellablePromise<pipelinedb$0.InboxItemView[] | null> {
-    return $Call.ByID(719859655, profileID, limit);
+export function ListInboxItemsTrash(profileID: string, limit: number): $CancellablePromise<store$0.InboxItemView[] | null> {
+    return $Call.ByID(31725505, profileID, limit);
 }
 
 /**
  * ListReplaySourceSnapshots returns each source's latest authoritative
  * snapshot so membership replay preserves source provenance.
  */
-export function ListReplaySourceSnapshots(profileID: string, throughOffset: string): $CancellablePromise<pipelinedb$0.Msg[] | null> {
-    return $Call.ByID(3644752070, profileID, throughOffset);
+export function ListReplaySourceSnapshots(profileID: string, throughOffset: string): $CancellablePromise<store$0.Msg[] | null> {
+    return $Call.ByID(3559261984, profileID, throughOffset);
 }
 
 /**
  * ListUnarchivedInboxItems returns the JSON/Wails-friendly immutable inbox
  * identity and payload needed for claims-only synthetic replay.
  */
-export function ListUnarchivedInboxItems(profileID: string): $CancellablePromise<pipelinedb$0.InboxItemView[] | null> {
-    return $Call.ByID(3418617238, profileID);
+export function ListUnarchivedInboxItems(profileID: string): $CancellablePromise<store$0.InboxItemView[] | null> {
+    return $Call.ByID(3455889604, profileID);
 }
 
-export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<pipelinedb$0.InboxItemView> {
-    return $Call.ByID(3957671458, itemID, revision, unread);
+export function MarkInboxItemUnread(itemID: number, revision: number, unread: boolean): $CancellablePromise<store$0.InboxItemView> {
+    return $Call.ByID(4238206404, itemID, revision, unread);
 }
 
 /**
@@ -134,7 +134,7 @@ export function MarkInboxItemUnread(itemID: number, revision: number, unread: bo
  * which is what the frontend reports back to the user.
  */
 export function MarkInboxItemsRead(profileID: string, feedID: string): $CancellablePromise<number> {
-    return $Call.ByID(1448148202, profileID, feedID);
+    return $Call.ByID(974783704, profileID, feedID);
 }
 
 /**
@@ -142,8 +142,8 @@ export function MarkInboxItemsRead(profileID: string, feedID: string): $Cancella
  * newest first, for the flows canvas's live per-node status and RECENT
  * activity list.
  */
-export function NodeRuns(flowID: string, limit: number): $CancellablePromise<pipeline$0.NodeRunRecord[] | null> {
-    return $Call.ByID(2130853077, flowID, limit);
+export function NodeRuns(flowID: string, limit: number): $CancellablePromise<store$0.NodeRunRecord[] | null> {
+    return $Call.ByID(3592664483, flowID, limit);
 }
 
 /**
@@ -151,8 +151,8 @@ export function NodeRuns(flowID: string, limit: number): $CancellablePromise<pip
  * offset, in ascending order. The frontend never supplies an offset: the
  * SQLite checkpoint is the source of truth across runtime restarts.
  */
-export function ReadFrom(consumer: string, limit: number): $CancellablePromise<pipelinedb$0.Msg[] | null> {
-    return $Call.ByID(2706344123, consumer, limit);
+export function ReadFrom(consumer: string, limit: number): $CancellablePromise<store$0.Msg[] | null> {
+    return $Call.ByID(1752659845, consumer, limit);
 }
 
 /**
@@ -160,14 +160,14 @@ export function ReadFrom(consumer: string, limit: number): $CancellablePromise<p
  * for interactive launch-session actions. It intentionally exposes no local
  * checkout paths or executable action configuration.
  */
-export function SessionLaunchOptions(): $CancellablePromise<pipeline$0.SessionLaunchOptions> {
-    return $Call.ByID(2125140544);
+export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {
+    return $Call.ByID(446957222);
 }
 
-export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<pipelinedb$0.InboxItemView> {
-    return $Call.ByID(2438600320, itemID, revision);
+export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {
+    return $Call.ByID(2209910498, itemID, revision);
 }
 
-export function ToggleInboxItemIgnored(itemID: number, revision: number): $CancellablePromise<pipelinedb$0.InboxItemView> {
-    return $Call.ByID(4199706836, itemID, revision);
+export function ToggleInboxItemIgnored(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {
+    return $Call.ByID(1906272206, itemID, revision);
 }

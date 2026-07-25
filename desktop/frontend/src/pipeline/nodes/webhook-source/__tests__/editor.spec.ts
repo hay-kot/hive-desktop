@@ -7,7 +7,7 @@ import type { Config } from '../config'
 // only supplies the endpoint path and the last captured delivery.
 const mocks = vi.hoisted(() => ({ Render: vi.fn(), SetText: vi.fn() }))
 
-vi.mock('../../../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+vi.mock('../../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice', () => ({
   Catalog: vi.fn(),
   Render: mocks.Render,
 }))

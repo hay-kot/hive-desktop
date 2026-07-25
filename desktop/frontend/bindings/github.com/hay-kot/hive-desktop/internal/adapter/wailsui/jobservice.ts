@@ -14,13 +14,13 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as jobs$0 from "../internal/desktop/jobs/models.js";
+import * as jobs$0 from "../../app/jobs/models.js";
 
 /**
  * List returns up to limit jobs with id < before, newest first.
  */
 export function List(before: number, limit: number): $CancellablePromise<jobs$0.Job[] | null> {
-    return $Call.ByID(1946050826, before, limit);
+    return $Call.ByID(3716735044, before, limit);
 }
 
 /**
@@ -28,5 +28,5 @@ export function List(before: number, limit: number): $CancellablePromise<jobs$0.
  * backend-owned lingering window.
  */
 export function ListActive(): $CancellablePromise<jobs$0.Job[] | null> {
-    return $Call.ByID(2667553212);
+    return $Call.ByID(4001479622);
 }

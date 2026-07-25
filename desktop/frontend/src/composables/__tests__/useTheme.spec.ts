@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   SetAppearanceSettings: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: mocks.AppearanceSettings,
   SetAppearanceSettings: mocks.SetAppearanceSettings,
 }))

@@ -67,7 +67,7 @@ const mocks = vi.hoisted(() => ({
   Hide: vi.fn(),
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   CreateFlow: mocks.CreateFlow,
@@ -81,14 +81,14 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', (
   SaveSidebar: mocks.SaveSidebar,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({
   ListActions: mocks.ListActions,
   CreateAction: mocks.CreateAction,
   UpdateAction: mocks.UpdateAction,
   DeleteAction: mocks.DeleteAction,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed,
   ListInboxItemsTrash: mocks.ListInboxItemsTrash,
@@ -110,7 +110,7 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
   Commit: mocks.Commit,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/authservice', () => ({
   Status: mocks.Status,
   StartDeviceFlow: mocks.StartDeviceFlow,
   CancelDeviceFlow: mocks.CancelDeviceFlow,
@@ -118,24 +118,24 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/se
   SignOut: mocks.SignOut,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice', () => ({
   Status: mocks.UpdaterStatus,
   InstallUpdate: mocks.InstallUpdate,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   NotificationSettings: mocks.NotificationSettings,
   SetNotificationSettings: mocks.SetNotificationSettings,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: mocks.PermissionStatus,
   RequestNotificationPermission: mocks.RequestNotificationPermission,
   Notify: mocks.Notify,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/windowservice', () => ({ Focused: mocks.Focused }))
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/activityservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({ Focused: mocks.Focused }))
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,
 }))

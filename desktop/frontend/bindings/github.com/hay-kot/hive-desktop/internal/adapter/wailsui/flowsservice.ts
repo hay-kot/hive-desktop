@@ -15,7 +15,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as flow$0 from "../internal/desktop/pipeline/flow/models.js";
+import * as flow$0 from "../../app/flow/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
@@ -26,7 +26,7 @@ import * as $models from "./models.js";
  * listing summary, so the frontend can select it immediately.
  */
 export function CreateFlow(name: string): $CancellablePromise<$models.FlowSummary> {
-    return $Call.ByID(307325216, name);
+    return $Call.ByID(2011944446, name);
 }
 
 /**
@@ -35,14 +35,14 @@ export function CreateFlow(name: string): $CancellablePromise<$models.FlowSummar
  * which makes a retry after a files-first partial deletion idempotent.
  */
 export function DeleteFlow(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2980382819, id);
+    return $Call.ByID(4075818113, id);
 }
 
 /**
  * GetFlow returns one flow's full definition for the editor.
  */
 export function GetFlow(id: string): $CancellablePromise<flow$0.Flow> {
-    return $Call.ByID(609138560, id);
+    return $Call.ByID(2384703294, id);
 }
 
 /**
@@ -51,7 +51,7 @@ export function GetFlow(id: string): $CancellablePromise<flow$0.Flow> {
  * editor lays out nodes fresh.
  */
 export function GetLayout(id: string): $CancellablePromise<flow$0.Layout> {
-    return $Call.ByID(2624980366, id);
+    return $Call.ByID(2097594588, id);
 }
 
 /**
@@ -61,7 +61,7 @@ export function GetLayout(id: string): $CancellablePromise<flow$0.Layout> {
  * to flow-node order.
  */
 export function GetSidebar(id: string): $CancellablePromise<flow$0.SidebarLayout> {
-    return $Call.ByID(378136572, id);
+    return $Call.ByID(3616802494, id);
 }
 
 /**
@@ -69,7 +69,7 @@ export function GetSidebar(id: string): $CancellablePromise<flow$0.SidebarLayout
  * for the flows picker.
  */
 export function ListFlows(): $CancellablePromise<$models.FlowSummary[] | null> {
-    return $Call.ByID(2305899597);
+    return $Call.ByID(993012807);
 }
 
 /**
@@ -77,7 +77,7 @@ export function ListFlows(): $CancellablePromise<$models.FlowSummary[] | null> {
  * stable id and graph definition.
  */
 export function RenameFlow(id: string, name: string): $CancellablePromise<$models.FlowSummary> {
-    return $Call.ByID(1672705850, id, name);
+    return $Call.ByID(3264506312, id, name);
 }
 
 /**
@@ -86,21 +86,21 @@ export function RenameFlow(id: string, name: string): $CancellablePromise<$model
  * are left untouched.
  */
 export function SaveFlow(f: flow$0.Flow): $CancellablePromise<void> {
-    return $Call.ByID(2097739689, f);
+    return $Call.ByID(582447999, f);
 }
 
 /**
  * SaveLayout persists a flow's node layout.
  */
 export function SaveLayout(id: string, layout: flow$0.Layout): $CancellablePromise<void> {
-    return $Call.ByID(4232063923, id, layout);
+    return $Call.ByID(2815114505, id, layout);
 }
 
 /**
  * SaveSidebar persists a flow's sidebar layout (feed folders + ordering).
  */
 export function SaveSidebar(id: string, layout: flow$0.SidebarLayout): $CancellablePromise<void> {
-    return $Call.ByID(3551590419, id, layout);
+    return $Call.ByID(1405338909, id, layout);
 }
 
 /**
@@ -108,5 +108,5 @@ export function SaveSidebar(id: string, layout: flow$0.SidebarLayout): $Cancella
  * execution while preserving its existing feed data and graph definition.
  */
 export function SetFlowEnabled(id: string, enabled: boolean): $CancellablePromise<$models.FlowSummary> {
-    return $Call.ByID(822063213, id, enabled);
+    return $Call.ByID(2806455367, id, enabled);
 }

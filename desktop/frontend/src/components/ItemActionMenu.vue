@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import AppMenu from './AppMenu.vue'
-import { ActionViews } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
+import { ActionViews } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { actionTypeMeta } from '../lib/actionPresentation'
 import IconArchive from '~icons/lucide/archive'

@@ -14,5 +14,5 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
  * Focused reports whether the native application window is currently focused.
  */
 export function Focused(): $CancellablePromise<boolean> {
-    return $Call.ByID(3918175422);
+    return $Call.ByID(3273487464);
 }

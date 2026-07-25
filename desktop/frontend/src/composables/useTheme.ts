@@ -3,7 +3,7 @@ import type { Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
   SetAppearanceSettings,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
 export const themes = ['dark', 'light', 'midnight', 'gruvbox'] as const
 export type Theme = (typeof themes)[number]

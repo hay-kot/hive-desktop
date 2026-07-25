@@ -23,7 +23,7 @@ import * as $models from "./models.js";
  * update:available / update:none. On dev builds it reports Available:false.
  */
 export function CheckNow(): $CancellablePromise<$models.UpdateInfo> {
-    return $Call.ByID(3042855600);
+    return $Call.ByID(2456902270);
 }
 
 /**
@@ -31,7 +31,7 @@ export function CheckNow(): $CancellablePromise<$models.UpdateInfo> {
  * it. Requires a prior successful check that found an update.
  */
 export function InstallUpdate(): $CancellablePromise<void> {
-    return $Call.ByID(4193177138);
+    return $Call.ByID(583520820);
 }
 
 /**
@@ -40,7 +40,7 @@ export function InstallUpdate(): $CancellablePromise<void> {
  * starts no ticker.
  */
 export function SetEnabled(enabled: boolean): $CancellablePromise<void> {
-    return $Call.ByID(2476310913, enabled);
+    return $Call.ByID(375053875, enabled);
 }
 
 /**
@@ -48,5 +48,5 @@ export function SetEnabled(enabled: boolean): $CancellablePromise<void> {
  * has run yet it reports the running version with Available:false.
  */
 export function Status(): $CancellablePromise<$models.UpdateInfo> {
-    return $Call.ByID(1216339122);
+    return $Call.ByID(1227044768);
 }

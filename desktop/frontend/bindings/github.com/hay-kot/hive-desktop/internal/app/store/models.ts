@@ -3,7 +3,7 @@
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as json$0 from "../../../../../../../encoding/json/models.js";
+import * as json$0 from "../../../../../../encoding/json/models.js";
 
 /**
  * CommitBatch is the frontend graph runtime's atomic write: it advances a

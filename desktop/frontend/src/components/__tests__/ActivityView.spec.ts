@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { ref } from 'vue'
-import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/activity/models'
+import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/activity/models'
 
 const markSeen = vi.fn()
 const load = vi.fn()

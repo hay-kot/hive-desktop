@@ -7,7 +7,7 @@ import { nextTick } from 'vue'
 // imports fresh.
 const settings = vi.hoisted(() => ({ get: vi.fn(), set: vi.fn() }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   KeybindingSettings: settings.get,
   SetKeybindingSettings: settings.set,
 }))

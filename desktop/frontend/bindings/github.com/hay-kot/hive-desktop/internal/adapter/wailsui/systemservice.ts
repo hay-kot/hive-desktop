@@ -8,7 +8,7 @@
  * directory, and persist point-only data/config directory overrides.
  * 
  * Directory overrides are point-only and take effect after a restart: they are
- * written to the bootstrap pointer file (see internal/desktop.Bootstrap) and
+ * written to the bootstrap pointer file (see internal/settings.Bootstrap) and
  * seeded into the environment at next launch. Nothing is moved.
  * @module
  */
@@ -27,7 +27,7 @@ import * as $models from "./models.js";
  * published version.
  */
 export function Build(): $CancellablePromise<$models.BuildInfo> {
-    return $Call.ByID(3060528560);
+    return $Call.ByID(660083870);
 }
 
 /**
@@ -36,14 +36,14 @@ export function Build(): $CancellablePromise<$models.BuildInfo> {
  * SetConfigDir.
  */
 export function ChooseDirectory(title: string): $CancellablePromise<string> {
-    return $Call.ByID(1479459780, title);
+    return $Call.ByID(1021218838, title);
 }
 
 /**
  * ClearConfigDir removes the config-directory override.
  */
 export function ClearConfigDir(): $CancellablePromise<void> {
-    return $Call.ByID(1693358222);
+    return $Call.ByID(551453092);
 }
 
 /**
@@ -51,7 +51,7 @@ export function ClearConfigDir(): $CancellablePromise<void> {
  * location on the next launch.
  */
 export function ClearDataDir(): $CancellablePromise<void> {
-    return $Call.ByID(3185673132);
+    return $Call.ByID(2071939710);
 }
 
 /**
@@ -59,7 +59,7 @@ export function ClearDataDir(): $CancellablePromise<void> {
  * the data/config directories are backed by a stored override.
  */
 export function Info(): $CancellablePromise<$models.SystemInfo> {
-    return $Call.ByID(3355000204);
+    return $Call.ByID(1101836886);
 }
 
 /**
@@ -68,7 +68,7 @@ export function Info(): $CancellablePromise<$models.SystemInfo> {
  * RPC cannot be used to open arbitrary files.
  */
 export function OpenPath(path: string): $CancellablePromise<void> {
-    return $Call.ByID(1516396175, path);
+    return $Call.ByID(998581101, path);
 }
 
 /**
@@ -76,7 +76,7 @@ export function OpenPath(path: string): $CancellablePromise<void> {
  * override in one click from the restart-required banner.
  */
 export function Quit(): $CancellablePromise<void> {
-    return $Call.ByID(3588175823);
+    return $Call.ByID(666721581);
 }
 
 /**
@@ -84,7 +84,7 @@ export function Quit(): $CancellablePromise<void> {
  * Validated the same way as OpenPath.
  */
 export function RevealPath(path: string): $CancellablePromise<void> {
-    return $Call.ByID(3151335894, path);
+    return $Call.ByID(1872839052, path);
 }
 
 /**
@@ -92,7 +92,7 @@ export function RevealPath(path: string): $CancellablePromise<void> {
  * Same semantics as SetDataDir.
  */
 export function SetConfigDir(path: string): $CancellablePromise<void> {
-    return $Call.ByID(1751753893, path);
+    return $Call.ByID(908885759, path);
 }
 
 /**
@@ -101,5 +101,5 @@ export function SetConfigDir(path: string): $CancellablePromise<void> {
  * effect on the next launch.
  */
 export function SetDataDir(path: string): $CancellablePromise<void> {
-    return $Call.ByID(1430939615, path);
+    return $Call.ByID(2908604437, path);
 }

@@ -2,12 +2,12 @@ import { ref, type Ref } from 'vue'
 import {
   NotificationSettings as GetNotificationSettings,
   SetNotificationSettings,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import {
   PermissionStatus,
   RequestNotificationPermission,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice'
-import type { NotificationSettings } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice'
+import type { NotificationSettings } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 export type NotificationPermission = 'granted' | 'denied' | 'not-requested'
 

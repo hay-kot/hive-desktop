@@ -6,7 +6,7 @@ import { resetWebhookSettingsForTests } from '../../../composables/useWebhookSet
 const getSettings = vi.hoisted(() => vi.fn())
 const setSettings = vi.hoisted(() => vi.fn())
 const generatePort = vi.hoisted(() => vi.fn())
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/webhookservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice', () => ({
   Settings: getSettings,
   SetSettings: setSettings,
   GeneratePort: generatePort,

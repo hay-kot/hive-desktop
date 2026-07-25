@@ -80,11 +80,15 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 	}
 }
 
-// attach wires the live Updater engine and, when auto-update is enabled, starts
-// the background poll ticker. Called from main.go after Updater.Init on release
-// builds; never called on dev builds, so the engine stays nil. Unexported so
-// Wails does not surface it as a frontend RPC (its interface arg is not
-// JSON-marshalable anyway).
+// Attach wires the live Updater engine and, when auto-update is enabled,
+// starts the background poll ticker. Called from main.go after Updater.Init on
+// release builds; never called on dev builds, so the engine stays nil.
+//
+// It had to be exported to survive the move out of package main, so it carries
+// wails:ignore to keep it off the RPC surface -- its interface argument is not
+// JSON-marshalable, and the frontend has no business starting the poll loop.
+//
+//wails:ignore
 func (s *UpdaterService) Attach(engine updaterEngine) {
 	s.mu.Lock()
 	s.engine = engine
@@ -171,8 +175,11 @@ func (s *UpdaterService) InstallUpdate() error {
 	return nil
 }
 
-// stop cancels the ticker and waits for the poll goroutine to exit. Safe to
-// call when no ticker is running.
+// Stop cancels the ticker and waits for the poll goroutine to exit. Safe to
+// call when no ticker is running. Exported for main.go's shutdown path only;
+// wails:ignore keeps it off the RPC surface.
+//
+//wails:ignore
 func (s *UpdaterService) Stop() {
 	s.mu.Lock()
 	s.stopLoopLocked()

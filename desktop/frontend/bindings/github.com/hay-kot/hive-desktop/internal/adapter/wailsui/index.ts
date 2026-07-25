@@ -3,6 +3,7 @@
 
 import * as ActionsService from "./actionsservice.js";
 import * as ActivityService from "./activityservice.js";
+import * as AuthService from "./authservice.js";
 import * as FlowsService from "./flowsservice.js";
 import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
@@ -16,6 +17,7 @@ import * as WindowService from "./windowservice.js";
 export {
     ActionsService,
     ActivityService,
+    AuthService,
     FlowsService,
     JobService,
     NotificationService,

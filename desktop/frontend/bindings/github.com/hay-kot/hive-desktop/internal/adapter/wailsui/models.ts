@@ -85,7 +85,7 @@ export interface NotificationActivation {
 /**
  * NotificationSettings is the desktop notification configuration resolved
  * from settings.yaml. Delivery is carried as a resolved string from the
- * closed set desktop.DeliveryAuto/DeliverySystem/DeliveryApp.
+ * closed set settings.DeliveryAuto/DeliverySystem/DeliveryApp.
  */
 export interface NotificationSettings {
     "notificationsEnabled": boolean;

@@ -25,7 +25,7 @@ vi.mock('../../composables/useToasts', () => ({
 vi.mock('../../composables/useNotificationSettings', () => ({
   useNotificationSettings: () => ({ notificationSound: mocks.notificationSound }),
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   Notify: mocks.Notify,
 }))
 

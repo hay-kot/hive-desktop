@@ -3,15 +3,14 @@
 // and node code must import Msg/CommitBatch/Output/etc. from here, never
 // from bindings/ directly.
 //
-// Sink/Output/Discard/NodeRun are generated directly in pipelinedb's own
-// models.ts, so the graph runtime uses that wire contract without local
-// compatibility aliases. NodeRun is exported there as NodeRunView (see
-// pipeline/commit.go's NodeRun alias comment).
-export type { CommitBatch } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
-export type { Msg, Output, Sink, Discard, FeedSnapshot } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
-export type { NodeRunView as NodeRun } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
+// Every one of these is generated from internal/app/store, which owns the
+// commit protocol, so the graph runtime uses that wire contract without local
+// compatibility aliases. NodeRun is exported there as NodeRunView, named to
+// avoid colliding with sqlc's raw node_run row model.
+export type { CommitBatch, Msg, Output, Sink, Discard, FeedSnapshot } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/store/models'
+export type { NodeRunView as NodeRun } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/store/models'
 
-import type { Discard, FeedSnapshot, NodeRunView as NodeRun, Output } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
+import type { Discard, FeedSnapshot, NodeRunView as NodeRun, Output } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/store/models'
 
 // Flow model (TS). The engine operates on in-memory Flow objects supplied
 // by the editor/session layer, which adapts the generated Wails flow model

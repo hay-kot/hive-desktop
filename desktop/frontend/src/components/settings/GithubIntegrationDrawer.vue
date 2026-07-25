@@ -4,7 +4,7 @@ import IconGithub from '~icons/lucide/github'
 import BaseButton from '../BaseButton.vue'
 import DrawerSheet from '../DrawerSheet.vue'
 import SettingsField from './SettingsField.vue'
-import * as SettingsService from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
+import * as SettingsService from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
 const emit = defineEmits<{ close: [] }>()
 

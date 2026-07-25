@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import {
   KeybindingSettings as GetKeybindingSettings,
   SetKeybindingSettings,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { commandCatalog } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /

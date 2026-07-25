@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SidebarLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow/models'
+import type { SidebarLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/flow/models'
 import type { FeedSummary, FeedTree } from '../../types/feed'
 import { applyMove, buildFeedTree, feedNodeId, treeToLayout } from '../feedTree'
 

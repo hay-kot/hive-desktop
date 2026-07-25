@@ -8,7 +8,7 @@
  * here — they hold the activity.Recorder directly (see main.go's wiring).
  * 
  * Like FlowsService and PipelineService, this is thin wire glue; the real logic
- * lives in internal/desktop/activity.
+ * lives in internal/app/activity.
  * @module
  */
 
@@ -18,7 +18,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as activity$0 from "../internal/desktop/activity/models.js";
+import * as activity$0 from "../../app/activity/models.js";
 
 /**
  * List returns up to limit activity events with id < before, newest first.
@@ -26,7 +26,7 @@ import * as activity$0 from "../internal/desktop/activity/models.js";
  * the most recent event; page older history by passing the smallest id seen.
  */
 export function List(before: number, limit: number): $CancellablePromise<activity$0.Event[] | null> {
-    return $Call.ByID(2874726812, before, limit);
+    return $Call.ByID(871906718, before, limit);
 }
 
 /**
@@ -36,5 +36,5 @@ export function List(before: number, limit: number): $CancellablePromise<activit
  * recording, so every open Activity view refreshes.
  */
 export function Record(input: activity$0.RecordInput): $CancellablePromise<activity$0.Event> {
-    return $Call.ByID(1202621025, input);
+    return $Call.ByID(3536654567, input);
 }

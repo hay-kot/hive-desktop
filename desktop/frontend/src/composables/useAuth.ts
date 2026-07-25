@@ -1,6 +1,6 @@
 import { computed, onMounted, ref } from 'vue'
-import { SetToken, SignOut, StartDeviceFlow, Status } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service'
-import { CancelDeviceFlow } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service'
+import { SetToken, SignOut, StartDeviceFlow, Status } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/authservice'
+import { CancelDeviceFlow } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/authservice'
 import type { AuthStatus, DeviceFlowInfo } from '../types/auth'
 import { useWailsEvent } from './useWailsEvent'
 

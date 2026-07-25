@@ -4,10 +4,8 @@
 export type {
     ActionInvocationInput,
     ActionRunView,
-    CommitBatch,
     ExecutionOutcome,
     MessageExecutionOutcome,
-    NodeRunRecord,
     SessionExecutionOutcome,
     SessionInvocationInput,
     SessionLaunchOptions,

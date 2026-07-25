@@ -12,18 +12,18 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as actions$0 from "../internal/desktop/pipeline/actions/models.js";
+import * as actions$0 from "../../app/actions/models.js";
 
 export function CreateAction(a: actions$0.EditableAction): $CancellablePromise<actions$0.EditableAction> {
-    return $Call.ByID(186567676, a);
+    return $Call.ByID(1408174538, a);
 }
 
 export function DeleteAction(id: string): $CancellablePromise<void> {
-    return $Call.ByID(2044407527, id);
+    return $Call.ByID(1950457013, id);
 }
 
 export function GetAction(id: string): $CancellablePromise<actions$0.EditableAction> {
-    return $Call.ByID(1390017604, id);
+    return $Call.ByID(1642808218, id);
 }
 
 /**
@@ -31,7 +31,7 @@ export function GetAction(id: string): $CancellablePromise<actions$0.EditableAct
  * error, if a hand edit made the latest actions.yml invalid.
  */
 export function ListActions(): $CancellablePromise<actions$0.EditableCatalog> {
-    return $Call.ByID(363974597);
+    return $Call.ByID(998142743);
 }
 
 /**
@@ -40,9 +40,9 @@ export function ListActions(): $CancellablePromise<actions$0.EditableCatalog> {
  * removed an action meanwhile) is rejected so the caller reloads.
  */
 export function ReorderActions(ids: string[] | null): $CancellablePromise<void> {
-    return $Call.ByID(1008235968, ids);
+    return $Call.ByID(8930906, ids);
 }
 
 export function UpdateAction(id: string, a: actions$0.EditableAction): $CancellablePromise<actions$0.EditableAction> {
-    return $Call.ByID(2719986457, id, a);
+    return $Call.ByID(1928360735, id, a);
 }

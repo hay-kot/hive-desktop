@@ -5,18 +5,18 @@ import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
   RequestNotificationPermission: vi.fn(),
 }))
 const webhookSettings = vi.hoisted(() => vi.fn())
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/webhookservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice', () => ({
   Settings: webhookSettings,
   SetSettings: vi.fn(),
   GeneratePort: vi.fn(),

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onUnmounted, ref } from 'vue'
 import IconBell from '~icons/lucide/bell'
-import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice'
+import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice'
 import { useNotificationSettings } from '../composables/useNotificationSettings'
 import { notifySeverityMapping, useNotify, type NotifySeverity } from '../composables/useNotify'
 import { useToasts } from '../composables/useToasts'

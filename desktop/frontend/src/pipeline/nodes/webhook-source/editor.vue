@@ -7,7 +7,7 @@
 // access goes through the `client` prop (defaulting to the generated Wails
 // bindings) so tests inject fakes instead of mocking module imports.
 import { computed, onMounted, ref } from 'vue'
-import { Capture, Info } from '../../../../bindings/github.com/hay-kot/hive-desktop/desktop/webhookservice'
+import { Capture, Info } from '../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice'
 import BaseButton from '../../../components/BaseButton.vue'
 import { useClipboard } from '../../../composables/useClipboard'
 import { defaultWebhookSourceIcon, feedIconOptions } from '../../../lib/feedIcons'

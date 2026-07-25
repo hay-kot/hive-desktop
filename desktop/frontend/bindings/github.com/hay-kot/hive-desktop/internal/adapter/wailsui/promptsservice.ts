@@ -6,7 +6,7 @@
  * "LLM prompts" settings section lists Catalog(), and context-scoped surfaces
  * (a webhook node's transform prompt) call Render() with instance data.
  * 
- * Prompt text lives in internal/desktop/prompts, not here and not in any Vue
+ * Prompt text lives in internal/app/prompts, not here and not in any Vue
  * component — this is transport plus the one thing the frontend cannot know
  * on its own, the real config paths on this machine.
  * @module
@@ -18,7 +18,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import * as prompts$0 from "../internal/desktop/prompts/models.js";
+import * as prompts$0 from "../../app/prompts/models.js";
 
 /**
  * Catalog returns every prompt that belongs in the settings listing, rendered
@@ -26,7 +26,7 @@ import * as prompts$0 from "../internal/desktop/prompts/models.js";
  * catalog the keybindings prompt needs.
  */
 export function Catalog(input: prompts$0.Input): $CancellablePromise<prompts$0.Prompt[] | null> {
-    return $Call.ByID(3417499633, input);
+    return $Call.ByID(1139739111, input);
 }
 
 /**
@@ -34,5 +34,5 @@ export function Catalog(input: prompts$0.Input): $CancellablePromise<prompts$0.P
  * Catalog omits.
  */
 export function Render(id: string, input: prompts$0.Input): $CancellablePromise<prompts$0.Prompt> {
-    return $Call.ByID(828263238, id, input);
+    return $Call.ByID(2301335768, id, input);
 }
