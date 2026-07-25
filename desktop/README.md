@@ -103,7 +103,7 @@ goroutine), `log:appended` carries the pipeline event log's new tail offset,
 `flows:updated` fires after a flows/*.yaml reload, and `actions:updated` fires
 after an actions.yml reload so the detail pane can re-read configured actions.
 
-The GitHub fetch layer lives in `internal/desktop/feed`: mock fixtures in
+The GitHub fetch layer lives in `internal/app/sources/github/feed`: mock fixtures in
 `HIVE_DESKTOP_MOCK` modes, or the GitHub-backed `LiveProvider`. Live data is
 acquired per embedded flow **source** (a search query or the notifications
 inbox) and cached by what is requested — kind + query + limit — so any number
@@ -181,15 +181,15 @@ debounces write/rename bursts, reloads `ActionStore`, and emits
 file is saved, so a half-edited config does not blank actions out from under a
 running flow or the detail pane.
 
-Desktop-only Go code lives under `internal/desktop/**`; the `desktop/`
-package is thin Wails wiring. `internal/desktop/auth` implements GitHub
-authentication behind the auth service: an OAuth device flow plus a
-personal-access-token fallback, with tokens stored in the OS keychain
-(`HIVE_GITHUB_TOKEN` is a read-only headless override). The device flow uses
-the registered Hive Desktop OAuth app's public client ID by default;
-`HIVE_GITHUB_CLIENT_ID` overrides it, e.g. to test another registration.
-`internal/github` is the shared GitHub REST client (deliberately not under
-`internal/desktop`).
+The headless core lives under `internal/app/**` and every Wails service under
+`internal/adapter/wailsui/**`; `desktop/` is `main()` plus build-info stamping.
+`internal/app/auth` implements GitHub authentication behind
+`wailsui.AuthService`: an OAuth device flow plus a personal-access-token
+fallback, with tokens stored in the OS keychain (`HIVE_GITHUB_TOKEN` is a
+read-only headless override). The device flow uses the registered Hive Desktop
+OAuth app's public client ID by default; `HIVE_GITHUB_CLIENT_ID` overrides it,
+e.g. to test another registration. `internal/hivecore/github` is the shared
+GitHub REST client, vendored rather than desktop-owned.
 
 `HIVE_DESKTOP_MOCK` selects deterministic offline backends: `feed` starts
 authenticated, `onboarding` starts signed out with a fake device flow that

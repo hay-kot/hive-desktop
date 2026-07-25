@@ -53,7 +53,7 @@ rewriting the item or repeating an action.
 ## Storage and retention
 
 The pipeline uses its own SQLite database, `desktop-pipeline.db`, opened by
-`internal/desktop/pipeline/pipelinedb`. It is separate from `hive.db` so
+`internal/app/store`. It is separate from `hive.db` so
 pipeline polling and desktop interactions do not compete with CLI/TUI writes.
 All timestamps stored by this database are Unix milliseconds.
 
@@ -119,8 +119,7 @@ feed-shape hint, and LLM transform prompt.
 
 ## The `Msg` contract
 
-The event-log transport type is `pipeline.Msg`, re-exported from
-`pipelinedb`:
+The event-log transport type is `ingest.Msg`, an alias for `store.Msg`:
 
 ```go
 type Msg struct {
@@ -143,7 +142,7 @@ serialized, so function nodes access `msg.Payload`, `msg.Key`, `msg.ID`, and
 ## Flows
 
 Flow definitions live in `flows/*.yaml`; the filename stem is the flow id.
-`internal/desktop/pipeline/flow` strictly decodes and validates every file.
+`internal/app/flow` strictly decodes and validates every file.
 The top-level shape is:
 
 ```yaml
@@ -233,9 +232,9 @@ and failure diagnostics are retained with the command record.
 
 ## Testing
 
-Go tests under `internal/desktop/pipeline/...` use temporary real SQLite
-databases to cover ingestion, classification, membership replay, retention,
-and action behavior. Frontend Vitest tests cover the graph engine, node
+Go tests under `internal/app/...` use temporary real SQLite databases to
+cover ingestion, classification, membership replay, retention, and action
+behavior. Frontend Vitest tests cover the graph engine, node
 registries, views, keybindings, and triage state. Docker Playwright tests
 exercise the desktop UI against isolated fixtures.
 
@@ -269,10 +268,11 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 
 | Concern | Path |
 | --- | --- |
-| Pipeline database and retention | `internal/desktop/pipeline/pipelinedb/` |
-| Ingestion and source classification | `internal/desktop/pipeline/producer.go`, `github_classify.go`, `webhook_source.go` |
-| Flow schema and loader | `internal/desktop/pipeline/flow/` |
-| Wails pipeline API | `desktop/pipelineservice.go` |
+| Pipeline database and retention | `internal/app/store/` |
+| Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/github_classify.go`, `internal/app/sources/webhook/webhook_source.go` |
+| Flow schema and loader | `internal/app/flow/` |
+| Output-command dispatch and executors | `internal/app/dispatch/` |
+| Wails pipeline API | `internal/adapter/wailsui/pipelineservice.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |
 | Frontend graph engine | `desktop/frontend/src/pipeline/engine/` |
 | Keybinding catalog | `desktop/frontend/src/keybindings/catalog.ts` |

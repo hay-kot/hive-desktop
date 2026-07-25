@@ -29,7 +29,7 @@ describe('github-filter glob matcher', () => {
   })
 })
 
-describe('github-filter matches() — parity with internal/desktop/feed/filters_test.go', () => {
+describe('github-filter matches()', () => {
   // Mirrors TestApplyFilters' fixture (filters_test.go) so the same filter
   // groups produce the same pass/fail sets as the Go implementation.
   const searchPR = item({ repo: 'acme/app', author: 'hayden', kind: 'PR', reason: '', labels: ['bug', 'area/ui'] })

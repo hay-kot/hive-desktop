@@ -4,7 +4,7 @@ Private product monorepo for the Hive desktop application and its supporting ser
 
 | Component                                     | Path                             | Status                                                                                       |
 | --------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
-| Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/desktop/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
+| Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/app/` + `internal/adapter/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
 | Vendored hive core                            | `internal/hivecore/`             | CLI-managed by `cmd/vendorhive` — **read-only**                                              |
 | Admin server (analytics, licenses, purchases) | `server/`                        | Future — nested Go module when built                                                         |
 | Landing page                                  | `web/`                           | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |

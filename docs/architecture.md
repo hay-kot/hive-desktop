@@ -8,12 +8,18 @@ Companion documents: [`source-pipeline.md`](source-pipeline.md) describes the
 pipeline's runtime behaviour; ADRs in [`decisions/`](decisions/) record
 individual choices; this document describes the shape everything fits into.
 
-> **Status: target state.** The dependency rule, the wrapper idiom, and the
-> consumer-defined-interface style already hold today. The `app`/`adapter`
-> split, the Go flow engine, the source and credential registries, and the
-> plugs-managed lifecycle are not yet built — see
-> [Migration path](#migration-path). New work should move toward this shape
-> rather than extending the current one.
+> **Status: partly built.** The dependency rule, the wrapper idiom, and the
+> consumer-defined-interface style hold today, and the `app`/`adapter` split
+> has landed: `internal/app/` is the core, `internal/adapter/wailsui/` holds
+> every Wails service, and `desktop/` is `main()` plus build info. The
+> dependency rule and the placement rules are enforced by `golangci-lint`
+> (depguard, forbidigo) rather than by review, and `mise run check:bindings`
+> catches a service that moved without regenerating its bindings.
+>
+> Not yet built: the `App` facade, typed errors and the typed event bus (in
+> progress), the Go flow engine, the source and credential registries, and the
+> plugs-managed lifecycle — see [Migration path](#migration-path). New work
+> should move toward this shape rather than extending the current one.
 
 ## The shape
 
@@ -416,6 +422,7 @@ The target is reached in this order; each step is independently shippable.
 
 1. **Boundary rename** — `internal/desktop/*` → `internal/app/*`; mechanical,
    no behaviour change, cheapest now and more expensive with every PR.
+   **Done.**
 2. **Core skeleton** — `App` facade, typed errors, event bus. Move the
    orchestration currently stranded in `package main` (`InvokeAction`, the
    action usage checker's raw SQL, poll-interval validation).

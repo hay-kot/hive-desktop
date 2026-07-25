@@ -1,6 +1,7 @@
 # Agent Instructions — Hive Desktop
 
-Scope: the `desktop/` Wails app and its Go backend under `internal/desktop/**`.
+Scope: the `desktop/` Wails app, its Wails adapter under
+`internal/adapter/wailsui/**`, and the headless core under `internal/app/**`.
 The repository-root `AGENTS.md` still applies (git standards, quality gates,
 landing-the-plane). `desktop/README.md` is the long-form reference — native
 shell, pinned versions, parent-module adaptations, icons, and the flows/actions
@@ -28,28 +29,38 @@ fallback, tokens in the OS keychain.
 
 ## Code layout
 
-Go — the `desktop/` package is **thin Wails wiring only**; real logic lives in
-`internal/desktop/**`:
+Go — `desktop/` is `main()` and nothing else; every Wails service lives in the
+adapter, and the logic they call lives in the core:
 
 ```
 desktop/
-  main.go                 # Wails app: services, window, tray, event registration
-  *service.go             # Wails service structs exposed to the frontend (RPC surface)
+  main.go                 # bootstrap + wiring: build the core, mount the adapter, run
+  buildinfo.go            # -X main.version stamping; must stay in package main
   build/                  # platform Taskfiles, config.yml, icon masters, scripts
   e2e/                    # Docker-only Playwright harness (fixtures, scripts, tests)
   frontend/               # Vue 3 + TS + Vite + Tailwind v4
-internal/desktop/
-  desktop.go              # env-var surface, data/config/flows/actions paths
-  auth/                   # device-flow + PAT auth behind the auth service
-  feed/                   # GitHub fetch layer (LiveProvider + mock fixtures)
-  prompts/                # every paste-ready LLM prompt: templates/ + registry
-  pipeline/               # producer, output worker, executors, retention
-    actions/              # actions.yml store, watcher, seed, editable model
-      docs/               # per-action-type markdown, rendered into the prompt
-    flow/                 # flow YAML parse/validate/save, FlowsWatcher, sidebar
-      docs/               # per-node-type markdown — ALSO the frontend's node help
-    pipelinedb/           # sqlc-backed SQLite: event log, feed_item, output_command
+internal/adapter/wailsui/ # the driving adapter — the only package importing Wails
+  *service.go             # Wails service structs exposed to the frontend (RPC surface)
+  events.go               # event registration + the emit* wake-up signals
+  notify.go tray.go updater.go release.go focusstate.go
+  e2e/                    # the server-side half the Playwright suite drives
+internal/app/             # the headless core — no transport, no Wails
+  settings/               # env-var surface, data/config/flows/actions paths, settings.yaml
+  auth/                   # device-flow + PAT auth backends
+  store/                  # sqlc-backed SQLite: event log, inbox_item, output_command
+  flow/                   # flow YAML parse/validate/save, FlowsWatcher, sidebar
+    docs/                 # per-node-type markdown — ALSO the frontend's node help
+  actions/                # actions.yml store, watcher, seed, editable model, Refs
+    docs/                 # per-action-type markdown, rendered into the prompt
+  ingest/                 # the producer loop and retention: sources -> event log
+  dispatch/               # output worker, dispatcher, executors
+  sources/github/         # the GitHub connector; feed/ is its fetch layer
+  sources/webhook/        # the local webhook ingress
+  activity/ jobs/ prompts/
 ```
+
+The dependency rule is enforced, not just documented: `depguard` fails any
+`internal/app` package that imports Wails or `internal/adapter`.
 
 Frontend (`frontend/src/`): `App.vue` + `components/` (feed UI), `composables/`
 (`useFeedState`, `useAuth`, …), `pipeline/` (the flow editor — canvas, node
@@ -106,8 +117,9 @@ verification concern — it cannot be checked headlessly.
 ## Testing
 
 - **Unit** (`mise run desktop:test`): Go logic (`go test ./desktop/...
-  ./internal/desktop/...`) + frontend `vitest`. `pipelinedb` tests use real
-  SQLite. This is the default gate for backend/frontend changes.
+  ./internal/app/... ./internal/adapter/...`) + frontend `vitest`. `store`
+  tests use real SQLite. This is the default gate for backend/frontend
+  changes.
 - **E2E** (`mise run desktop:e2e`): **Docker-only.** Builds the digest-pinned
   Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright inside it
   against private feed / onboarding / pipeline / action-smoke server instances.
@@ -120,15 +132,18 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
 
 ## Code generation — never edit generated files by hand
 
-- **sqlc** (`internal/desktop/pipeline/pipelinedb/`): queries in `queries/`,
+- **sqlc** (`internal/app/store/`): queries in `queries/`,
   migrations in `migrations/*.up.sql`. Regenerate with the root `mise run
   generate`; `models.go` and `queries.sql.go` are committed and generated.
   Commit generated output alongside the SQL change.
 - **Wails TS bindings** (`frontend/bindings/`): after changing a Wails service
   method or its types, run `mise run desktop:generate`. Bindings **must** be
   generated with the working directory at `desktop/` so the Wails CLI treats it
-  as the app package while Go walks up to the parent module. The Vite plugin and
-  typed events depend on these — a stale binding is a frontend type error.
+  as the app package while Go walks up to the parent module. Binding method IDs
+  hash the Go package path, so *moving* a service invalidates them too —
+  `mise run check:bindings` (also a CI step) is what catches that. The Vite
+  plugin and typed events depend on these — a stale binding is a frontend type
+  error.
 
 ## Patterns and gotchas
 
@@ -138,16 +153,16 @@ superseded pattern makes the migration more expensive, which is the whole
 reason it is being done now.
 
 - **Single Go module.** `desktop/` has no `go.mod`; it is the
-  `github.com/colonyops/hive/desktop` package inside the root module. Because
+  `github.com/hay-kot/hive-desktop/desktop` package inside the root module. Because
   the package is `main` and named `desktop`, you **must** give the binary an
   explicit output path — `go build -o ./desktop/bin/hive-desktop ./desktop`
   (add `-tags server` for the headless variant). A bare `go build ./desktop`
   collides with this directory. The mise tasks already do this correctly.
 - **No `init()`.** This repo enables `gochecknoinits`. Event registration in
-  `main.go` uses package-variable initialization (`var _ = registerEvents()`),
-  not `init()`. Follow that pattern.
-- **Frontend events are wake-up signals, not payloads.** `main.go` registers
-  `auth:updated`, `log:appended`, `flows:updated`, `actions:updated`. On
+  `wailsui/events.go` uses package-variable initialization
+  (`var _ = registerEvents()`), not `init()`. Follow that pattern.
+- **Frontend events are wake-up signals, not payloads.** `wailsui/events.go`
+  registers `auth:updated`, `log:appended`, `flows:updated`, `actions:updated`. On
   receipt the frontend re-reads the relevant service; the event just says
   "something changed" (only `log:appended` carries meaningful data — the new
   tail offset). Adding a new signal means registering it in `registerEvents()`
@@ -193,13 +208,13 @@ reason it is being done now.
   that gates the app on being signed in to GitHub. See `architecture.md` ▸
   Credentials.
 - **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
-  `internal/desktop/prompts/templates/`; nothing in the frontend builds a
+  `internal/app/prompts/templates/`; nothing in the frontend builds a
   prompt string. Adding one is a template plus a `definitions` entry — Settings
   ▸ LLM prompts lists whatever the registry reports. Per-type prose belongs in
   `flow/docs/<type>.md` / `actions/docs/<type>.md`, never in a prompt template,
   and a registry↔docs bijection test enforces that a new type documents itself.
 - **Node docs are shared across the language boundary.** The frontend imports
-  `internal/desktop/pipeline/flow/docs/*.md` through the `@nodedocs` Vite alias
+  `internal/app/flow/docs/*.md` through the `@nodedocs` Vite alias
   rather than keeping a copy — it is declared in **both** `vite.config.ts` and
   `vitest.config.ts`, each with a matching `server.fs.allow` entry (the files
   sit outside the Vite root). These docs are read by the node drawer *and* by
@@ -207,7 +222,7 @@ reason it is being done now.
 
 ## Environment variables
 
-Defined in `internal/desktop/desktop.go` unless noted:
+Defined in `internal/app/settings/paths.go` unless noted:
 
 | Var | Purpose |
 | --- | --- |

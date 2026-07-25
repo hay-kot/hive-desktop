@@ -1,7 +1,7 @@
 // github-source is a source node (0 in / 1 out): it embeds its own GitHub
 // fetch config — a "search" source runs a query, a "notifications" source
 // drains the authenticated user's inbox. The source itself runs on the
-// backend (internal/desktop/pipeline.Source / githubSource) — the frontend
+// backend (ingest.Source / sources/github.githubSource) — the frontend
 // never executes it, only consumes the msgs it already appended to the log,
 // so there is no runtime.ts here (role: 'source' means "backend-run" per D2).
 //

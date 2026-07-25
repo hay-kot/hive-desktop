@@ -5,7 +5,7 @@
 // already names this install's real config paths.
 //
 // The list is whatever the prompts service reports, so adding a prompt is a
-// template plus a registry entry in internal/desktop/prompts; this component
+// template plus a registry entry in internal/app/prompts; this component
 // needs no edit. It builds no prompt text of its own.
 import { onMounted, ref } from 'vue'
 import IconCheck from '~icons/lucide/check'

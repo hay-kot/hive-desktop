@@ -11,7 +11,7 @@ The Hive desktop app is being extracted from the public `colonyops/hive` repo in
 
 Private monorepo `hay-kot/hive-desktop` with three components:
 
-- `desktop/` + `internal/desktop/` — the Wails v3 app, imported from `colonyops/hive`.
+- `desktop/` + `internal/app/` + `internal/adapter/` — the Wails v3 app, imported from `colonyops/hive`.
 - `server/` — future Go admin backend.
 - `web/` — landing page, plain static HTML.
 

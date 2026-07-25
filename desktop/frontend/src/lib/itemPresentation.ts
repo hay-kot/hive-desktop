@@ -61,7 +61,7 @@ export type KindStyle = 'pr' | 'issue' | 'neutral'
  *  kind so every item is automatable: `applies_to: [Item]` targets exactly
  *  the untyped ones, and they show up in the actions editor's autocomplete
  *  like any other kind. Must stay in sync with Go's DefaultItemKind
- *  (internal/desktop/pipeline/action_item.go) — the action gate matches
+ *  (internal/app/dispatch/action_item.go) — the action gate matches
  *  against the same value. See docs/decisions/0008-canonical-item-contract.md. */
 export const DEFAULT_ITEM_KIND = 'Item'
 

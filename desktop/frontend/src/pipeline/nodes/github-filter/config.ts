@@ -1,6 +1,7 @@
 // github-filter is a declarative 2-output processor (1 in / 2 out: port 0
-// pass, port 1 fail) — a faithful port of internal/desktop/feed/filters.go's
-// FilterDef.matches(). This file holds the Config shape and the pure
+// pass, port 1 fail). matches() below is the sole implementation of the rule;
+// the Go filter it was once ported from no longer exists — the filter logic
+// folded into the flow graph. This file holds the Config shape and the pure
 // glob-matching helpers; runtime.ts wires them into the port-routing
 // ProcessorRuntime.
 
@@ -119,9 +120,9 @@ function containsFold(values: string[] | undefined, value: string): boolean {
 
 /**
  * The GitHub item shape the filter inspects, read off msg.Payload. Mirrors
- * internal/desktop/feed.Item's JSON tags (id/kind/repo/author/reason/labels
- * lowercase) — the same shape internal/desktop/pipeline/github_source.go
- * encodes as a Msg's Payload.
+ * internal/app/sources/github/feed.Item's JSON tags
+ * (id/kind/repo/author/reason/labels lowercase) — the same shape
+ * internal/app/sources/github/github_source.go encodes as a Msg's Payload.
  */
 export interface FilterableItem {
   repo?: string
@@ -132,11 +133,10 @@ export interface FilterableItem {
 }
 
 /**
- * matches ports internal/desktop/feed/filters.go's FilterDef.matches() rule
- * for rule: groups AND together; values within a group OR; exclude groups
- * win over includes. A missing reason (item.reason == "" / undefined)
- * matches no reasons filter — a reasons filter deliberately excludes
- * search-only items, per the Go implementation's comment.
+ * matches applies one rule: groups AND together; values within a group OR;
+ * exclude groups win over includes. A missing reason (item.reason == "" /
+ * undefined) matches no reasons filter — a reasons filter deliberately
+ * excludes search-only items.
  */
 export function matches(config: Config, item: FilterableItem): boolean {
   const repo = item.repo ?? ''

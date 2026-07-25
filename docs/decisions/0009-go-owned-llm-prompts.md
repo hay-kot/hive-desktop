@@ -11,7 +11,7 @@ The split of ownership was the real question. The schemas being described are de
 
 ## Decision
 
-`internal/desktop/prompts` owns all prompt text and assembly: `//go:embed templates/*.tmpl` plus `text/template`, with shared fragments (`app`, `yaml-strict`, `template-data`, `task`) composed by each prompt so common wording is written once. Prompts render against an `Env` of the install's real paths and webhook URL, exposed over `PromptsService`. Adding a prompt is a template plus a registry entry; the settings page renders whatever the registry reports.
+`internal/app/prompts` owns all prompt text and assembly: `//go:embed templates/*.tmpl` plus `text/template`, with shared fragments (`app`, `yaml-strict`, `template-data`, `task`) composed by each prompt so common wording is written once. Prompts render against an `Env` of the install's real paths and webhook URL, exposed over `PromptsService`. Adding a prompt is a template plus a registry entry; the settings page renders whatever the registry reports.
 
 Per-type documentation moved to the Go tree next to the schema that validates it — `pipeline/flow/docs/<type>.md` and `pipeline/actions/docs/<type>.md` — and the frontend imports the *same files* through a `@nodedocs` Vite alias rather than keeping a second copy. Tests assert a registry↔docs bijection, so adding a node or action type extends the prompt with no prose edit anywhere.
 
