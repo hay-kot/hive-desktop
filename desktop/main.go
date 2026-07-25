@@ -16,6 +16,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
@@ -25,7 +26,6 @@ import (
 	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"

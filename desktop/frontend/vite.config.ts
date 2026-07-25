@@ -6,11 +6,11 @@ import tailwindcss from "@tailwindcss/vite";
 import icons from "unplugin-icons/vite";
 
 // Per-node-type documentation lives with the Go schema that validates it
-// (internal/desktop/pipeline/flow/docs/<type>.md) because the prompts service
+// (internal/app/flow/docs/<type>.md) because the prompts service
 // renders the same markdown into the flows authoring prompt. The node drawer
 // and palette import those files directly through this alias rather than
 // keeping a second copy under nodes/*/help.md — one file, two readers.
-const nodeDocs = fileURLToPath(new URL("../../internal/desktop/pipeline/flow/docs", import.meta.url));
+const nodeDocs = fileURLToPath(new URL("../../internal/app/flow/docs", import.meta.url));
 
 // https://vitejs.dev/config/
 export default defineConfig({

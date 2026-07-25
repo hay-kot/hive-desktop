@@ -56,7 +56,7 @@ pre-commit:
         - "internal/desktop/activity/activity.go"
         - "internal/desktop/jobs/jobs.go"
         - "internal/app/store/classify.go"
-        - "internal/desktop/pipeline/flow/flow.go"
+        - "internal/app/flow/flow.go"
         - "desktop/pipelineservice.go"
       run: mise run check:generate
 

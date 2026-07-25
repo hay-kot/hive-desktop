@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
 )
 
 // ActionTypeNotify is the action type the notify executor is registered

@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
 )
 
 // FlowSummary is one flow file's listing row for the flows picker: identity

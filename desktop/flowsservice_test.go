@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
