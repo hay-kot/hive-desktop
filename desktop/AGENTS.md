@@ -24,8 +24,9 @@ through filters into `feed`, `action`, and `notify` terminals; a background
 producer polls sources, appends to an event log, and commits durable
 `feed_item` rows the sidebar reads. `action` and `notify` nodes emit durable
 `output_command`s that an output worker dispatches (`launch-session`, `shell`,
-`publish-message`, `notify`). Auth is a GitHub OAuth device flow with a PAT
-fallback, tokens in the OS keychain.
+`publish-message`, `notify`). GitHub is a **connector, not a login**: its
+credential is acquired by an OAuth device flow with a PAT fallback and stored
+in the OS keychain, and nothing in the app is gated on holding one.
 
 ## Code layout
 
@@ -46,7 +47,7 @@ internal/adapter/wailsui/ # the driving adapter — the only package importing W
   e2e/                    # the server-side half the Playwright suite drives
 internal/app/             # the headless core — no transport, no Wails
   settings/               # env-var surface, data/config/flows/actions paths, settings.yaml
-  auth/                   # device-flow + PAT auth backends
+  credentials/            # Ref{Provider,Account} -> keychain value, + a ref index
   store/                  # sqlc-backed SQLite: event log, inbox_item, output_command
   flow/                   # flow YAML parse/validate/save, FlowsWatcher, sidebar
     docs/                 # per-node-type markdown — ALSO the frontend's node help
@@ -70,7 +71,7 @@ The dependency rule is enforced, not just documented: `depguard` fails any
 `internal/app` package that imports Wails or `internal/adapter`.
 
 Frontend (`frontend/src/`): `App.vue` + `components/` (feed UI), `composables/`
-(`useFeedState`, `useAuth`, …), `pipeline/` (the flow editor — canvas, node
+(`useFeedState`, `useGitHubConnection`, …), `pipeline/` (the flow editor — canvas, node
 palette, node editors), `lib/` (presentation
 helpers), `types/`. TS bindings to Go services are **generated** into
 `frontend/bindings/` — see Code generation.
@@ -189,7 +190,7 @@ reason it is being done now.
 - **The core publishes payloads; the Wails boundary degrades them to wake-up
   signals.** `app/events` carries typed payloads (`LogAppended{NextOffset}`,
   `JobsUpdated{JobID}`, …) and `wailsui.Subscribe` maps each one to the Wails
-  event the frontend already knows — `auth:updated`, `log:appended`,
+  event the frontend already knows — `connection:updated`, `log:appended`,
   `flows:updated`, `actions:updated`. On receipt the frontend re-reads the
   relevant service; the signal just says "something changed".
 
@@ -229,21 +230,30 @@ reason it is being done now.
   reload live; a broken file keeps the **last-good** set rather than blanking
   the running app. The app's own SaveFlow/SaveLayout writes intentionally
   trigger the same reload + wake-up.
-- **Keychain / secrets.** Tokens go through the OS keychain via
-  `github.NewKeychainStore()`. `HIVE_GITHUB_TOKEN` is a read-only headless
-  override; `HIVE_GITHUB_CLIENT_ID` overrides the device-flow client id. Never
-  log or persist tokens elsewhere.
+- **Keychain / secrets.** Credentials go through `app/credentials`, keyed by
+  `Ref{Provider, Account}` — values in the OS keychain, refs in a JSON index
+  beside the state dir because keychains cannot enumerate. The keychain is the
+  truth and the index is a cache: a ref present in the index but absent from
+  the keychain reads as `ErrNotFound` and is pruned. `HIVE_GITHUB_TOKEN`
+  overrides every `github/*` credential for headless runs
+  (`credentials.EnvOverrideName` derives it from the provider name);
+  `HIVE_GITHUB_CLIENT_ID` overrides the device-flow client id. Never log or
+  persist credential values elsewhere.
 
-  **Being replaced.** That store is single-slot — the vendored
-  `internal/hivecore/github/token.go` pins its keychain account to a fixed
-  constant, so it has no provider or account dimension and cannot hold a second
-  provider's credentials. It becomes `app/credentials` keyed by
-  `Ref{Provider, Account}`, with a separate index of refs because keychains
-  cannot enumerate. Two rules already apply to new work: **config holds refs,
-  never tokens** (`flows/` is dotfiles-managed, so an embedded token is a token
-  in a git repo), and **GitHub is a connector, not a login** — do not add code
-  that gates the app on being signed in to GitHub. See `architecture.md` ▸
+  Two rules govern new work: **config holds refs, never tokens** (`flows/` is
+  dotfiles-managed, so an embedded token is a token in a git repo), and
+  **GitHub is a connector, not a login** — do not add code that gates the app
+  on being connected to GitHub. Lookup is generic and lives in
+  `app/credentials`; only *acquisition* is provider-specific and lives with
+  the connector (`sources/github/connect.go`). See `architecture.md` ▸
   Credentials.
+
+  **Still being replaced.** The vendored
+  `internal/hivecore/github/token.go` single-slot store is untouched and
+  unused by the app, but the product surface over the new one is not finished:
+  Settings ▸ Integrations still hardcodes its cards instead of enumerating
+  `sources.All()`, and the node editor's account field is a text input rather
+  than a picker. Do not build on either.
 - **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
   `internal/app/prompts/templates/`; nothing in the frontend builds a
   prompt string. Adding one is a template plus a `definitions` entry — Settings
@@ -268,7 +278,7 @@ Defined in `internal/app/settings/paths.go` unless noted:
 | `HIVE_DESKTOP_FLOWS` | Override just the flows directory |
 | `HIVE_DESKTOP_ACTIONS` | Override the `actions.yml` path |
 | `HIVE_DATA_DIR` | App-local state root (shared with the CLI convention) |
-| `HIVE_GITHUB_TOKEN` | Read-only headless auth override |
+| `HIVE_GITHUB_TOKEN` | Read-only headless override for every `github/*` credential (`credentials.EnvOverrideName`) |
 | `HIVE_GITHUB_CLIENT_ID` | Override the device-flow OAuth client id |
 | `HIVE_DESKTOP_WEBHOOK_PORT` | Override the local webhook listener port (settings.yaml `webhook_port`, randomly allocated from 20000–32767 on first run); in mock modes the listener starts only when this is set |
 | `WAILS_SERVER_PORT` | Server-build port (default 8080) |
