@@ -30,9 +30,17 @@ individual choices; this document describes the shape everything fits into.
 > gone, and with it the six RPCs that existed only to feed it. Flow execution
 > no longer depends on a window being open.
 >
-> Not yet built: the source and credential registries, and the plugs-managed
-> lifecycle — see [Migration path](#migration-path). New work should move
-> toward this shape rather than extending the current one.
+> Source connectors are declared: `internal/app/sources` holds a registry of
+> `connector.Descriptor`s — type, title, pull/push mode, stability, declared
+> capabilities, config schema — and `connector.Factory` constructs instances
+> where their dependencies live. The producer reads a capability off the
+> instance instead of type-asserting for it, and `flow`'s node registry and
+> `runtime`'s behaviour registry both derive their source entries from it, so
+> adding a connector is a change to `sources/` alone (ADR 0012).
+>
+> Not yet built: the credential registry and the plugs-managed lifecycle —
+> see [Migration path](#migration-path). New work should move toward this
+> shape rather than extending the current one.
 
 ## The shape
 
@@ -206,11 +214,16 @@ internal/
       filter.go  function.go      #   the two processing node types
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
       js/                         # goja implementation
-      testdata/parity/            # fixtures BOTH engines run, until the cutover
+      testdata/parity/            # the engine's own regression fixtures
+    icons/                        # curated feed glyph set — a leaf, shared by
+                                  #   flow's feed node and the webhook connector
     sources/                      # connector registry
-      registry.go  source.go
-      github/  webhook/  …
+      registry.go                 #   the map of descriptors, in one file
+      connector/                  #   the vocabulary — a leaf, so a connector can
+                                  #   name it without importing the registry back
+      github/  webhook/  …        #   Descriptor + Config + Factory per connector
     ingest/                       # producer loop, classification, absence, snapshots
+      resolver.go                 #   the flow set -> live connector instances
     dispatch/                     # output worker, Dispatcher, executors
     actions/                      # actions.yml catalog, watcher, editable model
       docs/                       # per-action-type markdown
@@ -255,7 +268,7 @@ declared in one file, with per-type config carrying its own `Validate`.
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
 | **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, and the editable-catalog branch |
-| **Source connector** | `app/sources` | a `Descriptor` and a `Source` implementation — nothing else |
+| **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 
 ### Documentation is part of the declaration
@@ -277,24 +290,44 @@ same source.
 ### Source connectors
 
 The connector interface is the one most likely to age badly, so it is
-specified rather than left to grow:
+specified rather than left to grow. ADR 0012 records why.
 
-- **Declaration is separate from instance.** A `Descriptor` carries type name,
-  title, JSON Schema for config, declared capabilities, and stability level.
-  The registry holds descriptors; instances are constructed per-use from
-  parsed config.
+- **Declaration is separate from instance.** `connector.Descriptor` carries
+  type name, title, mode, stability level, declared capabilities, and a config
+  factory. It is static data with no dependencies — which is what lets the
+  registry hold it as package state and lets `flow` derive a node type from it.
+  `connector.Factory` constructs instances, and is built in `app.New` where
+  the dependencies exist.
 - **The framework parses and validates config.** A connector supplies a config
-  struct with `json`/`jsonschema` tags plus a `Validate() error` for
-  cross-field rules. It never decodes YAML itself. The same schema renders the
-  editor form and, later, the MCP tool input schema.
+  struct with `json`/`yaml`/`jsonschema` tags plus a `Validate() error` for
+  cross-field rules. It never decodes YAML itself. The schema is reflected from
+  the struct, so it cannot describe a field the struct lacks; it will feed the
+  MCP tool input schema and, later, a schema-rendered editor form.
 - **Pull and push are distinct.** GitHub, RSS, Grafana, and PostHog are pull;
-  directory watchers and HTTP endpoints are push. Keep two interfaces rather
-  than forcing push sources to fake a blocking read.
+  directory watchers and HTTP endpoints are push. The `Mode` on the descriptor
+  is what separates them, and the resolver answers `PullInstances` and
+  `PushInstances` from one walk — rather than forcing push sources to fake a
+  blocking read.
 - **Capabilities are declared, not sniffed.** No `if s, ok := src.(Backfiller)`
-  — a connector states what it supports.
+  — a connector states what it supports, and a test fails when a descriptor
+  declares a capability its factory does not wire. Sniffing fails *open*: the
+  assertion still compiles, the source still polls, and it silently ingests
+  with no classifier and no absence confirmation.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.
+
+Connector type strings are namespaced — `sources.github`, `sources.webhook` —
+so connectors group and sort together everywhere node types are enumerated:
+the palette, `flow/docs/`, and the flows prompt. The other node types are not
+namespaced by category, because a `sinks.` or `process.` prefix would declare
+what [`CategoryOf`](#documentation-is-part-of-the-declaration) *derives* from
+port counts, and a declared category can disagree with what the graph
+validator enforces.
+
+The registry is a package-level map in one file, so `sources` imports the
+connector packages and they must not import it back. The vocabulary both sides
+name therefore lives in a leaf, `sources/connector`.
 
 ## Cross-cutting conventions
 
@@ -369,6 +402,15 @@ Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware — the fetch layer connectors need, which
 does not exist today), `secret.Secret` (redacting string type for credential
 values), `mapx`.
+
+**`httpclient` cannot reach the one fetch path that exists.** GitHub's requests
+go through the vendored `hivecore/github.Client`, whose transport is a concrete
+`*http.Client` field with only a `WithHTTPClient(*http.Client)` option;
+`httpclient.Client` wraps an `*http.Client` rather than being one, so it cannot
+be substituted without landing a change in `colonyops/hive` and re-vendoring
+(rule 9). The app's only other outbound HTTP is the updater and `cmd/release`,
+neither a connector fetch path. Adopt it when a connector that owns its own
+HTTP lands, or when the upstream client takes an injectable `Doer`.
 
 ## Execution model
 
@@ -488,9 +530,15 @@ The target is reached in this order; each step is independently shippable.
    `EventLogTailOffset`, `ActivateReplay`, `ListReplaySourceSnapshots` or
    `ListUnarchivedInboxItems`, and the int64-as-string offset encoding they
    needed went with them.
-5. **Source registry** — now a pure Go change, with no silent-failure edits
-   required in frontend routing.
-6. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle.
+5. **Source registry** — **Done.** ADR 0012. `connector.Descriptor` declares a
+   connector and `connector.Factory` constructs it; capabilities are read off
+   the instance rather than type-asserted; `flow`'s and `runtime`'s registries
+   derive their source entries. Node types are namespaced (`sources.github`,
+   `sources.webhook`), which breaks the `type:` discriminator in any existing
+   `flows/*.yaml`.
+6. **Credentials** — `Ref{Provider, Account}`, the keychain-backed store and
+   its index, and GitHub demoted from a login to a connector.
+7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle.
 
 ### Data that must survive
 
@@ -517,15 +565,20 @@ These are deliberately unresolved; revisit when the relevant work starts.
   place to enumerate.
 - **`adapter/` as a grouping directory** versus flat `internal/wailsui`,
   `internal/httpapi`, `internal/mcpsrv`.
-- **Splitting the pipeline package** into `ingest` / `runtime` / `dispatch`
-  versus keeping one package — the split matches the data flow and forces the
-  GitHub-shaped prefetch leak to be fixed, at the cost of new boundaries to
-  police.
 - **Identity display** — with GitHub demoted to a connector, where the
   authenticated account's name and avatar surface, if anywhere.
 - **First-run guidance** — onboarding now ends at "create a flow", which
   leaves a user with no configured source; it likely needs to point at
-  Integrations.
+  Integrations. Related: `flow`'s `starterFlow` imports `sources/github`
+  directly to seed that flow, which is the last provider-specific import in an
+  otherwise connector-neutral package. Whatever replaces first-run onboarding
+  should take the seed with it.
+- **Schema-driven editor forms** — a connector's config schema is reflected
+  and available, but `nodes/<type>/editor.vue` is still hand-written per type,
+  as is its duplicated UX-only `validate()`. Rendering the form from the
+  schema is what would make "one declaration in Go" true across the language
+  boundary; the forms are hand-tuned (conditional fields, glob lists, a code
+  editor), so a generic renderer has to earn its place.
 - **A `runtime:` field on function nodes** — deferred until a second script
   language exists. The port and registry are in place; the config field is
   not.

@@ -53,12 +53,16 @@ internal/app/             # the headless core — no transport, no Wails
   actions/                # actions.yml store, watcher, seed, editable model, Refs
     docs/                 # per-action-type markdown, rendered into the prompt
   ingest/                 # the producer loop and retention: sources -> event log
+    resolver.go           # the flow set -> live connector instances
   runtime/                # the flow engine: index a flow, run a batch, commit
     js/                   # the ScriptRuntime port's goja implementation
     testdata/parity/      # fixture flows + expected commits (see Testing)
   dispatch/               # output worker, dispatcher, executors
-  sources/github/         # the GitHub connector; feed/ is its fetch layer
-  sources/webhook/        # the local webhook ingress
+  icons/                  # the curated feed glyph set (a leaf: flow + webhook)
+  sources/                # the connector registry — registry.go is the whole map
+    connector/            # the vocabulary a connector is declared in
+    github/               # the GitHub connector; feed/ is its fetch layer
+    webhook/              # the webhook connector and its local ingress
   activity/ jobs/ prompts/
 ```
 
@@ -80,6 +84,15 @@ type gets its editor (`nodes/<type>/{config.ts,editor.vue,index.ts}`) here,
 and its schema, validation, docs *and execution* in Go. See `architecture.md`
 ▸ Execution model. `pipeline/__tests__/import-hygiene.spec.ts` fails if a
 `nodes/*/runtime.ts` reappears.
+
+**A source connector is declared in Go and adding one barely touches this
+directory.** `internal/app/sources` holds a `connector.Descriptor` per
+connector — type, title, pull/push mode, stability, capabilities, config
+schema — and `flow`'s node registry and `runtime`'s behaviour registry both
+*derive* their source entries from it (ADR 0012). Source node types are
+namespaced: `sources.github`, `sources.webhook`. A new connector still needs a
+`nodes/<type>/` editor entry here until forms are schema-driven, but nothing
+else.
 
 The frontend learns that a run landed from **`inbox:updated`**, not
 `log:appended`. The log growing only says a source observed something, which

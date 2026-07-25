@@ -19,6 +19,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0009](decisions/0009-go-owned-llm-prompts.md) | LLM prompts owned by Go, node docs live with the schema |
 | [0010](decisions/0010-goja-script-runtime.md) | goja for function nodes, behind a ScriptRuntime port |
 | [0011](decisions/0011-flow-engine-in-go.md) | The flow engine moves to Go |
+| [0012](decisions/0012-source-connector-registry.md) | Source connectors are declared, not sniffed |
 
 ## References
 

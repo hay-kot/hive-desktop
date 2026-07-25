@@ -10,7 +10,7 @@ flows, filters, and feed membership change.
 
 The pipeline has three cooperating parts:
 
-1. **Go ingestion** polls configured `sources.github` nodes. For every changed
+1. **Go ingestion** polls configured pull-mode source nodes. For every changed
    observation it classifies the change and unconditionally updates the
    corresponding `inbox_item`; noteworthy classifications also append an
    `inbox_event`. Ingestion owns item identity, payload, revision, lifecycle,
@@ -102,12 +102,14 @@ policy.
 ### Webhook ingress
 
 `sources.webhook` nodes are push-driven and bypass the producer entirely
-(docs/decisions/0007). `pipeline.WebhookListener` binds `127.0.0.1` (port
+(docs/decisions/0007). `webhook.Listener` binds `127.0.0.1` (port
 `webhook_port` in settings.yaml — drawn at random from 20000–32767 on first
 run and persisted, env override `HIVE_DESKTOP_WEBHOOK_PORT`; the whole
 listener is switched off by `webhook_enabled: false`, and Settings →
-Integrations → Webhooks edits both) and resolves `/hooks/<path>` routes per request
-from the current flow set. A delivery calls `IngestObservation` under topic
+Integrations → Webhooks edits both) and resolves `/hooks/<path>` routes per
+request against the push-mode connector instances `ingest.Resolver` builds
+from the current flow set — the same resolution the producer's pull sources go
+through, so enabled/disabled filtering happens once for both. A delivery calls `IngestObservation` under topic
 `source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
 a top-level `id` is the stable key (else the body's SHA-256, deduplicating
 exact duplicate deliveries), and `title`/`url` are promoted for feed
@@ -159,13 +161,16 @@ nodes: []
 wires: []
 ```
 
-Supported node types are:
+Source node types are namespaced `sources.<name>` and come from the connector
+registry (`internal/app/sources`, ADR 0012) rather than being listed in the
+flow package; the rest are declared in `flow` directly. Supported node types
+are:
 
 | Type | Role |
 | --- | --- |
 | `sources.github` | Backend source with `kind`, optional search `query`, and optional `limit`. |
 | `sources.webhook` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
-| `github-filter` | Frontend processor that passes or rejects GitHub messages by configured attributes. |
+| `github-filter` | Processor that passes or rejects GitHub messages by configured attributes. |
 | `function` | Author-provided JavaScript processor with one to sixteen outputs. |
 | `feed` | Terminal membership target. The flow-qualified node id is the feed id. |
 | `action` | Terminal action target referring to a headless-capable action in `actions.yml`. |
