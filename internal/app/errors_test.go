@@ -1,0 +1,83 @@
+package app
+
+import (
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/store"
+)
+
+func TestKindOf_WalksAWrappedChain(t *testing.T) {
+	t.Parallel()
+
+	cause := errors.New("disk on fire")
+	classified := Wrap(cause, KindUnavailable, "reading the catalog")
+	// A service returning a typed error that a caller then wraps again with
+	// fmt.Errorf is the normal shape: KindOf has to see through it.
+	outer := fmt.Errorf("loading actions: %w", classified)
+
+	assert.Equal(t, KindUnavailable, KindOf(outer))
+	assert.ErrorIs(t, outer, cause, "the cause stays reachable")
+}
+
+func TestKindOf_UnclassifiedIsInternal(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, KindInternal, KindOf(errors.New("plain")))
+	assert.Equal(t, KindInternal, KindOf(nil))
+}
+
+func TestWrap_NilErrorIsNil(t *testing.T) {
+	t.Parallel()
+
+	// Returning Wrap(err, ...) unconditionally has to stay safe, or every
+	// call site grows an if.
+	require.Nil(t, Wrap(nil, KindInvalid, "unused"))
+}
+
+func TestError_MessageAndJSON(t *testing.T) {
+	t.Parallel()
+
+	bare := Errorf(KindNotFound, "action %q not found", "review-pr")
+	assert.Equal(t, `action "review-pr" not found`, bare.Error())
+
+	wrapped := Wrap(errors.New("no such column"), KindInternal, "listing runs")
+	assert.Equal(t, "listing runs: no such column", wrapped.Error())
+
+	encoded, err := json.Marshal(wrapped)
+	require.NoError(t, err)
+
+	var decoded struct {
+		Kind    Kind   `json:"kind"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	assert.Equal(t, KindInternal, decoded.Kind)
+	assert.Equal(t, "listing runs", decoded.Message)
+	assert.NotContains(t, string(encoded), "no such column", "the cause is for the log, not the wire")
+}
+
+// TestRerunOutputCommand_NoPriorRunUnwraps guards the asymmetry this commit
+// fixed: the store converted sql.ErrNoRows with no %w, so KindOf could only
+// ever report internal for a case the user can act on.
+func TestRerunOutputCommand_NoPriorRunUnwraps(t *testing.T) {
+	t.Parallel()
+
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	_, err = db.RerunOutputCommand(t.Context(), "review-pr", "item-1", nil)
+	require.Error(t, err)
+	require.ErrorIs(t, err, sql.ErrNoRows)
+
+	// Which is what lets the boundary classify it.
+	classified := Wrap(err, KindInvalid, "rerunning action")
+	assert.Equal(t, KindInvalid, KindOf(classified))
+}

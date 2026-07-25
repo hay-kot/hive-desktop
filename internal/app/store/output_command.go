@@ -30,7 +30,10 @@ func (db *DB) ConfirmOutputCommand(ctx context.Context, actionID, key string, pa
 func (db *DB) RerunOutputCommand(ctx context.Context, actionID, key string, payload []byte) (OutputCommand, error) {
 	row, err := db.queries.RerunOutputCommand(ctx, RerunOutputCommandParams{ActionID: actionID, Key: key, Payload: payload, CreatedAt: time.Now().UnixMilli()})
 	if errors.Is(err, sql.ErrNoRows) {
-		return OutputCommand{}, fmt.Errorf("action %q cannot rerun for %q without a completed prior run", actionID, key)
+		// %w deliberately: the boundary classifies this by unwrapping, and
+		// without it a rerun-without-a-prior-run reports as an internal
+		// failure rather than the invalid request it is.
+		return OutputCommand{}, fmt.Errorf("action %q cannot rerun for %q without a completed prior run: %w", actionID, key, err)
 	}
 	return row, wrap("rerunning output command", err)
 }
