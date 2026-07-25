@@ -96,8 +96,10 @@ wails3 generate bindings -clean=true -ts -i
 The frontend Vite plugin requires generated typed-event bindings. The shell
 registers the `auth:updated`, `log:appended`, `flows:updated`, and
 `actions:updated` events using package-variable initialization rather than an
-`init()` function because this repository enables `gochecknoinits` (main.go
-carries a comment saying the same). All are wake-up signals: `auth:updated`
+`init()` function because this repository enables `gochecknoinits`
+(`internal/adapter/wailsui/events.go` carries a comment saying the same).
+Each one is a subscription to a typed payload the core publishes on
+`app/events`; the adapter degrades it to the wake-up signal below. All are wake-up signals: `auth:updated`
 makes the frontend re-read auth Status (device-flow grants land in a Go
 goroutine), `log:appended` carries the pipeline event log's new tail offset,
 `flows:updated` fires after a flows/*.yaml reload, and `actions:updated` fires

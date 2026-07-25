@@ -147,7 +147,7 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
 
 ## Patterns and gotchas
 
-These describe the code **as it is today**. Two are being replaced and are
+These describe the code **as it is today**. One is being replaced and is
 marked as such. For new work follow `../docs/architecture.md` — extending a
 superseded pattern makes the migration more expensive, which is the whole
 reason it is being done now.
@@ -161,19 +161,26 @@ reason it is being done now.
 - **No `init()`.** This repo enables `gochecknoinits`. Event registration in
   `wailsui/events.go` uses package-variable initialization
   (`var _ = registerEvents()`), not `init()`. Follow that pattern.
-- **Frontend events are wake-up signals, not payloads.** `wailsui/events.go`
-  registers `auth:updated`, `log:appended`, `flows:updated`, `actions:updated`. On
-  receipt the frontend re-reads the relevant service; the event just says
-  "something changed" (only `log:appended` carries meaningful data — the new
-  tail offset). Adding a new signal means registering it in `registerEvents()`
-  and adding an `emit*` helper.
+- **The core publishes payloads; the Wails boundary degrades them to wake-up
+  signals.** `app/events` carries typed payloads (`LogAppended{NextOffset}`,
+  `JobsUpdated{JobID}`, …) and `wailsui.Subscribe` maps each one to the Wails
+  event the frontend already knows — `auth:updated`, `log:appended`,
+  `flows:updated`, `actions:updated`. On receipt the frontend re-reads the
+  relevant service; the signal just says "something changed".
 
-  **Being replaced.** The wake-up contract is right for a GUI and stays *at the
-  Wails boundary*, but it is moving out of the core: `app/events` will carry
-  typed payloads and the `wailsui` adapter will degrade them to these same
-  signals. An MCP client cannot cheaply "re-read the service", and a streaming
-  consumer needs the delta. New core events carry a payload; no new
-  package-level `emit*` functions. See `architecture.md` ▸ Events.
+  Adding an event is three things: a payload type in `app/events/events.go`
+  (its `eventName` method is unexported, so an adapter cannot invent one), a
+  publish from the core, and a subscriber in `wailsui/events.go` that
+  registers the Wails event and emits it. The `emit*` helpers are unexported
+  and stay that way — the core must never call one, and `forbidigo` fails the
+  build if it does.
+
+  Every `wailsui` subscription uses `events.Coalesce()`: the frontend re-reads
+  on receipt, so a dropped intermediate is not observable, and a busy webview
+  must never hold up the producer goroutine that published. A consumer that
+  needs every event in order uses `events.Buffer(n)` instead — the delta is
+  in the payload, which is why an MCP or streaming consumer does not have to
+  "re-read the service". See `architecture.md` ▸ Events.
 - **Mock modes** (`HIVE_DESKTOP_MOCK`): `feed`/`pipeline`/`action-smoke` start
   authenticated; `onboarding` starts signed out with a fake device flow that
   grants after ~1.5s. Unset → live backends. In mock modes the live producer

@@ -57,6 +57,11 @@ The pipeline uses its own SQLite database, `desktop-pipeline.db`, opened by
 pipeline polling and desktop interactions do not compete with CLI/TUI writes.
 All timestamps stored by this database are Unix milliseconds.
 
+Every subsystem below is owned and wired by `app.New`, started by `App.Start`
+and unwound by `App.Close` — `package main` holds none of it. The Wails
+services in `internal/adapter/wailsui/` are transport over the per-domain
+services in `internal/app/`.
+
 | Table | Purpose | Retention / cascade behavior |
 | --- | --- | --- |
 | `inbox_item` | Canonical per-profile observation identity, latest payload, revision, lifecycle, unread state, and archive metadata. Its unique key is profile, source kind, source scope, and external id. | Archived rows are removed 90 days after `archived_at`. Deleting a row cascades to its events and membership claims. |
@@ -272,7 +277,9 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 | Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/github_classify.go`, `internal/app/sources/webhook/webhook_source.go` |
 | Flow schema and loader | `internal/app/flow/` |
 | Output-command dispatch and executors | `internal/app/dispatch/` |
+| Inbox orchestration | `internal/app/inbox_service.go` |
 | Wails pipeline API | `internal/adapter/wailsui/pipelineservice.go` |
+| Subsystem wiring and lifecycle | `internal/app/app.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |
 | Frontend graph engine | `desktop/frontend/src/pipeline/engine/` |
 | Keybinding catalog | `desktop/frontend/src/keybindings/catalog.ts` |

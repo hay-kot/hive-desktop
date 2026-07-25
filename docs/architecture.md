@@ -9,16 +9,22 @@ pipeline's runtime behaviour; ADRs in [`decisions/`](decisions/) record
 individual choices; this document describes the shape everything fits into.
 
 > **Status: partly built.** The dependency rule, the wrapper idiom, and the
-> consumer-defined-interface style hold today, and the `app`/`adapter` split
-> has landed: `internal/app/` is the core, `internal/adapter/wailsui/` holds
-> every Wails service, and `desktop/` is `main()` plus build info. The
-> dependency rule and the placement rules are enforced by `golangci-lint`
-> (depguard, forbidigo) rather than by review, and `mise run check:bindings`
-> catches a service that moved without regenerating its bindings.
+> consumer-defined-interface style hold today, and so does the core's shape:
+> the `app`/`adapter` split (`internal/app/` is the core,
+> `internal/adapter/wailsui/` holds every Wails service, `desktop/` is
+> `main()` plus build info), the `app.App` facade with one service per
+> domain, `app.Error` with its `Kind` vocabulary, the typed `app/events` bus,
+> and `context.Context` first on every core method.
 >
-> Not yet built: the `App` facade, typed errors and the typed event bus (in
-> progress), the Go flow engine, the source and credential registries, and the
-> plugs-managed lifecycle — see [Migration path](#migration-path). New work
+> Several of those are enforced rather than reviewed: `depguard` fails a core
+> package that imports Wails or an adapter, `forbidigo` fails
+> `application.Get`, `context.Background` or an `emit*` helper outside the
+> adapter, `containedctx` fails a stored request context, and
+> `mise run check:bindings` fails a service that moved without regenerating
+> its bindings.
+>
+> Not yet built: the Go flow engine, the source and credential registries, and
+> the plugs-managed lifecycle — see [Migration path](#migration-path). New work
 > should move toward this shape rather than extending the current one.
 
 ## The shape
@@ -425,7 +431,7 @@ The target is reached in this order; each step is independently shippable.
    **Done.**
 2. **Core skeleton** — `App` facade, typed errors, event bus. Move the
    orchestration currently stranded in `package main` (`InvokeAction`, the
-   action usage checker's raw SQL, poll-interval validation).
+   action usage checker's raw SQL, poll-interval validation). **Done.**
 3. **Go flow engine + goja**, with parity tests against the TypeScript engine
    before cutover. The largest step.
 4. **Delete the frontend engine** — `engine/`, `driver.ts`, the runtime
