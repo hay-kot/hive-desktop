@@ -7,9 +7,9 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/desktop/notify"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 // NotifyInput is the frontend-facing request for a native notification.
@@ -90,7 +90,7 @@ type NotificationActivation struct {
 // icon, and permission handling) as an app-level notification.
 type flowNotifier struct{ notifier notificationNotifier }
 
-func (n flowNotifier) Notify(_ context.Context, in pipeline.SystemNotification) error {
+func (n flowNotifier) Notify(_ context.Context, in ingest.SystemNotification) error {
 	// The user asked for this one inside Hive, not as a banner. The frontend
 	// owns in-app presentation (see useToasts), so this hands the rendered
 	// notification over and is done — there is no native call to make, and no
@@ -138,13 +138,13 @@ type settingsNotificationGate struct {
 	logger zerolog.Logger
 }
 
-func (g settingsNotificationGate) NotificationPolicy() pipeline.NotificationPolicy {
+func (g settingsNotificationGate) NotificationPolicy() ingest.NotificationPolicy {
 	settings, err := settings.LoadSettings()
 	if err != nil {
 		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
-		return pipeline.NotificationPolicy{}
+		return ingest.NotificationPolicy{}
 	}
-	return pipeline.NotificationPolicy{
+	return ingest.NotificationPolicy{
 		Allowed: settings.NotificationsEnabledOrDefault(),
 		Sound:   settings.NotificationSoundOrDefault(),
 		InApp:   g.inApp(settings.NotificationDeliveryOrDefault()),

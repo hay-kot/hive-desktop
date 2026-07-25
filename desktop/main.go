@@ -19,13 +19,13 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
 	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -109,14 +109,14 @@ func buildSourceFetcher(logger zerolog.Logger) *feed.LiveProvider {
 // buildPipelineProducer starts the pipeline event-log producer over every
 // enabled github-source node across all flows (via flows), or returns nil when
 // there is nothing to poll (mock mode, so fetcher is nil).
-func buildPipelineProducer(db *store.DB, fetcher *feed.LiveProvider, flows pipeline.FlowLister, recorder activity.Recorder, interval time.Duration, logger zerolog.Logger) *pipeline.Producer {
+func buildPipelineProducer(db *store.DB, fetcher *feed.LiveProvider, flows ingest.FlowLister, recorder activity.Recorder, interval time.Duration, logger zerolog.Logger) *ingest.Producer {
 	if fetcher == nil {
 		return nil
 	}
-	producer := pipeline.NewProducer(db, pipeline.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
+	producer := ingest.NewProducer(db, ingest.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
 	producer.SetRecorder(recorder)
 	producer.SetPrefetcher(fetcher)
-	producer.SetSourceAdapter(pipeline.NewGithubSourceAdapter(fetcher))
+	producer.SetSourceAdapter(ingest.NewGithubSourceAdapter(fetcher))
 	return producer
 }
 
@@ -309,8 +309,8 @@ type hiveActionRuntime struct {
 	db     *coredb.DB
 	cancel context.CancelFunc
 
-	launcher  *pipeline.HiveSessionLauncher
-	publisher pipeline.MessagePublisher
+	launcher  *ingest.HiveSessionLauncher
+	publisher ingest.MessagePublisher
 }
 
 func (r *hiveActionRuntime) Close() {
@@ -375,14 +375,14 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 		io.Discard,
 	)
 
-	launcher := pipeline.NewHiveSessionLauncher(sessions)
+	launcher := ingest.NewHiveSessionLauncher(sessions)
 	launcher.SetRecorder(recorder)
 
 	return &hiveActionRuntime{
 		db:        database,
 		cancel:    cancel,
 		launcher:  launcher,
-		publisher: pipeline.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, cfg.Messaging.MaxMessages), cfg, bus)),
+		publisher: ingest.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, cfg.Messaging.MaxMessages), cfg, bus)),
 	}, nil
 }
 
@@ -396,14 +396,14 @@ func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (
 // a notify node's config lives in its flow, not in actions.yml, so the
 // worker resolves those ids from the live flow set and everything else from
 // the authored catalog.
-func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, focus *focusState, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
-	dispatcher := pipeline.NewDispatcher(map[string]pipeline.Executor{
-		pipeline.ActionTypeLaunchSession: pipeline.NewLaunchSessionExecutor(launcher),
-		"shell":                          pipeline.NewShellExecutor(logger),
-		"publish-message":                pipeline.NewPublishMessageExecutor(publisher),
-		pipeline.ActionTypeNotify:        pipeline.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
+func buildOutputWorker(db *store.DB, actionStore *actions.ActionStore, flows ingest.FlowLister, notifier ingest.SystemNotifier, focus *focusState, launcher ingest.SessionLauncher, publisher ingest.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *ingest.Worker {
+	dispatcher := ingest.NewDispatcher(map[string]ingest.Executor{
+		ingest.ActionTypeLaunchSession: ingest.NewLaunchSessionExecutor(launcher),
+		"shell":                        ingest.NewShellExecutor(logger),
+		"publish-message":              ingest.NewPublishMessageExecutor(publisher),
+		ingest.ActionTypeNotify:        ingest.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
 	})
-	worker := pipeline.NewWorker(db, pipeline.NewFlowNotifyActions(flows, actionStore), dispatcher, pipeline.DefaultOutputWorkerInterval, logger)
+	worker := ingest.NewWorker(db, ingest.NewFlowNotifyActions(flows, actionStore), dispatcher, ingest.DefaultOutputWorkerInterval, logger)
 	worker.SetRecorder(recorder)
 	worker.SetJobRecorder(jobRecorder)
 	return worker
@@ -513,11 +513,11 @@ func main() {
 		outputWorker.Start()
 	}
 
-	maintenance := pipeline.NewMaintenance(
+	maintenance := ingest.NewMaintenance(
 		pipelineDB,
 		flowsStore,
 		store.DefaultRetentionPolicy(),
-		pipeline.DefaultRetentionInterval,
+		ingest.DefaultRetentionInterval,
 		logger,
 	)
 	maintenance.Start()
@@ -540,9 +540,9 @@ func main() {
 		logger.Warn().Err(err).Msg("webhook port unavailable")
 	}
 	webhookEnabled := cfg.WebhookEnabledOrDefault()
-	var webhookListener *pipeline.WebhookListener
+	var webhookListener *ingest.WebhookListener
 	if webhookEnabled && webhookPort > 0 && (settings.MockMode() == "" || os.Getenv(settings.EnvWebhookPort) != "") {
-		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
+		webhookListener = ingest.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
 		if err := webhookListener.Start(); err != nil {
 			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")

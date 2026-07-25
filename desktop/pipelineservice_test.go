@@ -13,34 +13,34 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 type recordingActionExecutor struct {
 	calls int
-	data  pipeline.OutputData
+	data  ingest.OutputData
 }
 
-func (e *recordingActionExecutor) Execute(_ context.Context, _ actions.Action, data pipeline.OutputData, _ pipeline.ActionInvocationInput) (pipeline.ExecutionResult, error) {
+func (e *recordingActionExecutor) Execute(_ context.Context, _ actions.Action, data ingest.OutputData, _ ingest.ActionInvocationInput) (ingest.ExecutionResult, error) {
 	e.calls++
 	e.data = data
-	return pipeline.ExecutionResult{}, nil
+	return ingest.ExecutionResult{}, nil
 }
 
-type recordingLaunchOptions struct{ options pipeline.SessionLaunchOptions }
+type recordingLaunchOptions struct{ options ingest.SessionLaunchOptions }
 
-func (r recordingLaunchOptions) SessionLaunchOptions(context.Context) (pipeline.SessionLaunchOptions, error) {
+func (r recordingLaunchOptions) SessionLaunchOptions(context.Context) (ingest.SessionLaunchOptions, error) {
 	return r.options, nil
 }
 
 type recordingSessionLauncher struct {
-	calls []pipeline.LaunchSessionRequest
+	calls []ingest.LaunchSessionRequest
 }
 
-func (l *recordingSessionLauncher) LaunchSession(_ context.Context, req pipeline.LaunchSessionRequest) (pipeline.SessionExecutionOutcome, error) {
+func (l *recordingSessionLauncher) LaunchSession(_ context.Context, req ingest.LaunchSessionRequest) (ingest.SessionExecutionOutcome, error) {
 	l.calls = append(l.calls, req)
-	return pipeline.SessionExecutionOutcome{ID: "session-1", Name: req.Name}, nil
+	return ingest.SessionExecutionOutcome{ID: "session-1", Name: req.Name}, nil
 }
 
 func insertActionItem(t *testing.T, db *store.DB, id, kind, title string) int64 {
@@ -108,7 +108,7 @@ func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
 	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	expected := pipeline.SessionLaunchOptions{Repositories: []pipeline.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
+	expected := ingest.SessionLaunchOptions{Repositories: []ingest.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
 	service := NewPipelineService(db, actionStore, nil, recordingLaunchOptions{options: expected})
 	got, err := service.SessionLaunchOptions()
 	require.NoError(t, err)
@@ -122,7 +122,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	executor := &recordingActionExecutor{}
-	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
+	worker := ingest.NewWorker(db, actionStore, ingest.NewDispatcher(map[string]ingest.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
 	service := NewPipelineService(db, actionStore, worker, nil)
@@ -144,22 +144,22 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 		{ID: "triage-any", Label: "Triage", Type: "shell", ShowInDetail: true},
 	}, views)
 
-	_, err = service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	_, err = service.InvokeAction("review-pr", prID, ingest.ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, executor.calls)
 	assert.Equal(t, "pr-1", executor.data.Key)
 	assert.Equal(t, "Fix it", executor.data.Payload["title"])
-	duplicate, err := service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	duplicate, err := service.InvokeAction("review-pr", prID, ingest.ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.True(t, duplicate.ConfirmationRequired)
 	assert.Equal(t, 1, executor.calls)
-	rerun, err := service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{Rerun: true})
+	rerun, err := service.InvokeAction("review-pr", prID, ingest.ActionInvocationInput{Rerun: true})
 	require.NoError(t, err)
 	assert.False(t, rerun.ConfirmationRequired)
 	assert.Equal(t, 2, executor.calls)
-	_, err = service.InvokeAction("review-pr", issueID, pipeline.ActionInvocationInput{})
+	_, err = service.InvokeAction("review-pr", issueID, ingest.ActionInvocationInput{})
 	require.Error(t, err)
-	_, err = service.InvokeAction("hidden", hiddenID, pipeline.ActionInvocationInput{})
+	_, err = service.InvokeAction("hidden", hiddenID, ingest.ActionInvocationInput{})
 	assert.ErrorContains(t, err, "not available in the detail pane", "backend must reject a trusted caller bypassing ActionViews")
 }
 
@@ -179,7 +179,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	executor := &recordingActionExecutor{}
-	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
+	worker := ingest.NewWorker(db, actionStore, ingest.NewDispatcher(map[string]ingest.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
 	service := NewPipelineService(db, actionStore, worker, nil)
@@ -195,7 +195,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 		}
 		assert.Contains(t, ids, "deploy-repo")
 
-		_, err = service.InvokeAction("deploy-repo", itemID, pipeline.ActionInvocationInput{})
+		_, err = service.InvokeAction("deploy-repo", itemID, ingest.ActionInvocationInput{})
 		require.NoError(t, err)
 		assert.Equal(t, "hook-1", executor.data.Key)
 	})
@@ -209,7 +209,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 			assert.NotEqual(t, "deploy-repo", v.ID, "repo_template action must be absent when the payload lacks repo")
 		}
 
-		_, err = service.InvokeAction("deploy-repo", itemID, pipeline.ActionInvocationInput{})
+		_, err = service.InvokeAction("deploy-repo", itemID, ingest.ActionInvocationInput{})
 		require.Error(t, err)
 		assert.ErrorContains(t, err, "repo_template")
 	})
@@ -232,7 +232,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	t.Run("unknown itemID errors from both ActionViews and InvokeAction", func(t *testing.T) {
 		_, err := service.ActionViews(999999)
 		require.Error(t, err)
-		_, err = service.InvokeAction("review-pr", 999999, pipeline.ActionInvocationInput{})
+		_, err = service.InvokeAction("review-pr", 999999, ingest.ActionInvocationInput{})
 		require.Error(t, err)
 	})
 }
@@ -245,11 +245,11 @@ func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T)
 
 	// Use a dispatcher executor that records a dispatched side effect failure.
 	failed := &attemptedFailureExecutor{}
-	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
+	worker := ingest.NewWorker(db, actionStore, ingest.NewDispatcher(map[string]ingest.Executor{"launch-session": failed}), 0, zerolog.Nop())
 	service := NewPipelineService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
-	view, err := service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	view, err := service.InvokeAction("review-pr", prID, ingest.ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, "failed", view.Status)
 	assert.Equal(t, "side effect failed", view.Error)
@@ -263,8 +263,8 @@ func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T)
 
 type attemptedFailureExecutor struct{}
 
-func (attemptedFailureExecutor) Execute(context.Context, actions.Action, pipeline.OutputData, pipeline.ActionInvocationInput) (pipeline.ExecutionResult, error) {
-	return pipeline.ExecutionResult{Attempted: true, Log: pipeline.ExecutionLog{Stdout: "partial stdout", Stderr: "partial stderr"}}, fmt.Errorf("side effect failed")
+func (attemptedFailureExecutor) Execute(context.Context, actions.Action, ingest.OutputData, ingest.ActionInvocationInput) (ingest.ExecutionResult, error) {
+	return ingest.ExecutionResult{Attempted: true, Log: ingest.ExecutionLog{Stdout: "partial stdout", Stderr: "partial stderr"}}, fmt.Errorf("side effect failed")
 }
 
 func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
@@ -273,9 +273,9 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	db, err := store.Open(dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	failed := &attemptedFailureExecutor{}
-	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{"launch-session": failed}), 0, zerolog.Nop())
+	worker := ingest.NewWorker(db, actionStore, ingest.NewDispatcher(map[string]ingest.Executor{"launch-session": failed}), 0, zerolog.Nop())
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
-	view, err := NewPipelineService(db, actionStore, worker, nil).InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	view, err := NewPipelineService(db, actionStore, worker, nil).InvokeAction("review-pr", prID, ingest.ActionInvocationInput{})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
@@ -294,15 +294,15 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	launcher := &recordingSessionLauncher{}
-	worker := pipeline.NewWorker(db, actionStore, pipeline.NewDispatcher(map[string]pipeline.Executor{
-		"launch-session": pipeline.NewLaunchSessionExecutor(launcher),
+	worker := ingest.NewWorker(db, actionStore, ingest.NewDispatcher(map[string]ingest.Executor{
+		"launch-session": ingest.NewLaunchSessionExecutor(launcher),
 	}), 0, zerolog.Nop())
 	service := NewPipelineService(db, actionStore, worker, nil)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
-	_, err = service.InvokeAction("review-pr", prID, pipeline.ActionInvocationInput{})
+	_, err = service.InvokeAction("review-pr", prID, ingest.ActionInvocationInput{})
 	require.NoError(t, err)
-	require.Equal(t, []pipeline.LaunchSessionRequest{{
+	require.Equal(t, []ingest.LaunchSessionRequest{{
 		Name: "review-pr-pr-1", Prompt: "Review Fix it", Repo: "git@example/repo.git",
 	}}, launcher.calls)
 

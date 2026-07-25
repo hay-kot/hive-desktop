@@ -8,7 +8,7 @@ import (
 // LaunchSessionConfig is a launch-session action: it spawns a hive session
 // from a triggering msg. PromptTemplate/RepoTemplate are Go text/template
 // strings rendered over the msg payload by the output worker (see
-// internal/desktop/pipeline's LaunchSessionExecutor) — this package only
+// internal/app/ingest's LaunchSessionExecutor) — this package only
 // parses and validates the config, it never renders or executes it.
 type LaunchSessionConfig struct {
 	// PromptTemplate renders the new session's initial prompt.

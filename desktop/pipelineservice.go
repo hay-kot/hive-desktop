@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 // PipelineService is the Wails service exposing the desktop pipeline's
@@ -17,11 +17,11 @@ import (
 type PipelineService struct {
 	db            *store.DB
 	actions       *actions.ActionStore
-	worker        *pipeline.Worker
-	launchOptions pipeline.SessionLaunchOptionsProvider
+	worker        *ingest.Worker
+	launchOptions ingest.SessionLaunchOptionsProvider
 }
 
-func NewPipelineService(db *store.DB, actionStore *actions.ActionStore, worker *pipeline.Worker, launchOptions pipeline.SessionLaunchOptionsProvider) *PipelineService {
+func NewPipelineService(db *store.DB, actionStore *actions.ActionStore, worker *ingest.Worker, launchOptions ingest.SessionLaunchOptionsProvider) *PipelineService {
 	return &PipelineService{db: db, actions: actionStore, worker: worker, launchOptions: launchOptions}
 }
 
@@ -37,7 +37,7 @@ func (s *PipelineService) ReadFrom(consumer string, limit int) ([]store.Msg, err
 // outputs, node-run metrics, and the consumer offset are persisted atomically.
 // Idempotent by offset: replaying a batch already applied (UpToOffset <= the
 // consumer's current offset) is a no-op.
-func (s *PipelineService) Commit(batch pipeline.CommitBatch) error {
+func (s *PipelineService) Commit(batch ingest.CommitBatch) error {
 	return s.db.CommitBatch(context.Background(), batch)
 }
 
@@ -136,7 +136,7 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reading inbox item %d: %w", itemID, err)
 	}
-	item, err := pipeline.DecodeActionItem(row.Payload, row.ExternalID)
+	item, err := ingest.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {
 		return nil, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
 	}
@@ -145,7 +145,7 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 		if !action.ShowInDetail {
 			continue
 		}
-		if ok, _ := pipeline.ActionApplicability(action, item); !ok {
+		if ok, _ := ingest.ActionApplicability(action, item); !ok {
 			continue
 		}
 		views = append(views, action.View())
@@ -156,9 +156,9 @@ func (s *PipelineService) ActionViews(itemID int64) ([]actions.View, error) {
 // SessionLaunchOptions supplies the configured repository and agent choices
 // for interactive launch-session actions. It intentionally exposes no local
 // checkout paths or executable action configuration.
-func (s *PipelineService) SessionLaunchOptions() (pipeline.SessionLaunchOptions, error) {
+func (s *PipelineService) SessionLaunchOptions() (ingest.SessionLaunchOptions, error) {
 	if s.launchOptions == nil {
-		return pipeline.SessionLaunchOptions{}, fmt.Errorf("session launch options are unavailable")
+		return ingest.SessionLaunchOptions{}, fmt.Errorf("session launch options are unavailable")
 	}
 	return s.launchOptions.SessionLaunchOptions(context.Background())
 }
@@ -166,30 +166,30 @@ func (s *PipelineService) SessionLaunchOptions() (pipeline.SessionLaunchOptions,
 // InvokeAction records the user's explicit confirmation for actionID against
 // item and executes it. It accepts only actions that apply to the item's kind;
 // executable configuration is always re-resolved from ActionStore.
-func (s *PipelineService) InvokeAction(actionID string, itemID int64, input pipeline.ActionInvocationInput) (pipeline.ActionRunView, error) {
+func (s *PipelineService) InvokeAction(actionID string, itemID int64, input ingest.ActionInvocationInput) (ingest.ActionRunView, error) {
 	row, err := s.db.Queries().GetInboxItemByID(context.Background(), itemID)
 	if err != nil {
-		return pipeline.ActionRunView{}, fmt.Errorf("reading inbox item %d: %w", itemID, err)
+		return ingest.ActionRunView{}, fmt.Errorf("reading inbox item %d: %w", itemID, err)
 	}
-	item, err := pipeline.DecodeActionItem(row.Payload, row.ExternalID)
+	item, err := ingest.DecodeActionItem(row.Payload, row.ExternalID)
 	if err != nil {
-		return pipeline.ActionRunView{}, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
+		return ingest.ActionRunView{}, fmt.Errorf("decode inbox item %d payload: %w", itemID, err)
 	}
 	action, ok := s.actions.Get(actionID)
 	if !ok {
-		return pipeline.ActionRunView{}, fmt.Errorf("unknown action %q", actionID)
+		return ingest.ActionRunView{}, fmt.Errorf("unknown action %q", actionID)
 	}
 	if !action.ShowInDetail {
-		return pipeline.ActionRunView{}, fmt.Errorf("action %q is not available in the detail pane", actionID)
+		return ingest.ActionRunView{}, fmt.Errorf("action %q is not available in the detail pane", actionID)
 	}
-	if applicable, reason := pipeline.ActionApplicability(action, item); !applicable {
-		return pipeline.ActionRunView{}, fmt.Errorf("action %q does not apply to item %d: %s", actionID, itemID, reason)
+	if applicable, reason := ingest.ActionApplicability(action, item); !applicable {
+		return ingest.ActionRunView{}, fmt.Errorf("action %q does not apply to item %d: %s", actionID, itemID, reason)
 	}
 	if item.ID == "" {
-		return pipeline.ActionRunView{}, fmt.Errorf("action %q: item id is required", actionID)
+		return ingest.ActionRunView{}, fmt.Errorf("action %q: item id is required", actionID)
 	}
 	if s.worker == nil {
-		return pipeline.ActionRunView{}, fmt.Errorf("action execution is unavailable")
+		return ingest.ActionRunView{}, fmt.Errorf("action execution is unavailable")
 	}
 	return s.worker.Confirm(context.Background(), actionID, item.ID, item.Payload, input)
 }
@@ -197,16 +197,16 @@ func (s *PipelineService) InvokeAction(actionID string, itemID int64, input pipe
 // NodeRuns returns up to limit of a flow's most recent node_run rows,
 // newest first, for the flows canvas's live per-node status and RECENT
 // activity list.
-func (s *PipelineService) NodeRuns(flowID string, limit int) ([]pipeline.NodeRunRecord, error) {
+func (s *PipelineService) NodeRuns(flowID string, limit int) ([]ingest.NodeRunRecord, error) {
 	return s.db.NodeRuns(context.Background(), flowID, limit)
 }
 
-func (s *PipelineService) ActionRun(commandID int64) (pipeline.ActionRunView, error) {
+func (s *PipelineService) ActionRun(commandID int64) (ingest.ActionRunView, error) {
 	row, err := s.db.OutputCommand(context.Background(), commandID)
 	if err != nil {
-		return pipeline.ActionRunView{}, err
+		return ingest.ActionRunView{}, err
 	}
-	view := pipeline.ActionRunView{CommandID: row.ID, Status: row.Status}
+	view := ingest.ActionRunView{CommandID: row.ID, Status: row.Status}
 	if row.LastError.Valid {
 		view.Error = row.LastError.String
 	}
@@ -218,7 +218,7 @@ func (s *PipelineService) ActionRun(commandID int64) (pipeline.ActionRunView, er
 	}
 	if row.ResultJson.Valid {
 		if err := json.Unmarshal([]byte(row.ResultJson.String), &view.Result); err != nil {
-			return pipeline.ActionRunView{}, fmt.Errorf("decode action run %d result: %w", commandID, err)
+			return ingest.ActionRunView{}, fmt.Errorf("decode action run %d result: %w", commandID, err)
 		}
 	}
 	return view, nil

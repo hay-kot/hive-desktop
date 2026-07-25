@@ -6,23 +6,23 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 )
 
 // SettingsService exposes user-tunable desktop settings to the frontend.
 // Saving persists settings.yaml and applies supported values to the running
 // services immediately.
 type SettingsService struct {
-	producer *pipeline.Producer
+	producer *ingest.Producer
 	fetcher  *feed.LiveProvider
 	logger   zerolog.Logger
 }
 
 // NewSettingsService constructs the Wails settings binding. producer and
 // fetcher are nil in mock mode, while settings persistence remains available.
-func NewSettingsService(producer *pipeline.Producer, fetcher *feed.LiveProvider, logger zerolog.Logger) *SettingsService {
+func NewSettingsService(producer *ingest.Producer, fetcher *feed.LiveProvider, logger zerolog.Logger) *SettingsService {
 	return &SettingsService{producer: producer, fetcher: fetcher, logger: logger}
 }
 

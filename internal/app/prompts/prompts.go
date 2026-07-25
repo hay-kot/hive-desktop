@@ -43,7 +43,7 @@ var templatesFS embed.FS
 // paths and URLs on *this* machine, so a copied prompt names the file the
 // agent should actually edit instead of a placeholder. The caller supplies it
 // (see desktop/promptsservice.go) — this package deliberately does not import
-// internal/desktop, so it stays testable without touching the user's config.
+// internal/app/settings, so it stays testable without touching the user's config.
 type Env struct {
 	// ConfigDir is the desktop config root holding flows/ and actions.yml.
 	ConfigDir string

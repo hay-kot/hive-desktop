@@ -11,10 +11,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
@@ -103,7 +103,7 @@ type settingsServiceSource struct {
 	calls int
 }
 
-func (s *settingsServiceSource) Produce(_ context.Context, _ func(pipeline.Msg) error) error {
+func (s *settingsServiceSource) Produce(_ context.Context, _ func(ingest.Msg) error) error {
 	s.mu.Lock()
 	s.calls++
 	s.mu.Unlock()
@@ -124,8 +124,8 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
-		producer := pipeline.NewProducer(db, func(context.Context) (map[string]pipeline.Source, error) {
-			return map[string]pipeline.Source{"github": source}, nil
+		producer := ingest.NewProducer(db, func(context.Context) (map[string]ingest.Source, error) {
+			return map[string]ingest.Source{"github": source}, nil
 		}, time.Hour, nil, zerolog.Nop())
 		service := NewSettingsService(producer, provider, zerolog.Nop())
 
