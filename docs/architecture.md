@@ -23,8 +23,16 @@ individual choices; this document describes the shape everything fits into.
 > `mise run check:bindings` fails a service that moved without regenerating
 > its bindings.
 >
-> Not yet built: the Go flow engine, the source and credential registries, and
-> the plugs-managed lifecycle — see [Migration path](#migration-path). New work
+> The Go flow engine exists: `internal/app/runtime` owns graph execution and
+> `runtime/js` implements the `ScriptRuntime` port with goja (ADRs 0010 and
+> 0011). It is **built but not yet driving** — the browser still executes
+> deployed flows, and shared fixtures in
+> `internal/app/runtime/testdata/parity/` are executed by both engines so the
+> two are held to the same answer until the cutover.
+>
+> Not yet built: the engine's cutover (the pump, the replay protocol, deleting
+> the frontend engine), the source and credential registries, and the
+> plugs-managed lifecycle — see [Migration path](#migration-path). New work
 > should move toward this shape rather than extending the current one.
 
 ## The shape
@@ -194,9 +202,12 @@ internal/
       docs/                       # per-node-type markdown — read by the node drawer
                                   #   AND by an LLM (ADR 0009)
     runtime/                      # graph engine
-      graph.go  run.go  dryrun.go
+      graph.go  run.go            #   index a flow, execute a batch -> CommitBatch
+      nodes.go                    #   what each node type does at run time
+      filter.go  function.go      #   the two processing node types
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
       js/                         # goja implementation
+      testdata/parity/            # fixtures BOTH engines run, until the cutover
     sources/                      # connector registry
       registry.go  source.go
       github/  webhook/  …
@@ -243,7 +254,7 @@ declared in one file, with per-type config carrying its own `Validate`.
 
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
-| **Node type** | `app/flow` | config struct + `Inputs`/`Outputs`/`Validate`, one registry line, `flow/docs/<type>.md`, plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor |
+| **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
 | **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, and the editable-catalog branch |
 | **Source connector** | `app/sources` | a `Descriptor` and a `Source` implementation — nothing else |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
@@ -373,6 +384,18 @@ fan-out, offset advancement, commit atomicity — out of reach of any headless
 surface. Consolidating in Go is what makes `dry-run` available identically to
 the editor preview, a CLI, and an MCP tool.
 
+`Runner.Run` returns the `CommitBatch` a batch of messages is worth and
+**does not commit it**. Reading the log and applying the batch belong to the
+caller, which is what makes a dry-run and a live tick one code path rather
+than two implementations of the same semantics.
+
+Two registries describe a node type between them: `flow`'s says how it is
+configured, `runtime`'s says what it does when a message arrives. Neither the
+router nor the executor branches on a type string.
+
+Correctness across the port is established by fixtures both engines execute —
+see [Migration path](#migration-path) — not by review. ADR 0011.
+
 ### Script nodes
 
 `function` nodes execute user-authored JavaScript through **goja** (pure Go;
@@ -395,13 +418,23 @@ Contract:
   diagnostics identically. Syntax checking is a core concern, exposed to the
   editor.
 - **Cooperative timeouts.** `context.AfterFunc` plus `vm.Interrupt` replaces
-  the browser's `worker.terminate()`. A tight non-allocating loop cannot be
-  hard-killed, so the VM pool is bounded to stop one pathological node
-  starving the process. This is a known, accepted limitation.
+  the browser's `worker.terminate()`. Evaluation runs on a goroutine the
+  runtime is willing to abandon, so a script that outlives its interrupt does
+  not stop its flow; the abandoned goroutine holds a slot in a process-wide
+  `ScriptPool` until it returns, so the damage is a fixed budget rather than a
+  hang. A node that times out is respawned with fresh state. This is a known,
+  accepted limitation.
 
-JSON fidelity is the reason for JS over Lua: `json.Unmarshal` into `any`,
-`vm.ToValue`, and `Export()` round-trip `null`, empty arrays, empty objects,
-and key order without bridge helpers or sentinels.
+JSON fidelity is the reason for JS over Lua, and it is why values cross the
+boundary through the VM's own `JSON.parse`/`JSON.stringify` rather than
+`vm.ToValue`: a Go slice handed to goja answers `false` to `Array.isArray`,
+whereas parsed JSON is a real JavaScript value and round-trips `null`, empty
+arrays, empty objects, and key order without bridge helpers or sentinels.
+
+The message envelope is a fixed set of fields. A property attached to `msg`
+itself is not carried downstream — that envelope is also what an HTTP or MCP
+surface serialises — so per-message data belongs in the opaque `msg.Payload`.
+ADR 0010.
 
 ## Rules for every PR
 
@@ -433,7 +466,12 @@ The target is reached in this order; each step is independently shippable.
    orchestration currently stranded in `package main` (`InvokeAction`, the
    action usage checker's raw SQL, poll-interval validation). **Done.**
 3. **Go flow engine + goja**, with parity tests against the TypeScript engine
-   before cutover. The largest step.
+   before cutover. The largest step. **Done.** `internal/app/runtime` exists
+   and is not yet driving anything; `internal/app/runtime/testdata/parity/`
+   holds fixtures that *both* engines execute and compare against the same
+   expected commit, so while both exist they are held to the same answer. A
+   fixture only one of them satisfies means the port is not finished. ADRs
+   0010 and 0011.
 4. **Delete the frontend engine** — `engine/`, `driver.ts`, the runtime
    pump — and collapse the six frontend-only RPCs into internal calls.
 5. **Source registry** — now a pure Go change, with no silent-failure edits

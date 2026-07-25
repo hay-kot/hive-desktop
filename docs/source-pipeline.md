@@ -193,6 +193,13 @@ applies to manual triage, not to an item’s source identity or event history.
 
 ## Engine and membership replay
 
+> The engine described here is moving into Go. `internal/app/runtime` already
+> implements it (ADRs 0010 and 0011) and is not yet driving anything; the
+> browser still executes deployed flows. Shared fixtures in
+> `internal/app/runtime/testdata/parity/` are executed by both engines against
+> the same expected `CommitBatch`, so the behaviour below is one description of
+> two implementations until the cutover.
+
 The frontend engine runs processor nodes in a worker and walks the flow as a
 DAG. Normal processing reads after the flow’s durable offset. A committed
 batch atomically writes feed membership claims, enqueues action commands,
@@ -243,6 +250,11 @@ behavior. Frontend Vitest tests cover the graph engine, node
 registries, views, keybindings, and triage state. Docker Playwright tests
 exercise the desktop UI against isolated fixtures.
 
+The two graph engines are held to one answer by the fixtures in
+`internal/app/runtime/testdata/parity/`, which both `runtime`'s Go test and
+`pipeline/engine/__tests__/parity.spec.ts` execute. A change to routing, sink
+tagging or node-run accounting belongs in a fixture.
+
 Run the project checks with:
 
 ```bash
@@ -281,5 +293,6 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 | Wails pipeline API | `internal/adapter/wailsui/pipelineservice.go` |
 | Subsystem wiring and lifecycle | `internal/app/app.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |
-| Frontend graph engine | `desktop/frontend/src/pipeline/engine/` |
+| Go graph engine | `internal/app/runtime/` |
+| Frontend graph engine (until the cutover) | `desktop/frontend/src/pipeline/engine/` |
 | Keybinding catalog | `desktop/frontend/src/keybindings/catalog.ts` |

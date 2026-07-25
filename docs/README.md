@@ -17,6 +17,8 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0007](decisions/0007-local-webhook-listener.md) | Local webhook listener for generic pipeline ingress |
 | [0008](decisions/0008-canonical-item-contract.md) | Canonical inbox item contract |
 | [0009](decisions/0009-go-owned-llm-prompts.md) | LLM prompts owned by Go, node docs live with the schema |
+| [0010](decisions/0010-goja-script-runtime.md) | goja for function nodes, behind a ScriptRuntime port |
+| [0011](decisions/0011-flow-engine-in-go.md) | The flow engine moves to Go |
 
 ## References
 
