@@ -137,13 +137,13 @@ func (s *UpdaterService) SetEnabled(enabled bool) error {
 
 // CheckNow runs a manual silent check, updates the cache, and emits
 // update:available / update:none. On dev builds it reports Available:false.
-func (s *UpdaterService) CheckNow() (UpdateInfo, error) {
-	return s.check(context.Background())
+func (s *UpdaterService) CheckNow(ctx context.Context) (UpdateInfo, error) {
+	return s.check(ctx)
 }
 
 // InstallUpdate downloads + verifies the pending release, then relaunches into
 // it. Requires a prior successful check that found an update.
-func (s *UpdaterService) InstallUpdate() error {
+func (s *UpdaterService) InstallUpdate(ctx context.Context) error {
 	s.mu.Lock()
 	engine := s.engine
 	available := s.available
@@ -160,7 +160,6 @@ func (s *UpdaterService) InstallUpdate() error {
 	log := s.logger.With().Str("current_version", s.currentVersion).Str("latest_version", latestVersion).Logger()
 	log.Info().Msg("update install started")
 
-	ctx := context.Background()
 	if err := engine.DownloadAndInstall(ctx); err != nil {
 		log.Error().Err(err).Str("stage", "download_install").Msg("update install failed")
 		return err
@@ -234,6 +233,12 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 
 // startLoopLocked launches the poll goroutine. Caller must hold s.mu and must
 // have stopped any prior loop.
+//
+// The ticker is rooted at Background rather than a request or an app-lifetime
+// context: it outlives every call that can start it, and Stop — which main's
+// shutdown calls — is what ends it deterministically. Capturing an
+// app-lifetime context here would mean storing one on the service for no
+// added guarantee.
 func (s *UpdaterService) startLoopLocked() {
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel

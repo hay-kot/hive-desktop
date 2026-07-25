@@ -26,8 +26,8 @@ type WebhookInfo struct {
 
 // Info returns the listener's state and the base URL webhook-source paths are
 // served under (endpoint URL = BaseURL + node path).
-func (s *WebhookService) Info() WebhookInfo {
-	running, port := s.webhooks.Endpoint(context.Background())
+func (s *WebhookService) Info(ctx context.Context) WebhookInfo {
+	running, port := s.webhooks.Endpoint(ctx)
 	return WebhookInfo{Running: running, Port: port, BaseURL: app.WebhookBaseURL(port)}
 }
 
@@ -56,8 +56,8 @@ type WebhookSettings struct {
 	RestartRequired bool `json:"restartRequired"`
 }
 
-func (s *WebhookService) Settings() (WebhookSettings, error) {
-	state, err := s.webhooks.State(context.Background())
+func (s *WebhookService) Settings(ctx context.Context) (WebhookSettings, error) {
+	state, err := s.webhooks.State(ctx)
 	if err != nil {
 		return WebhookSettings{}, err
 	}
@@ -80,14 +80,14 @@ func (s *WebhookService) Settings() (WebhookSettings, error) {
 }
 
 // SetSettings persists the enable toggle and port.
-func (s *WebhookService) SetSettings(next WebhookSettings) error {
-	return s.webhooks.SetState(context.Background(), next.Enabled, next.Port)
+func (s *WebhookService) SetSettings(ctx context.Context, next WebhookSettings) error {
+	return s.webhooks.SetState(ctx, next.Enabled, next.Port)
 }
 
 // GeneratePort returns a fresh random port without persisting it: the
 // settings pane offers it as a candidate, and saving is what commits it.
-func (s *WebhookService) GeneratePort() (int, error) {
-	return s.webhooks.GeneratePort(context.Background())
+func (s *WebhookService) GeneratePort(ctx context.Context) (int, error) {
+	return s.webhooks.GeneratePort(ctx)
 }
 
 // WebhookCaptureView is one webhook-source node's most recent delivery.
@@ -101,8 +101,8 @@ type WebhookCaptureView struct {
 
 // Capture returns the last request body POSTed to a webhook-source node, with
 // the non-blocking feed-shape verdict the editor surfaces.
-func (s *WebhookService) Capture(flowID, nodeID string) (WebhookCaptureView, error) {
-	capture, err := s.webhooks.Capture(context.Background(), flowID, nodeID)
+func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (WebhookCaptureView, error) {
+	capture, err := s.webhooks.Capture(ctx, flowID, nodeID)
 	if err != nil {
 		return WebhookCaptureView{}, err
 	}

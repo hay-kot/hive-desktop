@@ -28,8 +28,8 @@ func NewFlowsService(flows *app.FlowsService) *FlowsService {
 }
 
 // ListFlows returns one summary per flow file, valid and invalid alike.
-func (s *FlowsService) ListFlows() ([]FlowSummary, error) {
-	statuses := s.flows.Statuses(context.Background())
+func (s *FlowsService) ListFlows(ctx context.Context) ([]FlowSummary, error) {
+	statuses := s.flows.Statuses(ctx)
 	out := make([]FlowSummary, 0, len(statuses))
 	for _, st := range statuses {
 		summary := FlowSummary{ID: st.ID, Valid: st.Valid, Warnings: st.Warnings}
@@ -44,44 +44,44 @@ func (s *FlowsService) ListFlows() ([]FlowSummary, error) {
 	return out, nil
 }
 
-func (s *FlowsService) CreateFlow(name string) (FlowSummary, error) {
-	return summarize(s.flows.Create(context.Background(), name))
+func (s *FlowsService) CreateFlow(ctx context.Context, name string) (FlowSummary, error) {
+	return summarize(s.flows.Create(ctx, name))
 }
 
-func (s *FlowsService) RenameFlow(id, name string) (FlowSummary, error) {
-	return summarize(s.flows.Rename(context.Background(), id, name))
+func (s *FlowsService) RenameFlow(ctx context.Context, id, name string) (FlowSummary, error) {
+	return summarize(s.flows.Rename(ctx, id, name))
 }
 
-func (s *FlowsService) SetFlowEnabled(id string, enabled bool) (FlowSummary, error) {
-	return summarize(s.flows.SetEnabled(context.Background(), id, enabled))
+func (s *FlowsService) SetFlowEnabled(ctx context.Context, id string, enabled bool) (FlowSummary, error) {
+	return summarize(s.flows.SetEnabled(ctx, id, enabled))
 }
 
-func (s *FlowsService) DeleteFlow(id string) error {
-	return s.flows.Delete(context.Background(), id)
+func (s *FlowsService) DeleteFlow(ctx context.Context, id string) error {
+	return s.flows.Delete(ctx, id)
 }
 
-func (s *FlowsService) GetFlow(id string) (flow.Flow, error) {
-	return s.flows.Get(context.Background(), id)
+func (s *FlowsService) GetFlow(ctx context.Context, id string) (flow.Flow, error) {
+	return s.flows.Get(ctx, id)
 }
 
-func (s *FlowsService) SaveFlow(f flow.Flow) error {
-	return s.flows.Save(context.Background(), f)
+func (s *FlowsService) SaveFlow(ctx context.Context, f flow.Flow) error {
+	return s.flows.Save(ctx, f)
 }
 
-func (s *FlowsService) GetLayout(id string) flow.Layout {
-	return s.flows.Layout(context.Background(), id)
+func (s *FlowsService) GetLayout(ctx context.Context, id string) flow.Layout {
+	return s.flows.Layout(ctx, id)
 }
 
-func (s *FlowsService) SaveLayout(id string, layout flow.Layout) error {
-	return s.flows.SaveLayout(context.Background(), id, layout)
+func (s *FlowsService) SaveLayout(ctx context.Context, id string, layout flow.Layout) error {
+	return s.flows.SaveLayout(ctx, id, layout)
 }
 
-func (s *FlowsService) GetSidebar(id string) flow.SidebarLayout {
-	return s.flows.Sidebar(context.Background(), id)
+func (s *FlowsService) GetSidebar(ctx context.Context, id string) flow.SidebarLayout {
+	return s.flows.Sidebar(ctx, id)
 }
 
-func (s *FlowsService) SaveSidebar(id string, layout flow.SidebarLayout) error {
-	return s.flows.SaveSidebar(context.Background(), id, layout)
+func (s *FlowsService) SaveSidebar(ctx context.Context, id string, layout flow.SidebarLayout) error {
+	return s.flows.SaveSidebar(ctx, id, layout)
 }
 
 // summarize projects a freshly written flow onto the listing row the editor

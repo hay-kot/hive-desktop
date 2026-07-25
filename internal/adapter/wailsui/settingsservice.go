@@ -53,32 +53,32 @@ type KeybindingSettings struct {
 	Overrides map[string][]string `json:"overrides"`
 }
 
-func (s *SettingsService) KeybindingSettings() (KeybindingSettings, error) {
-	overrides, err := s.settings.Keybindings(context.Background())
+func (s *SettingsService) KeybindingSettings(ctx context.Context) (KeybindingSettings, error) {
+	overrides, err := s.settings.Keybindings(ctx)
 	if err != nil {
 		return KeybindingSettings{}, err
 	}
 	return KeybindingSettings{Overrides: overrides}, nil
 }
 
-func (s *SettingsService) SetKeybindingSettings(in KeybindingSettings) error {
-	return s.settings.SetKeybindings(context.Background(), in.Overrides)
+func (s *SettingsService) SetKeybindingSettings(ctx context.Context, in KeybindingSettings) error {
+	return s.settings.SetKeybindings(ctx, in.Overrides)
 }
 
-func (s *SettingsService) AppearanceSettings() (AppearanceSettings, error) {
-	theme, err := s.settings.Theme(context.Background())
+func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSettings, error) {
+	theme, err := s.settings.Theme(ctx)
 	if err != nil {
 		return AppearanceSettings{}, err
 	}
 	return AppearanceSettings{Theme: theme}, nil
 }
 
-func (s *SettingsService) SetAppearanceSettings(in AppearanceSettings) error {
-	return s.settings.SetTheme(context.Background(), in.Theme)
+func (s *SettingsService) SetAppearanceSettings(ctx context.Context, in AppearanceSettings) error {
+	return s.settings.SetTheme(ctx, in.Theme)
 }
 
-func (s *SettingsService) NotificationSettings() (NotificationSettings, error) {
-	current, err := s.settings.Notifications(context.Background())
+func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {
+	current, err := s.settings.Notifications(ctx)
 	if err != nil {
 		return NotificationSettings{}, err
 	}
@@ -89,16 +89,16 @@ func (s *SettingsService) NotificationSettings() (NotificationSettings, error) {
 	}, nil
 }
 
-func (s *SettingsService) SetNotificationSettings(in NotificationSettings) error {
-	return s.settings.SetNotifications(context.Background(), app.NotificationSettings{
+func (s *SettingsService) SetNotificationSettings(ctx context.Context, in NotificationSettings) error {
+	return s.settings.SetNotifications(ctx, app.NotificationSettings{
 		Enabled:  in.NotificationsEnabled,
 		Delivery: in.Delivery,
 		Sound:    in.NotificationSound,
 	})
 }
 
-func (s *SettingsService) GithubSettings() (GithubSettings, error) {
-	current, err := s.settings.Github(context.Background())
+func (s *SettingsService) GithubSettings(ctx context.Context) (GithubSettings, error) {
+	current, err := s.settings.Github(ctx)
 	if err != nil {
 		return GithubSettings{}, err
 	}
@@ -111,14 +111,14 @@ func (s *SettingsService) GithubSettings() (GithubSettings, error) {
 // SetGithubSettings converts the wire's seconds to a duration and hands it to
 // the core, which owns the floor and the live apply. A negative or absurd
 // value is caught here because it cannot be represented as a duration at all.
-func (s *SettingsService) SetGithubSettings(in GithubSettings) error {
+func (s *SettingsService) SetGithubSettings(ctx context.Context, in GithubSettings) error {
 	if in.PollIntervalSeconds < 0 {
 		return app.Errorf(app.KindInvalid, "poll interval must not be negative")
 	}
 	if uint64(in.PollIntervalSeconds) > uint64(time.Duration(1<<63-1)/time.Second) {
 		return app.Errorf(app.KindInvalid, "poll interval is too large")
 	}
-	return s.settings.SetGithub(context.Background(), app.GithubSettings{
+	return s.settings.SetGithub(ctx, app.GithubSettings{
 		PollInterval: time.Duration(in.PollIntervalSeconds) * time.Second,
 	})
 }

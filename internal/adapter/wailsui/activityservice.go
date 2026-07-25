@@ -20,15 +20,15 @@ func NewActivityService(a *app.ActivityService) *ActivityService {
 
 // List returns up to limit activity events with id < before, newest first.
 // The frontend passes 0 for the first page.
-func (s *ActivityService) List(before int64, limit int) ([]activity.Event, error) {
-	return s.activity.List(context.Background(), before, limit)
+func (s *ActivityService) List(ctx context.Context, before int64, limit int) ([]activity.Event, error) {
+	return s.activity.List(ctx, before, limit)
 }
 
 // Record appends a frontend-originated event and returns the stored row.
-func (s *ActivityService) Record(input activity.RecordInput) (activity.Event, error) {
+func (s *ActivityService) Record(ctx context.Context, input activity.RecordInput) (activity.Event, error) {
 	event, err := input.Event()
 	if err != nil {
 		return activity.Event{}, err
 	}
-	return s.activity.Append(context.Background(), event)
+	return s.activity.Append(ctx, event)
 }

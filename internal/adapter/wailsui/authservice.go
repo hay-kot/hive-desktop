@@ -17,14 +17,14 @@ func NewAuthService(a *app.AuthService) *AuthService { return &AuthService{auth:
 
 func (s *AuthService) Status() auth.Status { return s.auth.Status(context.Background()) }
 
-func (s *AuthService) StartDeviceFlow() (auth.DeviceFlowInfo, error) {
-	return s.auth.StartDeviceFlow(context.Background())
+func (s *AuthService) StartDeviceFlow(ctx context.Context) (auth.DeviceFlowInfo, error) {
+	return s.auth.StartDeviceFlow(ctx)
 }
 
 func (s *AuthService) CancelDeviceFlow() { s.auth.CancelDeviceFlow(context.Background()) }
 
-func (s *AuthService) SetToken(token string) (auth.Status, error) {
-	return s.auth.SetToken(context.Background(), token)
+func (s *AuthService) SetToken(ctx context.Context, token string) (auth.Status, error) {
+	return s.auth.SetToken(ctx, token)
 }
 
 func (s *AuthService) SignOut() error { return s.auth.SignOut(context.Background()) }

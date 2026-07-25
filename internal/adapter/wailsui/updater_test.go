@@ -84,7 +84,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
 	s.Attach(engine)
 
-	info, err := s.CheckNow()
+	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
 	require.True(t, info.Available)
 	require.Equal(t, "1.3.0", info.LatestVersion)
@@ -99,7 +99,7 @@ func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
 	s.Attach(engine)
 
-	info, err := s.CheckNow()
+	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
 	require.False(t, info.Available)
 	require.Equal(t, "1.2.3", info.CurrentVersion)
@@ -111,7 +111,7 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
 	s.Attach(engine)
 
-	_, err := s.CheckNow()
+	_, err := s.CheckNow(t.Context())
 	require.Error(t, err)
 }
 
@@ -121,7 +121,7 @@ func TestUpdaterServiceDevGate(t *testing.T) {
 	// No engine attached => dev build.
 	s := NewUpdaterService("dev", true, time.Millisecond, zerolog.Nop())
 
-	info, err := s.CheckNow()
+	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
 	require.False(t, info.Available)
 
@@ -167,7 +167,7 @@ func TestUpdaterServiceInstallUpdate(t *testing.T) {
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
 	s.Attach(engine)
 
-	require.NoError(t, s.InstallUpdate())
+	require.NoError(t, s.InstallUpdate(t.Context()))
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
 	require.Equal(t, 1, engine.installs)
@@ -182,7 +182,7 @@ func TestUpdaterServiceInstallUpdateLogsDownloadFailure(t *testing.T) {
 	s.Attach(engine)
 	s.available = &UpdateInfo{LatestVersion: "1.3.0"}
 
-	err := s.InstallUpdate()
+	err := s.InstallUpdate(t.Context())
 	require.ErrorContains(t, err, "checksum mismatch")
 	require.Contains(t, logs.String(), `"stage":"download_install"`)
 	require.Contains(t, logs.String(), `"current_version":"1.2.3"`)
@@ -197,7 +197,7 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
 	s.Attach(engine)
 
-	err := s.InstallUpdate()
+	err := s.InstallUpdate(t.Context())
 	require.ErrorContains(t, err, "helper failed")
 	require.Contains(t, logs.String(), `"stage":"restart"`)
 	require.Contains(t, logs.String(), `"message":"update install failed"`)
@@ -206,5 +206,5 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 func TestUpdaterServiceInstallUpdateDevNoop(t *testing.T) {
 	silenceEmits(t)
 	s := NewUpdaterService("dev", false, time.Hour, zerolog.Nop())
-	require.NoError(t, s.InstallUpdate())
+	require.NoError(t, s.InstallUpdate(t.Context()))
 }

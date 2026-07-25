@@ -56,8 +56,8 @@ type SystemInfo struct {
 
 // Info returns the effective locations for this running process plus whether
 // the data/config directories are backed by a stored override.
-func (s *SystemService) Info() SystemInfo {
-	info := s.system.Info(context.Background())
+func (s *SystemService) Info(ctx context.Context) SystemInfo {
+	info := s.system.Info(ctx)
 	return SystemInfo{
 		DataDir:   pathInfo(info.DataDir),
 		ConfigDir: pathInfo(info.ConfigDir),
@@ -91,13 +91,13 @@ func (s *SystemService) Build() BuildInfo { return s.build }
 // OpenPath opens one of the known system locations in the OS default
 // application. The core validates the path against the current location set,
 // so this RPC cannot be used to open arbitrary files.
-func (s *SystemService) OpenPath(path string) error {
-	return s.system.OpenPath(context.Background(), path)
+func (s *SystemService) OpenPath(ctx context.Context, path string) error {
+	return s.system.OpenPath(ctx, path)
 }
 
 // RevealPath reveals one of the known system locations in the OS file manager.
-func (s *SystemService) RevealPath(path string) error {
-	return s.system.RevealPath(context.Background(), path)
+func (s *SystemService) RevealPath(ctx context.Context, path string) error {
+	return s.system.RevealPath(ctx, path)
 }
 
 // ChooseDirectory opens a native directory picker and returns the chosen path,
@@ -119,23 +119,23 @@ func (s *SystemService) ChooseDirectory(title string) (string, error) {
 
 // SetDataDir persists a data-directory override. It takes effect on the next
 // launch; nothing is moved.
-func (s *SystemService) SetDataDir(path string) error {
-	return s.system.SetDataDir(context.Background(), path)
+func (s *SystemService) SetDataDir(ctx context.Context, path string) error {
+	return s.system.SetDataDir(ctx, path)
 }
 
 // SetConfigDir persists a config-directory override (flows, actions).
-func (s *SystemService) SetConfigDir(path string) error {
-	return s.system.SetConfigDir(context.Background(), path)
+func (s *SystemService) SetConfigDir(ctx context.Context, path string) error {
+	return s.system.SetConfigDir(ctx, path)
 }
 
 // ClearDataDir removes the data-directory override.
-func (s *SystemService) ClearDataDir() error {
-	return s.system.ClearDataDir(context.Background())
+func (s *SystemService) ClearDataDir(ctx context.Context) error {
+	return s.system.ClearDataDir(ctx)
 }
 
 // ClearConfigDir removes the config-directory override.
-func (s *SystemService) ClearConfigDir() error {
-	return s.system.ClearConfigDir(context.Background())
+func (s *SystemService) ClearConfigDir(ctx context.Context) error {
+	return s.system.ClearConfigDir(ctx)
 }
 
 // Quit terminates the app so the user can relaunch and apply a directory

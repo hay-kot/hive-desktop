@@ -16,28 +16,28 @@ func NewActionsService(catalog *app.ActionsService) *ActionsService {
 	return &ActionsService{actions: catalog}
 }
 
-func (s *ActionsService) ListActions() actions.EditableCatalog {
-	return s.actions.List(context.Background())
+func (s *ActionsService) ListActions(ctx context.Context) actions.EditableCatalog {
+	return s.actions.List(ctx)
 }
 
-func (s *ActionsService) GetAction(id string) (actions.EditableAction, error) {
-	return s.actions.Get(context.Background(), id)
+func (s *ActionsService) GetAction(ctx context.Context, id string) (actions.EditableAction, error) {
+	return s.actions.Get(ctx, id)
 }
 
-func (s *ActionsService) CreateAction(a actions.EditableAction) (actions.EditableAction, error) {
-	return s.actions.Create(context.Background(), a)
+func (s *ActionsService) CreateAction(ctx context.Context, a actions.EditableAction) (actions.EditableAction, error) {
+	return s.actions.Create(ctx, a)
 }
 
-func (s *ActionsService) UpdateAction(id string, a actions.EditableAction) (actions.EditableAction, error) {
-	return s.actions.Update(context.Background(), id, a)
+func (s *ActionsService) UpdateAction(ctx context.Context, id string, a actions.EditableAction) (actions.EditableAction, error) {
+	return s.actions.Update(ctx, id, a)
 }
 
 // ReorderActions persists the catalog order the settings list was dragged
 // into. ids must be the full catalog.
-func (s *ActionsService) ReorderActions(ids []string) error {
-	return s.actions.Reorder(context.Background(), ids)
+func (s *ActionsService) ReorderActions(ctx context.Context, ids []string) error {
+	return s.actions.Reorder(ctx, ids)
 }
 
-func (s *ActionsService) DeleteAction(id string) error {
-	return s.actions.Delete(context.Background(), id)
+func (s *ActionsService) DeleteAction(ctx context.Context, id string) error {
+	return s.actions.Delete(ctx, id)
 }

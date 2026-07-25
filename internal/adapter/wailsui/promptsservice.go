@@ -21,10 +21,10 @@ func NewPromptsService(p *app.PromptsService) *PromptsService {
 	return &PromptsService{prompts: p}
 }
 
-func (s *PromptsService) Catalog(input prompts.Input) ([]prompts.Prompt, error) {
-	return s.prompts.Catalog(context.Background(), input)
+func (s *PromptsService) Catalog(ctx context.Context, input prompts.Input) ([]prompts.Prompt, error) {
+	return s.prompts.Catalog(ctx, input)
 }
 
-func (s *PromptsService) Render(id string, input prompts.Input) (prompts.Prompt, error) {
-	return s.prompts.Render(context.Background(), id, input)
+func (s *PromptsService) Render(ctx context.Context, id string, input prompts.Input) (prompts.Prompt, error) {
+	return s.prompts.Render(ctx, id, input)
 }

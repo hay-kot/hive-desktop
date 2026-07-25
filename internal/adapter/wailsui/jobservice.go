@@ -16,12 +16,12 @@ type JobService struct {
 func NewJobService(j *app.JobService) *JobService { return &JobService{jobs: j} }
 
 // List returns up to limit jobs with id < before, newest first.
-func (s *JobService) List(before int64, limit int) ([]jobs.Job, error) {
-	return s.jobs.List(context.Background(), before, limit)
+func (s *JobService) List(ctx context.Context, before int64, limit int) ([]jobs.Job, error) {
+	return s.jobs.List(ctx, before, limit)
 }
 
 // ListActive returns non-terminal jobs plus terminal jobs completed within
 // the lingering window.
-func (s *JobService) ListActive() ([]jobs.Job, error) {
-	return s.jobs.ListActive(context.Background())
+func (s *JobService) ListActive(ctx context.Context) ([]jobs.Job, error) {
+	return s.jobs.ListActive(ctx)
 }
