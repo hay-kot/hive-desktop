@@ -120,7 +120,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 		provider := feed.NewLiveProvider(github.NewClient(), nil, zerolog.Nop())
-		db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+		db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}

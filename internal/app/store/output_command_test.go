@@ -168,7 +168,7 @@ func TestOutputCommandPersistenceBoundsStreams(t *testing.T) {
 
 func TestExecutionResultAndLogsPersistAcrossReopenBeforeDone(t *testing.T) {
 	dir := t.TempDir()
-	database, err := Open(dir, DefaultOpenOptions())
+	database, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, database, "action-a", "k1")
 	rows, err := database.ListRunnableOutputCommands(t.Context(), 1)
@@ -177,7 +177,7 @@ func TestExecutionResultAndLogsPersistAcrossReopenBeforeDone(t *testing.T) {
 	require.NoError(t, database.MarkOutputCommandDone(t.Context(), rows[0].ID, `{"message":{"topic":"agent.inbox"}}`, "stdout", "stderr"))
 	require.NoError(t, database.Close())
 
-	database, err = Open(dir, DefaultOpenOptions())
+	database, err = Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
 	row, err := database.OutputCommand(t.Context(), rows[0].ID)

@@ -69,7 +69,7 @@ func TestError_MessageAndJSON(t *testing.T) {
 func TestRerunOutputCommand_NoPriorRunUnwraps(t *testing.T) {
 	t.Parallel()
 
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

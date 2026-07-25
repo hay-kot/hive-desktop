@@ -74,7 +74,7 @@ func TestJobs_LifecyclePagingAndActiveWindow(t *testing.T) {
 func TestJobs_ActiveJobPersistsAcrossReopen(t *testing.T) {
 	dir := t.TempDir()
 	ctx := t.Context()
-	database, err := Open(dir, DefaultOpenOptions())
+	database, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	_, err = database.Conn().ExecContext(ctx, `
 		INSERT INTO output_command (action_id, key, payload, status, created_at)
@@ -88,7 +88,7 @@ func TestJobs_ActiveJobPersistsAcrossReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, database.Close())
 
-	reopened, err := Open(dir, DefaultOpenOptions())
+	reopened, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	active, err := reopened.ListActiveJobs(ctx, 1_000)

@@ -30,7 +30,7 @@ func TestActionStoreEditableCRUDPreservesUnrelatedCommentsAndRejectsBadLatestDis
 	_, err = s.Create(launchEditable("new-action"))
 	require.Error(t, err)
 	changed := launchEditable("renamed")
-	_, err = s.Update("new-action", changed)
+	_, err = s.Update(t.Context(), "new-action", changed)
 	require.Error(t, err)
 
 	before, err := os.ReadFile(path)
@@ -41,7 +41,7 @@ func TestActionStoreEditableCRUDPreservesUnrelatedCommentsAndRejectsBadLatestDis
 	assert.Equal(t, []byte("version: nope"), mustRead(t, path))
 	// Repairing disk permits mutation again; no stale candidate is retained.
 	require.NoError(t, os.WriteFile(path, before, 0o600))
-	_, err = s.Update("new-action", launchEditable("new-action"))
+	_, err = s.Update(t.Context(), "new-action", launchEditable("new-action"))
 	require.NoError(t, err)
 }
 

@@ -12,7 +12,7 @@ import (
 
 func openJobsTestDB(t *testing.T) *store.DB {
 	t.Helper()
-	database, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	database, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = database.Close() })
 	return database

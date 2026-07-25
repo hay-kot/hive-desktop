@@ -95,7 +95,7 @@ func (r *activityRecorder) Record(_ context.Context, event activity.Event) {
 
 func openTestPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -252,7 +252,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	firstDB, err := store.Open(dir, store.DefaultOpenOptions())
+	firstDB, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 
 	first := NewProducer(firstDB, listerOf(map[string]Source{
@@ -261,7 +261,7 @@ func TestProducer_DeduplicationSurvivesRestart(t *testing.T) {
 	first.Tick(t.Context())
 	require.NoError(t, firstDB.Close())
 
-	secondDB, err := store.Open(dir, store.DefaultOpenOptions())
+	secondDB, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = secondDB.Close() })
 	second := NewProducer(secondDB, listerOf(map[string]Source{

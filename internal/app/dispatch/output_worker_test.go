@@ -19,7 +19,7 @@ import (
 // closed with the test.
 func openTestPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db
@@ -400,7 +400,7 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 
 func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.T) {
 	dir := t.TempDir()
-	db, err := store.Open(dir, store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
 	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`))
@@ -408,7 +408,7 @@ func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.
 	require.True(t, created)
 	require.NoError(t, db.Close())
 
-	reopened, err := store.Open(dir, store.DefaultOpenOptions())
+	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	exec := &fakeExecutor{}

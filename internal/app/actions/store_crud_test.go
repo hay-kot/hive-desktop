@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -20,7 +21,7 @@ type usageStub struct {
 	err   error
 }
 
-func (u usageStub) Usage(string) (ActionUsage, error) { return u.usage, u.err }
+func (u usageStub) Usage(context.Context, string) (ActionUsage, error) { return u.usage, u.err }
 
 func editableShell(id string) EditableAction {
 	return EditableAction{ID: id, Label: id, Type: "shell", ShowInDetail: true, Shell: &EditableShellConfig{
@@ -65,7 +66,7 @@ actions:
 
 	updated := launchEditable("edit-me")
 	updated.Label = "New"
-	_, err = s.Update("edit-me", updated)
+	_, err = s.Update(t.Context(), "edit-me", updated)
 	require.NoError(t, err)
 	got = string(mustRead(t, path))
 	assert.Less(t, strings.Index(got, "id: first"), strings.Index(got, "id: edit-me"))
@@ -73,7 +74,7 @@ actions:
 	assert.NotContains(t, got, "updated-entry-comment-is-intentionally-replaced")
 	assert.Contains(t, got, "# trailing action comment")
 
-	require.NoError(t, s.Delete("edit-me"))
+	require.NoError(t, s.Delete(t.Context(), "edit-me"))
 	got = string(mustRead(t, path))
 	assert.NotContains(t, got, "id: edit-me")
 	assert.Contains(t, got, "# first action comment")
@@ -81,7 +82,7 @@ actions:
 
 	_, err = s.Create(editableShell("new-action"))
 	require.ErrorContains(t, err, "already exists")
-	_, err = s.Update("edit-me", editableShell("renamed"))
+	_, err = s.Update(t.Context(), "edit-me", editableShell("renamed"))
 	require.ErrorContains(t, err, "immutable")
 
 	// An invalid unrelated entry makes the complete candidate invalid, and no
@@ -122,7 +123,7 @@ func TestActionStoreMutatesMissingAndEmptyFilesAndDeleteLeavesEmptyCatalog(t *te
 			s := NewActionStore(path)
 			_, err := s.Create(editableShell("only"))
 			require.NoError(t, err)
-			require.NoError(t, s.Delete("only"))
+			require.NoError(t, s.Delete(t.Context(), "only"))
 			assert.Empty(t, s.List())
 			got := string(mustRead(t, path))
 			assert.Contains(t, got, "actions: []")
@@ -145,9 +146,9 @@ func TestActionStoreCRUDNormalizesEmptyAcceptedCatalogShapes(t *testing.T) {
 			require.NoError(t, err)
 			updated := editableShell("run")
 			updated.Label = "Run now"
-			_, err = s.Update("run", updated)
+			_, err = s.Update(t.Context(), "run", updated)
 			require.NoError(t, err)
-			require.NoError(t, s.Delete("run"))
+			require.NoError(t, s.Delete(t.Context(), "run"))
 
 			got := string(mustRead(t, path))
 			assert.Contains(t, got, "# catalog header")
@@ -215,7 +216,7 @@ func TestActionStoreUpdateBlocksHeadlessActionBecomingInteractiveForLoadedFlows(
 	require.NoError(t, err)
 
 	s.SetUsageChecker(usageStub{usage: ActionUsage{FlowIDs: []string{"flow-a", "flow-b"}, ActiveCommands: 2}})
-	_, err = s.Update("used", launchEditable("used"))
+	_, err = s.Update(t.Context(), "used", launchEditable("used"))
 	require.ErrorContains(t, err, "flow-a, flow-b")
 	require.ErrorContains(t, err, "cannot become interactive-only")
 	got, ok := s.Get("used")
@@ -225,12 +226,12 @@ func TestActionStoreUpdateBlocksHeadlessActionBecomingInteractiveForLoadedFlows(
 	// A change that keeps the action headless remains safe even when flows
 	// reference it.
 	headless.Label = "Updated"
-	_, err = s.Update("used", headless)
+	_, err = s.Update(t.Context(), "used", headless)
 	require.NoError(t, err)
 
 	// Active command counts are deletion-specific and do not block Update.
 	s.SetUsageChecker(usageStub{usage: ActionUsage{ActiveCommands: 2}})
-	_, err = s.Update("used", launchEditable("used"))
+	_, err = s.Update(t.Context(), "used", launchEditable("used"))
 	require.NoError(t, err)
 }
 
@@ -239,7 +240,7 @@ func TestActionStoreDeleteReportsUsageBlockers(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions:\n  - id: used\n    label: Used\n    type: shell\n    command_template: true\n"), 0o600))
 	s := NewActionStore(path)
 	s.SetUsageChecker(usageStub{usage: ActionUsage{FlowIDs: []string{"flow-a", "flow-b"}, ActiveCommands: 2}})
-	err := s.Delete("used")
+	err := s.Delete(t.Context(), "used")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "flow-a, flow-b")
 	assert.Contains(t, err.Error(), "2 nonterminal output command")
@@ -269,7 +270,7 @@ type flowUsageChecker struct {
 	entered chan struct{}
 }
 
-func (c flowUsageChecker) Usage(string) (ActionUsage, error) {
+func (c flowUsageChecker) Usage(context.Context, string) (ActionUsage, error) {
 	close(c.entered)
 	return ActionUsage{FlowIDs: func() []string {
 		out := make([]string, 0)
@@ -302,7 +303,7 @@ func TestActionStoreDeleteDoesNotInvertActionAndFlowLocks(t *testing.T) {
 	usageEntered := make(chan struct{})
 	actions.SetUsageChecker(flowUsageChecker{flows: flows, entered: usageEntered})
 	deleted := make(chan error, 1)
-	go func() { deleted <- actions.Delete("used") }()
+	go func() { deleted <- actions.Delete(t.Context(), "used") }()
 	select {
 	case <-usageEntered:
 	case <-time.After(time.Second):
@@ -384,7 +385,7 @@ func TestActionStoreReloadsInstalledFileAfterDirectorySyncFailure(t *testing.T) 
 	})
 	updated := editableShell("run")
 	updated.Label = "New"
-	_, err := s.Update("run", updated)
+	_, err := s.Update(t.Context(), "run", updated)
 	require.ErrorContains(t, err, "sync actions directory")
 	assert.Equal(t, "New", s.ListEditable().Actions[0].Label, "state follows the installed file after rename")
 	loaded, err := LoadActions(path)

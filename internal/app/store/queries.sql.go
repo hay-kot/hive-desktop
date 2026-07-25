@@ -196,6 +196,21 @@ func (q *Queries) CountInboxItemsByFeed(ctx context.Context, profileID string) (
 	return items, nil
 }
 
+const countNonterminalCommandsForAction = `-- name: CountNonterminalCommandsForAction :one
+SELECT COUNT(*) FROM output_command
+WHERE action_id = ? AND status IN ('pending', 'running')
+`
+
+// Pending work can still run and running work may already have been
+// dispatched, so either blocks deleting the action. Done and failed history
+// is terminal and must never keep an action from deletion.
+func (q *Queries) CountNonterminalCommandsForAction(ctx context.Context, actionID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countNonterminalCommandsForAction, actionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteConsumerOffsetByConsumer = `-- name: DeleteConsumerOffsetByConsumer :exec
 DELETE FROM consumer_offset WHERE consumer = ?
 `

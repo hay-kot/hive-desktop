@@ -11,7 +11,6 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func serviceAction(id string) actions.EditableAction {
@@ -105,10 +104,7 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
 		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
 	}, Wires: []flow.Wire{{From: "source", To: "action"}}}))
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	actionStore.SetUsageChecker(NewActionUsageChecker(flows, db))
+	actionStore.SetUsageChecker(flowOnlyUsage{flows: flows})
 
 	wakes := 0
 	service := NewActionsService(actionStore, func() { wakes++ })
@@ -125,41 +121,20 @@ func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
 	assert.Equal(t, 1, wakes)
 }
 
-func TestActionUsageCheckerBlocksLoadedFlowsAndNonterminalQueueOnly(t *testing.T) {
-	actionStore, _ := newServiceStore(t)
-	_, err := actionStore.Create(serviceAction("used"))
-	require.NoError(t, err)
-	flows := flow.NewFlowStore(t.TempDir(), actions.NewRefs(actionStore))
-	f := flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
-		{ID: "source", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
-		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
-	}, Wires: []flow.Wire{{From: "source", To: "action"}}}
-	require.NoError(t, flows.Save(f))
+// flowOnlyUsage is the half of the usage check this adapter test cares about.
+// The full checker, including the nonterminal command count, is core logic
+// and is tested in internal/app.
+type flowOnlyUsage struct{ flows *flow.FlowStore }
 
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	for _, status := range []string{"pending", "running", "done", "failed"} {
-		_, err := db.Conn().ExecContext(context.Background(), `INSERT INTO output_command (action_id, key, payload, status, created_at) VALUES (?, ?, ?, ?, 1)`, "used", status, []byte("{}"), status)
-		require.NoError(t, err)
+func (u flowOnlyUsage) Usage(_ context.Context, id string) (actions.ActionUsage, error) {
+	usage := actions.ActionUsage{}
+	for _, f := range u.flows.List() {
+		for _, n := range f.Nodes {
+			if cfg, ok := n.Config.(*flow.ActionConfig); ok && cfg.Action == id {
+				usage.FlowIDs = append(usage.FlowIDs, f.ID)
+				break
+			}
+		}
 	}
-
-	checker := NewActionUsageChecker(flows, db)
-	usage, err := checker.Usage("used")
-	require.NoError(t, err)
-	assert.Equal(t, []string{"flow-a"}, usage.FlowIDs)
-	assert.EqualValues(t, 2, usage.ActiveCommands)
-
-	actionStore.SetUsageChecker(checker)
-	err = actionStore.Delete("used")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "flow-a")
-	assert.Contains(t, err.Error(), "2 nonterminal output command")
-
-	// Terminal history alone is explicitly allowed once the deployed flow is
-	// removed and all queue work has completed.
-	require.NoError(t, flows.Delete("flow-a"))
-	_, err = db.Conn().ExecContext(context.Background(), `UPDATE output_command SET status = 'done' WHERE status IN ('pending', 'running')`)
-	require.NoError(t, err)
-	require.NoError(t, actionStore.Delete("used"))
+	return usage, nil
 }

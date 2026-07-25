@@ -11,7 +11,7 @@ import (
 
 func extTestDB(t *testing.T) *DB {
 	t.Helper()
-	db, err := Open(t.TempDir(), DefaultOpenOptions())
+	db, err := Open(t.Context(), t.TempDir(), DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db

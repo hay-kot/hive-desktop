@@ -12,7 +12,7 @@ import (
 
 func openTestDB(t *testing.T) *DB {
 	t.Helper()
-	database, err := Open(t.TempDir(), DefaultOpenOptions())
+	database, err := Open(t.Context(), t.TempDir(), DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = database.Close() })
 	return database
@@ -44,7 +44,7 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	dir := t.TempDir()
 	ctx := t.Context()
-	first, err := Open(dir, DefaultOpenOptions())
+	first, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, first, "review", "item-1")
 	command, created, err := first.ConfirmOutputCommand(ctx, "review", "item-1", []byte(`{}`))
@@ -58,7 +58,7 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, first.Close())
 
-	reopened, err := Open(dir, DefaultOpenOptions())
+	reopened, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = reopened.Close() })
 	row, err := reopened.OutputCommand(ctx, 1)
@@ -82,7 +82,7 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 func TestOpen_Idempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	first, err := Open(dir, DefaultOpenOptions())
+	first, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 
 	ctx := t.Context()
@@ -90,7 +90,7 @@ func TestOpen_Idempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, first.Close())
 
-	second, err := Open(dir, DefaultOpenOptions())
+	second, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err, "second Open on the same dir should succeed")
 	t.Cleanup(func() { _ = second.Close() })
 
@@ -102,7 +102,7 @@ func TestOpen_Idempotent(t *testing.T) {
 func TestOpen_CreatesMissingParentDir(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "does", "not", "exist")
 
-	database, err := Open(dir, DefaultOpenOptions())
+	database, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err, "Open should create the target directory when it does not exist")
 	t.Cleanup(func() { _ = database.Close() })
 

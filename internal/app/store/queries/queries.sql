@@ -461,3 +461,10 @@ SELECT * FROM webhook_capture WHERE topic = ?;
 SELECT * FROM inbox_item
 WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND archived_at IS NULL
 ORDER BY last_event_at ASC, id ASC;
+
+-- name: CountNonterminalCommandsForAction :one
+-- Pending work can still run and running work may already have been
+-- dispatched, so either blocks deleting the action. Done and failed history
+-- is terminal and must never keep an action from deletion.
+SELECT COUNT(*) FROM output_command
+WHERE action_id = ? AND status IN ('pending', 'running');

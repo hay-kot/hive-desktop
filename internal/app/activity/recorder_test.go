@@ -10,7 +10,7 @@ import (
 
 func newTestStore(t *testing.T, opts Options) *Store {
 	t.Helper()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return NewStore(db, opts)

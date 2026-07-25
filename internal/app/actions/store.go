@@ -1,6 +1,7 @@
 package actions
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -21,7 +22,7 @@ type ActionUsage struct {
 // ActionUsageChecker is deliberately narrow so actions does not depend on
 // flow or the pipeline database.
 type ActionUsageChecker interface {
-	Usage(actionID string) (ActionUsage, error)
+	Usage(ctx context.Context, actionID string) (ActionUsage, error)
 }
 
 // ActionStore retains its last-good snapshot if a disk reload or mutation
@@ -145,7 +146,7 @@ func (s *ActionStore) Create(e EditableAction) (EditableAction, error) {
 	return s.mutateLocked("create", a.ID, a)
 }
 
-func (s *ActionStore) Update(id string, e EditableAction) (EditableAction, error) {
+func (s *ActionStore) Update(ctx context.Context, id string, e EditableAction) (EditableAction, error) {
 	if id != e.ID {
 		return EditableAction{}, fmt.Errorf("action id is immutable")
 	}
@@ -165,7 +166,7 @@ func (s *ActionStore) Update(id string, e EditableAction) (EditableAction, error
 	}
 	if current.HeadlessCapable() && !a.HeadlessCapable() {
 		if checker := s.usageChecker(); checker != nil {
-			usage, err := checker.Usage(id)
+			usage, err := checker.Usage(ctx, id)
 			if err != nil {
 				return EditableAction{}, fmt.Errorf("check action %q usage: %w", id, err)
 			}
@@ -180,13 +181,13 @@ func (s *ActionStore) Update(id string, e EditableAction) (EditableAction, error
 	return s.mutateLocked("update", id, a)
 }
 
-func (s *ActionStore) Delete(id string) error {
+func (s *ActionStore) Delete(ctx context.Context, id string) error {
 	// Do not call Usage while holding s.mu: FlowStore Save/Create validate
 	// action references while holding their flow lock, so doing so would invert
 	// the action -> flow lock order. This preflight intentionally has the race
 	// boundary documented on usageChecker.
 	if checker := s.usageChecker(); checker != nil {
-		usage, err := checker.Usage(id)
+		usage, err := checker.Usage(ctx, id)
 		if err != nil {
 			return fmt.Errorf("check action %q usage: %w", id, err)
 		}

@@ -1,8 +1,11 @@
 package wailsui
 
 import (
+	"context"
 	"encoding/json"
 	"strconv"
+
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	wailsnotify "github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -54,6 +57,49 @@ func registerEvents() struct{} {
 	// other in-app notification uses.
 	application.RegisterEvent[NotificationToast]("notification:toast")
 	return struct{}{}
+}
+
+// Subscribe wires every core event to its Wails wake-up signal and returns a
+// cancel that tears every subscription down.
+//
+// Every subscription uses events.Coalesce: the frontend re-reads on receipt,
+// so a dropped intermediate is not observable, and a busy webview must never
+// hold up the producer goroutine that published.
+//
+// This is where the core's typed payload is deliberately degraded. Wails
+// events are wake-up signals by design — an adapter that needs the delta gets
+// it from the bus instead.
+func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (cancel func()) {
+	cancels := []func(){
+		events.Subscribe(ctx, bus, "wailsui.log", events.Coalesce(), func(_ context.Context, e events.LogAppended) {
+			EmitLogAppended(e.NextOffset)
+		}),
+		events.Subscribe(ctx, bus, "wailsui.activity", events.Coalesce(), func(_ context.Context, e events.ActivityAppended) {
+			EmitActivityAppended(e.ID)
+		}),
+		events.Subscribe(ctx, bus, "wailsui.jobs", events.Coalesce(), func(context.Context, events.JobsUpdated) {
+			// The core carries the job id; the frontend re-reads the job list,
+			// so this is the degradation the wake-up contract asks for.
+			EmitJobsUpdated()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
+			EmitActionsUpdated()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.auth", events.Coalesce(), func(context.Context, events.AuthUpdated) {
+			EmitAuthUpdated()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.flows", events.Coalesce(), func(context.Context, events.FlowsUpdated) {
+			EmitFlowsUpdated()
+			if onFlowsUpdated != nil {
+				onFlowsUpdated()
+			}
+		}),
+	}
+	return func() {
+		for _, c := range cancels {
+			c()
+		}
+	}
 }
 
 // EmitLogAppended pushes the pipeline event log's new tail offset to the

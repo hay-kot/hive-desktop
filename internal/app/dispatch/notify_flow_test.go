@@ -16,7 +16,7 @@ import (
 // itself is faked.
 func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	ctx := t.Context()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
@@ -80,7 +80,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 // unresolvable. They must fail visibly rather than hang in the queue.
 func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	ctx := t.Context()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

@@ -34,7 +34,7 @@ func (f fakeFlows) List() []flow.Flow { return f }
 
 func newWebhookTestListener(t *testing.T, flows fakeFlows) (*Listener, *store.DB, *int64) {
 	t.Helper()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 

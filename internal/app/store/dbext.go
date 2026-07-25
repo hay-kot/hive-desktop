@@ -80,7 +80,10 @@ func DatabasePath(dir string) string {
 // pending migrations. Unlike internal/data/db, there is no legacy bootstrap
 // step here: this is a new database with no pre-migration history, so Open
 // calls migrate.Up directly.
-func Open(dir string, opts OpenOptions) (*DB, error) {
+//
+// ctx covers connectivity, migration and interrupted-command recovery, so a
+// cancelled startup does not leave a half-migrated database behind.
+func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 	// Apply defaults for zero values.
 	if opts.MaxOpenConns == 0 {
 		opts.MaxOpenConns = DefaultOpenOptions().MaxOpenConns
@@ -130,8 +133,6 @@ func Open(dir string, opts OpenOptions) (*DB, error) {
 		conn:    conn,
 		queries: New(conn),
 	}
-
-	ctx := context.Background()
 
 	// Verify connectivity - fail fast for SQLite.
 	if err := conn.PingContext(ctx); err != nil {

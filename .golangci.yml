@@ -112,12 +112,18 @@ linters:
         linters: [forbidigo]
       - path: ^desktop/
         linters: [forbidigo]
-      # Two legitimate context roots inside the core: the migration bootstrap
-      # in Open(), and the webhook listener's per-delivery timeout.
-      - path: internal/app/store/dbext\.go
-        linters: [forbidigo]
+      # One legitimate context root inside the core: the webhook listener's
+      # per-delivery timeout.
       - path: internal/app/sources/webhook/
         linters: [forbidigo]
+      # app.App holds the application's lifetime context. containedctx exists
+      # to stop a *request* context being stashed on a service, and it still
+      # does -- every *_service.go in this same package is in scope. App is
+      # the one type whose lifetime that context represents: the config
+      # watchers and the auth change hook are wired at construction and run
+      # on their own goroutines, so there is no caller context to thread.
+      - path: internal/app/app\.go
+        linters: [containedctx]
       # cmd/ holds one-shot build tooling (the release publisher, the vendor
       # sync), not the app. A main() is a legitimate context root, and a git
       # subprocess in a build tool needs no cancellation plumbing.

@@ -25,7 +25,7 @@ import (
 // closed with the test.
 func openTestPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 	return db

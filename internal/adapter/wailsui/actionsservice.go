@@ -3,11 +3,8 @@ package wailsui
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/app/flow"
-	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // ActionsService is the explicit editor API for the global actions catalog.
@@ -46,7 +43,7 @@ func (s *ActionsService) CreateAction(a actions.EditableAction) (actions.Editabl
 }
 
 func (s *ActionsService) UpdateAction(id string, a actions.EditableAction) (actions.EditableAction, error) {
-	out, err := s.store.Update(id, a)
+	out, err := s.store.Update(context.Background(), id, a)
 	if err == nil {
 		s.wake()
 	}
@@ -65,43 +62,9 @@ func (s *ActionsService) ReorderActions(ids []string) error {
 }
 
 func (s *ActionsService) DeleteAction(id string) error {
-	err := s.store.Delete(id)
+	err := s.store.Delete(context.Background(), id)
 	if err == nil {
 		s.wake()
 	}
 	return err
-}
-
-// ActionUsageChecker joins the loaded flows and nonterminal output commands.
-type ActionUsageChecker struct {
-	flows *flow.FlowStore
-	db    *store.DB
-}
-
-// NewActionUsageChecker builds the checker the actions catalog consults
-// before allowing a delete.
-func NewActionUsageChecker(flows *flow.FlowStore, db *store.DB) ActionUsageChecker {
-	return ActionUsageChecker{flows: flows, db: db}
-}
-
-func (c ActionUsageChecker) Usage(id string) (actions.ActionUsage, error) {
-	usage := actions.ActionUsage{}
-	for _, f := range c.flows.List() {
-		for _, n := range f.Nodes {
-			if cfg, ok := n.Config.(*flow.ActionConfig); ok && cfg.Action == id {
-				usage.FlowIDs = append(usage.FlowIDs, f.ID)
-				break
-			}
-		}
-	}
-	// Pending work can run and running work may have been dispatched. Done and
-	// failed history is terminal and must never keep an action from deletion.
-	err := c.db.Conn().QueryRowContext(context.Background(), `
-		SELECT COUNT(*) FROM output_command
-		WHERE action_id = ? AND status IN ('pending', 'running')`, id).Scan(&usage.ActiveCommands)
-	if err != nil {
-		return usage, fmt.Errorf("counting nonterminal output commands: %w", err)
-	}
-	sort.Strings(usage.FlowIDs)
-	return usage, nil
 }

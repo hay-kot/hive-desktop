@@ -127,7 +127,7 @@ func newActionSmokeDatabases(t *testing.T) (*store.DB, *coredb.DB) {
 	t.Helper()
 	root := t.TempDir()
 	t.Setenv("HIVE_DATA_DIR", root)
-	pipeline, err := store.Open(settings.StateDir(), store.DefaultOpenOptions())
+	pipeline, err := store.Open(t.Context(), settings.StateDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	core, err := coredb.Open(root, coredb.DefaultOpenOptions())
 	require.NoError(t, err)

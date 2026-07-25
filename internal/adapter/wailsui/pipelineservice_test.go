@@ -105,7 +105,7 @@ actions:
 
 func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	expected := dispatch.SessionLaunchOptions{Repositories: []dispatch.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
@@ -117,7 +117,7 @@ func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
 
 func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -174,7 +174,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 // (no panic) from both ActionViews and InvokeAction.
 func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -239,7 +239,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 
 func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -270,7 +270,7 @@ func (attemptedFailureExecutor) Execute(context.Context, actions.Action, dispatc
 func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	actionStore := configuredActionStore(t)
 	dir := t.TempDir()
-	db, err := store.Open(dir, store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
@@ -279,7 +279,7 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
-	reopened, err := store.Open(dir, store.DefaultOpenOptions())
+	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
 	afterRestart, err := NewPipelineService(reopened, actionStore, nil, nil).ActionRun(view.CommandID)
@@ -289,7 +289,7 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 
 func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing.T) {
 	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 

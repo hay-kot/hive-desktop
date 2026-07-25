@@ -126,7 +126,7 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 
 	// The pipeline database now equals a freshly seeded instance — including
 	// restarted AUTOINCREMENT ids and event offsets.
-	fresh, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	fresh, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, fresh.Close()) })
 	require.NoError(t, seedMockInboxItems(fresh))
@@ -192,7 +192,7 @@ func setStateResetEnv(t *testing.T, mode string) string {
 
 func openStateResetPipelineDB(t *testing.T) *store.DB {
 	t.Helper()
-	db, err := store.Open(settings.StateDir(), store.DefaultOpenOptions())
+	db, err := store.Open(t.Context(), settings.StateDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db
