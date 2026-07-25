@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 
-	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
 // PromptsService exposes the paste-ready LLM prompts to the frontend: the
@@ -20,11 +20,11 @@ type PromptsService struct {
 	// webhookListener is nil when the listener is disabled or was never
 	// started, in which case the configured port still describes the endpoint
 	// a live run would serve.
-	webhookListener *ingest.WebhookListener
+	webhookListener *webhook.Listener
 }
 
 // NewPromptsService wires the Wails prompts binding.
-func NewPromptsService(listener *ingest.WebhookListener, webhookPort int) *PromptsService {
+func NewPromptsService(listener *webhook.Listener, webhookPort int) *PromptsService {
 	return &PromptsService{webhookPort: webhookPort, webhookListener: listener}
 }
 

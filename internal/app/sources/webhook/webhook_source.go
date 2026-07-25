@@ -1,4 +1,4 @@
-package ingest
+package webhook
 
 import (
 	"context"
@@ -53,6 +53,14 @@ func decodeWebhookState(payload []byte) string {
 	return strings.ToLower(strings.TrimSpace(state))
 }
 
+// titleCase renders a canonical state string as an event summary.
+func titleCase(value string) string {
+	if value == "" {
+		return "State changed"
+	}
+	return strings.ToUpper(value[:1]) + value[1:]
+}
+
 // webhookClassifier is the source-side classifier for webhook observations.
 // It reads the canonical top-level `state` and maps it to lifecycle exactly
 // like githubClassifier: a first delivery is "received" (terminal on arrival
@@ -95,7 +103,16 @@ func (webhookClassifier) Classify(previous *store.Observation, current store.Obs
 	return out
 }
 
-// WebhookListener is the desktop's local webhook ingress: a localhost-only
+// FlowLister is the subset of *flow.FlowStore this package needs: the
+// current set of loaded flows. It is called once per tick rather than fixed
+// at construction, so a flow added, edited or removed takes effect without a
+// restart. Declared per consuming package: a package's dependency on the
+// flow store is exactly the method it calls.
+type FlowLister interface {
+	List() []flow.Flow
+}
+
+// Listener is the desktop's local webhook ingress: a localhost-only
 // HTTP server whose /hooks/<path> routes are resolved per request from the
 // current flow set, so adding, editing, or removing webhook-source nodes
 // takes effect without a restart (the same late-binding posture as the
@@ -103,7 +120,7 @@ func (webhookClassifier) Classify(previous *store.Observation, current store.Obs
 // a delivery calls IngestObservation directly — the production source
 // boundary — then appends the topic's authoritative snapshot so membership
 // replay keeps webhook-fed feeds intact across deploys and restarts.
-type WebhookListener struct {
+type Listener struct {
 	db         *store.DB
 	flows      FlowLister
 	onAppended func(nextOffset int64)
@@ -116,22 +133,22 @@ type WebhookListener struct {
 	startErr error
 }
 
-// NewWebhookListener builds a listener bound to 127.0.0.1:port at Start.
+// NewListener builds a listener bound to 127.0.0.1:port at Start.
 // onAppended fires after a delivery appends event-log rows, with the offset
 // of the last row (main.go wires the Wails "log:appended" wake-up).
-func NewWebhookListener(db *store.DB, flows FlowLister, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *WebhookListener {
-	return &WebhookListener{db: db, flows: flows, port: port, onAppended: onAppended, logger: logger}
+func NewListener(db *store.DB, flows FlowLister, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
+	return &Listener{db: db, flows: flows, port: port, onAppended: onAppended, logger: logger}
 }
 
 // SetRecorder attaches an activity recorder so ingest failures surface in the
 // Activity view. Set once at wiring time, before Start.
-func (l *WebhookListener) SetRecorder(r activity.Recorder) { l.recorder = r }
+func (l *Listener) SetRecorder(r activity.Recorder) { l.recorder = r }
 
 // Start binds 127.0.0.1 and serves in a goroutine. A bind failure (port in
 // use) is returned to the caller, which logs and continues — a busy webhook
 // port must never take the desktop app down with it — and is retained for
 // StartError so settings can surface it instead of leaving it in the log.
-func (l *WebhookListener) Start() error {
+func (l *Listener) Start() error {
 	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(l.port)))
 	if err != nil {
 		l.startErr = fmt.Errorf("webhook listener: %w", err)
@@ -149,7 +166,7 @@ func (l *WebhookListener) Start() error {
 }
 
 // Stop gracefully shuts the server down, letting in-flight ingests finish.
-func (l *WebhookListener) Stop() {
+func (l *Listener) Stop() {
 	if l.server == nil {
 		return
 	}
@@ -161,14 +178,14 @@ func (l *WebhookListener) Stop() {
 }
 
 // Running reports whether Start succeeded and the listener is bound.
-func (l *WebhookListener) Running() bool { return l.listener != nil }
+func (l *Listener) Running() bool { return l.listener != nil }
 
 // StartError returns why Start failed to bind, or nil if it never failed.
-func (l *WebhookListener) StartError() error { return l.startErr }
+func (l *Listener) StartError() error { return l.startErr }
 
 // Port returns the bound TCP port once Running, else the configured port.
 // They differ only when the listener was constructed with port 0 (tests).
-func (l *WebhookListener) Port() int {
+func (l *Listener) Port() int {
 	if l.listener != nil {
 		if addr, ok := l.listener.Addr().(*net.TCPAddr); ok {
 			return addr.Port
@@ -180,7 +197,7 @@ func (l *WebhookListener) Port() int {
 // Handler returns the listener's route handler. Exposed (rather than only
 // being installed by Start) so tests can drive deliveries through
 // httptest without binding a real port.
-func (l *WebhookListener) Handler() http.Handler {
+func (l *Listener) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(WebhookPathPrefix, l.handleHook)
 	return mux
@@ -199,7 +216,7 @@ func (t webhookTarget) topic() string { return "source:" + t.flowID + "/" + t.no
 // resolveTargets returns every enabled webhook-source node declaring path,
 // across all enabled flows. Several nodes may share a path — each receives
 // the delivery, so one sender can fan into multiple flows.
-func (l *WebhookListener) resolveTargets(path string) []webhookTarget {
+func (l *Listener) resolveTargets(path string) []webhookTarget {
 	var out []webhookTarget
 	for _, f := range l.flows.List() {
 		if !f.Enabled {
@@ -224,7 +241,7 @@ func (l *WebhookListener) resolveTargets(path string) []webhookTarget {
 	return out
 }
 
-func (l *WebhookListener) handleHook(w http.ResponseWriter, r *http.Request) {
+func (l *Listener) handleHook(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
@@ -302,7 +319,7 @@ func (l *WebhookListener) handleHook(w http.ResponseWriter, r *http.Request) {
 // startup/deploy membership replay resolves this source's feed claims. It
 // returns the offset of the last event-log row it appended (0 when the
 // payload was unchanged).
-func (l *WebhookListener) ingest(ctx context.Context, t webhookTarget, key, title, url string, body []byte, now int64) (int64, error) {
+func (l *Listener) ingest(ctx context.Context, t webhookTarget, key, title, url string, body []byte, now int64) (int64, error) {
 	topic := t.topic()
 
 	result, err := l.db.IngestObservation(ctx, webhookClassifier{}, store.IngestObservationParams{
@@ -352,7 +369,7 @@ func (l *WebhookListener) ingest(ctx context.Context, t webhookTarget, key, titl
 	return offset, nil
 }
 
-func (l *WebhookListener) record(ctx context.Context, event activity.Event) {
+func (l *Listener) record(ctx context.Context, event activity.Event) {
 	if l.recorder == nil {
 		return
 	}

@@ -1,4 +1,4 @@
-package ingest
+package github
 
 import (
 	"context"
@@ -16,9 +16,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
+
+// openTestPipelineDB opens a throwaway store on a temp dir, migrated and
+// closed with the test.
+func openTestPipelineDB(t *testing.T) *store.DB {
+	t.Helper()
+	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
 
 // fakeFlows is an in-memory FlowLister for the source-lister tests.
 type fakeFlows []flow.Flow
@@ -90,8 +102,8 @@ func TestGithubSource_Produce_EmitsWireItems(t *testing.T) {
 
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open is:pr author:@me"}, topic: "source:triage/in-prs"}
 
-	var emitted []Msg
-	err := src.Produce(context.Background(), func(msg Msg) error {
+	var emitted []ingest.Msg
+	err := src.Produce(context.Background(), func(msg ingest.Msg) error {
 		emitted = append(emitted, msg)
 		return nil
 	})
@@ -120,7 +132,7 @@ func TestGithubSource_Produce_ReusesCoalescedFetch(t *testing.T) {
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open is:pr author:@me"}, topic: "source:triage/in-prs"}
 
 	for range 3 {
-		err := src.Produce(context.Background(), func(Msg) error { return nil })
+		err := src.Produce(context.Background(), func(ingest.Msg) error { return nil })
 		require.NoError(t, err)
 	}
 
@@ -136,7 +148,7 @@ func TestGithubSource_Produce_PropagatesFetchError(t *testing.T) {
 	src := &githubSource{live: live, def: feed.SourceDef{ID: "triage/in-prs", Kind: "search", Query: "is:open"}, topic: "source:triage/in-prs"}
 
 	called := false
-	err := src.Produce(context.Background(), func(Msg) error {
+	err := src.Produce(context.Background(), func(ingest.Msg) error {
 		called = true
 		return nil
 	})
@@ -204,7 +216,7 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 			},
 		},
 	}
-	producer := NewProducer(db, NewFlowSourceLister(live, flows), time.Hour, nil, zerolog.Nop())
+	producer := ingest.NewProducer(db, NewFlowSourceLister(live, flows), time.Hour, nil, zerolog.Nop())
 	producer.SetPrefetcher(live)
 
 	producer.Tick(t.Context())
@@ -219,6 +231,54 @@ func TestProducer_PrefetchesSearchSourcesInOneBatch(t *testing.T) {
 	}
 	assert.True(t, topics["source:triage/issues"])
 	assert.True(t, topics["source:reviews/prs"])
+}
+
+// TestProducer_WithGithubSource_IngestsAsGithubNotGeneric is the guard for
+// the ingest/sources split. IngestMetadata and SearchDef cross a package
+// boundary now; if either stopped satisfying its ingest interface the type
+// assertions in Producer.Tick would compile and silently never match, and
+// every GitHub item would be ingested as SourceKind "generic" -- no GitHub
+// classifier, no absence confirmation. Nothing else in the suite exercises
+// that handoff across the boundary.
+func TestProducer_WithGithubSource_IngestsAsGithubNotGeneric(t *testing.T) {
+	t.Parallel()
+
+	api := &singleSearchAPI{}
+	live := newLiveProviderFixture(t, api)
+	db := openTestPipelineDB(t)
+
+	flows := fakeFlows{{
+		ID:      "triage",
+		Enabled: true,
+		Nodes: []flow.Node{
+			{ID: "in-prs", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open is:pr"}},
+		},
+	}}
+
+	producer := ingest.NewProducer(db, NewFlowSourceLister(live, flows), time.Hour, nil, zerolog.Nop())
+	producer.SetSourceAdapter(NewGithubSourceAdapter(live))
+	producer.Tick(t.Context())
+
+	// source_kind alone does not prove it: Produce stamps "github" on every
+	// Msg, so it survives the fallback. profile_id is the one field only
+	// IngestMetadata supplies -- generic ingestion uses the flow-qualified
+	// source id instead of the flow id.
+	var sourceKind, profileID string
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(),
+		`SELECT source_kind, profile_id FROM inbox_item`).Scan(&sourceKind, &profileID))
+	assert.Equal(t, "github", sourceKind)
+	assert.Equal(t, "triage", profileID, "IngestMetadata no longer satisfies ingest.MetadataSource")
+
+	// The GitHub classifier ran rather than the generic fallback. Both call a
+	// first observation "observed", so assert on what only the GitHub one
+	// produces: its fixed summary, and a lifecycle read out of the payload's
+	// state rather than left unknown.
+	var summary, lifecycle string
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(),
+		`SELECT e.summary, i.lifecycle FROM inbox_event e JOIN inbox_item i ON i.id = e.item_id ORDER BY e.id LIMIT 1`).
+		Scan(&summary, &lifecycle))
+	assert.Equal(t, "Added to workspace", summary, "the generic classifier ran instead of the GitHub one")
+	assert.Equal(t, "active", lifecycle, "the GitHub classifier did not read the payload state")
 }
 
 // TestProducer_WithGithubSource_AppendsAcrossTicks is an end-to-end slice of
@@ -240,7 +300,7 @@ func TestProducer_WithGithubSource_AppendsAcrossTicks(t *testing.T) {
 	}}
 
 	var appendedOffsets []int64
-	producer := NewProducer(db, NewFlowSourceLister(live, flows), 0, func(offset int64) {
+	producer := ingest.NewProducer(db, NewFlowSourceLister(live, flows), 0, func(offset int64) {
 		appendedOffsets = append(appendedOffsets, offset)
 	}, zerolog.Nop())
 

@@ -8,6 +8,7 @@ package ingest
 import (
 	"context"
 
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -37,14 +38,31 @@ type Source interface {
 // added to or removed from flows take effect without a restart.
 type SourceLister func(ctx context.Context) (map[string]Source, error)
 
-// sourceMetadata is optional source-side data needed at the ingestion boundary.
-type sourceMetadata struct {
+// SourceMetadata is optional source-side data needed at the ingestion
+// boundary. Exported because connectors now live in their own packages: Go
+// cannot satisfy an unexported interface method from another package, so an
+// unexported MetadataSource would compile and never match, silently
+// downgrading every connector to generic ingestion.
+type SourceMetadata struct {
 	ProfileID   string
 	SourceKind  string
 	SourceScope string
 	Policy      store.ResurfacePolicy
 }
-type metadataSource interface{ ingestMetadata() sourceMetadata }
+
+// MetadataSource is implemented by sources that describe their own ingestion
+// metadata. A source that does not implement it is ingested as SourceKind
+// "generic".
+type MetadataSource interface{ IngestMetadata() SourceMetadata }
+
+// FlowLister is the subset of *flow.FlowStore this package needs: the
+// current set of loaded flows. It is called once per tick rather than fixed
+// at construction, so a flow added, edited or removed takes effect without a
+// restart. Declared per consuming package: a package's dependency on the
+// flow store is exactly the method it calls.
+type FlowLister interface {
+	List() []flow.Flow
+}
 
 // Appender is the subset of *store.DB a Producer needs.
 type Appender interface {

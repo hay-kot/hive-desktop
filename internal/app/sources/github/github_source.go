@@ -1,4 +1,4 @@
-package ingest
+package github
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
@@ -24,22 +25,33 @@ type githubSource struct {
 	policy    flow.ResurfacePolicy
 }
 
-func (s *githubSource) ingestMetadata() sourceMetadata {
-	return sourceMetadata{ProfileID: s.profileID, SourceKind: "github", Policy: store.ResurfacePolicy(s.policy)}
+func (s *githubSource) IngestMetadata() ingest.SourceMetadata {
+	return ingest.SourceMetadata{ProfileID: s.profileID, SourceKind: "github", Policy: store.ResurfacePolicy(s.policy)}
 }
 
 // searchDef exposes this source's definition for the producer's batched
 // prefetch. Notifications retain their independent conditional REST fetch.
-func (s *githubSource) searchDef() (feed.SourceDef, bool) {
+func (s *githubSource) SearchDef() (feed.SourceDef, bool) {
 	return s.def, s.def.Kind == "search"
 }
+
+// Compile-time proof that the connector still satisfies the ingest
+// capabilities across the package boundary. Without these an
+// unexported-method regression is a silent runtime fallback to generic
+// ingestion -- no classifier, no absence confirmation -- rather than a build
+// failure.
+var (
+	_ ingest.Source          = (*githubSource)(nil)
+	_ ingest.MetadataSource  = (*githubSource)(nil)
+	_ ingest.SearchDefSource = (*githubSource)(nil)
+)
 
 // Produce emits one Msg per current item of the source, JSON-encoding
 // feed.Item as the payload. Topic is the flow-qualified
 // "source:<flowId>/<nodeId>" so a frontend graph only ingests its own source
 // nodes' rows; Key is the item's stable ID, used to skip unchanged source
 // values within that topic.
-func (s *githubSource) Produce(ctx context.Context, emit func(Msg) error) error {
+func (s *githubSource) Produce(ctx context.Context, emit func(ingest.Msg) error) error {
 	items, err := s.live.SourceItems(ctx, s.def)
 	if err != nil {
 		return fmt.Errorf("pipeline: fetching source %q: %w", s.def.ID, err)
@@ -50,7 +62,7 @@ func (s *githubSource) Produce(ctx context.Context, emit func(Msg) error) error 
 		if err != nil {
 			return fmt.Errorf("pipeline: encoding item %q from source %q: %w", item.ID, s.def.ID, err)
 		}
-		msg := Msg{
+		msg := ingest.Msg{
 			Key: item.ID, Topic: s.topic, Payload: payload,
 			SourceKind: "github",
 		}
@@ -75,9 +87,9 @@ type FlowLister interface {
 // config still share one GitHub request — LiveProvider keys its cache on
 // kind+query+limit, not id — while producing distinct topics so each flow's
 // graph ingests only its own rows.
-func NewFlowSourceLister(live *feed.LiveProvider, flows FlowLister) SourceLister {
-	return func(context.Context) (map[string]Source, error) {
-		out := map[string]Source{}
+func NewFlowSourceLister(live *feed.LiveProvider, flows FlowLister) ingest.SourceLister {
+	return func(context.Context) (map[string]ingest.Source, error) {
+		out := map[string]ingest.Source{}
 		for _, f := range flows.List() {
 			if !f.Enabled {
 				continue

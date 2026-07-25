@@ -23,7 +23,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
 	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
@@ -114,10 +116,10 @@ func buildPipelineProducer(db *store.DB, fetcher *feed.LiveProvider, flows inges
 	if fetcher == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(db, ingest.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
+	producer := ingest.NewProducer(db, ghsource.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
 	producer.SetRecorder(recorder)
 	producer.SetPrefetcher(fetcher)
-	producer.SetSourceAdapter(ingest.NewGithubSourceAdapter(fetcher))
+	producer.SetSourceAdapter(ghsource.NewGithubSourceAdapter(fetcher))
 	return producer
 }
 
@@ -541,9 +543,9 @@ func main() {
 		logger.Warn().Err(err).Msg("webhook port unavailable")
 	}
 	webhookEnabled := cfg.WebhookEnabledOrDefault()
-	var webhookListener *ingest.WebhookListener
+	var webhookListener *webhook.Listener
 	if webhookEnabled && webhookPort > 0 && (settings.MockMode() == "" || os.Getenv(settings.EnvWebhookPort) != "") {
-		webhookListener = ingest.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
+		webhookListener = webhook.NewListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
 		webhookListener.SetRecorder(activityStore)
 		if err := webhookListener.Start(); err != nil {
 			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")

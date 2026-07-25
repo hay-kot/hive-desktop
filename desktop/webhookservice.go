@@ -6,8 +6,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -16,7 +16,7 @@ import (
 // last captured delivery to the frontend.
 type WebhookService struct {
 	db       *store.DB
-	listener *ingest.WebhookListener
+	listener *webhook.Listener
 	port     int
 }
 
@@ -24,7 +24,7 @@ type WebhookService struct {
 // disabled, or in mock modes without an explicit port claim; port is the
 // configured port either way, so the editor can render the endpoint URL a
 // live run would serve.
-func NewWebhookService(db *store.DB, listener *ingest.WebhookListener, port int) *WebhookService {
+func NewWebhookService(db *store.DB, listener *webhook.Listener, port int) *WebhookService {
 	return &WebhookService{db: db, listener: listener, port: port}
 }
 
@@ -136,7 +136,7 @@ func (s *WebhookService) GeneratePort() (int, error) {
 }
 
 func webhookBaseURL(port int) string {
-	return fmt.Sprintf("http://127.0.0.1:%d%s", port, ingest.WebhookPathPrefix)
+	return fmt.Sprintf("http://127.0.0.1:%d%s", port, webhook.WebhookPathPrefix)
 }
 
 // WebhookCaptureView is one webhook-source node's most recent delivery.
@@ -160,7 +160,7 @@ func (s *WebhookService) Capture(flowID, nodeID string) (WebhookCaptureView, err
 	if err != nil {
 		return WebhookCaptureView{}, fmt.Errorf("reading webhook capture for %s: %w", topic, err)
 	}
-	missing := ingest.MissingFeedItemFields(row.Body)
+	missing := webhook.MissingFeedItemFields(row.Body)
 	return WebhookCaptureView{
 		ReceivedAt:    row.ReceivedAt,
 		Body:          string(row.Body),

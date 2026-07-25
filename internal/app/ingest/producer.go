@@ -64,10 +64,17 @@ func (pr *Producer) SetSourceAdapter(adapter store.SourceAdapter) {
 	pr.adapters[adapter.SourceKind] = adapter
 }
 
-// searchDefSource is implemented by sources backed by a feed.SourceDef that
+// SearchDefSource is implemented by sources backed by a feed.SourceDef that
 // want inclusion in the search prefetch. Non-search sources return ok false.
-type searchDefSource interface {
-	searchDef() (feed.SourceDef, bool)
+//
+// Exported for the same reason as MetadataSource: an unexported method
+// cannot be satisfied from the connector packages, so the assertion below
+// would compile and never match. It also names a GitHub-shaped type in a
+// connector-neutral package, which the connector-capability work replaces --
+// exporting it makes that leak visible at a package boundary instead of
+// hidden inside one.
+type SearchDefSource interface {
+	SearchDef() (feed.SourceDef, bool)
 }
 
 // NewProducer builds a Producer. interval <= 0 is rejected by the caller's
@@ -155,8 +162,8 @@ func (pr *Producer) Tick(ctx context.Context) {
 	if pr.prefetcher != nil {
 		defs := make([]feed.SourceDef, 0, len(sources))
 		for _, src := range sources {
-			if searchSource, ok := src.(searchDefSource); ok {
-				if def, ok := searchSource.searchDef(); ok {
+			if searchSource, ok := src.(SearchDefSource); ok {
+				if def, ok := searchSource.SearchDef(); ok {
 					defs = append(defs, def)
 				}
 			}
@@ -172,9 +179,9 @@ func (pr *Producer) Tick(ctx context.Context) {
 	)
 	for id, src := range sources {
 		topic := "source:" + id
-		meta := sourceMetadata{ProfileID: id, SourceKind: "generic", Policy: store.ResurfacePolicyStateChanges}
-		if described, ok := src.(metadataSource); ok {
-			meta = described.ingestMetadata()
+		meta := SourceMetadata{ProfileID: id, SourceKind: "generic", Policy: store.ResurfacePolicyStateChanges}
+		if described, ok := src.(MetadataSource); ok {
+			meta = described.IngestMetadata()
 		}
 		if meta.Policy == "" {
 			meta.Policy = store.ResurfacePolicyStateChanges

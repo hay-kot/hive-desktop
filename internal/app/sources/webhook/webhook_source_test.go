@@ -1,4 +1,4 @@
-package ingest
+package webhook
 
 import (
 	"context"
@@ -28,14 +28,18 @@ func webhookFlow(flowID, nodeID, path, secret string) flow.Flow {
 	}
 }
 
-func newWebhookTestListener(t *testing.T, flows fakeFlows) (*WebhookListener, *store.DB, *int64) {
+type fakeFlows []flow.Flow
+
+func (f fakeFlows) List() []flow.Flow { return f }
+
+func newWebhookTestListener(t *testing.T, flows fakeFlows) (*Listener, *store.DB, *int64) {
 	t.Helper()
 	db, err := store.Open(t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	var lastOffset int64
-	listener := NewWebhookListener(db, flows, 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(db, flows, 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
 	return listener, db, &lastOffset
 }
 
