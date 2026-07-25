@@ -6,7 +6,7 @@
     "name": "Fan",
     "enabled": true,
     "nodes": [
-      { "id": "src", "type": "webhook-source", "path": "hook" },
+      { "id": "src", "type": "sources.webhook", "path": "hook" },
       { "id": "a", "type": "function", "on_message": "msg.Payload.tag = 'a'; return msg" },
       { "id": "b", "type": "function", "on_message": "msg.Payload.tag = 'b'; return msg" },
       { "id": "na", "type": "notify", "title": "A" },

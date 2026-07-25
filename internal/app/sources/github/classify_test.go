@@ -21,7 +21,7 @@ func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ store.Observa
 
 func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
 	fake := &fakeAbsenceConfirmer{verdict: store.AbsenceVerdict{Terminal: true}}
-	classifier := newGithubClassifier(fake)
+	classifier := newClassifier(fake)
 	verdict, err := classifier.ConfirmAbsence(t.Context(), store.Observation{ExternalID: "o/r#1"})
 	require.NoError(t, err)
 	assert.True(t, fake.called)
@@ -29,7 +29,7 @@ func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
 }
 
 func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
-	classifier := newGithubClassifier(&fakeAbsenceConfirmer{})
+	classifier := newClassifier(&fakeAbsenceConfirmer{})
 	previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
 	closed := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
 	entered := classifier.Classify(&previous, closed)
@@ -41,7 +41,7 @@ func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
 }
 
 func TestGithubClassifierDescribesObservedActivity(t *testing.T) {
-	classifier := newGithubClassifier(&fakeAbsenceConfirmer{})
+	classifier := newClassifier(&fakeAbsenceConfirmer{})
 	tests := []struct {
 		name, previous, current, kind, summary string
 	}{

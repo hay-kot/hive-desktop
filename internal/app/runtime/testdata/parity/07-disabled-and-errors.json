@@ -6,7 +6,7 @@
     "name": "Err",
     "enabled": true,
     "nodes": [
-      { "id": "src", "type": "webhook-source", "path": "hook" },
+      { "id": "src", "type": "sources.webhook", "path": "hook" },
       { "id": "boom", "type": "function", "on_message": "throw new Error('nope')" },
       { "id": "off", "type": "function", "on_message": "return msg", "disabled": true },
       { "id": "out", "type": "notify", "title": "t" }

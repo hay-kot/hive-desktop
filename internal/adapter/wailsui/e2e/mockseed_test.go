@@ -40,7 +40,7 @@ func TestFixtureFlow_LoadsAndMatchesSeedConstants(t *testing.T) {
 		switch f.Nodes[i].Type {
 		case "feed":
 			feedNode = &f.Nodes[i]
-		case "github-source":
+		case "sources.github":
 			sourceNode = &f.Nodes[i]
 		}
 	}

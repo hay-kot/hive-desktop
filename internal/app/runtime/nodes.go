@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -43,14 +44,35 @@ type processor interface {
 
 // behaviors is the runtime registry, keyed by the same type strings
 // flow.registry uses.
-var behaviors = map[string]behavior{
-	"github-source":  {relay: true},
-	"webhook-source": {relay: true},
-	"github-filter":  {processor: newFilterNode},
-	"function":       {processor: newFunctionNode},
-	"feed":           {sinks: feedSinks},
-	"action":         {sinks: actionSinks},
-	"notify":         {sinks: notifySinks},
+//
+// Source types are not listed: a source is a relay by definition — the core
+// ingests for it, so at run time it only forwards what was routed to it — and
+// deriving them from the connector registry is what keeps adding a connector
+// a change to internal/app/sources alone.
+var behaviors = buildBehaviors(map[string]behavior{
+	"github-filter": {processor: newFilterNode},
+	"function":      {processor: newFunctionNode},
+	"feed":          {sinks: feedSinks},
+	"action":        {sinks: actionSinks},
+	"notify":        {sinks: notifySinks},
+})
+
+// buildBehaviors merges the behaviours declared here with the relay behaviour
+// every registered source connector has. A collision panics for the same
+// reason flow.buildRegistry's does: both maps are compile-time constants, so
+// there is nothing to resolve to at run time.
+func buildBehaviors(declared map[string]behavior) map[string]behavior {
+	out := make(map[string]behavior, len(declared))
+	for nodeType, b := range declared {
+		out[nodeType] = b
+	}
+	for _, connectorType := range sources.Types() {
+		if _, clash := out[connectorType]; clash {
+			panic("runtime: source connector " + connectorType + " collides with a declared node type")
+		}
+		out[connectorType] = behavior{relay: true}
+	}
+	return out
 }
 
 // feedSinks claims immutable inbox membership for the arriving item, and —

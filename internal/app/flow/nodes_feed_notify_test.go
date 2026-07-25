@@ -93,7 +93,7 @@ func TestFeedNotify_QuietFeedCarriesNoNotifyKeys(t *testing.T) {
 func TestFeedNotify_ParsesFromFlowYAML(t *testing.T) {
 	f, warnings, err := parseFlow("work", []byte(`version: 1
 nodes:
-  - { id: src, type: github-source, kind: notifications }
+  - { id: src, type: sources.github, kind: notifications }
   - { id: review-requests-filter, type: github-filter, reasons: [review_requested] }
   - id: review-requests
     type: feed

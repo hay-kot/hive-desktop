@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,7 +21,7 @@ func TestSaveFlow_NewFile_LoadSaveLoadRoundTrip(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "in-prs", Type: "github-source", Config: &GithubSourceConfig{Kind: "search", Query: "is:open is:pr"}},
+			{ID: "in-prs", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open is:pr"})},
 			{ID: "drop-bots", Type: "github-filter", Config: &GithubFilterConfig{ExcludeAuthors: []string{"*[bot]"}, Repos: []string{"colonyops/*"}}},
 			{ID: "tag", Type: "function", Name: "Tag reviewed", Config: &FunctionConfig{OnMessage: "return msg;", OutputsN: 2, Timeout: Duration(5e9)}},
 			{ID: "team-feed", Type: "feed", Config: &FeedConfig{}},
@@ -74,7 +76,7 @@ func TestSaveFlow_EditPreservesHeaderAndUnrelatedKeys(t *testing.T) {
 version: 1
 name: Frontend Triage
 nodes:
-  - { id: src, type: github-source, kind: search, query: "is:open" }
+  - { id: src, type: sources.github, kind: search, query: "is:open" }
   - { id: sink, type: feed }
 wires:
   - { from: src, to: sink }
@@ -116,7 +118,7 @@ func TestSaveFlow_EmptyFileTreatedAsNew(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "github-source", Config: &GithubSourceConfig{Kind: "search", Query: "is:open"}},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},
@@ -137,7 +139,7 @@ func TestSaveFlow_DisabledFlowRoundTrips(t *testing.T) {
 		Enabled:   false,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "github-source", Config: &GithubSourceConfig{Kind: "search", Query: "is:open"}},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},

@@ -165,7 +165,7 @@ export interface UpdateInfo {
 }
 
 /**
- * WebhookCaptureView is one webhook-source node's most recent delivery.
+ * WebhookCaptureView is one sources.webhook node's most recent delivery.
  * ReceivedAt of 0 means no delivery has been captured yet.
  */
 export interface WebhookCaptureView {

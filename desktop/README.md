@@ -110,7 +110,7 @@ The GitHub fetch layer lives in `internal/app/sources/github/feed`: mock fixture
 acquired per embedded flow **source** (a search query or the notifications
 inbox) and cached by what is requested — kind + query + limit — so any number
 of source nodes reading the same data share one request. The pipeline producer
-polls every enabled flow's `github-source` nodes, appends changed items to the
+polls every enabled flow's `sources.github` nodes, appends changed items to the
 event log, and commits terminal `feed` nodes into durable `feed_item` rows that
 the sidebar reads.
 
@@ -139,7 +139,7 @@ name: Triage
 enabled: true
 nodes:
   - id: my-work
-    type: github-source
+    type: sources.github
     kind: search
     query: "is:open involves:@me archived:false"
     limit: 50

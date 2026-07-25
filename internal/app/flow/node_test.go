@@ -3,6 +3,8 @@ package flow
 import (
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -17,7 +19,7 @@ func decodeNode(t *testing.T, yamlStr string) (Node, error) {
 
 func TestNode_DecodesReservedFieldsAndConfig(t *testing.T) {
 	n, err := decodeNode(t, `id: src
-type: github-source
+type: sources.github
 name: My Source
 disabled: true
 kind: search
@@ -25,11 +27,17 @@ query: "is:open is:pr"
 `)
 	require.NoError(t, err)
 	assert.Equal(t, "src", n.ID)
-	assert.Equal(t, "github-source", n.Type)
+	assert.Equal(t, "sources.github", n.Type)
 	assert.Equal(t, "My Source", n.Name)
 	assert.True(t, n.Disabled)
 
-	cfg, ok := n.Config.(*GithubSourceConfig)
+	// A source node's config is the connector's own, behind the SourceConfig
+	// wrapper that supplies the port counts the graph validator needs.
+	wrapper, ok := n.Config.(*SourceConfig)
+	require.True(t, ok)
+	assert.Equal(t, "sources.github", wrapper.ConnectorType())
+
+	cfg, ok := wrapper.Connector().(*github.Config)
 	require.True(t, ok)
 	assert.Equal(t, "search", cfg.Kind)
 	assert.Equal(t, "is:open is:pr", cfg.Query)
@@ -45,7 +53,7 @@ type: not-a-real-type
 
 func TestNode_UnknownPerTypeField_IsHardError(t *testing.T) {
 	_, err := decodeNode(t, `id: src
-type: github-source
+type: sources.github
 kind: search
 query: "is:open"
 extra_field: nope

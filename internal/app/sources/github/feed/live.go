@@ -31,7 +31,7 @@ const (
 
 // LiveProvider fetches source items from the GitHub API with per-source
 // caching and singleflight coalescing. It is the seam the desktop pipeline
-// producer uses to turn a github-source node into event_log rows — the only
+// producer uses to turn a sources.github node into event_log rows — the only
 // GitHub-fetch implementation in the desktop.
 type LiveProvider struct {
 	client *github.Client

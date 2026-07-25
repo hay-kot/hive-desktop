@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
 )
 
 // FlowStatus is one flows/*.yaml file's load outcome, keyed by the flow id
@@ -238,7 +240,7 @@ func (s *FlowStore) uniqueIDLocked(base string) string {
 }
 
 // starterFlow is the graph a freshly created profile begins with: a few
-// github-source nodes each wired to its own feed terminal, laid out in two
+// sources.github nodes each wired to its own feed terminal, laid out in two
 // columns (sources left, feeds right), plus a notifying "Review requests" feed
 // behind a filter on the notifications source.
 //
@@ -263,7 +265,7 @@ func starterFlow(id, name string) (Flow, Layout) {
 	for i, seed := range seeds {
 		srcID := seed.feedID + "-src"
 		nodes = append(nodes,
-			Node{ID: srcID, Type: "github-source", Config: &GithubSourceConfig{Kind: seed.kind, Query: seed.query}},
+			Node{ID: srcID, Type: github.Descriptor.Type, Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: seed.kind, Query: seed.query})},
 			Node{ID: seed.feedID, Type: "feed", Name: seed.feedName, Config: &FeedConfig{}},
 		)
 		wires = append(wires, Wire{From: srcID, To: seed.feedID})

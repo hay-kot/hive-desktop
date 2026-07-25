@@ -171,8 +171,8 @@ describe('presentationFor', () => {
 
 describe('sourceKindForNodeType', () => {
   it('maps known source node types to their sourceKind', () => {
-    expect(sourceKindForNodeType('github-source')).toBe('github')
-    expect(sourceKindForNodeType('webhook-source')).toBe('webhook')
+    expect(sourceKindForNodeType('sources.github')).toBe('github')
+    expect(sourceKindForNodeType('sources.webhook')).toBe('webhook')
   })
 
   it('returns null for non-source node types', () => {

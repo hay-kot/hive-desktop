@@ -54,9 +54,9 @@ describe('FeedListItem', () => {
 
   it('renders webhook items with the source node icon and no open affordance without a URL', () => {
     const wrapper = mount(FeedListItem, { props: {
-      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', status: 'failure' } },
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1', status: 'failure' } },
       selected: false,
-      sourceIcons: { 'webhook-source-1': 'bell' },
+      sourceIcons: { 'sources.webhook-1': 'bell' },
     } })
     const badge = wrapper.get('[data-testid="source-badge"]')
     expect(badge.attributes('data-source')).toBe('webhook')
@@ -68,7 +68,7 @@ describe('FeedListItem', () => {
 
   it('falls back to the webhook glyph when the source node has no configured icon', () => {
     const wrapper = mount(FeedListItem, { props: {
-      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: {} },
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: {} },
       selected: false,
     } })
     expect(wrapper.get('[data-testid="source-badge"]').find('svg').exists()).toBe(true)

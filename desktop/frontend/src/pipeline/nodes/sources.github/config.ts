@@ -1,4 +1,4 @@
-// github-source is a source node (0 in / 1 out): it embeds its own GitHub
+// sources.github is a source node (0 in / 1 out): it embeds its own GitHub
 // fetch config — a "search" source runs a query, a "notifications" source
 // drains the authenticated user's inbox. The source itself runs on the
 // backend (ingest.Source / sources/github.githubSource) — the frontend
@@ -7,12 +7,12 @@
 //
 // The engine still needs to know which log topic feeds this node: the backend
 // producer appends a source node's items under topic "source:<flowId>/<nodeId>"
-// (see github_source.go), so an entry github-source node only accepts messages
+// (see github_source.go), so an entry sources.github node only accepts messages
 // on that flow-qualified topic — see engine/runGraph.ts's `acceptsEntry`.
 
 import IconGithub from '~icons/lucide/github'
 
-export const type = 'github-source'
+export const type = 'sources.github'
 export const role = 'source' as const
 // The inbox item sourceKind this node's items carry — the single source of
 // truth lib/itemPresentation.ts's sourceKindForNodeType and (via

@@ -1,0 +1,124 @@
+package app
+
+import (
+	"fmt"
+	"testing"
+
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+)
+
+// testFetcher builds a live provider without touching the network. Only its
+// identity matters here — the factories hold it, they do not call it.
+func testFetcher() *feed.LiveProvider {
+	return feed.NewLiveProvider(github.NewClient(), github.NewKeychainStore(), zerolog.Nop())
+}
+
+// A connector's declaration is in two halves: the descriptor says what it is
+// and what it supports, and the factory is what actually constructs it. They
+// are separate because only the factory needs dependencies — but that is also
+// how they can disagree. A descriptor with no factory is a source node the
+// editor offers and nothing ever polls, which surfaces as "my feed is empty"
+// rather than as a failure.
+func TestFactoriesCoverEveryDescriptor(t *testing.T) {
+	t.Parallel()
+
+	factories := sourceFactories(testFetcher())
+
+	for _, connectorType := range sources.Types() {
+		factory, ok := factories[connectorType]
+		require.Truef(t, ok, "connector %q is registered but has no factory", connectorType)
+		assert.NotNilf(t, factory.New, "connector %q has a factory that constructs nothing", connectorType)
+	}
+
+	for connectorType := range factories {
+		_, ok := sources.Lookup(connectorType)
+		assert.Truef(t, ok, "a factory is wired for %q, which is not a registered connector", connectorType)
+	}
+}
+
+// This is the "declared, not sniffed" rule made mechanical. The producer
+// reads a capability off the instance instead of type-asserting for it, which
+// only helps if what a descriptor promises is what its factory delivers: a
+// declared-but-unwired capability is silently no classification, no absence
+// confirmation, or no batched prefetch.
+func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
+	t.Parallel()
+
+	factories := sourceFactories(testFetcher())
+
+	for _, connectorType := range sources.Types() {
+		descriptor, _ := sources.Lookup(connectorType)
+		factory := factories[connectorType]
+
+		assert.Equalf(t, descriptor.Capabilities.Has(connector.CapBatchPrefetch), factory.Prefetch != nil,
+			"connector %q declares CapBatchPrefetch=%v but wires Prefetch=%v",
+			connectorType, descriptor.Capabilities.Has(connector.CapBatchPrefetch), factory.Prefetch != nil)
+
+		// The per-instance capabilities can only be checked on a constructed
+		// instance, so build one from a config the connector accepts.
+		config := descriptor.NewConfig()
+		require.NoErrorf(t, seedValidConfig(config), "connector %q", connectorType)
+		require.NoErrorf(t, config.Validate(), "connector %q: the seeded config is not valid", connectorType)
+
+		instance, err := factory.New(connector.Node{FlowID: "f", NodeID: "n"}, config)
+		require.NoErrorf(t, err, "connector %q", connectorType)
+
+		assert.Equalf(t, descriptor.Capabilities.Has(connector.CapClassify), instance.Classifier != nil,
+			"connector %q declares CapClassify=%v but sets Classifier=%v",
+			connectorType, descriptor.Capabilities.Has(connector.CapClassify), instance.Classifier != nil)
+		assert.Equalf(t, descriptor.Capabilities.Has(connector.CapConfirmAbsence), instance.Absence != nil,
+			"connector %q declares CapConfirmAbsence=%v but sets Absence=%v",
+			connectorType, descriptor.Capabilities.Has(connector.CapConfirmAbsence), instance.Absence != nil)
+
+		// Pull and push are distinct: exactly the pull-mode connectors carry
+		// something to drain, and a push connector must not be handed to the
+		// producer with a nil Pull for it to dereference.
+		assert.Equalf(t, descriptor.Mode == connector.ModePull, instance.Pull != nil,
+			"connector %q is mode %v but sets Pull=%v", connectorType, descriptor.Mode, instance.Pull != nil)
+
+		assert.Equalf(t, connectorType, instance.Type, "connector %q builds an instance of another type", connectorType)
+		assert.NotEmptyf(t, instance.Metadata.SourceKind, "connector %q builds an instance with no source kind", connectorType)
+		assert.Equalf(t, "f", instance.Metadata.ProfileID, "connector %q does not scope items to the owning flow", connectorType)
+	}
+}
+
+// Mock modes construct no fetcher. The GitHub connector must then be absent
+// from the factory map rather than present with a nil provider, because the
+// resolver skips a connector with no factory and would dereference one that
+// has a broken factory.
+func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
+	t.Parallel()
+
+	factories := sourceFactories(nil)
+
+	_, ok := factories["sources.github"]
+	assert.False(t, ok, "the GitHub connector is wired without a fetcher to construct it over")
+	_, ok = factories["sources.webhook"]
+	assert.True(t, ok, "the webhook connector needs no fetcher and must stay wired in mock modes")
+}
+
+// seedValidConfig fills a connector's config with the minimum its Validate
+// accepts. It switches on the concrete type rather than reflecting over
+// fields so that adding a connector fails here loudly and once: a generic
+// filler would quietly produce something Validate rejects, and the failure
+// would read as a broken factory rather than a missing case.
+func seedValidConfig(config connector.Config) error {
+	switch c := config.(type) {
+	case *ghsource.Config:
+		c.Kind, c.Query = ghsource.KindSearch, "is:open is:pr"
+	case *webhook.Config:
+		c.Path = "ci-alerts"
+	default:
+		return fmt.Errorf("no valid config seed for %T; add one alongside the connector", config)
+	}
+	return nil
+}

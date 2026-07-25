@@ -7,7 +7,7 @@ import (
 )
 
 // WebhookService exposes the local webhook listener's endpoint info, its
-// user-tunable settings, and each webhook-source node's last captured
+// user-tunable settings, and each sources.webhook node's last captured
 // delivery to the frontend.
 type WebhookService struct {
 	webhooks *app.WebhookService
@@ -24,7 +24,7 @@ type WebhookInfo struct {
 	BaseURL string `json:"baseUrl"`
 }
 
-// Info returns the listener's state and the base URL webhook-source paths are
+// Info returns the listener's state and the base URL sources.webhook paths are
 // served under (endpoint URL = BaseURL + node path).
 func (s *WebhookService) Info(ctx context.Context) WebhookInfo {
 	running, port := s.webhooks.Endpoint(ctx)
@@ -90,7 +90,7 @@ func (s *WebhookService) GeneratePort(ctx context.Context) (int, error) {
 	return s.webhooks.GeneratePort(ctx)
 }
 
-// WebhookCaptureView is one webhook-source node's most recent delivery.
+// WebhookCaptureView is one sources.webhook node's most recent delivery.
 // ReceivedAt of 0 means no delivery has been captured yet.
 type WebhookCaptureView struct {
 	ReceivedAt    int64    `json:"receivedAt"`
@@ -99,7 +99,7 @@ type WebhookCaptureView struct {
 	MissingFields []string `json:"missingFields"`
 }
 
-// Capture returns the last request body POSTed to a webhook-source node, with
+// Capture returns the last request body POSTed to a sources.webhook node, with
 // the non-blocking feed-shape verdict the editor surfaces.
 func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (WebhookCaptureView, error) {
 	capture, err := s.webhooks.Capture(ctx, flowID, nodeID)

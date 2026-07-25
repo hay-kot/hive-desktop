@@ -2,9 +2,9 @@ package flow
 
 import _ "embed"
 
-// WorkedExampleYAML is the canonical sample flow: a github-source feeding a
+// WorkedExampleYAML is the canonical sample flow: a sources.github feeding a
 // github-filter, a two-output function node, and both terminal kinds
-// (github-source -> github-filter -> function -> {feed, action}).
+// (sources.github -> github-filter -> function -> {feed, action}).
 //
 // It has exactly one home because it has two jobs that must never disagree.
 // TestLoadFlow_WorkedExample loads these bytes and asserts they parse and

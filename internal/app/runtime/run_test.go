@@ -9,6 +9,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
+	whsource "github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -19,11 +20,11 @@ func testMsg(id, payload string) store.Msg {
 	}
 }
 
-// sourceFlow is a webhook-source wired to one terminal, the smallest shape
+// sourceFlow is a sources.webhook wired to one terminal, the smallest shape
 // that exercises routing.
 func sourceFlow(terminal flow.Node, wires ...flow.Wire) flow.Flow {
 	nodes := []flow.Node{
-		{ID: "src", Type: "webhook-source", Config: &flow.WebhookSourceConfig{Path: "hook"}},
+		{ID: "src", Type: "sources.webhook", Config: flow.NewSourceConfig(whsource.Descriptor.Type, &whsource.Config{Path: "hook"})},
 		terminal,
 	}
 	if len(wires) == 0 {
@@ -98,7 +99,7 @@ func TestEveryMessageIsAccountedFor(t *testing.T) {
 	runner, err := runtime.NewRunner(flow.Flow{
 		ID: "f",
 		Nodes: []flow.Node{
-			{ID: "src", Type: "webhook-source", Config: &flow.WebhookSourceConfig{Path: "hook"}},
+			{ID: "src", Type: "sources.webhook", Config: flow.NewSourceConfig(whsource.Descriptor.Type, &whsource.Config{Path: "hook"})},
 			{ID: "keep", Type: "github-filter", Config: &flow.GithubFilterConfig{Repos: []string{"acme/*"}}},
 			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
 		},
@@ -138,7 +139,7 @@ return msg;
 	runner, err := runtime.NewRunner(flow.Flow{
 		ID: "f",
 		Nodes: []flow.Node{
-			{ID: "src", Type: "webhook-source", Config: &flow.WebhookSourceConfig{Path: "hook"}},
+			{ID: "src", Type: "sources.webhook", Config: flow.NewSourceConfig(whsource.Descriptor.Type, &whsource.Config{Path: "hook"})},
 			{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: src, Timeout: flow.Duration(200 * time.Millisecond)}},
 			{ID: "out", Type: "notify", Config: &flow.NotifyConfig{Title: "t"}},
 		},
@@ -171,7 +172,7 @@ func TestFunctionStateSurvivesAcrossBatches(t *testing.T) {
 	runner, err := runtime.NewRunner(flow.Flow{
 		ID: "f",
 		Nodes: []flow.Node{
-			{ID: "src", Type: "webhook-source", Config: &flow.WebhookSourceConfig{Path: "hook"}},
+			{ID: "src", Type: "sources.webhook", Config: flow.NewSourceConfig(whsource.Descriptor.Type, &whsource.Config{Path: "hook"})},
 			{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: "state.n = (state.n ?? 0) + 1; msg.Payload = {n: state.n}; return msg"}},
 			{ID: "out", Type: "notify", Config: &flow.NotifyConfig{Title: "t"}},
 		},

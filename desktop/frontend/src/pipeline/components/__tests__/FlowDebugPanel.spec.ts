@@ -9,7 +9,7 @@ function flow(): EditorFlow {
     name: 'Flow one',
     enabled: true,
     nodes: [
-      { id: 'src', type: 'github-source', config: { source: 'my-prs' } },
+      { id: 'src', type: 'sources.github', config: { source: 'my-prs' } },
       { id: 'filter', type: 'github-filter', config: {} },
       { id: 'feed', type: 'feed', config: { feed: 'inbox' } },
     ],

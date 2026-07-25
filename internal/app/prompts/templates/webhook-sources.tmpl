@@ -10,15 +10,15 @@ integration below is still correct, but nothing will be received until it is
 re-enabled under Settings → Integrations → Webhooks.
 {{end}}
 A full endpoint is that base URL plus the `path` configured on a
-`webhook-source` node — so a node with path `ci-alerts` receives requests
+`sources.webhook` node — so a node with path `ci-alerts` receives requests
 POSTed to `{{if .Env.WebhookBaseURL}}{{.Env.WebhookBaseURL}}{{else}}<base-url>{{end}}/ci-alerts`.
 
 There are two halves to this, and you may need either or both:
 
 1. **The sender** — code in the external system that POSTs JSON to the endpoint.
-2. **The receiver** — a `webhook-source` node in a Hive flow at {{.Env.FlowsDir}}/<id>.yaml, wired to a `feed` node so deliveries land in the sidebar.
+2. **The receiver** — a `sources.webhook` node in a Hive flow at {{.Env.FlowsDir}}/<id>.yaml, wired to a `feed` node so deliveries land in the sidebar.
 
-## The receiver: the `webhook-source` node
+## The receiver: the `sources.webhook` node
 
 {{.Doc}}
 
@@ -28,7 +28,7 @@ There are two halves to this, and you may need either or both:
 version: 1
 name: CI Alerts
 nodes:
-  - { id: ci, type: webhook-source, path: ci-alerts }
+  - { id: ci, type: sources.webhook, path: ci-alerts }
   - { id: ci-feed, type: feed, icon: zap }
 wires:
   - { from: ci, to: ci-feed }

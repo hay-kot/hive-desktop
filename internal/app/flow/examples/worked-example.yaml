@@ -1,7 +1,7 @@
 version: 1
 name: Frontend Triage
 nodes:
-  - { id: in-prs, type: github-source, kind: search, query: "is:open is:pr archived:false" }
+  - { id: in-prs, type: sources.github, kind: search, query: "is:open is:pr archived:false" }
   - { id: drop-bots, type: github-filter, exclude_authors: ["*[bot]"], repos: ["colonyops/*"] }
   - id: tag
     type: function

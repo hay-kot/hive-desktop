@@ -139,7 +139,7 @@ const flow = {
   name: 'Personal',
   enabled: true,
   nodes: [
-    { id: 'src', type: 'github-source' },
+    { id: 'src', type: 'sources.github' },
     { id: 'desktop', type: 'feed', name: 'Desktop UI' },
   ],
   wires: [{ from: 'src', to: 'desktop' }],

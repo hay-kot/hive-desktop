@@ -4,37 +4,9 @@ import (
 	"fmt"
 	"strings"
 	"unicode/utf8"
-)
 
-// feedIcons is the scoped set of glyphs a feed node (sidebar entry) or
-// webhook-source node (feed-item rows) may carry. It is intentionally small
-// (a curated list rather than every available icon) and must stay in sync
-// with the frontend's feed icon registry
-// (desktop/frontend/src/lib/feedIcons.ts). An empty Icon means "use the
-// default", so the empty string is always allowed.
-var feedIcons = map[string]bool{
-	"git-branch":       true,
-	"git-pull-request": true,
-	"circle-dot":       true,
-	"message-square":   true,
-	"at-sign":          true,
-	"rss":              true,
-	"webhook":          true,
-	"bell":             true,
-	"eye":              true,
-	"star":             true,
-	"bug":              true,
-	"shield":           true,
-	"zap":              true,
-	"sparkles":         true,
-	"flag":             true,
-	"inbox":            true,
-	"users":            true,
-	"tag":              true,
-	"package":          true,
-	"rocket":           true,
-	"clock":            true,
-}
+	"github.com/hay-kot/hive-desktop/internal/app/icons"
+)
 
 // feedDescriptionMaxLen caps a feed's hover description. It is generous enough
 // for a sentence or two of context (useful for LLM-generated feeds) while
@@ -67,7 +39,7 @@ func (c *FeedConfig) Inputs() int  { return 1 }
 func (c *FeedConfig) Outputs() int { return 0 }
 
 func (c *FeedConfig) Validate(Refs) error {
-	if c.Icon != "" && !feedIcons[c.Icon] {
+	if !icons.ValidFeed(c.Icon) {
 		return fmt.Errorf("icon: %q is not a supported feed icon", c.Icon)
 	}
 	if utf8.RuneCountInString(c.Description) > feedDescriptionMaxLen {

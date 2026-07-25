@@ -11,7 +11,7 @@ function flow(overrides: Partial<EditorFlow> = {}): EditorFlow {
     name: 'My flow',
     enabled: true,
     nodes: [
-      { id: 'source', type: 'github-source', config: { source: 'my-prs' } },
+      { id: 'source', type: 'sources.github', config: { source: 'my-prs' } },
       { id: 'filter', type: 'github-filter', config: {} },
       { id: 'feed', type: 'feed', config: { feed: 'inbox' } },
     ],
@@ -99,7 +99,7 @@ describe('FlowsCanvas', () => {
   })
 
   it('prefers a node\'s own name over its type label', () => {
-    const wrapper = mountCanvas({ flow: flow({ nodes: [{ id: 'source', type: 'github-source', name: 'My PRs', config: { source: 'my-prs' } }] }) })
+    const wrapper = mountCanvas({ flow: flow({ nodes: [{ id: 'source', type: 'sources.github', name: 'My PRs', config: { source: 'my-prs' } }] }) })
 
     expect(wrapper.get('[data-testid="flow-node-source"] [data-testid="flow-node-title"]').text()).toBe('My PRs')
 

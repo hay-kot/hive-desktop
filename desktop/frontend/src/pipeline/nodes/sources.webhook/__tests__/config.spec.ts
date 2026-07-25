@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { defaults, freshConfig, randomPath, randomSecret, role, type, validate, type Config } from '../config'
 
-describe('webhook-source config', () => {
+describe('sources.webhook config', () => {
   it('is a backend-run source node', () => {
-    expect(type).toBe('webhook-source')
+    expect(type).toBe('sources.webhook')
     expect(role).toBe('source')
     expect(defaults).toEqual({ path: '' })
   })
 })
 
-describe('webhook-source generators', () => {
+describe('sources.webhook generators', () => {
   it('generates paths that pass validation and differ between calls', () => {
     const paths = new Set(Array.from({ length: 25 }, () => randomPath()))
     expect(paths.size).toBe(25)
@@ -34,7 +34,7 @@ describe('webhook-source generators', () => {
   })
 })
 
-describe('webhook-source validate', () => {
+describe('sources.webhook validate', () => {
   const ok = (config: Config) => expect(validate(config)).toEqual([])
   const bad = (config: Config, fragment: string) =>
     expect(validate(config).join('\n')).toContain(fragment)

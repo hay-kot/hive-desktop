@@ -6,7 +6,7 @@
     "name": "Triage",
     "enabled": true,
     "nodes": [
-      { "id": "gh", "type": "github-source", "kind": "notifications" },
+      { "id": "gh", "type": "sources.github", "kind": "notifications" },
       { "id": "inbox", "type": "feed", "icon": "inbox" }
     ],
     "wires": [{ "from": "gh", "to": "inbox" }]

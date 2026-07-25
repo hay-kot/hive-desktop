@@ -14,32 +14,37 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-func webhookFlow(flowID, nodeID, path, secret string) flow.Flow {
-	return flow.Flow{
-		ID:      flowID,
-		Enabled: true,
-		Nodes: []flow.Node{
-			{ID: nodeID, Type: "webhook-source", Config: &flow.WebhookSourceConfig{Path: path, Secret: secret}},
-		},
-	}
+// webhookInstance builds one live instance the way the resolver does — through
+// the connector's own factory — so these tests exercise the metadata and
+// classifier a delivery actually gets rather than a hand-rolled stand-in.
+func webhookInstance(t *testing.T, flowID, nodeID, path, secret string) connector.Instance {
+	t.Helper()
+	instance, err := NewFactory().New(
+		connector.Node{FlowID: flowID, NodeID: nodeID},
+		&Config{Path: path, Secret: secret},
+	)
+	require.NoError(t, err)
+	return instance
 }
 
-type fakeFlows []flow.Flow
+// fakeInstances is the listener's Instances seam: the push-mode instances the
+// registry would resolve from the current flow set.
+func fakeInstances(instances ...connector.Instance) Instances {
+	return func() []connector.Instance { return instances }
+}
 
-func (f fakeFlows) List() []flow.Flow { return f }
-
-func newWebhookTestListener(t *testing.T, flows fakeFlows) (*Listener, *store.DB, *int64) {
+func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *store.DB, *int64) {
 	t.Helper()
 	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	var lastOffset int64
-	listener := NewListener(db, flows, 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(db, instances, 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
 	return listener, db, &lastOffset
 }
 
@@ -55,7 +60,7 @@ func postHook(t *testing.T, handler http.Handler, path, body string, headers map
 }
 
 func TestWebhookListenerIngestsDelivery(t *testing.T) {
-	listener, db, lastOffset := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci-alerts", "")})
+	listener, db, lastOffset := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci-alerts", "")))
 	handler := listener.Handler()
 
 	body := `{"id":"build-42","title":"Build failed","url":"https://ci.example/42","status":"red"}`
@@ -65,7 +70,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 
 	ctx := context.Background()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "build-42",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "build-42",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "Build failed", item.Title)
@@ -91,7 +96,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 }
 
 func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 	body := `{"id":"x","title":"same"}`
 
@@ -113,7 +118,7 @@ func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 }
 
 func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","n":1}`, nil).Code)
@@ -121,7 +126,7 @@ func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
 
 	ctx := context.Background()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, int64(2), item.Revision)
@@ -135,7 +140,7 @@ func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
 }
 
 func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"event":"a"}`, nil).Code)
@@ -143,7 +148,7 @@ func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
 
 	ctx := context.Background()
 	rows, err := db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook",
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 2, "distinct bodies without ids are distinct items")
@@ -152,29 +157,29 @@ func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
 }
 
 func TestWebhookListenerNumericID(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	require.Equal(t, http.StatusAccepted, postHook(t, listener.Handler(), "/hooks/ci", `{"id":1234}`, nil).Code)
 
 	_, err := db.Queries().GetInboxItemByExternalID(context.Background(), store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "1234",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "1234",
 	})
 	require.NoError(t, err)
 }
 
 func TestWebhookListenerSecret(t *testing.T) {
-	listener, _, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "s3cret")})
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "s3cret")))
 	handler := listener.Handler()
 
 	assert.Equal(t, http.StatusUnauthorized, postHook(t, handler, "/hooks/ci", `{}`, nil).Code)
-	assert.Equal(t, http.StatusUnauthorized, postHook(t, handler, "/hooks/ci", `{}`, map[string]string{WebhookSecretHeader: "wrong"}).Code)
-	assert.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{}`, map[string]string{WebhookSecretHeader: "s3cret"}).Code)
+	assert.Equal(t, http.StatusUnauthorized, postHook(t, handler, "/hooks/ci", `{}`, map[string]string{SecretHeader: "wrong"}).Code)
+	assert.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{}`, map[string]string{SecretHeader: "s3cret"}).Code)
 }
 
 func TestWebhookListenerFansOutToMatchingNodes(t *testing.T) {
-	flows := fakeFlows{
-		webhookFlow("alpha", "hook-a", "shared", ""),
-		webhookFlow("beta", "hook-b", "shared", "s3cret"),
-	}
+	flows := fakeInstances(
+		webhookInstance(t, "alpha", "hook-a", "shared", ""),
+		webhookInstance(t, "beta", "hook-b", "shared", "s3cret"),
+	)
 	listener, db, _ := newWebhookTestListener(t, flows)
 	handler := listener.Handler()
 
@@ -183,35 +188,32 @@ func TestWebhookListenerFansOutToMatchingNodes(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.JSONEq(t, `{"delivered":1}`, rec.Body.String())
 
-	rec = postHook(t, handler, "/hooks/shared", `{"id":"2"}`, map[string]string{WebhookSecretHeader: "s3cret"})
+	rec = postHook(t, handler, "/hooks/shared", `{"id":"2"}`, map[string]string{SecretHeader: "s3cret"})
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.JSONEq(t, `{"delivered":2}`, rec.Body.String())
 
 	ctx := context.Background()
 	_, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "alpha", SourceKind: WebhookSourceKind, SourceScope: "hook-a", ExternalID: "2",
+		ProfileID: "alpha", SourceKind: SourceKind, SourceScope: "hook-a", ExternalID: "2",
 	})
 	require.NoError(t, err)
 	_, err = db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "beta", SourceKind: WebhookSourceKind, SourceScope: "hook-b", ExternalID: "2",
+		ProfileID: "beta", SourceKind: SourceKind, SourceScope: "hook-b", ExternalID: "2",
 	})
 	require.NoError(t, err)
 }
 
+// Disabled flows and disabled nodes are not tested here any more: the
+// listener is handed the instances that already exist, and deciding which
+// nodes are live is the resolver's job — see
+// TestResolverSkipsDisabledFlowsAndNodes in internal/app/ingest.
 func TestWebhookListenerRejections(t *testing.T) {
-	disabledNode := webhookFlow("off-node", "hook", "off-node-path", "")
-	disabledNode.Nodes[0].Disabled = true
-	disabledFlow := webhookFlow("off-flow", "hook", "off-flow-path", "")
-	disabledFlow.Enabled = false
-
-	listener, _, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", ""), disabledNode, disabledFlow})
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	assert.Equal(t, http.StatusNotFound, postHook(t, handler, "/hooks/nope", `{}`, nil).Code)
-	assert.Equal(t, http.StatusNotFound, postHook(t, handler, "/hooks/off-node-path", `{}`, nil).Code)
-	assert.Equal(t, http.StatusNotFound, postHook(t, handler, "/hooks/off-flow-path", `{}`, nil).Code)
 	assert.Equal(t, http.StatusBadRequest, postHook(t, handler, "/hooks/ci", `{not json`, nil).Code)
-	assert.Equal(t, http.StatusRequestEntityTooLarge, postHook(t, handler, "/hooks/ci", `{"pad":"`+strings.Repeat("x", maxWebhookBodyBytes)+`"}`, nil).Code)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, postHook(t, handler, "/hooks/ci", `{"pad":"`+strings.Repeat("x", maxBodyBytes)+`"}`, nil).Code)
 
 	req := httptest.NewRequest(http.MethodGet, "/hooks/ci", nil)
 	rec := httptest.NewRecorder()
@@ -221,7 +223,7 @@ func TestWebhookListenerRejections(t *testing.T) {
 }
 
 func TestWebhookListenerStartStop(t *testing.T) {
-	listener, _, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	require.NoError(t, listener.Start(t.Context()))
 	defer listener.Stop()
 
@@ -246,7 +248,7 @@ func TestMissingFeedItemFields(t *testing.T) {
 
 func TestWebhookClassifier_FirstDeliveryActiveState(t *testing.T) {
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"open"}`)}
-	got := webhookClassifier{}.Classify(nil, current)
+	got := classifier{}.Classify(nil, current)
 
 	assert.Equal(t, "received", got.Kind)
 	assert.Equal(t, store.TransitionNone, got.Transition)
@@ -259,19 +261,19 @@ func TestWebhookClassifier_FirstDeliveryActiveState(t *testing.T) {
 
 func TestWebhookClassifier_MissingStateStaysActive(t *testing.T) {
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x"}`)}
-	got := webhookClassifier{}.Classify(nil, current)
+	got := classifier{}.Classify(nil, current)
 	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Empty(t, got.SourceState)
 
 	nonObject := store.Observation{ExternalID: "y", Title: "t", ObservedAt: 100, Payload: []byte(`[1,2,3]`)}
-	got = webhookClassifier{}.Classify(nil, nonObject)
+	got = classifier{}.Classify(nil, nonObject)
 	assert.Equal(t, store.LifecycleActive, got.Lifecycle)
 	assert.Empty(t, got.SourceState)
 }
 
 func TestWebhookClassifier_FirstDeliveryAlreadyTerminal(t *testing.T) {
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 100, Payload: []byte(`{"id":"x","state":"done"}`)}
-	got := webhookClassifier{}.Classify(nil, current)
+	got := classifier{}.Classify(nil, current)
 
 	assert.Equal(t, "received", got.Kind)
 	assert.Equal(t, store.LifecycleTerminal, got.Lifecycle)
@@ -283,7 +285,7 @@ func TestWebhookClassifier_FirstDeliveryAlreadyTerminal(t *testing.T) {
 func TestWebhookClassifier_EntersTerminalCaseInsensitive(t *testing.T) {
 	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"open"}`)}
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"Resolved"}`)}
-	got := webhookClassifier{}.Classify(&prev, current)
+	got := classifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "resolved", got.Kind)
 	assert.Equal(t, "Resolved", got.Summary)
@@ -297,7 +299,7 @@ func TestWebhookClassifier_EntersTerminalCaseInsensitive(t *testing.T) {
 func TestWebhookClassifier_LeavesTerminalReopens(t *testing.T) {
 	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","state":"closed"}`)}
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","state":"open"}`)}
-	got := webhookClassifier{}.Classify(&prev, current)
+	got := classifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "reopened", got.Kind)
 	assert.Equal(t, "Reopened", got.Summary)
@@ -309,7 +311,7 @@ func TestWebhookClassifier_LeavesTerminalReopens(t *testing.T) {
 func TestWebhookClassifier_UnchangedActiveStateIsUpdated(t *testing.T) {
 	prev := store.Observation{ExternalID: "x", Payload: []byte(`{"id":"x","n":1}`)}
 	current := store.Observation{ExternalID: "x", Title: "t", ObservedAt: 200, Payload: []byte(`{"id":"x","n":2}`)}
-	got := webhookClassifier{}.Classify(&prev, current)
+	got := classifier{}.Classify(&prev, current)
 
 	assert.Equal(t, "updated", got.Kind)
 	assert.Equal(t, current.Title, got.Summary)
@@ -320,7 +322,7 @@ func TestWebhookClassifier_UnchangedActiveStateIsUpdated(t *testing.T) {
 // --- Listener-level tests: real SQLite through IngestObservation + applyTransition. ---
 
 func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
@@ -329,7 +331,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 
 	ctx := context.Background()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
 	assert.True(t, item.ArchivedAt.Valid)
@@ -345,7 +347,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 }
 
 func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
@@ -356,7 +358,7 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 
 	ctx := context.Background()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
 	assert.False(t, item.ArchivedAt.Valid, "reopen resurfaces the item")
@@ -371,14 +373,14 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 }
 
 func TestWebhookListenerFirstDeliveryTerminalNotArchived(t *testing.T) {
-	listener, db, _ := newWebhookTestListener(t, fakeFlows{webhookFlow("triage", "hook", "ci", "")})
+	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"done"}`, nil).Code)
 
 	ctx := context.Background()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
-		ProfileID: "triage", SourceKind: WebhookSourceKind, SourceScope: "hook", ExternalID: "x",
+		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "terminal", item.Lifecycle)

@@ -8,37 +8,41 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 )
 
-// Producer is the poll loop that turns configured sources into event_log
-// rows. On each tick it resolves the current sources (via SourceLister),
-// drains each source's current items through Produce, and appends every
-// emitted Msg to the log. After a tick appends at least one row, onAppended
-// fires with the offset of the last row appended, so main.go can wake the
-// frontend (the Wails "log:appended" event).
+// Producer is the poll loop that turns configured source connectors into
+// event_log rows. On each tick it resolves the current pull-mode instances,
+// drains each one through Produce, and appends every emitted Msg to the log.
+// After a tick appends at least one row, onAppended fires with the offset of
+// the last row, so the core can wake the flow engine.
 //
-// Source deduplication: a source's Produce re-emits every current item on
-// every tick, even when nothing changed upstream (githubSource's fetch
-// layer may itself be cache-hit, but the cached items are still emitted).
-// Producer delegates to store.AppendIfChanged, which stores the last
-// payload by (topic, key) in the database and atomically appends a changed
-// event with its new head, so deduplication survives restarts and a failed
-// append never suppresses a retry. Successful ticks also append a source
-// snapshot event for downstream feed reconciliation.
+// Source deduplication: a connector re-emits every current item on every
+// tick, even when nothing changed upstream (the GitHub fetch layer may itself
+// be cache-hit, but the cached items are still emitted). Producer delegates
+// to store.IngestObservation, which stores the last payload by (topic, key)
+// in the database and atomically appends a changed event with its new head,
+// so deduplication survives restarts and a failed append never suppresses a
+// retry. Successful ticks also append a source snapshot event for downstream
+// feed reconciliation.
+//
+// Nothing here branches on which connector it is holding. What a source
+// supports beyond producing messages — its classifier, its absence confirmer,
+// its batched prefetch — arrives already wired on the instance, because a
+// capability discovered by type assertion fails silently as generic
+// ingestion, and generic ingestion of a GitHub item is wrong rather than
+// merely plain.
 type Producer struct {
 	db         Appender
-	sources    SourceLister
+	sources    Sources
 	intervalMu sync.Mutex
 	interval   time.Duration
 	intervalCh chan time.Duration
 	onAppended func(nextOffset int64)
 	logger     zerolog.Logger
 	recorder   activity.Recorder
-	prefetcher SearchPrefetcher
-	adapters   map[string]store.SourceAdapter
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -49,39 +53,11 @@ type Producer struct {
 // avoid flooding the activity log. Set once at wiring time, before Start.
 func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
 
-// SearchPrefetcher batch-fetches all search-kind source definitions before
-// the producer drains their individual topics.
-type SearchPrefetcher interface {
-	PrefetchSearch(ctx context.Context, defs []feed.SourceDef) error
-}
-
-// SetPrefetcher attaches the optional batch prefetcher. It is set once while
-// wiring the producer, before Start.
-func (pr *Producer) SetPrefetcher(p SearchPrefetcher) { pr.prefetcher = p }
-
-// SetSourceAdapter registers classification and absence behavior by source kind.
-func (pr *Producer) SetSourceAdapter(adapter store.SourceAdapter) {
-	pr.adapters[adapter.SourceKind] = adapter
-}
-
-// SearchDefSource is implemented by sources backed by a feed.SourceDef that
-// want inclusion in the search prefetch. Non-search sources return ok false.
-//
-// Exported for the same reason as MetadataSource: an unexported method
-// cannot be satisfied from the connector packages, so the assertion below
-// would compile and never match. It also names a GitHub-shaped type in a
-// connector-neutral package, which the connector-capability work replaces --
-// exporting it makes that leak visible at a package boundary instead of
-// hidden inside one.
-type SearchDefSource interface {
-	SearchDef() (feed.SourceDef, bool)
-}
-
 // NewProducer builds a Producer. interval <= 0 is rejected by the caller's
-// choice of default (main.go passes feed.DefaultPollInterval); Producer
-// itself has no opinion on the default so this package does not need to
-// import feed just for a constant.
-func NewProducer(db Appender, sources SourceLister, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
+// choice of default (App passes feed.DefaultPollInterval); Producer itself
+// has no opinion on the default so this package does not need to import feed
+// just for a constant.
+func NewProducer(db Appender, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
 	return &Producer{
 		db:         db,
 		sources:    sources,
@@ -89,7 +65,6 @@ func NewProducer(db Appender, sources SourceLister, interval time.Duration, onAp
 		intervalCh: make(chan time.Duration, 1),
 		onAppended: onAppended,
 		logger:     logger,
-		adapters:   make(map[string]store.SourceAdapter),
 		stop:       make(chan struct{}),
 	}
 }
@@ -155,126 +130,150 @@ func (pr *Producer) Stop() {
 // Produce call fails is logged and skipped — one source's fetch failure
 // (e.g. an offline stretch) must not block the others.
 func (pr *Producer) Tick(ctx context.Context) {
-	sources, err := pr.sources(ctx)
-	if err != nil {
-		pr.logger.Warn().Err(err).Msg("pipeline producer: resolving sources failed")
-		return
-	}
+	instances := pr.sources.PullInstances()
 
-	if pr.prefetcher != nil {
-		defs := make([]feed.SourceDef, 0, len(sources))
-		for _, src := range sources {
-			if searchSource, ok := src.(SearchDefSource); ok {
-				if def, ok := searchSource.SearchDef(); ok {
-					defs = append(defs, def)
-				}
-			}
-		}
-		if err := pr.prefetcher.PrefetchSearch(ctx, defs); err != nil {
-			pr.logger.Debug().Err(err).Msg("pipeline producer: search prefetch failed")
-		}
+	if err := pr.sources.Prefetch(ctx, instances); err != nil {
+		pr.logger.Debug().Err(err).Msg("pipeline producer: source prefetch failed")
 	}
 
 	var (
 		lastOffset int64
 		appended   int
 	)
-	for id, src := range sources {
-		topic := "source:" + id
-		meta := SourceMetadata{ProfileID: id, SourceKind: "generic", Policy: store.ResurfacePolicyStateChanges}
-		if described, ok := src.(MetadataSource); ok {
-			meta = described.IngestMetadata()
-		}
-		if meta.Policy == "" {
-			meta.Policy = store.ResurfacePolicyStateChanges
-		}
-		adapter, ok := pr.adapters[meta.SourceKind]
-		if !ok {
-			adapter = store.SourceAdapter{SourceKind: meta.SourceKind, Classifier: genericClassifier{}}
-		}
-		items := make([]store.SnapshotItem, 0)
-		observed := make(map[string]struct{})
-		err := src.Produce(ctx, func(msg Msg) error {
-			if msg.Topic != topic {
-				return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
-			}
-			items = append(items, store.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
-			if msg.Key == "" {
-				return nil
-			}
-			observed[msg.Key] = struct{}{}
-			kind := meta.SourceKind
-			if msg.SourceKind != "" {
-				kind = msg.SourceKind
-			}
-			result, err := pr.db.IngestObservation(ctx, adapter.Classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
-			if err != nil {
-				return err
-			}
-			if result.Wrote {
-				appended++
-				lastOffset = result.Offset
-			}
-			return nil
-		})
+	for _, instance := range instances {
+		rows, err := pr.drain(ctx, instance)
 		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: source fetch failed")
-			pr.record(ctx, activity.RefreshFailed(id, err.Error()))
 			continue
 		}
-
-		keys, err := pr.db.ListSourceHeadKeys(ctx, topic)
-		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
-			continue
+		if rows.appended > 0 {
+			appended += rows.appended
+			lastOffset = rows.lastOffset
 		}
-		if adapter.AbsenceConfirmer != nil {
-			for _, key := range keys {
-				if _, present := observed[key]; present {
-					continue
-				}
-				payload, err := pr.db.SourceHeadPayload(ctx, topic, key)
-				if err != nil {
-					pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
-					continue
-				}
-				// source_head persists the source payload, not presentation metadata.
-				// Reconstruct the prior observation from that payload so an absence
-				// confirmer that starts from prev retains the item's title, URL, and
-				// upstream observation time when it returns a hydrated Current.
-				prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
-				verdict, err := adapter.ConfirmAbsence(ctx, prev)
-				store.DebugPauseIngest(ctx)
-				if err != nil {
-					pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
-					continue
-				}
-				if verdict.Current == nil {
-					continue
-				}
-				result, err := pr.db.IngestObservation(ctx, adapter.Classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
-				if err != nil {
-					pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence ingestion failed")
-					continue
-				}
-				if result.Wrote {
-					appended++
-					lastOffset = result.Offset
-				}
-			}
-		}
-		offset, err := pr.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
-		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
-			pr.record(ctx, activity.RefreshFailed(id, err.Error()))
-			continue
-		}
-		appended++
-		lastOffset = offset
 	}
 
 	if appended > 0 && pr.onAppended != nil {
 		pr.onAppended(lastOffset)
+	}
+}
+
+// drained is what one source's tick was worth: how many rows it appended and
+// the offset of the last one.
+type drained struct {
+	appended   int
+	lastOffset int64
+}
+
+// drain runs one source's Produce, confirms whatever left its snapshot, and
+// appends the topic's authoritative snapshot. The returned error means the
+// source did not complete — its snapshot is not authoritative, so neither
+// absence confirmation nor the snapshot append may run.
+func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (drained, error) {
+	var out drained
+
+	id := instance.Node.ID()
+	topic := instance.Node.Topic()
+	meta := instance.Metadata
+	if meta.Policy == "" {
+		meta.Policy = store.ResurfacePolicyStateChanges
+	}
+	// A connector that declared no classifier gets the generic one, which
+	// records that something was observed or updated and nothing more.
+	classifier := instance.Classifier
+	if classifier == nil {
+		classifier = genericClassifier{}
+	}
+
+	items := make([]store.SnapshotItem, 0)
+	observed := make(map[string]struct{})
+	err := instance.Pull.Produce(ctx, func(msg Msg) error {
+		if msg.Topic != topic {
+			return fmt.Errorf("source %q emitted topic %q, expected %q", id, msg.Topic, topic)
+		}
+		items = append(items, store.SnapshotItem{Key: msg.Key, Payload: msg.Payload})
+		if msg.Key == "" {
+			return nil
+		}
+		observed[msg.Key] = struct{}{}
+		kind := meta.SourceKind
+		if msg.SourceKind != "" {
+			kind = msg.SourceKind
+		}
+		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: observationFromMsg(msg, kind, meta.SourceScope)})
+		if err != nil {
+			return err
+		}
+		if result.Wrote {
+			out.appended++
+			out.lastOffset = result.Offset
+		}
+		return nil
+	})
+	if err != nil {
+		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: source fetch failed")
+		pr.record(ctx, activity.RefreshFailed(id, err.Error()))
+		return out, err
+	}
+
+	if instance.Absence != nil {
+		pr.confirmAbsent(ctx, instance, meta, classifier, observed, &out)
+	}
+
+	offset, err := pr.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
+	if err != nil {
+		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
+		pr.record(ctx, activity.RefreshFailed(id, err.Error()))
+		return out, err
+	}
+	out.appended++
+	out.lastOffset = offset
+	return out, nil
+}
+
+// confirmAbsent asks the connector what happened to each item that was in the
+// source head but not in this tick's snapshot. Only connectors that declared
+// CapConfirmAbsence get here; for the rest an item that stops appearing is
+// left to the resurface policy.
+func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instance, meta connector.Metadata, classifier store.Classifier, observed map[string]struct{}, out *drained) {
+	id := instance.Node.ID()
+	topic := instance.Node.Topic()
+
+	keys, err := pr.db.ListSourceHeadKeys(ctx, topic)
+	if err != nil {
+		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
+		return
+	}
+	for _, key := range keys {
+		if _, present := observed[key]; present {
+			continue
+		}
+		payload, err := pr.db.SourceHeadPayload(ctx, topic, key)
+		if err != nil {
+			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: reading source head failed")
+			continue
+		}
+		// source_head persists the source payload, not presentation metadata.
+		// Reconstruct the prior observation from that payload so an absence
+		// confirmer that starts from prev retains the item's title, URL, and
+		// upstream observation time when it returns a hydrated Current.
+		prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
+		verdict, err := instance.Absence.ConfirmAbsence(ctx, prev)
+		store.DebugPauseIngest(ctx)
+		if err != nil {
+			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
+			continue
+		}
+		if verdict.Current == nil {
+			continue
+		}
+		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
+		if err != nil {
+			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence ingestion failed")
+			continue
+		}
+		if result.Wrote {
+			out.appended++
+			out.lastOffset = result.Offset
+		}
 	}
 }
 

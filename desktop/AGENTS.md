@@ -19,7 +19,7 @@ specifies it. This file describes how the code is arranged *today*;
 ## What this app is
 
 A Wails v3 desktop shell (Vue 3 + TypeScript frontend, Go backend) that renders
-a GitHub-backed feed. A **flow** (`flows/*.yaml`) wires `github-source` nodes
+a GitHub-backed feed. A **flow** (`flows/*.yaml`) wires `sources.github` nodes
 through filters into `feed`, `action`, and `notify` terminals; a background
 producer polls sources, appends to an event log, and commits durable
 `feed_item` rows the sidebar reads. `action` and `notify` nodes emit durable

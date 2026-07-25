@@ -10,7 +10,7 @@ flows, filters, and feed membership change.
 
 The pipeline has three cooperating parts:
 
-1. **Go ingestion** polls configured `github-source` nodes. For every changed
+1. **Go ingestion** polls configured `sources.github` nodes. For every changed
    observation it classifies the change and unconditionally updates the
    corresponding `inbox_item`; noteworthy classifications also append an
    `inbox_event`. Ingestion owns item identity, payload, revision, lifecycle,
@@ -30,7 +30,7 @@ The pipeline has three cooperating parts:
 GitHub API
    │
    ▼
-github-source → Go producer → classify and persist
+sources.github → Go producer → classify and persist
                                │
                  ┌─────────────┴─────────────┐
                  ▼                           ▼
@@ -101,7 +101,7 @@ policy.
 
 ### Webhook ingress
 
-`webhook-source` nodes are push-driven and bypass the producer entirely
+`sources.webhook` nodes are push-driven and bypass the producer entirely
 (docs/decisions/0007). `pipeline.WebhookListener` binds `127.0.0.1` (port
 `webhook_port` in settings.yaml — drawn at random from 20000–32767 on first
 run and persisted, env override `HIVE_DESKTOP_WEBHOOK_PORT`; the whole
@@ -163,8 +163,8 @@ Supported node types are:
 
 | Type | Role |
 | --- | --- |
-| `github-source` | Backend source with `kind`, optional search `query`, and optional `limit`. |
-| `webhook-source` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
+| `sources.github` | Backend source with `kind`, optional search `query`, and optional `limit`. |
+| `sources.webhook` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
 | `github-filter` | Frontend processor that passes or rejects GitHub messages by configured attributes. |
 | `function` | Author-provided JavaScript processor with one to sixteen outputs. |
 | `feed` | Terminal membership target. The flow-qualified node id is the feed id. |

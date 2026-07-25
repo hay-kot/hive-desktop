@@ -38,17 +38,17 @@ function mountEditor(config: Config, capture?: Partial<WebhookCaptureView>) {
   })
 }
 
-describe('webhook-source editor', () => {
+describe('sources.webhook editor', () => {
   it('renders the endpoint URL from the listener info and the configured path', async () => {
     const wrapper = mountEditor({ path: 'ci-alerts' })
     await flushPromises()
-    expect(wrapper.get('[data-testid="webhook-source-editor-url"]').text()).toBe('http://127.0.0.1:4483/hooks/ci-alerts')
+    expect(wrapper.get('[data-testid="sources.webhook-editor-url"]').text()).toBe('http://127.0.0.1:4483/hooks/ci-alerts')
   })
 
   it('emits an immutable update:config on path edit', async () => {
     const config: Config = { path: '' }
     const wrapper = mountEditor(config)
-    const input = wrapper.get<HTMLInputElement>('[data-testid="webhook-source-editor-path"]').element
+    const input = wrapper.get<HTMLInputElement>('[data-testid="sources.webhook-editor-path"]').element
     input.value = 'ci'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await wrapper.vm.$nextTick()
@@ -60,7 +60,7 @@ describe('webhook-source editor', () => {
   it('regenerates the path in place, emitting a valid slug without touching the secret', async () => {
     const config: Config = { path: 'ci', secret: 'keep-me' }
     const wrapper = mountEditor(config)
-    await wrapper.get('[data-testid="webhook-source-editor-path-generate"]').trigger('click')
+    await wrapper.get('[data-testid="sources.webhook-editor-path-generate"]').trigger('click')
 
     const emitted = wrapper.emitted('update:config') as [[Config]]
     expect(emitted[0]![0].path).toMatch(/^hook-[a-z0-9]{8}$/)
@@ -72,7 +72,7 @@ describe('webhook-source editor', () => {
   it('regenerates the secret in place, emitting a printable value without touching the path', async () => {
     const config: Config = { path: 'ci' }
     const wrapper = mountEditor(config)
-    await wrapper.get('[data-testid="webhook-source-editor-secret-generate"]').trigger('click')
+    await wrapper.get('[data-testid="sources.webhook-editor-secret-generate"]').trigger('click')
 
     const emitted = wrapper.emitted('update:config') as [[Config]]
     expect(emitted[0]![0].secret).toMatch(/^[!-~]{32}$/)
@@ -83,8 +83,8 @@ describe('webhook-source editor', () => {
   it('shows the placeholder when nothing was captured yet', async () => {
     const wrapper = mountEditor({ path: 'ci' })
     await flushPromises()
-    expect(wrapper.find('[data-testid="webhook-source-editor-no-capture"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="webhook-source-editor-capture"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sources.webhook-editor-no-capture"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="sources.webhook-editor-capture"]').exists()).toBe(false)
   })
 
   it('shows the captured payload with the non-blocking shape warning', async () => {
@@ -95,8 +95,8 @@ describe('webhook-source editor', () => {
       missingFields: ['id', 'kind', 'repo', 'title', 'url'],
     })
     await flushPromises()
-    expect(wrapper.get('[data-testid="webhook-source-editor-capture"]').text()).toContain('"event": "deploy"')
-    const warning = wrapper.get('[data-testid="webhook-source-editor-shape-warning"]').text()
+    expect(wrapper.get('[data-testid="sources.webhook-editor-capture"]').text()).toContain('"event": "deploy"')
+    const warning = wrapper.get('[data-testid="sources.webhook-editor-shape-warning"]').text()
     expect(warning).toContain('Missing canonical item fields')
     expect(warning).toContain('id, kind, repo, title, url')
     expect(warning).toContain('renders minimally')
@@ -112,14 +112,14 @@ describe('webhook-source editor', () => {
       missingFields: null,
     })
     await flushPromises()
-    expect(wrapper.find('[data-testid="webhook-source-editor-shape-warning"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sources.webhook-editor-shape-warning"]').exists()).toBe(false)
   })
 
   it('copies the service-rendered transform prompt, scoped to this node', async () => {
     const wrapper = mountEditor({ path: 'ci-alerts' }, { receivedAt: 5, body: '{"event":"deploy"}' })
     await flushPromises()
 
-    await wrapper.get('[data-testid="webhook-source-editor-copy-prompt"]').trigger('click')
+    await wrapper.get('[data-testid="sources.webhook-editor-copy-prompt"]').trigger('click')
     await flushPromises()
 
     expect(mocks.Render).toHaveBeenCalledWith('webhook-transform', expect.objectContaining({
@@ -133,7 +133,7 @@ describe('webhook-source editor', () => {
     const wrapper = mountEditor({ path: 'ci-alerts' })
     await flushPromises()
 
-    await wrapper.get('[data-testid="webhook-source-editor-copy-prompt"]').trigger('click')
+    await wrapper.get('[data-testid="sources.webhook-editor-copy-prompt"]').trigger('click')
     await flushPromises()
 
     expect(mocks.Render).toHaveBeenCalledWith('webhook-transform', expect.objectContaining({ webhookSample: '' }))

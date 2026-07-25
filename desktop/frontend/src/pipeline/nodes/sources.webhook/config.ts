@@ -1,18 +1,18 @@
-// webhook-source is a source node (0 in / 1 out): the push-driven counterpart
-// to github-source. The node declares a path on the desktop's local webhook
+// sources.webhook is a source node (0 in / 1 out): the push-driven counterpart
+// to sources.github. The node declares a path on the desktop's local webhook
 // listener; JSON POSTed to http://127.0.0.1:<port>/hooks/<path> is ingested by
 // Go and appended to the event log under topic "source:<flowId>/<nodeId>" —
 // the frontend never executes the source, it only consumes the msgs the
 // backend already appended (role: 'source', no runtime.ts), exactly like
-// github-source. See internal/app/sources/webhook/webhook_source.go.
+// sources.github. See internal/app/sources/webhook/webhook_source.go.
 
 import IconWebhook from '~icons/lucide/webhook'
 
 import { isFeedIcon } from '../../../lib/feedIcons'
 
-export const type = 'webhook-source'
+export const type = 'sources.webhook'
 export const role = 'source' as const
-// The inbox item sourceKind this node's items carry — see github-source's
+// The inbox item sourceKind this node's items carry — see sources.github's
 // config.ts for why this lives next to `type`.
 export const sourceKind = 'webhook'
 
@@ -39,7 +39,7 @@ export interface Config {
 export const label = 'Webhook source'
 export const category = 'Sources' as const
 export const glyph = IconWebhook
-// Blue — source nodes share the github-source cap color.
+// Blue — source nodes share the sources.github cap color.
 export const accentToken = 'var(--color-node-blue)'
 export const tint = 'var(--color-node-blue-tint)'
 

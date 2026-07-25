@@ -204,9 +204,9 @@ func (s *PromptsService) Render(ctx context.Context, id string, input prompts.In
 	return prompt, nil
 }
 
-// WebhookBaseURL is the URL prefix webhook-source node paths are served
+// WebhookBaseURL is the URL prefix sources.webhook node paths are served
 // under. It lives here rather than in the adapter because the prompt text
 // embeds it, and a prompt is core-owned.
 func WebhookBaseURL(port int) string {
-	return "http://127.0.0.1:" + strconv.Itoa(port) + webhook.WebhookPathPrefix
+	return "http://127.0.0.1:" + strconv.Itoa(port) + webhook.PathPrefix
 }

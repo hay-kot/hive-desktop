@@ -6,7 +6,7 @@
     "name": "Globs",
     "enabled": true,
     "nodes": [
-      { "id": "src", "type": "github-source", "kind": "search", "query": "is:open" },
+      { "id": "src", "type": "sources.github", "kind": "search", "query": "is:open" },
       {
         "id": "keep",
         "type": "github-filter",

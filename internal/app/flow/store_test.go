@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -64,7 +66,7 @@ func TestFlowStore_Save_PersistsAndReloads(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "github-source", Config: &GithubSourceConfig{Kind: "search", Query: "is:open"}},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},
@@ -89,7 +91,7 @@ func TestFlowStore_Save_InvalidFlowRejected_LeavesLastGood(t *testing.T) {
 		Enabled:   true,
 		Resurface: ResurfacePolicyStateChanges,
 		Nodes: []Node{
-			{ID: "src", Type: "github-source", Config: &GithubSourceConfig{Kind: "search", Query: "is:open"}},
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "search", Query: "is:open"})},
 			{ID: "sink", Type: "feed", Config: &FeedConfig{}},
 		},
 		Wires: []Wire{{From: "src", To: "sink"}},
@@ -99,7 +101,7 @@ func TestFlowStore_Save_InvalidFlowRejected_LeavesLastGood(t *testing.T) {
 	// An invalid edit: the source now has an unknown kind.
 	bad := good
 	bad.Nodes = append([]Node{}, good.Nodes...)
-	bad.Nodes[0] = Node{ID: "src", Type: "github-source", Config: &GithubSourceConfig{Kind: "webhook"}}
+	bad.Nodes[0] = Node{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Kind: "webhook"})}
 
 	err := store.Save(bad)
 	require.Error(t, err)

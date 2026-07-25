@@ -6,7 +6,7 @@
     "name": "Multi",
     "enabled": true,
     "nodes": [
-      { "id": "src", "type": "github-source", "kind": "notifications" },
+      { "id": "src", "type": "sources.github", "kind": "notifications" },
       { "id": "tap", "type": "function", "on_message": "msg.Payload.seen = true; return msg" },
       { "id": "inbox", "type": "feed" },
       { "id": "log", "type": "notify", "title": "t" }

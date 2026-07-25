@@ -20,7 +20,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Call: { ByID: vi.fn() } }))
 vi.mock('../useNotify', () => ({ useNotify: () => ({ notify: mocks.notify }) }))
 
-const flow = { id: 'triage', name: 'Frontend Triage', enabled: true, nodes: [{ id: 'source', type: 'github-source' }, { id: 'my-prs', type: 'feed', name: 'My PRs' }], wires: [] }
+const flow = { id: 'triage', name: 'Frontend Triage', enabled: true, nodes: [{ id: 'source', type: 'sources.github' }, { id: 'my-prs', type: 'feed', name: 'My PRs' }], wires: [] }
 function item(id: number, overrides: Partial<InboxItem> = {}): InboxItem {
   return { id, profileId: 'triage', sourceKind: 'github', sourceScope: 'acme/app', externalId: `pr-${id}`, title: `Item ${id}`, url: `https://example.test/${id}`, payload: { id: `pr-${id}`, kind: 'PR', repo: 'acme/app', num: id, author: 'hay', body: `body ${id}`, branch: 'main' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: id, ...overrides }
 }

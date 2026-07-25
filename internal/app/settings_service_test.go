@@ -13,6 +13,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
@@ -89,6 +90,22 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 	require.False(t, *got.AutoUpdate)
 }
 
+// settingsServiceSources is the producer's Sources seam: one pull instance
+// over the counting source below, so the test can assert a re-tick happened
+// without standing up the connector registry.
+type settingsServiceSources struct{ source connector.PullSource }
+
+func (s settingsServiceSources) PullInstances() []connector.Instance {
+	return []connector.Instance{{
+		Type:     "sources.test",
+		Node:     connector.Node{FlowID: "profile", NodeID: "github"},
+		Metadata: connector.Metadata{ProfileID: "profile", SourceKind: "generic"},
+		Pull:     s.source,
+	}}
+}
+
+func (settingsServiceSources) Prefetch(context.Context, []connector.Instance) error { return nil }
+
 type settingsServiceSource struct {
 	mu    sync.Mutex
 	calls int
@@ -115,9 +132,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
-		producer := ingest.NewProducer(db, func(context.Context) (map[string]ingest.Source, error) {
-			return map[string]ingest.Source{"github": source}, nil
-		}, time.Hour, nil, zerolog.Nop())
+		producer := ingest.NewProducer(db, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
 		service := newSettingsService(producer, provider)
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))

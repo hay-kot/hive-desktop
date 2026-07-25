@@ -23,6 +23,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
@@ -82,6 +83,12 @@ type App struct {
 	JobStore      *jobs.Store
 	AuthBackend   auth.Backend
 	Fetcher       *feed.LiveProvider
+
+	// Sources resolves the current flow set into live connector instances.
+	// Both ingress paths go through it — the poll producer takes its
+	// pull-mode instances, the webhook listener its push-mode ones — so a
+	// connector is constructed one way regardless of how it delivers.
+	Sources *ingest.Resolver
 
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager is a later phase.
@@ -180,6 +187,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Outputs = a.buildOutputWorker(cfg)
 	a.Retention = ingest.NewMaintenance(db, a.FlowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.Engine = a.buildEngine(cfg.Logger)
+	a.Sources = a.buildSources(cfg.Logger)
 	a.Producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
@@ -391,17 +399,44 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 	})
 }
 
+// buildSources wires the instance half of every source connector's
+// declaration. The descriptors are static and live in the registry; the
+// factories need dependencies — the GitHub fetcher — and so are built here,
+// at the one place that holds them.
+//
+// TestFactoriesCoverEveryDescriptor fails if a registered connector has no
+// factory, which is the failure mode this split trades for: a connector
+// declared and not wired is a source node the editor offers and nothing ever
+// polls.
+func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
+	return ingest.NewResolver(a.FlowStore, sourceFactories(a.Fetcher), logger)
+}
+
+// sourceFactories is the instance half of the connector registry. It is a
+// function of its dependencies rather than a method so the bijection test can
+// hold it against the descriptors without standing up an App.
+func sourceFactories(fetcher *feed.LiveProvider) map[string]connector.Factory {
+	factories := map[string]connector.Factory{
+		webhook.Descriptor.Type: webhook.NewFactory(),
+	}
+	// Mock modes have no fetcher, so the GitHub connector has nothing to
+	// construct instances over and is left out of the map: resolving one logs
+	// and skips rather than dereferencing nil.
+	if fetcher != nil {
+		factories[ghsource.Descriptor.Type] = ghsource.NewFactory(fetcher)
+	}
+	return factories
+}
+
 // buildProducer starts nothing; it wires the event-log producer over every
-// enabled github-source node across all flows. Mock modes have no fetcher and
-// therefore no producer.
+// enabled pull-mode source node across all flows. Mock modes have no fetcher
+// and therefore no producer.
 func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	if a.Fetcher == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.Store, ghsource.NewFlowSourceLister(a.Fetcher, a.FlowStore), a.PollInterval, a.PublishLogAppended, logger)
+	producer := ingest.NewProducer(a.Store, a.Sources, a.PollInterval, a.PublishLogAppended, logger)
 	producer.SetRecorder(a.ActivityStore)
-	producer.SetPrefetcher(a.Fetcher)
-	producer.SetSourceAdapter(ghsource.NewGithubSourceAdapter(a.Fetcher))
 	return producer
 }
 
@@ -429,7 +464,7 @@ func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
 
 // openWebhook resolves the listener's port and builds it, without binding.
 // The listener is the push-driven counterpart to the poll producer: it serves
-// user-declared webhook-source endpoints on 127.0.0.1 and ingests deliveries
+// user-declared sources.webhook endpoints on 127.0.0.1 and ingests deliveries
 // directly. It exists when settings enable it (the default) and, in mock
 // modes, only when a port is explicitly claimed through the env var, so
 // parallel e2e instances never fight over one.
@@ -447,7 +482,7 @@ func (a *App) openWebhook(ctx context.Context, cfg Config) {
 		return
 	}
 
-	a.Webhook = webhook.NewListener(a.Store, a.FlowStore, port, a.PublishLogAppended, cfg.Logger)
+	a.Webhook = webhook.NewListener(a.Store, a.Sources.PushInstances, port, a.PublishLogAppended, cfg.Logger)
 	a.Webhook.SetRecorder(a.ActivityStore)
 }
 

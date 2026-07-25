@@ -8,6 +8,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
 func TestProducer_SetInterval(t *testing.T) {
@@ -15,7 +17,7 @@ func TestProducer_SetInterval(t *testing.T) {
 		db := openTestPipelineDB(t)
 		var mu sync.Mutex
 		wakes := 0
-		producer := NewProducer(db, listerOf(map[string]Source{"s1": &fakeSource{}}), time.Hour, func(int64) {
+		producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": &fakeSource{}}), time.Hour, func(int64) {
 			mu.Lock()
 			wakes++
 			mu.Unlock()

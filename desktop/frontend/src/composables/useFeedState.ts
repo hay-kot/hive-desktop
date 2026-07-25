@@ -63,7 +63,7 @@ export function useFeedState() {
   const search = ref('')
   const items = ref<InboxItem[]>([])
   // Per-source-node feed icons for the active flow (node id → icon key),
-  // read from webhook-source configs in loadFeeds. Feed rows and the detail
+  // read from sources.webhook configs in loadFeeds. Feed rows and the detail
   // pane look up an item's glyph by its sourceScope (the source node id).
   const sourceIcons = ref<Record<string, string>>({})
   // The selected feed's archived section: collapsed by default, lazy-loaded
@@ -295,7 +295,7 @@ export function useFeedState() {
       const icons: Record<string, string> = {}
       const countByKind = new Map<string, number>()
       for (const n of nodes) {
-        if (n.type === 'webhook-source' && n.icon) icons[n.id] = n.icon
+        if (n.type === 'sources.webhook' && n.icon) icons[n.id] = n.icon
         const nodeSourceKind = sourceKindForNodeType(n.type)
         if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }

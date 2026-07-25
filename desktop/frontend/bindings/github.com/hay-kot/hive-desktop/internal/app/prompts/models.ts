@@ -31,7 +31,7 @@ export interface Input {
 
     /**
      * WebhookPath and WebhookSample scope the webhook transform prompt to one
-     * webhook-source node: its configured path and its last captured delivery.
+     * sources.webhook node: its configured path and its last captured delivery.
      */
     "webhookPath": string;
     "webhookSample": string;

@@ -5,7 +5,7 @@
 version: 1
 name: Source to Commit Smoke
 nodes:
-  - { id: fixture-source, type: github-source, kind: search, query: "is:open" }
+  - { id: fixture-source, type: sources.github, kind: search, query: "is:open" }
   - { id: worker-transform, type: function, on_message: "return msg" }
   - { id: smoke-feed, type: feed, name: "Smoke feed" }
 wires:

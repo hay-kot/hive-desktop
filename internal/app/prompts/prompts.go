@@ -82,7 +82,7 @@ type Input struct {
 	// prompt.
 	Commands []Command `json:"commands"`
 	// WebhookPath and WebhookSample scope the webhook transform prompt to one
-	// webhook-source node: its configured path and its last captured delivery.
+	// sources.webhook node: its configured path and its last captured delivery.
 	WebhookPath   string `json:"webhookPath"`
 	WebhookSample string `json:"webhookSample"`
 }
@@ -304,10 +304,10 @@ func actionsData(Env, Input) (map[string]any, error) {
 }
 
 // webhookSourcesData assembles the webhook integration prompt. It reuses the
-// webhook-source node's own documentation rather than restating the delivery
+// sources.webhook node's own documentation rather than restating the delivery
 // contract.
 func webhookSourcesData(Env, Input) (map[string]any, error) {
-	doc, err := flow.NodeDoc("webhook-source")
+	doc, err := flow.NodeDoc("sources.webhook")
 	if err != nil {
 		return nil, err
 	}
@@ -328,7 +328,7 @@ func settingsData(Env, Input) (map[string]any, error) {
 	return map[string]any{}, nil
 }
 
-// webhookTransformData scopes the transform prompt to one webhook-source node.
+// webhookTransformData scopes the transform prompt to one sources.webhook node.
 // A node with no captured delivery still gets a usable prompt — the sample
 // becomes a placeholder the user pastes into.
 func webhookTransformData(_ Env, in Input) (map[string]any, error) {

@@ -4,19 +4,19 @@ import Editor from '../editor.vue'
 import { defaults, validate, type Config } from '../config'
 import { chooseOption } from '../../../../test-utils/select'
 
-describe('github-source editor', () => {
+describe('sources.github editor', () => {
   it('renders the current kind and query', () => {
     const config: Config = { kind: 'search', query: 'is:open is:pr' }
     const wrapper = mount(Editor, { props: { config } })
-    expect(wrapper.get('[data-testid="github-source-editor-kind"]').text()).toContain('Search')
-    expect(wrapper.get<HTMLInputElement>('[data-testid="github-source-editor-query"]').element.value).toBe('is:open is:pr')
+    expect(wrapper.get('[data-testid="sources.github-editor-kind"]').text()).toContain('Search')
+    expect(wrapper.get<HTMLInputElement>('[data-testid="sources.github-editor-query"]').element.value).toBe('is:open is:pr')
   })
 
   it('emits an immutable update:config on query edit, without mutating the config prop', async () => {
     const config: Config = { kind: 'search', query: '' }
     const wrapper = mount(Editor, { props: { config } })
 
-    const input = wrapper.get<HTMLInputElement>('[data-testid="github-source-editor-query"]').element
+    const input = wrapper.get<HTMLInputElement>('[data-testid="sources.github-editor-query"]').element
     input.value = 'is:open'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     await wrapper.vm.$nextTick()
@@ -29,14 +29,14 @@ describe('github-source editor', () => {
     const config: Config = { kind: 'search', query: 'is:open' }
     const wrapper = mount(Editor, { props: { config } })
 
-    await chooseOption(wrapper, 'github-source-editor-kind', 'notifications')
+    await chooseOption(wrapper, 'sources.github-editor-kind', 'notifications')
 
     expect(wrapper.emitted('update:config')).toEqual([[{ kind: 'notifications', query: '' }]])
     wrapper.unmount()
   })
 })
 
-describe('github-source validate', () => {
+describe('sources.github validate', () => {
   it('requires a query for search sources', () => {
     expect(validate(defaults)).toEqual(['a search source requires a query'])
     expect(validate({ kind: 'search', query: '  ' })).toEqual(['a search source requires a query'])

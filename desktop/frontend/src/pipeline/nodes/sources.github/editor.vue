@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// github-source has no runtime.ts (the source runs in Go). The editor embeds
+// sources.github has no runtime.ts (the source runs in Go). The editor embeds
 // the fetch config directly — a "search" source runs a query, a
 // "notifications" source drains the inbox — matching the backend
 // GithubSourceConfig it round-trips to.
@@ -39,7 +39,7 @@ function updateLimit(limit: number) {
       label="Kind"
       :model-value="config.kind"
       :options="KIND_OPTIONS"
-      testid="github-source-editor-kind"
+      testid="sources.github-editor-kind"
       @update:model-value="updateKind"
     />
     <TextField
@@ -49,7 +49,7 @@ function updateLimit(limit: number) {
       placeholder="is:open is:pr archived:false"
       hint="A GitHub search query. Costs one search request per poll."
       monospace
-      testid="github-source-editor-query"
+      testid="sources.github-editor-query"
       @update:model-value="updateQuery"
     />
     <NumberField
@@ -57,7 +57,7 @@ function updateLimit(limit: number) {
       :model-value="config.limit ?? 0"
       :placeholder="isSearch ? '50 (max 100)' : '50 (max 50)'"
       hint="Max items per fetch. 0 uses the default (50)."
-      testid="github-source-editor-limit"
+      testid="sources.github-editor-limit"
       @update:model-value="updateLimit"
     />
   </div>

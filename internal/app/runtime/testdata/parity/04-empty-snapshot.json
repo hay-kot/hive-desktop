@@ -6,7 +6,7 @@
     "name": "Empty",
     "enabled": true,
     "nodes": [
-      { "id": "gh", "type": "github-source", "kind": "search", "query": "is:open" },
+      { "id": "gh", "type": "sources.github", "kind": "search", "query": "is:open" },
       { "id": "inbox", "type": "feed" }
     ],
     "wires": [{ "from": "gh", "to": "inbox" }]

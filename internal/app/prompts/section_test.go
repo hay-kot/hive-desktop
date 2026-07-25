@@ -8,9 +8,9 @@ import (
 
 func TestSectionRewritesDocOutlineToFit(t *testing.T) {
 	doc := "# GitHub source\n\nProse.\n\n## Fields\n\n- `kind`\n\n### Detail\n\nMore.\n"
-	got := section(4, "github-source", doc)
+	got := section(4, "sources.github", doc)
 
-	assert.Contains(t, got, "#### GitHub source — `github-source`")
+	assert.Contains(t, got, "#### GitHub source — `sources.github`")
 	assert.Contains(t, got, "##### Fields")
 	assert.Contains(t, got, "###### Detail")
 	assert.NotContains(t, got, "\n# ")

@@ -10,9 +10,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-type githubAbsenceConfirmer struct{ live *feed.LiveProvider }
+type absenceConfirmer struct{ live *feed.LiveProvider }
 
-func (c *githubAbsenceConfirmer) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
+func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
 	var item feed.Item
 	if err := json.Unmarshal(prev.Payload, &item); err != nil {
 		return store.AbsenceVerdict{}, fmt.Errorf("decoding GitHub observation: %w", err)
@@ -39,17 +39,17 @@ func (c *githubAbsenceConfirmer) ConfirmAbsence(ctx context.Context, prev store.
 	return store.AbsenceVerdict{Current: &current, Terminal: state == "closed" || state == "merged"}, nil
 }
 
-type githubClassifier struct{ absence store.AbsenceConfirmer }
+type classifier struct{ absence store.AbsenceConfirmer }
 
-func newGithubClassifier(absence store.AbsenceConfirmer) *githubClassifier {
-	return &githubClassifier{absence: absence}
+func newClassifier(absence store.AbsenceConfirmer) *classifier {
+	return &classifier{absence: absence}
 }
 
-func (c *githubClassifier) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
+func (c *classifier) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
 	return c.absence.ConfirmAbsence(ctx, prev)
 }
 
-func (c *githubClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (c *classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	cur := decodeGithub(current.Payload)
 	lifecycle := store.LifecycleUnknown
 	if cur.State == "open" {
@@ -87,16 +87,6 @@ func (c *githubClassifier) Classify(previous *store.Observation, current store.O
 		out.Detail = githubDetail(&prev, cur)
 	}
 	return out
-}
-
-func NewGithubSourceAdapter(live *feed.LiveProvider) store.SourceAdapter {
-	return newGithubSourceAdapter(live)
-}
-
-func newGithubSourceAdapter(live *feed.LiveProvider) store.SourceAdapter {
-	absence := &githubAbsenceConfirmer{live: live}
-	classifier := newGithubClassifier(absence)
-	return store.SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: classifier}
 }
 
 type githubPayload struct {

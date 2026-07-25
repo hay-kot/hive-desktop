@@ -6,7 +6,7 @@
     "name": "Snap",
     "enabled": true,
     "nodes": [
-      { "id": "gh", "type": "github-source", "kind": "search", "query": "is:open" },
+      { "id": "gh", "type": "sources.github", "kind": "search", "query": "is:open" },
       { "id": "inbox", "type": "feed" },
       { "id": "run", "type": "action", "action": "triage-it" }
     ],

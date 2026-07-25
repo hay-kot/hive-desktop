@@ -1,7 +1,7 @@
 package feed
 
 // SourceDef is one GitHub fetch request. It is no longer a config entry — the
-// github-source flow node embeds these fields — but it survives as the value
+// sources.github flow node embeds these fields — but it survives as the value
 // type LiveProvider.SourceItems takes and caches on (keyed by kind+query+limit
 // via sourceKey), so any number of source nodes requesting the same data
 // share one API request.

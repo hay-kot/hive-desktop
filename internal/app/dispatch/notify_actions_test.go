@@ -5,6 +5,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,7 +27,7 @@ func notifyFlows() flowListerTest {
 	return flowListerTest{flows: []flow.Flow{{
 		ID: "triage",
 		Nodes: []flow.Node{
-			{ID: "src", Type: "github-source", Config: &flow.GithubSourceConfig{}},
+			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{})},
 			{ID: "tell-me", Type: "notify", Name: "Tell me", Config: &flow.NotifyConfig{
 				Title: "{{ .Payload.repo }}", Body: "{{ .Payload.title }}", Severity: "warning", Sound: &silent,
 			}},

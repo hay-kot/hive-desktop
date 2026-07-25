@@ -32,13 +32,13 @@ func TestNodeDocsCoverEveryRegisteredType(t *testing.T) {
 
 func TestCategoryOfDerivesFromPortCounts(t *testing.T) {
 	for nodeType, want := range map[string]NodeCategory{
-		"github-source":  CategorySources,
-		"webhook-source": CategorySources,
-		"github-filter":  CategoryProcess,
-		"function":       CategoryProcess,
-		"feed":           CategoryDestinations,
-		"action":         CategoryDestinations,
-		"notify":         CategoryDestinations,
+		"sources.github":  CategorySources,
+		"sources.webhook": CategorySources,
+		"github-filter":   CategoryProcess,
+		"function":        CategoryProcess,
+		"feed":            CategoryDestinations,
+		"action":          CategoryDestinations,
+		"notify":          CategoryDestinations,
 	} {
 		got, err := CategoryOf(nodeType)
 		require.NoErrorf(t, err, "node type %q", nodeType)

@@ -66,7 +66,7 @@ export const feedIconOptions: FeedIconOption[] = [
 // sidebar's historical default before feeds carried an icon.
 export const defaultFeedIcon = 'git-branch'
 
-// The glyph a webhook-source's items fall back to when the node has no
+// The glyph a sources.webhook's items fall back to when the node has no
 // configured icon.
 export const defaultWebhookSourceIcon = 'webhook'
 

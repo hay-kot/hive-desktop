@@ -108,7 +108,7 @@ func (s *WebhookService) GeneratePort(ctx context.Context) (int, error) {
 	return port, Wrap(err, KindUnavailable, "allocating a webhook port")
 }
 
-// WebhookCapture is one webhook-source node's most recent delivery.
+// WebhookCapture is one sources.webhook node's most recent delivery.
 // ReceivedAt of 0 means nothing has been captured yet.
 type WebhookCapture struct {
 	ReceivedAt    int64
@@ -117,7 +117,7 @@ type WebhookCapture struct {
 	MissingFields []string
 }
 
-// Capture returns the last request body posted to a webhook-source node, with
+// Capture returns the last request body posted to a sources.webhook node, with
 // the non-blocking feed-shape verdict: a payload missing feed-item fields
 // ingests fine but renders minimally in feeds.
 func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (WebhookCapture, error) {

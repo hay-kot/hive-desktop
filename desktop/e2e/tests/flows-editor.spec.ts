@@ -51,7 +51,7 @@ test('opens the flows editor from the command palette and shows the fixture flow
   await expect(palette.getByText('Process', { exact: true })).toBeVisible()
   await expect(palette.getByText('Destinations', { exact: true })).toBeVisible()
 
-  await expect(page.locator('[data-testid="palette-entry"][data-type="github-source"]')).toBeVisible()
+  await expect(page.locator('[data-testid="palette-entry"][data-type="sources.github"]')).toBeVisible()
   await expect(page.locator('[data-testid="palette-entry"][data-type="github-filter"]')).toBeVisible()
   await expect(page.locator('[data-testid="palette-entry"][data-type="function"]')).toBeVisible()
   await expect(page.locator('[data-testid="palette-entry"][data-type="feed"]')).toBeVisible()

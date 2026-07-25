@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// webhook-source has no runtime.ts (deliveries are ingested by the Go
+// sources.webhook has no runtime.ts (deliveries are ingested by the Go
 // listener). Beyond the config fields the editor surfaces backend-derived
 // affordances: the endpoint URL to paste into the sending system, the last
 // captured delivery with the non-blocking feed-shape hint, and the copyable
@@ -134,7 +134,7 @@ async function onCopyPrompt(): Promise<void> {
       placeholder="ci-alerts"
       hint="Served at /hooks/<path> on the local webhook listener."
       monospace
-      testid="webhook-source-editor-path"
+      testid="sources.webhook-editor-path"
       @update:model-value="updatePath"
     >
       <template #trailing>
@@ -143,7 +143,7 @@ async function onCopyPrompt(): Promise<void> {
           class="field-action"
           title="Generate a new path"
           aria-label="Generate a new path"
-          data-testid="webhook-source-editor-path-generate"
+          data-testid="sources.webhook-editor-path-generate"
           @click="regeneratePath"
         ><IconRefresh class="size-[14px]" /></button>
       </template>
@@ -154,7 +154,7 @@ async function onCopyPrompt(): Promise<void> {
       placeholder="optional shared secret"
       hint="When set, requests must send this value in the X-Hive-Secret header."
       monospace
-      testid="webhook-source-editor-secret"
+      testid="sources.webhook-editor-secret"
       @update:model-value="updateSecret"
     >
       <template #trailing>
@@ -163,7 +163,7 @@ async function onCopyPrompt(): Promise<void> {
           class="field-action"
           title="Generate a new secret"
           aria-label="Generate a new secret"
-          data-testid="webhook-source-editor-secret-generate"
+          data-testid="sources.webhook-editor-secret-generate"
           @click="regenerateSecret"
         ><IconRefresh class="size-[14px]" /></button>
       </template>
@@ -175,7 +175,7 @@ async function onCopyPrompt(): Promise<void> {
       searchable
       search-placeholder="Search icons…"
       hint="Shown on this source's items in feeds."
-      testid="webhook-source-editor-icon"
+      testid="sources.webhook-editor-icon"
       @update:model-value="updateIcon"
     />
 
@@ -184,9 +184,9 @@ async function onCopyPrompt(): Promise<void> {
       <div class="flex items-center gap-2">
         <code
           class="min-w-0 flex-1 truncate rounded-lg border border-strong bg-app px-3 py-2 font-mono text-[12px] text-text-2"
-          data-testid="webhook-source-editor-url"
+          data-testid="sources.webhook-editor-url"
         >{{ endpointUrl }}</code>
-        <BaseButton variant="secondary" size="sm" class="whitespace-nowrap" data-testid="webhook-source-editor-copy-url" @click="copyUrl(endpointUrl)">
+        <BaseButton variant="secondary" size="sm" class="whitespace-nowrap" data-testid="sources.webhook-editor-copy-url" @click="copyUrl(endpointUrl)">
           {{ urlCopied ? 'Copied' : 'Copy' }}
         </BaseButton>
       </div>
@@ -198,11 +198,11 @@ async function onCopyPrompt(): Promise<void> {
     <div>
       <div class="mb-1.5 text-[12px] text-text-2">Last delivery</div>
       <template v-if="hasCapture">
-        <div class="mb-1.5 font-mono text-[11px] text-text-4" data-testid="webhook-source-editor-captured-at">{{ capturedAt }}</div>
+        <div class="mb-1.5 font-mono text-[11px] text-text-4" data-testid="sources.webhook-editor-captured-at">{{ capturedAt }}</div>
         <div
           v-if="missingFields.length > 0"
           class="mb-2 rounded-lg border border-strong bg-selection px-3 py-2.5 text-[12px] leading-relaxed text-text-2"
-          data-testid="webhook-source-editor-shape-warning"
+          data-testid="sources.webhook-editor-shape-warning"
         >
           Missing canonical item fields: <span class="font-mono">{{ missingFields.join(', ') }}</span> — the item
           still ingests, but renders minimally in feeds (see ADR 0008). Add a <span class="font-mono">function</span>
@@ -211,16 +211,16 @@ async function onCopyPrompt(): Promise<void> {
         </div>
         <pre
           class="max-h-48 overflow-auto rounded-lg border border-row bg-app px-3 py-2.5 font-mono text-[11.5px] leading-relaxed text-text-2"
-          data-testid="webhook-source-editor-capture"
+          data-testid="sources.webhook-editor-capture"
         >{{ capturePreview }}</pre>
       </template>
-      <p v-else class="text-[12px] text-text-4" data-testid="webhook-source-editor-no-capture">
+      <p v-else class="text-[12px] text-text-4" data-testid="sources.webhook-editor-no-capture">
         Nothing captured yet — POST JSON to the endpoint and reopen this editor to see the payload here.
       </p>
     </div>
 
     <div class="flex items-center gap-2.5">
-      <BaseButton variant="secondary" size="sm" class="whitespace-nowrap" data-testid="webhook-source-editor-copy-prompt" @click="onCopyPrompt">
+      <BaseButton variant="secondary" size="sm" class="whitespace-nowrap" data-testid="sources.webhook-editor-copy-prompt" @click="onCopyPrompt">
         Copy LLM prompt
       </BaseButton>
       <span v-if="promptCopied" class="text-[11.5px] text-text-4">Copied — paste into your coding agent</span>

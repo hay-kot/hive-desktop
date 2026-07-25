@@ -11,6 +11,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -45,7 +46,7 @@ func (f *flowSet) set(flows ...flow.Flow) {
 	f.flows = flows
 }
 
-// triageFlow is a github-source into one feed, the smallest flow that commits
+// triageFlow is a sources.github into one feed, the smallest flow that commits
 // membership.
 func triageFlow(id string, enabled bool) flow.Flow {
 	return flow.Flow{
@@ -53,7 +54,7 @@ func triageFlow(id string, enabled bool) flow.Flow {
 		Name:    id,
 		Enabled: enabled,
 		Nodes: []flow.Node{
-			{ID: "src", Type: "github-source", Config: &flow.GithubSourceConfig{Kind: "search", Query: "is:open"}},
+			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Kind: "search", Query: "is:open"})},
 			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
 		},
 		Wires: []flow.Wire{{From: "src", To: "inbox"}},

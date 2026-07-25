@@ -1,65 +1,40 @@
-// Package pipeline is the desktop pipeline's producer side: the Source seam
-// that turns a configured data source into event_log rows, and the Producer
-// that drives it on a poll tick. Delivery (reading the log, committing a
-// consumer's offset) is exposed to the frontend by desktop/pipelineservice.go;
-// this package only appends.
+// Package ingest is the pipeline's producer side: the poll loop that turns
+// configured source connectors into event_log rows, and the resolver that
+// turns the current flow set into the connector instances it drives.
+//
+// Delivery — reading the log, routing it, committing a consumer's offset —
+// belongs to internal/app/runtime; this package only appends.
 package ingest
 
 import (
 	"context"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// Msg is the pipeline's generic log record. It is store.Msg verbatim —
-// Source implementations build one per item and Producer appends it as-is,
-// so there is no separate wire type to keep in sync.
+// Msg is the pipeline's generic log record. It is store.Msg verbatim — a
+// connector builds one per item and Producer appends it as-is, so there is no
+// separate wire type to keep in sync.
 type Msg = store.Msg
 
-// Source produces the current state of one data source as a sequence of
-// Msg, calling emit once per item. Produce is called synchronously from a
-// Producer tick and returns once every current item has been emitted, or
-// once fetching or an emit call fails. A successful call is an authoritative
-// snapshot, including an empty one: Producer records the complete emitted
-// key/payload set after it returns. Implementations should set:
-//   - Topic: "source:" + the source's stable ID, so consumers can filter by
-//     source.
-//   - Key: the item's stable identity, used by AppendIfChanged to skip
-//     unchanged source values within the same topic.
-//   - Payload: the item, JSON-encoded.
-type Source interface {
-	Produce(ctx context.Context, emit func(Msg) error) error
+// Sources is what a producer tick needs from the connector registry. Declared
+// here rather than exported from the registry because a package's dependency
+// is exactly the methods it calls.
+type Sources interface {
+	// PullInstances is every enabled pull-mode connector instance across the
+	// current flow set. It is called once per tick — rather than fixed at
+	// construction — so a source node added to or removed from a flow takes
+	// effect without a restart.
+	PullInstances() []connector.Instance
+	// Prefetch offers the tick's instances to any connector that declared
+	// CapBatchPrefetch, before any of them is drained.
+	Prefetch(ctx context.Context, instances []connector.Instance) error
 }
 
-// SourceLister resolves the current set of sources to poll, keyed by a
-// stable ID (used as the log topic and for logging). Producer calls it once
-// per tick — rather than fixing the set at construction — so source nodes
-// added to or removed from flows take effect without a restart.
-type SourceLister func(ctx context.Context) (map[string]Source, error)
-
-// SourceMetadata is optional source-side data needed at the ingestion
-// boundary. Exported because connectors now live in their own packages: Go
-// cannot satisfy an unexported interface method from another package, so an
-// unexported MetadataSource would compile and never match, silently
-// downgrading every connector to generic ingestion.
-type SourceMetadata struct {
-	ProfileID   string
-	SourceKind  string
-	SourceScope string
-	Policy      store.ResurfacePolicy
-}
-
-// MetadataSource is implemented by sources that describe their own ingestion
-// metadata. A source that does not implement it is ingested as SourceKind
-// "generic".
-type MetadataSource interface{ IngestMetadata() SourceMetadata }
-
-// FlowLister is the subset of *flow.FlowStore this package needs: the
-// current set of loaded flows. It is called once per tick rather than fixed
-// at construction, so a flow added, edited or removed takes effect without a
-// restart. Declared per consuming package: a package's dependency on the
-// flow store is exactly the method it calls.
+// FlowLister is the subset of *flow.FlowStore this package needs: the current
+// set of loaded flows.
 type FlowLister interface {
 	List() []flow.Flow
 }

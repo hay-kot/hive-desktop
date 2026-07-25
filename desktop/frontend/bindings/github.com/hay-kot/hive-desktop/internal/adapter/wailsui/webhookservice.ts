@@ -3,7 +3,7 @@
 
 /**
  * WebhookService exposes the local webhook listener's endpoint info, its
- * user-tunable settings, and each webhook-source node's last captured
+ * user-tunable settings, and each sources.webhook node's last captured
  * delivery to the frontend.
  * @module
  */
@@ -17,7 +17,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 import * as $models from "./models.js";
 
 /**
- * Capture returns the last request body POSTed to a webhook-source node, with
+ * Capture returns the last request body POSTed to a sources.webhook node, with
  * the non-blocking feed-shape verdict the editor surfaces.
  */
 export function Capture(flowID: string, nodeID: string): $CancellablePromise<$models.WebhookCaptureView> {
@@ -33,7 +33,7 @@ export function GeneratePort(): $CancellablePromise<number> {
 }
 
 /**
- * Info returns the listener's state and the base URL webhook-source paths are
+ * Info returns the listener's state and the base URL sources.webhook paths are
  * served under (endpoint URL = BaseURL + node path).
  */
 export function Info(): $CancellablePromise<$models.WebhookInfo> {

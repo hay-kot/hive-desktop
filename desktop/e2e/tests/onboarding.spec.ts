@@ -78,7 +78,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
   test('creates the first workspace and lands on an empty feed', async () => {
     // Authenticated with no workspaces — create the first one. "New profile"
     // seeds a real starter flow (flow.FlowStore.starterFlow — three
-    // github-source -> feed pairs plus a notifying "Review requests" feed), but
+    // sources.github -> feed pairs plus a notifying "Review requests" feed), but
     // nothing has polled GitHub yet in mock
     // mode (buildPipelineProducer is skipped, and only the fixture flow
     // desktop/mockseed.go targets gets seeded feed_item rows) — so a freshly

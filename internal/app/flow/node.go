@@ -38,16 +38,36 @@ type nodeFactory func() NodeConfig
 
 // registry maps a node's `type:` discriminator to the factory for its
 // per-type config. Registering a new node type means adding one entry here
-// (and, if it's a terminal or source, nowhere else — Inputs/Outputs are
-// carried by the config type itself).
-var registry = map[string]nodeFactory{
-	"github-source":  func() NodeConfig { return &GithubSourceConfig{} },
-	"webhook-source": func() NodeConfig { return &WebhookSourceConfig{} },
-	"github-filter":  func() NodeConfig { return &GithubFilterConfig{} },
-	"function":       func() NodeConfig { return &FunctionConfig{} },
-	"feed":           func() NodeConfig { return &FeedConfig{} },
-	"action":         func() NodeConfig { return &ActionConfig{} },
-	"notify":         func() NodeConfig { return &NotifyConfig{} },
+// (and, if it's a terminal, nowhere else — Inputs/Outputs are carried by the
+// config type itself).
+//
+// Source types are not listed: they are derived from the connector registry,
+// so adding a source connector is a change to internal/app/sources alone.
+var registry = buildRegistry(map[string]nodeFactory{
+	"github-filter": func() NodeConfig { return &GithubFilterConfig{} },
+	"function":      func() NodeConfig { return &FunctionConfig{} },
+	"feed":          func() NodeConfig { return &FeedConfig{} },
+	"action":        func() NodeConfig { return &ActionConfig{} },
+	"notify":        func() NodeConfig { return &NotifyConfig{} },
+})
+
+// buildRegistry merges the node types declared here with the source types
+// derived from the connector registry. A collision means a connector claimed
+// a type string a non-source node already uses, which would make one of them
+// undecodable — it panics at init rather than resolving silently, because
+// both maps are compile-time constants and there is nothing to recover to.
+func buildRegistry(declared map[string]nodeFactory) map[string]nodeFactory {
+	out := make(map[string]nodeFactory, len(declared))
+	for nodeType, factory := range declared {
+		out[nodeType] = factory
+	}
+	for nodeType, factory := range sourceNodeFactories() {
+		if _, clash := out[nodeType]; clash {
+			panic("flow: source connector " + nodeType + " collides with a declared node type")
+		}
+		out[nodeType] = factory
+	}
+	return out
 }
 
 // nodeHeader is the small set of fields common to every node, decoded first

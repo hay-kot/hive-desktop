@@ -147,7 +147,7 @@ onMounted(() => void refresh())
       </SettingsField>
       <p v-if="!portValid" class="-mt-3 text-xs text-severity-error" data-testid="webhook-settings-port-error">Enter a whole number between 1024 and 65535.</p>
 
-      <SettingsField v-if="baseUrl" label="Base URL" hint="Each webhook-source node appends its own path to this." testid="webhook-settings-base-url">
+      <SettingsField v-if="baseUrl" label="Base URL" hint="Each sources.webhook node appends its own path to this." testid="webhook-settings-base-url">
         <div class="flex items-center gap-2">
           <code
             class="min-w-0 flex-1 truncate rounded-lg border border-strong bg-app px-3 py-2 font-mono text-[12px] text-text-2"
