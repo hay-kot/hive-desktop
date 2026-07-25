@@ -12,14 +12,14 @@ import (
 
 type githubAbsenceConfirmer struct{ live *feed.LiveProvider }
 
-func (c *githubAbsenceConfirmer) ConfirmAbsence(ctx context.Context, prev Observation) (AbsenceVerdict, error) {
+func (c *githubAbsenceConfirmer) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
 	var item feed.Item
 	if err := json.Unmarshal(prev.Payload, &item); err != nil {
-		return AbsenceVerdict{}, fmt.Errorf("decoding GitHub observation: %w", err)
+		return store.AbsenceVerdict{}, fmt.Errorf("decoding GitHub observation: %w", err)
 	}
 	issue, err := c.live.ConfirmTerminal(ctx, item.Repo, item.Num, item.Kind == "PR")
 	if err != nil {
-		return AbsenceVerdict{}, err
+		return store.AbsenceVerdict{}, err
 	}
 	state := issue.State
 	if issue.Merged {
@@ -29,27 +29,27 @@ func (c *githubAbsenceConfirmer) ConfirmAbsence(ctx context.Context, prev Observ
 	item.UpdatedAt = issue.UpdatedAt.UnixMilli()
 	payload, err := json.Marshal(item)
 	if err != nil {
-		return AbsenceVerdict{}, err
+		return store.AbsenceVerdict{}, err
 	}
 	current := prev
 	// source_head stores only payload. Set display metadata from its decoded
 	// feed item so absence hydration never overwrites the inbox with blanks.
 	current.Title, current.URL = item.Title, item.URL
 	current.Payload, current.ObservedAt = payload, item.UpdatedAt
-	return AbsenceVerdict{Current: &current, Terminal: state == "closed" || state == "merged"}, nil
+	return store.AbsenceVerdict{Current: &current, Terminal: state == "closed" || state == "merged"}, nil
 }
 
-type githubClassifier struct{ absence AbsenceConfirmer }
+type githubClassifier struct{ absence store.AbsenceConfirmer }
 
-func newGithubClassifier(absence AbsenceConfirmer) *githubClassifier {
+func newGithubClassifier(absence store.AbsenceConfirmer) *githubClassifier {
 	return &githubClassifier{absence: absence}
 }
 
-func (c *githubClassifier) ConfirmAbsence(ctx context.Context, prev Observation) (AbsenceVerdict, error) {
+func (c *githubClassifier) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
 	return c.absence.ConfirmAbsence(ctx, prev)
 }
 
-func (c *githubClassifier) Classify(previous *Observation, current Observation) Classification {
+func (c *githubClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	cur := decodeGithub(current.Payload)
 	lifecycle := store.LifecycleUnknown
 	if cur.State == "open" {
@@ -58,7 +58,7 @@ func (c *githubClassifier) Classify(previous *Observation, current Observation) 
 	if cur.State == "closed" || cur.State == "merged" {
 		lifecycle = store.LifecycleTerminal
 	}
-	out := Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
+	out := store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
 	if previous == nil {
 		out.Attention, out.Kind, out.Summary, out.OccurrenceKey = store.AttentionActivity, "observed", "Added to workspace", githubOccurrence(current.ExternalID, cur)
 		out.Detail = githubDetail(nil, cur)
@@ -89,14 +89,14 @@ func (c *githubClassifier) Classify(previous *Observation, current Observation) 
 	return out
 }
 
-func NewGithubSourceAdapter(live *feed.LiveProvider) SourceAdapter {
+func NewGithubSourceAdapter(live *feed.LiveProvider) store.SourceAdapter {
 	return newGithubSourceAdapter(live)
 }
 
-func newGithubSourceAdapter(live *feed.LiveProvider) SourceAdapter {
+func newGithubSourceAdapter(live *feed.LiveProvider) store.SourceAdapter {
 	absence := &githubAbsenceConfirmer{live: live}
 	classifier := newGithubClassifier(absence)
-	return SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: classifier}
+	return store.SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: classifier}
 }
 
 type githubPayload struct {

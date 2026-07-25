@@ -23,40 +23,40 @@ func (s metadataFakeSource) ingestMetadata() sourceMetadata { return s.meta }
 
 type countingAbsence struct{ calls atomic.Int32 }
 
-func (c *countingAbsence) ConfirmAbsence(context.Context, Observation) (AbsenceVerdict, error) {
+func (c *countingAbsence) ConfirmAbsence(context.Context, store.Observation) (store.AbsenceVerdict, error) {
 	c.calls.Add(1)
-	return AbsenceVerdict{}, nil
+	return store.AbsenceVerdict{}, nil
 }
 
 type payloadHydratingAbsence struct {
 	calls     int
-	observed  Observation
+	observed  store.Observation
 	updatedAt int64
 	terminal  bool
 }
 
-func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, prev Observation) (AbsenceVerdict, error) {
+func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
 	c.calls++
 	c.observed = prev
 	var item feed.Item
 	if err := json.Unmarshal(prev.Payload, &item); err != nil {
-		return AbsenceVerdict{}, err
+		return store.AbsenceVerdict{}, err
 	}
 	item.UpdatedAt = c.updatedAt
 	payload, err := json.Marshal(item)
 	if err != nil {
-		return AbsenceVerdict{}, err
+		return store.AbsenceVerdict{}, err
 	}
 	current := prev
 	current.Payload = payload
 	current.ObservedAt = item.UpdatedAt
-	return AbsenceVerdict{Current: &current, Terminal: c.terminal}, nil
+	return store.AbsenceVerdict{Current: &current, Terminal: c.terminal}, nil
 }
 
 type activeAbsenceClassifier struct{}
 
-func (activeAbsenceClassifier) Classify(_ *Observation, current Observation) Classification {
-	return Classification{
+func (activeAbsenceClassifier) Classify(_ *store.Observation, current store.Observation) store.Classification {
+	return store.Classification{
 		Kind: "updated", Attention: store.AttentionTrivial,
 		Transition: store.TransitionNone, Lifecycle: store.LifecycleActive,
 		Summary: current.Title,
@@ -70,7 +70,7 @@ func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
 	require.NoError(t, err)
 	absence := &countingAbsence{}
 	producer := NewProducer(db, listerOf(map[string]Source{"profile/first": metadataFakeSource{fakeSource: &fakeSource{}, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}}}), time.Hour, nil, zerolog.Nop())
-	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: absence})
+	producer.SetSourceAdapter(store.SourceAdapter{SourceKind: "github", Classifier: classifier, AbsenceConfirmer: absence})
 	producer.Tick(t.Context())
 	assert.Zero(t, absence.calls.Load(), "a sibling source topic must not be considered absent")
 }
@@ -87,7 +87,7 @@ func TestProducerAbsenceHydrationPreservesInboxMetadata(t *testing.T) {
 	producer := NewProducer(db, listerOf(map[string]Source{
 		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}},
 	}), time.Hour, nil, zerolog.Nop())
-	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: genericClassifier{}, AbsenceConfirmer: absence})
+	producer.SetSourceAdapter(store.SourceAdapter{SourceKind: "github", Classifier: genericClassifier{}, AbsenceConfirmer: absence})
 
 	producer.Tick(t.Context())
 	producer.Tick(t.Context())
@@ -116,7 +116,7 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 	producer := NewProducer(db, listerOf(map[string]Source{
 		"profile/source": metadataFakeSource{fakeSource: src, meta: sourceMetadata{ProfileID: "profile", SourceKind: "github", Policy: store.ResurfacePolicyStateChanges}},
 	}), time.Hour, nil, zerolog.Nop())
-	producer.SetSourceAdapter(SourceAdapter{SourceKind: "github", Classifier: activeAbsenceClassifier{}, AbsenceConfirmer: absence})
+	producer.SetSourceAdapter(store.SourceAdapter{SourceKind: "github", Classifier: activeAbsenceClassifier{}, AbsenceConfirmer: absence})
 
 	producer.Tick(t.Context())
 	producer.Tick(t.Context())

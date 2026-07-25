@@ -6,6 +6,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // ActionTypeNotify is the action type the notify executor is registered
@@ -60,8 +61,8 @@ type FlowNotifyActions struct {
 
 // NewFlowNotifyActions wraps an authored action store with notify-node
 // resolution over flows.
-func NewFlowNotifyActions(flows FlowLister, store ActionLister) *FlowNotifyActions {
-	return &FlowNotifyActions{flows: flows, actions: store}
+func NewFlowNotifyActions(flows FlowLister, catalog ActionLister) *FlowNotifyActions {
+	return &FlowNotifyActions{flows: flows, actions: catalog}
 }
 
 // Get resolves id to an executable action. A notify id that no longer names
@@ -69,7 +70,7 @@ func NewFlowNotifyActions(flows FlowLister, store ActionLister) *FlowNotifyActio
 // actions.yml entry: its queued command fails rather than silently doing
 // nothing.
 func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
-	target, ok := NotifyActionTarget(id)
+	target, ok := store.NotifyActionTarget(id)
 	if !ok {
 		if l.actions == nil {
 			return actions.Action{}, false

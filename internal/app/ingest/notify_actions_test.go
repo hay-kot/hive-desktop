@@ -5,6 +5,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -37,7 +38,7 @@ func notifyFlows() flowListerTest {
 func TestFlowNotifyActions_SynthesizesFromTheFlowNode(t *testing.T) {
 	lister := NewFlowNotifyActions(notifyFlows(), actionListerTest{})
 
-	action, ok := lister.Get(NotifyActionID("triage/tell-me"))
+	action, ok := lister.Get(store.NotifyActionID("triage/tell-me"))
 	require.True(t, ok)
 	assert.Equal(t, ActionTypeNotify, action.Type)
 	assert.Equal(t, "Tell me", action.Label)
@@ -54,7 +55,7 @@ func TestFlowNotifyActions_SynthesizesFromTheFlowNode(t *testing.T) {
 func TestFlowNotifyActions_FillsDefaultsForABareNode(t *testing.T) {
 	lister := NewFlowNotifyActions(notifyFlows(), actionListerTest{})
 
-	action, ok := lister.Get(NotifyActionID("triage/bare"))
+	action, ok := lister.Get(store.NotifyActionID("triage/bare"))
 	require.True(t, ok)
 	assert.Equal(t, "Notify bare", action.Label)
 	assert.Equal(t, &NotifyActionConfig{Title: "hi", Severity: flow.NotifySeverityDefault, Sound: true}, action.Config)
@@ -79,11 +80,11 @@ func TestFlowNotifyActions_UnknownNotifyTargets(t *testing.T) {
 	lister := NewFlowNotifyActions(notifyFlows(), actionListerTest{})
 
 	for _, id := range []string{
-		NotifyActionID("triage/deleted"),
-		NotifyActionID("other-flow/tell-me"),
-		NotifyActionID("triage/src"), // exists, but is not a notify node
-		NotifyActionID("no-slash"),
-		NotifyActionPrefix,
+		store.NotifyActionID("triage/deleted"),
+		store.NotifyActionID("other-flow/tell-me"),
+		store.NotifyActionID("triage/src"), // exists, but is not a notify node
+		store.NotifyActionID("no-slash"),
+		store.NotifyActionPrefix,
 	} {
 		_, ok := lister.Get(id)
 		assert.False(t, ok, id)
@@ -91,12 +92,12 @@ func TestFlowNotifyActions_UnknownNotifyTargets(t *testing.T) {
 }
 
 func TestNotifyActionID_RoundTrips(t *testing.T) {
-	target, ok := NotifyActionTarget(NotifyActionID("triage/tell-me"))
+	target, ok := store.NotifyActionTarget(store.NotifyActionID("triage/tell-me"))
 	require.True(t, ok)
 	assert.Equal(t, "triage/tell-me", target)
 
 	// An authored action id is a slug, so it can never look like a notify id.
-	_, ok = NotifyActionTarget("review-pr")
+	_, ok = store.NotifyActionTarget("review-pr")
 	assert.False(t, ok)
 }
 
@@ -123,7 +124,7 @@ func TestFlowNotifyActions_ResolvesANotifyingFeed(t *testing.T) {
 		{ID: "quiet", Type: "feed", Config: &flow.FeedConfig{}},
 	}}}}
 
-	action, ok := NewFlowNotifyActions(flows, nil).Get(NotifyActionID("triage/review-requests"))
+	action, ok := NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/review-requests"))
 	require.True(t, ok)
 	assert.Equal(t, ActionTypeNotify, action.Type)
 	assert.Equal(t, "Review requests", action.Label)
@@ -137,6 +138,6 @@ func TestFlowNotifyActions_ResolvesANotifyingFeed(t *testing.T) {
 
 	// A feed that does not notify has nothing to resolve: reaching here for
 	// one means the flow was edited after the command was queued.
-	_, ok = NewFlowNotifyActions(flows, nil).Get(NotifyActionID("triage/quiet"))
+	_, ok = NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/quiet"))
 	assert.False(t, ok)
 }

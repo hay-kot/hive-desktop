@@ -38,7 +38,7 @@ type Producer struct {
 	logger     zerolog.Logger
 	recorder   activity.Recorder
 	prefetcher SearchPrefetcher
-	adapters   map[string]SourceAdapter
+	adapters   map[string]store.SourceAdapter
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -60,7 +60,7 @@ type SearchPrefetcher interface {
 func (pr *Producer) SetPrefetcher(p SearchPrefetcher) { pr.prefetcher = p }
 
 // SetSourceAdapter registers classification and absence behavior by source kind.
-func (pr *Producer) SetSourceAdapter(adapter SourceAdapter) {
+func (pr *Producer) SetSourceAdapter(adapter store.SourceAdapter) {
 	pr.adapters[adapter.SourceKind] = adapter
 }
 
@@ -82,7 +82,7 @@ func NewProducer(db Appender, sources SourceLister, interval time.Duration, onAp
 		intervalCh: make(chan time.Duration, 1),
 		onAppended: onAppended,
 		logger:     logger,
-		adapters:   make(map[string]SourceAdapter),
+		adapters:   make(map[string]store.SourceAdapter),
 		stop:       make(chan struct{}),
 	}
 }
@@ -181,7 +181,7 @@ func (pr *Producer) Tick(ctx context.Context) {
 		}
 		adapter, ok := pr.adapters[meta.SourceKind]
 		if !ok {
-			adapter = SourceAdapter{SourceKind: meta.SourceKind, Classifier: genericClassifier{}}
+			adapter = store.SourceAdapter{SourceKind: meta.SourceKind, Classifier: genericClassifier{}}
 		}
 		items := make([]store.SnapshotItem, 0)
 		observed := make(map[string]struct{})

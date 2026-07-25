@@ -37,7 +37,7 @@ func (s *PipelineService) ReadFrom(consumer string, limit int) ([]store.Msg, err
 // outputs, node-run metrics, and the consumer offset are persisted atomically.
 // Idempotent by offset: replaying a batch already applied (UpToOffset <= the
 // consumer's current offset) is a no-op.
-func (s *PipelineService) Commit(batch ingest.CommitBatch) error {
+func (s *PipelineService) Commit(batch store.CommitBatch) error {
 	return s.db.CommitBatch(context.Background(), batch)
 }
 
@@ -197,7 +197,7 @@ func (s *PipelineService) InvokeAction(actionID string, itemID int64, input inge
 // NodeRuns returns up to limit of a flow's most recent node_run rows,
 // newest first, for the flows canvas's live per-node status and RECENT
 // activity list.
-func (s *PipelineService) NodeRuns(flowID string, limit int) ([]ingest.NodeRunRecord, error) {
+func (s *PipelineService) NodeRuns(flowID string, limit int) ([]store.NodeRunRecord, error) {
 	return s.db.NodeRuns(context.Background(), flowID, limit)
 }
 

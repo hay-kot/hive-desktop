@@ -47,7 +47,7 @@ func (l itemLocatorTest) InboxItemNotifiable(context.Context, string, string, st
 
 func notifyAction() actions.Action {
 	return actions.Action{
-		ID:    NotifyActionID("triage/tell-me"),
+		ID:    store.NotifyActionID("triage/tell-me"),
 		Label: "Tell me",
 		Type:  ActionTypeNotify,
 		Config: &NotifyActionConfig{
@@ -183,7 +183,7 @@ func TestNotifyExecutor_CooldownIsPerNode(t *testing.T) {
 	require.NoError(t, err)
 
 	other := notifyAction()
-	other.ID = NotifyActionID("triage/also-tell-me")
+	other.ID = store.NotifyActionID("triage/also-tell-me")
 	_, err = executor.Execute(t.Context(), other, notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, notifier.sent, 2)

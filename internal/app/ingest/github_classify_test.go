@@ -11,18 +11,18 @@ import (
 
 type fakeAbsenceConfirmer struct {
 	called  bool
-	verdict AbsenceVerdict
+	verdict store.AbsenceVerdict
 }
 
-func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ Observation) (AbsenceVerdict, error) {
+func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ store.Observation) (store.AbsenceVerdict, error) {
 	f.called = true
 	return f.verdict, nil
 }
 
 func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
-	fake := &fakeAbsenceConfirmer{verdict: AbsenceVerdict{Terminal: true}}
+	fake := &fakeAbsenceConfirmer{verdict: store.AbsenceVerdict{Terminal: true}}
 	classifier := newGithubClassifier(fake)
-	verdict, err := classifier.ConfirmAbsence(t.Context(), Observation{ExternalID: "o/r#1"})
+	verdict, err := classifier.ConfirmAbsence(t.Context(), store.Observation{ExternalID: "o/r#1"})
 	require.NoError(t, err)
 	assert.True(t, fake.called)
 	assert.True(t, verdict.Terminal)
@@ -30,8 +30,8 @@ func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
 
 func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
 	classifier := newGithubClassifier(&fakeAbsenceConfirmer{})
-	previous := Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
-	closed := Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
+	previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
+	closed := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
 	entered := classifier.Classify(&previous, closed)
 	assert.Equal(t, store.TransitionEnteredTerminal, entered.Transition)
 	assert.Equal(t, "Closed", entered.Summary)
@@ -52,8 +52,8 @@ func TestGithubClassifierDescribesObservedActivity(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			previous := Observation{ExternalID: "o/r#1", Payload: []byte(tt.previous)}
-			got := classifier.Classify(&previous, Observation{ExternalID: "o/r#1", Payload: []byte(tt.current)})
+			previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(tt.previous)}
+			got := classifier.Classify(&previous, store.Observation{ExternalID: "o/r#1", Payload: []byte(tt.current)})
 			assert.Equal(t, tt.kind, got.Kind)
 			assert.Equal(t, tt.summary, got.Summary)
 			assert.Equal(t, store.AttentionActivity, got.Attention)
