@@ -20,7 +20,7 @@ const DefaultListen = "127.0.0.1:7777"
 const DefaultUpstream = "https://api.github.com"
 
 // DefaultTTL is how long a cached response is served without revalidating.
-// The desktop's poll floor is 60s (desktop.MinPollInterval), so anything at or
+// The desktop's poll floor is 60s (settings.MinPollInterval), so anything at or
 // above it collapses every instance's tick onto one upstream call.
 const DefaultTTL = 5 * time.Minute
 
@@ -45,7 +45,7 @@ type Config struct {
 
 // CacheConfig configures the SQLite response cache.
 type CacheConfig struct {
-	// Path is the SQLite file. Empty derives it from the data dir.
+	// Path is the SQLite file. Empty uses DefaultCachePath.
 	Path string `yaml:"path,omitempty"`
 	// TTL is how long an entry is served before revalidating upstream. A
 	// revalidation that returns 304 costs no primary rate-limit quota, so a
@@ -81,7 +81,7 @@ type Overlay struct {
 // value" — clearing labels and leaving labels alone are different intents.
 //
 // The set is deliberately narrow: it is exactly what the desktop's GitHub
-// classifier reads (internal/desktop/pipeline/github_classify.go), plus the
+// classifier reads (internal/app/sources/github/classify.go), plus the
 // display fields needed to keep a mutated item legible in the feed.
 type Mutations struct {
 	// State is open, closed, or merged. It drives the classifier's lifecycle
@@ -184,11 +184,11 @@ type WebhookConfig struct {
 
 // WebhookTarget is one endpoint the pusher can POST to — in practice a desktop
 // instance's local webhook listener, whose base URL the app shows under
-// Settings and whose path comes from a webhook-source node.
+// Settings and whose path comes from a sources.webhook node.
 type WebhookTarget struct {
 	Name string `json:"name" yaml:"name"`
 	URL  string `json:"url"  yaml:"url"`
-	// Secret is sent as X-Hive-Secret. It must match the webhook-source node's
+	// Secret is sent as X-Hive-Secret. It must match the sources.webhook node's
 	// configured secret; empty means the node accepts unauthenticated pushes.
 	//
 	// json:"-" makes it unserializable by construction, so no future control-API
@@ -331,18 +331,24 @@ func DefaultConfigPath() string {
 // instance sees.
 const RepoConfigPath = "cmd/devserver/devserver.yaml"
 
-// DefaultCachePath is the cache database's default location. It follows the
-// data-dir convention the desktop uses (HIVE_DATA_DIR, then XDG_DATA_HOME,
-// then ~/.local/share) but keeps its own subdirectory: this is dev tooling
-// state, not app state, and deleting it must never touch a real feed.
+// DefaultCachePath is the cache database's default location:
+// $XDG_CACHE_HOME/hive/devserver/cache.db, falling back to ~/.cache.
+//
+// The cache dir, not the data dir, and deliberately blind to the desktop's
+// own data root. That root is the *app's* state, and ADR 0014 gives every
+// worktree its own isolated copy that `desktop:dev:fresh` and
+// `desktop:dev:reset` exist to delete. Deriving from it would put the cache
+// somewhere different for every worktree and throw it away on reset —
+// defeating the two things this cache exists to do, which are to be shared
+// across instances and to survive restarts.
+//
+// XDG_CACHE_HOME is also the honest semantic: this is regenerable data that
+// costs an API call to rebuild, and nothing breaks if it is deleted.
 func DefaultCachePath() string {
-	if dir := os.Getenv("HIVE_DATA_DIR"); dir != "" {
-		return filepath.Join(dir, "devserver", "cache.db")
-	}
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
 		home, _ := os.UserHomeDir()
-		dataHome = filepath.Join(home, ".local", "share")
+		cacheHome = filepath.Join(home, ".cache")
 	}
-	return filepath.Join(dataHome, "hive", "devserver", "cache.db")
+	return filepath.Join(cacheHome, "hive", "devserver", "cache.db")
 }

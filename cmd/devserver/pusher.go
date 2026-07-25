@@ -19,7 +19,7 @@ import (
 const pushTimeout = 10 * time.Second
 
 // secretHeader is the header the desktop's webhook listener authenticates on.
-// It must match internal/desktop/pipeline.WebhookSecretHeader; devserver
+// It must match internal/app/sources/webhook.SecretHeader; devserver
 // declares it rather than importing so this dev tool stays decoupled from the
 // app's internal packages.
 const secretHeader = "X-Hive-Secret"
@@ -29,7 +29,7 @@ const pushResultLimit = 25
 
 // Pusher delivers JSON payloads to configured webhook endpoints — in practice
 // a desktop instance's local webhook listener, whose base URL the app shows
-// under Settings ▸ Webhooks and whose path comes from a webhook-source node.
+// under Settings ▸ Webhooks and whose path comes from a sources.webhook node.
 //
 // This is the second, independent way to drive the desktop: the proxy makes
 // GitHub say something different, while the pusher injects an event that never

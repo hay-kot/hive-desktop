@@ -56,7 +56,8 @@ func NewStore(overlays []Overlay) *Store {
 // Apply merges mutations onto an item's overlay and returns the result. An
 // UpdatedAt is stamped when the caller did not supply one: the desktop's
 // classifier ignores any change that does not advance updatedAt
-// (github_classify.go:82), so an un-stamped mutation would be invisible.
+// (internal/app/sources/github/classify.go:82), so an un-stamped mutation
+// would be invisible.
 func (s *Store) Apply(key string, next Mutations) Mutations {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -384,7 +385,7 @@ func (s *Store) RewriteNotifications(body []byte) []byte {
 //
 // isPull selects GitHub's merged-PR encoding: the pulls endpoint reports
 // state=closed with merged=true, never state=merged. The desktop relies on
-// exactly that distinction (internal/desktop/pipeline/github_classify.go:24).
+// exactly that distinction (internal/app/sources/github/classify.go:24).
 func (s *Store) RewriteIssue(body []byte, repo string, num int, isPull bool) []byte {
 	var payload map[string]any
 	if err := json.Unmarshal(body, &payload); err != nil {

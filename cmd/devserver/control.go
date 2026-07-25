@@ -164,7 +164,7 @@ func (c *Control) handleClearAll(w http.ResponseWriter, r *http.Request) {
 // ── Quick actions ────────────────────────────────────────────────────────────
 //
 // The vocabulary is deliberately GitHub's own, not an invented one. The
-// desktop's github-source reads exactly four things — state, updatedAt,
+// desktop's sources.github reads exactly four things — state, updatedAt,
 // labels, and a notification reason — so those are the only levers that exist.
 // In particular there is no "approved" action: GitHub has no such notification
 // reason, and the desktop never fetches review state. An approval reaches the

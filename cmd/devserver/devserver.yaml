@@ -21,7 +21,10 @@ cache:
   # If-None-Match, and a 304 costs no primary rate-limit quota, so a short TTL
   # is cheap. The desktop's own poll floor is 60s.
   ttl: 5m
-  # path: ~/.local/share/hive/devserver/cache.db   # derived when omitted
+  # Defaults to $XDG_CACHE_HOME/hive/devserver/cache.db (~/.cache/...). It is
+  # deliberately independent of the desktop's data root — that is isolated per
+  # worktree, which would unshare the cache and discard it on reset.
+  # path: ~/.cache/hive/devserver/cache.db
 
 # ── Overlays ─────────────────────────────────────────────────────────────────
 # Rewrite what GitHub appears to say about a specific item. Left empty on
@@ -78,7 +81,7 @@ scenarios:
 # ── Webhook pusher ───────────────────────────────────────────────────────────
 # Payloads are ready to use; targets are not, because the desktop's webhook
 # port is drawn at random per install (ADR 0007). Take the base URL from
-# Settings ▸ Webhooks, append a webhook-source node's path, and uncomment:
+# Settings ▸ Webhooks, append a sources.webhook node's path, and uncomment:
 #
 #   targets:
 #     - name: local-desktop

@@ -371,7 +371,7 @@ func TestPusherReportsTargetFailure(t *testing.T) {
 
 	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push", `{"target":"local","payload":"p"}`)
 	assert.Equal(t, http.StatusBadGateway, rec.Code)
-	// The most likely real failure is a path that matches no webhook-source
+	// The most likely real failure is a path that matches no sources.webhook
 	// node, so the target's own message has to reach the author.
 	assert.Contains(t, rec.Body.String(), "no webhook endpoint")
 	require.Len(t, pusher.Recent(), 1)
@@ -400,6 +400,28 @@ func writeConfig(t *testing.T, body string) string {
 	path := filepath.Join(t.TempDir(), "devserver.yaml")
 	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
 	return path
+}
+
+// TestDefaultCachePathIsIsolatedFromAppState pins the cache to the XDG cache
+// dir and, specifically, off the desktop's data root. ADR 0014 gives every
+// worktree an isolated instance that desktop:dev:reset exists to delete, so
+// deriving from it would give every worktree a different cache and discard it
+// on reset — losing the sharing and persistence the cache exists for.
+func TestDefaultCachePathIsIsolatedFromAppState(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "/cache-home")
+	t.Setenv("XDG_DATA_HOME", "/data-home")
+	t.Setenv("HIVE_DESKTOP_DATA_DIR", "/worktree-local-data")
+
+	path := DefaultCachePath()
+	assert.Equal(t, filepath.Join("/cache-home", "hive", "devserver", "cache.db"), path)
+	assert.NotContains(t, path, "worktree-local-data", "the cache must not follow the app's data dir")
+	assert.NotContains(t, path, "data-home", "nor the app's data home")
+
+	// Falls back to ~/.cache, never to the data dir.
+	t.Setenv("XDG_CACHE_HOME", "")
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(home, ".cache", "hive", "devserver", "cache.db"), DefaultCachePath())
 }
 
 func TestResolveConfigPath(t *testing.T) {
