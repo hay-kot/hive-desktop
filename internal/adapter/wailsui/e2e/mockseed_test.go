@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"context"
@@ -13,7 +13,10 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-const fixtureFlowPath = "e2e/fixtures/flows/frontend-triage.yaml"
+// fixtureFlowPath is repo-relative from this package: the Playwright
+// harness owns the file, this package owns the seed constants it must agree
+// with, and this test is the bijection between them.
+const fixtureFlowPath = "../../../../desktop/e2e/fixtures/flows/frontend-triage.yaml"
 
 type testFlowRefs struct {
 	actions map[string]bool

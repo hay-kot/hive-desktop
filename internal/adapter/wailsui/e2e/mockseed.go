@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"context"
@@ -155,7 +155,7 @@ func boolToInt64(b bool) int64 {
 	return 0
 }
 
-func seedMockInboxItemsOrWarn(db *store.DB, logger zerolog.Logger) {
+func SeedMockInboxItemsOrWarn(db *store.DB, logger zerolog.Logger) {
 	if err := seedMockInboxItems(db); err != nil {
 		logger.Warn().Err(err).Msg("mock inbox seed failed")
 	}

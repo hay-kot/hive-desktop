@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"context"
@@ -35,7 +35,7 @@ func TestStateResetHarnessUnavailableOutsideMockHarness(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv(settings.EnvMockMode, tc.mode)
 			t.Setenv(settings.EnvE2EHarness, tc.marker)
-			harness := newStateResetHarness(nil, nil, zerolog.Nop())
+			harness := NewStateResetHarness(nil, nil, zerolog.Nop())
 			assert.Nil(t, harness)
 			h := stateResetMiddleware(harness)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
 			r := httptest.NewRecorder()
@@ -48,7 +48,7 @@ func TestStateResetHarnessUnavailableOutsideMockHarness(t *testing.T) {
 func TestStateResetPOSTOnly(t *testing.T) {
 	setStateResetEnv(t, "feed")
 	db := openStateResetPipelineDB(t)
-	harness := newStateResetHarness(db, nil, zerolog.Nop())
+	harness := NewStateResetHarness(db, nil, zerolog.Nop())
 	require.NotNil(t, harness)
 	h := stateResetMiddleware(harness)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
@@ -77,9 +77,9 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, core.Close()) })
 	require.NoError(t, seedMockInboxItems(db)) // feed mode's startup seeding
 
-	harness := newStateResetHarness(db, core, zerolog.Nop())
+	harness := NewStateResetHarness(db, core, zerolog.Nop())
 	require.NotNil(t, harness)
-	h := desktopSmokeMiddleware(db, core, harness)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, core, harness)(http.NotFoundHandler())
 
 	// Mutate durable state the way a test run does: read state, event log,
 	// consumer checkpoint, source head, commands, activity, jobs, node runs.
@@ -160,9 +160,9 @@ func TestStateResetPipelineModeWipesWithoutReseeding(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, created)
 
-	harness := newStateResetHarness(db, nil, zerolog.Nop())
+	harness := NewStateResetHarness(db, nil, zerolog.Nop())
 	require.NotNil(t, harness)
-	h := desktopSmokeMiddleware(db, nil, harness)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, nil, harness)(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, stateResetPath, nil))
 	require.Equal(t, http.StatusNoContent, r.Code, r.Body.String())

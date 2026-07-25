@@ -1,4 +1,4 @@
-package main
+package e2e
 
 import (
 	"bytes"
@@ -43,7 +43,7 @@ type pristineFile struct {
 	content []byte
 }
 
-// stateReset owns the post-startup baseline POST /_e2e/reset restores. Reset
+// StateReset owns the post-startup baseline POST /_e2e/reset restores. Reset
 // ordering: the pipeline database is wiped and reseeded in one transaction,
 // the core database's action tables are wiped in a second transaction (a
 // separate SQLite file cannot share the first), and the mutable config files
@@ -51,7 +51,7 @@ type pristineFile struct {
 // watchers observe those writes and hot-reload exactly as they would for an
 // external edit — including recording the same reload activity a hand edit
 // would.
-type stateReset struct {
+type StateReset struct {
 	db       *store.DB
 	core     *coredb.DB
 	logger   zerolog.Logger
@@ -59,15 +59,15 @@ type stateReset struct {
 	files    []pristineFile
 }
 
-// newStateResetHarness captures the reset baseline, or returns nil when the
+// NewStateResetHarness captures the reset baseline, or returns nil when the
 // route must stay unmounted (live mode, or no valid harness marker). It must
 // run after startup seeding — the mock inbox rows and actions.yml defaults —
 // so the captured baseline is the post-boot state a fresh server would show.
-func newStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) *stateReset {
+func NewStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) *StateReset {
 	if settings.MockMode() == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
-	r := &stateReset{db: db, core: core, logger: logger, flowsDir: settings.FlowsDir()}
+	r := &StateReset{db: db, core: core, logger: logger, flowsDir: settings.FlowsDir()}
 	r.capture(settings.ActionsPath())
 	r.capture(settings.SettingsPath())
 	// SaveFlow/SaveLayout/SaveSidebar write per-flow files, so every file
@@ -83,7 +83,7 @@ func newStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) 
 }
 
 // capture records path's current content and permissions, or its absence.
-func (r *stateReset) capture(path string) {
+func (r *StateReset) capture(path string) {
 	content, err := os.ReadFile(path)
 	if err != nil {
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -103,7 +103,7 @@ func (r *stateReset) capture(path string) {
 // SQLite connection. The pipeline wipe and reseed share one transaction so a
 // concurrent frontend read sees either the old state or the baseline, never
 // an empty store; see the type comment for the full ordering.
-func (r *stateReset) Reset(ctx context.Context) error {
+func (r *StateReset) Reset(ctx context.Context) error {
 	var reseed func(*store.Queries) error
 	switch settings.MockMode() {
 	case "feed", "action-smoke":
@@ -125,7 +125,7 @@ func (r *stateReset) Reset(ctx context.Context) error {
 // resetCoreTables clears the desktop-action-owned hive.db tables in one
 // transaction. The e2e servers boot with a private, empty hive.db, so the
 // post-startup baseline for these tables is emptiness.
-func (r *stateReset) resetCoreTables(ctx context.Context) error {
+func (r *StateReset) resetCoreTables(ctx context.Context) error {
 	if r.core == nil {
 		return nil
 	}
@@ -149,7 +149,7 @@ func (r *stateReset) resetCoreTables(ctx context.Context) error {
 
 // restoreConfigFiles puts every captured config file back and removes files a
 // test created after boot.
-func (r *stateReset) restoreConfigFiles() error {
+func (r *StateReset) restoreConfigFiles() error {
 	captured := make(map[string]bool, len(r.files))
 	for _, f := range r.files {
 		captured[f.path] = true
@@ -200,7 +200,7 @@ func restorePristineFile(f pristineFile) error {
 // stateResetMiddleware mounts POST /_e2e/reset when the harness exists. A nil
 // harness (live mode, or a missing/invalid marker) leaves the asset handler
 // untouched, exactly like the smoke middlewares.
-func stateResetMiddleware(reset *stateReset) application.Middleware {
+func stateResetMiddleware(reset *StateReset) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if reset == nil {
 			return next

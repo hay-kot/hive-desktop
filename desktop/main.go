@@ -15,6 +15,7 @@ import (
 	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
+	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui/e2e"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
@@ -313,7 +314,7 @@ func main() {
 	// Mock mode has no live producer, so seed deterministic inbox rows for the
 	// fixture flow in desktop/e2e/fixtures/flows/frontend-triage.yaml.
 	if settings.MockMode() == "feed" || settings.MockMode() == "action-smoke" {
-		seedMockInboxItemsOrWarn(pipelineDB, logger)
+		e2e.SeedMockInboxItemsOrWarn(pipelineDB, logger)
 	}
 
 	actionStore, actionsWatcher := buildActionStore(activityStore, logger)
@@ -439,7 +440,7 @@ func main() {
 	// Built this late deliberately: buildActionStore has seeded actions.yml and
 	// mock seeding has run, so the captured config baseline is the post-boot
 	// state a reset must restore.
-	resetHarness := newStateResetHarness(pipelineDB, actionRuntime.db, logger)
+	resetHarness := e2e.NewStateResetHarness(pipelineDB, actionRuntime.db, logger)
 
 	options := application.Options{
 		Name:        "Hive",
@@ -448,7 +449,7 @@ func main() {
 		Services:    services,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(assets),
-			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db, resetHarness),
+			Middleware: e2e.SmokeMiddleware(pipelineDB, actionRuntime.db, resetHarness),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
