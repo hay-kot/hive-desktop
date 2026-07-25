@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"context"
@@ -12,11 +12,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
-// defaultUpdateCheckInterval is how often the self-managed ticker polls for a
+// DefaultUpdateCheckInterval is how often the self-managed ticker polls for a
 // newer desktop release when auto-update is enabled. The framework's
 // Config.CheckInterval is fixed at Init time and has no runtime setter, so the
 // service owns its own ticker to support a live enable/disable toggle.
-const defaultUpdateCheckInterval = 6 * time.Hour
+const DefaultUpdateCheckInterval = 6 * time.Hour
 
 // updateAvailableEvent is emitted when a check finds a newer release; the title
 // bar subscribes to it. updateNoneEvent fires when a check confirms the app is
@@ -70,7 +70,7 @@ type UpdaterService struct {
 // application.New). enabled seeds the persisted toggle state.
 func NewUpdaterService(currentVersion string, enabled bool, interval time.Duration, logger zerolog.Logger) *UpdaterService {
 	if interval <= 0 {
-		interval = defaultUpdateCheckInterval
+		interval = DefaultUpdateCheckInterval
 	}
 	return &UpdaterService{
 		currentVersion: currentVersion,
@@ -85,7 +85,7 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 // builds; never called on dev builds, so the engine stays nil. Unexported so
 // Wails does not surface it as a frontend RPC (its interface arg is not
 // JSON-marshalable anyway).
-func (s *UpdaterService) attach(engine updaterEngine) {
+func (s *UpdaterService) Attach(engine updaterEngine) {
 	s.mu.Lock()
 	s.engine = engine
 	start := s.enabled && s.engine != nil
@@ -173,7 +173,7 @@ func (s *UpdaterService) InstallUpdate() error {
 
 // stop cancels the ticker and waits for the poll goroutine to exit. Safe to
 // call when no ticker is running.
-func (s *UpdaterService) stop() {
+func (s *UpdaterService) Stop() {
 	s.mu.Lock()
 	s.stopLoopLocked()
 	s.mu.Unlock()
@@ -208,7 +208,7 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 			CurrentVersion: s.currentVersion,
 			LatestVersion:  rel.Version,
 			Notes:          rel.Notes,
-			ReleaseURL:     releaseURL(rel.Version),
+			ReleaseURL:     ReleaseURL(rel.Version),
 		}
 	}
 

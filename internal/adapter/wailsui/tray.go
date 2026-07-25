@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"sync"
@@ -36,10 +36,10 @@ func trayProfiles(store *flow.FlowStore) []trayProfile {
 	return profiles
 }
 
-// profileTray owns the dynamic native tray menu. Profile rows are checkboxes:
+// ProfileTray owns the dynamic native tray menu. Profile rows are checkboxes:
 // checked profiles poll and run, while unchecked profiles retain their feed
 // data without executing. Invalid flow files remain visible but non-interactive.
-type profileTray struct {
+type ProfileTray struct {
 	app       *application.App
 	store     *flow.FlowStore
 	logger    zerolog.Logger
@@ -51,7 +51,7 @@ type profileTray struct {
 	active    bool
 }
 
-func newProfileTray(
+func NewProfileTray(
 	app *application.App,
 	store *flow.FlowStore,
 	logger zerolog.Logger,
@@ -59,8 +59,8 @@ func newProfileTray(
 	onUpdated func(),
 	show func(),
 	quit func(),
-) *profileTray {
-	result := &profileTray{
+) *ProfileTray {
+	result := &ProfileTray{
 		app:       app,
 		store:     store,
 		logger:    logger,
@@ -76,7 +76,7 @@ func newProfileTray(
 
 // Refresh replaces the tray menu from the current flow-store snapshot. Wails
 // marshals SetMenu onto the native UI thread after app startup.
-func (t *profileTray) Refresh() {
+func (t *ProfileTray) Refresh() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if !t.active {
@@ -87,13 +87,13 @@ func (t *profileTray) Refresh() {
 
 // Close prevents filesystem watcher callbacks from touching the native tray
 // once Wails begins tearing down its UI loop.
-func (t *profileTray) Close() {
+func (t *ProfileTray) Close() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.active = false
 }
 
-func (t *profileTray) menu() *application.Menu {
+func (t *ProfileTray) menu() *application.Menu {
 	menu := t.app.NewMenu()
 	menu.Add("Show Hive").OnClick(func(*application.Context) { t.show() })
 	menu.AddSeparator()

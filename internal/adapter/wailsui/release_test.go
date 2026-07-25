@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"testing"
@@ -7,10 +7,10 @@ import (
 )
 
 func TestShortCommit(t *testing.T) {
-	require.Equal(t, "abc1234", shortCommit("abc1234def567890"))
-	require.Equal(t, "abc12", shortCommit("abc12"))
-	require.Equal(t, "HEAD", shortCommit("HEAD"))
-	require.Empty(t, shortCommit(""))
+	require.Equal(t, "abc1234", ShortCommit("abc1234def567890"))
+	require.Equal(t, "abc12", ShortCommit("abc12"))
+	require.Equal(t, "HEAD", ShortCommit("HEAD"))
+	require.Empty(t, ShortCommit(""))
 }
 
 func TestReleaseURL(t *testing.T) {
@@ -33,7 +33,7 @@ func TestReleaseURL(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			require.Equal(t, tt.want, releaseURL(tt.version))
+			require.Equal(t, tt.want, ReleaseURL(tt.version))
 		})
 	}
 }
@@ -58,7 +58,7 @@ func TestReleaseChannel(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
-			channel, ok := releaseChannel(tt.version)
+			channel, ok := ReleaseChannel(tt.version)
 			require.Equal(t, tt.ok, ok)
 			require.Equal(t, tt.channel, channel)
 		})
@@ -68,7 +68,7 @@ func TestReleaseChannel(t *testing.T) {
 func TestSystemServiceBuild(t *testing.T) {
 	// The package defaults ("dev") mean no release link is offered, and the
 	// short "HEAD" commit passes through untouched.
-	info := NewSystemService().Build()
+	info := NewSystemService("dev", "HEAD", "now").Build()
 	require.Equal(t, "dev", info.Version)
 	require.Equal(t, "HEAD", info.Commit)
 	require.Equal(t, "https://github.com/hay-kot/hive-desktop", info.RepoURL)

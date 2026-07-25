@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"bytes"
@@ -82,13 +82,13 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 		Notes:   "new stuff",
 	}}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
-	s.attach(engine)
+	s.Attach(engine)
 
 	info, err := s.CheckNow()
 	require.NoError(t, err)
 	require.True(t, info.Available)
 	require.Equal(t, "1.3.0", info.LatestVersion)
-	require.Equal(t, releaseURL("1.3.0"), info.ReleaseURL)
+	require.Equal(t, ReleaseURL("1.3.0"), info.ReleaseURL)
 	// Status reflects the cached result.
 	require.True(t, s.Status().Available)
 }
@@ -97,7 +97,7 @@ func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{rel: nil}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
-	s.attach(engine)
+	s.Attach(engine)
 
 	info, err := s.CheckNow()
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{checkErr: errors.New("boom")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
-	s.attach(engine)
+	s.Attach(engine)
 
 	_, err := s.CheckNow()
 	require.Error(t, err)
@@ -132,7 +132,7 @@ func TestUpdaterServiceDevGate(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got.AutoUpdate)
 	require.True(t, *got.AutoUpdate)
-	s.stop() // safe no-op
+	s.Stop() // safe no-op
 }
 
 func TestUpdaterServiceTickerLifecycle(t *testing.T) {
@@ -141,7 +141,7 @@ func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
 		engine := &fakeEngine{rel: nil}
 		s := NewUpdaterService("1.2.3", false, time.Minute, zerolog.Nop())
-		s.attach(engine)
+		s.Attach(engine)
 
 		// Enabling checks immediately (initial check) then on each tick.
 		require.NoError(t, s.SetEnabled(true))
@@ -165,7 +165,7 @@ func TestUpdaterServiceInstallUpdate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
-	s.attach(engine)
+	s.Attach(engine)
 
 	require.NoError(t, s.InstallUpdate())
 	engine.mu.Lock()
@@ -179,7 +179,7 @@ func TestUpdaterServiceInstallUpdateLogsDownloadFailure(t *testing.T) {
 	var logs bytes.Buffer
 	engine := &fakeEngine{installErr: errors.New("checksum mismatch")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
-	s.attach(engine)
+	s.Attach(engine)
 	s.available = &UpdateInfo{LatestVersion: "1.3.0"}
 
 	err := s.InstallUpdate()
@@ -195,7 +195,7 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 	var logs bytes.Buffer
 	engine := &fakeEngine{restartErr: errors.New("helper failed")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
-	s.attach(engine)
+	s.Attach(engine)
 
 	err := s.InstallUpdate()
 	require.ErrorContains(t, err, "helper failed")

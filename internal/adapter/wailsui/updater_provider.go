@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"context"
@@ -19,11 +19,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/updater"
 )
 
-// defaultManifestBaseURL is the public download domain fronting the release
+// DefaultManifestBaseURL is the public download domain fronting the release
 // bucket (docs/distribution.md). Decision 0003 makes the fronting domain the
 // hard requirement: binaries bake in dl.hivedesktop.com, never a raw bucket
 // URL, so storage stays swappable without an app update.
-const defaultManifestBaseURL = "https://dl.hivedesktop.com"
+const DefaultManifestBaseURL = "https://dl.hivedesktop.com"
 
 // artifactURLKey carries the manifest's artifact URL from Check to Download in
 // the Release metadata.
@@ -41,8 +41,8 @@ type manifestProvider struct {
 	client  *http.Client
 }
 
-// newManifestProvider builds a provider polling channel under base.
-func newManifestProvider(base, channel string) *manifestProvider {
+// NewManifestProvider builds a provider polling channel under base.
+func NewManifestProvider(base, channel string) *manifestProvider {
 	return &manifestProvider{
 		base:    strings.TrimSuffix(base, "/"),
 		channel: channel,

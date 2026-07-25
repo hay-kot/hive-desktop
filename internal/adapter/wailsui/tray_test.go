@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"os"

@@ -1,4 +1,4 @@
-package main
+package wailsui
 
 import (
 	"errors"
@@ -21,11 +21,25 @@ import (
 // Directory overrides are point-only and take effect after a restart: they are
 // written to the bootstrap pointer file (see internal/settings.Bootstrap) and
 // seeded into the environment at next launch. Nothing is moved.
-type SystemService struct{}
+type SystemService struct {
+	// build is the running binary's version/commit/date. It is passed in
+	// rather than read here because the ldflags that populate it bind to
+	// package main (-X main.version), which cannot move to this package.
+	build BuildInfo
+}
 
-// NewSystemService constructs the service. It holds no state; every method
-// reads live from the desktop path resolvers and the bootstrap file.
-func NewSystemService() *SystemService { return &SystemService{} }
+// NewSystemService constructs the service over the running binary's build
+// info. Every other method reads live from the desktop path resolvers and the
+// bootstrap file.
+func NewSystemService(version, commit, date string) *SystemService {
+	return &SystemService{build: BuildInfo{
+		Version:    version,
+		Commit:     ShortCommit(commit),
+		Date:       date,
+		RepoURL:    RepoURL(),
+		ReleaseURL: ReleaseURL(version),
+	}}
+}
 
 // PathInfo describes a single on-disk location surfaced in settings.
 type PathInfo struct {
@@ -81,16 +95,7 @@ type BuildInfo struct {
 // Build returns the version, commit, and date this desktop app was built from,
 // plus a link to the matching GitHub release when the build corresponds to a
 // published version.
-func (s *SystemService) Build() BuildInfo {
-	v, c, d := resolvedBuildInfo()
-	return BuildInfo{
-		Version:    v,
-		Commit:     shortCommit(c),
-		Date:       d,
-		RepoURL:    repoURL(),
-		ReleaseURL: releaseURL(v),
-	}
-}
+func (s *SystemService) Build() BuildInfo { return s.build }
 
 // OpenPath opens one of the known system locations in the OS default
 // application. The path is validated against the current location set so this

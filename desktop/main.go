@@ -79,11 +79,11 @@ func registerEvents() struct{} {
 	// frontend, via wailsui.ActivityService.Record) appends to the activity log. The
 	// Activity view re-reads its latest page and advances its unseen marker.
 	application.RegisterEvent[int64]("activity:appended")
-	// update:available carries the latest UpdateInfo when a self-update check
+	// update:available carries the latest wailsui.UpdateInfo when a self-update check
 	// finds a newer desktop release; update:none fires when the check confirms
 	// the app is current. The title bar reacts to update:available.
-	application.RegisterEvent[UpdateInfo]("update:available")
-	application.RegisterEvent[UpdateInfo]("update:none")
+	application.RegisterEvent[wailsui.UpdateInfo]("update:available")
+	application.RegisterEvent[wailsui.UpdateInfo]("update:none")
 	// notification:activated carries the workspace and inbox item behind a
 	// native notification the user clicked. Unlike the wake-up signals above
 	// its payload is the whole message: the window is already being raised by
@@ -557,7 +557,7 @@ func main() {
 	// the live Updater is attached below. Auto-update defaults on; the persisted
 	// toggle seeds the initial state.
 	updaterVersion, _, _ := resolvedBuildInfo()
-	updaterService := NewUpdaterService(updaterVersion, cfg.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
+	updaterService := wailsui.NewUpdaterService(updaterVersion, cfg.AutoUpdateOrDefault(), wailsui.DefaultUpdateCheckInterval, logger)
 
 	services := []application.Service{
 		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
@@ -566,7 +566,7 @@ func main() {
 		application.NewService(wailsui.NewActionsService(actionStore, emitActionsUpdated)),
 		application.NewService(wailsui.NewActivityService(activityStore)),
 		application.NewService(wailsui.NewJobService(jobStore)),
-		application.NewService(NewSystemService()),
+		application.NewService(wailsui.NewSystemService(resolvedBuildInfo())),
 		application.NewService(wailsui.NewSettingsService(producer, fetcher, logger)),
 		application.NewService(wailsui.NewWebhookService(pipelineDB, webhookListener, webhookPort)),
 		application.NewService(wailsui.NewPromptsService(webhookListener, webhookPort)),
@@ -608,15 +608,15 @@ func main() {
 	// ticker. A published build follows its own channel (a beta build tracks
 	// beta, per docs/decisions/0004) unless settings.yaml's update_channel
 	// overrides it.
-	if channel, ok := releaseChannel(updaterVersion); ok {
-		provider := newManifestProvider(defaultManifestBaseURL, cfg.UpdateChannelOrDefault(channel))
+	if channel, ok := wailsui.ReleaseChannel(updaterVersion); ok {
+		provider := wailsui.NewManifestProvider(wailsui.DefaultManifestBaseURL, cfg.UpdateChannelOrDefault(channel))
 		if initErr := app.Updater.Init(updater.Config{
 			CurrentVersion: updaterVersion,
 			Providers:      []updater.Provider{provider},
 		}); initErr != nil {
 			logger.Warn().Err(initErr).Msg("desktop auto-update unavailable; updater init failed")
 		} else {
-			updaterService.attach(app.Updater)
+			updaterService.Attach(app.Updater)
 		}
 	}
 
@@ -686,7 +686,7 @@ func main() {
 		window.Show()
 	})
 
-	profilesTray := newProfileTray(
+	profilesTray := wailsui.NewProfileTray(
 		app,
 		flowsStore,
 		logger,
@@ -713,7 +713,7 @@ func main() {
 	})
 
 	shutdown := func() {
-		updaterService.stop()
+		updaterService.Stop()
 		if webhookListener != nil {
 			webhookListener.Stop()
 		}
