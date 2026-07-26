@@ -26,6 +26,4 @@ tabs:
   - title: desktop
     cmd: go run ./cmd/devtools check-proxy --wait 90s && mise run desktop:dev
 
-  - title: shell
-
 timeout: 15
