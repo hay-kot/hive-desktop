@@ -32,7 +32,8 @@ Binaries that support development and release; none ship inside the app.
 
 - **`cmd/release`** — version selection, signing, notarization, and R2 publishing (`mise run release:desktop`).
 - **`cmd/vendorhive`** — the `internal/hivecore/` sync tool (`mise run vendor`).
-- **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. Instances opt in with `development.github.api_base` (`HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE`). See `cmd/devserver/README.md` and ADR 0017.
+- **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `desktop:dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one is a no-op. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR 0017.
+- **`cmd/internal/devproxy`** — the address-and-health contract shared by `cmd/devserver` and `cmd/devtools`, so the proxy's port and the worktree's `launch.env` cannot drift apart.
 
 ## Vendored code — `internal/hivecore/`
 

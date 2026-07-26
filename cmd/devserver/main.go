@@ -12,6 +12,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v3"
+
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 )
 
 //go:embed dashboard.html
@@ -98,8 +101,8 @@ func newDevserverCommand() *cli.Command {
 			&cli.StringFlag{
 				Name:    "config",
 				Aliases: []string{"c"},
-				Usage: "path to a config file (default: $XDG_CONFIG_HOME/hive/desktop/devserver.yaml; " +
-					"`mise run devserver` passes " + RepoConfigPath + ")",
+				Usage: "path to a config file (default: " + devproxy.RepoConfigPath +
+					", the checked-in development config)",
 			},
 			&cli.StringFlag{Name: "listen", Usage: "override the configured bind address"},
 			&cli.StringFlag{Name: "upstream", Usage: "override the configured GitHub API base URL"},
@@ -136,6 +139,24 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}).
 		Level(level).With().Timestamp().Logger()
 
+	// The proxy is a singleton (ADR 0017): every instance finds it at a fixed
+	// port, and overlay state lives in the process holding it. Launching a
+	// second one is therefore a no-op rather than an error — that is what makes
+	// `mise run devserver` safe to run from any worktree without checking
+	// first. A stranger on the port is still fatal: binding over it is not
+	// possible, and pretending otherwise would leave instances redirected at
+	// something that is not a GitHub proxy.
+	switch devproxy.Probe(ctx, devproxy.BaseURL(cfg.Listen)) {
+	case devproxy.StatusRunning:
+		logger.Info().
+			Str("listen", cfg.Listen).
+			Msg("devserver is already running; leaving the existing one in place")
+		return nil
+	case devproxy.StatusForeign:
+		return fmt.Errorf("%s is in use by something that is not devserver", cfg.Listen)
+	case devproxy.StatusAbsent:
+	}
+
 	cache, err := OpenCache(cfg.Cache.Path, cfg.Cache.TTL)
 	if err != nil {
 		return err
@@ -151,6 +172,21 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		Addr:              cfg.Listen,
 		Handler:           newHandler(control, proxy, logger),
 		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	// Bind before announcing, so "devserver started" is only ever printed by
+	// the process that actually owns the port. It also closes the race the
+	// probe above cannot: two launches can both see an empty port, and exactly
+	// one of them wins the bind. The loser is a duplicate, which is a no-op.
+	listener, err := net.Listen("tcp", cfg.Listen)
+	if err != nil {
+		if errors.Is(err, syscall.EADDRINUSE) {
+			logger.Info().
+				Str("listen", cfg.Listen).
+				Msg("devserver started concurrently; leaving the existing one in place")
+			return nil
+		}
+		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
 	}
 
 	// Naming the config is the point: an overlay silently rewriting data is
@@ -177,7 +213,7 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	errs := make(chan error, 1)
 	go func() {
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errs <- err
 		}
 	}()

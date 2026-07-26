@@ -8,12 +8,14 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 )
 
 // DefaultListen is the devserver's default bind address. Like the desktop's
 // webhook listener it binds loopback only: it fronts a GitHub token and can
 // mutate what a dev instance sees, neither of which belongs on a LAN.
-const DefaultListen = "127.0.0.1:7777"
+const DefaultListen = devproxy.DefaultListen
 
 // DefaultUpstream is the GitHub API the proxy fronts. Both REST and GraphQL
 // live under it, matching the desktop client's single apiBase.
@@ -219,17 +221,20 @@ func LoadConfig(path string) (Config, error) {
 }
 
 // ResolveConfigPath returns the config file to load: an explicit --config, or
-// the personal one at DefaultConfigPath().
+// the checked-in repo config.
 //
-// An explicit path that does not exist is an error — a typo in a path the
-// author typed must not silently degrade to a bare proxy. The default path is
-// allowed to be missing, which LoadConfig turns into built-in defaults.
+// There is no per-user config location. Development configuration belongs in
+// the repository next to the code it simulates — it is reviewed, versioned,
+// and identical for everyone — so a devserver.yaml in a home directory would
+// be invisible state that silently changes what a dev instance sees.
 //
-// `mise run devserver` always passes --config, pointing at the checked-in
-// RepoConfigPath, so a fresh clone works with no setup.
+// An explicit path that does not exist is an error: a typo in a path the
+// author typed must not silently degrade to a bare proxy. The default is
+// allowed to be missing, which LoadConfig turns into built-in defaults, so
+// running the binary from outside a checkout still yields a working proxy.
 func ResolveConfigPath(explicit string) (string, error) {
 	if explicit == "" {
-		return DefaultConfigPath(), nil
+		return devproxy.RepoConfigPath, nil
 	}
 	if _, err := os.Stat(explicit); err != nil {
 		return "", fmt.Errorf("read %s: %w", explicit, err)
@@ -310,26 +315,9 @@ func validateMutations(m Mutations) error {
 	return nil
 }
 
-// DefaultConfigPath is the personal config location: the desktop config root,
-// so it sits beside flows/ and actions.yml in the same dotfiles-managed
-// directory. It is gitignored territory — put your own overlays here.
-func DefaultConfigPath() string {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, _ := os.UserHomeDir()
-		configHome = filepath.Join(home, ".config")
-	}
-	return filepath.Join(configHome, "hive", "desktop", "devserver.yaml")
-}
-
-// RepoConfigPath is the checked-in development config, relative to the
-// repository root. `mise run devserver` passes it as --config so a fresh clone
-// gets working scenarios and payloads with no setup step.
-//
-// It declares no overlays: everything in it is inert until something is
-// clicked, so starting devserver never silently rewrites what a connected
-// instance sees.
-const RepoConfigPath = "cmd/devserver/devserver.yaml"
+// The checked-in config path and the default bind address live in
+// cmd/internal/devproxy: cmd/devtools reads both to point a worktree's
+// launch.env at the same proxy, and a second copy here would let them drift.
 
 // DefaultCachePath is the cache database's default location:
 // $XDG_CACHE_HOME/hive/devserver/cache.db, falling back to ~/.cache.

@@ -121,7 +121,15 @@ mise run desktop:generate  # regenerate frontend TS bindings after Go service ch
 mise run desktop:icons     # regenerate committed icon assets from SVG masters
 mise run desktop:test      # frontend vitest + Go tests (unit)
 mise run desktop:e2e       # Docker-only Playwright regression gate
+mise run devserver         # the shared GitHub proxy desktop:dev routes through
 ```
+
+`desktop:dev` goes through `cmd/devserver` by default — `launch.env` carries the
+API base, and one proxy serves every worktree so concurrent streams share a
+rate-limit budget and a response cache (ADR 0017). Leave `mise run devserver`
+running; starting a second is a no-op. The task preflights it and fails with
+instructions if nothing answers. To use real GitHub, set
+`HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in the gitignored `overrides.env`.
 
 Go lint/format is the root `mise run lint` (golangci-lint); frontend type
 errors surface via `vue-tsc` in the build. Run quality gates after changes.
@@ -343,7 +351,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_WEBHOOKS_PORT` | Webhook port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
-| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
+| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |

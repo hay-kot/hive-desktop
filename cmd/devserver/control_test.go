@@ -14,6 +14,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 )
 
 func testControl(t *testing.T, cfg Config) (http.Handler, *Store, *Pusher) {
@@ -436,11 +438,12 @@ func TestResolveConfigPath(t *testing.T) {
 	_, err = ResolveConfigPath(filepath.Join(t.TempDir(), "absent.yaml"))
 	require.Error(t, err)
 
-	// No flag falls back to the personal location, which is allowed to be
-	// missing. `mise run devserver` always passes --config instead.
+	// No flag falls back to the checked-in repo config. There is deliberately
+	// no per-user location: development config is versioned with the code it
+	// simulates, not hidden in a home directory.
 	got, err = ResolveConfigPath("")
 	require.NoError(t, err)
-	assert.Equal(t, DefaultConfigPath(), got)
+	assert.Equal(t, devproxy.RepoConfigPath, got)
 }
 
 // TestRepoConfigIsValidAndInert guards the checked-in development config that
@@ -448,7 +451,7 @@ func TestResolveConfigPath(t *testing.T) {
 // a config that rewrote data the moment devserver started would make every
 // subsequent bug suspect.
 func TestRepoConfigIsValidAndInert(t *testing.T) {
-	cfg, err := LoadConfig(filepath.Join("..", "..", RepoConfigPath))
+	cfg, err := LoadConfig(filepath.Join("..", "..", devproxy.RepoConfigPath))
 	require.NoError(t, err, "the shipped config must parse")
 
 	assert.Empty(t, cfg.Overlays, "the shipped config must not seed overlays")

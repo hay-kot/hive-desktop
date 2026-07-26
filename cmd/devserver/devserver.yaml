@@ -8,10 +8,13 @@
 # That is deliberate — a proxy that silently rewrote data the moment it started
 # would make every subsequent bug suspect.
 #
-# Edit this file freely; it is a development default, not a fixture. For a
-# personal config that stays out of git, write
-# $XDG_CONFIG_HOME/hive/desktop/devserver.yaml and run `go run ./cmd/devserver`
-# with no --config.
+# Edit this file freely; it is a development default, not a fixture. This is
+# the only config location — development configuration is versioned with the
+# code it simulates, so there is deliberately no per-user file in a home
+# directory that could change what a dev instance sees invisibly.
+#
+# The listen address below is the one every worktree's launch.env is pointed
+# at, so changing it here moves every instance with it.
 
 listen: 127.0.0.1:7777
 upstream: https://api.github.com

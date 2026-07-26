@@ -10,13 +10,29 @@ Not shipped, not imported by the app, loopback-only. Design rationale: [ADR 0017
 ## Quick start
 
 ```bash
-mise run devserver                                    # starts on 127.0.0.1:7777
-HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=http://127.0.0.1:7777 mise run desktop:dev
+mise run devserver     # starts on 127.0.0.1:7777; leave it running
+mise run desktop:dev   # already routed through it
 ```
 
-Open <http://127.0.0.1:7777> for the dashboard. No setup step: the mise task passes the checked-in [`devserver.yaml`](devserver.yaml), which ships working scenarios and webhook payloads.
+**Development is proxied by default.** `cmd/devtools prepare` writes the API base into this worktree's `launch.env`, so there is nothing to export and no flag to remember. Open <http://127.0.0.1:7777> for the dashboard.
 
-That config declares **no overlays**, so starting devserver never rewrites what a connected instance sees — you get the caching proxy, which is the whole fix for the rate-limit problem, and nothing changes until you click something. A proxy that silently faked data the moment it started would make every subsequent bug suspect.
+**One proxy serves every worktree.** It is a singleton by design: overlay state lives in the process holding the port, so a second one would mean the dashboard you are looking at might not control the instance you are watching. Launching devserver when one is already running is a deliberate no-op rather than an error, which makes `mise run devserver` safe to run from anywhere without checking first.
+
+Because every dev run is proxied, `desktop:dev` preflights the proxy and fails with instructions if nothing answers — otherwise a forgotten devserver would surface as every GitHub call failing at once.
+
+### Running against real GitHub
+
+Put this in the gitignored `overrides.env` beside `launch.env` (mise loads it second, so it wins):
+
+```
+HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""
+```
+
+The preflight skips an empty value, so opting out disables the check too.
+
+### What it does not do on startup
+
+The shipped config declares **no overlays**, so starting devserver never rewrites what a connected instance sees — you get the caching proxy, which is the whole fix for the rate-limit problem, and nothing changes until you click something. A proxy that silently faked data the moment it started would make every subsequent bug suspect.
 
 The app logs a warning at startup when the override is set, and every proxied response carries an `X-Devserver-Outcome` header (`hit`, `miss`, `revalidated`, `stale`, `passthrough`).
 
@@ -34,7 +50,9 @@ devserver also stores ETags and revalidates with `If-None-Match`. A 304 costs no
 
 `mise run devserver` passes the checked-in `cmd/devserver/devserver.yaml`. Edit it freely — it is a development default, not a fixture.
 
-For a personal config that stays out of git, write `$XDG_CONFIG_HOME/hive/desktop/devserver.yaml` and run `go run ./cmd/devserver` with no `--config`; that path is the default when the flag is absent. An explicit `--config` that does not exist is an error rather than a silent fallback.
+This is the only config location. Development configuration is versioned alongside the code whose behaviour it simulates, so there is deliberately no per-user file in a home directory — invisible local state changing what a dev instance sees is the failure mode this avoids. It is also the default when `--config` is absent; an explicit `--config` that does not exist is an error rather than a silent fallback.
+
+`listen` is the address every worktree's `launch.env` is pointed at, so changing it here moves every instance with it.
 
 Every section is optional — the annotated shipped file is the reference.
 

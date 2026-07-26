@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 )
 
 // Control is the devserver's own API: everything that drives the simulation,
@@ -37,6 +39,7 @@ func NewControl(cfg Config, store *Store, cache *Cache, proxy *Proxy, pusher *Pu
 // Handler returns the control routes.
 func (c *Control) Handler() http.Handler {
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET "+devproxy.HealthPath, handleHealth)
 	mux.HandleFunc("GET /_ctl/state", c.handleState)
 	mux.HandleFunc("POST /_ctl/overlay", c.handleSetOverlay)
 	mux.HandleFunc("POST /_ctl/overlay/clear", c.handleClearOverlay)
@@ -113,6 +116,13 @@ func (c *Control) handleState(w http.ResponseWriter, r *http.Request) {
 		Pushes:    c.pusher.Recent(),
 		Actions:   actions,
 	})
+}
+
+// handleHealth answers the duplicate-launch and preflight probes. It reads no
+// state, so it stays truthful about "a devserver owns this port" even if the
+// overlay store or cache is busy.
+func handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, devproxy.Health{Devserver: true})
 }
 
 // overlayRequest is the body of POST /_ctl/overlay.
