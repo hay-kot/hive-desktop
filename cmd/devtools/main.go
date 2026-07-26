@@ -85,14 +85,7 @@ func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
 				Name:        "check-proxy",
 				Usage:       "verify the development GitHub proxy is reachable",
 				Description: "Reads the effective HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE and fails with instructions when no devserver answers there. Development is proxied by default, so this turns connection-refused-on-every-GitHub-call into one actionable message before Wails starts. An empty value means direct-to-GitHub and passes.",
-				Flags: []cli.Flag{
-					&cli.DurationFlag{
-						Name: "wait",
-						Usage: "keep retrying for this long before failing, for a launcher that " +
-							"starts devserver and the app together (default: probe once)",
-					},
-				},
-				Action: checkProxyAction(logger),
+				Action:      checkProxyAction(logger),
 			},
 		},
 	}
@@ -113,43 +106,43 @@ func checkProxyAction(logger *zerolog.Logger) cli.ActionFunc {
 			return nil
 		}
 
-		// --wait exists for a launcher (.solo.yml) that starts devserver and the
-		// app in the same breath: `go run ./cmd/devserver` has to link before it
-		// binds, so a single probe would usually lose that race. Waiting is the
-		// launcher's concern, not the task's — someone running desktop:dev by
-		// hand wants to be told immediately, which is why the default is one
-		// probe.
-		deadline := time.Now().Add(cmd.Duration("wait"))
-		for attempt := 0; ; attempt++ {
-			switch devproxy.Probe(ctx, base) {
-			case devproxy.StatusRunning:
-				logger.Info().Str("api_base", base).Msg("development GitHub proxy is reachable")
-				return nil
-			case devproxy.StatusForeign:
-				// Retrying cannot help: something else owns the port, and it is
-				// not going to become devserver.
-				return cli.Exit(base+" is answering but is not devserver", 1)
-			case devproxy.StatusAbsent:
-				if time.Now().After(deadline) {
-					fmt.Fprint(os.Stderr, "\n"+devproxy.NotRunningHelp(base)+"\n")
-					return cli.Exit("development GitHub proxy is not running", 1)
-				}
-				if attempt == 0 {
-					logger.Info().Str("api_base", base).Msg("waiting for the development GitHub proxy")
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(probeInterval):
-			}
+		// One probe, no retry. devserver binds in the time it takes to link one
+		// Go binary, while the tab this guards goes on to build Wails bindings
+		// and Vite before anything reaches GitHub — so a proxy that is genuinely
+		// starting has always won that race by the time the app would need it.
+		// What is left to catch is the proxy nobody started, and for that the
+		// only useful behaviour is to say so immediately.
+		switch devproxy.Probe(ctx, base) {
+		case devproxy.StatusRunning:
+			logger.Info().Str("api_base", base).Msg("development GitHub proxy is reachable")
+			return nil
+		case devproxy.StatusForeign:
+			return cli.Exit(base+" is answering but is not devserver", 1)
+		default:
+			fmt.Fprint(os.Stderr, "\n"+notRunningHelp(base)+"\n")
+			return cli.Exit("development GitHub proxy is not running", 1)
 		}
 	}
 }
 
-// probeInterval paces the --wait retry loop. The target is loopback, so this is
-// about not spinning rather than about network cost.
-const probeInterval = 500 * time.Millisecond
+// notRunningHelp is the guidance for a redirected instance with no proxy behind
+// it. Every dev run is proxied by default (ADR 0017), so this is the one failure
+// the default path can produce, and it is worth spelling out both ways out
+// rather than leaving connection-refused errors to be interpreted.
+func notRunningHelp(baseURL string) string {
+	return fmt.Sprintf(`This worktree routes GitHub through the development proxy, but nothing is
+listening at %s.
+
+Start it (once per machine — every worktree shares it):
+
+    mise run devserver
+
+Or run against real GitHub instead, by putting this in the gitignored
+overrides.env beside launch.env:
+
+    %s=""
+`, baseURL, devproxy.EnvAPIBase)
+}
 
 func devtoolsAction(logger *zerolog.Logger, action func(*devtools) error) cli.ActionFunc {
 	return func(_ context.Context, cmd *cli.Command) error {

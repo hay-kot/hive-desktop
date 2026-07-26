@@ -109,27 +109,11 @@ func ListenFromConfig(root string) string {
 	return parsed.Listen
 }
 
-// NotRunningHelp is the guidance for a redirected instance with no proxy
-// behind it. Every dev run is proxied by default (ADR 0017), so this is the one
-// failure the default path can produce, and it is worth spelling out both ways
-// out rather than leaving connection-refused errors to be interpreted.
-func NotRunningHelp(baseURL string) string {
-	return fmt.Sprintf(`This worktree routes GitHub through the development proxy, but nothing is
-listening at %s.
-
-Start it (once per machine — every worktree shares it):
-
-    mise run devserver
-
-Or run against real GitHub instead, by putting this in the gitignored
-overrides.env beside launch.env:
-
-    %s=""
-`, baseURL, EnvAPIBase)
-}
-
 // EnvAPIBase names the desktop setting this package's address feeds. It is
-// duplicated from internal/app/settings rather than imported: cmd/ tooling
-// should not pull the app's settings package in for one string, and the
-// devtools preflight asserts the two agree.
+// duplicated from internal/app/settings rather than imported because
+// cmd/devserver must not depend on an app package for a string (ADR 0017: the
+// app does not import devserver and devserver does not import the app), and
+// both binaries need the name — devtools to read it, devserver to name it in
+// the hint it prints at startup. cmd/devtools imports both packages and asserts
+// the two spellings agree.
 const EnvAPIBase = "HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"
