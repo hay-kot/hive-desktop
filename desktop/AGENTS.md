@@ -107,8 +107,10 @@ is the moment membership claims and inbox items are readable.
 Drive everything through the **root** mise tasks (canonical entry points):
 
 ```bash
-mise run desktop:dev       # wails3 dev — live frontend (Vite HMR) + Go; picks a free port;
-                           # runs on an ephemeral copy of the local data dir (HIVE_DATA_DIR overrides)
+mise run desktop:dev         # Run Wails directly with this worktree's launch.env
+mise run desktop:dev:prepare # Create/reuse the isolated instance and launch.env
+mise run desktop:dev:fresh   # Safely reseed the instance and regenerate launch.env
+mise run desktop:dev:reset   # Safely remove the marked instance and launch.env
 mise run desktop:serve     # headless HTTP server build on localhost:8080 (agent UI loop)
 mise run desktop:build     # build the app (macOS emits desktop/bin/hive-desktop)
 mise run desktop:generate  # regenerate frontend TS bindings after Go service changes
@@ -127,14 +129,14 @@ build:
 
 ```bash
 mise run desktop:serve                       # serves at http://localhost:8080
-HIVE_DESKTOP_MOCK=onboarding mise run desktop:serve   # drive first run offline
+HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding mise run desktop:serve
 ```
 
 `onboarding` mode reads its flows from a fresh scratch directory rather than
 the real config root, so it shows first run even on a machine that already has
 workspaces, and the walk cannot touch them. The directory is per-process, so a
 `desktop:dev` rebuild — which any Go edit triggers — starts the walk over. Set
-`HIVE_DESKTOP_FLOWS` to opt out and point it at a fixture set instead.
+`HIVE_DESKTOP_FLOWS_DIR` to opt out and point it at a fixture set instead.
 
 Drive it with Playwright/browser tooling, read screenshots under
 `desktop/e2e/screenshots`, edit, repeat. Assets are `//go:embed`ded, so
@@ -219,7 +221,7 @@ more expensive, which is the whole reason it is being done now.
   needs every event in order uses `events.Buffer(n)` instead — the delta is
   in the payload, which is why an MCP or streaming consumer does not have to
   "re-read the service". See `architecture.md` ▸ Events.
-- **Mock modes** (`HIVE_DESKTOP_MOCK`): `feed`/`pipeline`/`action-smoke` start
+- **Mock modes** (`HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE`): `feed`/`pipeline`/`action-smoke` start
   with `github/octocat` connected; `onboarding` starts with no workspaces and
   nothing connected, and its fake device flow grants after ~1.5s — the two
   together are what make it the first-run mode. Unset → live backends. A mock
@@ -229,11 +231,40 @@ more expensive, which is the whole reason it is being done now.
   and output-worker background loop are skipped; `feed`/`action-smoke` seed
   fixed `feed_item` rows (see `mockseed.go`). Use these for deterministic
   offline/e2e runs — do not hit real GitHub in tests.
-- **Config vs data split.** User-editable config (flows, `actions.yml`) lives in
-  `$XDG_CONFIG_HOME/hive/desktop/` (so it can live in a dotfiles repo);
-  app-local state (`feed_item`, read state, event-log offsets, queued output
-  commands) lives in the data dir's `desktop/` subdirectory. Respect that
-  boundary when adding persistence.
+- **Config vs data split.** User-editable config (flows, `actions.yml`,
+  `settings.yaml`) lives in `$XDG_CONFIG_HOME/hive/desktop/` (so it can live in
+  a dotfiles repo); app-local state lives under the data root's `desktop/`
+  directory. Startup resolves safe defaults → strict YAML validation →
+  `HIVE_DESKTOP_*` overrides → effective-value validation, and injects one
+  immutable path snapshot. The fixed
+  `bootstrap.yaml` stores only `data_dir` and `config_dir`; explicit desktop
+  path overrides win. The canonical safe settings shape is:
+
+  ```yaml
+  polling: {interval: 5m}
+  updates: {enabled: true, channel: ""}
+  notifications: {enabled: true, delivery: auto, sound: true}
+  appearance: {theme: ""}
+  webhooks: {enabled: false, host: 127.0.0.1, port: 0}
+  keybindings: {}
+  development:
+    mocks: {mode: live}
+    instance: {id: ""}
+    vite: {host: 127.0.0.1, port: 0}
+    wails: {host: 127.0.0.1, port: 0}
+    pprof: {enabled: false, host: 127.0.0.1, port: 0}
+    debug: {pause_ingest: 0s, pause_commit: 0s}
+  ```
+
+  Webhooks allocate directly through port `0` only when enabled. Pprof config
+  is validated but endpoint startup waits for the plugs lifecycle. Dev uses
+  `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
+  runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
+  marker-guarded destructive operations that refuse while a configured dev
+  server is active. `prepare` writes non-secret `launch.env`; the `desktop:dev`
+  mise task loads it followed by optional gitignored `overrides.env`, then
+  starts Wails directly. Data/config/ports are isolated, but the OS keychain
+  and fixed bootstrap pointer are shared.
 - **Flows/actions are code, hot-reloaded and last-good.** Flow parsing is strict
   and validated by Go on save/deploy (unique node ids, known types, source
   limits within GitHub caps, action refs that exist, valid wires). `FlowsWatcher`
@@ -284,17 +315,43 @@ more expensive, which is the whole reason it is being done now.
 
 ## Environment variables
 
-Defined in `internal/app/settings/paths.go` unless noted:
+Desktop-owned configuration uses `HIVE_DESKTOP_<NAMESPACE>_<FIELD>`. Every
+value is parsed and validated; settings overrides are process-local and are not
+persisted by UI writes.
 
 | Var | Purpose |
 | --- | --- |
-| `HIVE_DESKTOP_MOCK` | Select a deterministic offline backend (`feed`/`pipeline`/`action-smoke`/`onboarding`) |
-| `HIVE_DESKTOP_CONFIG` | Override the config root (holds `flows/` + `actions.yml`) |
-| `HIVE_DESKTOP_FLOWS` | Override just the flows directory |
-| `HIVE_DESKTOP_ACTIONS` | Override the `actions.yml` path |
-| `HIVE_DATA_DIR` | App-local state root (shared with the CLI convention) |
-| `HIVE_GITHUB_TOKEN` | Read-only headless override for every `github/*` credential (`credentials.EnvOverrideName`) |
-| `HIVE_GITHUB_CLIENT_ID` | Override the device-flow OAuth client id |
-| `HIVE_DESKTOP_WEBHOOK_PORT` | Override the local webhook listener port (settings.yaml `webhook_port`, randomly allocated from 20000–32767 on first run); in mock modes the listener starts only when this is set |
-| `WAILS_SERVER_PORT` | Server-build port (default 8080) |
-| `WAILS_VITE_PORT` | Dev Vite port (auto-picked free port otherwise) |
+| `HIVE_DESKTOP_DATA_DIR` | Desktop data root |
+| `HIVE_DESKTOP_CONFIG_DIR` | Desktop config root |
+| `HIVE_DESKTOP_FLOWS_DIR` | Override only `flows/` |
+| `HIVE_DESKTOP_ACTIONS_PATH` | Override only `actions.yml` |
+| `HIVE_DESKTOP_LOG_LEVEL` | Root logger level |
+| `HIVE_DESKTOP_POLLING_INTERVAL` | Pull-source interval (minimum `60s`) |
+| `HIVE_DESKTOP_UPDATES_ENABLED` | Enable update checks |
+| `HIVE_DESKTOP_UPDATES_CHANNEL` | `stable`, `beta`, or `dev` |
+| `HIVE_DESKTOP_NOTIFICATIONS_ENABLED` | Enable notifications |
+| `HIVE_DESKTOP_NOTIFICATIONS_DELIVERY` | `auto`, `system`, or `app` |
+| `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
+| `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
+| `HIVE_DESKTOP_WEBHOOKS_ENABLED` | Enable the loopback webhook listener |
+| `HIVE_DESKTOP_WEBHOOKS_HOST` | Webhook loopback host |
+| `HIVE_DESKTOP_WEBHOOKS_PORT` | Webhook port; `0` asks the OS to allocate |
+| `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
+| `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
+| `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
+| `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
+| `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
+| `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Reserved pprof enable setting; runtime endpoint deferred |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST` | Reserved pprof loopback host |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT` | Reserved pprof port |
+| `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
+| `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
+| `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |
+| `HIVE_DESKTOP_E2E_HARNESS` | Marker-gates Docker-only e2e routes |
+
+External boundaries keep their own names: `XDG_*` locates defaults;
+`WAILS_SERVER_HOST`/`PORT` and `WAILS_VITE_HOST`/`PORT` belong to the
+framework and receive the dev-launcher bridge; `HIVE_GITHUB_TOKEN` and
+`HIVE_GITHUB_CLIENT_ID` are credential/provider inputs; build, release-secret,
+and vendored Hive variables are not desktop settings.

@@ -128,19 +128,19 @@ EOF
   fi
   echo "starting ${mode} mock server ${name} on port ${port}" >&2
   if [[ "${mode}" == "onboarding" ]]; then
-    env -u HIVE_DESKTOP_FLOWS -u HIVE_DESKTOP_ACTIONS \
-      HIVE_DATA_DIR="${data_dir}" XDG_CONFIG_HOME="${config_home}" \
-      HIVE_DESKTOP_MOCK="${mode}" WAILS_SERVER_PORT="${port}" \
+    env -u HIVE_DESKTOP_FLOWS_DIR -u HIVE_DESKTOP_ACTIONS_PATH \
+      HIVE_DESKTOP_DATA_DIR="${data_dir}" XDG_CONFIG_HOME="${config_home}" \
+      HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE="${mode}" WAILS_SERVER_PORT="${port}" \
       desktop/bin/hive-desktop-server &
   else
     local action_path="${data_dir}/fixtures/actions.yml"
     env \
-      HIVE_DATA_DIR="${data_dir}" \
+      HIVE_DESKTOP_DATA_DIR="${data_dir}" \
       HIVE_CONFIG="${data_dir}/hive-e2e.yaml" \
       XDG_CONFIG_HOME="${config_home}" \
-      HIVE_DESKTOP_MOCK="$([[ "${mode}" == "action-seed" ]] && echo action-smoke || echo "${mode}")" \
-      HIVE_DESKTOP_FLOWS="${data_dir}/fixtures/flows" \
-      HIVE_DESKTOP_ACTIONS="${action_path}" \
+      HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE="$([[ "${mode}" == "action-seed" ]] && echo action-smoke || echo "${mode}")" \
+      HIVE_DESKTOP_FLOWS_DIR="${data_dir}/fixtures/flows" \
+      HIVE_DESKTOP_ACTIONS_PATH="${action_path}" \
       HIVE_DESKTOP_SMOKE_RUN_ID="${RUN_ID}-${mode}" \
       HIVE_DESKTOP_SMOKE_REMOTE="${data_dir}/remote.git" \
       WAILS_SERVER_PORT="${port}" \

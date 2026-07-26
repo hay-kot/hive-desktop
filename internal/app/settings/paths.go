@@ -1,7 +1,6 @@
-// Package settings resolves the desktop app's on-disk locations (state,
-// config, flows, actions) and loads the user-editable settings and bootstrap
-// files that live there. It is the lowest layer of internal/app: it knows
-// where things are and what the user configured, and nothing else.
+// Package settings resolves the desktop app's typed settings and on-disk
+// locations. Desktop-owned overrides use the HIVE_DESKTOP_ prefix; XDG and
+// vendored Hive inputs remain external boundaries.
 package settings
 
 import (
@@ -10,108 +9,120 @@ import (
 	"sync"
 )
 
-// EnvMockMode selects deterministic offline backends instead of live
-// GitHub: "feed" starts connected with fixture data (the e2e default),
-// "pipeline" starts connected with the isolated source-to-commit smoke
-// fixture, and "onboarding" is a fresh install — nothing connected, a
-// self-granting fake device flow, and no workspaces (see FlowsDir).
-const EnvMockMode = "HIVE_DESKTOP_MOCK"
+const (
+	EnvDataDir     = "HIVE_DESKTOP_DATA_DIR"
+	EnvConfigDir   = "HIVE_DESKTOP_CONFIG_DIR"
+	EnvFlowsDir    = "HIVE_DESKTOP_FLOWS_DIR"
+	EnvActionsPath = "HIVE_DESKTOP_ACTIONS_PATH"
+	EnvMockMode    = "HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE"
+	EnvE2EHarness  = "HIVE_DESKTOP_E2E_HARNESS"
+	EnvWebhookPort = "HIVE_DESKTOP_WEBHOOKS_PORT"
+)
 
-// MockOnboarding is the mock mode that stands in for a fresh install.
-const MockOnboarding = "onboarding"
-
-// EnvE2EHarness carries the per-run, 256-bit token that Docker e2e creates.
-// It prevents test-only HTTP routes from being enabled by mock mode alone.
-const EnvE2EHarness = "HIVE_DESKTOP_E2E_HARNESS"
-
-// EnvConfigPath overrides the legacy profiles config path. New desktop
-// configuration derives its default directory from this path so existing
-// HIVE_DESKTOP_CONFIG setups keep flows/ and actions.yml in the same config
-// root.
-const EnvConfigPath = "HIVE_DESKTOP_CONFIG"
-
-// EnvFlowsDir overrides the flows/*.yaml directory location, mirroring how
-// EnvConfigPath anchors the default desktop config directory.
-const EnvFlowsDir = "HIVE_DESKTOP_FLOWS"
-
-// MockMode returns the requested mock mode, or "" for live backends.
-func MockMode() string {
-	return os.Getenv(EnvMockMode)
+// Paths is the immutable startup snapshot of every desktop-owned location.
+// Runtime code receives this value instead of resolving process environment
+// repeatedly.
+type Paths struct {
+	DataDir              string
+	StateDir             string
+	ConfigDir            string
+	ConfigPath           string
+	FlowsDir             string
+	ActionsPath          string
+	SettingsPath         string
+	CredentialsIndexPath string
+	LogFile              string
+	DataDirOverridden    bool
+	ConfigDirOverridden  bool
 }
 
-// StateDir is where the desktop app persists its app-local state
-// (read-state). It follows the CLI's data-dir convention: HIVE_DATA_DIR,
-// then XDG_DATA_HOME, then ~/.local/share — with a desktop/ subdirectory
-// keeping app state apart from CLI state.
-func StateDir() string {
-	if dir := os.Getenv("HIVE_DATA_DIR"); dir != "" {
-		return filepath.Join(dir, "desktop")
-	}
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		home, _ := os.UserHomeDir()
-		dataHome = filepath.Join(home, ".local", "share")
-	}
-	return filepath.Join(dataHome, "hive", "desktop")
-}
-
-// CredentialsIndexPath is the credential ref index: which provider accounts
-// are configured, never their values. It lives in the state dir rather than
-// the config dir because it is app-local state — a ref index sitting beside
-// dotfiles-managed flows/ would invite hand-editing it into disagreement with
-// the keychain, which holds the actual secrets.
-func CredentialsIndexPath() string {
-	return filepath.Join(StateDir(), "credentials.json")
-}
-
-// ConfigPath is the legacy profiles config file path. The flow-backed
-// desktop no longer reads this file directly, but FlowsDir and ActionsPath
-// still derive their default config root from its directory for compatibility
-// with existing HIVE_DESKTOP_CONFIG overrides. It follows the CLI's config
-// convention: XDG_CONFIG_HOME, then ~/.config, with a desktop/ subdirectory.
-func ConfigPath() string {
-	if path := os.Getenv(EnvConfigPath); path != "" {
-		return path
-	}
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, _ := os.UserHomeDir()
-		configHome = filepath.Join(home, ".config")
-	}
-	return filepath.Join(configHome, "hive", "desktop", "profiles.yaml")
-}
-
-// FlowsDir is where the desktop pipeline's flow definitions
-// (flows/<id>.yaml, plus each flow's sibling flows/<id>.ui.yaml layout)
-// live: a user-editable, dotfiles-managed "flows" directory under the
-// desktop config root. It follows the same override convention as
-// ConfigPath: EnvFlowsDir wins outright over the derived location.
-//
-// The onboarding mock mode is the exception: it runs on a scratch directory
-// instead. That mode stands in for a fresh install, and first run is now
-// gated on having no workspaces rather than on GitHub being connected — so
-// pointed at a config root that already holds flows it boots straight to the
-// feed and shows nothing it was asked to show. An explicit EnvFlowsDir still
-// wins, which is how the e2e harness and anyone wanting a specific fixture
-// set opt out.
-func FlowsDir() string {
-	if dir := os.Getenv(EnvFlowsDir); dir != "" {
-		return dir
-	}
-	if MockMode() == MockOnboarding {
-		if dir := onboardingFlowsDir(); dir != "" {
-			return dir
+// ResolvePaths applies explicit environment overrides over bootstrap values,
+// then XDG defaults. mockMode only affects the isolated onboarding flow path.
+func ResolvePaths(b Bootstrap, mockMode string) Paths {
+	dataDir, dataEnv := os.LookupEnv(EnvDataDir)
+	dataOverride := dataEnv && dataDir != ""
+	if !dataOverride {
+		dataDir = b.DataDir
+		if dataDir == "" {
+			dataHome := os.Getenv("XDG_DATA_HOME")
+			if dataHome == "" {
+				home, _ := os.UserHomeDir()
+				dataHome = filepath.Join(home, ".local", "share")
+			}
+			dataDir = filepath.Join(dataHome, "hive")
 		}
 	}
-	return filepath.Join(filepath.Dir(ConfigPath()), "flows")
+
+	configDir, configEnv := os.LookupEnv(EnvConfigDir)
+	configOverride := configEnv && configDir != ""
+	if !configOverride {
+		configDir = b.ConfigDir
+		if configDir == "" {
+			configHome := os.Getenv("XDG_CONFIG_HOME")
+			if configHome == "" {
+				home, _ := os.UserHomeDir()
+				configHome = filepath.Join(home, ".config")
+			}
+			configDir = filepath.Join(configHome, "hive", "desktop")
+		}
+	}
+
+	stateDir := filepath.Join(dataDir, "desktop")
+	flowsDir := os.Getenv(EnvFlowsDir)
+	if flowsDir == "" {
+		if mockMode == MockOnboarding {
+			flowsDir = onboardingFlowsDir()
+		}
+		if flowsDir == "" {
+			flowsDir = filepath.Join(configDir, "flows")
+		}
+	}
+	actionsPath := os.Getenv(EnvActionsPath)
+	if actionsPath == "" {
+		actionsPath = filepath.Join(configDir, "actions.yml")
+	}
+	return Paths{
+		DataDir:              dataDir,
+		StateDir:             stateDir,
+		ConfigDir:            configDir,
+		ConfigPath:           filepath.Join(configDir, "profiles.yaml"),
+		FlowsDir:             flowsDir,
+		ActionsPath:          actionsPath,
+		SettingsPath:         filepath.Join(configDir, settingsFileName),
+		CredentialsIndexPath: filepath.Join(stateDir, "credentials.json"),
+		LogFile:              filepath.Join(stateDir, logFileName),
+		DataDirOverridden:    dataOverride || b.DataDir != "",
+		ConfigDirOverridden:  configOverride || b.ConfigDir != "",
+	}
 }
 
-// onboardingFlowsDir is a fresh empty directory, resolved once per process so
-// every caller agrees on it and re-made on every launch so the mode stays
-// repeatable — workspaces created while walking first run must not still be
-// there the next time it is walked. It returns "" if a temp directory cannot
-// be made, which falls back to the real flows directory rather than failing a
-// path lookup.
+func envMockMode() string {
+	mode := os.Getenv(EnvMockMode)
+	if mode == "" || mode == MockLive {
+		return ""
+	}
+	return mode
+}
+
+func defaultPaths() Paths {
+	b, _ := LoadBootstrap()
+	return ResolvePaths(b, envMockMode())
+}
+
+// Package-level helpers are retained for isolated tests and e2e harnesses.
+// Production runtime code uses the Paths snapshot injected from main.
+func DataDir() string              { return defaultPaths().DataDir }
+func StateDir() string             { return defaultPaths().StateDir }
+func ConfigDir() string            { return defaultPaths().ConfigDir }
+func ConfigPath() string           { return defaultPaths().ConfigPath }
+func FlowsDir() string             { return defaultPaths().FlowsDir }
+func ActionsPath() string          { return defaultPaths().ActionsPath }
+func SettingsPath() string         { return defaultPaths().SettingsPath }
+func CredentialsIndexPath() string { return defaultPaths().CredentialsIndexPath }
+func DataDirOverridden() bool      { return defaultPaths().DataDirOverridden }
+func ConfigDirOverridden() bool    { return defaultPaths().ConfigDirOverridden }
+func MockMode() string             { return envMockMode() }
+
 var onboardingFlowsDir = sync.OnceValue(func() string {
 	dir, err := os.MkdirTemp("", "hive-desktop-onboarding-")
 	if err != nil {
@@ -119,28 +130,3 @@ var onboardingFlowsDir = sync.OnceValue(func() string {
 	}
 	return dir
 })
-
-// EnvActionsPath overrides the actions.yml file location, mirroring how
-// EnvFlowsDir overrides the flows directory.
-const EnvActionsPath = "HIVE_DESKTOP_ACTIONS"
-
-// EnvWebhookPort overrides the local webhook listener's TCP port (see
-// Settings.WebhookPortOrDefault). In mock modes the listener only starts
-// when this is set, so parallel e2e server instances stay silent unless a
-// lane explicitly claims a port.
-const EnvWebhookPort = "HIVE_DESKTOP_WEBHOOK_PORT"
-
-// ActionsPath is the actions.yml file location: launch-session/shell/
-// publish-message action definitions consumed by the desktop pipeline's
-// output worker and detail-pane action picker (see
-// internal/app/actions). The design doc calls this
-// ".hive/actions.yml" (repo-scoped), but the desktop app's config is global
-// rather than repo-scoped — there is no single repo it belongs to — so it
-// lives in the desktop config root instead. EnvActionsPath overrides the
-// derived location outright, mirroring EnvFlowsDir/EnvConfigPath.
-func ActionsPath() string {
-	if path := os.Getenv(EnvActionsPath); path != "" {
-		return path
-	}
-	return filepath.Join(filepath.Dir(ConfigPath()), "actions.yml")
-}

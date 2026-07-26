@@ -7,14 +7,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // sourceToCommitSmokePath is available only to the dedicated server-build e2e
-// fixture (HIVE_DESKTOP_MOCK=pipeline). It is deliberately not a general test
+// fixture (HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=pipeline). It is deliberately not a general test
 // data API: POST always appends this fixed source fixture, while GET reports
 // only persisted node runs during this temporary Phase-1 degraded harness.
 const sourceToCommitSmokePath = "/_e2e/source-to-commit"
@@ -72,9 +71,9 @@ func (sourceToCommitSmokeClassifier) Classify(previous *store.Observation, curre
 // onAppended announces that the event log grew and wakes the engine, exactly
 // as the producer does. It is supplied rather than called directly so this
 // package does not have to import the adapter that mounts it.
-func sourceToCommitSmokeMiddleware(db *store.DB, onAppended func(nextOffset int64)) application.Middleware {
+func sourceToCommitSmokeMiddleware(db *store.DB, mock string, onAppended func(nextOffset int64)) application.Middleware {
 	return func(next http.Handler) http.Handler {
-		if settings.MockMode() != "pipeline" {
+		if mock != "pipeline" {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

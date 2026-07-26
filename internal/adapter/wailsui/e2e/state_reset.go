@@ -55,6 +55,7 @@ type StateReset struct {
 	db       *store.DB
 	core     *coredb.DB
 	logger   zerolog.Logger
+	mock     string
 	flowsDir string
 	files    []pristineFile
 }
@@ -64,12 +65,19 @@ type StateReset struct {
 // run after startup seeding — the mock inbox rows and actions.yml defaults —
 // so the captured baseline is the post-boot state a fresh server would show.
 func NewStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) *StateReset {
-	if settings.MockMode() == "" || !e2eHarnessMarkerValid() {
+	b, _ := settings.LoadBootstrap()
+	mock := settings.MockMode()
+	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, mock), logger)
+}
+
+// NewStateResetHarnessForInstance uses the composition-root runtime snapshot.
+func NewStateResetHarnessForInstance(db *store.DB, core *coredb.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
+	if mock == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
-	r := &StateReset{db: db, core: core, logger: logger, flowsDir: settings.FlowsDir()}
-	r.capture(settings.ActionsPath())
-	r.capture(settings.SettingsPath())
+	r := &StateReset{db: db, core: core, logger: logger, mock: mock, flowsDir: paths.FlowsDir}
+	r.capture(paths.ActionsPath)
+	r.capture(paths.SettingsPath)
 	// SaveFlow/SaveLayout/SaveSidebar write per-flow files, so every file
 	// under the flows directory is baseline state, layout siblings included.
 	_ = filepath.WalkDir(r.flowsDir, func(path string, entry fs.DirEntry, err error) error {
@@ -105,7 +113,7 @@ func (r *StateReset) capture(path string) {
 // an empty store; see the type comment for the full ordering.
 func (r *StateReset) Reset(ctx context.Context) error {
 	var reseed func(*store.Queries) error
-	switch settings.MockMode() {
+	switch r.mock {
 	case "feed", "action-smoke":
 		// The same deterministic fixture path main.go seeds at startup.
 		reseed = seedMockInboxItemsTx

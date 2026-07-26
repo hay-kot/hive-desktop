@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net"
 	"strconv"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
@@ -156,11 +157,13 @@ func (s *GitHubService) Disconnect(context.Context) error {
 // app/prompts; this resolves the install-specific environment they render
 // against.
 type PromptsService struct {
+	paths    settings.Paths
+	settings *settings.Store
 	webhooks *WebhookService
 }
 
-func newPromptsService(webhooks *WebhookService) *PromptsService {
-	return &PromptsService{webhooks: webhooks}
+func newPromptsService(paths settings.Paths, settingsStore *settings.Store, webhooks *WebhookService) *PromptsService {
+	return &PromptsService{paths: paths, settings: settingsStore, webhooks: webhooks}
 }
 
 // service is rebuilt per call rather than cached: the paths and webhook state
@@ -168,21 +171,21 @@ func newPromptsService(webhooks *WebhookService) *PromptsService {
 // keep handing out a stale port after the listener rebinds.
 func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) {
 	env := prompts.Env{
-		ConfigDir:    settings.ConfigDir(),
-		FlowsDir:     settings.FlowsDir(),
-		ActionsPath:  settings.ActionsPath(),
-		SettingsPath: settings.SettingsPath(),
+		ConfigDir:    s.paths.ConfigDir,
+		FlowsDir:     s.paths.FlowsDir,
+		ActionsPath:  s.paths.ActionsPath,
+		SettingsPath: s.paths.SettingsPath,
 	}
 	if _, port := s.webhooks.Endpoint(ctx); port > 0 {
-		env.WebhookBaseURL = WebhookBaseURL(port)
+		env.WebhookBaseURL = WebhookBaseURLAt(s.webhooks.Host(), port)
 	}
 	// A settings read failure must not take the prompts page down with it:
 	// every other prompt is still correct, so fall back to reporting the
 	// listener as enabled and let the webhook settings pane surface the error.
-	if cfg, err := settings.LoadSettings(); err == nil {
-		env.WebhookEnabled = cfg.WebhookEnabledOrDefault()
+	if cfg, err := s.settings.Effective(); err == nil {
+		env.WebhookEnabled = cfg.Webhooks.Enabled
 	} else {
-		env.WebhookEnabled = true
+		env.WebhookEnabled = false
 	}
 	svc, err := prompts.New(env)
 	return svc, Wrap(err, KindInternal, "building the prompt catalog")
@@ -216,5 +219,10 @@ func (s *PromptsService) Render(ctx context.Context, id string, input prompts.In
 // under. It lives here rather than in the adapter because the prompt text
 // embeds it, and a prompt is core-owned.
 func WebhookBaseURL(port int) string {
-	return "http://127.0.0.1:" + strconv.Itoa(port) + webhook.PathPrefix
+	return WebhookBaseURLAt("127.0.0.1", port)
+}
+
+// WebhookBaseURLAt builds the URL prefix for a validated listener host.
+func WebhookBaseURLAt(host string, port int) string {
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + webhook.PathPrefix
 }

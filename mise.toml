@@ -10,17 +10,24 @@ lefthook = "2.1.10"
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
 # commits, and the vendor pin usually is one.
 GOPRIVATE = "github.com/colonyops/hive"
-# Local secrets (release signing/notary/R2). Gitignored; absent in CI.
+# Local secrets (release signing/notary/R2). The generated launch.env is
+# intentionally scoped to desktop:dev so tests, release tools, and the
+# headless server do not inherit development paths or framework ports.
 _.file = { path = ".env", redact = true }
 
-# Wires .git/hooks to lefthook after `mise install`, so a fresh clone gets the
-# quality gates without a separate manual step. Idempotent; safe to re-run.
+# A tool install wires hooks and prepares this worktree's isolated desktop
+# instance. The enter hook only fills a missing launch.env. Each later mise
+# command reloads the generated file before running, including desktop:dev.
 [hooks]
-postinstall = "{{config_root}}/scripts/hooks/install.sh"
+postinstall = { task = "setup" }
+enter = "test -f '{{config_root}}/launch.env' || (cd '{{config_root}}' && go run ./cmd/devtools prepare)"
 
 [tasks.setup]
-description = "Install the lefthook git hooks (runs automatically after `mise install`)"
-run = "./scripts/hooks/install.sh"
+description = "Install git hooks and prepare this worktree's isolated desktop launch environment"
+run = [
+  "./scripts/hooks/install.sh",
+  "go run ./cmd/devtools prepare",
+]
 
 [tasks."release:desktop"]
 description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
@@ -114,15 +121,30 @@ git diff --exit-code -- internal/hivecore || {
 """
 
 [tasks."desktop:dev"]
-description = "Run the desktop app in dev mode (wails3 dev). Picks a free Vite port so instances run concurrently; injects the git branch for the dev bar; runs against an ephemeral per-worktree copy of the local data dir and desktop config (set HIVE_DATA_DIR / HIVE_DESKTOP_CONFIG to override)."
+description = "Run Wails directly using launch.env and this worktree's isolated .hive-desktop instance"
 dir = "desktop"
+# launch.env is generated; optional overrides.env is developer-authored and
+# wins because mise loads it second.
+env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}" }
 run = """
-port="$(./build/scripts/dev-port.sh)"
-branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-eval "$(./build/scripts/dev-data-dir.sh)"
-echo "hive desktop dev: vite port ${port}, branch ${branch}"
-WAILS_VITE_PORT="${port}" VITE_HIVE_DEV_BRANCH="${branch}" wails3 dev -config ./build/config.yml
+test -f ../launch.env || {
+  echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2
+  exit 1
+}
+wails3 dev -config ./build/config.yml
 """
+
+[tasks."desktop:dev:prepare"]
+description = "Create or reuse this worktree's desktop instance and generate launch.env"
+run = "go run ./cmd/devtools prepare"
+
+[tasks."desktop:dev:fresh"]
+description = "Safely recreate this worktree's desktop instance and regenerate launch.env"
+run = "go run ./cmd/devtools fresh"
+
+[tasks."desktop:dev:reset"]
+description = "Safely delete this worktree's marked desktop instance and launch.env"
+run = "go run ./cmd/devtools reset"
 
 [tasks."desktop:build"]
 description = "Build the desktop app"

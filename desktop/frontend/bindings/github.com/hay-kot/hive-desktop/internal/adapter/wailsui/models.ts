@@ -194,6 +194,7 @@ export interface WebhookSettings {
      * Enabled and Port are the persisted configuration.
      */
     "enabled": boolean;
+    "host": string;
     "port": number;
 
     /**
@@ -204,7 +205,7 @@ export interface WebhookSettings {
     "portMax": number;
 
     /**
-     * PortOverridden reports that HIVE_DESKTOP_WEBHOOK_PORT is in force, in
+     * PortOverridden reports that HIVE_DESKTOP_WEBHOOKS_PORT is in force, in
      * which case Port is the override and editing it has no effect.
      */
     "portOverridden": boolean;
@@ -214,6 +215,7 @@ export interface WebhookSettings {
      * listener. BoundPort is 0 when it never bound.
      */
     "running": boolean;
+    "boundHost": string;
     "boundPort": number;
     "baseUrl": string;
     "startError": string;

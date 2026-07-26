@@ -16,8 +16,17 @@ import (
 func isolateConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	t.Setenv(settings.EnvConfigPath, filepath.Join(dir, "profiles.yaml"))
+	t.Setenv(settings.EnvConfigDir, dir)
 	return dir
+}
+
+func newTestPromptsService(t *testing.T, port int) *PromptsService {
+	t.Helper()
+	b, err := settings.LoadBootstrap()
+	require.NoError(t, err)
+	paths := settings.ResolvePaths(b, "")
+	store := settings.NewStore(paths.SettingsPath)
+	return newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", port))
 }
 
 func testCatalogInput() prompts.Input {
@@ -30,7 +39,7 @@ func testCatalogInput() prompts.Input {
 // copied prompt has to name the paths on this machine.
 func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 	dir := isolateConfig(t)
-	svc := newPromptsService(newWebhookService(nil, nil, 24917))
+	svc := newTestPromptsService(t, 24917)
 
 	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
 	require.NoError(t, err)
@@ -53,14 +62,31 @@ func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 // fresh install, before any config file exists.
 func TestCatalogSurvivesAnEmptyConfigRoot(t *testing.T) {
 	isolateConfig(t)
-	catalog, err := newPromptsService(newWebhookService(nil, nil, 0)).Catalog(t.Context(), testCatalogInput())
+	catalog, err := newTestPromptsService(t, 0).Catalog(t.Context(), testCatalogInput())
 	require.NoError(t, err)
 	assert.NotEmpty(t, catalog)
 }
 
+func TestCatalogUsesConfiguredWebhookHost(t *testing.T) {
+	isolateConfig(t)
+	paths := settings.ResolvePaths(settings.Bootstrap{}, "")
+	store := settings.NewStore(paths.SettingsPath)
+	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "::1", 24917))
+
+	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
+	require.NoError(t, err)
+	for _, prompt := range catalog {
+		if prompt.ID == "webhook-sources" {
+			assert.Contains(t, prompt.Text, "http://[::1]:24917/hooks/")
+			return
+		}
+	}
+	t.Fatal("webhook-sources prompt not found")
+}
+
 func TestRenderReturnsContextScopedPrompts(t *testing.T) {
 	isolateConfig(t)
-	svc := newPromptsService(newWebhookService(nil, nil, 24917))
+	svc := newTestPromptsService(t, 24917)
 
 	prompt, err := svc.Render(t.Context(), "webhook-transform", prompts.Input{
 		WebhookPath:   "ci-alerts",

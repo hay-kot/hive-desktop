@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -25,7 +24,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -40,12 +38,11 @@ import (
 
 // Config is everything App needs that it cannot resolve itself.
 type Config struct {
-	// Settings is the loaded settings.yaml. App does not load it, because
-	// bootstrap ordering (the pointer file must be applied before any path
-	// resolves) belongs to the process entrypoint.
-	Settings settings.Settings
-	MockMode string
-	Logger   zerolog.Logger
+	Settings      settings.Settings
+	SettingsStore *settings.Store
+	Paths         settings.Paths
+	MockMode      string
+	Logger        zerolog.Logger
 
 	// Notifier and Gate are driven ports the adapter fills. They are the one
 	// place a GUI-owned dependency legitimately enters the core, and they
@@ -104,6 +101,7 @@ type App struct {
 	Outputs     *dispatch.Worker
 	Retention   *ingest.Maintenance
 	Webhook     *webhook.Listener
+	WebhookHost string
 	WebhookPort int
 
 	// Hive integration: sessions and internal events use Hive's own shared
@@ -125,6 +123,9 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	settings       settings.Settings
+	settingsStore  *settings.Store
+	paths          settings.Paths
 	flowsWatcher   *flow.FlowsWatcher
 	actionsWatcher *actions.ActionsWatcher
 	hiveBusCancel  context.CancelFunc
@@ -134,28 +135,41 @@ type App struct {
 // Hive action runtime, and the background subsystems. Nothing is running when
 // it returns — call Start.
 func New(ctx context.Context, cfg Config) (*App, error) {
+	if cfg.Paths.SettingsPath == "" {
+		b, _ := settings.LoadBootstrap()
+		cfg.Paths = settings.ResolvePaths(b, cfg.MockMode)
+	}
+	if cfg.SettingsStore == nil {
+		cfg.SettingsStore = settings.NewStore(cfg.Paths.SettingsPath)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 
 	a := &App{
-		Logger: cfg.Logger,
-		Events: events.New(cfg.Logger),
-		mock:   cfg.MockMode,
-		ctx:    runCtx,
-		cancel: cancel,
+		Logger:        cfg.Logger,
+		Events:        events.New(cfg.Logger),
+		mock:          cfg.MockMode,
+		settings:      cfg.Settings,
+		settingsStore: cfg.SettingsStore,
+		paths:         cfg.Paths,
+		ctx:           runCtx,
+		cancel:        cancel,
 	}
 
-	a.PollInterval = resolvePollInterval(cfg.Settings, cfg.Logger)
+	a.PollInterval = cfg.Settings.Polling.Interval.Duration()
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
-	a.Credentials = buildCredentialStore(cfg.MockMode)
+	a.Credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
 
 	if cfg.MockMode == "" {
 		a.Fetchers = ghsource.NewFetchers(github.NewClient(), a.Credentials, cfg.Logger)
 		a.Fetchers.SetSearchTTL(a.PollInterval)
 	}
 
-	db, err := store.Open(ctx, settings.StateDir(), store.DefaultOpenOptions())
+	dbOptions := store.DefaultOpenOptions()
+	dbOptions.PauseIngest = cfg.Settings.Development.Debug.PauseIngest.Duration()
+	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
+	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("open desktop store: %w", err)
@@ -181,8 +195,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 
-	a.openActions(cfg.Logger)
-	a.openFlows(cfg.Logger)
+	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
+	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
 	a.ActionStore.SetUsageChecker(newActionUsage(a.FlowStore, db))
 
 	a.GitHubConnection = buildGitHubConnection(cfg.MockMode, a.Credentials, func() {
@@ -210,14 +224,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Actions = newActionsService(a.ActionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.ActionStore.List())})
 	})
-	a.Settings = newSettingsService(a.Producer, a.Fetchers)
-	a.System = newSystemService()
-	a.Webhooks = newWebhookService(db, a.Webhook, a.WebhookPort)
+	a.Settings = newSettingsService(cfg.SettingsStore, a.Producer, a.Fetchers)
+	a.System = newSystemService(cfg.Paths)
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.Webhook, a.WebhookHost, a.WebhookPort)
 	a.GitHub = newGitHubService(a.GitHubConnection)
 	a.Integrations = newIntegrationsService(a.Credentials)
 	a.Activity = newActivityService(a.ActivityStore)
 	a.Jobs = newJobService(a.JobStore)
-	a.Prompts = newPromptsService(a.Webhooks)
+	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
 
 	return a, nil
 }
@@ -249,7 +263,17 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	if a.Webhook != nil {
 		if err := a.Webhook.Start(ctx); err != nil {
+			a.Webhooks.setStartError(err)
 			a.Logger.Warn().Err(err).Int("port", a.WebhookPort).Msg("webhook listener unavailable")
+		} else if a.WebhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
+				persisted.Webhooks.Port = a.Webhook.Port()
+				return nil
+			})
+			if err != nil {
+				a.Webhooks.setStartError(fmt.Errorf("persist allocated webhook port: %w", err))
+				a.Logger.Warn().Err(err).Msg("persist allocated webhook port")
+			}
 		}
 	}
 	return nil
@@ -258,6 +282,9 @@ func (a *App) Start(ctx context.Context) error {
 // Close stops the background subsystems and releases resources. It is the
 // single teardown path: the adapter's own shutdown hook covers only what it
 // owns (a tray, a window).
+// RuntimePaths returns the immutable location snapshot used by this process.
+func (a *App) RuntimePaths() settings.Paths { return a.paths }
+
 func (a *App) Close() error {
 	a.cancel()
 
@@ -294,22 +321,6 @@ func (a *App) Close() error {
 	return err
 }
 
-// resolvePollInterval validates the configured interval and reports a clamp.
-// An unreadable or invalid value falls back to the default rather than
-// stopping the app: polling too often is the only thing worth refusing, and
-// the floor already handles that.
-func resolvePollInterval(cfg settings.Settings, logger zerolog.Logger) time.Duration {
-	resolved, err := cfg.PollIntervalOrDefault(feed.DefaultPollInterval)
-	if err != nil {
-		logger.Warn().Err(err).Msg("desktop settings poll interval invalid; using defaults")
-		return feed.DefaultPollInterval
-	}
-	if raw, parseErr := time.ParseDuration(cfg.PollInterval); parseErr == nil && raw < settings.MinPollInterval {
-		logger.Warn().Str("configured_interval", cfg.PollInterval).Dur("interval", resolved).Msg("desktop poll interval below minimum; clamped")
-	}
-	return resolved
-}
-
 func buildGitHubConnection(mock string, creds credentials.Store, onChange func()) ghsource.Connection {
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
@@ -324,19 +335,18 @@ func buildGitHubConnection(mock string, creds credentials.Store, onChange func()
 // buildCredentialStore picks the credential backing. Mock modes never touch
 // the OS keychain: reading one can prompt, and the e2e harness has no way to
 // answer.
-func buildCredentialStore(mock string) credentials.Store {
+func buildCredentialStore(mock, indexPath string) credentials.Store {
 	if mock != "" {
 		return credentials.NewMemoryStore()
 	}
-	return credentials.NewKeychainStore(settings.CredentialsIndexPath())
+	return credentials.NewKeychainStore(indexPath)
 }
 
 // openActions loads actions.yml eagerly — rather than waiting for the first
 // lazy List/Get — so a broken file is logged at startup instead of surfacing
 // silently as "no actions found". A watcher that fails to start degrades to
 // no hot-reload: the app still works, edits just need a restart.
-func (a *App) openActions(logger zerolog.Logger) {
-	path := settings.ActionsPath()
+func (a *App) openActions(path string, logger zerolog.Logger) {
 	if _, err := actions.SeedDefaultsIfMissing(path); err != nil {
 		logger.Warn().Err(err).Msg("actions seed failed")
 	}
@@ -366,8 +376,7 @@ func (a *App) openActions(logger zerolog.Logger) {
 // that reloads it on any flows/*.yaml change, including the app's own
 // SaveFlow/SaveLayout writes. It must run before the producer and retention:
 // both resolve enabled flow ids live from the store.
-func (a *App) openFlows(logger zerolog.Logger) {
-	dir := settings.FlowsDir()
+func (a *App) openFlows(dir string, logger zerolog.Logger) {
 	a.FlowStore = flow.NewFlowStore(dir, actions.NewRefs(a.ActionStore))
 
 	watcher, err := flow.NewFlowsWatcher(dir, func() {
@@ -462,6 +471,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	}
 	producer := ingest.NewProducer(a.Store, a.Sources, a.PollInterval, a.PublishLogAppended, logger)
 	producer.SetRecorder(a.ActivityStore)
+	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer
 }
 
@@ -487,27 +497,21 @@ func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
 	return worker
 }
 
-// openWebhook resolves the listener's port and builds it, without binding.
-// The listener is the push-driven counterpart to the poll producer: it serves
-// user-declared sources.webhook endpoints on 127.0.0.1 and ingests deliveries
-// directly. It exists when settings enable it (the default) and, in mock
-// modes, only when a port is explicitly claimed through the env var, so
-// parallel e2e instances never fight over one.
-func (a *App) openWebhook(ctx context.Context, cfg Config) {
-	port, err := settings.ResolveWebhookPort(ctx, cfg.Settings)
-	if err != nil {
-		cfg.Logger.Warn().Err(err).Msg("webhook port unavailable")
-	}
-	a.WebhookPort = port
-
-	if !cfg.Settings.WebhookEnabledOrDefault() || port <= 0 {
+// openWebhook constructs the optional loopback listener without binding it.
+// Port zero is passed through to net.Listen so the OS allocates without a
+// probe/rebind race. Mock instances only claim a listener through an explicit
+// port override, keeping parallel e2e lanes isolated.
+func (a *App) openWebhook(_ context.Context, cfg Config) {
+	a.WebhookHost = cfg.Settings.Webhooks.Host
+	a.WebhookPort = cfg.Settings.Webhooks.Port
+	if !cfg.Settings.Webhooks.Enabled {
 		return
 	}
-	if cfg.MockMode != "" && os.Getenv(settings.EnvWebhookPort) == "" {
+	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvWebhookPort) {
 		return
 	}
 
-	a.Webhook = webhook.NewListener(a.Store, a.Sources.PushInstances, port, a.PublishLogAppended, cfg.Logger)
+	a.Webhook = webhook.NewListener(a.Store, a.Sources.PushInstances, a.WebhookHost, a.WebhookPort, a.PublishLogAppended, cfg.Logger)
 	a.Webhook.SetRecorder(a.ActivityStore)
 }
 
@@ -515,7 +519,7 @@ func (a *App) openWebhook(ctx context.Context, cfg Config) {
 // desktop keeps its own database, while sessions and internal events
 // intentionally use Hive's shared state and event bus.
 func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
-	dataDir := filepath.Dir(settings.StateDir())
+	dataDir := cfg.Paths.DataDir
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create hive data directory: %w", err)
 	}

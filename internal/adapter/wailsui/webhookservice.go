@@ -28,7 +28,7 @@ type WebhookInfo struct {
 // served under (endpoint URL = BaseURL + node path).
 func (s *WebhookService) Info(ctx context.Context) WebhookInfo {
 	running, port := s.webhooks.Endpoint(ctx)
-	return WebhookInfo{Running: running, Port: port, BaseURL: app.WebhookBaseURL(port)}
+	return WebhookInfo{Running: running, Port: port, BaseURL: app.WebhookBaseURLAt(s.webhooks.Host(), port)}
 }
 
 // WebhookSettings is the listener's editable configuration joined with the
@@ -36,18 +36,20 @@ func (s *WebhookService) Info(ctx context.Context) WebhookInfo {
 // configured and what is live in one read.
 type WebhookSettings struct {
 	// Enabled and Port are the persisted configuration.
-	Enabled bool `json:"enabled"`
-	Port    int  `json:"port"`
+	Enabled bool   `json:"enabled"`
+	Host    string `json:"host"`
+	Port    int    `json:"port"`
 	// PortMin and PortMax bound generated ports; the frontend reuses them to
 	// label the field rather than restating the range.
 	PortMin int `json:"portMin"`
 	PortMax int `json:"portMax"`
-	// PortOverridden reports that HIVE_DESKTOP_WEBHOOK_PORT is in force, in
+	// PortOverridden reports that HIVE_DESKTOP_WEBHOOKS_PORT is in force, in
 	// which case Port is the override and editing it has no effect.
 	PortOverridden bool `json:"portOverridden"`
 	// Running, BoundPort, BaseURL, and StartError describe this session's
 	// listener. BoundPort is 0 when it never bound.
 	Running    bool   `json:"running"`
+	BoundHost  string `json:"boundHost"`
 	BoundPort  int    `json:"boundPort"`
 	BaseURL    string `json:"baseUrl"`
 	StartError string `json:"startError"`
@@ -63,25 +65,27 @@ func (s *WebhookService) Settings(ctx context.Context) (WebhookSettings, error) 
 	}
 	view := WebhookSettings{
 		Enabled:         state.Enabled,
+		Host:            state.Host,
 		Port:            state.Port,
 		PortMin:         state.PortMin,
 		PortMax:         state.PortMax,
 		PortOverridden:  state.PortOverridden,
 		Running:         state.Running,
+		BoundHost:       state.BoundHost,
 		BoundPort:       state.BoundPort,
 		StartError:      state.StartError,
 		RestartRequired: state.RestartRequired,
 	}
-	view.BaseURL = app.WebhookBaseURL(state.Port)
+	view.BaseURL = app.WebhookBaseURLAt(state.Host, state.Port)
 	if view.Running {
-		view.BaseURL = app.WebhookBaseURL(view.BoundPort)
+		view.BaseURL = app.WebhookBaseURLAt(view.BoundHost, view.BoundPort)
 	}
 	return view, nil
 }
 
 // SetSettings persists the enable toggle and port.
 func (s *WebhookService) SetSettings(ctx context.Context, next WebhookSettings) error {
-	return s.webhooks.SetState(ctx, next.Enabled, next.Port)
+	return s.webhooks.SetState(ctx, next.Enabled, next.Host, next.Port)
 }
 
 // GeneratePort returns a fresh random port without persisting it: the

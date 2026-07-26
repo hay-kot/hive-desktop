@@ -45,6 +45,11 @@ individual choices; this document describes the shape everything fits into.
 > rather than a login — nothing is gated on being connected to it, and
 > Settings ▸ Integrations is a projection of the same registry (ADR 0013).
 >
+> Desktop configuration is one nested typed schema: startup resolves safe
+> defaults, strict YAML and `HIVE_DESKTOP_*` overrides once, then injects the
+> resulting settings and immutable path snapshot. Development state is local to
+> each worktree under `.hive-desktop/` (ADR 0014).
+>
 > Not yet built: the plugs-managed lifecycle and the HTTP/MCP adapters — see
 > [Migration path](#migration-path). New work should move toward this shape
 > rather than extending the current one.
@@ -194,7 +199,8 @@ change breaks compilation at one adapter file rather than across the app.
 ## Directory structure
 
 ```
-cmd/                              # build and maintenance CLIs (urfave/cli), not the app
+cmd/                              # build and maintenance CLIs, not the app
+  devdesktop/                     # dev settings → Wails/Vite environment bridge
   release/  vendorhive/
 
 desktop/                          # Wails app package — stays `main`, stays here
@@ -418,9 +424,47 @@ User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 state (SQLite: items, triage, offsets, queued commands) lives under the data
 dir. Respect the boundary when adding persistence.
 
+`settings.yaml` is a nested typed document with `polling`, `updates`,
+`notifications`, `appearance`, `webhooks`, `keybindings`, and `development`
+sections. Resolution is deterministic: safe compiled defaults, one strictly
+decoded and validated YAML document, then typed
+`HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
+validation. Missing config is safe: webhooks and pprof
+are disabled, listener hosts are loopback, automatic ports are `0`, mock mode
+is live, and debug pauses are zero. Environment overrides affect the effective
+value but are never written into YAML by an unrelated settings edit.
+
+Paths resolve before settings because the config root determines where
+`settings.yaml` lives. The fixed XDG `bootstrap.yaml` stores only `data_dir`
+and `config_dir`; explicit `HIVE_DESKTOP_DATA_DIR` and
+`HIVE_DESKTOP_CONFIG_DIR` values win, then bootstrap, then XDG defaults.
+`desktop/main.go` derives one immutable `settings.Paths` snapshot — data and
+config roots plus state, flows, actions, settings, credential-index and log
+locations — and injects it. Runtime services do not re-read path environment variables.
+`XDG_*`, Wails framework variables, credential secrets, build/release inputs,
+and vendored Hive variables remain outside the desktop settings namespace.
+
+Setup or `desktop:dev:prepare` creates or reuses the gitignored
+`.hive-desktop/` directory in that worktree. Its config and data are isolated
+from both the installed app and other worktrees; config symlink targets are
+materialized rather than retained. `desktop:dev:fresh` reseeds it and
+`desktop:dev:reset` removes it through marker-guarded deletion. An atomic
+worktree lock serializes those operations, and destructive commands refuse
+while either configured development server is active. `cmd/devtools prepare`
+writes the resolved paths and ports to a gitignored, non-secret `launch.env`.
+The `desktop:dev` mise task loads it followed by optional gitignored
+`overrides.env`, then starts Wails directly. Devtools itself does not interpret
+developer overrides.
+Wails and Vite need ports before Go starts, so devtools resolves
+`development.wails` and `development.vite` and bridges them to `WAILS_*`.
+Wails hard-codes localhost in its frontend URL, so the Vite host is fixed to
+`127.0.0.1`; the Wails server host may be any validated loopback address.
+The OS keychain and fixed bootstrap pointer remain shared; use mock mode when
+credential isolation matters.
+
 Two databases remain separate on purpose: `hive.db` is shared with the
 external `hive` CLI, and `desktop-pipeline.db` isolates desktop write traffic
-from it.
+from it. ADR 0014 records the configuration decision.
 
 ### Background lifecycle
 
@@ -430,6 +474,11 @@ with a single `appkit/plugs` manager rather than each hand-rolling
 `Start`/`Stop`, a `stopOnce`, and a teardown branch in `main`. That gives
 uniform panic capture, retry with backoff, signal handling, and one graceful
 shutdown path.
+
+`development.pprof` is already typed and validated with disabled, loopback,
+port-zero-safe defaults. Starting the endpoint is deliberately deferred until
+this plugs lifecycle exists; it must not add a bespoke teardown branch in
+`main`.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware — the fetch layer connectors need, which

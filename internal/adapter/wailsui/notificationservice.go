@@ -146,25 +146,26 @@ type NotificationToast struct {
 // window's focus state: the automatic delivery mode means "a banner only when
 // I'm looking elsewhere", and only this side of the app knows both halves.
 type NotificationGate struct {
-	focus  *FocusState
-	logger zerolog.Logger
+	settings *settings.Store
+	focus    *FocusState
+	logger   zerolog.Logger
 }
 
 // NewNotificationGate builds the gate over the window's focus state.
-func NewNotificationGate(focus *FocusState, logger zerolog.Logger) NotificationGate {
-	return NotificationGate{focus: focus, logger: logger}
+func NewNotificationGate(settingsStore *settings.Store, focus *FocusState, logger zerolog.Logger) NotificationGate {
+	return NotificationGate{settings: settingsStore, focus: focus, logger: logger}
 }
 
 func (g NotificationGate) NotificationPolicy() dispatch.NotificationPolicy {
-	settings, err := settings.LoadSettings()
+	cfg, err := g.settings.Effective()
 	if err != nil {
 		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
 		return dispatch.NotificationPolicy{}
 	}
 	return dispatch.NotificationPolicy{
-		Allowed: settings.NotificationsEnabledOrDefault(),
-		Sound:   settings.NotificationSoundOrDefault(),
-		InApp:   g.inApp(settings.NotificationDeliveryOrDefault()),
+		Allowed: cfg.Notifications.Enabled,
+		Sound:   cfg.Notifications.Sound,
+		InApp:   g.inApp(cfg.Notifications.Delivery),
 	}
 }
 

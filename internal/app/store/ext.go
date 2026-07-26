@@ -14,7 +14,7 @@ func (db *DB) Ctx(ctx context.Context) *DB {
 	if !ok {
 		return db
 	}
-	return &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx)}
+	return &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx), pauseIngest: db.pauseIngest, pauseCommit: db.pauseCommit}
 }
 
 // WithinTx runs fn inside a transaction, joining an ambient one if the
@@ -31,7 +31,7 @@ func (db *DB) Ctx(ctx context.Context) *DB {
 // back.
 func (db *DB) WithinTx(ctx context.Context, fn func(context.Context, *DB) error) error {
 	if tx, ok := txFromContext(ctx); ok {
-		return fn(ctx, &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx)})
+		return fn(ctx, &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx), pauseIngest: db.pauseIngest, pauseCommit: db.pauseCommit})
 	}
 
 	txCtx, tx, err := WithTransaction(ctx, db)

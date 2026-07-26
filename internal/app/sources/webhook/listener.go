@@ -47,30 +47,31 @@ type Listener struct {
 	logger     zerolog.Logger
 	recorder   activity.Recorder
 
+	host     string
 	port     int
 	server   *http.Server
 	listener net.Listener
 	startErr error
 }
 
-// NewListener builds a listener bound to 127.0.0.1:port at Start. onAppended
-// fires after a delivery appends event-log rows, with the offset of the last
-// row, so the core can wake the flow engine.
-func NewListener(db *store.DB, instances Instances, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
-	return &Listener{db: db, instances: instances, port: port, onAppended: onAppended, logger: logger}
+// NewListener builds a listener bound to host:port at Start. Configuration
+// validation limits host to loopback. onAppended fires after a delivery
+// appends event-log rows so the core can wake the flow engine.
+func NewListener(db *store.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
+	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger}
 }
 
 // SetRecorder attaches an activity recorder so ingest failures surface in the
 // Activity view. Set once at wiring time, before Start.
 func (l *Listener) SetRecorder(r activity.Recorder) { l.recorder = r }
 
-// Start binds 127.0.0.1 and serves in a goroutine. A bind failure (port in
+// Start binds the configured loopback host and serves in a goroutine. A bind failure (port in
 // use) is returned to the caller, which logs and continues — a busy webhook
 // port must never take the desktop app down with it — and is retained for
 // StartError so settings can surface it instead of leaving it in the log.
 func (l *Listener) Start(ctx context.Context) error {
 	var lc net.ListenConfig
-	ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(l.port)))
+	ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(l.host, strconv.Itoa(l.port)))
 	if err != nil {
 		l.startErr = fmt.Errorf("webhook listener: %w", err)
 		return l.startErr
@@ -82,7 +83,7 @@ func (l *Listener) Start(ctx context.Context) error {
 			l.logger.Error().Err(err).Msg("webhook listener stopped unexpectedly")
 		}
 	}()
-	l.logger.Info().Int("port", l.Port()).Msg("webhook listener started")
+	l.logger.Info().Str("host", l.host).Int("port", l.Port()).Msg("webhook listener started")
 	return nil
 }
 
@@ -113,6 +114,16 @@ func (l *Listener) Port() int {
 		}
 	}
 	return l.port
+}
+
+// Host returns the actual bound address once running, else the configured host.
+func (l *Listener) Host() string {
+	if l.listener != nil {
+		if addr, ok := l.listener.Addr().(*net.TCPAddr); ok {
+			return addr.IP.String()
+		}
+	}
+	return l.host
 }
 
 // Handler returns the listener's route handler. Exposed (rather than only

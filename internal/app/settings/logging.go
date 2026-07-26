@@ -9,32 +9,27 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// logFileName is the desktop app's log file, kept alongside the desktop state
-// (read-state, pipeline db) rather than the CLI's <data-dir>/hive.log so the
-// two apps' logs stay separate.
-const logFileName = "desktop.log"
+const (
+	logFileName = "desktop.log"
+	EnvLogLevel = "HIVE_DESKTOP_LOG_LEVEL"
+)
 
-// LogFile is the desktop app's log file path: <state-dir>/desktop.log.
-func LogFile() string {
-	return filepath.Join(StateDir(), logFileName)
+// ResolveLogLevel validates the process log-level override once at startup.
+func ResolveLogLevel() (zerolog.Level, error) {
+	value := os.Getenv(EnvLogLevel)
+	if value == "" {
+		return zerolog.InfoLevel, nil
+	}
+	level, err := zerolog.ParseLevel(value)
+	if err != nil {
+		return zerolog.InfoLevel, fmt.Errorf("parse %s: %w", EnvLogLevel, err)
+	}
+	return level, nil
 }
 
-// NewLogger builds the desktop app's root logger. It writes to LogFile() in
-// console format AND tees to stderr, so `wails3 dev` keeps showing logs in the
-// terminal while a running app still has a file the System settings screen can
-// open. The level comes from HIVE_LOG_LEVEL (default info).
-//
-// If the log file cannot be opened, it degrades to stderr-only rather than
-// failing app startup; the returned error is informational.
-func NewLogger() (zerolog.Logger, func(), error) {
-	level := zerolog.InfoLevel
-	if lvl, err := zerolog.ParseLevel(os.Getenv("HIVE_LOG_LEVEL")); err == nil && os.Getenv("HIVE_LOG_LEVEL") != "" {
-		level = lvl
-	}
-
+// NewLogger builds the root logger at the resolved immutable path and level.
+func NewLogger(path string, level zerolog.Level) (zerolog.Logger, func(), error) {
 	stderr := zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}
-
-	path := LogFile()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
 		return l, func() {}, fmt.Errorf("create desktop log dir: %w", err)
@@ -44,8 +39,10 @@ func NewLogger() (zerolog.Logger, func(), error) {
 		l := zerolog.New(stderr).With().Timestamp().Logger().Level(level)
 		return l, func() {}, fmt.Errorf("open desktop log file: %w", err)
 	}
-
 	fileW := zerolog.ConsoleWriter{Out: f, NoColor: true, TimeFormat: time.RFC3339}
 	l := zerolog.New(zerolog.MultiLevelWriter(fileW, stderr)).With().Timestamp().Logger().Level(level)
 	return l, func() { _ = f.Close() }, nil
 }
+
+// LogFile is retained for tests and e2e helpers; runtime uses Paths.LogFile.
+func LogFile() string { return defaultPaths().LogFile }

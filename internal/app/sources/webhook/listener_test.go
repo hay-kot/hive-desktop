@@ -44,7 +44,7 @@ func newWebhookTestListener(t *testing.T, instances Instances) (*Listener, *stor
 	t.Cleanup(func() { _ = db.Close() })
 
 	var lastOffset int64
-	listener := NewListener(db, instances, 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
+	listener := NewListener(db, instances, "127.0.0.1", 0, func(offset int64) { lastOffset = offset }, zerolog.Nop())
 	return listener, db, &lastOffset
 }
 

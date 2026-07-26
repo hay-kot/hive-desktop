@@ -7,7 +7,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
 )
 
 // SettingsService owns settings.yaml: reading the resolved values, validating
@@ -17,6 +16,7 @@ import (
 // Every setter is load-modify-save so unrelated fields survive; writing a
 // fresh single-field Settings would clobber them.
 type SettingsService struct {
+	store    *settings.Store
 	producer *ingest.Producer
 	fetchers *ghsource.Fetchers
 }
@@ -24,14 +24,14 @@ type SettingsService struct {
 // newSettingsService builds the service. producer and fetchers are nil in
 // mock mode, where persistence still works and there is simply nothing live
 // to apply a change to.
-func newSettingsService(producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
-	return &SettingsService{producer: producer, fetchers: fetchers}
+func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
+	return &SettingsService{store: store, producer: producer, fetchers: fetchers}
 }
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.
 // A nil map is normalized to an empty one so callers never null-check it.
 func (s *SettingsService) Keybindings(context.Context) (map[string][]string, error) {
-	cfg, err := settings.LoadSettings()
+	cfg, err := s.store.Effective()
 	if err != nil {
 		return nil, Wrap(err, KindInternal, "reading settings")
 	}
@@ -44,23 +44,22 @@ func (s *SettingsService) Keybindings(context.Context) (map[string][]string, err
 // SetKeybindings persists shortcut overrides. An empty map clears the section
 // entirely, which is how "reset everything to defaults" is expressed.
 func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string][]string) error {
-	current, err := settings.LoadSettings()
-	if err != nil {
-		return Wrap(err, KindInternal, "reading settings")
-	}
-	if len(overrides) == 0 {
-		current.Keybindings = nil
-	} else {
-		current.Keybindings = overrides
-	}
-	return Wrap(settings.SaveSettings(current), KindInternal, "saving settings")
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		if len(overrides) == 0 {
+			current.Keybindings = nil
+		} else {
+			current.Keybindings = overrides
+		}
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
 }
 
 // Theme returns the persisted theme, or "" when nothing has been recorded.
 // The value is opaque here: the frontend owns the valid set and heals unknown
 // values.
 func (s *SettingsService) Theme(context.Context) (string, error) {
-	cfg, err := settings.LoadSettings()
+	cfg, err := s.store.Effective()
 	if err != nil {
 		return "", Wrap(err, KindInternal, "reading settings")
 	}
@@ -68,12 +67,11 @@ func (s *SettingsService) Theme(context.Context) (string, error) {
 }
 
 func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
-	current, err := settings.LoadSettings()
-	if err != nil {
-		return Wrap(err, KindInternal, "reading settings")
-	}
-	current.Appearance.Theme = theme
-	return Wrap(settings.SaveSettings(current), KindInternal, "saving settings")
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.Theme = theme
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
 }
 
 // NotificationSettings is the resolved notification configuration.
@@ -86,28 +84,25 @@ type NotificationSettings struct {
 }
 
 func (s *SettingsService) Notifications(context.Context) (NotificationSettings, error) {
-	cfg, err := settings.LoadSettings()
+	cfg, err := s.store.Effective()
 	if err != nil {
 		return NotificationSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
 	return NotificationSettings{
-		Enabled:  cfg.NotificationsEnabledOrDefault(),
-		Delivery: cfg.NotificationDeliveryOrDefault(),
-		Sound:    cfg.NotificationSoundOrDefault(),
+		Enabled:  cfg.Notifications.Enabled,
+		Delivery: cfg.Notifications.Delivery,
+		Sound:    cfg.Notifications.Sound,
 	}, nil
 }
 
 func (s *SettingsService) SetNotifications(_ context.Context, in NotificationSettings) error {
-	current, err := settings.LoadSettings()
-	if err != nil {
-		return Wrap(err, KindInternal, "reading settings")
-	}
-	current.NotificationsEnabled = &in.Enabled
-	// Persist the resolved mode: an unknown value from a stale caller heals to
-	// the default here rather than being written back verbatim.
-	current.NotificationDelivery = settings.ResolveNotificationDelivery(in.Delivery)
-	current.NotificationSound = &in.Sound
-	return Wrap(settings.SaveSettings(current), KindInternal, "saving settings")
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Notifications.Enabled = in.Enabled
+		current.Notifications.Delivery = settings.ResolveNotificationDelivery(in.Delivery)
+		current.Notifications.Sound = in.Sound
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
 }
 
 // GithubSettings is the GitHub integration's polling configuration. It is
@@ -117,16 +112,25 @@ type GithubSettings struct {
 	MinPollInterval time.Duration
 }
 
+// SetUpdatesEnabled persists the user's value and returns the effective value
+// after any process environment override is reapplied.
+func (s *SettingsService) SetUpdatesEnabled(enabled bool) (bool, error) {
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Updates.Enabled = enabled
+		return nil
+	})
+	if err != nil {
+		return false, Wrap(err, KindInternal, "saving settings")
+	}
+	return effective.Updates.Enabled, nil
+}
+
 func (s *SettingsService) Github(context.Context) (GithubSettings, error) {
-	cfg, err := settings.LoadSettings()
+	cfg, err := s.store.Effective()
 	if err != nil {
 		return GithubSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
-	interval, err := cfg.PollIntervalOrDefault(feed.DefaultPollInterval)
-	if err != nil {
-		return GithubSettings{}, Wrap(err, KindInvalid, "the configured poll interval is not a duration")
-	}
-	return GithubSettings{PollInterval: interval, MinPollInterval: settings.MinPollInterval}, nil
+	return GithubSettings{PollInterval: cfg.Polling.Interval.Duration(), MinPollInterval: settings.MinPollInterval}, nil
 }
 
 // SetGithub validates against the floor, persists, and applies to the running
@@ -138,20 +142,19 @@ func (s *SettingsService) SetGithub(_ context.Context, in GithubSettings) error 
 		return Errorf(KindInvalid, "poll interval must be at least %d seconds", int(settings.MinPollInterval/time.Second))
 	}
 
-	current, err := settings.LoadSettings()
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Polling.Interval = settings.Duration(in.PollInterval)
+		return nil
+	})
 	if err != nil {
-		return Wrap(err, KindInternal, "reading settings")
-	}
-	current.PollInterval = in.PollInterval.String()
-	if err := settings.SaveSettings(current); err != nil {
 		return Wrap(err, KindInternal, "saving settings")
 	}
-
+	interval := effective.Polling.Interval.Duration()
 	if s.producer != nil {
-		s.producer.SetInterval(in.PollInterval)
+		s.producer.SetInterval(interval)
 	}
 	if s.fetchers != nil {
-		s.fetchers.SetSearchTTL(in.PollInterval)
+		s.fetchers.SetSearchTTL(interval)
 	}
 	return nil
 }

@@ -15,11 +15,13 @@ vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/w
 function settings(overrides: Record<string, unknown> = {}) {
   return {
     enabled: true,
+    host: '127.0.0.1',
     port: 24831,
     portMin: 20000,
     portMax: 32767,
     portOverridden: false,
     running: true,
+    boundHost: '127.0.0.1',
     boundPort: 24831,
     baseUrl: 'http://127.0.0.1:24831/hooks/',
     startError: '',
@@ -112,7 +114,7 @@ describe('WebhookIntegrationDrawer', () => {
 
     expect(wrapper.get('[data-testid="webhook-settings-port-input"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="webhook-settings-port-generate"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="webhook-settings-port-hint"]').text()).toContain('HIVE_DESKTOP_WEBHOOK_PORT')
+    expect(wrapper.get('[data-testid="webhook-settings-port-hint"]').text()).toContain('HIVE_DESKTOP_WEBHOOKS_PORT')
   })
 
   it('keeps the drawer open and reports a rejected save', async () => {

@@ -11,7 +11,7 @@ import (
 
 func TestFlowsDirFollowsTheConfigRoot(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
+	t.Setenv(EnvConfigDir, filepath.Join(root, "config"))
 
 	assert.Equal(t, filepath.Join(root, "config", "flows"), FlowsDir())
 }
@@ -26,7 +26,7 @@ func TestFlowsDirIsScratchInTheOnboardingMockMode(t *testing.T) {
 	require.NoError(t, os.MkdirAll(real, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(real, "triage.yaml"), []byte("nodes: []\n"), 0o600))
 
-	t.Setenv(EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
+	t.Setenv(EnvConfigDir, filepath.Join(root, "config"))
 	t.Setenv(EnvMockMode, MockOnboarding)
 
 	dir := FlowsDir()
@@ -42,6 +42,15 @@ func TestFlowsDirIsScratchInTheOnboardingMockMode(t *testing.T) {
 
 // An explicit override is how the e2e harness — and anyone wanting a specific
 // fixture set — opts out of the scratch directory.
+func TestResolvePathsUsesResolvedYAMLMockMode(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(EnvConfigDir, filepath.Join(root, "config"))
+	unsetEnv(t, EnvMockMode)
+
+	paths := ResolvePaths(Bootstrap{}, MockOnboarding)
+	require.NotEqual(t, filepath.Join(root, "config", "flows"), paths.FlowsDir)
+}
+
 func TestFlowsDirOverrideWinsOverTheOnboardingMockMode(t *testing.T) {
 	t.Setenv(EnvMockMode, MockOnboarding)
 	t.Setenv(EnvFlowsDir, "/tmp/explicit-flows")

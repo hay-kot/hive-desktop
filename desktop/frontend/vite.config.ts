@@ -16,7 +16,7 @@ const nodeDocs = fileURLToPath(new URL("../../internal/app/flow/docs", import.me
 export default defineConfig({
   resolve: { alias: { "@nodedocs": nodeDocs } },
   server: {
-    host: "127.0.0.1",
+    host: process.env.WAILS_VITE_HOST || "127.0.0.1",
     port: Number(process.env.WAILS_VITE_PORT) || 9245,
     strictPort: true,
     // The dev server refuses to serve files outside its root; node docs are

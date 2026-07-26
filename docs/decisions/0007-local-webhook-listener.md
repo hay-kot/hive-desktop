@@ -1,7 +1,10 @@
 # 0007 — Local webhook listener for generic pipeline ingress
 
-- **Status:** accepted
+- **Status:** superseded by [0014](0014-desktop-configuration.md)
 - **Date:** 2026-07-23
+
+ADR 0014 replaces the listener's configuration, default, and port-allocation
+decisions. The ingress and routing decisions below remain as historical context.
 
 ## Context
 

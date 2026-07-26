@@ -56,6 +56,7 @@ type UpdaterService struct {
 	currentVersion string
 	interval       time.Duration
 	logger         zerolog.Logger
+	writeEnabled   func(bool) (bool, error)
 
 	mu        sync.Mutex
 	engine    updaterEngine
@@ -77,6 +78,22 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 		interval:       interval,
 		enabled:        enabled,
 		logger:         logger.With().Str("component", "updater").Logger(),
+		writeEnabled: func(value bool) (bool, error) {
+			effective, err := settings.NewStore(settings.SettingsPath()).Update(func(cfg *settings.Settings) error {
+				cfg.Updates.Enabled = value
+				return nil
+			})
+			return effective.Updates.Enabled, err
+		},
+	}
+}
+
+// SetSettingsWriter injects the composition-root settings mutation.
+//
+//wails:ignore
+func (s *UpdaterService) SetSettingsWriter(write func(bool) (bool, error)) {
+	if write != nil {
+		s.writeEnabled = write
 	}
 }
 
@@ -116,20 +133,16 @@ func (s *UpdaterService) Status() UpdateInfo {
 // atomically. On dev builds (no engine) it still persists the preference but
 // starts no ticker.
 func (s *UpdaterService) SetEnabled(enabled bool) error {
-	current, err := settings.LoadSettings()
+	effective, err := s.writeEnabled(enabled)
 	if err != nil {
-		return err
-	}
-	current.AutoUpdate = &enabled
-	if err := settings.SaveSettings(current); err != nil {
 		return err
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.enabled = enabled
+	s.enabled = effective
 	s.stopLoopLocked()
-	if enabled && s.engine != nil {
+	if effective && s.engine != nil {
 		s.startLoopLocked()
 	}
 	return nil

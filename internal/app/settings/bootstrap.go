@@ -17,7 +17,7 @@ const bootstrapFileName = "bootstrap.yaml"
 // Bootstrap holds the persisted directory overrides set from the System
 // settings screen. Empty fields mean "use the default resolution".
 //
-// DataDir is the data-dir root (the HIVE_DATA_DIR equivalent) under which
+// DataDir is the data-dir root (the HIVE_DESKTOP_DATA_DIR equivalent) under which
 // StateDir and the core hive.db live. ConfigDir is the desktop config root
 // (the directory holding profiles.yaml, flows/, and actions.yml).
 type Bootstrap struct {
@@ -30,7 +30,7 @@ type Bootstrap struct {
 // affected by a config-dir override — otherwise relocating the config dir
 // would move the very file that records where the config dir went. It mirrors
 // ConfigPath's default-location logic (XDG_CONFIG_HOME, then ~/.config) but
-// ignores EnvConfigPath.
+// ignores the movable desktop config-directory override.
 func BootstrapPath() string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {
@@ -73,45 +73,4 @@ func SaveBootstrap(b Bootstrap) error {
 		return fmt.Errorf("write desktop bootstrap: %w", err)
 	}
 	return nil
-}
-
-// ApplyBootstrap seeds HIVE_DATA_DIR and HIVE_DESKTOP_CONFIG from the pointer
-// file so the existing StateDir/ConfigPath resolvers honor the overrides with
-// no further changes. It must run before any path is resolved (first thing in
-// main). An explicit env var always wins: a value already set (dev, e2e, an
-// operator's shell) is never overwritten, preserving env precedence.
-//
-// A read error is returned but is non-fatal for callers — the app can still
-// start on defaults; callers should log and continue.
-func ApplyBootstrap() error {
-	b, err := LoadBootstrap()
-	if err != nil {
-		return err
-	}
-	if b.DataDir != "" {
-		if _, ok := os.LookupEnv("HIVE_DATA_DIR"); !ok {
-			_ = os.Setenv("HIVE_DATA_DIR", b.DataDir)
-		}
-	}
-	if b.ConfigDir != "" {
-		if _, ok := os.LookupEnv(EnvConfigPath); !ok {
-			// EnvConfigPath points at the profiles.yaml file; its directory is
-			// the config root that FlowsDir/ActionsPath derive from.
-			_ = os.Setenv(EnvConfigPath, filepath.Join(b.ConfigDir, "profiles.yaml"))
-		}
-	}
-	return nil
-}
-
-// DataDir is the effective data-dir root for this process: the parent of
-// StateDir. Everything the desktop persists (its state dir, the core hive.db)
-// lives beneath it.
-func DataDir() string {
-	return filepath.Dir(StateDir())
-}
-
-// ConfigDir is the effective desktop config root for this process: the
-// directory holding profiles.yaml, flows/, and actions.yml.
-func ConfigDir() string {
-	return filepath.Dir(ConfigPath())
 }

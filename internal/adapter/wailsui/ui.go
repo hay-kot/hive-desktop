@@ -10,6 +10,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui/e2e"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 	wailsnotify "github.com/wailsapp/wails/v3/pkg/services/notifications"
@@ -24,8 +25,9 @@ import (
 // the driven ports app.Config asks for — and Mount does everything that needs
 // a built core.
 type UI struct {
-	logger zerolog.Logger
-	mock   string
+	logger        zerolog.Logger
+	mock          string
+	settingsStore *settings.Store
 
 	focus         *FocusState
 	notifications *NotificationService
@@ -68,10 +70,11 @@ type MountOptions struct {
 // e2e verifies preference persistence without an OS bus, banner, or
 // permission prompt, and the frontend still gets a descriptive unavailable
 // binding.
-func New(mock string, appIcon []byte, logger zerolog.Logger) *UI {
+func New(mock string, settingsStore *settings.Store, appIcon []byte, logger zerolog.Logger) *UI {
 	ui := &UI{
 		logger:        logger,
 		mock:          mock,
+		settingsStore: settingsStore,
 		focus:         NewFocusState(),
 		notifications: NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode")),
 	}
@@ -97,7 +100,9 @@ func (u *UI) Notifier() dispatch.SystemNotifier { return NewFlowNotifier(u.notif
 // delivered, and where. It holds the window's focus state, because the
 // automatic delivery mode means "a banner only when I am looking elsewhere"
 // and only this side of the app knows both halves.
-func (u *UI) Gate() dispatch.NotificationGate { return NewNotificationGate(u.focus, u.logger) }
+func (u *UI) Gate() dispatch.NotificationGate {
+	return NewNotificationGate(u.settingsStore, u.focus, u.logger)
+}
 
 // Mount builds the Wails application over core: the bound services, the
 // window and its hooks, the tray, the updater, and the event subscriptions.
@@ -106,6 +111,7 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	// The updater service goes in the Services slice, but its engine only
 	// exists after application.New, so the live Updater is attached below.
 	u.updater = NewUpdaterService(opts.Build.Version, opts.AutoUpdate, DefaultUpdateCheckInterval, u.logger)
+	u.updater.SetSettingsWriter(core.Settings.SetUpdatesEnabled)
 
 	// The tray refresh is published before the flows subscription can fire it:
 	// the flows watcher calls subscribers from its own goroutine.
@@ -149,7 +155,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	// Built this late deliberately: app.New has seeded actions.yml and mock
 	// seeding has run, so the captured config baseline is the post-boot state
 	// a reset must restore.
-	reset := e2e.NewStateResetHarness(core.Store, core.HiveDB, u.logger)
+	reset := e2e.NewStateResetHarnessForInstance(core.Store, core.HiveDB, u.mock, core.RuntimePaths(), u.logger)
 
 	return application.Options{
 		Name:        "Hive",

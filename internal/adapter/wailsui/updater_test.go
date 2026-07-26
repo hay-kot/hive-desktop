@@ -117,7 +117,7 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 
 func TestUpdaterServiceDevGate(t *testing.T) {
 	silenceEmits(t)
-	t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	// No engine attached => dev build.
 	s := NewUpdaterService("dev", true, time.Millisecond, zerolog.Nop())
 
@@ -130,15 +130,14 @@ func TestUpdaterServiceDevGate(t *testing.T) {
 	require.NoError(t, s.SetEnabled(true))
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
-	require.NotNil(t, got.AutoUpdate)
-	require.True(t, *got.AutoUpdate)
+	require.True(t, got.Updates.Enabled)
 	s.Stop() // safe no-op
 }
 
 func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 	silenceEmits(t)
 	synctest.Test(t, func(t *testing.T) {
-		t.Setenv(settings.EnvConfigPath, filepath.Join(t.TempDir(), "config", "profiles.yaml"))
+		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 		engine := &fakeEngine{rel: nil}
 		s := NewUpdaterService("1.2.3", false, time.Minute, zerolog.Nop())
 		s.Attach(engine)

@@ -8,10 +8,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func isolateSystemPaths(t *testing.T) {
+	t.Helper()
+	t.Setenv(settings.EnvDataDir, "")
+	t.Setenv(settings.EnvConfigDir, "")
+	t.Setenv(settings.EnvFlowsDir, "")
+	t.Setenv(settings.EnvActionsPath, "")
+}
+
 func TestSystemServiceInfo(t *testing.T) {
-	dataRoot := t.TempDir()
-	t.Setenv("HIVE_DATA_DIR", dataRoot)
+	isolateSystemPaths(t)
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dataRoot := filepath.Join(dataHome, "hive")
 
 	info := newSystemService().Info(t.Context())
 
@@ -25,7 +35,8 @@ func TestSystemServiceInfo(t *testing.T) {
 }
 
 func TestSystemServiceInfoReflectsOverride(t *testing.T) {
-	t.Setenv("HIVE_DATA_DIR", t.TempDir())
+	isolateSystemPaths(t)
+	t.Setenv(settings.EnvDataDir, t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	require.NoError(t, settings.SaveBootstrap(settings.Bootstrap{DataDir: "/somewhere/data"}))
 
@@ -35,6 +46,7 @@ func TestSystemServiceInfoReflectsOverride(t *testing.T) {
 }
 
 func TestSystemServiceSetDataDirPersists(t *testing.T) {
+	isolateSystemPaths(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	target := t.TempDir()
 
@@ -46,12 +58,14 @@ func TestSystemServiceSetDataDirPersists(t *testing.T) {
 }
 
 func TestSystemServiceSetDataDirRejectsRelative(t *testing.T) {
+	isolateSystemPaths(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	require.Error(t, newSystemService().SetDataDir(t.Context(), "relative/path"))
 	require.Error(t, newSystemService().SetDataDir(t.Context(), ""))
 }
 
 func TestSystemServiceClearConfigDir(t *testing.T) {
+	isolateSystemPaths(t)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	require.NoError(t, settings.SaveBootstrap(settings.Bootstrap{DataDir: "/d", ConfigDir: "/c"}))
 
@@ -64,7 +78,8 @@ func TestSystemServiceClearConfigDir(t *testing.T) {
 }
 
 func TestSystemServiceCheckAllowed(t *testing.T) {
-	t.Setenv("HIVE_DATA_DIR", t.TempDir())
+	isolateSystemPaths(t)
+	t.Setenv(settings.EnvDataDir, t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	s := newSystemService()
 

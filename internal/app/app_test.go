@@ -26,9 +26,9 @@ import (
 // one assertion does not justify a dependency.
 func TestAppLifecycle(t *testing.T) {
 	root := t.TempDir()
-	t.Setenv("HIVE_DATA_DIR", filepath.Join(root, "data"))
+	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
-	t.Setenv(settings.EnvConfigPath, filepath.Join(root, "config", "profiles.yaml"))
+	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
 	// Mock mode has no live producer and no keychain access, which is what
 	// makes this runnable anywhere.
 	t.Setenv(settings.EnvMockMode, "feed")
@@ -37,7 +37,7 @@ func TestAppLifecycle(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	core, err := New(t.Context(), Config{
-		Settings: settings.Settings{},
+		Settings: settings.DefaultSettings(),
 		MockMode: settings.MockMode(),
 		Logger:   zerolog.Nop(),
 	})

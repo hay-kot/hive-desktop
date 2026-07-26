@@ -21,9 +21,15 @@ import (
 //
 // The native directory picker and Quit stay in the adapter — both are GUI,
 // not domain.
-type SystemService struct{}
+type SystemService struct{ paths settings.Paths }
 
-func newSystemService() *SystemService { return &SystemService{} }
+func newSystemService(paths ...settings.Paths) *SystemService {
+	if len(paths) > 0 {
+		return &SystemService{paths: paths[0]}
+	}
+	b, _ := settings.LoadBootstrap()
+	return &SystemService{paths: settings.ResolvePaths(b, settings.MockMode())}
+}
 
 // PathInfo describes a single on-disk location.
 type PathInfo struct {
@@ -47,12 +53,11 @@ type SystemInfo struct {
 // Info returns the effective locations for this process plus whether the
 // data and config directories are backed by a stored override.
 func (s *SystemService) Info(context.Context) SystemInfo {
-	b, _ := settings.LoadBootstrap()
 	return SystemInfo{
-		DataDir:   pathInfo(settings.DataDir(), b.DataDir != ""),
-		ConfigDir: pathInfo(settings.ConfigDir(), b.ConfigDir != ""),
-		LogFile:   pathInfo(settings.LogFile(), false),
-		Database:  pathInfo(store.DatabasePath(settings.StateDir()), false),
+		DataDir:   pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
+		ConfigDir: pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
+		LogFile:   pathInfo(s.paths.LogFile, false),
+		Database:  pathInfo(store.DatabasePath(s.paths.StateDir), false),
 	}
 }
 
@@ -132,10 +137,10 @@ func clearOverride(mutate func(*settings.Bootstrap)) error {
 // convenience: without it OpenPath is an arbitrary-file-open RPC.
 func (s *SystemService) checkAllowed(path string) error {
 	allowed := map[string]struct{}{
-		filepath.Clean(settings.DataDir()):                      {},
-		filepath.Clean(settings.ConfigDir()):                    {},
-		filepath.Clean(settings.LogFile()):                      {},
-		filepath.Clean(store.DatabasePath(settings.StateDir())): {},
+		filepath.Clean(s.paths.DataDir):                      {},
+		filepath.Clean(s.paths.ConfigDir):                    {},
+		filepath.Clean(s.paths.LogFile):                      {},
+		filepath.Clean(store.DatabasePath(s.paths.StateDir)): {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

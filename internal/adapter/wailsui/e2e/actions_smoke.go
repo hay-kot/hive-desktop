@@ -61,14 +61,18 @@ type actionSmokeState struct {
 // smoke readers plus the /_e2e/reset harness — without changing the normal
 // asset handler or exposing any of them in production.
 func SmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
+	mock := ""
+	if reset != nil {
+		mock = reset.mock
+	}
 	return func(next http.Handler) http.Handler {
-		return actionSmokeMiddleware(pipeline, core)(sourceToCommitSmokeMiddleware(pipeline, onAppended)(stateResetMiddleware(reset)(next)))
+		return actionSmokeMiddleware(pipeline, core, mock)(sourceToCommitSmokeMiddleware(pipeline, mock, onAppended)(stateResetMiddleware(reset)(next)))
 	}
 }
 
-func actionSmokeMiddleware(pipeline *store.DB, core *coredb.DB) application.Middleware {
+func actionSmokeMiddleware(pipeline *store.DB, core *coredb.DB, mock string) application.Middleware {
 	return func(next http.Handler) http.Handler {
-		if !actionSmokeHarnessEnabled() {
+		if !actionSmokeHarnessEnabled(mock) {
 			return next
 		}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -215,8 +219,8 @@ func likePrefix(prefix string) string {
 	return strings.NewReplacer(`\\`, `\\\\`, `%`, `\\%`, `_`, `\\_`).Replace(prefix) + "%"
 }
 
-func actionSmokeHarnessEnabled() bool {
-	return settings.MockMode() == "action-smoke" && desktopSmokeRunID() != "" && e2eHarnessMarkerValid()
+func actionSmokeHarnessEnabled(mock string) bool {
+	return mock == "action-smoke" && desktopSmokeRunID() != "" && e2eHarnessMarkerValid()
 }
 
 func desktopSmokeRunID() string {

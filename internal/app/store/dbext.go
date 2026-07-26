@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/migrate"
 
@@ -32,9 +33,11 @@ func migrationsSub() (fs.FS, error) {
 
 // OpenOptions configures database connection settings.
 type OpenOptions struct {
-	MaxOpenConns int // max open connections (default: 2)
-	MaxIdleConns int // max idle connections (default: 2)
-	BusyTimeout  int // busy timeout in milliseconds (default: 5000)
+	MaxOpenConns int           // max open connections (default: 2)
+	MaxIdleConns int           // max idle connections (default: 2)
+	BusyTimeout  int           // busy timeout in milliseconds (default: 5000)
+	PauseIngest  time.Duration // development-only crash-window widening
+	PauseCommit  time.Duration // development-only crash-window widening
 }
 
 // DefaultOpenOptions returns the recommended defaults for SQLite.
@@ -53,9 +56,11 @@ func DefaultOpenOptions() OpenOptions {
 // produces the bound form from an ambient transaction on the context; every
 // query a bound DB runs joins that transaction.
 type DB struct {
-	conn    *sql.DB
-	tx      *sql.Tx
-	queries *Queries
+	conn        *sql.DB
+	tx          *sql.Tx
+	queries     *Queries
+	pauseIngest time.Duration
+	pauseCommit time.Duration
 }
 
 // querier is what hand-written SQL in this package must run against: the
@@ -130,8 +135,10 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 	conn.SetConnMaxLifetime(0) // Connections live forever.
 
 	db := &DB{
-		conn:    conn,
-		queries: New(conn),
+		conn:        conn,
+		queries:     New(conn),
+		pauseIngest: opts.PauseIngest,
+		pauseCommit: opts.PauseCommit,
 	}
 
 	// Verify connectivity - fail fast for SQLite.

@@ -26,23 +26,27 @@ var appIcon []byte
 var trayIcon []byte
 
 func main() {
-	// Seed HIVE_DATA_DIR / HIVE_DESKTOP_CONFIG from the bootstrap pointer file
-	// before any path is resolved, so a data/config directory override chosen
-	// in System settings applies to a dock-launched app. Must precede every
-	// path resolution below. An explicit env var still wins.
-	bootstrapErr := settings.ApplyBootstrap()
-
-	logger, logCloser, logErr := settings.NewLogger()
+	bootstrap, err := settings.LoadBootstrap()
+	if err != nil {
+		log.Fatal(err)
+	}
+	paths := settings.ResolvePaths(bootstrap, "")
+	settingsStore := settings.NewStore(paths.SettingsPath)
+	cfg, err := settingsStore.Effective()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Mock mode can select an isolated flows directory, so finalize the path
+	// snapshot only after settings and environment precedence are resolved.
+	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	settingsStore = settings.NewStore(paths.SettingsPath)
+	level, err := settings.ResolveLogLevel()
+	if err != nil {
+		log.Fatal(err)
+	}
+	logger, logCloser, logErr := settings.NewLogger(paths.LogFile, level)
 	if logErr != nil {
 		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
-	}
-	if bootstrapErr != nil {
-		logger.Warn().Err(bootstrapErr).Msg("desktop bootstrap overrides ignored")
-	}
-
-	cfg, err := settings.LoadSettings()
-	if err != nil {
-		logger.Warn().Err(err).Msg("desktop settings load failed; using defaults")
 	}
 
 	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
@@ -51,14 +55,16 @@ func main() {
 
 	// The adapter is built first because the core takes two driven ports from
 	// it — where a notification is delivered, and whether it may be.
-	ui := wailsui.New(settings.MockMode(), appIcon, logger)
+	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
 	core, err := app.New(ctx, app.Config{
-		Settings: cfg,
-		MockMode: settings.MockMode(),
-		Logger:   logger,
-		Notifier: ui.Notifier(),
-		Gate:     ui.Gate(),
+		Settings:      cfg,
+		SettingsStore: settingsStore,
+		Paths:         paths,
+		MockMode:      cfg.MockMode(),
+		Logger:        logger,
+		Notifier:      ui.Notifier(),
+		Gate:          ui.Gate(),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -67,12 +73,17 @@ func main() {
 
 	version, commit, date := resolvedBuildInfo()
 	ui.Mount(ctx, core, wailsui.MountOptions{
-		Assets:        assets,
-		AppIcon:       appIcon,
-		TrayIcon:      trayIcon,
-		Build:         wailsui.Build{Version: version, Commit: commit, Date: date},
-		AutoUpdate:    cfg.AutoUpdateOrDefault(),
-		UpdateChannel: cfg.UpdateChannelOrDefault,
+		Assets:     assets,
+		AppIcon:    appIcon,
+		TrayIcon:   trayIcon,
+		Build:      wailsui.Build{Version: version, Commit: commit, Date: date},
+		AutoUpdate: cfg.Updates.Enabled,
+		UpdateChannel: func(buildChannel string) string {
+			if cfg.Updates.Channel == "" {
+				return buildChannel
+			}
+			return cfg.Updates.Channel
+		},
 	})
 
 	// Background work starts after the adapter is mounted: the flows watcher

@@ -137,7 +137,7 @@ type CommitBatch struct {
 // Only output_command needs its own dedup key, since two different batches
 // could legitimately enqueue the same action.
 func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
-	debugPauseCommit(ctx)
+	db.debugPauseCommit(ctx)
 	offset, err := strconv.ParseInt(b.UpToOffset, 10, 64)
 	if err != nil || offset < 0 {
 		return fmt.Errorf("parsing commit offset %q: expected a non-negative decimal int64", b.UpToOffset)

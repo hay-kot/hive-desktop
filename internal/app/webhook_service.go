@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
@@ -15,19 +16,31 @@ import (
 // disabled, or in mock modes without an explicit port claim; the configured
 // port still describes the endpoint a live run would serve.
 type WebhookService struct {
+	settings *settings.Store
 	db       *store.DB
 	listener *webhook.Listener
+	host     string
 	port     int
+
+	mu       sync.Mutex
+	startErr error
 }
 
-func newWebhookService(db *store.DB, listener *webhook.Listener, port int) *WebhookService {
-	return &WebhookService{db: db, listener: listener, port: port}
+func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, host string, port int) *WebhookService {
+	return &WebhookService{settings: settingsStore, db: db, listener: listener, host: host, port: port}
+}
+
+func (s *WebhookService) setStartError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startErr = err
 }
 
 // WebhookState joins the persisted configuration with this session's running
 // listener, so a caller sees what is configured and what is live in one read.
 type WebhookState struct {
 	Enabled bool
+	Host    string
 	Port    int
 	PortMin int
 	PortMax int
@@ -37,6 +50,7 @@ type WebhookState struct {
 	// Running and BoundPort describe this session's listener. BoundPort is 0
 	// when it never bound.
 	Running    bool
+	BoundHost  string
 	BoundPort  int
 	StartError string
 	// RestartRequired reports that the persisted configuration and the running
@@ -53,52 +67,67 @@ func (s *WebhookService) Endpoint(context.Context) (running bool, port int) {
 	return false, s.port
 }
 
+// Host reports the actual bound host when running, else the startup host.
+func (s *WebhookService) Host() string {
+	if s.listener != nil && s.listener.Running() {
+		return s.listener.Host()
+	}
+	return s.host
+}
+
 // State returns the persisted configuration alongside the listener's state.
-func (s *WebhookService) State(ctx context.Context) (WebhookState, error) {
-	cfg, err := settings.LoadSettings()
+func (s *WebhookService) State(context.Context) (WebhookState, error) {
+	cfg, err := s.settings.Effective()
 	if err != nil {
 		return WebhookState{}, Wrap(err, KindInternal, "reading settings")
 	}
-	port, err := settings.ResolveWebhookPort(ctx, cfg)
-	if err != nil {
-		return WebhookState{}, Wrap(err, KindUnavailable, "resolving the webhook port")
-	}
 
-	enabled := cfg.WebhookEnabledOrDefault()
+	enabled := cfg.Webhooks.Enabled
 	state := WebhookState{
 		Enabled:        enabled,
-		Port:           port,
+		Host:           cfg.Webhooks.Host,
+		Port:           cfg.Webhooks.Port,
 		PortMin:        settings.WebhookPortMin,
 		PortMax:        settings.WebhookPortMax,
-		PortOverridden: settings.WebhookPortOverride() > 0,
+		PortOverridden: cfg.EnvironmentOverridden(settings.EnvWebhookPort),
 	}
 	if s.listener != nil {
 		state.Running = s.listener.Running()
+		state.BoundHost = s.listener.Host()
 		if err := s.listener.StartError(); err != nil {
 			state.StartError = err.Error()
 		}
 	}
+	s.mu.Lock()
+	if s.startErr != nil {
+		state.StartError = s.startErr.Error()
+	}
+	s.mu.Unlock()
 	if state.Running {
 		state.BoundPort = s.listener.Port()
 	}
-	state.RestartRequired = enabled != state.Running || (state.Running && state.BoundPort != port)
+	portChanged := state.Port != 0 && state.BoundPort != state.Port
+	state.RestartRequired = enabled != state.Running || (state.Running && (portChanged || s.host != state.Host))
 	return state, nil
 }
 
 // SetState persists the enable toggle and port. Neither is applied to the
 // running listener: both are startup-time decisions, and State reports the
 // pending restart.
-func (s *WebhookService) SetState(_ context.Context, enabled bool, port int) error {
-	if !settings.ValidWebhookPort(port) {
-		return Errorf(KindInvalid, "port must be between %d and %d", 1024, 65535)
+func (s *WebhookService) SetState(_ context.Context, enabled bool, host string, port int) error {
+	_, err := s.settings.Update(func(current *settings.Settings) error {
+		current.Webhooks.Enabled = enabled
+		current.Webhooks.Host = host
+		current.Webhooks.Port = port
+		if err := current.Validate(); err != nil {
+			return Wrap(err, KindInvalid, "validating webhook settings")
+		}
+		return nil
+	})
+	if err == nil || KindOf(err) == KindInvalid {
+		return err
 	}
-	current, err := settings.LoadSettings()
-	if err != nil {
-		return Wrap(err, KindInternal, "reading settings")
-	}
-	current.WebhookEnabled = &enabled
-	current.WebhookPort = port
-	return Wrap(settings.SaveSettings(current), KindInternal, "saving settings")
+	return Wrap(err, KindInternal, "saving settings")
 }
 
 // GeneratePort returns a fresh random port from the generation range without

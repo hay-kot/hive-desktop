@@ -106,7 +106,7 @@ goroutine), `log:appended` carries the pipeline event log's new tail offset,
 after an actions.yml reload so the detail pane can re-read configured actions.
 
 The GitHub fetch layer lives in `internal/app/sources/github/feed`: mock fixtures in
-`HIVE_DESKTOP_MOCK` modes, or the GitHub-backed `LiveProvider`. Live data is
+`HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` modes, or the GitHub-backed `LiveProvider`. Live data is
 acquired per embedded flow **source** (a search query or the notifications
 inbox) and cached by what is requested — kind + query + limit — so any number
 of source nodes reading the same data share one request. The pipeline producer
@@ -118,7 +118,7 @@ the sidebar reads.
 
 A profile is a flow. Flow definitions live as user-editable YAML under
 `$XDG_CONFIG_HOME/hive/desktop/flows/` (`~/.config` fallback;
-`HIVE_DESKTOP_FLOWS` overrides the directory), deliberately in the config dir
+`HIVE_DESKTOP_FLOWS_DIR` overrides the directory), deliberately in the config dir
 so they can live in a dotfiles repo. App-local state (`feed_item`, read state,
 event-log offsets, queued output commands) stays in the data dir's `desktop/`
 subdirectory.
@@ -129,10 +129,68 @@ and pipeline database (`<data-dir>/desktop/desktop-pipeline.db`) — each with
 copy-path, open-in-default-app, and reveal-in-file-manager actions. It can also
 point the data and config directories at a different folder (e.g. an
 iCloud-synced directory): the choice is written to
-`$XDG_CONFIG_HOME/hive/desktop/bootstrap.yaml` and seeds `HIVE_DATA_DIR` /
-`HIVE_DESKTOP_CONFIG` at the next launch, so an explicit env var still wins.
-Overrides are point-only — existing data is not moved — and take effect after a
-restart.
+`$XDG_CONFIG_HOME/hive/desktop/bootstrap.yaml`. Startup resolves explicit
+`HIVE_DESKTOP_DATA_DIR` / `HIVE_DESKTOP_CONFIG_DIR` overrides first, then the
+pointer, then XDG defaults, and injects one immutable path snapshot. Overrides
+are point-only — existing data is not moved — and take effect after a restart.
+The pointer remains at its fixed XDG location so the app can find the config
+root after it moves.
+
+## Desktop settings
+
+`settings.yaml` is strictly decoded into a nested typed schema. Resolution is
+safe defaults → strict YAML validation → typed `HIVE_DESKTOP_*` environment
+overrides → effective-value validation; unknown fields and invalid explicit
+values fail startup even when an environment value shadows them. Process
+overrides are reapplied after writes and are never persisted accidentally. A
+fully expanded safe configuration is:
+
+```yaml
+polling:
+  interval: 5m
+updates:
+  enabled: true
+  channel: "" # empty follows the running build: stable, beta, or dev
+notifications:
+  enabled: true
+  delivery: auto # auto, system, or app
+  sound: true
+appearance:
+  theme: ""
+webhooks:
+  enabled: false
+  host: 127.0.0.1
+  port: 0 # the OS chooses when enabled
+keybindings: {} # sparse overrides; omitted commands keep catalog defaults
+development:
+  mocks:
+    mode: live # live, feed, pipeline, onboarding, or action-smoke
+  instance:
+    id: ""
+  vite:
+    host: 127.0.0.1
+    port: 0
+  wails:
+    host: 127.0.0.1
+    port: 0
+  pprof:
+    enabled: false
+    host: 127.0.0.1
+    port: 0
+  debug:
+    pause_ingest: 0s
+    pause_commit: 0s
+```
+
+Every scalar override mirrors its YAML path, for example
+`updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `webhooks.port` →
+`HIVE_DESKTOP_WEBHOOKS_PORT`. Paths and logging use
+`HIVE_DESKTOP_DATA_DIR`, `HIVE_DESKTOP_CONFIG_DIR`,
+`HIVE_DESKTOP_FLOWS_DIR`, `HIVE_DESKTOP_ACTIONS_PATH`, and
+`HIVE_DESKTOP_LOG_LEVEL`. Wails, credentials, build stamping, and release
+secrets are separate environment boundaries rather than settings fields.
+`development.pprof` is parsed and validated but does not start an endpoint yet;
+that waits for the common plugs lifecycle.
 
 ```yaml
 name: Triage
@@ -159,7 +217,7 @@ the app's own SaveFlow/SaveLayout writes intentionally trigger the same reload
 and `flows:updated` wake-up.
 
 `actions.yml` lives at `$XDG_CONFIG_HOME/hive/desktop/actions.yml`
-(`HIVE_DESKTOP_ACTIONS` overrides the file) and defines detail-pane/output
+(`HIVE_DESKTOP_ACTIONS_PATH` overrides the file) and defines detail-pane/output
 worker actions such as `launch-session`, `shell`, and `publish-message`:
 
 ```yaml
@@ -194,9 +252,9 @@ OAuth app's public client ID by default; `HIVE_GITHUB_CLIENT_ID` overrides it,
 e.g. to test another registration. `internal/hivecore/github` is the shared
 GitHub REST client, vendored rather than desktop-owned.
 
-`HIVE_DESKTOP_MOCK` selects deterministic offline backends: `feed` starts
-authenticated, `onboarding` starts signed out with a fake device flow that
-grants after ~1.5s. Unset, the live backends run.
+`HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` selects deterministic offline backends:
+`feed` starts authenticated, while `onboarding` starts signed out with a fake
+device flow that grants after ~1.5s. `live` is the safe default.
 
 `build/config.yml` keeps `dev_mode.root_path: .`; when `wails3 dev` is started
 from `desktop/`, Wails watches `desktop/` rather than the whole repository.
@@ -209,28 +267,49 @@ Use the root mise tasks as the canonical entry points:
 mise run desktop:generate # Regenerate frontend TS bindings.
 mise run desktop:icons    # Regenerate committed icon assets.
 mise run desktop:build    # Build the desktop app; on macOS emits desktop/bin/hive-desktop.
-mise run desktop:serve    # Build and run the headless server build.
-mise run desktop:dev      # Start Wails development mode.
+mise run desktop:serve     # Build and run the headless server build.
+mise run desktop:dev         # Run Wails directly with the generated launch.env.
+mise run desktop:dev:prepare # Create/reuse the isolated instance and launch.env.
+mise run desktop:dev:fresh   # Safely reseed the instance and regenerate launch.env.
+mise run desktop:dev:reset   # Safely remove the marked instance and launch.env.
 ```
 
 `desktop:dev` runs `wails3 dev -config ./build/config.yml` from the desktop
 application directory. The equivalent Taskfile command is `wails3 task dev`.
 
-Dev mode runs against an **ephemeral copy** of local state, never the real
-thing: `build/scripts/dev-data-dir.sh` snapshots the install's databases
-(`hive.db`, `desktop/desktop-pipeline.db`, via `VACUUM INTO`), the small
-desktop state files, and the desktop config tree (`$XDG_CONFIG_HOME/hive/
-desktop/` — flows, `actions.yml`, `settings.yaml`) into a per-worktree cache
-dir, and launches with `HIVE_DATA_DIR` / `HIVE_DESKTOP_CONFIG` pointing there.
-Config isolation matters as much as the databases: both apps hot-reload the
-flows/actions directories, so a shared tree means an edit or delete in dev
-instantly applies to the release app. The copy is remade on every launch, so
-dev always starts from the install's current state. An explicitly set
-`HIVE_DATA_DIR` or `HIVE_DESKTOP_CONFIG` is respected and not copied over;
-setting both deliberately runs dev against real state. Not isolated: the OS
-keychain (dev uses the real GitHub token — a dev sign-out deletes it) and
-`bootstrap.yaml` (the System settings directory-override screen writes the
-real pointer file).
+Dev mode uses the gitignored `.hive-desktop/` directory in the current
+worktree. First use snapshots the installed databases and desktop config;
+`desktop:dev:prepare` and setup create that state once; normal `desktop:dev`
+runs Wails directly with it. `desktop:dev:fresh` deletes and reseeds it through
+marker/path/symlink checks, and `desktop:dev:reset` safely removes it. A
+short-lived worktree lock serializes preparation and destructive operations;
+fresh/reset also refuse while either configured development server is active.
+Config symlink targets are materialized into the snapshot rather than retained
+as links to installed state. Separate worktrees therefore have separate config, data, databases and
+logs. Explicit `HIVE_DESKTOP_DATA_DIR` / `HIVE_DESKTOP_CONFIG_DIR` values still
+win.
+
+`development.vite` uses the required `127.0.0.1` host because Wails constructs
+its frontend URL with localhost; its port defaults to `0`. `development.wails`
+uses a loopback host and port `0` by default. `cmd/devtools prepare` chooses
+distinct free ports and atomically writes the gitignored, non-secret
+`launch.env`; the `desktop:dev` mise task loads it, then loads the optional,
+gitignored developer-authored `overrides.env` so explicit overrides win without
+special handling in devtools. The generated values bridge to framework-owned
+`WAILS_VITE_*` and `WAILS_SERVER_*` variables. Override those framework names
+for framework addresses; use `HIVE_DESKTOP_*` names for application settings.
+Setup and a missing-file-only enter hook prepare `launch.env`; mise derives
+`VITE_HIVE_DEV_BRANCH` from Git for each launch rather than persisting it, then
+`desktop:dev` invokes Wails directly. Wails/Vite do not read application YAML
+themselves. Their
+preselected ports have an unavoidable preflight-to-bind race because neither
+framework accepts an open listener. `cmd/devtools` uses urfave/cli subcommands
+and zerolog console output; pass `--log-level` before the subcommand or set
+`HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` to adjust its default `info` verbosity.
+
+The OS keychain and fixed `bootstrap.yaml` remain shared. Use a mock mode when
+credential isolation matters: signing out of a live dev instance can affect the
+installed app's keychain credential.
 
 The alpha supports server builds. `desktop:serve` builds the frontend, then
 compiles the pure HTTP-server variant without GUI dependencies to
@@ -275,7 +354,7 @@ mise run desktop:serve
 
 Drive and inspect the app at `http://localhost:8080` with Playwright or browser
 tooling, read the screenshots in `desktop/e2e/screenshots`, edit, and repeat.
-Set `HIVE_DESKTOP_MOCK=onboarding` to drive the first-run screen offline.
+Set `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding` to drive the first-run screen offline.
 Run `mise run desktop:e2e` as the Docker-only regression gate. Its harness
 builds the server and starts private feed, onboarding, pipeline, and action
 smoke instances inside the pinned Playwright image; no local browser install
@@ -288,7 +367,7 @@ a manual verification concern.
 
 Desktop actions are global configuration, stored in `actions.yml` beside the
 flow directory (`$XDG_CONFIG_HOME/hive/desktop/actions.yml`; override with
-`HIVE_DESKTOP_ACTIONS`). The settings screen creates, edits, and deletes the
+`HIVE_DESKTOP_ACTIONS_PATH`). The settings screen creates, edits, and deletes the
 catalog entries. External YAML edits reload live; a parse failure keeps the
 last-good catalog until the file is fixed. `show_in_detail` controls manual
 feed-item visibility only, while a flow `action` node may target any catalog

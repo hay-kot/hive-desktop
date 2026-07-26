@@ -102,14 +102,16 @@ policy.
 ### Webhook ingress
 
 `sources.webhook` nodes are push-driven and bypass the producer entirely
-(docs/decisions/0007). `webhook.Listener` binds `127.0.0.1` (port
-`webhook_port` in settings.yaml — drawn at random from 20000–32767 on first
-run and persisted, env override `HIVE_DESKTOP_WEBHOOK_PORT`; the whole
-listener is switched off by `webhook_enabled: false`, and Settings →
-Integrations → Webhooks edits both) and resolves `/hooks/<path>` routes per
-request against the push-mode connector instances `ingest.Resolver` builds
-from the current flow set — the same resolution the producer's pull sources go
-through, so enabled/disabled filtering happens once for both. A delivery calls `IngestObservation` under topic
+(docs/decisions/0007 and 0014). The listener defaults off. When
+`webhooks.enabled` is true it binds `webhooks.host` (loopback-only) and
+`webhooks.port`; port `0` asks the OS to select the port directly, and the
+running endpoint reports the selected address. Typed process overrides are
+`HIVE_DESKTOP_WEBHOOKS_ENABLED`, `HIVE_DESKTOP_WEBHOOKS_HOST`, and
+`HIVE_DESKTOP_WEBHOOKS_PORT`. Settings → Integrations → Webhooks edits the
+persisted values. The listener resolves `/hooks/<path>` routes per request
+against the push-mode connector instances `ingest.Resolver` builds from the
+current flow set — the same resolution the producer's pull sources go through,
+so enabled/disabled filtering happens once for both. A delivery calls `IngestObservation` under topic
 `source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
 a top-level `id` is the stable key (else the body's SHA-256, deduplicating
 exact duplicate deliveries), and `title`/`url` are promoted for feed

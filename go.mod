@@ -6,6 +6,7 @@ require (
 	charm.land/glamour/v2 v2.0.1
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/bmatcuk/doublestar/v4 v4.10.0
+	github.com/caarlos0/env/v11 v11.3.1
 	github.com/colonyops/hive v0.57.1-0.20260723192937-81bc4a047d45
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/fsnotify/fsnotify v1.10.1

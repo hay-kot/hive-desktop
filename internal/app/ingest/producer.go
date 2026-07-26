@@ -35,14 +35,15 @@ import (
 // ingestion, and generic ingestion of a GitHub item is wrong rather than
 // merely plain.
 type Producer struct {
-	db         Appender
-	sources    Sources
-	intervalMu sync.Mutex
-	interval   time.Duration
-	intervalCh chan time.Duration
-	onAppended func(nextOffset int64)
-	logger     zerolog.Logger
-	recorder   activity.Recorder
+	db          Appender
+	sources     Sources
+	intervalMu  sync.Mutex
+	interval    time.Duration
+	intervalCh  chan time.Duration
+	onAppended  func(nextOffset int64)
+	logger      zerolog.Logger
+	recorder    activity.Recorder
+	pauseIngest time.Duration
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -52,6 +53,9 @@ type Producer struct {
 // Activity view. Successful periodic refreshes are intentionally omitted to
 // avoid flooding the activity log. Set once at wiring time, before Start.
 func (pr *Producer) SetRecorder(r activity.Recorder) { pr.recorder = r }
+
+// SetDebugPause injects the development-only post-hydration pause.
+func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = duration }
 
 // NewProducer builds a Producer. interval <= 0 is rejected by the caller's
 // choice of default (App passes feed.DefaultPollInterval); Producer itself
@@ -257,7 +261,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// upstream observation time when it returns a hydrated Current.
 		prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
 		verdict, err := instance.Absence.ConfirmAbsence(ctx, prev)
-		store.DebugPauseIngest(ctx)
+		debugPause(ctx, pr.pauseIngest)
 		if err != nil {
 			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
 			continue
@@ -274,6 +278,18 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 			out.appended++
 			out.lastOffset = result.Offset
 		}
+	}
+}
+
+func debugPause(ctx context.Context, duration time.Duration) {
+	if duration <= 0 {
+		return
+	}
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+	case <-timer.C:
 	}
 }
 
