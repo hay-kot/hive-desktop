@@ -3,6 +3,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,7 +18,6 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
@@ -53,7 +53,7 @@ type pristineFile struct {
 // would.
 type StateReset struct {
 	db       *store.DB
-	core     *coredb.DB
+	core     *sql.DB
 	logger   zerolog.Logger
 	mock     string
 	flowsDir string
@@ -64,14 +64,18 @@ type StateReset struct {
 // route must stay unmounted (live mode, or no valid harness marker). It must
 // run after startup seeding — the mock inbox rows and actions.yml defaults —
 // so the captured baseline is the post-boot state a fresh server would show.
-func NewStateResetHarness(db *store.DB, core *coredb.DB, logger zerolog.Logger) *StateReset {
+//
+// core is the raw connection to the vendored Hive action database (sessions,
+// messages) — the caller passes app.App.HiveConn() rather than the vendored
+// *coredb.DB itself.
+func NewStateResetHarness(db *store.DB, core *sql.DB, logger zerolog.Logger) *StateReset {
 	b, _ := settings.LoadBootstrap()
 	mock := settings.MockMode()
 	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, mock), logger)
 }
 
 // NewStateResetHarnessForInstance uses the composition-root runtime snapshot.
-func NewStateResetHarnessForInstance(db *store.DB, core *coredb.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
+func NewStateResetHarnessForInstance(db *store.DB, core *sql.DB, mock string, paths settings.Paths, logger zerolog.Logger) *StateReset {
 	if mock == "" || !e2eHarnessMarkerValid() {
 		return nil
 	}
@@ -137,7 +141,7 @@ func (r *StateReset) resetCoreTables(ctx context.Context) error {
 	if r.core == nil {
 		return nil
 	}
-	tx, err := r.core.Conn().BeginTx(ctx, nil)
+	tx, err := r.core.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
 	}

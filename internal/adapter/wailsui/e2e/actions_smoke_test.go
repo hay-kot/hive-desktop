@@ -52,7 +52,7 @@ func TestActionSmokeMiddlewareGETOnly(t *testing.T) {
 	t.Setenv(settings.EnvMockMode, "action-smoke")
 	t.Setenv("HIVE_DESKTOP_SMOKE_RUN_ID", "unit")
 	t.Setenv(settings.EnvE2EHarness, smokeHarnessMarker)
-	h := actionSmokeMiddleware(pipeline, core, settings.MockMode())(http.NotFoundHandler())
+	h := actionSmokeMiddleware(pipeline, core.Conn(), settings.MockMode())(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodPost, actionSmokePath, nil))
 	assert.Equal(t, http.StatusMethodNotAllowed, r.Code)
@@ -85,7 +85,7 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	require.True(t, created)
 	require.NoError(t, pipeline.MarkOutputCommandFailed(ctx, other.ID, "hidden failure"))
 
-	h := actionSmokeMiddleware(pipeline, core, settings.MockMode())(http.NotFoundHandler())
+	h := actionSmokeMiddleware(pipeline, core.Conn(), settings.MockMode())(http.NotFoundHandler())
 	r := httptest.NewRecorder()
 	h.ServeHTTP(r, httptest.NewRequest(http.MethodGet, actionSmokePath, nil))
 	require.Equal(t, http.StatusOK, r.Code, r.Body.String())
@@ -103,7 +103,7 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 
 	// readActionSmokeState returns the rows queried through independent
 	// mode=ro connections, not merely a successful reopen probe.
-	reopened, err := readActionSmokeState(ctx, pipeline, core)
+	reopened, err := readActionSmokeState(ctx, pipeline, core.Conn())
 	require.NoError(t, err)
 	require.Len(t, reopened.Sessions, 1)
 	assert.Equal(t, actionSmokeSession{ID: "kept", Name: "smoke-unit-template", Remote: "file:///fixture"}, reopened.Sessions[0])

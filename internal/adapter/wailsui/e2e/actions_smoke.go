@@ -13,7 +13,6 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	_ "modernc.org/sqlite"
 )
@@ -60,7 +59,11 @@ type actionSmokeState struct {
 // SmokeMiddleware composes the narrow test-only routes — the two
 // smoke readers plus the /_e2e/reset harness — without changing the normal
 // asset handler or exposing any of them in production.
-func SmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
+//
+// core is the raw connection to the vendored Hive action database (sessions,
+// messages) — the caller passes app.App.HiveConn() rather than the vendored
+// *coredb.DB itself.
+func SmokeMiddleware(pipeline *store.DB, core *sql.DB, reset *StateReset, onAppended func(nextOffset int64)) application.Middleware {
 	mock := ""
 	if reset != nil {
 		mock = reset.mock
@@ -70,7 +73,7 @@ func SmokeMiddleware(pipeline *store.DB, core *coredb.DB, reset *StateReset, onA
 	}
 }
 
-func actionSmokeMiddleware(pipeline *store.DB, core *coredb.DB, mock string) application.Middleware {
+func actionSmokeMiddleware(pipeline *store.DB, core *sql.DB, mock string) application.Middleware {
 	return func(next http.Handler) http.Handler {
 		if !actionSmokeHarnessEnabled(mock) {
 			return next
@@ -102,12 +105,12 @@ func actionSmokeMiddleware(pipeline *store.DB, core *coredb.DB, mock string) app
 // It compares the live snapshot to separately reopened, read-only SQLite
 // connections and returns the reopened rows. Neither reopen can migrate,
 // recover commands, or create a database file.
-func readActionSmokeState(ctx context.Context, pipeline *store.DB, core *coredb.DB) (actionSmokeState, error) {
+func readActionSmokeState(ctx context.Context, pipeline *store.DB, core *sql.DB) (actionSmokeState, error) {
 	runID := desktopSmokeRunID()
 	if runID == "" {
 		return actionSmokeState{}, fmt.Errorf("action smoke run id is required")
 	}
-	live, err := readActionSmokeSnapshot(ctx, core.Conn(), pipeline.Conn(), runID)
+	live, err := readActionSmokeSnapshot(ctx, core, pipeline.Conn(), runID)
 	if err != nil {
 		return actionSmokeState{}, err
 	}

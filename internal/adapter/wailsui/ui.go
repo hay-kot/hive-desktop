@@ -155,7 +155,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	// Built this late deliberately: app.New has seeded actions.yml and mock
 	// seeding has run, so the captured config baseline is the post-boot state
 	// a reset must restore.
-	reset := e2e.NewStateResetHarnessForInstance(core.Store, core.HiveDB, u.mock, core.RuntimePaths(), u.logger)
+	reset := e2e.NewStateResetHarnessForInstance(core.Store, core.HiveConn(), u.mock, core.RuntimePaths(), u.logger)
 
 	return application.Options{
 		Name:        "Hive",
@@ -169,7 +169,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		MarshalError: MarshalError,
 		Assets: application.AssetOptions{
 			Handler:    application.AssetFileServerFS(opts.Assets),
-			Middleware: e2e.SmokeMiddleware(core.Store, core.HiveDB, reset, core.PublishLogAppended),
+			Middleware: e2e.SmokeMiddleware(core.Store, core.HiveConn(), reset, core.PublishLogAppended),
 		},
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,

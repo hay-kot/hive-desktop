@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"io"
 	"os"
@@ -107,7 +108,7 @@ type App struct {
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
 	Launcher *dispatch.HiveSessionLauncher
-	HiveDB   *coredb.DB
+	hiveDB   *coredb.DB
 
 	// PollInterval is the validated, clamped interval the producer polls on.
 	PollInterval time.Duration
@@ -285,6 +286,18 @@ func (a *App) Start(ctx context.Context) error {
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
+// HiveConn exposes the connection to the vendored Hive action database
+// (sessions, messages) as a plain *sql.DB. hivecore types stop at this
+// method — adapters that need raw access, such as the e2e harness's table
+// resets and read-only snapshots, take the stdlib type rather than the
+// vendored *coredb.DB.
+func (a *App) HiveConn() *sql.DB {
+	if a.hiveDB == nil {
+		return nil
+	}
+	return a.hiveDB.Conn()
+}
+
 func (a *App) Close() error {
 	a.cancel()
 
@@ -310,8 +323,8 @@ func (a *App) Close() error {
 	}
 
 	var err error
-	if a.HiveDB != nil {
-		if closeErr := a.HiveDB.Close(); closeErr != nil {
+	if a.hiveDB != nil {
+		if closeErr := a.hiveDB.Close(); closeErr != nil {
 			err = fmt.Errorf("close hive action database: %w", closeErr)
 		}
 	}
@@ -552,7 +565,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		_ = database.Close()
 		return fmt.Errorf("migrate hive action data: %w", err)
 	}
-	a.HiveDB = database
+	a.hiveDB = database
 
 	bus := eventbus.New(64)
 	busCtx, cancel := context.WithCancel(ctx)

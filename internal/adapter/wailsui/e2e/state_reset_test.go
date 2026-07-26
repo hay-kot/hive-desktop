@@ -77,9 +77,9 @@ func TestStateResetRestoresFreshlySeededBaseline(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, core.Close()) })
 	require.NoError(t, seedMockInboxItems(db)) // feed mode's startup seeding
 
-	harness := NewStateResetHarness(db, core, zerolog.Nop())
+	harness := NewStateResetHarness(db, core.Conn(), zerolog.Nop())
 	require.NotNil(t, harness)
-	h := SmokeMiddleware(db, core, harness, nil)(http.NotFoundHandler())
+	h := SmokeMiddleware(db, core.Conn(), harness, nil)(http.NotFoundHandler())
 
 	// Mutate durable state the way a test run does: read state, event log,
 	// consumer checkpoint, source head, commands, activity, jobs, node runs.
