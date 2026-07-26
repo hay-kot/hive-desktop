@@ -17,20 +17,8 @@ const envLogLevel = "HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL"
 
 func main() {
 	logger := newConsoleLogger(os.Stderr, zerolog.InfoLevel)
-	command := newDevtoolsCommand(&logger)
-	if err := command.Run(context.Background(), os.Args); err != nil {
-		logger.Error().Err(err).Msg("devtools failed")
-		os.Exit(exitCode(err))
-	}
-}
 
-func newConsoleLogger(out io.Writer, level zerolog.Level) zerolog.Logger {
-	writer := zerolog.ConsoleWriter{Out: out, TimeFormat: time.Kitchen}
-	return zerolog.New(writer).With().Timestamp().Logger().Level(level)
-}
-
-func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
-	return &cli.Command{
+	command := &cli.Command{
 		Name:        "devtools",
 		Usage:       "manage an isolated Hive Desktop development instance",
 		Description: "Prepares reusable worktree-local data and config and writes launch.env for mise. Wails runs directly from the mise task with that environment.",
@@ -55,7 +43,7 @@ func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
 			if err != nil {
 				return nil, err
 			}
-			*logger = newConsoleLogger(os.Stderr, level)
+			logger = newConsoleLogger(os.Stderr, level)
 			return ctx, nil
 		},
 		Commands: []*cli.Command{
@@ -63,25 +51,47 @@ func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
 				Name:        "prepare",
 				Usage:       "prepare or reuse this worktree's development instance",
 				Description: "Seeds .hive-desktop on first use and writes launch.env with isolated paths and non-conflicting Wails/Vite ports.",
-				Action:      devtoolsAction(logger, func(tools *devtools) error { return tools.withLock(func() error { return tools.prepare(false) }) }),
+				Action: devtoolsAction(logger, func(tools *devtools) error {
+					return tools.withLock(func() error { return tools.prepare(false) })
+				}),
 			},
 			{
 				Name:        "fresh",
 				Usage:       "delete and reseed this worktree's development instance",
 				Description: "Safely removes the marked instance and launch.env, then snapshots installed state and allocates fresh framework ports.",
-				Action:      devtoolsAction(logger, func(tools *devtools) error { return tools.withLock(func() error { return tools.prepare(true) }) }),
+				Action: devtoolsAction(logger, func(tools *devtools) error {
+					return tools.withLock(func() error { return tools.prepare(true) })
+				}),
 			},
 			{
 				Name:        "reset",
 				Usage:       "remove this worktree's development instance",
 				Description: "Safely removes the marked .hive-desktop directory and generated launch.env without starting Wails.",
-				Action:      devtoolsAction(logger, func(tools *devtools) error { return tools.withLock(tools.reset) }),
+				Action: devtoolsAction(logger, func(tools *devtools) error {
+					return tools.withLock(tools.reset)
+				}),
 			},
 		},
 	}
+
+	if err := command.Run(context.Background(), os.Args); err != nil {
+		logger.Error().Err(err).Msg("devtools failed")
+
+		code := 1
+		if cliExit, ok := errors.AsType[cli.ExitCoder](err); ok {
+			code = cliExit.ExitCode()
+		}
+
+		os.Exit(code)
+	}
 }
 
-func devtoolsAction(logger *zerolog.Logger, action func(*devtools) error) cli.ActionFunc {
+func newConsoleLogger(out io.Writer, level zerolog.Level) zerolog.Logger {
+	writer := zerolog.ConsoleWriter{Out: out, TimeFormat: time.Kitchen}
+	return zerolog.New(writer).With().Timestamp().Logger().Level(level)
+}
+
+func devtoolsAction(logger zerolog.Logger, action func(*devtools) error) cli.ActionFunc {
 	return func(_ context.Context, cmd *cli.Command) error {
 		if cmd.NArg() != 0 {
 			return cli.Exit(cmd.Name+" does not accept positional arguments", 2)
@@ -90,13 +100,6 @@ func devtoolsAction(logger *zerolog.Logger, action func(*devtools) error) cli.Ac
 		if err != nil {
 			return err
 		}
-		return action(newDevtools(worktree, *logger))
+		return action(newDevtools(worktree, logger))
 	}
-}
-
-func exitCode(err error) int {
-	if cliExit, ok := errors.AsType[cli.ExitCoder](err); ok {
-		return cliExit.ExitCode()
-	}
-	return 1
 }
