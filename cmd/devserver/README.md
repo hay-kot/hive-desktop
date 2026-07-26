@@ -16,11 +16,13 @@ mise run desktop:dev   # already routed through it
 
 **Development is proxied by default.** `cmd/devtools prepare` writes the API base into this worktree's `launch.env`, so there is nothing to export and no flag to remember. Open <http://127.0.0.1:7777> for the dashboard.
 
-**One proxy serves every worktree.** It is a singleton by design: overlay state lives in the process holding the port, so a second one would mean the dashboard you are looking at might not control the instance you are watching. Launching devserver when one is already running is a deliberate no-op rather than an error, which makes `mise run devserver` safe to run from anywhere without checking first.
+**One proxy serves every worktree.** It is a singleton by design: overlay state lives in the process holding the port, so a second one would mean the dashboard you are looking at might not control the instance you are watching.
 
-Because every dev run is proxied, `desktop:dev` preflights the proxy and fails with instructions if nothing answers — otherwise a forgotten devserver would surface as every GitHub call failing at once.
+Launching devserver when one is already running is not an error — the second process **stands by**, retrying the port every `--standby-poll` (2s), and takes over the moment the live one stops. So `mise run devserver` is safe to run from anywhere without checking first, and closing whichever session happened to start the proxy does not leave the other worktrees without one. A foreign process on the port is still fatal: waiting on it would leave instances pointed at something that is not a proxy.
 
-`solo up` runs both from the checked-in `.solo.yml`. Since the tabs start together, its desktop tab passes `--wait` to the preflight so the proxy has time to link and bind; the bare task probes once, so a manual `desktop:dev` still fails immediately.
+Nothing preflights the proxy. If it is not running, GitHub calls fail as transport errors in the desktop log, same as any other GitHub failure.
+
+`solo up` runs both tabs from the checked-in `.solo.yml`.
 
 ### Running against real GitHub
 
@@ -30,7 +32,7 @@ Put this in the gitignored `overrides.env` beside `launch.env` (mise loads it se
 HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""
 ```
 
-The preflight skips an empty value, so opting out disables the check too.
+An empty value means the app talks to api.github.com directly.
 
 ### What it does not do on startup
 

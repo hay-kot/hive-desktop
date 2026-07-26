@@ -127,15 +127,13 @@ mise run devserver         # the shared GitHub proxy desktop:dev routes through
 `desktop:dev` goes through `cmd/devserver` by default — `launch.env` carries the
 API base, and one proxy serves every worktree so concurrent streams share a
 rate-limit budget and a response cache (ADR 0017). Leave `mise run devserver`
-running; starting a second is a no-op. The task preflights it and fails with
-instructions if nothing answers. To use real GitHub, set
+running; starting a second parks it as a standby that takes over if the first
+stops. Nothing preflights the proxy — if it is not answering, GitHub calls fail
+as transport errors in the log. To use real GitHub, set
 `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in the gitignored `overrides.env`.
 
 `solo up` brings the session up from the checked-in `.solo.yml` (devserver + the
-app) and `solo down` tears it down. Because both tabs start at once, the desktop
-tab uses `devtools check-proxy --wait` to let the proxy finish linking; the bare
-task still probes once so a manual run fails immediately rather than hanging on
-a proxy nobody started.
+app) and `solo down` tears it down.
 
 Go lint/format is the root `mise run lint` (golangci-lint); frontend type
 errors surface via `vue-tsc` in the build. Run quality gates after changes.
