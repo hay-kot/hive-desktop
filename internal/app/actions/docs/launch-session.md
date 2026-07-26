@@ -1,17 +1,19 @@
 # Launch session
 
 A **launch-session** action starts a hive coding session from the triggering
-item. It is the action type behind "review this PR" / "start work on this
-issue" buttons and behind flow `action` nodes that spawn agents automatically.
+item. It is the action type behind manually invoking "review this PR" /
+"start work on this issue" on an item, and behind flow `action` nodes that
+spawn agents automatically.
 
 ## Fields
 
 - `prompt_template` (required) — the new session's initial prompt.
 - `repo_template` — which repository the session is created against. Set it and
   the action can run **headlessly** (a flow `action` node can fire it with no
-  human present). Leave it empty and the action becomes interactive: the detail
-  pane asks for repository, session name, and agent before launching, and a
-  flow `action` node is **rejected at validation time** for referencing it.
+  human present). Leave it empty and the action becomes interactive: invoking
+  it manually prompts for repository, session name, and agent before the
+  session launches, and a flow `action` node is **rejected at validation
+  time** for referencing it.
 - `agent` — a non-default agent profile (e.g. `claude`, `aider`). Omit for the
   launcher's default.
 

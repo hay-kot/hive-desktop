@@ -9,20 +9,16 @@ invocations cannot repeat a side effect.
 
 The `action` field is an id from the global desktop `actions.yml` catalog. The
 catalog supports create, edit, delete, and safe external YAML reload. Its
-`show_in_detail` flag only controls whether a manual button appears on a feed
-item; flow action nodes can reference the action regardless of that flag or
-its `applies_to` kind scope.
+`show_in_detail` flag only controls whether the action can also be invoked
+manually on an item; flow action nodes can reference the action regardless of
+that flag or its `applies_to` kind scope.
 
 ## Execution
 
-- **launch-session** renders its prompt and repository templates. A configured
-  repository launches headlessly; without one, the detail pane asks for
-  repository, session name, and agent before the interactive launch.
-- **shell** runs an author-configured command. Failed runs retain bounded
-  stdout/stderr diagnostics.
-- **publish-message** renders a message and publishes it durably to one fixed,
-  literal topic with sender `hive-desktop` and no session id.
-
-Action results are typed: a successful run reports either the launched session
-or the published message. Failed runs remain readable from the durable command
-record with their diagnostics.
+This node only selects which catalog action runs — it carries no execution
+semantics of its own. `action` resolves to one entry of type `launch-session`,
+`shell`, or `publish-message`, and that type's own doc (see
+`internal/app/actions/docs/`) is what defines how it runs. Action results are
+typed to match: a successful run reports whatever that action type produces,
+and a failed run remains readable from the durable command record with its
+diagnostics.
