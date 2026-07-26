@@ -9,7 +9,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
-	hivegithub "github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // Fetchers hands out one feed.LiveProvider per credential, constructing them
@@ -28,7 +28,7 @@ import (
 type Fetchers struct {
 	// client is a template, not a connection: every request goes through
 	// WithTokenCopy, so one client backs every account's provider.
-	client *hivegithub.Client
+	client *ghclient.Client
 	creds  credentials.Store
 	logger zerolog.Logger
 
@@ -38,7 +38,9 @@ type Fetchers struct {
 	recorder  activity.Recorder
 }
 
-func NewFetchers(client *hivegithub.Client, creds credentials.Store, logger zerolog.Logger) *Fetchers {
+// NewFetchers builds the per-account provider registry over the owned
+// GitHub client.
+func NewFetchers(client *ghclient.Client, creds credentials.Store, logger zerolog.Logger) *Fetchers {
 	return &Fetchers{
 		client:    client,
 		creds:     creds,

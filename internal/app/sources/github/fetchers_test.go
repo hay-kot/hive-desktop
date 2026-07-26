@@ -10,7 +10,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // connectorNode is the flow node a fixture instance is built for.
@@ -19,7 +19,7 @@ func connectorNode() connector.Node {
 }
 
 func newFetchers() *ghsource.Fetchers {
-	return ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
+	return ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 // One fetcher per account, and the same one every time for the same account.

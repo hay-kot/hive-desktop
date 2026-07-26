@@ -32,7 +32,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive/scripts"
 )
@@ -163,7 +162,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
 
 	if cfg.MockMode == "" {
-		a.Fetchers = ghsource.NewFetchers(github.NewClient(), a.Credentials, cfg.Logger)
+		a.Fetchers = ghsource.NewFetchers(ghsource.DefaultClient, a.Credentials, cfg.Logger)
 		a.Fetchers.SetSearchTTL(a.PollInterval)
 	}
 
@@ -341,7 +340,7 @@ func buildGitHubConnection(mock string, creds credentials.Store, onChange func()
 	case settings.MockOnboarding:
 		return ghsource.NewMockConnection(false, creds, onChange)
 	default:
-		return ghsource.NewLiveConnection(github.NewClient(), creds, onChange)
+		return ghsource.NewLiveConnection(ghsource.DefaultClient, creds, onChange)
 	}
 }
 

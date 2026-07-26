@@ -20,8 +20,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // testCredential is the account every fixture source fetches as. Sources
@@ -130,14 +130,14 @@ func newFetchersFixture(t *testing.T, api *singleSearchAPI) *ghsource.Fetchers {
 	require.NoError(t, err)
 	require.NoError(t, creds.Set(ref, "tok"))
 
-	client := github.NewClient(github.WithAPIBase(server.URL))
+	client := ghclient.NewClient(ghclient.WithAPIBase(server.URL))
 	return ghsource.NewFetchers(client, creds, zerolog.Nop())
 }
 
 // newUnconnectedFetchers has no credential stored, so every fetch fails with
 // ErrNotAuthenticated before reaching the network.
 func newUnconnectedFetchers() *ghsource.Fetchers {
-	return ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
+	return ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 func TestGithubSource_Produce_EmitsWireItems(t *testing.T) {

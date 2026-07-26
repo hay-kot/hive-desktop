@@ -16,8 +16,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
@@ -123,7 +123,7 @@ func (s *settingsServiceSource) callCount() int {
 func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-		fetchers := ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
+		fetchers := ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 		db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 		require.NoError(t, err)
 		t.Cleanup(func() { _ = db.Close() })

@@ -12,7 +12,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // connectAPIServer fakes the two GitHub endpoints the live connection
@@ -57,7 +57,7 @@ func parseBearer(header string) (string, bool) {
 func newLiveConnectionForTest(t *testing.T, creds credentials.Store, validTokens map[string]string, onChange func()) ghsource.Connection {
 	t.Helper()
 	server := connectAPIServer(t, validTokens)
-	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
+	client := ghclient.NewClient(ghclient.WithAPIBase(server.URL), ghclient.WithAuthBase(server.URL))
 	return ghsource.NewLiveConnection(client, creds, onChange)
 }
 
@@ -194,7 +194,7 @@ func TestLiveConnectionDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 	t.Parallel()
 
 	server := deniedDeviceFlowServer(t)
-	client := github.NewClient(github.WithAPIBase(server.URL), github.WithAuthBase(server.URL))
+	client := ghclient.NewClient(ghclient.WithAPIBase(server.URL), ghclient.WithAuthBase(server.URL))
 	changed := make(chan struct{}, 1)
 	conn := ghsource.NewLiveConnection(client, credentials.NewMemoryStore(), func() {
 		select {
@@ -224,7 +224,8 @@ func TestLiveConnectionDeviceFlowDeniedSurfacesMessage(t *testing.T) {
 }
 
 func TestLiveConnectionDisconnectWithEnvOverrideExplains(t *testing.T) {
-	t.Setenv(github.EnvToken, "env-token")
+	envName := credentials.EnvOverrideName(ghsource.Provider)
+	t.Setenv(envName, "env-token")
 
 	store := seededCreds(t, "octocat", "tok1")
 	conn := newLiveConnectionForTest(t, store, map[string]string{"tok1": "octocat", "env-token": "octocat"}, nil)
@@ -234,7 +235,7 @@ func TestLiveConnectionDisconnectWithEnvOverrideExplains(t *testing.T) {
 
 	status := conn.Status(t.Context())
 	assert.Equal(t, ghsource.StateDisconnected, status.State)
-	assert.Contains(t, status.Message, github.EnvToken)
+	assert.Contains(t, status.Message, envName)
 }
 
 func TestLiveConnectionDisconnectClearsToken(t *testing.T) {

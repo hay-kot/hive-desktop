@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // Connection states on the wire. Connected/disconnected, not
@@ -29,6 +29,14 @@ const EnvClientID = "HIVE_GITHUB_CLIENT_ID"
 // defaultClientID is the registered Hive Desktop OAuth app. Client IDs are
 // public; the device flow uses no client secret.
 const defaultClientID = "Ov23likA3JPBPkYbMGu4"
+
+// DefaultClient is the GitHub client every production Connection and
+// Fetchers instance shares. It carries no token — every request clones it
+// via WithTokenCopy — so one client safely backs both the connect flow and
+// every connected account's fetcher, and app.go need not construct one
+// itself. Tests build their own client pointed at an httptest server instead
+// of using it.
+var DefaultClient = ghclient.NewClient()
 
 // deviceFlowScopes: repo covers PR/issue search on private repos;
 // notifications covers the inbox feed.
@@ -74,7 +82,7 @@ type Connection interface {
 // ── Live connection ──────────────────────────────────────────────────────────
 
 type liveConnection struct {
-	client *github.Client
+	client *ghclient.Client
 	// creds is the credential store. A token is keyed by the login it belongs
 	// to, so storing one needs the user lookup that validation already
 	// performs.
@@ -90,8 +98,9 @@ type liveConnection struct {
 	cached     *ConnectionStatus
 }
 
-// NewLiveConnection builds the real GitHub connection over a credential store.
-func NewLiveConnection(client *github.Client, creds credentials.Store, onChange func()) Connection {
+// NewLiveConnection builds the real GitHub connection over a credential
+// store.
+func NewLiveConnection(client *ghclient.Client, creds credentials.Store, onChange func()) Connection {
 	clientID := os.Getenv(EnvClientID)
 	if clientID == "" {
 		clientID = defaultClientID
@@ -142,7 +151,7 @@ func (a *liveConnection) Status(ctx context.Context) ConnectionStatus {
 
 	user, err := a.client.WithTokenCopy(token).User(ctx)
 	switch {
-	case errors.Is(err, github.ErrUnauthorized):
+	case errors.Is(err, ghclient.ErrUnauthorized):
 		return ConnectionStatus{State: StateDisconnected, Message: "Stored GitHub token is no longer valid."}
 	case err != nil:
 		// Unreachable/rate limited with a stored token: optimistically
@@ -180,7 +189,7 @@ func (a *liveConnection) StartDeviceFlow(ctx context.Context) (DeviceFlowInfo, e
 	return DeviceFlowInfo{UserCode: auth.UserCode, VerificationURI: auth.VerificationURI}, nil
 }
 
-func (a *liveConnection) pollFlow(ctx context.Context, auth github.DeviceAuth) {
+func (a *liveConnection) pollFlow(ctx context.Context, auth ghclient.DeviceAuth) {
 	token, err := a.client.PollDeviceFlow(ctx, a.clientID, auth)
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -213,7 +222,7 @@ func (a *liveConnection) SetToken(ctx context.Context, token string) (Connection
 	}
 
 	user, err := a.client.WithTokenCopy(token).User(ctx)
-	if errors.Is(err, github.ErrUnauthorized) {
+	if errors.Is(err, ghclient.ErrUnauthorized) {
 		return ConnectionStatus{}, fmt.Errorf("GitHub rejected the token")
 	}
 	if err != nil {
@@ -298,7 +307,7 @@ func (a *liveConnection) notify() {
 	}
 }
 
-func connectedStatus(user github.User) ConnectionStatus {
+func connectedStatus(user ghclient.User) ConnectionStatus {
 	return ConnectionStatus{
 		State:     StateConnected,
 		Login:     user.Login,

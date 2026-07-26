@@ -14,7 +14,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
 
 // ErrNotAuthenticated is returned when no GitHub token is available.
@@ -35,7 +35,7 @@ const (
 // producer uses to turn a sources.github node into event_log rows — the only
 // GitHub-fetch implementation in the desktop.
 type LiveProvider struct {
-	client *github.Client
+	client *ghclient.Client
 	tokens credentials.Resolver
 	logger zerolog.Logger
 	now    func() time.Time
@@ -80,7 +80,7 @@ func sourceKey(src SourceDef) string {
 	return src.Kind + "\x00" + src.Query + "\x00" + strconv.Itoa(src.effectiveLimit())
 }
 
-func NewLiveProvider(client *github.Client, tokens credentials.Resolver, logger zerolog.Logger) *LiveProvider {
+func NewLiveProvider(client *ghclient.Client, tokens credentials.Resolver, logger zerolog.Logger) *LiveProvider {
 	return &LiveProvider{
 		client:         client,
 		tokens:         tokens,
@@ -129,10 +129,10 @@ func (p *LiveProvider) inCooldown() (bool, error) {
 // takes precedence over the local fallback; an existing later cooldown is
 // retained so concurrent failures cannot shorten it.
 func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
-	if !errors.Is(err, github.ErrRateLimited) {
+	if !errors.Is(err, ghclient.ErrRateLimited) {
 		return
 	}
-	var rateErr *github.RateLimitError
+	var rateErr *ghclient.RateLimitError
 	until := time.Time{}
 	if errors.As(err, &rateErr) {
 		until = rateErr.ResetAt
@@ -236,7 +236,7 @@ func (p *LiveProvider) sourceItems(ctx context.Context, src SourceDef) ([]liveIt
 // transient failures, while authentication failures must reach the caller so
 // it can prompt for a reconnect.
 func (p *LiveProvider) serveFetchError(src SourceDef, cached *cachedSource, ok bool, err error) ([]liveItem, error) {
-	if ok && !errors.Is(err, github.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
+	if ok && !errors.Is(err, ghclient.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
 		p.logger.Debug().Err(err).Str("source", src.ID).Msg("source fetch failed; serving stale cache")
 		return cached.items, nil
 	}
@@ -293,13 +293,13 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 		return err
 	}
 
-	reqs := make([]github.SearchRequest, len(due))
+	reqs := make([]ghclient.SearchRequest, len(due))
 	for i, def := range due {
-		reqs[i] = github.SearchRequest{Query: def.Query, Limit: def.effectiveLimit()}
+		reqs[i] = ghclient.SearchRequest{Query: def.Query, Limit: def.effectiveLimit()}
 	}
 	results, err := p.client.WithTokenCopy(token).SearchIssuesBatch(ctx, reqs)
 	if err != nil {
-		if errors.Is(err, github.ErrRateLimited) {
+		if errors.Is(err, ghclient.ErrRateLimited) {
 			p.noteRateLimit(ctx, err)
 		}
 		p.recordSearchFailures(dueKeys, err)
@@ -369,7 +369,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 
 		result, err := client.Notifications(ctx, src.effectiveLimit(), ifModifiedSince)
 		if err != nil {
-			if errors.Is(err, github.ErrRateLimited) {
+			if errors.Is(err, ghclient.ErrRateLimited) {
 				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
@@ -396,12 +396,12 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 		})
 		return items, nil
 	case "search":
-		results, err := client.SearchIssuesBatch(ctx, []github.SearchRequest{{
+		results, err := client.SearchIssuesBatch(ctx, []ghclient.SearchRequest{{
 			Query: src.Query,
 			Limit: src.effectiveLimit(),
 		}})
 		if err != nil {
-			if errors.Is(err, github.ErrRateLimited) {
+			if errors.Is(err, ghclient.ErrRateLimited) {
 				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
@@ -419,29 +419,29 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 // The caller uses its state to distinguish terminal lifecycle changes from
 // non-terminal query churn. It uses the same token and rate-limit cooldown as
 // polling.
-func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int, isPR bool) (github.Issue, error) {
+func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int, isPR bool) (ghclient.Issue, error) {
 	if cooling, err := p.inCooldown(); cooling {
-		return github.Issue{}, err
+		return ghclient.Issue{}, err
 	}
 	parts := strings.SplitN(repo, "/", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || num <= 0 {
-		return github.Issue{}, fmt.Errorf("feed: invalid GitHub item %q#%d", repo, num)
+		return ghclient.Issue{}, fmt.Errorf("feed: invalid GitHub item %q#%d", repo, num)
 	}
 	token, err := p.tokens()
 	if err != nil {
-		return github.Issue{}, err
+		return ghclient.Issue{}, err
 	}
 	if token == "" {
-		return github.Issue{}, ErrNotAuthenticated
+		return ghclient.Issue{}, ErrNotAuthenticated
 	}
 	client := p.client.WithTokenCopy(token)
-	var issue github.Issue
+	var issue ghclient.Issue
 	if isPR {
 		issue, err = client.GetPullRequest(ctx, parts[0], parts[1], num)
 	} else {
 		issue, err = client.GetIssue(ctx, parts[0], parts[1], num)
 	}
-	if errors.Is(err, github.ErrRateLimited) {
+	if errors.Is(err, ghclient.ErrRateLimited) {
 		p.noteRateLimit(ctx, err)
 	}
 	return issue, err
@@ -459,12 +459,16 @@ func (p *LiveProvider) clearSearchFailure(key string) {
 	p.mu.Unlock()
 }
 
-func (p *LiveProvider) searchItems(items []github.SearchItem) []liveItem {
+func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []liveItem {
 	out := make([]liveItem, 0, len(items))
 	for _, si := range items {
 		kind := "Issue"
 		if si.IsPullRequest {
 			kind = "PR"
+		}
+		labels := make([]string, len(si.Labels))
+		for i, label := range si.Labels {
+			labels[i] = label.Name
 		}
 		repo := si.Repo
 		item := Item{
@@ -477,7 +481,7 @@ func (p *LiveProvider) searchItems(items []github.SearchItem) []liveItem {
 			State:     strings.ToLower(si.State),
 			UpdatedAt: si.UpdatedAt.UnixMilli(),
 			Unread:    true, // inbox model: unread until read
-			Labels:    labelNames(si.Labels),
+			Labels:    labels,
 			Branch:    suggestedBranch(kind, si.Number, si.Title),
 			Body:      si.Body,
 			Prompt:    suggestedPrompt(kind, si.Title, si.URL, si.Body),
@@ -488,7 +492,7 @@ func (p *LiveProvider) searchItems(items []github.SearchItem) []liveItem {
 	return out
 }
 
-func (p *LiveProvider) notificationItems(notifications []github.Notification) []liveItem {
+func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) []liveItem {
 	out := make([]liveItem, 0, len(notifications))
 	for _, n := range notifications {
 		kind, ok := notificationKind(n.Subject.Type)
@@ -548,17 +552,6 @@ func htmlURLForSubject(repo, kind string, num int) string {
 		segment = "pull"
 	}
 	return fmt.Sprintf("https://github.com/%s/%s/%d", repo, segment, num)
-}
-
-func labelNames(labels []github.Label) []string {
-	if len(labels) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(labels))
-	for _, label := range labels {
-		names = append(names, label.Name)
-	}
-	return names
 }
 
 // suggestedBranch proposes a session branch name for acting on the item. The

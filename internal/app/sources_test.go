@@ -12,15 +12,15 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
 )
 
 // testFetchers builds the per-account fetcher registry without touching the
 // network or a keychain. Only its identity matters here — the factories hold
 // it, they do not fetch through it.
 func testFetchers() *ghsource.Fetchers {
-	return ghsource.NewFetchers(github.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
+	return ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 // A connector's declaration is in two halves: the descriptor says what it is

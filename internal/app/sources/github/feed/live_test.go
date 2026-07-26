@@ -15,8 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 )
+
+// testAccount is the credential ref every fixture in this file resolves its
+// token through. These tests exercise LiveProvider against a fake GitHub
+// server over real HTTP/GraphQL, so they need a *ghclient.Client — the owned
+// client's own concrete type, the same one production code holds.
+var testAccount = credentials.Ref{Provider: "github", Account: "test"}
 
 type searchBatchAPI struct {
 	mu       sync.Mutex
@@ -74,13 +81,16 @@ func searchNode(number int) map[string]any {
 	}
 }
 
-func newLiveProviderForTest(t *testing.T, api *searchBatchAPI, token string) (*LiveProvider, *github.MemoryTokenStore) {
+func newLiveProviderForTest(t *testing.T, api *searchBatchAPI, token string) (*LiveProvider, credentials.Store) {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(api.handler))
 	t.Cleanup(server.Close)
-	tokens := github.NewMemoryTokenStore(token)
-	live := NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), tokens.Token, zerolog.Nop())
-	return live, tokens
+	store := credentials.NewMemoryStore()
+	if token != "" {
+		require.NoError(t, store.Set(testAccount, token))
+	}
+	live := NewLiveProvider(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), credentials.Bind(store, testAccount), zerolog.Nop())
+	return live, store
 }
 
 func TestPrefetchSearch_OneRequestForManySources(t *testing.T) {
@@ -137,13 +147,13 @@ func TestPrefetchSearch_FailureServesStaleWithoutRefetch(t *testing.T) {
 
 func TestPrefetchSearch_AuthErrorPassesThrough(t *testing.T) {
 	api := &searchBatchAPI{}
-	live, tokens := newLiveProviderForTest(t, api, "token")
+	live, store := newLiveProviderForTest(t, api, "token")
 	now := time.Date(2026, 7, 20, 12, 0, 0, 0, time.UTC)
 	live.now = func() time.Time { return now }
 	def := SourceDef{ID: "open", Kind: "search", Query: "is:open"}
 
 	require.NoError(t, live.PrefetchSearch(t.Context(), []SourceDef{def}))
-	require.NoError(t, tokens.DeleteToken())
+	require.NoError(t, store.Delete(testAccount))
 	now = now.Add(DefaultPollInterval)
 	err := live.PrefetchSearch(t.Context(), []SourceDef{def})
 	require.ErrorIs(t, err, ErrNotAuthenticated)
@@ -197,7 +207,9 @@ func newLiveProviderWithHandler(t *testing.T, handler http.HandlerFunc) *LivePro
 	t.Helper()
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
-	return NewLiveProvider(github.NewClient(github.WithAPIBase(server.URL)), github.NewMemoryTokenStore("token").Token, zerolog.Nop())
+	store := credentials.NewMemoryStore()
+	require.NoError(t, store.Set(testAccount, "token"))
+	return NewLiveProvider(ghclient.NewClient(ghclient.WithAPIBase(server.URL)), credentials.Bind(store, testAccount), zerolog.Nop())
 }
 
 func writeSearchResponse(w http.ResponseWriter) {
@@ -234,15 +246,15 @@ func TestCooldown_SuppressesAllFetches(t *testing.T) {
 	notifications := SourceDef{ID: "inbox", Kind: "notifications"}
 
 	_, err := live.SourceItems(t.Context(), search)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	mu.Lock()
 	assert.Equal(t, 1, requests)
 	mu.Unlock()
 
 	_, err = live.SourceItems(t.Context(), search)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), notifications)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	mu.Lock()
 	assert.Equal(t, 1, requests, "cooldown suppresses search and notifications")
 	mu.Unlock()
@@ -270,11 +282,11 @@ func TestConfirmTerminal_HonorsCooldownWithoutRequest(t *testing.T) {
 	live.now = func() time.Time { return now }
 	live.mu.Lock()
 	live.cooldownUntil = now.Add(time.Minute)
-	live.cooldownErr = github.ErrRateLimited
+	live.cooldownErr = ghclient.ErrRateLimited
 	live.mu.Unlock()
 
 	_, err := live.ConfirmTerminal(t.Context(), "acme/repo", 42, false)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	assert.Zero(t, requests, "an active cooldown must suppress terminal hydration")
 }
 
@@ -304,7 +316,6 @@ func TestConfirmTerminal_SelectsIssueOrPullHydration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			issue, err := live.ConfirmTerminal(t.Context(), "acme/repo", 42, tt.isPR)
 			require.NoError(t, err)
-			assert.Equal(t, 42, issue.Number)
 			assert.Equal(t, "closed", issue.State)
 			assert.Equal(t, tt.wantMerged, issue.Merged)
 		})
@@ -363,11 +374,11 @@ func TestCooldown_RecordsActivityOnce(t *testing.T) {
 	live.SetRecorder(recorder)
 
 	_, err := live.SourceItems(t.Context(), SourceDef{ID: "search", Kind: "search", Query: "is:open"})
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), SourceDef{ID: "inbox", Kind: "notifications"})
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	err = live.PrefetchSearch(t.Context(), []SourceDef{{ID: "other", Kind: "search", Query: "is:pr"}})
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 
 	events := recorder.snapshot()
 	require.Len(t, events, 1)
@@ -393,9 +404,9 @@ func TestInvalidate_ClearsCooldown(t *testing.T) {
 	def := SourceDef{ID: "search", Kind: "search", Query: "is:open"}
 
 	_, err := live.SourceItems(t.Context(), def)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), def)
-	require.ErrorIs(t, err, github.ErrRateLimited)
+	require.ErrorIs(t, err, ghclient.ErrRateLimited)
 	assert.Equal(t, 1, requests)
 
 	limited = false

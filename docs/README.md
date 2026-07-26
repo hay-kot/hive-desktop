@@ -22,6 +22,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0012](decisions/0012-source-connector-registry.md) | Source connectors are declared, not sniffed |
 | [0013](decisions/0013-credential-store.md) | Credentials are keyed by account, in a store of our own |
 | [0014](decisions/0014-desktop-configuration.md) | Typed desktop configuration and worktree-local development instances |
+| [0015](decisions/0015-owned-github-client.md) | The desktop owns its GitHub client |
 
 ## References
 
