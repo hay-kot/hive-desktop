@@ -6,8 +6,8 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
@@ -93,16 +93,14 @@ func NewFlowNotifier(s *NotificationService) FlowNotifier {
 }
 
 func (n FlowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) error {
-	// The user asked for this one inside Hive, not as a banner. The frontend
-	// owns in-app presentation (see useToasts), so this hands the rendered
-	// notification over and is done — there is no native call to make, and no
-	// notification permission to need.
+	// The user asked for this one inside Hive, not as a banner. There is no
+	// native call to make and no notification permission to need: the
+	// in-app toast itself is not this port's job any more. events.go
+	// subscribes to the core's NotificationRaised (published once this
+	// Notify returns successfully, see app.go's observedNotifier) and emits
+	// notification:toast from there — the frontend's behavior is unchanged,
+	// only where the emission happens moved off this ad hoc call site.
 	if in.InApp {
-		emitNotificationToast(NotificationToast{
-			Title:    in.Title,
-			Body:     in.Body,
-			Severity: in.Severity,
-		})
 		return nil
 	}
 	if n.notifier == nil {
@@ -117,16 +115,6 @@ func (n FlowNotifier) Notify(_ context.Context, in dispatch.SystemNotification) 
 	})
 }
 
-// emitNotificationToast hands a flow notification to the frontend to surface
-// in-app. Safe to call from the output worker's goroutine once the app is
-// running; before that (or in a headless build) it is a no-op, which matches
-// the native path's own behavior when notifications are unavailable.
-func emitNotificationToast(toast NotificationToast) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("notification:toast", toast)
-	}
-}
-
 // NotificationToast is a flow notification the user chose to receive inside
 // Hive. It is the payload of the notification:toast event; unlike a banner it
 // carries no click target, because the app is already in front of them.
@@ -136,36 +124,44 @@ type NotificationToast struct {
 	Severity string `json:"severity"`
 }
 
-// NotificationGate resolves the app-level notification policy from
-// settings.yaml on every delivery, so toggling notifications off in Settings
-// silences flow notify nodes immediately rather than at the next restart. An
-// unreadable settings file fails closed: never surface notifications the user
-// may have switched off.
+// NotificationGate resolves the app-level notification policy on every
+// delivery, so toggling notifications off in Settings silences flow notify
+// nodes immediately rather than at the next restart. Whether notifications
+// are allowed at all, and how loud, is a settings-derived decision the core
+// already owns (app.SettingsService.Notifications is the same read a
+// Settings screen makes) — an unreadable settings file fails closed there,
+// never surfacing a notification the user may have switched off.
 //
-// It also resolves *where* a notification surfaces, which is why it holds the
-// window's focus state: the automatic delivery mode means "a banner only when
-// I'm looking elsewhere", and only this side of the app knows both halves.
+// What this gate adds is the one thing the core cannot know: where a
+// notification surfaces. It holds the window's focus state because the
+// automatic delivery mode means "a banner only when I'm looking elsewhere",
+// and only this side of the app knows both halves.
 type NotificationGate struct {
-	settings *settings.Store
+	settings *app.SettingsService
 	focus    *FocusState
 	logger   zerolog.Logger
 }
 
-// NewNotificationGate builds the gate over the window's focus state.
-func NewNotificationGate(settingsStore *settings.Store, focus *FocusState, logger zerolog.Logger) NotificationGate {
-	return NotificationGate{settings: settingsStore, focus: focus, logger: logger}
+// NewNotificationGate builds the gate over the core's settings service and
+// the window's focus state.
+func NewNotificationGate(settingsService *app.SettingsService, focus *FocusState, logger zerolog.Logger) NotificationGate {
+	return NotificationGate{settings: settingsService, focus: focus, logger: logger}
 }
 
 func (g NotificationGate) NotificationPolicy() dispatch.NotificationPolicy {
-	cfg, err := g.settings.Effective()
+	// dispatch.NotificationGate declares NotificationPolicy() with no context
+	// parameter — it is dispatch's interface, not this package's to change —
+	// so this is the one place a context is synthesized rather than threaded
+	// through.
+	current, err := g.settings.Notifications(context.Background())
 	if err != nil {
 		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
 		return dispatch.NotificationPolicy{}
 	}
 	return dispatch.NotificationPolicy{
-		Allowed: cfg.Notifications.Enabled,
-		Sound:   cfg.Notifications.Sound,
-		InApp:   g.inApp(cfg.Notifications.Delivery),
+		Allowed: current.Enabled,
+		Sound:   current.Sound,
+		InApp:   g.inApp(current.Delivery),
 	}
 }
 

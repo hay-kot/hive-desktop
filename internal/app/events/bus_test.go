@@ -115,7 +115,7 @@ func TestSubscribe_IsTypeRouted(t *testing.T) {
 	t.Cleanup(Subscribe(t.Context(), bus, "logs", Buffer(4), func(_ context.Context, e LogAppended) { logs <- e.NextOffset }))
 	t.Cleanup(Subscribe(t.Context(), bus, "jobs", Buffer(4), func(_ context.Context, e JobsUpdated) { jobs <- e.JobID }))
 
-	bus.Publish(t.Context(), JobsUpdated{JobID: 7, Status: "done"})
+	bus.Publish(t.Context(), JobsUpdated{JobID: 7})
 
 	select {
 	case id := <-jobs:

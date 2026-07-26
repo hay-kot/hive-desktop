@@ -28,6 +28,16 @@ func newSettingsService(store *settings.Store, producer *ingest.Producer, fetche
 	return &SettingsService{store: store, producer: producer, fetchers: fetchers}
 }
 
+// NewSettingsService builds a settings-only view of the core's settings
+// service, over the same *settings.Store App itself reads and writes. It
+// exists for a driven port the adapter must construct before App does:
+// app.Config's notification Gate is one of the two arguments New itself
+// needs, so it cannot wait for core.Settings to exist. Nothing built this way
+// calls SetGithub, so a nil producer and fetchers cost it nothing.
+func NewSettingsService(store *settings.Store) *SettingsService {
+	return newSettingsService(store, nil, nil)
+}
+
 // Keybindings returns the persisted shortcut overrides keyed by command id.
 // A nil map is normalized to an empty one so callers never null-check it.
 func (s *SettingsService) Keybindings(context.Context) (map[string][]string, error) {

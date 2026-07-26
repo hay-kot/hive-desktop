@@ -509,11 +509,57 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, cfg.Notifier, cfg.Gate, a.Store, cfg.Logger))
+	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, cfg.Logger))
 	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
 	worker.SetRecorder(a.activityStore)
 	worker.SetJobRecorder(a.jobStore)
 	return worker
+}
+
+// observedNotifier decorates the adapter's delivery port so the core learns
+// when a notify terminal's delivery actually reaches the user. dispatch's
+// NotifyExecutor calls this port directly and never touches the event bus —
+// events carry payloads in the core, not in dispatch, which is why the wrap
+// happens here instead: app.go is where Config's driven port enters the
+// core. Only a successful delivery publishes: dispatch itself retries a
+// failed one rather than recording it, so announcing on error would report a
+// notification the user never saw. A nil port stays nil — NotifyExecutor's
+// own nil check is what turns "no notifier configured" into a typed failure,
+// and wrapping nil here would silently paper over that.
+func (a *App) observedNotifier(next dispatch.SystemNotifier) dispatch.SystemNotifier {
+	if next == nil {
+		return nil
+	}
+	return systemNotifierFunc(func(ctx context.Context, in dispatch.SystemNotification) error {
+		if err := next.Notify(ctx, in); err != nil {
+			return err
+		}
+		profileID, _ := in.Data["profileId"].(string)
+		itemID, _ := in.Data["itemId"].(int64)
+		// a.ctx, not the incoming ctx, on purpose: every other publish in this
+		// file uses the app's own lifetime rather than whatever call
+		// triggered it (see the field doc on App.ctx), and a Buffer
+		// subscriber's blocking wait should be bounded by "is the app still
+		// running", not by a dispatch command's own deadline.
+		//nolint:contextcheck // deliberate -- see comment above
+		a.Events.Publish(a.ctx, events.NotificationRaised{
+			ProfileID: profileID,
+			ItemID:    itemID,
+			Title:     in.Title,
+			Body:      in.Body,
+			Severity:  in.Severity,
+			InApp:     in.InApp,
+		})
+		return nil
+	})
+}
+
+// systemNotifierFunc adapts a plain function to dispatch.SystemNotifier, the
+// same shape http.HandlerFunc gives http.Handler.
+type systemNotifierFunc func(ctx context.Context, n dispatch.SystemNotification) error
+
+func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotification) error {
+	return f(ctx, n)
 }
 
 // openWebhook constructs the optional loopback listener without binding it.

@@ -13,8 +13,8 @@ import (
 
 // Every event this adapter emits is registered and emitted from this file.
 // They are wake-up signals: the frontend re-reads the relevant service on
-// receipt, and only log:appended, notification:activated and
-// notification:toast carry a payload that matters.
+// receipt, and only log:appended, notification:activated, notification:toast,
+// update:available and update:none carry a payload that matters.
 
 // Package-variable initialization instead of init(): this repo enables
 // gochecknoinits.
@@ -66,9 +66,12 @@ func registerEvents() struct{} {
 // Subscribe wires every core event to its Wails wake-up signal and returns a
 // cancel that tears every subscription down.
 //
-// Every subscription uses events.Coalesce: the frontend re-reads on receipt,
-// so a dropped intermediate is not observable, and a busy webview must never
-// hold up the producer goroutine that published.
+// Every subscription uses events.Coalesce, with one exception:
+// notification.raised uses events.Buffer, because a toast is not state the
+// frontend re-reads on wake-up — it is the message itself, so coalescing it
+// would mean a notification arriving right behind a busier one is simply
+// never seen. Every other subscriber only needs the latest state, and a busy
+// webview must never hold up the producer goroutine that published.
 //
 // This is where the core's typed payload is deliberately degraded. Wails
 // events are wake-up signals by design — an adapter that needs the delta gets
@@ -100,6 +103,21 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 			if onFlowsUpdated != nil {
 				onFlowsUpdated()
 			}
+		}),
+		// A notify terminal's delivery is not state to re-read: it is the
+		// message, so every one gets a slot in the queue rather than risking
+		// a coalesced drop. InApp is the only one this adapter acts on here —
+		// an OS banner already went out through the notifier port itself by
+		// the time this publishes (see app.go's observedNotifier).
+		events.Subscribe(ctx, bus, "wailsui.notification", events.Buffer(32), func(_ context.Context, e events.NotificationRaised) {
+			if !e.InApp {
+				return
+			}
+			emitNotificationToast(NotificationToast{
+				Title:    e.Title,
+				Body:     e.Body,
+				Severity: e.Severity,
+			})
 		}),
 	}
 	return func() {
@@ -217,3 +235,38 @@ func emitActionsUpdated() {
 		app.Event.Emit("actions:updated", "changed")
 	}
 }
+
+// emitNotificationToast hands a flow notification to the frontend to surface
+// in-app. Called from the notification.raised subscription above once the
+// core has published; before the app is running (or in a headless build) it
+// is a no-op, which matches the native path's own behavior when
+// notifications are unavailable.
+//
+// A var, not a func — same seam as emitUpdateAvailable/emitUpdateNone below —
+// so a test can swap it for a spy without a running Wails application.
+var emitNotificationToast = func(toast NotificationToast) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("notification:toast", toast)
+	}
+}
+
+// emitUpdateAvailable pushes update:available, carrying the latest
+// UpdateInfo, when a self-update check finds a newer desktop release; the
+// title bar reacts to it. emitUpdateNone pushes update:none when a check
+// confirms the app is current. Neither is reached through the core's event
+// bus — update checking is adapter-owned end to end (see UpdaterService) —
+// so both are called directly from there rather than from a Subscribe
+// handler above; they live here only so every emission this adapter makes is
+// registered and emitted from this one file.
+var (
+	emitUpdateAvailable = func(info UpdateInfo) {
+		if app := application.Get(); app != nil {
+			app.Event.Emit("update:available", info)
+		}
+	}
+	emitUpdateNone = func(info UpdateInfo) {
+		if app := application.Get(); app != nil {
+			app.Event.Emit("update:none", info)
+		}
+	}
+)

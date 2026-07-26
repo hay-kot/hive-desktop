@@ -6,10 +6,7 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/updater"
-
-	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 // DefaultUpdateCheckInterval is how often the self-managed ticker polls for a
@@ -17,14 +14,6 @@ import (
 // Config.CheckInterval is fixed at Init time and has no runtime setter, so the
 // service owns its own ticker to support a live enable/disable toggle.
 const DefaultUpdateCheckInterval = 6 * time.Hour
-
-// updateAvailableEvent is emitted when a check finds a newer release; the title
-// bar subscribes to it. updateNoneEvent fires when a check confirms the app is
-// up to date.
-const (
-	updateAvailableEvent = "update:available"
-	updateNoneEvent      = "update:none"
-)
 
 // updaterEngine is the slice of *updater.Updater the service drives. Declaring
 // it as an interface keeps UpdaterService unit-testable without a live,
@@ -56,7 +45,10 @@ type UpdaterService struct {
 	currentVersion string
 	interval       time.Duration
 	logger         zerolog.Logger
-	writeEnabled   func(bool) (bool, error)
+	// writeEnabled persists the toggle through the core: the adapter has no
+	// settings-mutation logic of its own (see app.SettingsService.SetUpdatesEnabled,
+	// which is what every real caller passes).
+	writeEnabled func(bool) (bool, error)
 
 	mu        sync.Mutex
 	engine    updaterEngine
@@ -68,8 +60,10 @@ type UpdaterService struct {
 
 // NewUpdaterService constructs the service. engine is attached later via
 // attach once app.Updater is initialized (which can only happen after
-// application.New). enabled seeds the persisted toggle state.
-func NewUpdaterService(currentVersion string, enabled bool, interval time.Duration, logger zerolog.Logger) *UpdaterService {
+// application.New). enabled seeds the persisted toggle state. writeEnabled is
+// the core's settings mutation (app.SettingsService.SetUpdatesEnabled in
+// production); the adapter never reads or writes settings.yaml itself.
+func NewUpdaterService(currentVersion string, enabled bool, interval time.Duration, writeEnabled func(bool) (bool, error), logger zerolog.Logger) *UpdaterService {
 	if interval <= 0 {
 		interval = DefaultUpdateCheckInterval
 	}
@@ -78,22 +72,7 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 		interval:       interval,
 		enabled:        enabled,
 		logger:         logger.With().Str("component", "updater").Logger(),
-		writeEnabled: func(value bool) (bool, error) {
-			effective, err := settings.NewStore(settings.SettingsPath()).Update(func(cfg *settings.Settings) error {
-				cfg.Updates.Enabled = value
-				return nil
-			})
-			return effective.Updates.Enabled, err
-		},
-	}
-}
-
-// SetSettingsWriter injects the composition-root settings mutation.
-//
-//wails:ignore
-func (s *UpdaterService) SetSettingsWriter(write func(bool) (bool, error)) {
-	if write != nil {
-		s.writeEnabled = write
+		writeEnabled:   writeEnabled,
 	}
 }
 
@@ -283,18 +262,3 @@ func (s *UpdaterService) runLoop(ctx context.Context) {
 		}
 	}
 }
-
-// --- event + settings indirection (overridable in tests) ---
-
-var (
-	emitUpdateAvailable = func(info UpdateInfo) {
-		if app := application.Get(); app != nil {
-			app.Event.Emit(updateAvailableEvent, info)
-		}
-	}
-	emitUpdateNone = func(info UpdateInfo) {
-		if app := application.Get(); app != nil {
-			app.Event.Emit(updateNoneEvent, info)
-		}
-	}
-)

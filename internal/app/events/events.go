@@ -26,10 +26,13 @@ type ActivityAppended struct{ ID int64 }
 
 // JobsUpdated reports a job lifecycle transition. JobID is the concrete
 // demonstration of the rule: the wiring this replaces threw the id away at the
-// emit boundary, so no consumer could act on which job changed.
+// emit boundary, so no consumer could act on which job changed. There is no
+// Status field: jobs.Store's Emit hook only ever hands back the id, so a
+// status here would be unpopulated at the one publish site and discarded at
+// the one subscriber -- carrying it would be a promise this event cannot
+// keep until something upstream hands the status over.
 type JobsUpdated struct {
-	JobID  int64
-	Status string
+	JobID int64
 }
 
 // FlowsUpdated reports that the flow set was reloaded. Reason names what
@@ -45,9 +48,13 @@ type ActionsUpdated struct{ Count int }
 // payload because the connector's own status is the authority on it.
 type ConnectionUpdated struct{ Provider string }
 
-// NotificationRaised reports that a flow's notify terminal fired. InApp
-// carries the user's delivery choice; routing it to a banner or a toast is
-// the adapter's decision.
+// NotificationRaised reports that a flow's notify terminal delivered a
+// notification. Only a successful delivery is reported -- dispatch retries a
+// failed one rather than treating it as having fired, so publishing early
+// would announce something the user never saw. InApp carries the delivery
+// policy's routing decision: wailsui uses it to decide whether to also raise
+// an in-app toast, since an OS banner already went out through the notifier
+// port itself by the time this publishes.
 type NotificationRaised struct {
 	ProfileID string
 	ItemID    int64
@@ -55,13 +62,6 @@ type NotificationRaised struct {
 	Body      string
 	Severity  string
 	InApp     bool
-}
-
-// UpdateChecked reports the outcome of a self-update check.
-type UpdateChecked struct {
-	Available bool
-	Version   string
-	Notes     string
 }
 
 func (LogAppended) eventName() string        { return "log.appended" }
@@ -72,4 +72,3 @@ func (FlowsUpdated) eventName() string       { return "flows.updated" }
 func (ActionsUpdated) eventName() string     { return "actions.updated" }
 func (ConnectionUpdated) eventName() string  { return "connection.updated" }
 func (NotificationRaised) eventName() string { return "notification.raised" }
-func (UpdateChecked) eventName() string      { return "update.checked" }

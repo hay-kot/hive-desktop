@@ -67,9 +67,29 @@ func silenceEmits(t *testing.T) {
 	t.Cleanup(func() { emitUpdateAvailable, emitUpdateNone = origA, origN })
 }
 
+// acceptWriteEnabled is a settings writer stand-in for tests that only care
+// about SetEnabled's ticker start/stop behavior, not persistence. It mirrors
+// what app.SettingsService.SetUpdatesEnabled returns for a store with no
+// process-environment override: the value handed in, echoed back.
+func acceptWriteEnabled(enabled bool) (bool, error) { return enabled, nil }
+
+// storeWriteEnabled builds a settings writer backed by a real store, the same
+// shape app.SettingsService.SetUpdatesEnabled has in production, for the one
+// test that checks SetEnabled's persistence rather than just its ticker
+// side effect.
+func storeWriteEnabled(store *settings.Store) func(bool) (bool, error) {
+	return func(enabled bool) (bool, error) {
+		effective, err := store.Update(func(cfg *settings.Settings) error {
+			cfg.Updates.Enabled = enabled
+			return nil
+		})
+		return effective.Updates.Enabled, err
+	}
+}
+
 func TestUpdaterServiceStatusDefault(t *testing.T) {
 	silenceEmits(t)
-	s := NewUpdaterService("1.2.3", true, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("1.2.3", true, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	got := s.Status()
 	require.False(t, got.Available)
 	require.Equal(t, "1.2.3", got.CurrentVersion)
@@ -81,7 +101,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 		Version: "1.3.0",
 		Notes:   "new stuff",
 	}}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	s.Attach(engine)
 
 	info, err := s.CheckNow(t.Context())
@@ -96,7 +116,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{rel: nil}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	s.Attach(engine)
 
 	info, err := s.CheckNow(t.Context())
@@ -108,7 +128,7 @@ func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 func TestUpdaterServiceCheckNowError(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{checkErr: errors.New("boom")}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	s.Attach(engine)
 
 	_, err := s.CheckNow(t.Context())
@@ -118,8 +138,9 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 func TestUpdaterServiceDevGate(t *testing.T) {
 	silenceEmits(t)
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	store := settings.NewStore(settings.SettingsPath())
 	// No engine attached => dev build.
-	s := NewUpdaterService("dev", true, time.Millisecond, zerolog.Nop())
+	s := NewUpdaterService("dev", true, time.Millisecond, storeWriteEnabled(store), zerolog.Nop())
 
 	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
@@ -139,7 +160,7 @@ func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 		engine := &fakeEngine{rel: nil}
-		s := NewUpdaterService("1.2.3", false, time.Minute, zerolog.Nop())
+		s := NewUpdaterService("1.2.3", false, time.Minute, acceptWriteEnabled, zerolog.Nop())
 		s.Attach(engine)
 
 		// Enabling checks immediately (initial check) then on each tick.
@@ -163,7 +184,7 @@ func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 func TestUpdaterServiceInstallUpdate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	s.Attach(engine)
 
 	require.NoError(t, s.InstallUpdate(t.Context()))
@@ -177,7 +198,7 @@ func TestUpdaterServiceInstallUpdateLogsDownloadFailure(t *testing.T) {
 	silenceEmits(t)
 	var logs bytes.Buffer
 	engine := &fakeEngine{installErr: errors.New("checksum mismatch")}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.New(&logs))
 	s.Attach(engine)
 	s.available = &UpdateInfo{LatestVersion: "1.3.0"}
 
@@ -193,7 +214,7 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 	silenceEmits(t)
 	var logs bytes.Buffer
 	engine := &fakeEngine{restartErr: errors.New("helper failed")}
-	s := NewUpdaterService("1.2.3", false, time.Hour, zerolog.New(&logs))
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.New(&logs))
 	s.Attach(engine)
 
 	err := s.InstallUpdate(t.Context())
@@ -204,6 +225,6 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 
 func TestUpdaterServiceInstallUpdateDevNoop(t *testing.T) {
 	silenceEmits(t)
-	s := NewUpdaterService("dev", false, time.Hour, zerolog.Nop())
+	s := NewUpdaterService("dev", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	require.NoError(t, s.InstallUpdate(t.Context()))
 }

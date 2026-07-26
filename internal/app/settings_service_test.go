@@ -20,6 +20,25 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
+// TestNewSettingsServiceReadsNotifications proves the adapter-facing
+// constructor is a real settings-only view, not a stub: it reads the same
+// settings.yaml a full SettingsService would, which is what lets
+// wailsui.NotificationGate resolve policy through the core before app.New
+// has built core.Settings itself.
+func TestNewSettingsServiceReadsNotifications(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	cfg := settings.DefaultSettings()
+	cfg.Notifications.Enabled = false
+	cfg.Notifications.Delivery = settings.DeliverySystem
+	require.NoError(t, settings.SaveSettings(cfg))
+
+	service := NewSettingsService(settings.NewStore(settings.SettingsPath()))
+
+	got, err := service.Notifications(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, NotificationSettings{Enabled: false, Delivery: settings.DeliverySystem, Sound: true}, got)
+}
+
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)

@@ -100,8 +100,14 @@ func (u *UI) Notifier() dispatch.SystemNotifier { return NewFlowNotifier(u.notif
 // delivered, and where. It holds the window's focus state, because the
 // automatic delivery mode means "a banner only when I am looking elsewhere"
 // and only this side of the app knows both halves.
+//
+// It reads settings through app.NewSettingsService rather than u.settingsStore
+// directly: policy resolution belongs to the core, and this driven port has
+// to exist before app.New builds core.Settings itself (New takes this Gate as
+// one of Config's two driven ports), so it gets its own settings-only view
+// over the same store instead of waiting for one.
 func (u *UI) Gate() dispatch.NotificationGate {
-	return NewNotificationGate(u.settingsStore, u.focus, u.logger)
+	return NewNotificationGate(app.NewSettingsService(u.settingsStore), u.focus, u.logger)
 }
 
 // Mount builds the Wails application over core: the bound services, the
@@ -110,8 +116,9 @@ func (u *UI) Gate() dispatch.NotificationGate {
 func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	// The updater service goes in the Services slice, but its engine only
 	// exists after application.New, so the live Updater is attached below.
-	u.updater = NewUpdaterService(opts.Build.Version, opts.AutoUpdate, DefaultUpdateCheckInterval, u.logger)
-	u.updater.SetSettingsWriter(core.Settings.SetUpdatesEnabled)
+	// core.Settings.SetUpdatesEnabled is the settings mutation -- the adapter
+	// has none of its own.
+	u.updater = NewUpdaterService(opts.Build.Version, opts.AutoUpdate, DefaultUpdateCheckInterval, core.Settings.SetUpdatesEnabled, u.logger)
 
 	// The tray refresh is published before the flows subscription can fire it:
 	// the flows watcher calls subscribers from its own goroutine.
