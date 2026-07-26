@@ -24,10 +24,8 @@ enter = "test -f '{{config_root}}/launch.env' || (cd '{{config_root}}' && go run
 
 [tasks.setup]
 description = "Install git hooks and prepare this worktree's isolated desktop launch environment"
-run = [
-  "./scripts/hooks/install.sh",
-  "go run ./cmd/devtools prepare",
-]
+depends = ["desktop:dev:prepare"]
+run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
 description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
@@ -39,24 +37,28 @@ run = "go run ./cmd/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
+# The file list appears twice on purpose. `sources` must be a literal array:
+# templating it from a [vars] entry renders to a path that matches nothing, and
+# mise then silently reruns the task every time instead of erroring.
 sources = ["internal/app/activity/activity.go", "internal/app/jobs/jobs.go", "internal/app/store/classify.go", "internal/app/flow/flow.go"]
-outputs = ["internal/app/activity/activity_enum.go", "internal/app/jobs/jobs_enum.go", "internal/app/store/classify_enum.go", "internal/app/flow/flow_enum.go"]
+outputs = { auto = true }
 run = "go-enum --nocase --names --marshal -f internal/app/activity/activity.go -f internal/app/jobs/jobs.go -f internal/app/store/classify.go -f internal/app/flow/flow.go"
 
-[tasks.generate]
-description = "Run all code generators (vendored hivecore is generated upstream)"
-depends = ["generate:enums"]
+[tasks."generate:sqlc"]
+description = "Generate the store layer from SQL queries and migrations"
 sources = [
   "internal/app/store/queries/queries.sql",
   "internal/app/store/migrations/*.up.sql",
   "sqlc.yaml",
 ]
-outputs = [
-  "internal/app/store/db.go",
-  "internal/app/store/models.go",
-  "internal/app/store/queries.sql.go",
-]
+outputs = { auto = true }
 run = "sqlc generate"
+
+# Aggregate only. The two generators write disjoint files, so mise running
+# `depends` in parallel is safe here.
+[tasks.generate]
+description = "Run all code generators (vendored hivecore is generated upstream)"
+depends = ["generate:enums", "generate:sqlc"]
 
 [tasks.test]
 description = "Run all go tests"
@@ -74,19 +76,44 @@ run = "golangci-lint fmt ./..."
 description = "Run golangci-lint fmt on the given Go files (pre-commit hook target)"
 run = "golangci-lint fmt"
 
+[tasks.tidy]
+description = "Rewrite go.mod/go.sum to be tidy"
+run = "go mod tidy"
+
+# The whole Go gate, in one definition, so lefthook's pre-push and the release
+# workflow can both call `mise run check` instead of restating the sequence.
+# Frontend tests are deliberately not here: pre-push only wants them when the
+# push touches desktop/frontend/, and that condition belongs in lefthook.
+#
+# Ordered, not `depends`: mise runs `depends` in parallel, and check:generate
+# rewrites the .go files that lint and test read. A run list is sequential, so
+# generation finishes before anything reads its output. The second group is
+# safe to run concurrently — all three only read.
 [tasks.check]
-description = "Run tidy, lint, and test"
-run = ["go mod tidy", { tasks = ["lint", "test"] }]
+description = "Full Go gate: generated code, tidy, lint, test"
+run = [
+  { tasks = ["check:generate"] },
+  { tasks = ["check:tidy", "lint", "test"] },
+]
 
 [tasks."check:tidy"]
 description = "Verify go.mod/go.sum are tidy without rewriting them"
-run = "go mod tidy -diff"
+run = """
+go mod tidy -diff || {
+  echo "go.mod/go.sum are not tidy. Run 'mise run tidy' and commit the result." >&2
+  exit 1
+}
+"""
 
 [tasks."check:generate"]
 description = "Verify generated code (enums, sqlc) matches its sources"
 run = """
 mise run --force generate
-git diff --exit-code -- '*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
+# -N registers files the generators created that the checkout lacks, for the
+# same reason check:bindings and check:vendor do it: plain git diff cannot see
+# an untracked file, so a brand-new enum or query output would pass unnoticed.
+git add -N internal/app
+git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }

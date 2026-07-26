@@ -74,10 +74,7 @@ jobs:
 
       - name: Run release gates
         run: |
-          mise run check:generate
-          mise run check:tidy
-          mise run lint
-          mise run test
+          mise run check
           mise run desktop:test:frontend
 
       - name: Build, sign, notarize, publish, and verify

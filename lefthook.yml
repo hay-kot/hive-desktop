@@ -57,31 +57,22 @@ pre-commit:
         - "internal/app/jobs/jobs.go"
         - "internal/app/store/classify.go"
         - "internal/app/flow/flow.go"
-        - "internal/adapter/wailsui/pipelineservice.go"
       run: mise run check:generate
 
 # Push is the meaningful boundary for headless work — the wrap/PR step — so the
 # full gates run here. Wails TS bindings and the e2e suite are deliberately
 # absent: both need a full app build (minutes), and CI covers them.
 #
-# piped for the same reason as pre-commit: check:generate rewrites the .go files
-# that lint and test are reading. ~3s for a Go-only push, ~7s with the frontend.
+# The Go gate is a single mise task rather than one job per step: `mise run
+# check` owns the sequence (and the ordering constraint that check:generate
+# must finish before lint and test read its output), so this file and the
+# release workflow cannot drift from it. ~3s for a Go-only push, ~7s with the
+# frontend.
 pre-push:
   piped: true
   jobs:
-    # First: it rewrites generated files, so nothing else may be reading them.
-    - name: generated-code
-      run: mise run check:generate
-
-    - name: tidy
-      fail_text: "go.mod/go.sum are not tidy. Run 'go mod tidy' and commit the result."
-      run: mise run check:tidy
-
-    - name: lint
-      run: mise run lint
-
-    - name: test
-      run: mise run test
+    - name: check
+      run: mise run check
 
     - name: frontend-test
       glob: "desktop/frontend/*"
