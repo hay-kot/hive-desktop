@@ -201,7 +201,7 @@ applies to manual triage, not to an item’s source identity or event history.
 ## Engine and membership replay
 
 The engine runs in Go (`internal/app/runtime`, ADRs 0010 and 0011) and walks
-the flow as a DAG, evaluating `function` nodes through goja. `app.Engine`
+the flow as a DAG, evaluating `function` nodes through goja. `runtime.Engine`
 drives it: it installs a runner per enabled flow at startup, reinstalls them
 when the flow set changes, and drains on every append. Nothing about execution
 depends on a window being open. Normal processing reads after the flow’s durable offset. A committed

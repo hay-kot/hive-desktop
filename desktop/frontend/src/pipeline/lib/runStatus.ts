@@ -5,12 +5,11 @@
 // can never disagree with what an individual card shows.
 //
 // "running" has no real per-node signal yet — node_run rows are only ever
-// written for a *completed* pump (see internal/app/ingest), so there is
-// no backend concept of "this node is mid-execution" today. Callers pass an
-// explicit `running: boolean` (see FlowsCanvas's `runningNodeIds` prop).
-// The current runtime records completed node_run rows but does not expose a
-// per-node in-flight signal, so callers normally classify nodes as
-// idle/ok/error from the latest completed run.
+// written for a *completed* run through internal/app/runtime's engine, so
+// there is no backend concept of "this node is mid-execution" today. Callers
+// pass an explicit `running: boolean` instead (see FlowsCanvas's
+// `runningNodeIds` prop); idle/ok/error classification falls back to the
+// latest completed run.
 import type { NodeRunRecord } from './wireFlow'
 
 export type RunStatus = 'idle' | 'running' | 'ok' | 'error'

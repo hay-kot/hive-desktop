@@ -102,10 +102,13 @@ watch(selectedItem, async (item) => {
 // profile in the spaces rail or the ⌘K "Back to feed" command.
 //
 // The session (useFlowsSession) is a module singleton shared with
-// FlowsView.vue: it owns the pipeline editor and a runtime for every enabled
-// flow, so feeds keep updating while the canvas is closed or another profile
-// is selected. App.vue is the first caller, which makes the manager app-lived
-// rather than dependent on FlowsView mounting/unmounting.
+// FlowsView.vue: it owns the pipeline editor state — which flow is being
+// edited, its dirty draft, the flow listing — nothing more. Execution is the
+// Go engine's (runtime.Engine) alone, and it keeps every enabled flow running
+// with the canvas closed or another profile selected; that is why feeds keep
+// updating regardless of what this session is doing. App.vue is the first
+// caller, which makes the session app-lived rather than dependent on
+// FlowsView mounting/unmounting.
 const session = useFlowsSession()
 
 // ── Route-driven navigation ────────────────────────────────────────────────
@@ -452,7 +455,7 @@ async function revealNotification(activation: NotificationActivation): Promise<v
 }
 
 let unsubscribeInbox: (() => void) | undefined
-let unsubscribeFlowsRuntime: (() => void) | undefined
+let unsubscribeFlowsUpdated: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 let unsubscribeNotification: (() => void) | undefined
 let unsubscribeNotificationToast: (() => void) | undefined
@@ -472,7 +475,7 @@ onMounted(() => {
   // The app owns this subscription, rather than FlowsView, because the flow
   // listing feeds the sidebar whether or not the canvas is open. The session
   // keeps an unsaved editor draft private while refreshing the rest.
-  unsubscribeFlowsRuntime = Events.On('flows:updated', () => { void session.reloadFlows() })
+  unsubscribeFlowsUpdated = Events.On('flows:updated', () => { void session.reloadFlows() })
   // Seed the update chip from the last cached check, then react to background
   // checks. The event payload is the same UpdateInfo shape Status() returns.
   void UpdaterStatus().then((status) => { updateInfo.value = status }).catch((error) => {
@@ -497,7 +500,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   unsubscribeInbox?.()
-  unsubscribeFlowsRuntime?.()
+  unsubscribeFlowsUpdated?.()
   unsubscribeUpdate?.()
   unsubscribeNotification?.()
   unsubscribeNotificationToast?.()

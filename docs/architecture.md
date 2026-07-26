@@ -17,18 +17,21 @@ individual choices; this document describes the shape everything fits into.
 > and `context.Context` first on every core method.
 >
 > Several of those are enforced rather than reviewed: `depguard` fails a core
-> package that imports Wails or an adapter, `forbidigo` fails
-> `application.Get`, `context.Background` or an `emit*` helper outside the
-> adapter, `containedctx` fails a stored request context, and
-> `mise run check:bindings` fails a service that moved without regenerating
-> its bindings.
+> package that imports Wails or an adapter, and a second `depguard` rule fails
+> one that imports `internal/hivecore` outside a narrow, commented seam
+> allowlist (`app.go`, `dispatch/hive_adapters.go`, `store/dbext.go`, and the
+> tests that exercise them); `forbidigo` fails `application.Get`,
+> `context.Background` or an `emit*` helper outside the adapter, `containedctx`
+> fails a stored request context, and `mise run check:bindings` fails a
+> service that moved without regenerating its bindings.
 >
 > The flow engine runs in Go: `internal/app/runtime` owns graph execution,
-> `runtime/js` implements the `ScriptRuntime` port with goja, and `app.Engine`
-> drives it — a runner per enabled flow, reinstalled on a flows change,
-> draining the log on every append (ADRs 0010 and 0011). The browser engine is
-> gone, and with it the six RPCs that existed only to feed it. Flow execution
-> no longer depends on a window being open.
+> `runtime/js` implements the `ScriptRuntime` port with goja, and
+> `runtime.Engine` — constructed by and driven from `App` — runs it: a runner
+> per enabled flow, reinstalled on a flows change, draining the log on every
+> append (ADRs 0010 and 0011). The browser engine is gone, and with it the six
+> RPCs that existed only to feed it. Flow execution no longer depends on a
+> window being open.
 >
 > Source connectors are declared: `internal/app/sources` holds a registry of
 > `connector.Descriptor`s — type, title, pull/push mode, stability, declared
@@ -36,7 +39,10 @@ individual choices; this document describes the shape everything fits into.
 > where their dependencies live. The producer reads a capability off the
 > instance instead of type-asserting for it, and `flow`'s node registry and
 > `runtime`'s behaviour registry both derive their source entries from it, so
-> adding a connector is a change to `sources/` alone (ADR 0012).
+> adding a connector is a change to `sources/` alone (ADR 0012). GitHub's
+> connector owns its HTTP client end to end (`sources/github/ghclient`) rather
+> than routing through the vendored `hivecore/github` package, and nothing
+> outside `internal/hivecore` imports that package anymore (ADR 0015).
 >
 > Credentials are keyed by account: `app/credentials` stores a value per
 > `Ref{Provider, Account}` in the OS keychain with a separate index of refs,
@@ -115,7 +121,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | Pattern | Where it applies | The rule here |
 | --- | --- | --- |
 | **Value Object** (DDD) | `Ref{Provider, Account}`, `Sink` | Immutable, compared by value, self-validating, no identity of its own. A credential reference is a `Ref`, never a bare string. Credential *values* are plain strings — see [Credentials](#credentials). |
-| **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `pipeline.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
+| **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `ingest.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
 | **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR 0009. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
 | **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
@@ -200,7 +206,7 @@ change breaks compilation at one adapter file rather than across the app.
 
 ```
 cmd/                              # build and maintenance CLIs, not the app
-  devdesktop/                     # dev settings → Wails/Vite environment bridge
+  devtools/                       # dev settings → Wails/Vite environment bridge
   release/  vendorhive/
 
 desktop/                          # Wails app package — stays `main`, stays here
@@ -217,11 +223,16 @@ internal/
   app/                            # THE CORE. No Wails, no transport, no globals.
     app.go                        # App facade
     errors.go                     # Error{Kind, Msg, Err}; Kind enum
+    inbox_service.go              # item queries, triage, action-item decoding
+                                  #   over store/ — no separate inbox/ package
     events/                       # typed bus
     flow/                         # flow YAML: parse, validate, save, watch, layout
       docs/                       # per-node-type markdown — read by the node drawer
                                   #   AND by an LLM (ADR 0009)
     runtime/                      # graph engine
+      runtime.go                  #   package doc, Runner Options — no DB access
+      engine.go                   #   Engine: a runner per enabled flow, driven
+                                  #   by App — installs, wakes, reloads, drains
       graph.go  run.go            #   index a flow, execute a batch -> CommitBatch
       nodes.go                    #   what each node type does at run time
       filter.go  function.go      #   the two processing node types
@@ -234,24 +245,29 @@ internal/
       registry.go                 #   the map of descriptors, in one file
       connector/                  #   the vocabulary — a leaf, so a connector can
                                   #   name it without importing the registry back
-      github/  webhook/  …        #   Descriptor + Config + Factory per connector
+      github/                     #   Descriptor + Config + Factory
+        feed/                     #   fetch layer: per-account response cache,
+                                  #   conditional requests, rate-limit cooldown
+        ghclient/                 #   the owned GitHub HTTP client (ADR 0015)
+      webhook/                    #   Descriptor + Config + Factory; local ingress
     ingest/                       # producer loop, classification, absence, snapshots
       resolver.go                 #   the flow set -> live connector instances
-    dispatch/                     # output worker, Dispatcher, executors
+    dispatch/                     # output worker, Dispatcher, executors; also
+                                  #   where SystemNotifier (the notify port) is
+                                  #   declared — consumer-defined, no notify/ package
     actions/                      # actions.yml catalog, watcher, editable model
       docs/                       # per-action-type markdown
     prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
-    inbox/                        # item queries, triage, action-item decoding
+      templates/                 #   .tmpl files the registry renders
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
-    notify/                       # Notifier port only
     store/                        # sqlc, migrations, queries
 
   adapter/                        # driving adapters, all in-process
     wailsui/                      # Wails service structs; the only Wails imports
-      events.go                   # bus subscriber → Emit, coalesced to wake-ups
-      window.go  tray.go  focus.go  updater.go  notify.go
+      events.go                   # bus subscriber → Emit, per-event delivery policy
+      windowservice.go  tray.go  focusstate.go  updater.go  notify.go
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route
     mcpsrv/                       # tools over App; in-memory transport for the agent
@@ -280,8 +296,8 @@ declared in one file, with per-type config carrying its own `Validate`.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, and the editable-catalog branch |
-| **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test |
+| **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 
 ### Documentation is part of the declaration
@@ -364,11 +380,15 @@ Subscribers declare a delivery policy: coalesce-and-drop for a GUI that only
 needs the latest state, buffered/blocking for a consumer that must see every
 message.
 
-The Wails adapter degrades these into the existing wake-up signals
+The Wails adapter degrades most of these into the existing wake-up signals
 (`log:appended`, `flows:updated`, …) where the frontend re-reads on receipt.
-That contract is good for a GUI and stays. It must not be pushed down into the
-core: an MCP client cannot cheaply "re-read the service", and a streaming CLI
-or SSE consumer needs the delta.
+That contract is good for a GUI and stays. One event does not degrade:
+`NotificationRaised` is delivered with `events.Buffer(32)` rather than
+coalesced, and its payload crosses to the Wails event `notification:toast`
+intact — a toast is the message itself, not a hint to go re-read something,
+so there is nothing to degrade it to. This must not be pushed down into the
+core generally: an MCP client cannot cheaply "re-read the service", and a
+streaming CLI or SSE consumer needs the delta.
 
 `application.Get()` must not appear outside `adapter/wailsui/`.
 
@@ -378,10 +398,17 @@ Secrets live in `app/credentials`, keyed by `Ref{Provider, Account}` and
 stored in the OS keychain. Two constraints drive the design:
 
 - **Keychains do not enumerate.** `List()` needs a separate index of refs
-  (`<StateDir>/credentials.json`); only the values live in the keychain. The
-  keychain is the truth and the index is a cache: a ref present in the index
-  but absent from the keychain reads as `ErrNotFound` and is pruned, so a
-  divergence can never surface as a stuck "Connected" badge.
+  (`<StateDir>/credentials.json`); only the values live in the keychain, and
+  the two are reconciled lazily rather than on every read. `Get` is what
+  reconciles: a ref present in the index whose keychain entry is gone reads as
+  `ErrNotFound` and is pruned. `List` — what Settings ▸ Integrations calls —
+  does not: it trusts the index outright, because verifying every entry
+  against the keychain would turn a screen that enumerates connectors into one
+  macOS permission prompt per provider. The accepted tradeoff: a credential
+  lost outside the app (revoked in Keychain Access, a backup restored without
+  it) can still read as "Connected" in Integrations until the next `Get` — the
+  next fetch — self-heals it. There is no verify-on-open; the stale window is
+  the cost of not prompting.
 - **Config holds refs, never tokens.** `flows/*.yaml` is explicitly
   dotfiles-managed, so a token in a node's config is a token in a git repo. A
   source node carries `credential: grafana/prod`, resolved at construction —
@@ -397,7 +424,13 @@ none of those marshal it.
 **Lookup is generic; only acquisition is provider-specific.** `Resolve`,
 `Bind`, `ListProvider` and `EnvOverrideName` know no provider — the headless
 override is derived from the provider name, so `HIVE_GITHUB_TOKEN` and
-`HIVE_GRAFANA_TOKEN` both come for free. Acquisition belongs to the connector:
+`HIVE_GRAFANA_TOKEN` both come for free. The override is provider-wide, not
+per-account: while set, it authenticates every fetch for that provider
+regardless of which account a source node names, which deliberately collapses
+whatever multi-account isolation the store otherwise provides. That trade
+serves one purpose — a headless run (CI, the server build, the e2e harness)
+with one identity and no keychain to read — and is the wrong tool on a machine
+actually juggling several accounts. Acquisition belongs to the connector:
 GitHub's device flow lives in `app/sources/github`, while Grafana is a
 secret-marked config field with no state machine. `Connection` is declared by
 the connector that implements it, not by `app` — a connector needing no state
@@ -406,7 +439,12 @@ machine declares none.
 **Multi-account is the model, not an extension of it.** One fetcher per
 account: a `feed.LiveProvider` holds one account's response cache,
 conditional-request state and rate-limit cooldown, so two accounts sharing one
-would serve each other's items and stall each other's fetches.
+would serve each other's items and stall each other's fetches. That cache is
+what "nothing to invalidate" above leaves out: an in-app connect or disconnect
+calls `Fetchers.InvalidateAll` so the next fetch never serves a stale
+account's data, but a token rotated outside the app — edited directly in the
+OS keychain — is not observed until the cache's own TTL (one poll interval, by
+default) elapses on its own.
 
 **GitHub is a connector, not a login.** Nothing in the app is gated on being
 connected to it. First run is create workspace → connect GitHub → feed: the
@@ -481,17 +519,16 @@ this plugs lifecycle exists; it must not add a bespoke teardown branch in
 `main`.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
-client with composable middleware — the fetch layer connectors need, which
-does not exist today) and `mapx`.
+client with composable middleware) and `mapx`.
 
-**`httpclient` cannot reach the one fetch path that exists.** GitHub's requests
-go through the vendored `hivecore/github.Client`, whose transport is a concrete
-`*http.Client` field with only a `WithHTTPClient(*http.Client)` option;
-`httpclient.Client` wraps an `*http.Client` rather than being one, so it cannot
-be substituted without landing a change in `colonyops/hive` and re-vendoring
-(rule 9). The app's only other outbound HTTP is the updater and `cmd/release`,
-neither a connector fetch path. Adopt it when a connector that owns its own
-HTTP lands, or when the upstream client takes an injectable `Doer`.
+**Adopting `httpclient` is a choice now, not a blocker.** GitHub's connector
+owns its HTTP client end to end (`sources/github/ghclient`, ADR 0015) rather
+than routing through a vendored one with a concrete `*http.Client` field
+behind only a `WithHTTPClient` option, so there is no upstream signature to
+wait on. The app's outbound HTTP today is that owned client plus the updater
+and `cmd/release`; none has adopted `httpclient` yet. Doing so is a matter of
+shaping the fetch path, whenever composable middleware — retries, request
+signing, a shared cache — earns its keep there.
 
 ## Execution model
 
@@ -503,23 +540,27 @@ This replaces a split model in which Go ingested and executed while the
 browser routed. That split made the desktop window a hard dependency of flow
 execution and put the correctness-critical parts — topological order,
 fan-out, offset advancement, commit atomicity — out of reach of any headless
-surface. Consolidating in Go is what makes `dry-run` available identically to
-the editor preview, a CLI, and an MCP tool.
+surface. Consolidating in Go is what makes a `dry-run` surface *possible* —
+one execution path an editor preview, a CLI, and an MCP tool could each drive
+identically. No such surface is built yet; what exists is the separation that
+would let one be added without a second implementation of routing semantics.
 
 `Runner.Run` returns the `CommitBatch` a batch of messages is worth and
 **does not commit it**. Reading the log and applying the batch belong to the
-caller, which is what makes a dry-run and a live tick one code path rather
-than two implementations of the same semantics.
+caller, which is what would let a dry-run and a live tick be one code path
+rather than two implementations of the same semantics, once a caller asks for
+one without committing.
 
 Two registries describe a node type between them: `flow`'s says how it is
 configured, `runtime`'s says what it does when a message arrives. Neither the
 router nor the executor branches on a type string.
 
-`app.Engine` is what drives it. It is level-triggered: `Wake` and `Reload` set
-a latch rather than queueing, so a signal arriving mid-pass is serviced by the
-next pass instead of being dropped or piling up. Installation is synchronous in
-`Start`, before anything that can append to the log is running, so no append
-can arrive with no runner to route it.
+`runtime.Engine` — a field on `App`, not a type in package `app` — is what
+drives it. It is level-triggered: `Wake` and `Reload` set a latch rather than
+queueing, so a signal arriving mid-pass is serviced by the next pass instead
+of being dropped or piling up. Installation is synchronous in `Start`, before
+anything that can append to the log is running, so no append can arrive with
+no runner to route it.
 
 A flow that cannot be built keeps its predecessor in service and reports the
 failure to the activity log — taking a working flow offline for an authoring
@@ -606,11 +647,14 @@ The target is reached in this order; each step is independently shippable.
    suite.
 4. **Delete the frontend engine** — `engine/`, `driver.ts`, the runtime
    pump — and collapse the six frontend-only RPCs into internal calls.
-   **Done.** `app.Engine` drives the runners and owns the replay protocol;
-   `PipelineService` no longer carries `ReadFrom`, `Commit`,
-   `EventLogTailOffset`, `ActivateReplay`, `ListReplaySourceSnapshots` or
-   `ListUnarchivedInboxItems`, and the int64-as-string offset encoding they
-   needed went with them.
+   **Done.** `runtime.Engine`, driven by `App`, drives the runners and owns
+   the replay protocol; `PipelineService` no longer carries `ReadFrom`,
+   `Commit`, `EventLogTailOffset`, `ActivateReplay`, `ListReplaySourceSnapshots`
+   or `ListUnarchivedInboxItems`. `CommitBatch.UpToOffset` went with them: it
+   is a plain `int64` now, not the decimal-string encoding those RPCs needed to
+   survive Wails' JSON bridge. `Msg.ID` stays a string, but for an unrelated
+   reason that outlived the RPCs — the goja script boundary, where a JS number
+   would truncate an offset past 2^53 (see [Script nodes](#script-nodes)).
 5. **Source registry** — **Done.** ADR 0012. `connector.Descriptor` declares a
    connector and `connector.Factory` constructs it; capabilities are read off
    the instance rather than type-asserted; `flow`'s and `runtime`'s registries

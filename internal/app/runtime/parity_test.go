@@ -14,18 +14,21 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// The parity fixtures in testdata/parity are executed by BOTH engines: this
-// test runs them through the Go engine, and
-// desktop/frontend/src/pipeline/engine/__tests__/parity.spec.ts runs the same
-// files through the TypeScript one, each comparing against the same expected
-// commit. That is the evidence the port is faithful — the engines never see
-// each other's code, only the same inputs and the same answer.
+// The parity fixtures in testdata/parity are the engine's own regression
+// suite: a flow, a batch of event-log messages, and the exact CommitBatch
+// that batch is worth. They began as the proof a port was faithful — this
+// test ran them through the Go engine while
+// desktop/frontend/src/pipeline/engine/__tests__/parity.spec.ts ran the same
+// files through the TypeScript engine it replaced, each comparing against the
+// same expected commit. That TypeScript engine and its parity spec are long
+// gone; this file is now the only thing that runs these fixtures, and a
+// change to routing, sink tagging or node-run accounting still belongs in one
+// of them (ADR 0011).
 //
 // Two fields are normalized away before comparing, and only two. durMs is
-// wall-clock. err is the engine's own wording for a thrown value, which two
-// different JavaScript implementations have no reason to phrase identically;
-// what has to match is *that* the node failed, which ok and the counters
-// already say.
+// wall-clock. err is the engine's own wording for a thrown value — a detail
+// of whichever ScriptRuntime ran it, not part of the contract; what has to
+// match is *that* the node failed, which ok and the counters already say.
 
 const parityDir = "testdata/parity"
 

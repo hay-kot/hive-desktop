@@ -22,7 +22,7 @@ document wins for new work — do not extend the shape it is replacing.
 
 ## Module layout
 
-- **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/desktop/`) and vendored hive core (`internal/hivecore/`).
+- **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/app/`, `internal/adapter/`) and vendored hive core (`internal/hivecore/`).
 - **`server/`** — future Go admin backend (analytics, licenses, purchases). When built, it gets its own nested `go.mod` (`github.com/hay-kot/hive-desktop/server`) so the deployed service does not carry wails/charm dependencies; a root `go.work` is added at that point. Shared wire types (analytics events, license payloads) go in a `shared/` nested module if needed.
 - **`web/`** — plain static HTML landing page (`web/public/`), served as Cloudflare Workers static assets (`web/wrangler.jsonc`; the custom domain `hivedesktop.com` is declared there and attaches on deploy). No build step. Deploys via `.github/workflows/deploy-web.yml` on pushes to main touching `web/**`, or locally with `npm run deploy`.
 

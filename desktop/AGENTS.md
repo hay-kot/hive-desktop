@@ -62,7 +62,10 @@ internal/app/             # the headless core — no transport, no Wails
   icons/                  # the curated feed glyph set (a leaf: flow + webhook)
   sources/                # the connector registry — registry.go is the whole map
     connector/            # the vocabulary a connector is declared in
-    github/               # the GitHub connector; feed/ is its fetch layer
+    github/               # the GitHub connector; feed/ is its fetch layer,
+                          #   ghclient/ its owned HTTP client (ADR 0015 —
+                          #   nothing outside internal/hivecore imports the
+                          #   vendored github.Client anymore)
     webhook/              # the webhook connector and its local ingress
   activity/ jobs/ prompts/
 ```
@@ -77,10 +80,11 @@ helpers), `types/`. TS bindings to Go services are **generated** into
 `frontend/bindings/` — see Code generation.
 
 **Flow execution is Go's, and nothing about it lives here.**
-`internal/app/runtime` owns graph execution and `app.Engine` drives it: it
-installs a runner per enabled flow at startup, reinstalls on a flows change,
-and drains the event log on every append — all with this window closed (ADRs
-0010, 0011). **Do not add node execution logic to the frontend.** A new node
+`internal/app/runtime` owns graph execution and `runtime.Engine` (a field on
+`App`) drives it: it installs a runner per enabled flow at startup, reinstalls
+on a flows change, and drains the event log on every append — all with this
+window closed (ADRs 0010, 0011). **Do not add node execution logic to the
+frontend.** A new node
 type gets its editor (`nodes/<type>/{config.ts,editor.vue,index.ts}`) here,
 and its schema, validation, docs *and execution* in Go. See `architecture.md`
 ▸ Execution model. `pipeline/__tests__/import-hygiene.spec.ts` fails if a
