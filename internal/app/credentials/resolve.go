@@ -39,6 +39,16 @@ func EnvOverrideName(provider string) string {
 	return b.String()
 }
 
+// HasEnvOverride reports whether a provider's environment override is set.
+//
+// It is what lets a caller tell "connected with no stored credential" from
+// "not connected": the override is provider-wide and names no account, so a
+// listing of stored refs is empty for it while every fetch still succeeds.
+// Reporting that as disconnected would contradict the working feed beside it.
+func HasEnvOverride(provider string) bool {
+	return os.Getenv(EnvOverrideName(provider)) != ""
+}
+
 // Resolve reads one ref's value, preferring the provider's environment
 // override. It returns "" and no error when nothing is stored.
 func Resolve(store Store, ref Ref) (string, error) {

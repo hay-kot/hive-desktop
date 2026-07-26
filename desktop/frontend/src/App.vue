@@ -843,8 +843,6 @@ onUnmounted(() => {
         <DevView v-if="devMode && devActive" @close="closeSettings" />
         <SettingsView
           v-else-if="applicationSettingsActive"
-          :github-connected="githubConnected"
-          :github-login="githubStatus?.login"
           :active-category="applicationSettingsSection"
           :known-feed-types="knownFeedTypes"
           @close="closeSettings"

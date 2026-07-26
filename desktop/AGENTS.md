@@ -88,12 +88,14 @@ and its schema, validation, docs *and execution* in Go. See `architecture.md`
 
 **A source connector is declared in Go and adding one barely touches this
 directory.** `internal/app/sources` holds a `connector.Descriptor` per
-connector — type, title, pull/push mode, stability, capabilities, config
-schema — and `flow`'s node registry and `runtime`'s behaviour registry both
-*derive* their source entries from it (ADR 0012). Source node types are
-namespaced: `sources.github`, `sources.webhook`. A new connector still needs a
+connector — type, title, credentials provider, pull/push mode, stability,
+capabilities, config schema — and `flow`'s node registry, `runtime`'s
+behaviour registry and **Settings ▸ Integrations** all *derive* their source
+entries from it (ADR 0012). Source node types are namespaced:
+`sources.github`, `sources.webhook`. A new connector still needs a
 `nodes/<type>/` editor entry here until forms are schema-driven, but nothing
-else.
+else — it gets its Integrations card for free, and `useIntegrations` supplies
+its connected accounts to any editor that needs an account picker.
 
 The frontend learns that a run landed from **`inbox:updated`**, not
 `log:appended`. The log growing only says a source observed something, which
@@ -250,10 +252,10 @@ reason it is being done now.
 
   **Still being replaced.** The vendored
   `internal/hivecore/github/token.go` single-slot store is untouched and
-  unused by the app, but the product surface over the new one is not finished:
-  Settings ▸ Integrations still hardcodes its cards instead of enumerating
-  `sources.All()`, and the node editor's account field is a text input rather
-  than a picker. Do not build on either.
+  unused by the app, but first run still gates on GitHub being connected —
+  onboarding presents it as step 1 rather than as an expected-but-skippable
+  step, and `flow.starterFlow` still names the connector directly. Do not add
+  code that depends on either.
 - **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
   `internal/app/prompts/templates/`; nothing in the frontend builds a
   prompt string. Adding one is a template plus a `definitions` entry — Settings

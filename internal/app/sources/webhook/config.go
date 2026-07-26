@@ -34,8 +34,10 @@ const (
 // It declares CapClassify only. There is no absence to confirm (a sender that
 // stops sending says nothing about the item's fate) and nothing to batch.
 var Descriptor = connector.Descriptor{
-	Type:         "sources.webhook",
-	Title:        "Webhook source",
+	Type:  "sources.webhook",
+	Title: "Webhook source",
+	// No Provider: the listener is local ingress. There is nothing to
+	// authenticate as, so there is no account to connect and no card action.
 	Mode:         connector.ModePush,
 	Stability:    connector.Stable,
 	Capabilities: connector.CapClassify,

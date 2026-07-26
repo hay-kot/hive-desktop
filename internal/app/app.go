@@ -66,9 +66,12 @@ type App struct {
 	System   *SystemService
 	Webhooks *WebhookService
 	GitHub   *GitHubService
-	Activity *ActivityService
-	Jobs     *JobService
-	Prompts  *PromptsService
+	// Integrations lists the connector registry with each entry's connection
+	// state. Generic; GitHub above is the provider-specific acquisition half.
+	Integrations *IntegrationsService
+	Activity     *ActivityService
+	Jobs         *JobService
+	Prompts      *PromptsService
 
 	Events *events.Bus
 	Store  *store.DB
@@ -115,8 +118,8 @@ type App struct {
 	publisher dispatch.MessagePublisher
 
 	// ctx is the application's lifetime, not a request's. Background
-	// callbacks wired at construction — the config watchers, the auth
-	// backend's change hook — publish with it, and Close cancels it. This is
+	// callbacks wired at construction — the config watchers, the GitHub
+	// connection's change hook — publish with it, and Close cancels it. This is
 	// the one type in the core that legitimately holds a context: it is the
 	// thing whose lifetime that context represents.
 	ctx    context.Context
@@ -211,6 +214,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.System = newSystemService()
 	a.Webhooks = newWebhookService(db, a.Webhook, a.WebhookPort)
 	a.GitHub = newGitHubService(a.GitHubConnection)
+	a.Integrations = newIntegrationsService(a.Credentials)
 	a.Activity = newActivityService(a.ActivityStore)
 	a.Jobs = newJobService(a.JobStore)
 	a.Prompts = newPromptsService(a.Webhooks)

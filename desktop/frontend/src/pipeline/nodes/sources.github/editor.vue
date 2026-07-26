@@ -2,9 +2,10 @@
 // sources.github has no runtime.ts (the source runs in Go). The editor embeds
 // the fetch config directly — a "search" source runs a query, a
 // "notifications" source drains the inbox — matching the backend
-// GithubSourceConfig it round-trips to.
+// github.Config it round-trips to.
 import { computed } from 'vue'
 import { NumberField, SelectField, TextField, type SelectOption } from '../../fields'
+import { useIntegrations } from '../../../composables/useIntegrations'
 import type { Config, SourceKind } from './config'
 
 const props = defineProps<{ config: Config; errors?: string[] }>()
@@ -16,6 +17,30 @@ const KIND_OPTIONS: SelectOption[] = [
 ]
 
 const isSearch = computed(() => props.config.kind === 'search')
+
+// The accounts actually connected, read from the same registry projection the
+// Integrations screen renders — so this cannot offer an account the app holds
+// no credential for.
+const { credentialRefsFor, loaded: integrationsLoaded } = useIntegrations()
+const connectedRefs = computed(() => credentialRefsFor('github'))
+
+const credentialOptions = computed<SelectOption[]>(() => {
+  const options: SelectOption[] = connectedRefs.value.map((ref) => ({ value: ref, label: ref }))
+  // A node can name an account that has since been disconnected. Dropping it
+  // from the list would silently rewrite the node's config on the next edit,
+  // so it stays selectable and says why it is wrong.
+  const current = props.config.credential
+  if (current && !connectedRefs.value.includes(current)) {
+    options.unshift({ value: current, label: `${current} — not connected` })
+  }
+  return options
+})
+
+const credentialHint = computed(() => {
+  if (!integrationsLoaded.value) return 'Loading connected accounts…'
+  if (connectedRefs.value.length === 0) return 'No GitHub account is connected. Connect one in Settings ▸ Integrations.'
+  return 'The connected GitHub account to fetch as.'
+})
 
 function updateCredential(credential: string) {
   emit('update:config', { ...props.config, credential })
@@ -39,11 +64,24 @@ function updateLimit(limit: number) {
 
 <template>
   <div class="flex flex-col gap-4">
+    <!-- With nothing connected and nothing already set there is no valid
+         choice to offer, so the field stays a text input rather than an empty
+         dropdown the user cannot act on. -->
+    <SelectField
+      v-if="credentialOptions.length > 0"
+      label="Account"
+      :model-value="config.credential ?? ''"
+      :options="credentialOptions"
+      :hint="credentialHint"
+      testid="sources.github-editor-credential"
+      @update:model-value="updateCredential"
+    />
     <TextField
+      v-else
       label="Account"
       :model-value="config.credential ?? ''"
       placeholder="github/octocat"
-      hint="The connected GitHub account to fetch as. Connect one in Settings ▸ Integrations."
+      :hint="credentialHint"
       monospace
       testid="sources.github-editor-credential"
       @update:model-value="updateCredential"

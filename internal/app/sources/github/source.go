@@ -30,6 +30,7 @@ const SourceKind = "github"
 var Descriptor = connector.Descriptor{
 	Type:      "sources.github",
 	Title:     "GitHub source",
+	Provider:  Provider,
 	Mode:      connector.ModePull,
 	Stability: connector.Stable,
 	Capabilities: connector.CapClassify |

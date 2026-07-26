@@ -39,6 +39,19 @@ const (
 	ModePush
 )
 
+// String is the wire form. As with Stability, an undeclared mode reads as
+// "unknown" rather than "0".
+func (m Mode) String() string {
+	switch m {
+	case ModePull:
+		return "pull"
+	case ModePush:
+		return "push"
+	default:
+		return "unknown"
+	}
+}
+
 // Stability is how much a connector's config shape may still move. It is
 // declared per connector so an editor, an MCP tool listing, or the docs can
 // warn before a user builds on something that is about to change.
@@ -52,6 +65,22 @@ const (
 	// Stable config only changes compatibly.
 	Stable
 )
+
+// String is the wire form the Integrations screen and the docs render. A
+// value outside the set reads as "unknown" rather than a bare number, so a
+// descriptor that forgot to declare one is visible instead of showing "0".
+func (s Stability) String() string {
+	switch s {
+	case Experimental:
+		return "experimental"
+	case Beta:
+		return "beta"
+	case Stable:
+		return "stable"
+	default:
+		return "unknown"
+	}
+}
 
 // Capability is what a connector supports beyond producing messages. It is
 // declared on the Descriptor and wired on the Factory; nothing sniffs for it
@@ -87,6 +116,16 @@ type Descriptor struct {
 	Type string
 	// Title is the human label — the palette entry, the docs heading.
 	Title string
+	// Provider is the credentials provider this connector fetches as
+	// ("github"), matching credentials.Ref.Provider. Empty means the
+	// connector needs no credential at all — the webhook listener is local
+	// ingress and has nothing to connect to.
+	//
+	// A name, not a store: the descriptor stays static data with no
+	// dependencies, which is what lets the flow and runtime registries derive
+	// node types from it as package state. What is stored under the name is
+	// resolved where the credential store exists.
+	Provider string
 	// Mode selects pull or push ingestion.
 	Mode Mode
 	// Stability is how settled Config's shape is.

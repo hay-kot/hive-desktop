@@ -20,9 +20,6 @@ import PromptSettingsView from './PromptSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
-import grafanaIcon from '../assets/integrations/grafana.svg'
-import posthogIcon from '../assets/integrations/posthog.svg'
-import slackIcon from '../assets/integrations/slack.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
@@ -32,11 +29,11 @@ import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
+import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
+import type { Integration } from '../types/integrations'
 import { applicationSettingsSections, type ApplicationSettingsSection } from '../router'
 
 const props = withDefaults(defineProps<{
-  githubConnected: boolean
-  githubLogin?: string
   activeCategory: ApplicationSettingsSection
   knownFeedTypes?: string[]
 }>(), { knownFeedTypes: () => [] })
@@ -80,11 +77,56 @@ const webhookDescription = computed(() => webhook.value
 watch(() => props.activeCategory, (category) => {
   if (category === 'integrations') void refreshWebhook()
 }, { immediate: true })
-const futureIntegrations = [
-  { id: 'grafana', name: 'Grafana', description: 'Metrics, dashboards, and alerts', icon: grafanaIcon },
-  { id: 'posthog', name: 'PostHog', description: 'Product analytics and events', icon: posthogIcon },
-  { id: 'slack', name: 'Slack', description: 'Messages and notifications', icon: slackIcon },
-]
+// Cards come from the Go connector registry, so adding a connector adds a
+// card. Only its presentation is here — a type the registry reports but this
+// map has not met still renders, with a generic icon and no blurb, rather
+// than being silently dropped.
+const { integrations, loaded: integrationsLoaded } = useIntegrations()
+
+const presentation: Record<string, { description: string }> = {
+  'sources.github': { description: 'Issues, pull requests, and notifications' },
+  'sources.webhook': { description: 'Receive JSON from anything that can POST' },
+}
+
+// The drawer each card's gear opens. A connector with no drawer yet gets no
+// gear rather than a button that does nothing.
+const drawers: Record<string, () => void> = {
+  'sources.github': () => { githubSettingsOpen.value = true },
+  'sources.webhook': () => { webhookSettingsOpen.value = true },
+}
+
+function subtitleFor(integration: Integration): string {
+  // The webhook listener's own state is richer than "connected" and is what
+  // its card has always shown; it has no credential to describe.
+  if (integration.type === 'sources.webhook') return webhookDescription.value
+  if (integration.envOverride && integration.accounts.length === 0) {
+    return `Connected via ${envOverrideName(integration.provider)}`
+  }
+  if (integration.accounts.length > 0) return `Connected as ${integration.accounts.join(', ')}`
+  return presentation[integration.type]?.description ?? ''
+}
+
+// Mirrors credentials.EnvOverrideName in Go. Shown so a headless or CI run
+// explains why it is connected with no account listed.
+function envOverrideName(provider: string): string {
+  return `HIVE_${provider.toUpperCase().replace(/[^A-Z0-9]/g, '_')}_TOKEN`
+}
+
+// Cards are keyed by the connector's bare name, not its namespaced type:
+// "integration-github" reads better in a selector than
+// "integration-sources.github", and the namespace is constant across every
+// entry here so it carries no information.
+function cardId(type: string): string {
+  return type.replace(/^sources\./, '')
+}
+
+function statusFor(integration: Integration): { label: string; tone: 'success' | 'neutral' | 'danger' } {
+  if (integration.type === 'sources.webhook') return webhookStatus.value
+  if (!takesCredential(integration)) return { label: 'Local', tone: 'neutral' }
+  return isConnected(integration)
+    ? { label: 'Connected', tone: 'success' }
+    : { label: 'Not connected', tone: 'neutral' }
+}
 
 function onThemeChange(value: string): void {
   setTheme(value as Theme)
@@ -136,93 +178,52 @@ function onThemeChange(value: string): void {
       <div v-else class="mx-auto max-w-[640px]" data-testid="settings-integrations">
         <SettingsSection
           title="Data sources"
-          description="Connections bring external events into Hive. More providers will support guided setup here as they become available."
+          description="Connections bring external events into Hive. Every connector the app knows about is listed here."
           class="mb-5"
         />
 
-        <div class="flex flex-col gap-3">
-          <BaseCard class="rounded-lg border border-border bg-raised" data-testid="integration-github">
-            <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" class="bg-white p-2">
-                <img :src="githubIcon" alt="GitHub" class="size-full" />
-              </BaseIconBadge>
-            </template>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-semibold text-text">GitHub</div>
-              <div class="mt-0.5 truncate text-xs text-text-3">{{ props.githubLogin ? `Connected as ${props.githubLogin}` : 'Issues, pull requests, and notifications' }}</div>
-            </div>
-            <template #actions>
-              <div class="flex shrink-0 items-center gap-2">
-                <BaseBadge
-                  :tone="props.githubConnected ? 'success' : 'neutral'"
-                  variant="pill"
-                  class="px-2.5 py-1 text-[11px] font-semibold"
-                  data-testid="integration-github-status"
-                >{{ props.githubConnected ? 'Connected' : 'Not connected' }}</BaseBadge>
-                <button
-                  type="button"
-                  class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
-                  aria-label="Configure GitHub integration"
-                  data-testid="integration-github-configure"
-                  @click="githubSettingsOpen = true"
-                ><IconSettings class="size-3.5" /></button>
-              </div>
-            </template>
-          </BaseCard>
-
-          <BaseCard class="rounded-lg border border-border bg-raised" data-testid="integration-webhook">
-            <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" class="bg-chip p-2 text-text-2">
-                <IconWebhook class="size-full" />
-              </BaseIconBadge>
-            </template>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-semibold text-text">Webhooks</div>
-              <div class="mt-0.5 truncate text-xs text-text-3">{{ webhookDescription }}</div>
-            </div>
-            <template #actions>
-              <div class="flex shrink-0 items-center gap-2">
-                <BaseBadge
-                  :tone="webhookStatus.tone"
-                  variant="pill"
-                  class="px-2.5 py-1 text-[11px] font-semibold"
-                  data-testid="integration-webhook-status"
-                >{{ webhookStatus.label }}</BaseBadge>
-                <button
-                  type="button"
-                  class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
-                  aria-label="Configure webhook listener"
-                  data-testid="integration-webhook-configure"
-                  @click="webhookSettingsOpen = true"
-                ><IconSettings class="size-3.5" /></button>
-              </div>
-            </template>
-          </BaseCard>
-
+        <div v-if="!integrationsLoaded" class="font-mono text-xs text-text-4" data-testid="integrations-loading">Loading…</div>
+        <div v-else class="flex flex-col gap-3">
           <BaseCard
-            v-for="integration in futureIntegrations"
-            :key="integration.id"
+            v-for="integration in integrations"
+            :key="integration.type"
             class="rounded-lg border border-border bg-raised"
-            :data-testid="`integration-${integration.id}`"
+            :data-testid="`integration-${cardId(integration.type)}`"
           >
             <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" class="bg-white p-2">
-                <img :src="integration.icon" :alt="integration.name" class="size-full object-contain" />
+              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.type === 'sources.github' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
+                <img v-if="integration.type === 'sources.github'" :src="githubIcon" alt="" class="size-full" />
+                <IconWebhook v-else-if="integration.type === 'sources.webhook'" class="size-full" />
+                <IconPlug v-else class="size-full" />
               </BaseIconBadge>
             </template>
             <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-semibold text-text">{{ integration.name }}</div>
-              <div class="mt-0.5 truncate text-xs text-text-3">{{ integration.description }}</div>
+              <div class="text-[13.5px] font-semibold text-text">{{ integration.title }}</div>
+              <div class="mt-0.5 truncate text-xs text-text-3">{{ subtitleFor(integration) }}</div>
             </div>
             <template #actions>
-              <div class="flex shrink-0 items-center gap-2.5">
-                <span class="font-mono text-[10.5px] text-text-4">Coming soon</span>
+              <div class="flex shrink-0 items-center gap-2">
+                <BaseBadge
+                  v-if="integration.stability !== 'stable'"
+                  tone="neutral"
+                  variant="pill"
+                  class="px-2 py-1 text-[10.5px] font-semibold uppercase"
+                  :data-testid="`integration-${cardId(integration.type)}-stability`"
+                >{{ integration.stability }}</BaseBadge>
+                <BaseBadge
+                  :tone="statusFor(integration).tone"
+                  variant="pill"
+                  class="px-2.5 py-1 text-[11px] font-semibold"
+                  :data-testid="`integration-${cardId(integration.type)}-status`"
+                >{{ statusFor(integration).label }}</BaseBadge>
                 <button
+                  v-if="drawers[integration.type]"
                   type="button"
-                  disabled
-                  class="cursor-not-allowed rounded-md border border-border px-2.5 py-1.5 text-[11.5px] font-medium text-text-4 opacity-60"
-                  :data-testid="`integration-${integration.id}-add`"
-                >Add connection</button>
+                  class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
+                  :aria-label="`Configure ${integration.title}`"
+                  :data-testid="`integration-${cardId(integration.type)}-configure`"
+                  @click="drawers[integration.type]()"
+                ><IconSettings class="size-3.5" /></button>
               </div>
             </template>
           </BaseCard>

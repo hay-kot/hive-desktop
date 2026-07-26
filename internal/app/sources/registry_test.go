@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
@@ -30,6 +31,26 @@ func TestEveryDescriptorIsComplete(t *testing.T) {
 			"connector %q declares no ingestion mode", connectorType)
 		assert.NotZerof(t, descriptor.Stability, "connector %q declares no stability", connectorType)
 		require.NotNilf(t, descriptor.NewConfig, "connector %q has no config factory", connectorType)
+	}
+}
+
+// A descriptor's Provider is half of a credentials.Ref, so it has to satisfy
+// the same rule a ref does. The mistake this catches is pasting the connector
+// type in ("sources.github" instead of "github"): a ref built from it fails to
+// parse, every source node on that connector reports a bad credential, and the
+// Integrations card lists no accounts — three confusing symptoms of one typo.
+func TestDescriptorProviderIsAValidCredentialProvider(t *testing.T) {
+	t.Parallel()
+
+	for _, connectorType := range Types() {
+		descriptor, _ := Lookup(connectorType)
+		if descriptor.Provider == "" {
+			continue // a connector with nothing to authenticate as
+		}
+		ref := credentials.Ref{Provider: descriptor.Provider, Account: "account"}
+		assert.NoErrorf(t, ref.Validate(),
+			"connector %q declares provider %q, which is not a usable credentials provider",
+			connectorType, descriptor.Provider)
 	}
 }
 

@@ -125,6 +125,7 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	services := []application.Service{
 		application.NewService(NewGitHubService(core.GitHub)),
+		application.NewService(NewIntegrationsService(core.Integrations)),
 		application.NewService(NewPipelineService(core.Inbox)),
 		application.NewService(NewFlowsService(core.Flows)),
 		application.NewService(NewActionsService(core.Actions)),
