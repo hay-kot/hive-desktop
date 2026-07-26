@@ -7,7 +7,6 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 )
 
 type MessagePublisher interface {
@@ -45,6 +44,3 @@ func (e *PublishMessageExecutor) Execute(ctx context.Context, action actions.Act
 	}
 	return ExecutionResult{Attempted: true, Outcome: &ExecutionOutcome{Message: &MessageExecutionOutcome{Topic: topic, Sender: "hive-desktop"}}}, nil
 }
-
-// Compile-time documentation of the durable payload type used by adapters.
-var _ = messaging.Message{}
