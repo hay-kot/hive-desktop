@@ -3,8 +3,8 @@
 // them from a config-driven overlay so workflows can be simulated against real
 // data, and pushes webhook payloads at a running instance's local listener.
 //
-// It is development tooling. It binds loopback only, holds no credentials of
-// its own, and nothing in the shipped app depends on it.
+// It is development tooling: loopback only, no credentials of its own, and
+// nothing in the shipped app depends on it. See README.md and ADR 0017.
 package main
 
 import (
@@ -28,93 +28,168 @@ import (
 //go:embed dashboard.html
 var dashboardHTML []byte
 
-// shutdownTimeout bounds graceful shutdown; in-flight proxy calls are bounded
-// by upstreamTimeout, so anything longer is hung.
-const shutdownTimeout = 5 * time.Second
-
 // browserChromePaths are requests a browser makes on its own behalf when it
-// loads the dashboard. They must not reach the proxy: it would forward them to
-// api.github.com and count the result as an upstream call, so merely
-// refreshing the page would inflate the stats and generate the GitHub traffic
-// devserver exists to avoid.
-//
-// Deliberately only the two that actually occur against a localhost dashboard:
-// the favicon, and the probe Chrome DevTools makes whenever the panel is open.
-// Speculative entries (apple-touch-icon, robots.txt) would be dead weight.
-//
-// Matching on path rather than sniffing the caller — User-Agent, or the more
-// reliable Sec-Fetch-Dest — is the deliberate choice. A path list cannot
-// misclassify a real API call, because these are paths the desktop client
-// never requests; a caller check makes proxy behavior depend on who is asking,
-// which is far harder to debug when it eventually gets something wrong.
+// loads the dashboard. Without a route here they fall through to the proxy,
+// reach api.github.com, and inflate the very stats the dashboard reports. The
+// desktop client never requests these, so a path list cannot misclassify a real
+// API call the way sniffing the caller could.
 var browserChromePaths = []string{
 	"/favicon.ico",
 	"/.well-known/appspecific/com.chrome.devtools.json",
 }
 
-func noContent(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }
+// options holds the parsed flags. Each is bound with Destination so its name is
+// declared once, rather than restated as a lookup string wherever it is read.
+type options struct {
+	config          string
+	listen          string
+	upstream        string
+	ttl             time.Duration
+	standbyPoll     time.Duration
+	shutdownTimeout time.Duration
+	logLevel        string
+}
 
-// newHandler wires devserver's routes. Ordering is by ServeMux specificity,
-// not registration order: the proxy takes "/" and everything more specific
-// wins over it.
+func main() {
+	// run has a pointer receiver on purpose: opts.run resolves to (&opts).run,
+	// so the flag parser writes through to the same struct the action reads. A
+	// value receiver would bind a copy taken before anything is parsed.
+	var opts options
+
+	cmd := &cli.Command{
+		Name:  "devserver",
+		Usage: "cache and simulate the GitHub API for desktop development",
+		Description: `Runs a loopback proxy in front of the GitHub API. Responses are cached and shared
+across every desktop instance pointed at it, so N instances and their restarts
+cost one upstream request per unique call per TTL. Config-driven overlays rewrite
+those responses to simulate lifecycle events, and a webhook pusher delivers
+synthetic payloads to a running instance. A dashboard drives both.`,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:        "config",
+				Aliases:     []string{"c"},
+				Usage:       "path to a config file",
+				DefaultText: devproxy.RepoConfigPath,
+				Destination: &opts.config,
+			},
+			&cli.StringFlag{
+				Name:        "listen",
+				Usage:       "override the configured bind address",
+				Destination: &opts.listen,
+			},
+			&cli.StringFlag{
+				Name:        "upstream",
+				Usage:       "override the configured GitHub API base URL",
+				Destination: &opts.upstream,
+			},
+			&cli.DurationFlag{
+				Name:        "ttl",
+				Usage:       "override the configured cache TTL",
+				Destination: &opts.ttl,
+			},
+			&cli.DurationFlag{
+				Name:        "standby-poll",
+				Value:       2 * time.Second,
+				Usage:       "how often a standby launch retries the port",
+				Destination: &opts.standbyPoll,
+			},
+			&cli.DurationFlag{
+				Name:        "shutdown-timeout",
+				Value:       5 * time.Second,
+				Usage:       "how long in-flight requests get to finish on shutdown",
+				Destination: &opts.shutdownTimeout,
+			},
+			&cli.StringFlag{
+				Name:        "log-level",
+				Value:       "info",
+				Usage:       "trace, debug, info, warn, or error",
+				Destination: &opts.logLevel,
+			},
+		},
+		Action: opts.run,
+	}
+
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
+		fmt.Fprintln(os.Stderr, "devserver:", err)
+		os.Exit(1)
+	}
+}
+
+// newHandler wires devserver's routes. Ordering is by ServeMux specificity, not
+// registration order: the proxy takes "/" and everything else wins over it.
 func newHandler(control *Control, proxy *Proxy, logger zerolog.Logger) http.Handler {
+	noContent := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
 	mux := http.NewServeMux()
-	// {$} matches the root path exactly, leaving every other path to the
-	// proxy — GitHub's own API lives under paths the desktop actually calls.
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+	// {$} matches the root path exactly, leaving every other path to the proxy.
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		if _, err := w.Write(dashboardHTML); err != nil {
 			logger.Debug().Err(err).Msg("writing dashboard")
 		}
 	})
 	mux.Handle("/_ctl/", control.Handler())
-	// Browser-chrome paths are answered here rather than falling through to
-	// the proxy. The dashboard shares an origin with the GitHub passthrough,
-	// so without this a page load forwards /favicon.ico to api.github.com:
-	// real upstream traffic, counted in the very stats you opened the
-	// dashboard to read. See browserChromePaths.
 	for _, path := range browserChromePaths {
-		mux.HandleFunc("GET "+path, noContent)
+		mux.Handle("GET "+path, noContent)
 	}
 	mux.Handle("/", proxy)
 	return mux
 }
 
-func main() {
-	command := newDevserverCommand()
-	if err := command.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, "devserver:", err)
-		os.Exit(1)
+// awaitListener binds addr, standing by until it is free. The proxy is a
+// singleton (ADR 0017), so the first process to bind serves every worktree and
+// the rest park here instead of exiting: when the live one stops, a standby
+// takes over and the worktrees still pointed at the port keep working.
+//
+// The bind is the arbiter, not the probe. Two launches can both find the port
+// free and exactly one wins, and the loser just goes back to waiting — so there
+// is no race to close. The probe only identifies the occupant, which is what
+// keeps a stranger on the port fatal rather than something we wait on forever.
+func awaitListener(ctx context.Context, addr string, poll time.Duration, logger zerolog.Logger) (net.Listener, error) {
+	var announced string
+	for {
+		listener, err := net.Listen("tcp", addr)
+		if err == nil {
+			if announced != "" {
+				logger.Info().Str("listen", addr).Msg("port released; taking over")
+			}
+			return listener, nil
+		}
+		if !errors.Is(err, syscall.EADDRINUSE) {
+			return nil, fmt.Errorf("listen on %s: %w", addr, err)
+		}
+
+		// Something that answers and is not devserver is fatal. A port held by
+		// something that answers nothing is waited on instead: that is also what
+		// a devserver looks like between binding and serving, and waiting on the
+		// wrong thing forever is recoverable where exiting on our own is not.
+		status := devproxy.Probe(ctx, devproxy.BaseURL(addr))
+		if status == devproxy.StatusForeign {
+			return nil, fmt.Errorf("%s is in use by something that is not devserver", addr)
+		}
+		msg := "devserver is already running; standing by to take over when it stops"
+		if status == devproxy.StatusAbsent {
+			msg = "port is held by something that does not answer the devserver probe; standing by"
+		}
+		// Announce on change rather than per poll, so an unattended standby stays
+		// quiet but never leaves the reason for the wait unsaid.
+		if announced != msg {
+			announced = msg
+			logger.Info().Str("listen", addr).Msg(msg)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(poll):
+		}
 	}
 }
 
-func newDevserverCommand() *cli.Command {
-	return &cli.Command{
-		Name:  "devserver",
-		Usage: "cache and simulate the GitHub API for desktop development",
-		Description: "Runs a loopback proxy in front of the GitHub API. Responses are cached in SQLite and " +
-			"shared across every desktop instance pointed at it, so N dev instances and their restarts cost " +
-			"one upstream request per unique call per TTL. Config-driven overlays rewrite those responses to " +
-			"simulate lifecycle events, and a webhook pusher delivers synthetic payloads to a running " +
-			"instance's local webhook listener. A dashboard at the listen address drives both.",
-		Flags: []cli.Flag{
-			&cli.StringFlag{
-				Name:    "config",
-				Aliases: []string{"c"},
-				Usage: "path to a config file (default: " + devproxy.RepoConfigPath +
-					", the checked-in development config)",
-			},
-			&cli.StringFlag{Name: "listen", Usage: "override the configured bind address"},
-			&cli.StringFlag{Name: "upstream", Usage: "override the configured GitHub API base URL"},
-			&cli.DurationFlag{Name: "ttl", Usage: "override the configured cache TTL"},
-			&cli.StringFlag{Name: "log-level", Value: "info", Usage: "trace, debug, info, warn, or error"},
-		},
-		Action: run,
-	}
-}
-
-func run(ctx context.Context, cmd *cli.Command) error {
-	configPath, err := ResolveConfigPath(cmd.String("config"))
+func (o *options) run(ctx context.Context, _ *cli.Command) error {
+	configPath, err := ResolveConfigPath(o.config)
 	if err != nil {
 		return err
 	}
@@ -122,39 +197,34 @@ func run(ctx context.Context, cmd *cli.Command) error {
 	if err != nil {
 		return err
 	}
-	if listen := cmd.String("listen"); listen != "" {
-		cfg.Listen = listen
+	if o.listen != "" {
+		cfg.Listen = o.listen
 	}
-	if upstream := cmd.String("upstream"); upstream != "" {
-		cfg.Upstream = upstream
+	if o.upstream != "" {
+		cfg.Upstream = o.upstream
 	}
-	if ttl := cmd.Duration("ttl"); ttl > 0 {
-		cfg.Cache.TTL = ttl
+	if o.ttl > 0 {
+		cfg.Cache.TTL = o.ttl
 	}
 
-	level, err := zerolog.ParseLevel(cmd.String("log-level"))
+	level, err := zerolog.ParseLevel(o.logLevel)
 	if err != nil {
-		return fmt.Errorf("invalid log level %q: %w", cmd.String("log-level"), err)
+		return fmt.Errorf("invalid log level %q: %w", o.logLevel, err)
 	}
 	logger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.TimeOnly}).
 		Level(level).With().Timestamp().Logger()
 
-	// The proxy is a singleton (ADR 0017): every instance finds it at a fixed
-	// port, and overlay state lives in the process holding it. Launching a
-	// second one is therefore a no-op rather than an error — that is what makes
-	// `mise run devserver` safe to run from any worktree without checking
-	// first. A stranger on the port is still fatal: binding over it is not
-	// possible, and pretending otherwise would leave instances redirected at
-	// something that is not a GitHub proxy.
-	switch devproxy.Probe(ctx, devproxy.BaseURL(cfg.Listen)) {
-	case devproxy.StatusRunning:
-		logger.Info().
-			Str("listen", cfg.Listen).
-			Msg("devserver is already running; leaving the existing one in place")
-		return nil
-	case devproxy.StatusForeign:
-		return fmt.Errorf("%s is in use by something that is not devserver", cfg.Listen)
-	case devproxy.StatusAbsent:
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	// Win the port before opening anything: a process standing by must hold no
+	// cache handle, and binding is what decides which launch is the live one.
+	listener, err := awaitListener(ctx, cfg.Listen, o.standbyPoll, logger)
+	if errors.Is(err, context.Canceled) {
+		return nil // interrupted while standing by
+	}
+	if err != nil {
+		return err
 	}
 
 	cache, err := OpenCache(cfg.Cache.Path, cfg.Cache.TTL)
@@ -174,23 +244,6 @@ func run(ctx context.Context, cmd *cli.Command) error {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
-	// Bind before announcing, so "devserver started" is only ever printed by
-	// the process that actually owns the port. It also closes the race the
-	// probe above cannot: two launches can both see an empty port, and exactly
-	// one of them wins the bind. The loser is a duplicate, which is a no-op.
-	listener, err := net.Listen("tcp", cfg.Listen)
-	if err != nil {
-		if errors.Is(err, syscall.EADDRINUSE) {
-			logger.Info().
-				Str("listen", cfg.Listen).
-				Msg("devserver started concurrently; leaving the existing one in place")
-			return nil
-		}
-		return fmt.Errorf("listen on %s: %w", cfg.Listen, err)
-	}
-
-	// Naming the config is the point: an overlay silently rewriting data is
-	// exactly the confusion this tool could otherwise cause.
 	logger.Info().
 		Str("config", configPath).
 		Str("listen", cfg.Listen).
@@ -206,10 +259,8 @@ func run(ctx context.Context, cmd *cli.Command) error {
 			Msg("config seeds overlays; connected instances see rewritten data from the first request")
 	}
 	logger.Info().Msgf("dashboard: http://%s", cfg.Listen)
-	logger.Info().Msgf("point a desktop instance at it: HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=http://%s mise run desktop:dev", cfg.Listen)
-
-	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	logger.Info().Msgf("point a desktop instance at it: %s=http://%s mise run desktop:dev",
+		devproxy.EnvAPIBase, cfg.Listen)
 
 	errs := make(chan error, 1)
 	go func() {
@@ -220,10 +271,10 @@ func run(ctx context.Context, cmd *cli.Command) error {
 
 	select {
 	case err := <-errs:
-		return fmt.Errorf("devserver: %w", err)
+		return err
 	case <-ctx.Done():
 		logger.Info().Msg("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), o.shutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return fmt.Errorf("shutdown: %w", err)

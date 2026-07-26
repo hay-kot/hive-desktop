@@ -118,7 +118,7 @@ func (c *Control) handleState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleHealth answers the duplicate-launch and preflight probes. It reads no
+// handleHealth answers the standby launch's probe. It reads no
 // state, so it stays truthful about "a devserver owns this port" even if the
 // overlay store or cache is busy.
 func handleHealth(w http.ResponseWriter, _ *http.Request) {
