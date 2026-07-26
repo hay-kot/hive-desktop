@@ -112,8 +112,10 @@ mise run --force generate
 # -N registers files the generators created that the checkout lacks, for the
 # same reason check:bindings and check:vendor do it: plain git diff cannot see
 # an untracked file, so a brand-new enum or query output would pass unnoticed.
+# The diff is against HEAD because that same git add stages any deletion the
+# generators made, which a worktree-only diff would then report as clean.
 git add -N internal/app
-git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
+git diff HEAD --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }
@@ -125,9 +127,11 @@ run = """
 mise run desktop:generate
 # -N registers files the generator created that the checkout lacks, for the
 # same reason check:vendor does: -clean=true deletes and recreates the tree,
-# and plain git diff cannot see an untracked file.
+# and plain git diff cannot see an untracked file. The diff is against HEAD
+# because that same git add stages the deletions -clean=true made, which a
+# worktree-only diff would then report as clean.
 git add -N desktop/frontend/bindings
-git diff --exit-code -- desktop/frontend/bindings || {
+git diff HEAD --exit-code -- desktop/frontend/bindings || {
   echo "Wails bindings are out of date. Run 'mise run desktop:generate' and commit the result." >&2
   exit 1
 }
@@ -139,9 +143,11 @@ run = """
 go run ./cmd/vendorhive --skip-gomod
 # -N registers files vendorhive created that the checkout lacks (e.g. a new
 # embed asset) so git diff reports them as drift too — plain git diff cannot
-# see untracked files.
+# see untracked files. The diff is against HEAD because that same git add
+# stages the deletions vendorhive made (it recreates the tree from scratch),
+# which a worktree-only diff would then report as clean.
 git add -N internal/hivecore
-git diff --exit-code -- internal/hivecore || {
+git diff HEAD --exit-code -- internal/hivecore || {
   echo "internal/hivecore has drifted. Never edit vendored code; run 'mise run vendor' after landing changes in hive." >&2
   exit 1
 }
