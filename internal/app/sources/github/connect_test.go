@@ -358,3 +358,26 @@ func TestMockConnectionSetTokenAndDisconnect(t *testing.T) {
 	require.NoError(t, conn.Disconnect())
 	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 }
+
+// The development override (ADR 0017) is only useful if it actually reaches
+// the client both callers share, so assert the request lands on the
+// substitute base rather than api.github.com.
+func TestNewProductionClientAppliesAPIBaseOverride(t *testing.T) {
+	var got string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Path
+		_, _ = w.Write([]byte(`{"login":"octocat"}`))
+	}))
+	defer server.Close()
+
+	user, err := ghsource.NewProductionClient(server.URL).WithTokenCopy("tok").User(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "octocat", user.Login)
+	assert.Equal(t, "/user", got)
+}
+
+// An empty override is the shipped path and must leave the client on its own
+// default rather than producing a client aimed at "".
+func TestNewProductionClientWithoutOverrideUsesClientDefault(t *testing.T) {
+	assert.Equal(t, ghclient.NewClient(), ghsource.NewProductionClient(""))
+}

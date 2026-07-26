@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -179,4 +180,25 @@ func TestLockRejectsDifferentOwner(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(path, "pid"), []byte("123\n"), 0o600))
 	lock := &instanceLock{path: path, worktree: root, pid: 456, alive: func(int) bool { return false }, logger: zerolog.Nop()}
 	assert.ErrorContains(t, lock.acquire(), "belongs to")
+}
+
+// devproxy duplicates the env name rather than importing internal/app/settings,
+// which keeps cmd/devserver free of any dependency on app packages. devtools
+// imports both, so it is the one place the two spellings can be compared.
+func TestDevproxyEnvNameMatchesSettings(t *testing.T) {
+	assert.Equal(t, settings.EnvGitHubAPIBase, devproxy.EnvAPIBase)
+}
+
+// Development is proxied by default (ADR 0017): prepare must write the API base
+// into launch.env so a worktree opts in with no manual step, and it must take
+// the address from the checked-in devserver config.
+func TestPrepareWritesProxyAPIBase(t *testing.T) {
+	tools, _, _ := testDevtools(t)
+	require.NoError(t, tools.prepare(false))
+
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	assert.Equal(t,
+		devproxy.BaseURL(devproxy.ListenFromConfig(tools.worktree)),
+		launch[settings.EnvGitHubAPIBase])
 }

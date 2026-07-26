@@ -26,6 +26,15 @@ document wins for new work — do not extend the shape it is replacing.
 - **`server/`** — future Go admin backend (analytics, licenses, purchases). When built, it gets its own nested `go.mod` (`github.com/hay-kot/hive-desktop/server`) so the deployed service does not carry wails/charm dependencies; a root `go.work` is added at that point. Shared wire types (analytics events, license payloads) go in a `shared/` nested module if needed.
 - **`web/`** — plain static HTML landing page (`web/public/`), served as Cloudflare Workers static assets (`web/wrangler.jsonc`; the custom domain `hivedesktop.com` is declared there and attaches on deploy). No build step. Deploys via `.github/workflows/deploy-web.yml` on pushes to main touching `web/**`, or locally with `npm run deploy`.
 
+## Development tooling — `cmd/`
+
+Binaries that support development and release; none ship inside the app.
+
+- **`cmd/release`** — version selection, signing, notarization, and R2 publishing (`mise run release:desktop`).
+- **`cmd/vendorhive`** — the `internal/hivecore/` sync tool (`mise run vendor`).
+- **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `desktop:dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one parks it as a standby that takes over when the live one stops. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR 0017.
+- **`cmd/internal/devproxy`** — the address-and-health contract shared by `cmd/devserver` and `cmd/devtools`, so the proxy's port and the worktree's `launch.env` cannot drift apart.
+
 ## Vendored code — `internal/hivecore/`
 
 - Vendored from `colonyops/hive` `internal/` packages at the SHA pinned in `cmd/vendorhive/vendor.lock`; import paths are rewritten by the sync tool.

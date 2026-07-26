@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/rs/zerolog"
 )
@@ -23,6 +24,7 @@ const launchMarkerEnv = "HIVE_DESKTOP_LAUNCH_ENV"
 var launchKeys = []string{
 	settings.EnvDataDir,
 	settings.EnvConfigDir,
+	settings.EnvGitHubAPIBase,
 	"WAILS_VITE_HOST",
 	"WAILS_VITE_PORT",
 	"WAILS_SERVER_HOST",
@@ -168,14 +170,22 @@ func (d *devtools) prepare(fresh bool) error {
 	if err != nil {
 		return fmt.Errorf("resolve Wails port: %w", err)
 	}
+	// Development runs through the shared proxy by default (ADR 0017): the
+	// address comes from the checked-in devserver config, so changing the port
+	// there reaches every worktree without editing this. Opting out is setting
+	// the same variable empty in the gitignored overrides.env, which mise loads
+	// after launch.env.
+	proxyListen := devproxy.ListenFromConfig(d.worktree)
+
 	env := map[string]string{
-		settings.EnvDataDir:   dataDir,
-		settings.EnvConfigDir: configDir,
-		"WAILS_VITE_HOST":     cfg.Development.Vite.Host,
-		"WAILS_VITE_PORT":     strconv.Itoa(vitePort),
-		"WAILS_SERVER_HOST":   cfg.Development.Wails.Host,
-		"WAILS_SERVER_PORT":   strconv.Itoa(wailsPort),
-		launchMarkerEnv:       d.launchPath,
+		settings.EnvDataDir:       dataDir,
+		settings.EnvConfigDir:     configDir,
+		settings.EnvGitHubAPIBase: devproxy.BaseURL(proxyListen),
+		"WAILS_VITE_HOST":         cfg.Development.Vite.Host,
+		"WAILS_VITE_PORT":         strconv.Itoa(vitePort),
+		"WAILS_SERVER_HOST":       cfg.Development.Wails.Host,
+		"WAILS_SERVER_PORT":       strconv.Itoa(wailsPort),
+		launchMarkerEnv:           d.launchPath,
 	}
 	if err := writeDotenvAtomic(d.launchPath, env); err != nil {
 		return err

@@ -35,6 +35,10 @@ run = "go run ./cmd/release publish"
 description = "Sync internal/hivecore from the pinned hive commit (see cmd/vendorhive)"
 run = "go run ./cmd/vendorhive"
 
+[tasks.devserver]
+description = "Run the dev GitHub proxy + event simulator (see cmd/devserver). Point instances at it with HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE."
+run = "go run ./cmd/devserver --config cmd/devserver/devserver.yaml"
+
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
 # The file list appears twice on purpose. `sources` must be a literal array:

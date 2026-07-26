@@ -24,6 +24,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0014](decisions/0014-desktop-configuration.md) | Typed desktop configuration and worktree-local development instances |
 | [0015](decisions/0015-owned-github-client.md) | The desktop owns its GitHub client |
 | [0016](decisions/0016-webhook-listener-placement.md) | The webhook listener stays in the core as push ingress |
+| [0017](decisions/0017-devserver-github-proxy.md) | Development GitHub proxy and event simulator |
 
 ## References
 

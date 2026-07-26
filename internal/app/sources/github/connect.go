@@ -30,13 +30,24 @@ const EnvClientID = "HIVE_GITHUB_CLIENT_ID"
 // public; the device flow uses no client secret.
 const defaultClientID = "Ov23likA3JPBPkYbMGu4"
 
-// DefaultClient is the GitHub client every production Connection and
-// Fetchers instance shares. It carries no token — every request clones it
+// NewProductionClient builds the GitHub client every production Connection
+// and Fetchers instance shares. It carries no token — every request clones it
 // via WithTokenCopy — so one client safely backs both the connect flow and
-// every connected account's fetcher, and app.go need not construct one
-// itself. Tests build their own client pointed at an httptest server instead
-// of using it.
-var DefaultClient = ghclient.NewClient()
+// every connected account's fetcher. Tests build their own client pointed at
+// an httptest server instead of calling this.
+//
+// apiBase is the development override (settings.Settings.GitHubAPIBase,
+// ADR 0017): it redirects the REST/GraphQL base at cmd/devserver, and empty —
+// the shipped value — selects the client's own api.github.com default. One
+// client for both callers is what keeps a redirected instance from splitting
+// its traffic between the proxy and real GitHub. The OAuth base is never
+// redirected, so the device flow still reaches github.com.
+func NewProductionClient(apiBase string) *ghclient.Client {
+	if apiBase == "" {
+		return ghclient.NewClient()
+	}
+	return ghclient.NewClient(ghclient.WithAPIBase(apiBase))
+}
 
 // deviceFlowScopes: repo covers PR/issue search on private repos;
 // notifications covers the inbox feed.

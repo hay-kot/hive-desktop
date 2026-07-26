@@ -25,6 +25,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -174,8 +175,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
 	a.credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
 
+	// One client template backs both the fetch layer and the connect flow, so a
+	// development instance pointed at cmd/devserver never splits its traffic
+	// between the proxy and real GitHub.
+	gitHubClient := ghsource.NewProductionClient(cfg.Settings.GitHubAPIBase())
+
 	if cfg.MockMode == "" {
-		a.fetchers = ghsource.NewFetchers(ghsource.DefaultClient, a.credentials, cfg.Logger)
+		a.fetchers = ghsource.NewFetchers(gitHubClient, a.credentials, cfg.Logger)
 		a.fetchers.SetSearchTTL(a.pollInterval)
 	}
 
@@ -212,7 +218,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
 	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
 
-	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, a.credentials, func() {
+	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, gitHubClient, a.credentials, func() {
 		// Every connection transition drops this provider's fetch caches
 		// before anything is notified: a different account must never be
 		// served items fetched with the previous token. Fetchers is already
@@ -375,14 +381,14 @@ func (a *App) Close() error {
 	return err
 }
 
-func buildGitHubConnection(mock string, creds credentials.Store, onChange func()) ghsource.Connection {
+func buildGitHubConnection(mock string, client *ghclient.Client, creds credentials.Store, onChange func()) ghsource.Connection {
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
 		return ghsource.NewMockConnection(true, creds, onChange)
 	case settings.MockOnboarding:
 		return ghsource.NewMockConnection(false, creds, onChange)
 	default:
-		return ghsource.NewLiveConnection(ghsource.DefaultClient, creds, onChange)
+		return ghsource.NewLiveConnection(client, creds, onChange)
 	}
 }
 
