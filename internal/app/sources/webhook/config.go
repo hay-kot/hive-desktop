@@ -71,7 +71,7 @@ func (c *Config) Validate() error {
 	if len(c.Path) > maxPathLen {
 		return fmt.Errorf("webhook source: path exceeds %d characters", maxPathLen)
 	}
-	for _, segment := range strings.Split(c.Path, "/") {
+	for segment := range strings.SplitSeq(c.Path, "/") {
 		if !validPathSegment(segment) {
 			return fmt.Errorf("webhook source: invalid path %q (want lowercase slug segments like \"ci-alerts\" or \"ci/deploys\")", c.Path)
 		}

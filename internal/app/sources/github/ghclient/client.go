@@ -79,11 +79,6 @@ func WithAuthBase(base string) Option {
 	return func(c *Client) { c.authBase = base }
 }
 
-// WithHTTPClient overrides the underlying HTTP client.
-func WithHTTPClient(httpClient *http.Client) Option {
-	return func(c *Client) { c.httpClient = httpClient }
-}
-
 func NewClient(opts ...Option) *Client {
 	c := &Client{
 		httpClient: &http.Client{Timeout: requestTimeout},

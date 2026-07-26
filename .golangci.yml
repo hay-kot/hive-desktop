@@ -12,6 +12,7 @@ linters:
     - errorlint
     - exhaustive
     - forbidigo
+    - forcetypeassert
     - gochecknoinits
     - gocritic
     - goprintffuncname
@@ -19,6 +20,7 @@ linters:
     - ineffassign
     - interfacebloat
     - misspell
+    - modernize
     - nakedret
     - noctx
     - revive
@@ -28,6 +30,7 @@ linters:
     - testifylint
     - unconvert
     - unused
+    - usetesting
     - whitespace
     - zerologlint
   settings:

@@ -86,5 +86,7 @@ func newFilter(t *testing.T, cfg *flow.GithubFilterConfig) *filterProcessor {
 	t.Helper()
 	p, err := newFilterNode(nil, "n", cfg)
 	require.NoError(t, err)
-	return p.(*filterProcessor)
+	fp, ok := p.(*filterProcessor)
+	require.True(t, ok, "newFilterNode should return a *filterProcessor")
+	return fp
 }

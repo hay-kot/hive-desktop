@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -13,7 +14,7 @@ import (
 // so Run itself never searches the node or wire slices.
 //
 // Wires with either endpoint unknown are dropped here rather than reported:
-// flow.Validate owns reference diagnostics, and an engine that refused to run
+// flow.LoadFlow owns reference diagnostics, and an engine that refused to run
 // on a dangling wire would take a flow offline for a problem its editor
 // already surfaces.
 type Graph struct {
@@ -66,9 +67,7 @@ func NewGraph(f flow.Flow) (*Graph, error) {
 	// and therefore every ordered field of a CommitBatch — is stable across
 	// runs of the same flow.
 	remaining := make(map[string]int, len(degrees))
-	for id, deg := range degrees {
-		remaining[id] = deg
-	}
+	maps.Copy(remaining, degrees)
 	queue := append([]string(nil), g.entries...)
 	for i := 0; i < len(queue); i++ {
 		id := queue[i]

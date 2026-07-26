@@ -45,7 +45,7 @@ func TestStoreListNewestFirstAndCursor(t *testing.T) {
 	recorder := newTestStore(t, Options{Now: func() time.Time { now = now.Add(time.Second); return now }})
 	ctx := t.Context()
 
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, err := recorder.Append(ctx, ActionRun("Reproduce & fix", "exit 0"))
 		require.NoError(t, err)
 	}

@@ -111,17 +111,13 @@ func defaultPaths() Paths {
 
 // Package-level helpers are retained for isolated tests and e2e harnesses.
 // Production runtime code uses the Paths snapshot injected from main.
-func DataDir() string              { return defaultPaths().DataDir }
-func StateDir() string             { return defaultPaths().StateDir }
-func ConfigDir() string            { return defaultPaths().ConfigDir }
-func ConfigPath() string           { return defaultPaths().ConfigPath }
-func FlowsDir() string             { return defaultPaths().FlowsDir }
-func ActionsPath() string          { return defaultPaths().ActionsPath }
-func SettingsPath() string         { return defaultPaths().SettingsPath }
-func CredentialsIndexPath() string { return defaultPaths().CredentialsIndexPath }
-func DataDirOverridden() bool      { return defaultPaths().DataDirOverridden }
-func ConfigDirOverridden() bool    { return defaultPaths().ConfigDirOverridden }
-func MockMode() string             { return envMockMode() }
+func DataDir() string      { return defaultPaths().DataDir }
+func StateDir() string     { return defaultPaths().StateDir }
+func ConfigDir() string    { return defaultPaths().ConfigDir }
+func FlowsDir() string     { return defaultPaths().FlowsDir }
+func ActionsPath() string  { return defaultPaths().ActionsPath }
+func SettingsPath() string { return defaultPaths().SettingsPath }
+func MockMode() string     { return envMockMode() }
 
 var onboardingFlowsDir = sync.OnceValue(func() string {
 	dir, err := os.MkdirTemp("", "hive-desktop-onboarding-")

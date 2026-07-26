@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 
 	"gopkg.in/yaml.v3"
 )
@@ -75,10 +76,8 @@ func validateActions(actionList []Action) error {
 		if a.Label == "" {
 			return fmt.Errorf("action %q: label is required", a.ID)
 		}
-		for _, kind := range a.AppliesTo {
-			if kind == "" {
-				return fmt.Errorf("action %q: applies_to entries must not be empty", a.ID)
-			}
+		if slices.Contains(a.AppliesTo, "") {
+			return fmt.Errorf("action %q: applies_to entries must not be empty", a.ID)
 		}
 		if a.Config == nil {
 			return fmt.Errorf("action %q: no config decoded", a.ID)

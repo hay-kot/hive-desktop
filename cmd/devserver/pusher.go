@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"sort"
 	"sync"
@@ -102,9 +103,7 @@ func (p *Pusher) Payload(name string) (map[string]any, bool) {
 		return nil, false
 	}
 	out := make(map[string]any, len(payload))
-	for k, v := range payload {
-		out[k] = v
-	}
+	maps.Copy(out, payload)
 	return out, true
 }
 
@@ -126,9 +125,7 @@ func (p *Pusher) PushNamed(ctx context.Context, targetName, payloadName string, 
 	if !ok {
 		return PushResult{}, fmt.Errorf("no payload named %q", payloadName)
 	}
-	for key, value := range overrides {
-		payload[key] = value
-	}
+	maps.Copy(payload, overrides)
 	return p.Push(ctx, targetName, payloadName, payload)
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -97,9 +98,7 @@ func (s *Store) Overlays() map[string]Mutations {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make(map[string]Mutations, len(s.overlays))
-	for k, v := range s.overlays {
-		out[k] = v
-	}
+	maps.Copy(out, s.overlays)
 	return out
 }
 

@@ -2,6 +2,8 @@
 "go" = "1.26"
 "go:github.com/wailsapp/wails/v3/cmd/wails3" = "v3.0.0-alpha2.117"
 "go:github.com/abice/go-enum" = "v0.9.4"
+"go:golang.org/x/tools/cmd/deadcode" = "v0.48.0"
+"go:golang.org/x/vuln/cmd/govulncheck" = "v1.6.0"
 "github:sqlc-dev/sqlc" = "v1.31.1"
 golangci-lint = "2.12.2"
 lefthook = "2.1.10"
@@ -140,6 +142,39 @@ git diff HEAD --exit-code -- desktop/frontend/bindings || {
   exit 1
 }
 """
+
+# Not part of `check`: this builds the whole program's SSA and takes ~40s,
+# well past the pre-push budget. CI-only, same as check:bindings.
+[tasks."check:deadcode"]
+description = "Report functions unreachable from any main or test entry point"
+run = """
+# -test counts test files as entry points, so a helper only a test calls is
+# reachable, not dead. internal/hivecore is subtracted rather than allowlisted
+# via -filter: vendored code legitimately carries surface this repo does not
+# call, and subtracting keeps new first-party packages in the gate by default
+# instead of silently escaping an out-of-date filter regex.
+#
+# Not piped straight into grep: deadcode's own failures go to stderr, so a
+# broken analysis would leave an empty report and pass the gate silently.
+if ! found=$(deadcode -test ./...); then
+  echo "deadcode failed to analyze the program (see the error above)." >&2
+  exit 1
+fi
+report=$(printf '%s\n' "$found" | grep -v '^internal/hivecore/' || true)
+# deadcode exits 0 even when it reports findings, so the output is the gate.
+if [ -n "$report" ]; then
+  echo "$report" >&2
+  echo "Unreachable functions found. Delete them, or wire up the caller that should have been calling them." >&2
+  exit 1
+fi
+"""
+
+# Not part of `check`: needs the network for the vulnerability database.
+# Exits 3 only when a vulnerable symbol is actually reachable from this code;
+# advisories against imported-but-uncalled packages do not fail the build.
+[tasks."check:vuln"]
+description = "Scan dependencies for known vulnerabilities reachable from this code (network: fetches the vuln database)"
+run = "govulncheck ./..."
 
 [tasks."check:vendor"]
 description = "Verify internal/hivecore matches the pinned hive commit (network: fetches hive)"

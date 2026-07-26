@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"maps"
 
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
@@ -71,9 +72,7 @@ var behaviors = buildBehaviors(map[string]behavior{
 // there is nothing to resolve to at run time.
 func buildBehaviors(declared map[string]behavior) map[string]behavior {
 	out := make(map[string]behavior, len(declared))
-	for nodeType, b := range declared {
-		out[nodeType] = b
-	}
+	maps.Copy(out, declared)
 	for _, connectorType := range sources.Types() {
 		if _, clash := out[connectorType]; clash {
 			panic("runtime: source connector " + connectorType + " collides with a declared node type")

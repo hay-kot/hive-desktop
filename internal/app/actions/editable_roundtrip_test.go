@@ -32,8 +32,8 @@ func populateNonZero(t *testing.T, v reflect.Value, seed *int) {
 		}
 		populateNonZero(t, v.Elem(), seed)
 	case reflect.Struct:
-		for i := 0; i < v.NumField(); i++ {
-			populateNonZero(t, v.Field(i), seed)
+		for _, field := range v.Fields() {
+			populateNonZero(t, field, seed)
 		}
 	case reflect.String:
 		*seed++

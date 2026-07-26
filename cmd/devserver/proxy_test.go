@@ -44,9 +44,9 @@ func do(t *testing.T, proxy *Proxy, method, target string, body string, headers 
 }
 
 func TestProxyServesSecondRequestFromCache(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"login":"hay-kot"}`)) //nolint:errcheck // test server
 	}))
@@ -63,7 +63,7 @@ func TestProxyServesSecondRequestFromCache(t *testing.T) {
 	assert.Equal(t, "hit", second.Header().Get("X-Devserver-Outcome"))
 	assert.JSONEq(t, `{"login":"hay-kot"}`, second.Body.String())
 
-	assert.Equal(t, int64(1), atomic.LoadInt64(&calls),
+	assert.Equal(t, int64(1), calls.Load(),
 		"the whole point of the proxy: the second caller costs no upstream request")
 }
 
@@ -88,11 +88,11 @@ func TestProxyIsolatesCacheByToken(t *testing.T) {
 
 func TestProxyRevalidatesWithETagAndServesStoredBody(t *testing.T) {
 	var (
-		calls          int64
+		calls          atomic.Int64
 		sawIfNoneMatch string
 	)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		if match := r.Header.Get("If-None-Match"); match != "" {
 			sawIfNoneMatch = match
 			w.WriteHeader(http.StatusNotModified)
@@ -116,13 +116,13 @@ func TestProxyRevalidatesWithETagAndServesStoredBody(t *testing.T) {
 	// A 304 costs no primary rate-limit quota, and the client still gets the
 	// full body — this is headroom the desktop client cannot get on its own.
 	assert.JSONEq(t, `{"login":"hay-kot"}`, second.Body.String())
-	assert.Equal(t, int64(2), atomic.LoadInt64(&calls))
+	assert.Equal(t, int64(2), calls.Load())
 }
 
 func TestProxyCachesGraphQLByRequestBody(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"data":{"s0":{"nodes":[]}}}`)) //nolint:errcheck // test server
 	}))
@@ -136,19 +136,19 @@ func TestProxyCachesGraphQLByRequestBody(t *testing.T) {
 
 	do(t, proxy, http.MethodPost, "/graphql", queryA, auth)
 	do(t, proxy, http.MethodPost, "/graphql", queryA, auth)
-	assert.Equal(t, int64(1), atomic.LoadInt64(&calls), "an identical search must hit cache")
+	assert.Equal(t, int64(1), calls.Load(), "an identical search must hit cache")
 
 	do(t, proxy, http.MethodPost, "/graphql", queryB, auth)
 	// The desktop puts the whole search in the POST body; the URL is identical
 	// for every distinct search, so a body-blind key would collapse them all.
-	assert.Equal(t, int64(2), atomic.LoadInt64(&calls), "a different search must miss")
+	assert.Equal(t, int64(2), calls.Load(), "a different search must miss")
 }
 
 func TestProxyCoalescesConcurrentIdenticalRequests(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	release := make(chan struct{})
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		<-release
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"login":"hay-kot"}`)) //nolint:errcheck // test server
@@ -160,11 +160,9 @@ func TestProxyCoalescesConcurrentIdenticalRequests(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			do(t, proxy, http.MethodGet, "/user", "", auth)
-		}()
+		})
 	}
 	// Give every goroutine time to reach the flight group before answering.
 	time.Sleep(50 * time.Millisecond)
@@ -173,7 +171,7 @@ func TestProxyCoalescesConcurrentIdenticalRequests(t *testing.T) {
 
 	// Several dev instances tick on the same 60s boundary; without
 	// singleflight that is a burst of identical upstream calls.
-	assert.Equal(t, int64(1), atomic.LoadInt64(&calls))
+	assert.Equal(t, int64(1), calls.Load())
 }
 
 func TestProxyAppliesOverlayToProxiedResponse(t *testing.T) {
@@ -210,7 +208,7 @@ func TestProxyOverlayAppliesToCachedResponsesToo(t *testing.T) {
 	// out, not on the way in — otherwise it could not be changed without
 	// purging, and the dashboard would feel broken.
 	do(t, proxy, http.MethodGet, "/repos/hay-kot/hive-desktop/pulls/58", "", auth)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("closed")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{State: new("closed")})
 
 	resp := do(t, proxy, http.MethodGet, "/repos/hay-kot/hive-desktop/pulls/58", "", auth)
 	assert.Equal(t, "hit", resp.Header().Get("X-Devserver-Outcome"))
@@ -241,9 +239,9 @@ func TestProxyServesStaleWhenUpstreamFails(t *testing.T) {
 }
 
 func TestProxyDoesNotCacheErrorResponses(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		count := atomic.AddInt64(&calls, 1)
+		count := calls.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		if count == 1 {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -264,7 +262,7 @@ func TestProxyDoesNotCacheErrorResponses(t *testing.T) {
 	// rate-limit 403 would extend the outage past its own reset.
 	second := do(t, proxy, http.MethodGet, "/user", "", auth)
 	assert.Equal(t, http.StatusOK, second.Code)
-	assert.Equal(t, int64(2), atomic.LoadInt64(&calls))
+	assert.Equal(t, int64(2), calls.Load())
 }
 
 func TestProxyPassesThroughUnknownRoutes(t *testing.T) {

@@ -361,7 +361,12 @@ func resolvePort(server settings.ServerSettings, excluded int) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("preflight %s: %w", address, err)
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = listener.Close()
+		return 0, fmt.Errorf("preflight %s: listener address is %T, want *net.TCPAddr", address, listener.Addr())
+	}
+	port := addr.Port
 	if err := listener.Close(); err != nil {
 		return 0, fmt.Errorf("close preflight listener: %w", err)
 	}

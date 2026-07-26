@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync"
 
@@ -205,10 +206,8 @@ func (s *KeychainStore) addToIndex(ref Ref) error {
 	if err != nil {
 		return err
 	}
-	for _, existing := range refs {
-		if existing == ref {
-			return nil
-		}
+	if slices.Contains(refs, ref) {
+		return nil
 	}
 	return s.writeIndex(append(refs, ref))
 }

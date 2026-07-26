@@ -2,6 +2,7 @@ package sources
 
 import (
 	"encoding/json"
+	"maps"
 	"reflect"
 	"strings"
 	"testing"
@@ -251,9 +252,7 @@ func fieldCombinations(doc schemaDoc, names []string) []map[string]any {
 		for _, combo := range combos {
 			for _, value := range candidates {
 				merged := make(map[string]any, len(combo)+1)
-				for k, v := range combo {
-					merged[k] = v
-				}
+				maps.Copy(merged, combo)
 				merged[name] = value
 				next = append(next, merged)
 			}
