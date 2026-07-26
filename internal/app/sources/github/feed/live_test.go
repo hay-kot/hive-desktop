@@ -17,6 +17,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 // testAccount is the credential ref every fixture in this file resolves its
@@ -246,15 +247,15 @@ func TestCooldown_SuppressesAllFetches(t *testing.T) {
 	notifications := SourceDef{ID: "inbox", Kind: "notifications"}
 
 	_, err := live.SourceItems(t.Context(), search)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	mu.Lock()
 	assert.Equal(t, 1, requests)
 	mu.Unlock()
 
 	_, err = live.SourceItems(t.Context(), search)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), notifications)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	mu.Lock()
 	assert.Equal(t, 1, requests, "cooldown suppresses search and notifications")
 	mu.Unlock()
@@ -282,11 +283,11 @@ func TestConfirmTerminal_HonorsCooldownWithoutRequest(t *testing.T) {
 	live.now = func() time.Time { return now }
 	live.mu.Lock()
 	live.cooldownUntil = now.Add(time.Minute)
-	live.cooldownErr = ghclient.ErrRateLimited
+	live.cooldownErr = sourcehttp.ErrRateLimited
 	live.mu.Unlock()
 
 	_, err := live.ConfirmTerminal(t.Context(), "acme/repo", 42, false)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	assert.Zero(t, requests, "an active cooldown must suppress terminal hydration")
 }
 
@@ -374,11 +375,11 @@ func TestCooldown_RecordsActivityOnce(t *testing.T) {
 	live.SetRecorder(recorder)
 
 	_, err := live.SourceItems(t.Context(), SourceDef{ID: "search", Kind: "search", Query: "is:open"})
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), SourceDef{ID: "inbox", Kind: "notifications"})
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	err = live.PrefetchSearch(t.Context(), []SourceDef{{ID: "other", Kind: "search", Query: "is:pr"}})
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 
 	events := recorder.snapshot()
 	require.Len(t, events, 1)
@@ -404,9 +405,9 @@ func TestInvalidate_ClearsCooldown(t *testing.T) {
 	def := SourceDef{ID: "search", Kind: "search", Query: "is:open"}
 
 	_, err := live.SourceItems(t.Context(), def)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	_, err = live.SourceItems(t.Context(), def)
-	require.ErrorIs(t, err, ghclient.ErrRateLimited)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	assert.Equal(t, 1, requests)
 
 	limited = false

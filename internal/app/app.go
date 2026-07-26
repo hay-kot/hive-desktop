@@ -177,8 +177,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	// One client template backs both the fetch layer and the connect flow, so a
 	// development instance pointed at cmd/devserver never splits its traffic
-	// between the proxy and real GitHub.
-	gitHubClient := ghsource.NewProductionClient(cfg.Settings.GitHubAPIBase())
+	// between the proxy and real GitHub. The API base is the ADR 0017 dev
+	// override and is empty in shipped builds; the OAuth base is never
+	// redirected, so the device flow still reaches github.com.
+	gitHubOpts := []ghclient.Option{ghclient.WithLogger(cfg.Logger)}
+	if apiBase := cfg.Settings.GitHubAPIBase(); apiBase != "" {
+		gitHubOpts = append(gitHubOpts, ghclient.WithAPIBase(apiBase))
+	}
+	gitHubClient := ghclient.NewClient(gitHubOpts...)
 
 	if cfg.MockMode == "" {
 		a.fetchers = ghsource.NewFetchers(gitHubClient, a.credentials, cfg.Logger)
