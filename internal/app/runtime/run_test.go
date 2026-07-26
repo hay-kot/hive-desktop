@@ -85,7 +85,7 @@ func TestRunProducesACommitForTheWholeBatch(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, "f", got.Consumer)
-	require.Equal(t, "9", got.UpToOffset, "the highest offset in the batch, not the last one seen")
+	require.Equal(t, int64(9), got.UpToOffset, "the highest offset in the batch, not the last one seen")
 	require.Len(t, got.Outputs, 3)
 	require.Empty(t, got.Discards)
 }

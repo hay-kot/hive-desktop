@@ -43,7 +43,7 @@ func TestCommitBatchWritesUseUnixMilliseconds(t *testing.T) {
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "1",
+		UpToOffset: 1,
 		Outputs: []Output{{
 			Sink:          Sink{Kind: SinkKindAction, TargetID: "action-a"},
 			OccurrenceKey: "item-1",

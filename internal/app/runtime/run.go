@@ -369,7 +369,12 @@ func emptyPorts(ports [][]store.Msg) bool {
 // this is normally the last message; taking the maximum rather than the last
 // keeps the result correct for a caller that assembled a batch itself, which
 // the replay protocol does.
-func upToOffset(batch []store.Msg) string {
+//
+// msg.ID stays a string end to end (see store.Msg), so every message's offset
+// is parsed back out here; the batch sizes this runs over do not make it
+// worth carrying a parallel unexported offset field just to skip a strconv
+// call.
+func upToOffset(batch []store.Msg) int64 {
 	var highest int64
 	for _, msg := range batch {
 		offset, err := strconv.ParseInt(msg.ID, 10, 64)
@@ -380,5 +385,5 @@ func upToOffset(batch []store.Msg) string {
 			highest = offset
 		}
 	}
-	return strconv.FormatInt(highest, 10)
+	return highest
 }

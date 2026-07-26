@@ -25,7 +25,7 @@
   ],
   "expected": {
     "consumer": "empty",
-    "upToOffset": "7",
+    "upToOffset": 7,
     "outputs": [],
     "feedSnapshots": [
       { "feedId": "empty/inbox", "sourceTopic": "source:empty/gh", "snapshotId": "7" }

@@ -39,9 +39,9 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	})
 	worker := NewWorker(db, NewFlowNotifyActions(flows, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
-	// What the frontend graph runtime commits for a message reaching a notify
-	// terminal (see engine/runGraph.ts).
-	commit := func(offset, occurrence string) {
+	// What the graph runtime (internal/app/runtime) commits for a message
+	// reaching a notify terminal.
+	commit := func(offset int64, occurrence string) {
 		t.Helper()
 		require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
 			Consumer: "triage", UpToOffset: offset,
@@ -57,7 +57,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 		}))
 	}
 
-	commit("1", "acme/api#12:open:100:comment")
+	commit(1, "acme/api#12:open:100:comment")
 	worker.Tick(ctx)
 
 	require.Len(t, notifier.sent, 1)
@@ -71,7 +71,7 @@ func TestNotifyTerminal_DeliversThroughTheWorker(t *testing.T) {
 	assert.Len(t, notifier.sent, 1)
 
 	// Nor can the same occurrence arriving again in a later batch.
-	commit("2", "acme/api#12:open:100:comment")
+	commit(2, "acme/api#12:open:100:comment")
 	worker.Tick(ctx)
 	assert.Len(t, notifier.sent, 1)
 }
@@ -91,7 +91,7 @@ func TestNotifyTerminal_DeletedNodeFailsItsQueuedCommand(t *testing.T) {
 	worker := NewWorker(db, NewFlowNotifyActions(flowListerTest{}, actionListerTest{}), dispatcher, DefaultOutputWorkerInterval, zerolog.Nop())
 
 	require.NoError(t, db.CommitBatch(ctx, store.CommitBatch{
-		Consumer: "triage", UpToOffset: "1",
+		Consumer: "triage", UpToOffset: 1,
 		Outputs: []store.Output{{
 			Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: "triage/deleted"},
 			Key:           "acme/api#12",

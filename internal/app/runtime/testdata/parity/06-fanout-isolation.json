@@ -28,7 +28,7 @@
   ],
   "expected": {
     "consumer": "fan",
-    "upToOffset": "1",
+    "upToOffset": 1,
     "outputs": [
       {
         "sink": { "kind": "notify", "targetId": "fan/na" },

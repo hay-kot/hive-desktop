@@ -36,7 +36,7 @@
   ],
   "expected": {
     "consumer": "triage",
-    "upToOffset": "11",
+    "upToOffset": 11,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "triage/inbox" },

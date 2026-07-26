@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -113,13 +112,13 @@ type NodeRunView struct {
 	DurMs     int64  `json:"durMs"`
 }
 
-// CommitBatch is the frontend graph runtime's atomic write: it advances a
-// consumer's committed offset and persists the outputs/node-run metrics
-// produced while processing up to that offset, all in one transaction (see
-// DB.CommitBatch).
+// CommitBatch is the graph runtime's (internal/app/runtime) atomic write: it
+// advances a consumer's committed offset and persists the outputs/node-run
+// metrics produced while processing up to that offset, all in one transaction
+// (see DB.CommitBatch).
 type CommitBatch struct {
-	Consumer      string         `json:"consumer"`   // event_log consumer key (flow id / consumer id)
-	UpToOffset    string         `json:"upToOffset"` // decimal event-log offset; strings preserve int64 precision across Wails
+	Consumer      string         `json:"consumer"` // event_log consumer key (flow id / consumer id)
+	UpToOffset    int64          `json:"upToOffset"`
 	Outputs       []Output       `json:"outputs"`
 	FeedSnapshots []FeedSnapshot `json:"feedSnapshots"`
 	Discards      []Discard      `json:"discards"`
@@ -138,9 +137,8 @@ type CommitBatch struct {
 // could legitimately enqueue the same action.
 func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 	db.debugPauseCommit(ctx)
-	offset, err := strconv.ParseInt(b.UpToOffset, 10, 64)
-	if err != nil || offset < 0 {
-		return fmt.Errorf("parsing commit offset %q: expected a non-negative decimal int64", b.UpToOffset)
+	if b.UpToOffset < 0 {
+		return fmt.Errorf("commit offset must not be negative: %d", b.UpToOffset)
 	}
 
 	return db.WithTx(ctx, func(q *Queries) error {
@@ -149,7 +147,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			return fmt.Errorf("reading committed offset for consumer %q: %w", b.Consumer, err)
 		}
 
-		if offset <= current.Offset {
+		if b.UpToOffset <= current.Offset {
 			// Already applied by a previous commit of this batch (or a
 			// stale/out-of-order commit) — no-op.
 			return nil
@@ -243,7 +241,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 
 		if err := q.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{
 			Consumer: b.Consumer,
-			Offset:   offset,
+			Offset:   b.UpToOffset,
 		}); err != nil {
 			return fmt.Errorf("advancing consumer offset for %q: %w", b.Consumer, err)
 		}

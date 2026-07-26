@@ -19,7 +19,7 @@ func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "1",
+		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []Output{{
 			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "item-1",
 			SourceKind: "github", SourceScope: "source-a", SourceTopic: "source:flow-1/source-a",
@@ -48,7 +48,7 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "1",
+		UpToOffset: 1,
 		Outputs: []Output{
 			{
 				Sink:          Sink{Kind: SinkKindAction, TargetID: "action-a"},
@@ -64,7 +64,7 @@ func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 	// action fires at most once.
 	batch2 := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "2",
+		UpToOffset: 2,
 		Outputs: []Output{
 			{
 				Sink:          Sink{Kind: SinkKindAction, TargetID: "action-a"},
@@ -94,7 +94,7 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 	}
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "1",
+		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
 	}))
 
@@ -121,14 +121,14 @@ func TestCommitBatch_NotifyOutput_EnqueuesTheItemIdentityOnce(t *testing.T) {
 	// The same occurrence arriving again — a re-emitted, unchanged item —
 	// must not interrupt the user a second time.
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "2",
+		Consumer: "flow-1", UpToOffset: 2,
 		Outputs: []Output{notifyOutput("item-1@2", `{"repo":"acme/api"}`)},
 	}))
 	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
 
 	// A new occurrence for the same item is new information and enqueues.
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "3",
+		Consumer: "flow-1", UpToOffset: 3,
 		Outputs: []Output{notifyOutput("item-1@3", `{"repo":"acme/api"}`)},
 	}))
 	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
@@ -150,15 +150,15 @@ func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *test
 	}
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "1", Outputs: []Output{notifyOutput(`{"v":1}`)},
+		Consumer: "flow-1", UpToOffset: 1, Outputs: []Output{notifyOutput(`{"v":1}`)},
 	}))
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "2", Outputs: []Output{notifyOutput(`{"v":1}`)},
+		Consumer: "flow-1", UpToOffset: 2, Outputs: []Output{notifyOutput(`{"v":1}`)},
 	}))
 	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "3", Outputs: []Output{notifyOutput(`{"v":2}`)},
+		Consumer: "flow-1", UpToOffset: 3, Outputs: []Output{notifyOutput(`{"v":2}`)},
 	}))
 	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
 }
@@ -169,7 +169,7 @@ func TestCommitBatch_NotifyOutput_IsPerNode(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
-		Consumer: "flow-1", UpToOffset: "1",
+		Consumer: "flow-1", UpToOffset: 1,
 		Outputs: []Output{
 			{Sink: Sink{Kind: SinkKindNotify, TargetID: "flow-1/tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
 			{Sink: Sink{Kind: SinkKindNotify, TargetID: "flow-1/also-tell-me"}, Key: "item-1", OccurrenceKey: "occ", Payload: []byte(`{}`)},
@@ -191,7 +191,7 @@ func TestCommitBatch_InsertsNodeRuns(t *testing.T) {
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "1",
+		UpToOffset: 1,
 		NodeRuns: []NodeRunView{
 			{
 				FlowID:    "flow-1",
@@ -257,7 +257,7 @@ func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "5",
+		UpToOffset: 5,
 		NodeRuns: []NodeRunView{
 			{FlowID: "flow-1", NodeID: "node-a", OK: true},
 		},
@@ -289,7 +289,7 @@ func TestCommitBatch_AdvancesOffset_AndIsIdempotentOnReplay(t *testing.T) {
 	// no-op, even with different/new outputs.
 	staleBatch := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "3",
+		UpToOffset: 3,
 		Outputs: []Output{{
 			Sink:          Sink{Kind: SinkKindAction, TargetID: "action-a"},
 			OccurrenceKey: "item-new",
@@ -311,7 +311,7 @@ func TestCommitBatch_UnknownSinkKind_Errors(t *testing.T) {
 
 	batch := CommitBatch{
 		Consumer:   "flow-1",
-		UpToOffset: "1",
+		UpToOffset: 1,
 		Outputs: []Output{
 			{Sink: Sink{Kind: "bogus", TargetID: "x"}, Key: "k", Payload: []byte(`{}`)},
 		},

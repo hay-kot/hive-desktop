@@ -36,7 +36,7 @@
   ],
   "expected": {
     "consumer": "fn",
-    "upToOffset": "2",
+    "upToOffset": 2,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "fn/hi" },

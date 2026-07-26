@@ -128,7 +128,7 @@ func TestReadForConsumer_ResumesFromPersistedOffset(t *testing.T) {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "flow-1", UpToOffset: "2"}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "flow-1", UpToOffset: 2}))
 
 	msgs, err := database.ReadForConsumer(ctx, "flow-1", 500)
 	require.NoError(t, err)

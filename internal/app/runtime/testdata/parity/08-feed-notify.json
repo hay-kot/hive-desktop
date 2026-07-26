@@ -30,7 +30,7 @@
   ],
   "expected": {
     "consumer": "loud",
-    "upToOffset": "2",
+    "upToOffset": 2,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "loud/f" },

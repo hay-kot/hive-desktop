@@ -40,7 +40,7 @@
   ],
   "expected": {
     "consumer": "snap",
-    "upToOffset": "21",
+    "upToOffset": 21,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "snap/inbox" },

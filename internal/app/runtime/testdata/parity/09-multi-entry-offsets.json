@@ -30,7 +30,7 @@
   ],
   "expected": {
     "consumer": "multi",
-    "upToOffset": "30",
+    "upToOffset": 30,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "multi/inbox" },

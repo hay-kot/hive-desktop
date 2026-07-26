@@ -32,7 +32,7 @@ func enqueueTestCommand(t *testing.T, db *store.DB, actionID, key, payload strin
 	t.Helper()
 	require.NoError(t, db.CommitBatch(t.Context(), store.CommitBatch{
 		Consumer:   "test-consumer-" + actionID + "-" + key,
-		UpToOffset: "1",
+		UpToOffset: 1,
 		Outputs: []store.Output{
 			{
 				Sink:          store.Sink{Kind: store.SinkKindAction, TargetID: actionID},

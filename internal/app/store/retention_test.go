@@ -18,8 +18,8 @@ func TestPrune_EventLogIsNotGatedByConsumerOffsets(t *testing.T) {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "fast-flow", UpToOffset: "5"}))
-	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "slow-flow", UpToOffset: "2"}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "fast-flow", UpToOffset: 5}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "slow-flow", UpToOffset: 2}))
 
 	result, err := database.Prune(ctx, []string{"fast-flow", "slow-flow"}, DefaultRetentionPolicy())
 	require.NoError(t, err)
@@ -59,7 +59,7 @@ func TestPrune_EventLogUsesPerTopicCountWithoutConsumers(t *testing.T) {
 		_, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(`{}`))
 		require.NoError(t, err)
 	}
-	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "committed", UpToOffset: "3"}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "committed", UpToOffset: 3}))
 
 	_, err := database.Prune(ctx, []string{"committed", "newly-enabled"}, RetentionPolicy{EventLogPerTopicLimit: 1})
 	require.NoError(t, err)

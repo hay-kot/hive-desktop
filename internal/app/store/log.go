@@ -12,13 +12,20 @@ import (
 )
 
 // Msg is the pipeline's generic log record, appended by sources and consumed
-// by the frontend graph runtime.
+// by the graph runtime (internal/app/runtime).
 //
 // It mirrors the design's { id, key, topic, ts, payload } contract,
 // with Snapshot populated only for an authoritative full-source snapshot,
 // mapped onto the event_log schema (see migrations/0001_pipeline.up.sql):
 //   - ID is derived from the row's "offset" (stable, unique per append; there
-//     is no separate id column).
+//     is no separate id column) and stays a decimal string rather than an
+//     int64. A function node's script sees this value as a genuine
+//     JavaScript value crossing goja's JSON.parse/JSON.stringify boundary
+//     (runtime/js.go), including round-tripping through a script that
+//     returns the message it was handed — and a JS number cannot represent
+//     an int64 exactly past 2^53. The string is what keeps a large offset
+//     intact for the script; it is not about Wails, which nothing on this
+//     path crosses anymore.
 //   - Ts is the row's created_at (unix milliseconds).
 //   - Snapshot is nil for ordinary item events and contains the full current
 //     source item set for successful poll snapshots.

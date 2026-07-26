@@ -27,7 +27,7 @@
   ],
   "expected": {
     "consumer": "err",
-    "upToOffset": "1",
+    "upToOffset": 1,
     "outputs": [],
     "feedSnapshots": [],
     "discards": [

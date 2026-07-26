@@ -50,7 +50,7 @@
   ],
   "expected": {
     "consumer": "globs",
-    "upToOffset": "5",
+    "upToOffset": 5,
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "globs/inbox" },

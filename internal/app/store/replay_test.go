@@ -23,17 +23,18 @@ func TestCommitBatch_EmptySourceSnapshotClearsOnlyThatSourceClaims(t *testing.T)
 	db := openTestDB(t)
 	item := seedReplayItem(t, db, "flow", "item")
 	feed := Sink{Kind: SinkKindFeed, TargetID: "flow/feed"}
-	commit := func(offset, source string, snapshot bool) {
+	commit := func(offset int64, source string, snapshot bool) {
+		snapshotID := strconv.FormatInt(offset, 10)
 		batch := CommitBatch{Consumer: "flow", UpToOffset: offset, Outputs: []Output{{Sink: feed, Key: "item", SourceKind: "github", SourceScope: "scope", SourceTopic: source}}}
 		if snapshot {
-			batch.Outputs[0].SnapshotID = offset
-			batch.FeedSnapshots = []FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: source, SnapshotID: offset}}
+			batch.Outputs[0].SnapshotID = snapshotID
+			batch.FeedSnapshots = []FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: source, SnapshotID: snapshotID}}
 		}
 		require.NoError(t, db.CommitBatch(t.Context(), batch))
 	}
-	commit("1", "source:flow/a", true)
-	commit("2", "source:flow/b", true)
-	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{Consumer: "flow", UpToOffset: "3", FeedSnapshots: []FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: "source:flow/a", SnapshotID: "3"}}}))
+	commit(1, "source:flow/a", true)
+	commit(2, "source:flow/b", true)
+	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{Consumer: "flow", UpToOffset: 3, FeedSnapshots: []FeedSnapshot{{FeedID: feed.TargetID, SourceTopic: "source:flow/a", SnapshotID: "3"}}}))
 
 	var source string
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT source_id FROM feed_membership_claim WHERE item_id = ?`, item.ID).Scan(&source))
@@ -252,7 +253,7 @@ func TestPurgeProfile_DeletesAllOwnedStateIdempotently(t *testing.T) {
 	_, appended, err := db.AppendIfChanged(t.Context(), "source:flow/source", "item", []byte(`{}`))
 	require.NoError(t, err)
 	require.True(t, appended)
-	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{Consumer: "flow", UpToOffset: "1"}))
+	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{Consumer: "flow", UpToOffset: 1}))
 
 	for _, table := range []string{"inbox_item", "inbox_event", "feed_membership_claim", "consumer_offset", "source_head", "event_log"} {
 		var n int
