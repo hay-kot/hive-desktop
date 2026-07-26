@@ -5,25 +5,19 @@
 # it is versioned with the tasks it invokes, and a global entry would have to be
 # keyed on a worktree basename (hive-desktop-j28hih) that differs per worktree.
 #
-# Order matters. devserver is started first because desktop:dev routes GitHub
-# through it by default (ADR 0017), and the desktop tab waits for it rather than
-# assuming — see the comment on that tab.
+# devserver is listed first so it starts linking sooner, but the tabs are not
+# ordered: nothing gates the desktop tab on the proxy being up. A proxy that is
+# not answering yet surfaces as transport errors in the desktop logs, which is
+# the same place any other GitHub failure shows up.
 tabs:
   # The shared GitHub proxy: response cache + event simulator dashboard on
   # http://127.0.0.1:7777. It is a singleton across every worktree, so if one is
-  # already running from another session this exits 0 and leaves it alone
-  # instead of failing on the port.
+  # already running from another session this stands by and takes over if that
+  # one stops, instead of failing on the port.
   - title: devserver
     cmd: mise run devserver
 
-  # `go run ./cmd/devserver` has to link modernc.org/sqlite before it binds, so
-  # the proxy is not up the instant the tab above starts. --wait polls until it
-  # is, which is the launcher's job: a human running desktop:dev by hand wants
-  # to be told immediately, so the task's own preflight still probes once.
-  #
-  # Opting out of the proxy (HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE="" in
-  # overrides.env) makes the wait a no-op, so this line works either way.
   - title: desktop
-    cmd: go run ./cmd/devtools check-proxy --wait 90s && mise run desktop:dev
+    cmd: mise run desktop:dev
 
 timeout: 15

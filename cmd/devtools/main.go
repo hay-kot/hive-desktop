@@ -5,16 +5,12 @@ package main
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v3"
-
-	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
 )
 
 const envLogLevel = "HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL"
@@ -81,67 +77,8 @@ func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
 				Description: "Safely removes the marked .hive-desktop directory and generated launch.env without starting Wails.",
 				Action:      devtoolsAction(logger, func(tools *devtools) error { return tools.withLock(tools.reset) }),
 			},
-			{
-				Name:        "check-proxy",
-				Usage:       "verify the development GitHub proxy is reachable",
-				Description: "Reads the effective HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE and fails with instructions when no devserver answers there. Development is proxied by default, so this turns connection-refused-on-every-GitHub-call into one actionable message before Wails starts. An empty value means direct-to-GitHub and passes.",
-				Action:      checkProxyAction(logger),
-			},
 		},
 	}
-}
-
-// checkProxyAction is the desktop:dev preflight. It reads the *effective*
-// environment — mise has already layered launch.env and overrides.env by the
-// time the task runs — so opting out in overrides.env silently disables the
-// check rather than needing a separate task.
-func checkProxyAction(logger *zerolog.Logger) cli.ActionFunc {
-	return func(ctx context.Context, cmd *cli.Command) error {
-		if cmd.NArg() != 0 {
-			return cli.Exit(cmd.Name+" does not accept positional arguments", 2)
-		}
-		base := strings.TrimSpace(os.Getenv(devproxy.EnvAPIBase))
-		if base == "" {
-			logger.Debug().Msg("no GitHub API base override; talking to api.github.com directly")
-			return nil
-		}
-
-		// One probe, no retry. devserver binds in the time it takes to link one
-		// Go binary, while the tab this guards goes on to build Wails bindings
-		// and Vite before anything reaches GitHub — so a proxy that is genuinely
-		// starting has always won that race by the time the app would need it.
-		// What is left to catch is the proxy nobody started, and for that the
-		// only useful behaviour is to say so immediately.
-		switch devproxy.Probe(ctx, base) {
-		case devproxy.StatusRunning:
-			logger.Info().Str("api_base", base).Msg("development GitHub proxy is reachable")
-			return nil
-		case devproxy.StatusForeign:
-			return cli.Exit(base+" is answering but is not devserver", 1)
-		default:
-			fmt.Fprint(os.Stderr, "\n"+notRunningHelp(base)+"\n")
-			return cli.Exit("development GitHub proxy is not running", 1)
-		}
-	}
-}
-
-// notRunningHelp is the guidance for a redirected instance with no proxy behind
-// it. Every dev run is proxied by default (ADR 0017), so this is the one failure
-// the default path can produce, and it is worth spelling out both ways out
-// rather than leaving connection-refused errors to be interpreted.
-func notRunningHelp(baseURL string) string {
-	return fmt.Sprintf(`This worktree routes GitHub through the development proxy, but nothing is
-listening at %s.
-
-Start it (once per machine — every worktree shares it):
-
-    mise run devserver
-
-Or run against real GitHub instead, by putting this in the gitignored
-overrides.env beside launch.env:
-
-    %s=""
-`, baseURL, devproxy.EnvAPIBase)
 }
 
 func devtoolsAction(logger *zerolog.Logger, action func(*devtools) error) cli.ActionFunc {

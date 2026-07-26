@@ -163,16 +163,11 @@ dir = "desktop"
 # launch.env is generated; optional overrides.env is developer-authored and
 # wins because mise loads it second.
 env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}" }
-# check-proxy runs here rather than as a `depends` on purpose: it reads the
-# effective HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE, and only this task's own
-# `env` layers launch.env then overrides.env. A dependency would probe an
-# address the app is not actually going to use.
 run = """
 test -f ../launch.env || {
   echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2
   exit 1
 }
-go run ../cmd/devtools check-proxy
 wails3 dev -config ./build/config.yml
 """
 
