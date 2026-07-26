@@ -272,7 +272,7 @@ func buildConfig(t *testing.T, descriptor connector.Descriptor, credential strin
 
 	cfg := descriptor.NewConfig()
 	v := reflect.ValueOf(cfg)
-	require.Equalf(t, reflect.Ptr, v.Kind(), "connector %q: NewConfig() must return a pointer for Validate to see the fields this test sets", descriptor.Type)
+	require.Equalf(t, reflect.Pointer, v.Kind(), "connector %q: NewConfig() must return a pointer for Validate to see the fields this test sets", descriptor.Type)
 	v = v.Elem()
 
 	credField, ok := structFieldByTagName(v, "credential")
@@ -356,7 +356,7 @@ func TestConfigValidateEnforcesDescriptorProvider(t *testing.T) {
 			accepting = combos[0]
 		} else {
 			_, err := buildConfig(t, descriptor, good, accepting)
-			assert.NoErrorf(t, err, "connector %q: a %q-provider credential should be accepted", connectorType, descriptor.Provider)
+			require.NoErrorf(t, err, "connector %q: a %q-provider credential should be accepted", connectorType, descriptor.Provider)
 		}
 
 		_, err = buildConfig(t, descriptor, bad, accepting)

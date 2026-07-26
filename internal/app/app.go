@@ -54,8 +54,9 @@ type Config struct {
 // App is the headless core. Driving adapters hold *App and the concrete
 // types on it; there are no driving-port interfaces.
 type App struct {
-	// The per-domain services. Driving adapters call these; the stores below
-	// are what they are built over.
+	// The per-domain services. Driving adapters call these — never the
+	// unexported domain stores further down, which is what they are built
+	// over.
 	Inbox    *InboxService
 	Flows    *FlowsService
 	Actions  *ActionsService
@@ -70,48 +71,59 @@ type App struct {
 	Jobs         *JobService
 	Prompts      *PromptsService
 
+	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
+	// wake-up events for the frontend. Store is the one raw handle every
+	// driving adapter may still hold directly: an app-owned type (not
+	// vendored), needed by the e2e harness for table resets and fixture
+	// seeding that no per-domain service has a reason to expose otherwise.
 	Events *events.Bus
 	Store  *store.DB
-	Logger zerolog.Logger
 
-	// Domain stores. The per-domain services that will front them are the
-	// next commit; until then adapters hold these directly, exactly as
-	// package main did.
-	ActionStore   *actions.ActionStore
-	FlowStore     *flow.FlowStore
-	ActivityStore *activity.Store
-	JobStore      *jobs.Store
-	Fetchers      *ghsource.Fetchers
-	Credentials   credentials.Store
+	// Domain stores. Nothing outside this package holds these — a bypass
+	// here is exactly the bug this rule exists to prevent: ProfileTray once
+	// wrote through flowStore directly (store.SetEnabled), duplicating
+	// FlowsService.SetEnabled minus its typed-error wrapping and its
+	// notifyUpdated event. A domain's need is a method on its service, not
+	// the store underneath it. activityStore and jobStore are unexported for
+	// the same reason despite looking store-shaped: ActivityService and
+	// JobService above already front them, so nothing else may reach past
+	// those either.
+	actionStore   *actions.ActionStore
+	flowStore     *flow.FlowStore
+	activityStore *activity.Store
+	jobStore      *jobs.Store
+	fetchers      *ghsource.Fetchers
+	credentials   credentials.Store
 
-	// GitHubConnection acquires and releases GitHub credentials. It is one
+	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
-	GitHubConnection ghsource.Connection
+	gitHubConnection ghsource.Connection
 
-	// Sources resolves the current flow set into live connector instances.
+	// sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
 	// pull-mode instances, the webhook listener its push-mode ones — so a
 	// connector is constructed one way regardless of how it delivers.
-	Sources *ingest.Resolver
+	sources *ingest.Resolver
 
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager is a later phase.
-	Producer    *ingest.Producer
-	Engine      *runtime.Engine
-	Outputs     *dispatch.Worker
-	Retention   *ingest.Maintenance
-	Webhook     *webhook.Listener
-	WebhookHost string
-	WebhookPort int
+	producer    *ingest.Producer
+	engine      *runtime.Engine
+	outputs     *dispatch.Worker
+	retention   *ingest.Maintenance
+	webhook     *webhook.Listener
+	webhookHost string
+	webhookPort int
 
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
-	Launcher *dispatch.HiveSessionLauncher
+	launcher *dispatch.HiveSessionLauncher
 	hiveDB   *coredb.DB
 
-	// PollInterval is the validated, clamped interval the producer polls on.
-	PollInterval time.Duration
+	// pollInterval is the validated, clamped interval the producer polls on.
+	pollInterval time.Duration
 
+	logger    zerolog.Logger
 	mock      string
 	publisher dispatch.MessagePublisher
 
@@ -145,7 +157,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	runCtx, cancel := context.WithCancel(ctx)
 
 	a := &App{
-		Logger:        cfg.Logger,
+		logger:        cfg.Logger,
 		Events:        events.New(cfg.Logger),
 		mock:          cfg.MockMode,
 		settings:      cfg.Settings,
@@ -155,15 +167,15 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		cancel:        cancel,
 	}
 
-	a.PollInterval = cfg.Settings.Polling.Interval.Duration()
+	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
-	a.Credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
+	a.credentials = buildCredentialStore(cfg.MockMode, cfg.Paths.CredentialsIndexPath)
 
 	if cfg.MockMode == "" {
-		a.Fetchers = ghsource.NewFetchers(ghsource.DefaultClient, a.Credentials, cfg.Logger)
-		a.Fetchers.SetSearchTTL(a.PollInterval)
+		a.fetchers = ghsource.NewFetchers(ghsource.DefaultClient, a.credentials, cfg.Logger)
+		a.fetchers.SetSearchTTL(a.pollInterval)
 	}
 
 	dbOptions := store.DefaultOpenOptions()
@@ -179,14 +191,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// The activity recorder is shared by every subsystem that reports to the
 	// Activity view (producer, worker, session launcher, config watchers) and
 	// by the ActivityService the frontend reads and writes.
-	a.ActivityStore = activity.NewStore(db, activity.Options{Emit: func(id int64) {
+	a.activityStore = activity.NewStore(db, activity.Options{Emit: func(id int64) {
 		a.Events.Publish(a.ctx, events.ActivityAppended{ID: id})
 	}})
-	a.JobStore = jobs.NewStore(db, jobs.Options{Emit: func(id int64) {
+	a.jobStore = jobs.NewStore(db, jobs.Options{Emit: func(id int64) {
 		a.Events.Publish(a.ctx, events.JobsUpdated{JobID: id})
 	}})
-	if a.Fetchers != nil {
-		a.Fetchers.SetRecorder(a.ActivityStore)
+	if a.fetchers != nil {
+		a.fetchers.SetRecorder(a.activityStore)
 	}
 
 	if err := a.openHiveRuntime(runCtx, cfg); err != nil {
@@ -197,40 +209,40 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
-	a.ActionStore.SetUsageChecker(newActionUsage(a.FlowStore, db))
+	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
 
-	a.GitHubConnection = buildGitHubConnection(cfg.MockMode, a.Credentials, func() {
+	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, a.credentials, func() {
 		// Every connection transition drops this provider's fetch caches
 		// before anything is notified: a different account must never be
 		// served items fetched with the previous token. Fetchers is already
 		// GitHub's alone, so invalidating all of them is exactly this
 		// provider's scope — and over-invalidating costs a refetch, where
 		// under-invalidating serves another account's items.
-		if a.Fetchers != nil {
-			a.Fetchers.InvalidateAll()
+		if a.fetchers != nil {
+			a.fetchers.InvalidateAll()
 		}
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: ghsource.Provider})
 	})
 
-	a.Outputs = a.buildOutputWorker(cfg)
-	a.Retention = ingest.NewMaintenance(db, a.FlowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
-	a.Engine = a.buildEngine(cfg.Logger)
-	a.Sources = a.buildSources(cfg.Logger)
-	a.Producer = a.buildProducer(cfg.Logger)
+	a.outputs = a.buildOutputWorker(cfg)
+	a.retention = ingest.NewMaintenance(db, a.flowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.engine = a.buildEngine(cfg.Logger)
+	a.sources = a.buildSources(cfg.Logger)
+	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Inbox = newInboxService(db, a.ActionStore, a.Outputs, a.Launcher)
-	a.Flows = newFlowsService(a.FlowStore, db, a.Credentials, func() { a.PublishFlowsUpdated("save") })
-	a.Actions = newActionsService(a.ActionStore, func() {
-		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.ActionStore.List())})
+	a.Inbox = newInboxService(db, a.actionStore, a.outputs, a.launcher)
+	a.Flows = newFlowsService(a.flowStore, db, a.credentials, func() { a.PublishFlowsUpdated("save") })
+	a.Actions = newActionsService(a.actionStore, func() {
+		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
-	a.Settings = newSettingsService(cfg.SettingsStore, a.Producer, a.Fetchers)
+	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.Webhook, a.WebhookHost, a.WebhookPort)
-	a.GitHub = newGitHubService(a.GitHubConnection)
-	a.Integrations = newIntegrationsService(a.Credentials)
-	a.Activity = newActivityService(a.ActivityStore)
-	a.Jobs = newJobService(a.JobStore)
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
+	a.GitHub = newGitHubService(a.gitHubConnection)
+	a.Integrations = newIntegrationsService(a.credentials)
+	a.Activity = newActivityService(a.activityStore)
+	a.Jobs = newJobService(a.jobStore)
 	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
 
 	return a, nil
@@ -248,31 +260,31 @@ func (a *App) Start(ctx context.Context) error {
 		a.flowsWatcher.Start()
 	}
 	if a.mock == "" {
-		a.Outputs.Start(ctx)
+		a.outputs.Start(ctx)
 	}
-	a.Retention.Start(ctx)
+	a.retention.Start(ctx)
 	// The engine starts before anything that can append to the log. Its flow
 	// installation is synchronous, so by the time a producer tick, a webhook
 	// delivery or a test harness can append, there is a runner ready to route
 	// it — no window in which a wake-up has nothing to wake.
-	if err := a.Engine.Start(ctx); err != nil {
+	if err := a.engine.Start(ctx); err != nil {
 		return fmt.Errorf("start flow engine: %w", err)
 	}
-	if a.Producer != nil {
-		a.Producer.Start(ctx)
+	if a.producer != nil {
+		a.producer.Start(ctx)
 	}
-	if a.Webhook != nil {
-		if err := a.Webhook.Start(ctx); err != nil {
+	if a.webhook != nil {
+		if err := a.webhook.Start(ctx); err != nil {
 			a.Webhooks.setStartError(err)
-			a.Logger.Warn().Err(err).Int("port", a.WebhookPort).Msg("webhook listener unavailable")
-		} else if a.WebhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
+		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvWebhookPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
-				persisted.Webhooks.Port = a.Webhook.Port()
+				persisted.Webhooks.Port = a.webhook.Port()
 				return nil
 			})
 			if err != nil {
 				a.Webhooks.setStartError(fmt.Errorf("persist allocated webhook port: %w", err))
-				a.Logger.Warn().Err(err).Msg("persist allocated webhook port")
+				a.logger.Warn().Err(err).Msg("persist allocated webhook port")
 			}
 		}
 	}
@@ -300,15 +312,15 @@ func (a *App) HiveConn() *sql.DB {
 func (a *App) Close() error {
 	a.cancel()
 
-	if a.Webhook != nil {
-		a.Webhook.Stop()
+	if a.webhook != nil {
+		a.webhook.Stop()
 	}
-	if a.Producer != nil {
-		a.Producer.Stop()
+	if a.producer != nil {
+		a.producer.Stop()
 	}
-	a.Engine.Stop()
-	a.Retention.Stop()
-	a.Outputs.Stop()
+	a.engine.Stop()
+	a.retention.Stop()
+	a.outputs.Stop()
 	if a.flowsWatcher != nil {
 		a.flowsWatcher.Close()
 	}
@@ -362,20 +374,20 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 	if _, err := actions.SeedDefaultsIfMissing(path); err != nil {
 		logger.Warn().Err(err).Msg("actions seed failed")
 	}
-	a.ActionStore = actions.NewActionStore(path)
-	if err := a.ActionStore.Reload(); err != nil {
+	a.actionStore = actions.NewActionStore(path)
+	if err := a.actionStore.Reload(); err != nil {
 		logger.Warn().Err(err).Msg("actions.yml load failed; using last-good (likely empty) action set")
 	}
 
 	watcher, err := actions.NewActionsWatcher(path, func() {
-		if err := a.ActionStore.Reload(); err != nil {
+		if err := a.actionStore.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("actions.yml reload failed")
 		}
-		count := len(a.ActionStore.List())
+		count := len(a.actionStore.List())
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: count})
 		// A hand edit (or the app's own write) reloaded actions.yml: record
 		// the now-effective action count so the change is auditable.
-		a.ActivityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
+		a.activityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
@@ -389,10 +401,10 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 // SaveFlow/SaveLayout writes. It must run before the producer and retention:
 // both resolve enabled flow ids live from the store.
 func (a *App) openFlows(dir string, logger zerolog.Logger) {
-	a.FlowStore = flow.NewFlowStore(dir, actions.NewRefs(a.ActionStore))
+	a.flowStore = flow.NewFlowStore(dir, actions.NewRefs(a.actionStore))
 
 	watcher, err := flow.NewFlowsWatcher(dir, func() {
-		if err := a.FlowStore.Reload(); err != nil {
+		if err := a.flowStore.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("flows reload failed")
 		}
 		a.PublishFlowsUpdated("reload")
@@ -410,7 +422,7 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 // directly — the e2e source-to-commit harness, which stands in for a producer
 // tick.
 func (a *App) PublishLogAppended(nextOffset int64) {
-	a.Engine.Wake()
+	a.engine.Wake()
 	a.Events.Publish(a.ctx, events.LogAppended{NextOffset: nextOffset})
 }
 
@@ -418,7 +430,7 @@ func (a *App) PublishLogAppended(nextOffset int64) {
 // engine's runners against it. The app's own writes go through it too, so a
 // save and an external edit are one path.
 func (a *App) PublishFlowsUpdated(reason string) {
-	a.Engine.Reload()
+	a.engine.Reload()
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
 }
 
@@ -433,14 +445,14 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 
 	return runtime.NewEngine(runtime.EngineOptions{
 		Store:   a.Store,
-		Flows:   a.FlowStore,
+		Flows:   a.flowStore,
 		Scripts: scripts,
 		Logger:  logger,
 		OnCommitted: func() {
 			a.Events.Publish(a.ctx, events.InboxUpdated{})
 		},
 		OnFlowError: func(flowID string, err error) {
-			a.ActivityStore.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
+			a.activityStore.Record(a.ctx, activity.FlowRuntimeFailed(flowID, err))
 		},
 	})
 }
@@ -455,7 +467,7 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.FlowStore, sourceFactories(a.Fetchers), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
@@ -478,11 +490,11 @@ func sourceFactories(fetchers *ghsource.Fetchers) map[string]connector.Factory {
 // enabled pull-mode source node across all flows. Mock modes have no fetcher
 // and therefore no producer.
 func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
-	if a.Fetchers == nil {
+	if a.fetchers == nil {
 		return nil
 	}
-	producer := ingest.NewProducer(a.Store, a.Sources, a.PollInterval, a.PublishLogAppended, logger)
-	producer.SetRecorder(a.ActivityStore)
+	producer := ingest.NewProducer(a.Store, a.sources, a.pollInterval, a.PublishLogAppended, logger)
+	producer.SetRecorder(a.activityStore)
 	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
 	return producer
 }
@@ -497,15 +509,10 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	dispatcher := dispatch.NewDispatcher(map[string]dispatch.Executor{
-		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(a.Launcher),
-		"shell":                          dispatch.NewShellExecutor(cfg.Logger),
-		"publish-message":                dispatch.NewPublishMessageExecutor(a.publisher),
-		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(cfg.Notifier, cfg.Gate, a.Store, cfg.Logger),
-	})
-	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.FlowStore, a.ActionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
-	worker.SetRecorder(a.ActivityStore)
-	worker.SetJobRecorder(a.JobStore)
+	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, cfg.Notifier, cfg.Gate, a.Store, cfg.Logger))
+	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
+	worker.SetRecorder(a.activityStore)
+	worker.SetJobRecorder(a.jobStore)
 	return worker
 }
 
@@ -514,8 +521,8 @@ func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
 // probe/rebind race. Mock instances only claim a listener through an explicit
 // port override, keeping parallel e2e lanes isolated.
 func (a *App) openWebhook(_ context.Context, cfg Config) {
-	a.WebhookHost = cfg.Settings.Webhooks.Host
-	a.WebhookPort = cfg.Settings.Webhooks.Port
+	a.webhookHost = cfg.Settings.Webhooks.Host
+	a.webhookPort = cfg.Settings.Webhooks.Port
 	if !cfg.Settings.Webhooks.Enabled {
 		return
 	}
@@ -523,8 +530,8 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 		return
 	}
 
-	a.Webhook = webhook.NewListener(a.Store, a.Sources.PushInstances, a.WebhookHost, a.WebhookPort, a.PublishLogAppended, cfg.Logger)
-	a.Webhook.SetRecorder(a.ActivityStore)
+	a.webhook = webhook.NewListener(a.Store, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
+	a.webhook.SetRecorder(a.activityStore)
 }
 
 // openHiveRuntime opens the Hive dependencies desktop actions need. The
@@ -591,8 +598,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		io.Discard,
 	)
 
-	a.Launcher = dispatch.NewHiveSessionLauncher(sessions)
-	a.Launcher.SetRecorder(a.ActivityStore)
+	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
+	a.launcher.SetRecorder(a.activityStore)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
 }
