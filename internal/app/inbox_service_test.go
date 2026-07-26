@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -54,9 +55,7 @@ func insertActionItem(t *testing.T, db *store.DB, id, kind, title string) int64 
 func insertActionItemSource(t *testing.T, db *store.DB, sourceKind, id, kind, title string, extra map[string]any) int64 {
 	t.Helper()
 	fields := map[string]any{"id": id, "kind": kind, "title": title}
-	for k, v := range extra {
-		fields[k] = v
-	}
+	maps.Copy(fields, extra)
 	payload, err := json.Marshal(fields)
 	require.NoError(t, err)
 	row, err := db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{ProfileID: "p", SourceKind: sourceKind, ExternalID: id, Title: title, Payload: payload, Lifecycle: "active"})

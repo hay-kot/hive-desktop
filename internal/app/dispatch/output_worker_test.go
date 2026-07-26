@@ -356,7 +356,7 @@ func TestWorker_FailingExecutor_RetriesThenMarksFailed(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{"spawn-review": launchSessionAction("spawn-review", true)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
-	for i := 0; i < MaxOutputCommandAttempts-1; i++ {
+	for i := range MaxOutputCommandAttempts - 1 {
 		worker.Tick(t.Context())
 		rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
 		require.NoError(t, err)

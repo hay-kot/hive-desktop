@@ -16,7 +16,7 @@ func unsetEnv(t *testing.T, key string) {
 	require.NoError(t, os.Unsetenv(key))
 	t.Cleanup(func() {
 		if had {
-			_ = os.Setenv(key, orig)
+			_ = os.Setenv(key, orig) //nolint:usetesting // this restore IS the cleanup t.Setenv would register
 		} else {
 			_ = os.Unsetenv(key)
 		}

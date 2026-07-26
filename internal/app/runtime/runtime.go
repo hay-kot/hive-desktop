@@ -103,9 +103,6 @@ func NewRunner(f flow.Flow, opts Options) (*Runner, error) {
 	return r, nil
 }
 
-// Flow returns the flow this Runner executes.
-func (r *Runner) Flow() flow.Flow { return r.flow }
-
 // Close releases every processor's resources.
 func (r *Runner) Close() {
 	for id, proc := range r.procs {

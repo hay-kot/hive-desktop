@@ -2,6 +2,7 @@ package actions
 
 import (
 	"fmt"
+	"maps"
 	"time"
 )
 
@@ -121,8 +122,6 @@ func cloneEnv(env map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(env))
-	for k, v := range env {
-		out[k] = v
-	}
+	maps.Copy(out, env)
 	return out
 }

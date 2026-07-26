@@ -233,7 +233,9 @@ func TestNotifyExecutor_ReportsDeliveryFailure(t *testing.T) {
 func TestNotifyExecutor_OnlyWhenNew(t *testing.T) {
 	feedAction := func() actions.Action {
 		action := notifyAction()
-		cfg := *action.Config.(*NotifyActionConfig)
+		base, ok := action.Config.(*NotifyActionConfig)
+		require.True(t, ok, "notifyAction should carry a *NotifyActionConfig")
+		cfg := *base
 		cfg.OnlyWhenNew = true
 		action.Config = &cfg
 		return action

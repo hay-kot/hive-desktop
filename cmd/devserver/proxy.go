@@ -140,7 +140,16 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	fetched := result.(fetchResult)
+	// singleflight hands back `any`; the only producer is the closure above,
+	// which returns p.fetch's typed result. A failed assertion is therefore a
+	// programming error here, not an upstream one — hence 500, not the 502 the
+	// upstream failure path returns.
+	fetched, ok := result.(fetchResult)
+	if !ok {
+		p.logger.Error().Str("path", r.URL.Path).Msgf("singleflight returned %T, want fetchResult", result)
+		http.Error(w, "internal proxy error", http.StatusInternalServerError)
+		return
+	}
 	p.serve(w, fetched.entry, route, fetched.outcome, func(s *Stats) {
 		s.Requests++
 		s.UpstreamCalls++

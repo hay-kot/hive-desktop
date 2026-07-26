@@ -82,10 +82,10 @@ func TestRewriteGraphQLAppliesMutations(t *testing.T) {
 	store := fixedStore(t)
 	labels := []string{"needs-review", "urgent"}
 	store.Apply("hay-kot/hive-desktop#58", Mutations{
-		State:  stringPtr("closed"),
+		State:  new("closed"),
 		Labels: &labels,
-		Title:  stringPtr("Rewritten"),
-		Draft:  boolPtr(true),
+		Title:  new("Rewritten"),
+		Draft:  new(true),
 	})
 
 	nodes := graphQLNodes(t, store.RewriteGraphQL([]byte(graphQLBody)), "s0")
@@ -106,7 +106,7 @@ func TestRewriteGraphQLAppliesMutations(t *testing.T) {
 
 func TestRewriteGraphQLStampsUpdatedAtWhenUnset(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{Reason: stringPtr("comment")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{Reason: new("comment")})
 
 	nodes := graphQLNodes(t, store.RewriteGraphQL([]byte(graphQLBody)), "s0")
 	// The desktop classifier ignores any change that does not advance
@@ -125,7 +125,7 @@ func TestRewriteGraphQLHonorsExplicitUpdatedAt(t *testing.T) {
 
 func TestRewriteGraphQLAbsentDropsNode(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{Absent: boolPtr(true)})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{Absent: new(true)})
 
 	nodes := graphQLNodes(t, store.RewriteGraphQL([]byte(graphQLBody)), "s0")
 	require.Len(t, nodes, 1, "an absent item must leave the search result")
@@ -134,7 +134,7 @@ func TestRewriteGraphQLAbsentDropsNode(t *testing.T) {
 
 func TestRewriteGraphQLMalformedBodyIsReturnedUnchanged(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("closed")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{State: new("closed")})
 
 	for _, body := range []string{"not json", "", "[1,2,3]", `{"errors":[{"message":"boom"}]}`} {
 		assert.True(t, bytes.Equal([]byte(body), store.RewriteGraphQL([]byte(body))),
@@ -161,7 +161,7 @@ func notificationEntries(t *testing.T, body []byte) []map[string]any {
 
 func TestRewriteNotificationsSetsReasonAndMarksUnread(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{Reason: stringPtr("approval_requested")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{Reason: new("approval_requested")})
 
 	entries := notificationEntries(t, store.RewriteNotifications([]byte(notificationsBody)))
 	require.Len(t, entries, 2)
@@ -186,7 +186,7 @@ func TestRewriteNotificationsIgnoresNonItemSubjects(t *testing.T) {
 
 func TestRewriteIssueMergedUsesGitHubEncoding(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("merged")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{State: new("merged")})
 	body := []byte(`{"number":58,"state":"open","merged":false,"updated_at":"2026-07-24T00:00:00Z"}`)
 
 	var pull map[string]any
@@ -207,7 +207,7 @@ func TestRewriteIssueMergedUsesGitHubEncoding(t *testing.T) {
 
 func TestRewriteIssueClosedClearsMerged(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("closed")})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{State: new("closed")})
 	body := []byte(`{"number":58,"state":"open","merged":true,"updated_at":"2026-07-24T00:00:00Z"}`)
 
 	var pull map[string]any
@@ -236,8 +236,8 @@ func TestMergeSimulationIsConsistentAcrossShapes(t *testing.T) {
 
 func TestStoreApplyMergesSuccessiveMutations(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("a/b#1", Mutations{Reason: stringPtr("review_requested")})
-	merged := store.Apply("a/b#1", Mutations{State: stringPtr("closed")})
+	store.Apply("a/b#1", Mutations{Reason: new("review_requested")})
+	merged := store.Apply("a/b#1", Mutations{State: new("closed")})
 
 	require.NotNil(t, merged.Reason)
 	assert.Equal(t, "review_requested", *merged.Reason, "an earlier field must survive a later mutation")
@@ -247,7 +247,7 @@ func TestStoreApplyMergesSuccessiveMutations(t *testing.T) {
 
 func TestStoreClearRestoresUpstream(t *testing.T) {
 	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{Absent: boolPtr(true)})
+	store.Apply("hay-kot/hive-desktop#58", Mutations{Absent: new(true)})
 	store.Clear("hay-kot/hive-desktop#58")
 
 	assert.True(t, bytes.Equal([]byte(graphQLBody), store.RewriteGraphQL([]byte(graphQLBody))))
@@ -256,7 +256,7 @@ func TestStoreClearRestoresUpstream(t *testing.T) {
 func TestStoreSeedsObservedItemsFromConfigOverlays(t *testing.T) {
 	store := fixedStore(t, Overlay{
 		Match: Matcher{Repo: "acme/widgets", Num: 3},
-		Set:   Mutations{State: stringPtr("closed")},
+		Set:   Mutations{State: new("closed")},
 	})
 	items := store.Items()
 	require.Len(t, items, 1, "a configured overlay must be visible before its item is ever seen")
@@ -292,7 +292,7 @@ func TestItemsSortOverlaidFirst(t *testing.T) {
 		store.observe(parts[0], num, "PR", "t", "open")
 	}
 	// The oldest-seen item is the overlaid one, so recency alone would bury it.
-	store.Apply("a/b#1", Mutations{State: stringPtr("closed")})
+	store.Apply("a/b#1", Mutations{State: new("closed")})
 
 	items := store.Items()
 	require.Len(t, items, 3)
@@ -328,7 +328,7 @@ func TestOverlaidItemsSurviveEviction(t *testing.T) {
 	// anyway. Evicting it would hide an item whose overlay is still in force.
 	store.now = func() time.Time { return base }
 	store.observe("a/b", 1, "PR", "pinned", "open")
-	store.Apply("a/b#1", Mutations{State: stringPtr("merged")})
+	store.Apply("a/b#1", Mutations{State: new("merged")})
 
 	for i := range maxObservedItems + 50 {
 		store.now = func() time.Time { return base.Add(time.Duration(i+1) * time.Second) }

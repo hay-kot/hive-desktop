@@ -59,6 +59,19 @@ jobs:
       - name: Test
         run: go test ./... -race
 
+      # Both run after the build: each needs the whole program to load, and a
+      # compile error here would be a confusing way to learn the code is broken.
+      # Neither is in `mise run check` — deadcode builds the program's SSA
+      # (~40s) and govulncheck needs the network, so both are past what a
+      # pre-push hook should cost.
+      - name: Check for unreachable code
+        run: mise run check:deadcode
+
+      # Advisories against packages this repo imports but never calls do not
+      # fail the build; govulncheck exits non-zero only for a reachable symbol.
+      - name: Check dependencies for known vulnerabilities
+        run: mise run check:vuln
+
   desktop-frontend:
     runs-on: ubuntu-latest
     steps:

@@ -53,13 +53,11 @@ func TestSeedDefaultsIfMissingExclusiveConcurrentInstallAndCleansTemps(t *testin
 	results := make(chan bool, 8)
 	errs := make(chan error, 8)
 	for range 8 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			seeded, err := SeedDefaultsIfMissing(path)
 			results <- seeded
 			errs <- err
-		}()
+		})
 	}
 	wg.Wait()
 	close(results)

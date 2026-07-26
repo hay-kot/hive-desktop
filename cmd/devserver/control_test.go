@@ -124,8 +124,8 @@ func TestControlOverlayRejectsInvalidState(t *testing.T) {
 
 func TestControlClearAll(t *testing.T) {
 	handler, store, _ := testControl(t, Config{})
-	store.Apply("o/r#1", Mutations{State: stringPtr("closed")})
-	store.Apply("o/r#2", Mutations{State: stringPtr("closed")})
+	store.Apply("o/r#1", Mutations{State: new("closed")})
+	store.Apply("o/r#2", Mutations{State: new("closed")})
 
 	require.Equal(t, http.StatusOK, ctl(t, handler, http.MethodPost, "/_ctl/overlays/clear", `{}`).Code)
 	assert.Empty(t, store.Overlays())
@@ -135,7 +135,7 @@ func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 	handler, store, _ := testControl(t, Config{
 		Scenarios: map[string]Scenario{
 			"pr-flow": {Description: "d", Steps: []ScenarioStep{{
-				Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: stringPtr("comment")},
+				Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")},
 			}}},
 		},
 		Webhooks: WebhookConfig{
@@ -143,7 +143,7 @@ func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 			Payloads: map[string]map[string]any{"pr-opened": {"id": "1"}},
 		},
 	})
-	store.Apply("o/r#1", Mutations{State: stringPtr("closed")})
+	store.Apply("o/r#1", Mutations{State: new("closed")})
 
 	rec := ctl(t, handler, http.MethodGet, "/_ctl/state", "")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -167,14 +167,14 @@ func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 func TestControlStateJSONKeysMatchDashboard(t *testing.T) {
 	handler, store, _ := testControl(t, Config{
 		Scenarios: map[string]Scenario{"flow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: stringPtr("comment")}},
+			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")}},
 		}}},
 		Webhooks: WebhookConfig{
 			Targets:  []WebhookTarget{{Name: "local", URL: "http://127.0.0.1:1/hooks/x"}},
 			Payloads: map[string]map[string]any{"p": {"id": "1"}},
 		},
 	})
-	store.Apply("o/r#1", Mutations{State: stringPtr("closed"), Absent: boolPtr(true)})
+	store.Apply("o/r#1", Mutations{State: new("closed"), Absent: new(true)})
 
 	var raw map[string]any
 	require.NoError(t, json.Unmarshal(ctl(t, handler, http.MethodGet, "/_ctl/state", "").Body.Bytes(), &raw))
@@ -225,8 +225,8 @@ func TestControlStateNeverLeaksWebhookSecrets(t *testing.T) {
 func TestControlRunScenarioAppliesStepsInOrder(t *testing.T) {
 	handler, store, _ := testControl(t, Config{
 		Scenarios: map[string]Scenario{"flow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: stringPtr("review_requested")}},
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{State: stringPtr("merged"), Absent: boolPtr(true)}},
+			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("review_requested")}},
+			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{State: new("merged"), Absent: new(true)}},
 		}}},
 	})
 
@@ -252,7 +252,7 @@ func TestControlRunScenarioRejectsUnknownName(t *testing.T) {
 func TestControlRunScenarioRejectsConcurrentRun(t *testing.T) {
 	handler, _, _ := testControl(t, Config{
 		Scenarios: map[string]Scenario{"slow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: stringPtr("comment")}, Wait: time.Second},
+			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")}, Wait: time.Second},
 		}}},
 	})
 

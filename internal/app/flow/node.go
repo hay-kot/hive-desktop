@@ -3,6 +3,7 @@ package flow
 import (
 	"bytes"
 	"fmt"
+	"maps"
 
 	"gopkg.in/yaml.v3"
 )
@@ -58,9 +59,7 @@ var registry = buildRegistry(map[string]nodeFactory{
 // both maps are compile-time constants and there is nothing to recover to.
 func buildRegistry(declared map[string]nodeFactory) map[string]nodeFactory {
 	out := make(map[string]nodeFactory, len(declared))
-	for nodeType, factory := range declared {
-		out[nodeType] = factory
-	}
+	maps.Copy(out, declared)
 	for nodeType, factory := range sourceNodeFactories() {
 		if _, clash := out[nodeType]; clash {
 			panic("flow: source connector " + nodeType + " collides with a declared node type")

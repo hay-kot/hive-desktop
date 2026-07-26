@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"sort"
 	"sync"
@@ -185,24 +186,21 @@ type quickAction struct {
 	apply func() Mutations
 }
 
-func stringPtr(s string) *string { return &s }
-func boolPtr(b bool) *bool       { return &b }
-
 var quickActions = map[string]quickAction{
-	"review-requested":   {"Review requested", func() Mutations { return Mutations{Reason: stringPtr("review_requested")} }},
-	"approval-requested": {"Approval requested", func() Mutations { return Mutations{Reason: stringPtr("approval_requested")} }},
-	"comment":            {"New comment", func() Mutations { return Mutations{Reason: stringPtr("comment")} }},
-	"ci-activity":        {"CI status changed", func() Mutations { return Mutations{Reason: stringPtr("ci_activity")} }},
-	"mention":            {"Mentioned", func() Mutations { return Mutations{Reason: stringPtr("mention")} }},
-	"state-change":       {"State changed", func() Mutations { return Mutations{Reason: stringPtr("state_change")} }},
+	"review-requested":   {"Review requested", func() Mutations { return Mutations{Reason: new("review_requested")} }},
+	"approval-requested": {"Approval requested", func() Mutations { return Mutations{Reason: new("approval_requested")} }},
+	"comment":            {"New comment", func() Mutations { return Mutations{Reason: new("comment")} }},
+	"ci-activity":        {"CI status changed", func() Mutations { return Mutations{Reason: new("ci_activity")} }},
+	"mention":            {"Mentioned", func() Mutations { return Mutations{Reason: new("mention")} }},
+	"state-change":       {"State changed", func() Mutations { return Mutations{Reason: new("state_change")} }},
 	// Terminal transitions also mark the item absent from search results,
 	// because that is how GitHub behaves once it leaves an is:open query — and
 	// it is the only way to exercise the desktop's ConfirmAbsence path.
-	"merge":  {"Merge", func() Mutations { return Mutations{State: stringPtr("merged"), Absent: boolPtr(true)} }},
-	"close":  {"Close", func() Mutations { return Mutations{State: stringPtr("closed"), Absent: boolPtr(true)} }},
-	"reopen": {"Reopen", func() Mutations { return Mutations{State: stringPtr("open"), Absent: boolPtr(false)} }},
-	"draft":  {"Mark draft", func() Mutations { return Mutations{Draft: boolPtr(true)} }},
-	"ready":  {"Mark ready", func() Mutations { return Mutations{Draft: boolPtr(false)} }},
+	"merge":  {"Merge", func() Mutations { return Mutations{State: new("merged"), Absent: new(true)} }},
+	"close":  {"Close", func() Mutations { return Mutations{State: new("closed"), Absent: new(true)} }},
+	"reopen": {"Reopen", func() Mutations { return Mutations{State: new("open"), Absent: new(false)} }},
+	"draft":  {"Mark draft", func() Mutations { return Mutations{Draft: new(true)} }},
+	"ready":  {"Mark ready", func() Mutations { return Mutations{Draft: new(false)} }},
 }
 
 // actionOrder fixes the dashboard's button order; map iteration would shuffle
@@ -318,9 +316,7 @@ func (c *Control) handlePush(w http.ResponseWriter, r *http.Request) {
 	if req.Payload != "" {
 		result, err = c.pusher.PushNamed(r.Context(), req.Target, req.Payload, req.Overrides)
 	} else {
-		for key, value := range req.Overrides {
-			req.Body[key] = value
-		}
+		maps.Copy(req.Body, req.Overrides)
 		result, err = c.pusher.Push(r.Context(), req.Target, "inline", req.Body)
 	}
 	if err != nil {

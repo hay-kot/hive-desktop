@@ -182,7 +182,7 @@ func TestSettingsValidation(t *testing.T) {
 // the tag, and a silent drift between them would report "not overridden" for a
 // value that was in fact overridden.
 func TestEnvGitHubAPIBaseMatchesStructTag(t *testing.T) {
-	field, ok := reflect.TypeOf(GitHubDevSettings{}).FieldByName("APIBase")
+	field, ok := reflect.TypeFor[GitHubDevSettings]().FieldByName("APIBase")
 	require.True(t, ok)
 	assert.Equal(t, EnvGitHubAPIBase, field.Tag.Get("env"))
 }
