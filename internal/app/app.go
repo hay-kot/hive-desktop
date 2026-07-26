@@ -106,7 +106,8 @@ type App struct {
 	sources *ingest.Resolver
 
 	// Background subsystems, owned here so main.go stops holding them.
-	// Uniform lifecycle through a plugs manager is a later phase.
+	// Uniform lifecycle through a plugs manager was evaluated and declined
+	// for now — see the note on Close.
 	producer    *ingest.Producer
 	engine      *runtime.Engine
 	outputs     *dispatch.Worker
@@ -291,9 +292,6 @@ func (a *App) Start(ctx context.Context) error {
 	return nil
 }
 
-// Close stops the background subsystems and releases resources. It is the
-// single teardown path: the adapter's own shutdown hook covers only what it
-// owns (a tray, a window).
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
@@ -309,11 +307,43 @@ func (a *App) HiveConn() *sql.DB {
 	return a.hiveDB.Conn()
 }
 
+// Close stops the background subsystems and releases resources. It is the
+// single teardown path: the adapter's own shutdown hook covers only what it
+// owns (a tray, a window).
+//
+// Each subsystem's own Stop/Close is idempotent (its own stopOnce; webhook's
+// Stop below is the one that gained one, see docs/decisions/0016), so the
+// hand-written sequence below — unchanged from before this phase — stays
+// safe to call in this reverse-startup order even if something upstream
+// already tore part of it down.
+//
+// A plugs.Manager (docs/architecture.md's "Background lifecycle") was
+// evaluated to replace this sequence and declined for now: appkit/plugs
+// v0.0.0-20260423210245's Manager.Start unconditionally calls
+// signal.NotifyContext, which permanently adds Go's one-time os/signal
+// watcher goroutine to the process (confirmed against the stdlib source —
+// there is no way to opt out; passing no signals means "watch all signals,"
+// not "watch none," per signal.Notify's own documented behavior) and that
+// goroutine has nowhere to go before TestAppLifecycle's strict
+// before-vs-after goroutine count runs. Revisit once either that test
+// tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
 	a.cancel()
 
 	if a.webhook != nil {
-		a.webhook.Stop()
+		// A fresh, un-cancelled context for the graceful drain: a.ctx may
+		// already be cancelled by the line above, and handing a Done context
+		// to Shutdown would mean "stop now" instead of "you have this long
+		// to drain." WithoutCancel keeps this a context derived from a.ctx
+		// rather than a bare root, without inheriting a deadline that may
+		// have already passed.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		// A shutdown failure only warns, matching Start's own bind-failure
+		// policy: a slow or stuck drain must never fail Close outright.
+		if err := a.webhook.Stop(stopCtx); err != nil {
+			a.logger.Warn().Err(err).Msg("webhook listener shutdown")
+		}
+		cancel()
 	}
 	if a.producer != nil {
 		a.producer.Stop()

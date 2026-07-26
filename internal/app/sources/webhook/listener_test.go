@@ -1,12 +1,12 @@
 package webhook
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,7 +68,7 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
 	assert.JSONEq(t, `{"delivered":1}`, rec.Body.String())
 
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "build-42",
 	})
@@ -101,12 +101,12 @@ func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	body := `{"id":"x","title":"same"}`
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", body, nil).Code)
-	first, err := db.Queries().GetWebhookCapture(context.Background(), "source:triage/hook")
+	first, err := db.Queries().GetWebhookCapture(t.Context(), "source:triage/hook")
 	require.NoError(t, err)
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", body, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	msgs, err := db.ReadForConsumer(ctx, "triage", 10)
 	require.NoError(t, err)
 	assert.Len(t, msgs, 2, "an unchanged re-delivery must not append new event rows")
@@ -124,7 +124,7 @@ func TestWebhookListenerUpdatesChangedBodySameID(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","n":1}`, nil).Code)
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","n":2}`, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
@@ -146,7 +146,7 @@ func TestWebhookListenerContentHashKeyWithoutID(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"event":"a"}`, nil).Code)
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"event":"b"}`, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	rows, err := db.Queries().ListUnarchivedInboxItemsBySource(ctx, store.ListUnarchivedInboxItemsBySourceParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook",
 	})
@@ -160,7 +160,7 @@ func TestWebhookListenerNumericID(t *testing.T) {
 	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	require.Equal(t, http.StatusAccepted, postHook(t, listener.Handler(), "/hooks/ci", `{"id":1234}`, nil).Code)
 
-	_, err := db.Queries().GetInboxItemByExternalID(context.Background(), store.GetInboxItemByExternalIDParams{
+	_, err := db.Queries().GetInboxItemByExternalID(t.Context(), store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "1234",
 	})
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestWebhookListenerFansOutToMatchingNodes(t *testing.T) {
 	require.Equal(t, http.StatusAccepted, rec.Code)
 	assert.JSONEq(t, `{"delivered":2}`, rec.Body.String())
 
-	ctx := context.Background()
+	ctx := t.Context()
 	_, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "alpha", SourceKind: SourceKind, SourceScope: "hook-a", ExternalID: "2",
 	})
@@ -225,7 +225,7 @@ func TestWebhookListenerRejections(t *testing.T) {
 func TestWebhookListenerStartStop(t *testing.T) {
 	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	require.NoError(t, listener.Start(t.Context()))
-	defer listener.Stop()
+	defer func() { require.NoError(t, listener.Stop(t.Context())) }()
 
 	require.True(t, listener.Running())
 	require.Positive(t, listener.Port())
@@ -236,6 +236,40 @@ func TestWebhookListenerStartStop(t *testing.T) {
 	payload, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode, string(payload))
+}
+
+func TestWebhookListenerStopWithoutStartIsNoop(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	require.NoError(t, listener.Stop(t.Context()))
+}
+
+func TestWebhookListenerStopIsIdempotent(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	require.NoError(t, listener.Start(t.Context()))
+
+	require.NoError(t, listener.Stop(t.Context()))
+	// A second Stop -- concurrent teardown paths calling it more than once,
+	// or a caller that stops twice defensively -- must not panic or block.
+	require.NoError(t, listener.Stop(t.Context()))
+}
+
+func TestWebhookListenerStopIsConcurrencySafe(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	require.NoError(t, listener.Start(t.Context()))
+
+	var wg sync.WaitGroup
+	errs := make([]error, 10)
+	for i := range errs {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			errs[i] = listener.Stop(t.Context())
+		}(i)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		assert.NoError(t, err)
+	}
 }
 
 func TestMissingFeedItemFields(t *testing.T) {
@@ -329,7 +363,7 @@ func TestWebhookListenerRedeliveryEntersTerminalArchivesItem(t *testing.T) {
 	time.Sleep(2 * time.Millisecond) // distinct ObservedAt so the two deliveries get distinct occurrence keys
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"Resolved"}`, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
@@ -356,7 +390,7 @@ func TestWebhookListenerRedeliveryLeavesTerminalResurfaces(t *testing.T) {
 	time.Sleep(2 * time.Millisecond)
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"open"}`, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})
@@ -378,7 +412,7 @@ func TestWebhookListenerFirstDeliveryTerminalNotArchived(t *testing.T) {
 
 	require.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x","title":"t","state":"done"}`, nil).Code)
 
-	ctx := context.Background()
+	ctx := t.Context()
 	item, err := db.Queries().GetInboxItemByExternalID(ctx, store.GetInboxItemByExternalIDParams{
 		ProfileID: "triage", SourceKind: SourceKind, SourceScope: "hook", ExternalID: "x",
 	})

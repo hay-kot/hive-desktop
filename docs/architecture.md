@@ -56,8 +56,9 @@ individual choices; this document describes the shape everything fits into.
 > resulting settings and immutable path snapshot. Development state is local to
 > each worktree under `.hive-desktop/` (ADR 0014).
 >
-> Not yet built: the plugs-managed lifecycle and the HTTP/MCP adapters — see
-> [Migration path](#migration-path). New work should move toward this shape
+> Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
+> see [Background lifecycle](#background-lifecycle)) and the HTTP/MCP
+> adapters — see [Migration path](#migration-path). New work should move toward this shape
 > rather than extending the current one.
 
 ## The shape
@@ -142,7 +143,7 @@ column is the section that specifies it.
 | A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
 | A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
-| A new **background subsystem** | One instance per process, registered with the plugs manager | [Background lifecycle](#background-lifecycle) |
+| A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -507,11 +508,22 @@ from it. ADR 0014 records the configuration decision.
 ### Background lifecycle
 
 Long-running subsystems — producer, output worker, retention, watchers, the
-event bus, the webhook listener, the HTTP and MCP servers — are registered
-with a single `appkit/plugs` manager rather than each hand-rolling
-`Start`/`Stop`, a `stopOnce`, and a teardown branch in `main`. That gives
-uniform panic capture, retry with backoff, signal handling, and one graceful
-shutdown path.
+event bus, the webhook listener, the future HTTP and MCP servers — are meant
+to register with a single `appkit/plugs` manager rather than each hand-rolling
+`Start`/`Stop`, a `stopOnce`, and a teardown branch in `main`: uniform panic
+capture, retry with backoff, and one graceful shutdown path.
+
+**Adoption was attempted (2026-07-25) and declined.** `plugs.Manager.Start`
+unconditionally installs `signal.NotifyContext`, which permanently adds Go's
+process-wide `os/signal` watcher goroutine — `os/signal` offers no opt-out,
+and `TestAppLifecycle`'s strict goroutine accounting rightly refuses the
+leak. Plugs also guarantees no startup order, which the engine's
+install-before-appenders constraint needs expressed, not worked around.
+Until appkit offers signal opt-out and ordered start, the standing pattern
+is **App-owned lifecycle**: every subsystem exposes an idempotent,
+context-taking `Stop` behind a `stopOnce` (the webhook listener is the
+template — ADR 0016), `App.Start` starts them in dependency order, and
+`App.Close` unwinds them in reverse. `main` holds none of it.
 
 `development.pprof` is already typed and validated with disabled, loopback,
 port-zero-safe defaults. Starting the endpoint is deliberately deferred until
@@ -626,8 +638,10 @@ ADR 0010.
    int64-as-string are adapter concerns.
 7. **New extension types register in the registry** and declare a config
    schema. No per-type branching in shared code.
-8. **New background work registers with the plugs manager.** No bespoke
-   `Start`/`Stop` pairs and no new teardown branches in `main`.
+8. **New background work joins the App-owned lifecycle**: an idempotent,
+   context-taking `Stop` behind a `stopOnce`, started in `App.Start`, unwound
+   in `App.Close`. No teardown branches in `main`. Plugs remains the target
+   once appkit unblocks it — see [Background lifecycle](#background-lifecycle).
 9. **Never edit `internal/hivecore/`.** Land the change upstream and re-vendor.
 
 ## Migration path
@@ -668,7 +682,9 @@ The target is reached in this order; each step is independently shippable.
    First run creates the workspace before it offers to connect anything, and
    `flow` no longer names a connector: `FlowStore.Create` takes its starter
    graph from its caller.
-7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle.
+7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle
+   (the lifecycle half is blocked on appkit — see
+   [Background lifecycle](#background-lifecycle)).
 
 ### Data that must survive
 

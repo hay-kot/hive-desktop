@@ -160,10 +160,6 @@ linters:
         linters: [forbidigo]
       - path: ^desktop/
         linters: [forbidigo]
-      # One legitimate context root inside the core: the webhook listener's
-      # per-delivery timeout.
-      - path: internal/app/sources/webhook/
-        linters: [forbidigo]
       # app.App holds the application's lifetime context. containedctx exists
       # to stop a *request* context being stashed on a service, and it still
       # does -- every *_service.go in this same package is in scope. App is

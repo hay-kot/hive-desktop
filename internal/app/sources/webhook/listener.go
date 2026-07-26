@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -52,6 +53,8 @@ type Listener struct {
 	server   *http.Server
 	listener net.Listener
 	startErr error
+
+	stopOnce sync.Once
 }
 
 // NewListener builds a listener bound to host:port at Start. Configuration
@@ -87,16 +90,25 @@ func (l *Listener) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts the server down, letting in-flight ingests finish.
-func (l *Listener) Stop() {
-	if l.server == nil {
-		return
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	if err := l.server.Shutdown(ctx); err != nil {
-		l.logger.Warn().Err(err).Msg("webhook listener shutdown")
-	}
+// Stop gracefully shuts the server down, letting in-flight ingests finish
+// until ctx is done. Idempotent: a second call, or a call when Start was
+// never invoked or never bound, is a no-op that returns nil.
+//
+// It takes ctx rather than owning a timeout itself so the caller supplies the
+// shutdown budget — app.go's plugs.Plugin wrapper derives one with
+// context.WithoutCancel, since by the time a plugin's cleanup runs its own
+// ctx is already Done. Whether a shutdown error is fatal is that caller's
+// policy to decide, the same way Start's bind error is: this method only
+// reports, it does not judge.
+func (l *Listener) Stop(ctx context.Context) error {
+	var err error
+	l.stopOnce.Do(func() {
+		if l.server == nil {
+			return
+		}
+		err = l.server.Shutdown(ctx)
+	})
+	return err
 }
 
 // Running reports whether Start succeeded and the listener is bound.
