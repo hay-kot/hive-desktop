@@ -22,13 +22,14 @@ function mountScreen(props: Partial<InstanceType<typeof OnboardingScreen>['$prop
 }
 
 describe('OnboardingScreen', () => {
-  it('renders the three onboarding steps with connect active', () => {
+  // Two steps, because there are two screens. A step the walk can never make
+  // active reads as a step that got skipped.
+  it('lists exactly the steps onboarding has', () => {
     const wrapper = mountScreen()
-    const text = wrapper.text()
-    expect(text).toContain('Connect GitHub')
-    expect(text).toContain('Create your first workspace')
-    expect(text).toContain('Add feeds & tasks')
-    expect(text).toContain('Tokens are stored in your OS keychain.')
+    expect(wrapper.findAll('ol li').map((li) => li.text())).toHaveLength(2)
+    expect(wrapper.text()).toContain('Create your first workspace')
+    expect(wrapper.text()).toContain('Connect GitHub')
+    expect(wrapper.text()).toContain('Tokens are stored in your OS keychain.')
   })
 
   // The workspace is the one step that needs no credential, so it goes first

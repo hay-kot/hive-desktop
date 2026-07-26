@@ -36,11 +36,14 @@ const { copy, copied } = useClipboard({ resetDelay: 1600 })
 const confirmingSkip = ref(false)
 watch(() => props.card, () => { confirmingSkip.value = false })
 
+// Two steps, because onboarding has two screens. A third "add feeds & tasks"
+// entry used to sit here and could never become active — the app leaves this
+// screen after the last card — and it is not even a user task now: connecting
+// is what seeds the workspace's feeds.
 const activeStep = computed(() => props.card === 'workspace' ? 1 : 2)
 const steps = [
   { label: 'Create your first workspace', step: 1 },
   { label: 'Connect GitHub', step: 2 },
-  { label: 'Add feeds & tasks', step: 3 },
 ]
 
 async function openVerification() {
@@ -138,7 +141,7 @@ function submitWorkspace() {
 
         <!-- idle: not started -->
         <template v-else-if="card === 'idle'">
-          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Sign in from this device to pull your PRs, issues, and notifications into Hive.</p>
+          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Sign in from this device. Hive fills your workspace with your open PRs, your assignments, and the notifications inbox.</p>
           <button
             class="primary-button"
             :disabled="busy"
