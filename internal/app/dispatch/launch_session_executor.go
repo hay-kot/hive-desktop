@@ -7,7 +7,6 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 )
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
@@ -62,8 +61,8 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
 	}
 
-	name := session.Slugify(action.ID + "-" + data.Key)
-	if err := session.ValidateName(name); err != nil {
+	name := SlugifySessionName(action.ID + "-" + data.Key)
+	if err := ValidateSessionName(name); err != nil {
 		return ExecutionResult{}, fmt.Errorf("launch-session: derived session name: %w", err)
 	}
 
@@ -75,7 +74,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		if repo == "" || name == "" {
 			return ExecutionResult{}, fmt.Errorf("launch-session: repository and session name are required")
 		}
-		if err := session.ValidateName(name); err != nil {
+		if err := ValidateSessionName(name); err != nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: session name: %w", err)
 		}
 		if input.Session.Agent != "" {
@@ -86,7 +85,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 	}
 	if data.IsRerun {
 		name = fmt.Sprintf("%s-rerun-%d", name, data.CommandID)
-		if err := session.ValidateName(name); err != nil {
+		if err := ValidateSessionName(name); err != nil {
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}

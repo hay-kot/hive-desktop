@@ -81,6 +81,22 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 	return view, nil
 }
 
+// SlugifySessionName converts a display name to the slug Hive uses for
+// tmux session names and directory paths. It wraps the vendored
+// session.Slugify so that launch_session_executor.go — not itself an ACL
+// seam — never imports internal/hivecore directly; an upstream rename here
+// breaks this one file instead of spreading to a non-seam caller.
+func SlugifySessionName(name string) string {
+	return session.Slugify(name)
+}
+
+// ValidateSessionName validates name against Hive's session naming rules.
+// See SlugifySessionName for why this wraps the vendored session.ValidateName
+// instead of letting callers import internal/hivecore/core/session directly.
+func ValidateSessionName(name string) error {
+	return session.ValidateName(name)
+}
+
 type DurableMessageService interface {
 	Publish(context.Context, messaging.Message, []string) (messaging.PublishResult, error)
 }

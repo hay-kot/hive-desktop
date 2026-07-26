@@ -60,6 +60,54 @@ linters:
                 A core package that needs something from an adapter has the
                 interface backwards — declare it in app and let the adapter
                 satisfy it structurally.
+        # internal/hivecore is vendored and read-only (docs/architecture.md,
+        # "Bounded Context"): its types stop at the Anti-Corruption Layer and
+        # never appear in an app signature. The files list below is the
+        # allowlist, verified by grep on 2026-07-25 against the real tree:
+        # dispatch/hive_adapters.go (the seam itself), store/dbext.go (calls
+        # vendored migrate.Up during schema init), and app.go (constructs the
+        # vendored hive runtime — coredb, eventbus, stores, hive session
+        # service — and hands it to the seam). This is deliberately not a
+        # blanket pass for internal/app/*_test.go: a test file is only
+        # allowlisted where it itself exercises a seam interface with a
+        # vendored type — hive_adapters_test.go (constructs the vendored hive
+        # services it wraps) and launch_session_executor_test.go (its fake
+        # SessionCreator returns *session.Session to satisfy
+        # hive_adapters.go's SessionCreator interface) both do; dbext_test.go
+        # exercises the vendored migration runner directly. Every other test
+        # file under internal/app — including app_test.go, sources_test.go,
+        # settings_service_test.go — is expected to stay clean of hivecore
+        # imports, same as its production counterpart, and is not exempted.
+        # internal/adapter is a separate bounded context from this rule's
+        # concern: the wailsui e2e suite legitimately builds vendored store
+        # fixtures there, and that is out of scope here, not an exception to
+        # it.
+        hivecore:
+          files:
+            - "**/internal/app/**"
+            - "!**/internal/app/app.go"
+            - "!**/internal/app/dispatch/hive_adapters.go"
+            - "!**/internal/app/dispatch/hive_adapters_test.go"
+            - "!**/internal/app/dispatch/launch_session_executor_test.go"
+            - "!**/internal/app/store/dbext.go"
+            - "!**/internal/app/store/dbext_test.go"
+          deny:
+            - pkg: github.com/hay-kot/hive-desktop/internal/hivecore
+              desc: |
+                internal/app consumes hivecore only through the seam:
+                declare a narrow interface here, let the vendored type
+                satisfy it structurally, convert at the boundary in
+                dispatch/hive_adapters.go — see SlugifySessionName and
+                ValidateSessionName there for the trivial-wrapper case
+                (wrapping session.Slugify/session.ValidateName so
+                launch_session_executor.go doesn't import hivecore for two
+                helper calls). ADR 0015 ported the GitHub client out of
+                hivecore entirely because it had leaked into exported
+                signatures across three files; this rule exists so that
+                boundary doesn't regrow one import at a time. If this file
+                genuinely belongs at the seam, extend the allowlist in
+                this rule's `files`, with a comment saying why — don't
+                suppress the finding.
     exhaustive:
       default-signifies-exhaustive: true
     forbidigo:
