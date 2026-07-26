@@ -7,14 +7,18 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // EnvMockMode selects deterministic offline backends instead of live
-// GitHub: "feed" starts authenticated with fixture data (the e2e default),
-// "pipeline" starts authenticated with the isolated source-to-commit smoke
-// fixture, and "onboarding" starts signed out with a self-granting fake
-// device flow.
+// GitHub: "feed" starts connected with fixture data (the e2e default),
+// "pipeline" starts connected with the isolated source-to-commit smoke
+// fixture, and "onboarding" is a fresh install — nothing connected, a
+// self-granting fake device flow, and no workspaces (see FlowsDir).
 const EnvMockMode = "HIVE_DESKTOP_MOCK"
+
+// MockOnboarding is the mock mode that stands in for a fresh install.
+const MockOnboarding = "onboarding"
 
 // EnvE2EHarness carries the per-run, 256-bit token that Docker e2e creates.
 // It prevents test-only HTTP routes from being enabled by mock mode alone.
@@ -82,12 +86,39 @@ func ConfigPath() string {
 // live: a user-editable, dotfiles-managed "flows" directory under the
 // desktop config root. It follows the same override convention as
 // ConfigPath: EnvFlowsDir wins outright over the derived location.
+//
+// The onboarding mock mode is the exception: it runs on a scratch directory
+// instead. That mode stands in for a fresh install, and first run is now
+// gated on having no workspaces rather than on GitHub being connected — so
+// pointed at a config root that already holds flows it boots straight to the
+// feed and shows nothing it was asked to show. An explicit EnvFlowsDir still
+// wins, which is how the e2e harness and anyone wanting a specific fixture
+// set opt out.
 func FlowsDir() string {
 	if dir := os.Getenv(EnvFlowsDir); dir != "" {
 		return dir
 	}
+	if MockMode() == MockOnboarding {
+		if dir := onboardingFlowsDir(); dir != "" {
+			return dir
+		}
+	}
 	return filepath.Join(filepath.Dir(ConfigPath()), "flows")
 }
+
+// onboardingFlowsDir is a fresh empty directory, resolved once per process so
+// every caller agrees on it and re-made on every launch so the mode stays
+// repeatable — workspaces created while walking first run must not still be
+// there the next time it is walked. It returns "" if a temp directory cannot
+// be made, which falls back to the real flows directory rather than failing a
+// path lookup.
+var onboardingFlowsDir = sync.OnceValue(func() string {
+	dir, err := os.MkdirTemp("", "hive-desktop-onboarding-")
+	if err != nil {
+		return ""
+	}
+	return dir
+})
 
 // EnvActionsPath overrides the actions.yml file location, mirroring how
 // EnvFlowsDir overrides the flows directory.

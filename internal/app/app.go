@@ -314,7 +314,7 @@ func buildGitHubConnection(mock string, creds credentials.Store, onChange func()
 	switch mock {
 	case "feed", "pipeline", "action-smoke":
 		return ghsource.NewMockConnection(true, creds, onChange)
-	case "onboarding":
+	case settings.MockOnboarding:
 		return ghsource.NewMockConnection(false, creds, onChange)
 	default:
 		return ghsource.NewLiveConnection(github.NewClient(), creds, onChange)

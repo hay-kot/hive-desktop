@@ -127,8 +127,14 @@ build:
 
 ```bash
 mise run desktop:serve                       # serves at http://localhost:8080
-HIVE_DESKTOP_MOCK=onboarding mise run desktop:serve   # drive the signed-out first-run screen offline
+HIVE_DESKTOP_MOCK=onboarding mise run desktop:serve   # drive first run offline
 ```
+
+`onboarding` mode reads its flows from a fresh scratch directory rather than
+the real config root, so it shows first run even on a machine that already has
+workspaces, and the walk cannot touch them. The directory is per-process, so a
+`desktop:dev` rebuild — which any Go edit triggers — starts the walk over. Set
+`HIVE_DESKTOP_FLOWS` to opt out and point it at a fixture set instead.
 
 Drive it with Playwright/browser tooling, read screenshots under
 `desktop/e2e/screenshots`, edit, repeat. Assets are `//go:embed`ded, so
