@@ -38,6 +38,18 @@ type FeedConfig struct {
 func (c *FeedConfig) Inputs() int  { return 1 }
 func (c *FeedConfig) Outputs() int { return 0 }
 
+// NotifyDeclaration satisfies dispatch's notify-raiser capability: a feed
+// only raises a notify output when it carries a Notify block, and — unlike a
+// notify node — restricts delivery to genuinely new arrivals. A feed is a
+// place items live, so "notify me about this feed" means the arrivals, not
+// every later comment on something already sitting in it.
+func (c *FeedConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
+	if c.Notify == nil {
+		return nil, false, false
+	}
+	return c.Notify, true, true
+}
+
 func (c *FeedConfig) Validate(Refs) error {
 	if !icons.ValidFeed(c.Icon) {
 		return fmt.Errorf("icon: %q is not a supported feed icon", c.Icon)
@@ -130,6 +142,14 @@ type NotifyConfig struct {
 
 func (c *NotifyConfig) Inputs() int  { return 1 }
 func (c *NotifyConfig) Outputs() int { return 0 }
+
+// NotifyDeclaration satisfies dispatch's notify-raiser capability: a notify
+// node always has content to raise and never restricts delivery to new
+// arrivals — it notifies for whatever is routed to it, unconditionally,
+// which is the author's explicit choice in authoring the node at all.
+func (c *NotifyConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
+	return c, false, true
+}
 
 // SeverityOrDefault resolves Severity, defaulting to NotifySeverityDefault
 // when the node declares none.

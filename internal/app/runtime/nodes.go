@@ -28,6 +28,14 @@ type behavior struct {
 	// processor builds this node's per-instance transformer. It is called once
 	// per node when a Runner is built.
 	processor func(r *Runner, nodeID string, cfg flow.NodeConfig) (processor, error)
+	// snapshotReconciled marks a node whose committed sink output is
+	// membership in a set that a source snapshot restates wholesale — a
+	// feed. Run declares one reconciliation scope per (node, source) so the
+	// commit can drop rows the latest snapshot no longer includes, even when
+	// the snapshot is empty, and the engine derives a flow's feed ids from
+	// the same flag to know what replay must recompute membership for and,
+	// on disable, must remove. It is meaningless on a behavior with no sinks.
+	snapshotReconciled bool
 }
 
 // processor transforms one message into port-indexed outputs. A nil result
@@ -52,7 +60,7 @@ type processor interface {
 var behaviors = buildBehaviors(map[string]behavior{
 	"github-filter": {processor: newFilterNode},
 	"function":      {processor: newFunctionNode},
-	"feed":          {sinks: feedSinks},
+	"feed":          {sinks: feedSinks, snapshotReconciled: true},
 	"action":        {sinks: actionSinks},
 	"notify":        {sinks: notifySinks},
 })

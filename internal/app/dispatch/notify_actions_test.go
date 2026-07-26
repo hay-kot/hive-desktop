@@ -5,6 +5,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
@@ -105,6 +106,51 @@ func TestNotifyActionID_RoundTrips(t *testing.T) {
 func TestNotifyActionConfig_RequiresATitle(t *testing.T) {
 	require.NoError(t, (&NotifyActionConfig{Title: "hi"}).Validate())
 	require.Error(t, (&NotifyActionConfig{}).Validate())
+}
+
+// TestNotifyRaiserCoversExactlyFeedAndNotify guards the declared capability
+// notifyNodeConfig relies on instead of a type switch. An interface assertion
+// fails closed for any config that does not implement it, which is invisible
+// when a config should have the capability and silently does not — so this
+// test re-derives flow's currently declared (non-source) node types from
+// flow.NodeTypes() minus sources.Types() and requires every one of them be
+// accounted for in the sample below. Adding a new terminal node type without
+// updating this test trips the count check, forcing a conscious decision
+// about whether it raises a notification, rather than letting it silently
+// fall through the assertion in notifyNodeConfig.
+func TestNotifyRaiserCoversExactlyFeedAndNotify(t *testing.T) {
+	sample := map[string]flow.NodeConfig{
+		"feed":          &flow.FeedConfig{},
+		"action":        &flow.ActionConfig{},
+		"notify":        &flow.NotifyConfig{},
+		"function":      &flow.FunctionConfig{},
+		"github-filter": &flow.GithubFilterConfig{},
+	}
+	raises := map[string]bool{"feed": true, "notify": true}
+
+	excludedSourceTypes := make(map[string]bool)
+	for _, sourceType := range sources.Types() {
+		excludedSourceTypes[sourceType] = true
+	}
+	declaredCount := 0
+	for _, nodeType := range flow.NodeTypes() {
+		if !excludedSourceTypes[nodeType] {
+			declaredCount++
+		}
+	}
+	require.Lenf(t, sample, declaredCount,
+		"flow's declared (non-source) node types changed; update the sample map above so this test still covers all of them")
+
+	for nodeType, cfg := range sample {
+		_, ok := cfg.(notifyRaiser)
+		assert.Equalf(t, raises[nodeType], ok, "node type %q's notifyRaiser membership changed unexpectedly", nodeType)
+	}
+
+	// A source connector's config is a distinct wrapper type and never
+	// raises a notify output, regardless of which connector it wraps.
+	var sourceCfg flow.NodeConfig = &flow.SourceConfig{}
+	_, ok := sourceCfg.(notifyRaiser)
+	assert.False(t, ok)
 }
 
 // A notifying feed resolves through the same synthetic action id a notify

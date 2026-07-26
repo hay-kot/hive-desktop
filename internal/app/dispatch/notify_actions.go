@@ -46,6 +46,21 @@ func (c *NotifyActionConfig) Validate() error {
 	return nil
 }
 
+// notifyRaiser is satisfied by a node config that can raise a notify output:
+// a notify node, whose whole purpose it is, and a feed node marked as one
+// that interrupts. It is declared here, the consumer, and satisfied
+// structurally by flow.NotifyConfig and flow.FeedConfig via methods declared
+// alongside them — a declared capability in place of a switch over concrete
+// config types. TestNotifyRaiserCoversExactlyFeedAndNotify guards that the
+// set of node types satisfying it stays exactly {feed, notify}, so a future
+// terminal node type cannot silently fall through the assertion below.
+type notifyRaiser interface {
+	// NotifyDeclaration returns the notify content to raise and whether
+	// delivery should be restricted to genuinely new arrivals, or ok=false if
+	// this config does not raise a notify output right now (a quiet feed).
+	NotifyDeclaration() (cfg *flow.NotifyConfig, onlyWhenNew, ok bool)
+}
+
 // FlowLister is the subset of *flow.FlowStore this package needs: the
 // current set of loaded flows. It is declared per consuming package rather
 // than shared, so a package's dependency on the flow store is exactly the
@@ -101,7 +116,7 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 			if node.ID != nodeID {
 				continue
 			}
-			cfg, ok := notifyNodeConfig(node)
+			cfg, onlyWhenNew, ok := notifyNodeConfig(node)
 			if !ok {
 				return actions.Action{}, false
 			}
@@ -114,7 +129,7 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 					Body:        cfg.Body,
 					Severity:    cfg.SeverityOrDefault(),
 					Sound:       cfg.SoundOrDefault(),
-					OnlyWhenNew: node.Type == "feed",
+					OnlyWhenNew: onlyWhenNew,
 				},
 			}, true
 		}
@@ -122,21 +137,19 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 	return actions.Action{}, false
 }
 
-// notifyNodeConfig reads the notify config a node delivers through, from
-// either shape that raises a notify output: a notify node, whose whole
-// purpose it is, or a feed node marked as one that interrupts. A feed
-// without that block never enqueues a notify command, so reaching here for
-// one means the flow was edited between the graph run and the delivery —
-// reported as unresolved, exactly like a deleted node.
-func notifyNodeConfig(node flow.Node) (*flow.NotifyConfig, bool) {
-	switch cfg := node.Config.(type) {
-	case *flow.NotifyConfig:
-		return cfg, node.Type == "notify"
-	case *flow.FeedConfig:
-		return cfg.Notify, cfg.Notify != nil
-	default:
-		return nil, false
+// notifyNodeConfig reads the notify content a node delivers through, and
+// whether delivery should be restricted to genuinely new arrivals, from
+// whatever the node's own config declares via notifyRaiser. A feed without a
+// Notify block reports ok=false exactly like a node whose config never
+// raises one at all — reaching here for either means the flow was edited
+// between the graph run and the delivery, reported as unresolved just like a
+// deleted node.
+func notifyNodeConfig(node flow.Node) (cfg *flow.NotifyConfig, onlyWhenNew, ok bool) {
+	raiser, ok := node.Config.(notifyRaiser)
+	if !ok {
+		return nil, false, false
 	}
+	return raiser.NotifyDeclaration()
 }
 
 // notifyLabel is the human name a notify delivery reports in the Activity

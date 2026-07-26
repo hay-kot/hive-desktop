@@ -353,7 +353,7 @@ func flowTargets(f flow.Flow) (feedIDs, sourceIDs []string) {
 	for i := range f.Nodes {
 		node := &f.Nodes[i]
 		switch {
-		case node.Type == feedNodeType:
+		case behaviors[node.Type].snapshotReconciled:
 			feedIDs = append(feedIDs, f.ID+"/"+node.ID)
 		case behaviors[node.Type].relay && !node.Disabled:
 			sourceIDs = append(sourceIDs, "source:"+f.ID+"/"+node.ID)

@@ -131,12 +131,12 @@ func (s *runState) route(batch []store.Msg) {
 	}
 }
 
-// declareSnapshot records one reconciliation scope per feed node for this
-// source, keeping first-seen order.
+// declareSnapshot records one reconciliation scope per snapshot-reconciled
+// node (a feed) for this source, keeping first-seen order.
 func (s *runState) declareSnapshot(snapshot *snapshotContext) {
 	for i := range s.runner.flow.Nodes {
 		node := &s.runner.flow.Nodes[i]
-		if node.Type != feedNodeType {
+		if !behaviors[node.Type].snapshotReconciled {
 			continue
 		}
 		feedID := s.runner.flow.ID + "/" + node.ID
@@ -327,9 +327,6 @@ func (s *runState) nodeRuns() []store.NodeRunView {
 	}
 	return runs
 }
-
-// feedNodeType is the node type whose membership a snapshot reconciles.
-const feedNodeType = "feed"
 
 // acceptsEntry reports whether an entry node ingests this message. A source
 // node only ever ingests its own flow-qualified topic, so two flows reading
