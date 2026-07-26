@@ -175,10 +175,9 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
 
 ## Patterns and gotchas
 
-These describe the code **as it is today**. One is being replaced and is
-marked as such. For new work follow `../docs/architecture.md` — extending a
-superseded pattern makes the migration more expensive, which is the whole
-reason it is being done now.
+These describe the code **as it is today**. For new work follow
+`../docs/architecture.md` — extending a superseded pattern makes the migration
+more expensive, which is the whole reason it is being done now.
 
 - **Single Go module.** `desktop/` has no `go.mod`; it is the
   `github.com/hay-kot/hive-desktop/desktop` package inside the root module. Because
@@ -215,8 +214,12 @@ reason it is being done now.
   in the payload, which is why an MCP or streaming consumer does not have to
   "re-read the service". See `architecture.md` ▸ Events.
 - **Mock modes** (`HIVE_DESKTOP_MOCK`): `feed`/`pipeline`/`action-smoke` start
-  authenticated; `onboarding` starts signed out with a fake device flow that
-  grants after ~1.5s. Unset → live backends. In mock modes the live producer
+  with `github/octocat` connected; `onboarding` starts with no workspaces and
+  nothing connected, and its fake device flow grants after ~1.5s — the two
+  together are what make it the first-run mode. Unset → live backends. A mock
+  connection must write the credential it pretends to hold, not just flip a
+  status flag: everything that resolves an account off the credential store
+  works live and fails in mock mode otherwise. In mock modes the live producer
   and output-worker background loop are skipped; `feed`/`action-smoke` seed
   fixed `feed_item` rows (see `mockseed.go`). Use these for deterministic
   offline/e2e runs — do not hit real GitHub in tests.
@@ -248,14 +251,18 @@ reason it is being done now.
   on being connected to GitHub. Lookup is generic and lives in
   `app/credentials`; only *acquisition* is provider-specific and lives with
   the connector (`sources/github/connect.go`). See `architecture.md` ▸
-  Credentials.
+  Credentials and docs/decisions/0013.
 
-  **Still being replaced.** The vendored
-  `internal/hivecore/github/token.go` single-slot store is untouched and
-  unused by the app, but first run still gates on GitHub being connected —
-  onboarding presents it as step 1 rather than as an expected-but-skippable
-  step, and `flow.starterFlow` still names the connector directly. Do not add
-  code that depends on either.
+  The vendored `internal/hivecore/github/token.go` single-slot store is
+  untouched and unused by the app. Do not reach for it.
+- **First run creates a workspace before it offers an account.** The order is
+  create workspace → connect GitHub → feed, and the connect step is skippable
+  past a warning. A workspace created with no account connected has an
+  *empty* graph, which is a valid flow — a source node names the credential
+  it fetches as, so there is no unconfigured source node to stand in for one.
+  `FlowsService.SeedStarter` is what fills it in once an account exists, and
+  `flow.FlowStore.Create` takes its starter graph from its caller so `flow`
+  names no connector.
 - **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
   `internal/app/prompts/templates/`; nothing in the frontend builds a
   prompt string. Adding one is a template plus a `definitions` entry — Settings

@@ -20,6 +20,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0010](decisions/0010-goja-script-runtime.md) | goja for function nodes, behind a ScriptRuntime port |
 | [0011](decisions/0011-flow-engine-in-go.md) | The flow engine moves to Go |
 | [0012](decisions/0012-source-connector-registry.md) | Source connectors are declared, not sniffed |
+| [0013](decisions/0013-credential-store.md) | Credentials are keyed by account, in a store of our own |
 
 ## References
 

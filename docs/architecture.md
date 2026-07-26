@@ -38,9 +38,16 @@ individual choices; this document describes the shape everything fits into.
 > `runtime`'s behaviour registry both derive their source entries from it, so
 > adding a connector is a change to `sources/` alone (ADR 0012).
 >
-> Not yet built: the credential registry and the plugs-managed lifecycle —
-> see [Migration path](#migration-path). New work should move toward this
-> shape rather than extending the current one.
+> Credentials are keyed by account: `app/credentials` stores a value per
+> `Ref{Provider, Account}` in the OS keychain with a separate index of refs,
+> a source node names the account it fetches as, and lookup is generic while
+> acquisition stays with the connector. GitHub is one connector among them
+> rather than a login — nothing is gated on being connected to it, and
+> Settings ▸ Integrations is a projection of the same registry (ADR 0013).
+>
+> Not yet built: the plugs-managed lifecycle and the HTTP/MCP adapters — see
+> [Migration path](#migration-path). New work should move toward this shape
+> rather than extending the current one.
 
 ## The shape
 
@@ -102,7 +109,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 
 | Pattern | Where it applies | The rule here |
 | --- | --- | --- |
-| **Value Object** (DDD) | `Ref{Provider, Account}`, `Sink`, `secret.Secret` | Immutable, compared by value, self-validating, no identity of its own. A credential reference is a `Ref`, never a bare string; a secret is `secret.Secret` so it redacts when marshalled. |
+| **Value Object** (DDD) | `Ref{Provider, Account}`, `Sink` | Immutable, compared by value, self-validating, no identity of its own. A credential reference is a `Ref`, never a bare string. Credential *values* are plain strings — see [Credentials](#credentials). |
 | **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `pipeline.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
 | **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR 0009. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
@@ -364,19 +371,45 @@ or SSE consumer needs the delta.
 Secrets live in `app/credentials`, keyed by `Ref{Provider, Account}` and
 stored in the OS keychain. Two constraints drive the design:
 
-- **Keychains do not enumerate.** `List()` needs a separate index of refs; only
-  the secret values live in the keychain.
+- **Keychains do not enumerate.** `List()` needs a separate index of refs
+  (`<StateDir>/credentials.json`); only the values live in the keychain. The
+  keychain is the truth and the index is a cache: a ref present in the index
+  but absent from the keychain reads as `ErrNotFound` and is pruned, so a
+  divergence can never surface as a stuck "Connected" badge.
 - **Config holds refs, never tokens.** `flows/*.yaml` is explicitly
   dotfiles-managed, so a token in a node's config is a token in a git repo. A
-  source node carries `credential: grafana/prod`, resolved at construction.
+  source node carries `credential: grafana/prod`, resolved at construction —
+  and re-read on every use, so connecting, rotating or disconnecting an
+  account takes effect on the next fetch with nothing to invalidate.
 
-Credential *acquisition* is provider-specific and belongs to the connector —
+**Values are plain strings.** A redacting wrapper earns its place when secrets
+are loaded from config and then flow through structs that get marshalled and
+logged; "config holds refs, never tokens" means that path does not exist here.
+A value's whole life is keychain → connector factory → provider client, and
+none of those marshal it.
+
+**Lookup is generic; only acquisition is provider-specific.** `Resolve`,
+`Bind`, `ListProvider` and `EnvOverrideName` know no provider — the headless
+override is derived from the provider name, so `HIVE_GITHUB_TOKEN` and
+`HIVE_GRAFANA_TOKEN` both come for free. Acquisition belongs to the connector:
 GitHub's device flow lives in `app/sources/github`, while Grafana is a
-secret-marked config field with no state machine.
+secret-marked config field with no state machine. `Connection` is declared by
+the connector that implements it, not by `app` — a connector needing no state
+machine declares none.
 
-**GitHub is a connector, not a login.** The app is not gated on GitHub
-sign-in; first-run onboarding asks for a first flow, and providers are
-configured on an Integrations settings screen that enumerates the registry.
+**Multi-account is the model, not an extension of it.** One fetcher per
+account: a `feed.LiveProvider` holds one account's response cache,
+conditional-request state and rate-limit cooldown, so two accounts sharing one
+would serve each other's items and stall each other's fetches.
+
+**GitHub is a connector, not a login.** Nothing in the app is gated on being
+connected to it. First run is create workspace → connect GitHub → feed: the
+workspace is the one thing that exists without a credential, so it goes first,
+and connecting is what seeds its starter graph. Bypassing that step is possible
+past a warning, and lands on a feed whose empty state points at Settings ▸
+Integrations — itself a projection of the connector registry, joined to what
+the credential store holds. ADR 0013 records why this is a new store rather
+than an extension of the vendored single-slot one.
 
 ### Config versus data
 
@@ -400,8 +433,7 @@ shutdown path.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware — the fetch layer connectors need, which
-does not exist today), `secret.Secret` (redacting string type for credential
-values), `mapx`.
+does not exist today) and `mapx`.
 
 **`httpclient` cannot reach the one fetch path that exists.** GitHub's requests
 go through the vendored `hivecore/github.Client`, whose transport is a concrete
@@ -536,8 +568,13 @@ The target is reached in this order; each step is independently shippable.
    derive their source entries. Node types are namespaced (`sources.github`,
    `sources.webhook`), which breaks the `type:` discriminator in any existing
    `flows/*.yaml`.
-6. **Credentials** — `Ref{Provider, Account}`, the keychain-backed store and
-   its index, and GitHub demoted from a login to a connector.
+6. **Credentials** — **Done.** ADR 0013. `Ref{Provider, Account}`, the
+   keychain-backed store and its ref index, one fetcher per account, and
+   GitHub demoted from a login to a connector. A source node's `credential:`
+   is required, which breaks any existing `flows/*.yaml` a second time.
+   First run creates the workspace before it offers to connect anything, and
+   `flow` no longer names a connector: `FlowStore.Create` takes its starter
+   graph from its caller.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle.
 
 ### Data that must survive
@@ -565,14 +602,6 @@ These are deliberately unresolved; revisit when the relevant work starts.
   place to enumerate.
 - **`adapter/` as a grouping directory** versus flat `internal/wailsui`,
   `internal/httpapi`, `internal/mcpsrv`.
-- **Identity display** — with GitHub demoted to a connector, where the
-  authenticated account's name and avatar surface, if anywhere.
-- **First-run guidance** — onboarding now ends at "create a flow", which
-  leaves a user with no configured source; it likely needs to point at
-  Integrations. Related: `flow`'s `starterFlow` imports `sources/github`
-  directly to seed that flow, which is the last provider-specific import in an
-  otherwise connector-neutral package. Whatever replaces first-run onboarding
-  should take the seed with it.
 - **Schema-driven editor forms** — a connector's config schema is reflected
   and available, but `nodes/<type>/editor.vue` is still hand-written per type,
   as is its duplicated UX-only `validate()`. Rendering the form from the
