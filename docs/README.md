@@ -17,9 +17,18 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0007](decisions/0007-local-webhook-listener.md) | Local webhook listener for generic pipeline ingress |
 | [0008](decisions/0008-canonical-item-contract.md) | Canonical inbox item contract |
 | [0009](decisions/0009-go-owned-llm-prompts.md) | LLM prompts owned by Go, node docs live with the schema |
+| [0010](decisions/0010-goja-script-runtime.md) | goja for function nodes, behind a ScriptRuntime port |
+| [0011](decisions/0011-flow-engine-in-go.md) | The flow engine moves to Go |
+| [0012](decisions/0012-source-connector-registry.md) | Source connectors are declared, not sniffed |
+| [0013](decisions/0013-credential-store.md) | Credentials are keyed by account, in a store of our own |
+| [0014](decisions/0014-desktop-configuration.md) | Typed desktop configuration and worktree-local development instances |
+| [0015](decisions/0015-owned-github-client.md) | The desktop owns its GitHub client |
+| [0016](decisions/0016-webhook-listener-placement.md) | The webhook listener stays in the core as push ingress |
 
 ## References
 
+- [`architecture.md`](architecture.md) — how the app is structured and how it should grow: the core/adapter shape, named patterns, directory layout, extension points, cross-cutting conventions, and the rules PRs are reviewed against. Read this before adding a subsystem, entrypoint, or extension point.
+- [`source-pipeline.md`](source-pipeline.md) — the pipeline's runtime behaviour: ingestion, the `Msg` contract, flows, membership replay, retention, and actions.
 - [`distribution.md`](distribution.md) — concrete distribution infra: bucket, domains, bucket layout, manifest schema, publish/rollback runbook, credentials.
 
 ## Related documents outside this repo

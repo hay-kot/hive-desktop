@@ -1,7 +1,7 @@
 # Hive Desktop flow — nodes and wires, as code.
 #
-# e2e fixture for HIVE_DESKTOP_MOCK=feed (desktop/e2e/scripts/serve.sh points
-# HIVE_DESKTOP_FLOWS at this directory). The flow id ("frontend-triage",
+# e2e fixture for HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=feed (desktop/e2e/scripts/serve.sh points
+# HIVE_DESKTOP_FLOWS_DIR at this directory). The flow id ("frontend-triage",
 # taken from this file's name) becomes the mock server's one profile id, and
 # "notifications-inbox" is the feed node desktop/mockseed.go seeds feed_item
 # rows under (feed id "frontend-triage/notifications-inbox"). Keep the node
@@ -11,7 +11,7 @@
 version: 1
 name: Frontend Triage
 nodes:
-  - { id: gh-source, type: github-source, kind: search, query: "is:open is:pr archived:false" }
+  - { id: gh-source, type: sources.github, credential: github/octocat, kind: search, query: "is:open is:pr archived:false" }
   - { id: notifications-inbox, type: feed, name: "Notifications inbox" }
 wires:
   - { from: gh-source, to: notifications-inbox }

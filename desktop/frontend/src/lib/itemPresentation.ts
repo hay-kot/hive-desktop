@@ -8,8 +8,8 @@
 import type { Component } from 'vue'
 import GithubMark from '../components/marks/GithubMark.vue'
 import { defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
-import * as githubSourceNode from '../pipeline/nodes/github-source/config'
-import * as webhookSourceNode from '../pipeline/nodes/webhook-source/config'
+import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
+import * as webhookSourceNode from '../pipeline/nodes/sources.webhook/config'
 import IconCircleDot from '~icons/lucide/circle-dot'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconInbox from '~icons/lucide/inbox'
@@ -61,7 +61,7 @@ export type KindStyle = 'pr' | 'issue' | 'neutral'
  *  kind so every item is automatable: `applies_to: [Item]` targets exactly
  *  the untyped ones, and they show up in the actions editor's autocomplete
  *  like any other kind. Must stay in sync with Go's DefaultItemKind
- *  (internal/desktop/pipeline/action_item.go) — the action gate matches
+ *  (internal/app/dispatch/action_item.go) — the action gate matches
  *  against the same value. See docs/decisions/0008-canonical-item-contract.md. */
 export const DEFAULT_ITEM_KIND = 'Item'
 
@@ -167,7 +167,7 @@ export function clipboardText(item: InboxItem): string {
 
 /** Context the host owns that presentation needs beyond the item. */
 export interface PresentationContext {
-  /** webhook-source node id → configured icon key (useFeedState.sourceIcons). */
+  /** sources.webhook node id → configured icon key (useFeedState.sourceIcons). */
   sourceIcons?: Record<string, string>
 }
 

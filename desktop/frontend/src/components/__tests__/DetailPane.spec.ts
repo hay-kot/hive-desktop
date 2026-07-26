@@ -6,7 +6,7 @@ import type { InboxItem } from '../../types/feed'
 
 const item: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
-  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
+  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 const actions: ActionView[] = [{ id: 'summarize', label: 'Summarize', type: 'launch-session', showInDetail: true, requiresSessionInput: false }]
 const payload = (patch: Record<string, unknown>) => ({ ...(item.payload as Record<string, unknown>), ...patch })
@@ -88,7 +88,7 @@ describe('DetailPane', () => {
   })
 
   it('labels non-GitHub items with the neutral kind pill instead of Issue', () => {
-    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', status: 'failure' } }
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1', status: 'failure' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
     expect(wrapper.get('[data-testid="kind-pill"]').text()).toBe('Item')
     expect(wrapper.get('[data-testid="kind-pill"]').classes()).toContain('kind-pill-neutral')
@@ -97,7 +97,7 @@ describe('DetailPane', () => {
   })
 
   it('hides the open button for webhook items without a URL, and the ACTIONS block when it has no applicable actions', () => {
-    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1' } }
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
     expect(wrapper.find('button.open-button').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('ACTIONS')
@@ -105,7 +105,7 @@ describe('DetailPane', () => {
   })
 
   it('shows the ACTIONS block for a webhook item with applicable actions, without a branch footer', () => {
-    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', kind: 'deploy' } }
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1', kind: 'deploy' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions } })
     expect(wrapper.text()).toContain('ACTIONS')
     expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(1)
@@ -119,7 +119,7 @@ describe('DetailPane', () => {
   })
 
   it('keeps the open button for webhook items that carry a URL', () => {
-    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'webhook-source-1', payload: { id: 'run-1', url: 'https://ci.example.com/run/1' } }
+    const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', payload: { id: 'run-1', url: 'https://ci.example.com/run/1' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
     expect(wrapper.find('button.open-button').exists()).toBe(true)
   })

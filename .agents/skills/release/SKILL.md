@@ -71,10 +71,7 @@ Reject missing or unknown channels instead of guessing.
 7. After confirmation, run the same local gates used before pushes:
 
    ```bash
-   mi check:generate
-   mi check:tidy
-   mi lint
-   mi test
+   mi check
    mi desktop:test:frontend
    ```
 

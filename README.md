@@ -4,7 +4,7 @@ Private product monorepo for the Hive desktop application and its supporting ser
 
 | Component                                     | Path                             | Status                                                                                       |
 | --------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
-| Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/desktop/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
+| Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/app/` + `internal/adapter/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |
 | Vendored hive core                            | `internal/hivecore/`             | CLI-managed by `cmd/vendorhive` — **read-only**                                              |
 | Admin server (analytics, licenses, purchases) | `server/`                        | Future — nested Go module when built                                                         |
 | Landing page                                  | `web/`                           | Static HTML on Cloudflare Workers static assets → [hivedesktop.com](https://hivedesktop.com) |
@@ -23,7 +23,7 @@ mise install                       # toolchain + git hooks (lefthook)
 cd desktop/frontend && npm ci      # frontend deps, for the desktop app and its tests
 ```
 
-`mise install` also installs the git hooks, so a fresh clone gets the quality gates with no extra step (`mise run setup` re-installs them on demand). `mise tasks` lists every gate and build task. Hooks format staged Go files on commit and run tidy/lint/test on push — see [`docs/decisions/0006-lefthook-quality-gates.md`](docs/decisions/0006-lefthook-quality-gates.md).
+`mise install` also installs the git hooks, so a fresh clone gets the quality gates with no extra step (`mise run setup` re-installs them on demand). `mise tasks` lists every gate and build task. Hooks format staged Go files on commit and run `mise run check` (generated-code drift, tidy, lint, test) on push — see [`docs/decisions/0006-lefthook-quality-gates.md`](docs/decisions/0006-lefthook-quality-gates.md).
 
 Installing the hooks sets this clone's `core.hooksPath` to its own `.git/hooks`, which takes precedence over a global `core.hooksPath` — global hooks will not run in this repo.
 

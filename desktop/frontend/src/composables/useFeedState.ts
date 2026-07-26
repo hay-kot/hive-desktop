@@ -1,9 +1,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
-import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
-import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
-import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
+import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
+import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import { appErrorKind } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
@@ -62,7 +63,7 @@ export function useFeedState() {
   const search = ref('')
   const items = ref<InboxItem[]>([])
   // Per-source-node feed icons for the active flow (node id → icon key),
-  // read from webhook-source configs in loadFeeds. Feed rows and the detail
+  // read from sources.webhook configs in loadFeeds. Feed rows and the detail
   // pane look up an item's glyph by its sourceScope (the source node id).
   const sourceIcons = ref<Record<string, string>>({})
   // The selected feed's archived section: collapsed by default, lazy-loaded
@@ -219,7 +220,9 @@ export function useFeedState() {
   }
 
   // A flow summary maps to a profile; feeds are filled in by loadFeeds once
-  // the profile is selected (the rail only needs the letter/name).
+  // the profile is selected (the rail only needs the letter/name). An
+  // undefined tree is therefore "feeds not read yet", which is distinct from
+  // a workspace whose flow genuinely has no feed nodes.
   function toProfileStub(flow: { id: string; name: string; enabled: boolean }): Profile {
     const name = flow.name || flow.id
     return { id: flow.id, letter: letter(name), name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
@@ -294,7 +297,7 @@ export function useFeedState() {
       const icons: Record<string, string> = {}
       const countByKind = new Map<string, number>()
       for (const n of nodes) {
-        if (n.type === 'webhook-source' && n.icon) icons[n.id] = n.icon
+        if (n.type === 'sources.webhook' && n.icon) icons[n.id] = n.icon
         const nodeSourceKind = sourceKindForNodeType(n.type)
         if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }
@@ -337,20 +340,35 @@ export function useFeedState() {
     }
   }
 
-  async function createProfile(name: string) {
-    if (creatingProfile.value) return
+  // Returns the new workspace's id, or null if it could not be created —
+  // onboarding needs it to seed the workspace it just made once GitHub is
+  // connected, and reading it back off activeProfileId would depend on a
+  // selection a concurrent reload could have moved.
+  async function createProfile(name: string): Promise<string | null> {
+    if (creatingProfile.value) return null
     creatingProfile.value = true
     createProfileError.value = null
     try {
       const created = await CreateFlow(name)
       profiles.value = [...profiles.value, toProfileStub(created)]
       await selectProfile(created.id)
+      return created.id
     } catch (error) {
       console.warn('Unable to create flow', error)
       createProfileError.value = error instanceof Error && error.message ? error.message : 'Could not create the workspace.'
+      return null
     } finally {
       creatingProfile.value = false
     }
+  }
+
+  // seedStarterFlow fills an empty workspace with the starter graph. The
+  // backend also publishes flows:updated, but this reload is what makes the
+  // sidebar's feeds readable by the time the caller continues, rather than
+  // whenever the event lands.
+  async function seedStarterFlow(profileID: string): Promise<void> {
+    await SeedStarterFlow(profileID)
+    await reloadProfilesQuietly()
   }
 
   async function renameProfile(profileID: string, name: string): Promise<boolean> {
@@ -519,7 +537,11 @@ export function useFeedState() {
           if (isCurrentActionRun(item.id, action.id, commandID, generation)) setActionRun(item.id, action.id, run)
         } catch (error) {
           console.warn('Unable to restore action run', error)
-          if (/not found|no rows|missing/i.test(error instanceof Error ? error.message : String(error)) && isCurrentActionRun(item.id, action.id, commandID, generation)) removeActionRunID(item.id, action.id)
+          // A run row deleted underneath us is not a failure: drop the stale
+          // id so the card disappears. Anything else is left alone, because
+          // forgetting a run id on a transient fault loses the user's link to
+          // work that is still running.
+          if (appErrorKind(error) === 'not_found' && isCurrentActionRun(item.id, action.id, commandID, generation)) removeActionRunID(item.id, action.id)
         }
       }))
     } catch (error) {
@@ -960,6 +982,7 @@ export function useFeedState() {
     deletingProfile,
     loadProfiles,
     createProfile,
+    seedStarterFlow,
     renameProfile,
     setProfileEnabled,
     deleteProfile,

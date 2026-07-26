@@ -21,16 +21,22 @@ pre-commit:
   jobs:
     # internal/hivecore is vendored; edits belong in colonyops/hive followed by
     # `mise run vendor`. The real drift check needs the network, so pre-commit
-    # only catches the local case: hivecore changing without the pin moving.
-    # CI runs the authoritative check (`mise run check:vendor`). First in the
-    # pipe: cheapest, and the most useful failure to see on its own.
+    # only catches the local case: hivecore changing without vendorhive having
+    # produced the change. CI runs the authoritative check (`mise run
+    # check:vendor`). First in the pipe: cheapest, and the most useful failure
+    # to see on its own.
     - name: vendored-code
       # lefthook globs are separator-blind: `*` matches nested paths too, and
       # `internal/hivecore/**/*` would miss files sitting directly in that dir.
       glob: "internal/hivecore/*"
       fail_text: "internal/hivecore is vendored from colonyops/hive — never edit it here. Land the change in hive, then run 'mise run vendor'."
+      # VENDOR.md, not vendor.lock: the vendored set also changes when this
+      # repo's import closure does, with the pin sitting still — dropping the
+      # last import of a package deletes it from the tree. vendorhive rewrites
+      # VENDOR.md for both (it carries the pin and the package list), so its
+      # absence is what marks a hand edit.
       run: |
-        if [ -n "$(git diff --cached --name-only -- cmd/vendorhive/vendor.lock)" ]; then
+        if [ -n "$(git diff --cached --name-only -- internal/hivecore/VENDOR.md)" ]; then
           exit 0
         fi
         exit 1
@@ -51,37 +57,28 @@ pre-commit:
     - name: generated-code
       glob:
         - "sqlc.yaml"
-        - "internal/desktop/pipeline/pipelinedb/queries/*.sql"
-        - "internal/desktop/pipeline/pipelinedb/migrations/*.sql"
-        - "internal/desktop/activity/activity.go"
-        - "internal/desktop/jobs/jobs.go"
-        - "internal/desktop/pipeline/pipelinedb/classify.go"
-        - "internal/desktop/pipeline/flow/flow.go"
-        - "desktop/pipelineservice.go"
+        - "internal/app/store/queries/*.sql"
+        - "internal/app/store/migrations/*.sql"
+        - "internal/app/activity/activity.go"
+        - "internal/app/jobs/jobs.go"
+        - "internal/app/store/classify.go"
+        - "internal/app/flow/flow.go"
       run: mise run check:generate
 
 # Push is the meaningful boundary for headless work — the wrap/PR step — so the
 # full gates run here. Wails TS bindings and the e2e suite are deliberately
 # absent: both need a full app build (minutes), and CI covers them.
 #
-# piped for the same reason as pre-commit: check:generate rewrites the .go files
-# that lint and test are reading. ~3s for a Go-only push, ~7s with the frontend.
+# The Go gate is a single mise task rather than one job per step: `mise run
+# check` owns the sequence (and the ordering constraint that check:generate
+# must finish before lint and test read its output), so this file and the
+# release workflow cannot drift from it. ~3s for a Go-only push, ~7s with the
+# frontend.
 pre-push:
   piped: true
   jobs:
-    # First: it rewrites generated files, so nothing else may be reading them.
-    - name: generated-code
-      run: mise run check:generate
-
-    - name: tidy
-      fail_text: "go.mod/go.sum are not tidy. Run 'go mod tidy' and commit the result."
-      run: mise run check:tidy
-
-    - name: lint
-      run: mise run lint
-
-    - name: test
-      run: mise run test
+    - name: check
+      run: mise run check
 
     - name: frontend-test
       glob: "desktop/frontend/*"

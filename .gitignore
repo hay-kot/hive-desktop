@@ -10,7 +10,12 @@ dist/
 
 # Local env
 .env
+launch.env
+overrides.env
 .data/
+.hive-desktop/
+.hive-desktop.lock/
+.hive-desktop.lock.stale.*/
 
 # Vendored embed assets (internal/hivecore/hive/scripts/bin) must stay tracked:
 # go:embed needs them in every fresh checkout, including the e2e Docker build

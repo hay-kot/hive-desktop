@@ -18,13 +18,13 @@ import type { InboxItem } from '../../types/feed'
 
 const baseItem: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
-  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', branch: 'feat/desktop-ui-shell', body: 'First line\n\nSecond line' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: 2,
+  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'First line\n\nSecond line' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: 2,
 }
 
 describe('canonicalPayload', () => {
   it('decodes the canonical fields from an object payload', () => {
     expect(canonicalPayload(baseItem)).toEqual({
-      kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', body: 'First line\n\nSecond line',
+      kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', body: 'First line\n\nSecond line',
       url: baseItem.url, labels: [], state: '',
     })
   })
@@ -119,7 +119,7 @@ describe('bodySnippet', () => {
 
 describe('searchText', () => {
   it('joins title, container, byline, kind label, source label, and snippet', () => {
-    expect(searchText(baseItem)).toBe('Add desktop shell colonyops/hive hayden Pull Request GitHub First line')
+    expect(searchText(baseItem)).toBe('Add desktop shell colonyops/hive octocat Pull Request GitHub First line')
   })
 })
 
@@ -171,8 +171,8 @@ describe('presentationFor', () => {
 
 describe('sourceKindForNodeType', () => {
   it('maps known source node types to their sourceKind', () => {
-    expect(sourceKindForNodeType('github-source')).toBe('github')
-    expect(sourceKindForNodeType('webhook-source')).toBe('webhook')
+    expect(sourceKindForNodeType('sources.github')).toBe('github')
+    expect(sourceKindForNodeType('sources.webhook')).toBe('webhook')
   })
 
   it('returns null for non-source node types', () => {

@@ -6,8 +6,8 @@ import {
   GeneratePort,
   SetSettings,
   Settings as GetWebhookSettings,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/webhookservice'
-import type { WebhookSettings } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice'
+import type { WebhookSettings } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 export type { WebhookSettings }
 

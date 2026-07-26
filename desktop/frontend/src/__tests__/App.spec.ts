@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(),
   GetFlow: vi.fn(),
   CreateFlow: vi.fn(),
+  SeedStarterFlow: vi.fn(),
   RenameFlow: vi.fn(),
   SetFlowEnabled: vi.fn(),
   DeleteFlow: vi.fn(),
@@ -35,21 +36,15 @@ const mocks = vi.hoisted(() => ({
   InboxItemEvents: vi.fn(),
   ActionRun: vi.fn(),
   SessionLaunchOptions: vi.fn(),
-  EventLogTailOffset: vi.fn(),
-  ActivateReplay: vi.fn(),
-  ListUnarchivedInboxItems: vi.fn(),
-  ListReplaySourceSnapshots: vi.fn(),
   ActionViews: vi.fn(),
   InvokeAction: vi.fn(),
   NodeRuns: vi.fn(),
-  ReadFrom: vi.fn(),
-  Commit: vi.fn(),
-  // auth service
+  // github connection service
   Status: vi.fn(),
   StartDeviceFlow: vi.fn(),
   CancelDeviceFlow: vi.fn(),
   SetToken: vi.fn(),
-  SignOut: vi.fn(),
+  Disconnect: vi.fn(),
   // updaterservice
   UpdaterStatus: vi.fn(),
   InstallUpdate: vi.fn(),
@@ -67,10 +62,11 @@ const mocks = vi.hoisted(() => ({
   Hide: vi.fn(),
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   CreateFlow: mocks.CreateFlow,
+  SeedStarterFlow: mocks.SeedStarterFlow,
   RenameFlow: mocks.RenameFlow,
   SetFlowEnabled: mocks.SetFlowEnabled,
   DeleteFlow: mocks.DeleteFlow,
@@ -81,14 +77,14 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', (
   SaveSidebar: mocks.SaveSidebar,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({
   ListActions: mocks.ListActions,
   CreateAction: mocks.CreateAction,
   UpdateAction: mocks.UpdateAction,
   DeleteAction: mocks.DeleteAction,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed,
   ListInboxItemsTrash: mocks.ListInboxItemsTrash,
@@ -99,43 +95,37 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
   InboxItemEvents: mocks.InboxItemEvents,
   ActionRun: mocks.ActionRun,
   SessionLaunchOptions: mocks.SessionLaunchOptions,
-  EventLogTailOffset: mocks.EventLogTailOffset,
-  ActivateReplay: mocks.ActivateReplay,
-  ListUnarchivedInboxItems: mocks.ListUnarchivedInboxItems,
-  ListReplaySourceSnapshots: mocks.ListReplaySourceSnapshots,
   ActionViews: mocks.ActionViews,
   InvokeAction: mocks.InvokeAction,
   NodeRuns: mocks.NodeRuns,
-  ReadFrom: mocks.ReadFrom,
-  Commit: mocks.Commit,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/auth/service', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/githubservice', () => ({
   Status: mocks.Status,
   StartDeviceFlow: mocks.StartDeviceFlow,
   CancelDeviceFlow: mocks.CancelDeviceFlow,
   SetToken: mocks.SetToken,
-  SignOut: mocks.SignOut,
+  Disconnect: mocks.Disconnect,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice', () => ({
   Status: mocks.UpdaterStatus,
   InstallUpdate: mocks.InstallUpdate,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   NotificationSettings: mocks.NotificationSettings,
   SetNotificationSettings: mocks.SetNotificationSettings,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/notificationservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: mocks.PermissionStatus,
   RequestNotificationPermission: mocks.RequestNotificationPermission,
   Notify: mocks.Notify,
 }))
 
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/windowservice', () => ({ Focused: mocks.Focused }))
-vi.mock('../../bindings/github.com/hay-kot/hive-desktop/desktop/activityservice', () => ({
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({ Focused: mocks.Focused }))
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,
 }))
@@ -151,7 +141,7 @@ const flow = {
   name: 'Personal',
   enabled: true,
   nodes: [
-    { id: 'src', type: 'github-source' },
+    { id: 'src', type: 'sources.github' },
     { id: 'desktop', type: 'feed', name: 'Desktop UI' },
   ],
   wires: [{ from: 'src', to: 'desktop' }],
@@ -181,7 +171,7 @@ describe('App', () => {
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
     localStorage.clear()
-    mocks.Status.mockResolvedValue({ state: 'authenticated', login: 'hay', name: 'Hay', avatarUrl: '', message: '' })
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
     mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Personal', enabled: true, valid: true }])
     mocks.GetFlow.mockResolvedValue(flow)
     mocks.GetLayout.mockResolvedValue({ nodes: {} })
@@ -194,10 +184,6 @@ describe('App', () => {
     mocks.InboxItemEvents.mockResolvedValue([])
     mocks.ActionRun.mockResolvedValue({ commandId: 1, status: 'done' })
     mocks.SessionLaunchOptions.mockResolvedValue({ repositories: [], defaultRepository: '', agents: [], defaultAgent: '' })
-    mocks.EventLogTailOffset.mockResolvedValue('0')
-    mocks.ActivateReplay.mockResolvedValue(undefined)
-    mocks.ListUnarchivedInboxItems.mockResolvedValue([])
-    mocks.ListReplaySourceSnapshots.mockResolvedValue([])
     mocks.ActionViews.mockResolvedValue([])
     mocks.InvokeAction.mockResolvedValue(undefined)
     mocks.ListActions.mockResolvedValue({ actions: [], error: '' })
@@ -216,6 +202,99 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
+  })
+
+  // ── First run ──────────────────────────────────────────────────────────────
+  // create workspace -> connect GitHub -> feed. Nothing in the app is gated on
+  // GitHub, so the only step that can hold the app back is having no workspace.
+
+  it('opens the feed with GitHub disconnected — the app is not gated on it', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Personal')
+
+    wrapper.unmount()
+  })
+
+  it('walks first run: workspace first, then connect, which seeds the workspace it made', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    const wrapper = await mountApp()
+
+    // Step 1 is the workspace: it is the thing that exists without a credential.
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-workspace-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+
+    // Step 2 is connecting, and the app has not fallen through to the feed.
+    expect(mocks.CreateFlow).toHaveBeenCalledWith('Frontend Triage')
+    expect(wrapper.get('[data-testid="onboarding-connect"]').isVisible()).toBe(true)
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+
+    // The device-flow grant lands as connection:updated, not as a call result.
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    expect(connection).toBeDefined()
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('skipping the connect step lands on a feed whose empty state points at Integrations', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    // A workspace created before an account was connected has no graph at all.
+    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, nodes: [], wires: [] })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-skip-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="workspace-empty"]').text()).toContain('no account is connected')
+
+    await wrapper.get('[data-testid="workspace-empty-integrations"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+    expect(router.currentRoute.value.params.section).toBe('integrations')
+
+    wrapper.unmount()
+  })
+
+  it('stays on the feed when GitHub disconnects — Integrations is where that is repaired', async () => {
+    const wrapper = await mountApp()
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Personal')
+
+    wrapper.unmount()
   })
 
   it('confirms updates in-app and shows install failures', async () => {
@@ -901,63 +980,26 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('on "log:appended", pumps the runtime (commit) BEFORE refreshing the feed — the commit must land before the re-read', async () => {
+  it('refreshes the feed on "inbox:updated" — the engine commits before it announces', async () => {
     const wrapper = await mountApp()
 
-    const callOrder: string[] = []
-    mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
-    mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
+    mocks.FeedCounts.mockClear()
+    const inboxHandler = mocks.On.mock.calls.find(([event]) => event === 'inbox:updated')?.[1] as (() => void) | undefined
+    expect(inboxHandler).toBeDefined()
 
-    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
-    expect(logHandler).toBeDefined()
-
-    logHandler?.()
-    // The drain yields between pages before its terminating empty read.
-    await vi.waitFor(() => expect(callOrder).toEqual(['commit', 'refresh']))
+    inboxHandler?.()
+    await vi.waitFor(() => expect(mocks.FeedCounts).toHaveBeenCalled())
 
     wrapper.unmount()
   })
 
-  it('a log:appended landing while the boot reconcile is still in flight is serviced by the boot tail (lost-wakeup regression)', async () => {
-    // Park the boot reconcile mid-operation, exactly where the e2e trace
-    // showed the race: no runtime is installed yet when the event lands.
-    // EventLogTailOffset is only called from the session's replay startup, so
-    // parking it cannot stall any other boot path.
-    let releaseBoot!: (tail: string) => void
-    mocks.EventLogTailOffset.mockImplementationOnce(() => new Promise<string>((resolve) => { releaseBoot = resolve }))
+  it('does not re-read on "log:appended" — a log row may route nowhere, and the engine has not committed yet', async () => {
     const wrapper = await mountApp()
 
-    const callOrder: string[] = []
-    mocks.ReadFrom.mockResolvedValueOnce([{ ID: '1', Key: '1', Topic: 'source:personal/src', Ts: 0, Payload: {}, SourceKind: 'github', SourceScope: 'src' }])
-    mocks.Commit.mockImplementationOnce(async () => { callOrder.push('commit') })
-    mocks.FeedCounts.mockImplementationOnce(async () => { callOrder.push('refresh'); return [] })
-
-    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1] as (() => void) | undefined
-    expect(logHandler).toBeDefined()
-    logHandler?.() // the one-shot wake-up; nothing can read against it yet
-    await flushPromises()
-    expect(mocks.ReadFrom).not.toHaveBeenCalled()
-
-    releaseBoot('0')
-    // The boot operation's trailing catch-up pump commits the appended page,
-    // and the feed re-read runs only after that commit — the wake-up that
-    // raced boot was never lost.
-    await vi.waitFor(() => expect(callOrder).toEqual(['commit', 'refresh']))
+    const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1]
+    expect(logHandler).toBeUndefined()
 
     wrapper.unmount()
   })
 
-  it('stamps data-pipeline-ready on the app root once the boot reconcile + catch-up pump completed', async () => {
-    const router = createAppRouter(createMemoryHistory())
-    await router.push('/')
-    await router.isReady()
-    const wrapper = mount(App, { global: { plugins: [router] } })
-    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBeUndefined()
-
-    await flushPromises()
-
-    expect(wrapper.get('main').attributes('data-pipeline-ready')).toBe('true')
-    wrapper.unmount()
-  })
 })

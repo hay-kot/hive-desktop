@@ -2,7 +2,7 @@ import { computed, ref } from 'vue'
 import {
   KeybindingSettings as GetKeybindingSettings,
   SetKeybindingSettings,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/settingsservice'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { commandCatalog } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /
@@ -153,7 +153,7 @@ function sanitizeOverrides(value: unknown): Overrides {
 // The durable record is settings.yaml's `keybindings` section, so shortcuts
 // live alongside the rest of the user's config and can be managed from a
 // dotfiles repo or handed to an agent (see the "Keyboard shortcuts" prompt in
-// internal/desktop/prompts). Webview localStorage is not a candidate: it is
+// internal/app/prompts). Webview localStorage is not a candidate: it is
 // partitioned per bundle id and per dev-server port and macOS may purge it
 // outright, so a rebind could silently vanish.
 //

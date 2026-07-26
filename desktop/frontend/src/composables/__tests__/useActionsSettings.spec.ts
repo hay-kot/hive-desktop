@@ -6,7 +6,7 @@ const mocks = vi.hoisted(() => ({
   ListActions: vi.fn(), CreateAction: vi.fn(), UpdateAction: vi.fn(), DeleteAction: vi.fn(), On: vi.fn(),
 }))
 
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({
   ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction,
 }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))

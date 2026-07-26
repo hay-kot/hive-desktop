@@ -20,7 +20,7 @@ import type { FlowNode } from '../types'
 const props = defineProps<{
   node: FlowNode
   def: NodeTypeDefinition
-  /** Owning flow id, forwarded to editors whose affordances need the node's identity (e.g. webhook-source's capture lookup). */
+  /** Owning flow id, forwarded to editors whose affordances need the node's identity (e.g. sources.webhook's capture lookup). */
   flowId?: string
 }>()
 

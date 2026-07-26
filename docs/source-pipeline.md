@@ -1,27 +1,27 @@
 # The desktop source pipeline
 
 Hive Desktop is an inbox-first system for GitHub observations. Each profile is
-a flow. Sources collect observations, Go classifies and durably persists them,
-and the frontend flow engine decides which unarchived items belong to each
-sidebar feed. This separation keeps an item’s identity and triage state stable
-while flows, filters, and feed membership change.
+a flow. Sources collect observations, ingestion classifies and durably persists
+them, and the flow engine decides which unarchived items belong to each sidebar
+feed. This separation keeps an item’s identity and triage state stable while
+flows, filters, and feed membership change.
 
 ## Architecture
 
 The pipeline has three cooperating parts:
 
-1. **Go ingestion** polls configured `github-source` nodes. For every changed
+1. **Go ingestion** polls configured pull-mode source nodes. For every changed
    observation it classifies the change and unconditionally updates the
    corresponding `inbox_item`; noteworthy classifications also append an
    `inbox_event`. Ingestion owns item identity, payload, revision, lifecycle,
    unread state, and archive state.
-2. **The frontend engine** evaluates each enabled flow. Its ordinary event-log
-   pass advances a durable consumer offset, records node-run diagnostics, and
-   can enqueue deduplicated actions. On startup and deploy, its synthetic replay
-   evaluates each source node's latest authoritative snapshot and resolves
-   outputs against the current unarchived inbox. It then atomically installs
-   those membership claims and fast-forwards the consumer to the captured log
-   tail without enqueuing actions.
+2. **The flow engine** (`internal/app/runtime`) evaluates each enabled flow.
+   Its ordinary event-log pass advances a durable consumer offset, records
+   node-run diagnostics, and can enqueue deduplicated actions. On startup and
+   deploy, its synthetic replay evaluates each source node's latest
+   authoritative snapshot and resolves outputs against the current unarchived
+   inbox. It then atomically installs those membership claims and fast-forwards
+   the consumer to the captured log tail without enqueuing actions.
 3. **The desktop UI** reads inbox views and feed membership claims. It provides
    triage controls over the same durable inbox state rather than maintaining a
    separate read-state store.
@@ -30,14 +30,14 @@ The pipeline has three cooperating parts:
 GitHub API
    │
    ▼
-github-source → Go producer → classify and persist
+sources.github → Go producer → classify and persist
                                │
                  ┌─────────────┴─────────────┐
                  ▼                           ▼
             inbox_item                   inbox_event
                  │                           │
                  ▼                           ▼
-      frontend flow engine             observed history
+         flow engine                   observed history
                  │
                  ▼
      feed_membership_claim ───► inbox and feed views
@@ -53,15 +53,20 @@ rewriting the item or repeating an action.
 ## Storage and retention
 
 The pipeline uses its own SQLite database, `desktop-pipeline.db`, opened by
-`internal/desktop/pipeline/pipelinedb`. It is separate from `hive.db` so
+`internal/app/store`. It is separate from `hive.db` so
 pipeline polling and desktop interactions do not compete with CLI/TUI writes.
 All timestamps stored by this database are Unix milliseconds.
+
+Every subsystem below is owned and wired by `app.New`, started by `App.Start`
+and unwound by `App.Close` — `package main` holds none of it. The Wails
+services in `internal/adapter/wailsui/` are transport over the per-domain
+services in `internal/app/`.
 
 | Table | Purpose | Retention / cascade behavior |
 | --- | --- | --- |
 | `inbox_item` | Canonical per-profile observation identity, latest payload, revision, lifecycle, unread state, and archive metadata. Its unique key is profile, source kind, source scope, and external id. | Archived rows are removed 90 days after `archived_at`. Deleting a row cascades to its events and membership claims. |
 | `inbox_event` | Significant observation history for an inbox item: classification, transition, summary, detail, and occurrence key. Trivial payload refreshes do not add a row. | The newest 500 rows per item are retained. Older rows are removed first. |
-| `feed_membership_claim` | A frontend engine assertion that an item belongs in a profile feed for a source node. | Removed when its item is deleted. Unarchived claims are replaced during synthetic replay; archived claims remain frozen. |
+| `feed_membership_claim` | A flow engine assertion that an item belongs in a profile feed for a source node. | Removed when its item is deleted. Unarchived claims are replaced during synthetic replay; archived claims remain frozen. |
 | `event_log` | Append-only transport log used by enabled flow runtimes; their durable offsets are stored separately in `consumer_offset`. | Optional age and per-topic limits are applied by maintenance, while each source topic's newest authoritative snapshot is retained for membership replay. |
 | `consumer_offset` | Last ordinary log offset fully committed by a flow. | A monotonic upsert prevents replay from moving a cursor backward. |
 | `source_head` | Latest source payload for change detection across producer restarts. | Deleted with a profile purge. |
@@ -96,13 +101,17 @@ policy.
 
 ### Webhook ingress
 
-`webhook-source` nodes are push-driven and bypass the producer entirely
-(docs/decisions/0007). `pipeline.WebhookListener` binds `127.0.0.1` (port
-`webhook_port` in settings.yaml — drawn at random from 20000–32767 on first
-run and persisted, env override `HIVE_DESKTOP_WEBHOOK_PORT`; the whole
-listener is switched off by `webhook_enabled: false`, and Settings →
-Integrations → Webhooks edits both) and resolves `/hooks/<path>` routes per request
-from the current flow set. A delivery calls `IngestObservation` under topic
+`sources.webhook` nodes are push-driven and bypass the producer entirely
+(docs/decisions/0007 and 0014). The listener defaults off. When
+`webhooks.enabled` is true it binds `webhooks.host` (loopback-only) and
+`webhooks.port`; port `0` asks the OS to select the port directly, and the
+running endpoint reports the selected address. Typed process overrides are
+`HIVE_DESKTOP_WEBHOOKS_ENABLED`, `HIVE_DESKTOP_WEBHOOKS_HOST`, and
+`HIVE_DESKTOP_WEBHOOKS_PORT`. Settings → Integrations → Webhooks edits the
+persisted values. The listener resolves `/hooks/<path>` routes per request
+against the push-mode connector instances `ingest.Resolver` builds from the
+current flow set — the same resolution the producer's pull sources go through,
+so enabled/disabled filtering happens once for both. A delivery calls `IngestObservation` under topic
 `source:<flowId>/<nodeId>` with source kind `webhook` and scope `<nodeId>`:
 a top-level `id` is the stable key (else the body's SHA-256, deduplicating
 exact duplicate deliveries), and `title`/`url` are promoted for feed
@@ -119,8 +128,7 @@ feed-shape hint, and LLM transform prompt.
 
 ## The `Msg` contract
 
-The event-log transport type is `pipeline.Msg`, re-exported from
-`pipelinedb`:
+The event-log transport type is `ingest.Msg`, an alias for `store.Msg`:
 
 ```go
 type Msg struct {
@@ -143,7 +151,7 @@ serialized, so function nodes access `msg.Payload`, `msg.Key`, `msg.ID`, and
 ## Flows
 
 Flow definitions live in `flows/*.yaml`; the filename stem is the flow id.
-`internal/desktop/pipeline/flow` strictly decodes and validates every file.
+`internal/app/flow` strictly decodes and validates every file.
 The top-level shape is:
 
 ```yaml
@@ -155,13 +163,16 @@ nodes: []
 wires: []
 ```
 
-Supported node types are:
+Source node types are namespaced `sources.<name>` and come from the connector
+registry (`internal/app/sources`, ADR 0012) rather than being listed in the
+flow package; the rest are declared in `flow` directly. Supported node types
+are:
 
 | Type | Role |
 | --- | --- |
-| `github-source` | Backend source with `kind`, optional search `query`, and optional `limit`. |
-| `webhook-source` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
-| `github-filter` | Frontend processor that passes or rejects GitHub messages by configured attributes. |
+| `sources.github` | Backend source with `kind`, optional search `query`, and optional `limit`. |
+| `sources.webhook` | Backend source served by the local webhook listener: JSON POSTed to `/hooks/<path>` becomes this node's messages. Optional per-node `secret` (X-Hive-Secret header). |
+| `github-filter` | Processor that passes or rejects GitHub messages by configured attributes. |
 | `function` | Author-provided JavaScript processor with one to sixteen outputs. |
 | `feed` | Terminal membership target. The flow-qualified node id is the feed id. |
 | `action` | Terminal action target referring to a headless-capable action in `actions.yml`. |
@@ -189,15 +200,18 @@ applies to manual triage, not to an item’s source identity or event history.
 
 ## Engine and membership replay
 
-The frontend engine runs processor nodes in a worker and walks the flow as a
-DAG. Normal processing reads after the flow’s durable offset. A committed
+The engine runs in Go (`internal/app/runtime`, ADRs 0010 and 0011) and walks
+the flow as a DAG, evaluating `function` nodes through goja. `runtime.Engine`
+drives it: it installs a runner per enabled flow at startup, reinstalls them
+when the flow set changes, and drains on every append. Nothing about execution
+depends on a window being open. Normal processing reads after the flow’s durable offset. A committed
 batch atomically writes feed membership claims, enqueues action commands,
 records node metrics, and advances its offset; replaying an already committed
 offset is a no-op. `Discard` values are accounting input rather than persisted
 rows: their aggregate is reflected in each node run’s drop count. Action
 commands are deduplicated by action id and source occurrence key.
 
-Startup and deploy use a different path. The client captures the current
+Startup and deploy use a different path. The engine captures the current
 log tail, evaluates each current source node's latest authoritative snapshot
 while preserving the source topic that observed each item, and resolves feed
 outputs against the current unarchived inbox. `ActivateReplay` then atomically
@@ -233,11 +247,17 @@ and failure diagnostics are retained with the command record.
 
 ## Testing
 
-Go tests under `internal/desktop/pipeline/...` use temporary real SQLite
-databases to cover ingestion, classification, membership replay, retention,
-and action behavior. Frontend Vitest tests cover the graph engine, node
+Go tests under `internal/app/...` use temporary real SQLite databases to
+cover ingestion, classification, membership replay, retention, and action
+behavior. Frontend Vitest tests cover the flow editor, node
 registries, views, keybindings, and triage state. Docker Playwright tests
 exercise the desktop UI against isolated fixtures.
+
+The engine's own fixtures are `internal/app/runtime/testdata/parity/*.json`: a
+flow, a batch, and the exact `CommitBatch` it is worth. They began as the proof
+that the port off the browser engine was faithful — both engines executed them
+and had to agree — and remain the place a change to routing, sink tagging or
+node-run accounting belongs.
 
 Run the project checks with:
 
@@ -269,10 +289,14 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 
 | Concern | Path |
 | --- | --- |
-| Pipeline database and retention | `internal/desktop/pipeline/pipelinedb/` |
-| Ingestion and source classification | `internal/desktop/pipeline/producer.go`, `github_classify.go`, `webhook_source.go` |
-| Flow schema and loader | `internal/desktop/pipeline/flow/` |
-| Wails pipeline API | `desktop/pipelineservice.go` |
+| Pipeline database and retention | `internal/app/store/` |
+| Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/github_classify.go`, `internal/app/sources/webhook/webhook_source.go` |
+| Flow schema and loader | `internal/app/flow/` |
+| Output-command dispatch and executors | `internal/app/dispatch/` |
+| Inbox orchestration | `internal/app/inbox_service.go` |
+| Wails pipeline API | `internal/adapter/wailsui/pipelineservice.go` |
+| Subsystem wiring and lifecycle | `internal/app/app.go` |
 | Sidebar and triage UI | `desktop/frontend/src/components/SideBar.vue`, `FeedList.vue`, `DetailPane.vue` |
-| Frontend graph engine | `desktop/frontend/src/pipeline/engine/` |
+| Flow engine | `internal/app/runtime/` |
+| Flow editor | `desktop/frontend/src/pipeline/` |
 | Keybinding catalog | `desktop/frontend/src/keybindings/catalog.ts` |

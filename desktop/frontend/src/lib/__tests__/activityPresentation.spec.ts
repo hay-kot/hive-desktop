@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/activity/models'
+import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/activity/models'
 import {
   eventStyleKey,
   groupEventsByDay,

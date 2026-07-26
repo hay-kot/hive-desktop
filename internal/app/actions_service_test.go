@@ -1,0 +1,143 @@
+package app
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+)
+
+func serviceAction(id string) actions.EditableAction {
+	return actions.EditableAction{ID: id, Label: id, Type: "shell", ShowInDetail: true, Shell: &actions.EditableShellConfig{CommandTemplate: "true"}}
+}
+
+func newServiceStore(t *testing.T) (*actions.ActionStore, string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "actions.yml")
+	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions: []\n"), 0o600))
+	return actions.NewActionStore(path), path
+}
+
+func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
+	actionStore, _ := newServiceStore(t)
+	wakes := 0
+	service := newActionsService(actionStore, func() { wakes++ })
+
+	created, err := service.Create(t.Context(), serviceAction("run"))
+	require.NoError(t, err)
+	assert.Equal(t, "run", created.ID)
+	assert.Equal(t, 1, wakes)
+	got, err := service.Get(t.Context(), "run")
+	require.NoError(t, err)
+	assert.Equal(t, created, got)
+	_, err = service.Get(t.Context(), "missing")
+	require.ErrorContains(t, err, "not found")
+
+	updated := serviceAction("run")
+	updated.Label = "Run now"
+	_, err = service.Update(t.Context(), "run", updated)
+	require.NoError(t, err)
+	assert.Equal(t, 2, wakes)
+	assert.Equal(t, "Run now", actionStore.ListEditable().Actions[0].Label, "service and runtime share one actionStore")
+
+	_, err = service.Create(t.Context(), serviceAction("run"))
+	require.Error(t, err)
+	_, err = service.Update(t.Context(), "other", updated)
+	require.ErrorContains(t, err, "immutable")
+	assert.Equal(t, 2, wakes)
+
+	require.NoError(t, service.Delete(t.Context(), "run"))
+	assert.Equal(t, 3, wakes)
+	require.Error(t, service.Delete(t.Context(), "run"))
+	assert.Equal(t, 3, wakes)
+}
+
+func TestActionsServiceReorderWakesOnlyOnAcceptedOrders(t *testing.T) {
+	actionStore, _ := newServiceStore(t)
+	wakes := 0
+	service := newActionsService(actionStore, func() { wakes++ })
+	for _, id := range []string{"one", "two"} {
+		_, err := service.Create(t.Context(), serviceAction(id))
+		require.NoError(t, err)
+	}
+	wakes = 0
+
+	require.NoError(t, service.Reorder(t.Context(), []string{"two", "one"}))
+	assert.Equal(t, 1, wakes)
+	catalog := service.List(t.Context())
+	require.Len(t, catalog.Actions, 2)
+	assert.Equal(t, "two", catalog.Actions[0].ID)
+
+	reorderErr := service.Reorder(t.Context(), []string{"two"})
+	require.ErrorContains(t, reorderErr, "the catalog changed")
+	assert.Equal(t, KindConflict, KindOf(reorderErr), "a stale catalog is the caller's view having moved")
+	assert.Equal(t, 1, wakes)
+}
+
+func TestActionsServiceListReturnsLastGoodActionsAndMalformedLatestError(t *testing.T) {
+	actionStore, path := newServiceStore(t)
+	service := newActionsService(actionStore, nil)
+	_, err := service.Create(t.Context(), serviceAction("good"))
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(path, []byte("version: 1\nactions: ["), 0o600))
+	require.Error(t, actionStore.Reload())
+
+	catalog := service.List(t.Context())
+	require.Len(t, catalog.Actions, 1)
+	assert.Equal(t, "good", catalog.Actions[0].ID)
+	assert.Contains(t, catalog.Error, "actions")
+}
+
+func TestActionsServiceUpdateKeepsFlowReferencedActionsHeadless(t *testing.T) {
+	actionStore, _ := newServiceStore(t)
+	headless := actions.EditableAction{ID: "used", Label: "Used", Type: "launch-session", Launch: &actions.EditableLaunchConfig{
+		PromptTemplate: "Review", RepoTemplate: "https://github.com/owner/repo.git",
+	}}
+	_, err := actionStore.Create(headless)
+	require.NoError(t, err)
+	flows := flow.NewFlowStore(t.TempDir(), actions.NewRefs(actionStore))
+	require.NoError(t, flows.Save(flow.Flow{ID: "flow-a", Name: "Flow A", Enabled: true, Nodes: []flow.Node{
+		{ID: "source", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
+		{ID: "action", Type: "action", Config: &flow.ActionConfig{Action: "used"}},
+	}, Wires: []flow.Wire{{From: "source", To: "action"}}}))
+	actionStore.SetUsageChecker(flowOnlyUsage{flows: flows})
+
+	wakes := 0
+	service := newActionsService(actionStore, func() { wakes++ })
+	interactive := headless
+	interactive.Launch = &actions.EditableLaunchConfig{PromptTemplate: "Review"}
+	_, err = service.Update(t.Context(), "used", interactive)
+	require.ErrorContains(t, err, "flow-a")
+	assert.Equal(t, 0, wakes)
+
+	// Existing flows do not prevent an update that remains headless.
+	headless.Label = "Updated"
+	_, err = service.Update(t.Context(), "used", headless)
+	require.NoError(t, err)
+	assert.Equal(t, 1, wakes)
+}
+
+// flowOnlyUsage is the half of the usage check this adapter test cares about.
+// The full checker, including the nonterminal command count, is core logic
+// and is tested in internal/app.
+type flowOnlyUsage struct{ flows *flow.FlowStore }
+
+func (u flowOnlyUsage) Usage(_ context.Context, id string) (actions.ActionUsage, error) {
+	usage := actions.ActionUsage{}
+	for _, f := range u.flows.List() {
+		for _, n := range f.Nodes {
+			if cfg, ok := n.Config.(*flow.ActionConfig); ok && cfg.Action == id {
+				usage.FlowIDs = append(usage.FlowIDs, f.ID)
+				break
+			}
+		}
+	}
+	return usage, nil
+}

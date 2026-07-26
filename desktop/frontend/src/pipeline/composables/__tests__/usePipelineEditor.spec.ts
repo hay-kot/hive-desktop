@@ -9,7 +9,7 @@ function wireFlow(overrides: Partial<WireFlow> = {}): WireFlow {
     name: 'My flow',
     enabled: true,
     nodes: [
-      { id: 'src', type: 'github-source', source: 'my-prs' },
+      { id: 'src', type: 'sources.github', source: 'my-prs' },
       { id: 'feed', type: 'feed', feed: 'inbox' },
     ],
     wires: [{ from: 'src', to: 'feed' }],
@@ -81,7 +81,7 @@ describe('usePipelineEditor', () => {
       name: 'My flow',
       enabled: true,
       nodes: [
-        { id: 'src', type: 'github-source', config: { source: 'my-prs' } },
+        { id: 'src', type: 'sources.github', config: { source: 'my-prs' } },
         { id: 'feed', type: 'feed', config: { feed: 'inbox' } },
       ],
       wires: [{ from: 'src', to: 'feed' }],

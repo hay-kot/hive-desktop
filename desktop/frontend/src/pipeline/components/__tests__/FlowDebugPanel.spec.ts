@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import FlowDebugPanel from '../FlowDebugPanel.vue'
 import type { EditorFlow, NodeRunRecord } from '../../lib/wireFlow'
-import type { RuntimeSummary } from '../../composables/usePipelineRuntime'
 
 function flow(): EditorFlow {
   return {
@@ -10,7 +9,7 @@ function flow(): EditorFlow {
     name: 'Flow one',
     enabled: true,
     nodes: [
-      { id: 'src', type: 'github-source', config: { source: 'my-prs' } },
+      { id: 'src', type: 'sources.github', config: { source: 'my-prs' } },
       { id: 'filter', type: 'github-filter', config: {} },
       { id: 'feed', type: 'feed', config: { feed: 'inbox' } },
     ],
@@ -25,7 +24,7 @@ function run(overrides: Partial<NodeRunRecord> = {}): NodeRunRecord {
 describe('FlowDebugPanel', () => {
   it('shows idle for nodes with no recorded run', () => {
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [], runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [] },
     })
 
     const rows = wrapper.findAll('[data-testid^="debug-node-"]')
@@ -41,7 +40,7 @@ describe('FlowDebugPanel', () => {
       ['filter', run({ nodeId: 'filter', ok: false, err: 'boom', inCount: 2, outCount: 1, dropCount: 1, durMs: 9 })],
     ])
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode, nodeRuns: [], runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode, nodeRuns: [] },
     })
 
     const srcRow = wrapper.get('[data-testid="debug-node-src"]')
@@ -66,7 +65,7 @@ describe('FlowDebugPanel', () => {
       run({ nodeId: 'src', endedAt: 100 }),
     ]
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns, runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns },
     })
 
     const rows = wrapper.findAll('[data-testid="debug-recent-row"]')
@@ -81,7 +80,7 @@ describe('FlowDebugPanel', () => {
 
   it('shows an empty RECENT state when there is no activity yet', () => {
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [], runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [] },
     })
 
     expect(wrapper.find('[data-testid="debug-recent-empty"]').exists()).toBe(true)
@@ -98,7 +97,7 @@ describe('FlowDebugPanel', () => {
       ['feed', run({ nodeId: 'feed', endedAt: 100, durMs: 999 })],
     ])
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode, nodeRuns: [], runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode, nodeRuns: [] },
     })
 
     const el = wrapper.get('[data-testid="debug-end-to-end"]')
@@ -108,29 +107,32 @@ describe('FlowDebugPanel', () => {
     wrapper.unmount()
   })
 
-  it('renders the runtime summary line from usePipelineRuntime', () => {
-    const summary: RuntimeSummary = { batchSize: 5, outputCount: 3, discardCount: 2, errorCount: 1, completedAt: Date.now() }
+  it("sums the latest tick's counters into a Last run line", () => {
+    const latestRunByNode = new Map<string, NodeRunRecord>([
+      ['src', run({ nodeId: 'src', endedAt: 500, inCount: 5, outCount: 5, dropCount: 0 })],
+      ['filter', run({ nodeId: 'filter', endedAt: 500, inCount: 5, outCount: 3, dropCount: 2, ok: false })],
+      // An older run is not part of this tick and must not be summed into it.
+      ['feed', run({ nodeId: 'feed', endedAt: 100, inCount: 99, outCount: 99, dropCount: 99 })],
+    ])
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [], runtimeSummary: summary, running: true },
+      props: { flow: flow(), latestRunByNode, nodeRuns: [] },
     })
 
-    const el = wrapper.get('[data-testid="debug-last-pump"]')
-    expect(el.text()).toContain('5 msgs')
-    expect(el.text()).toContain('3 outputs')
+    const el = wrapper.get('[data-testid="debug-last-run"]')
+    expect(el.text()).toContain('10 msgs')
+    expect(el.text()).toContain('8 outputs')
     expect(el.text()).toContain('2 discards')
     expect(el.text()).toContain('1 error')
-    expect(wrapper.text()).toContain('Running')
 
     wrapper.unmount()
   })
 
-  it('shows a no-pump-yet state and a Stopped indicator when idle', () => {
+  it('shows a no-runs-yet state before anything has been recorded', () => {
     const wrapper = mount(FlowDebugPanel, {
-      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [], runtimeSummary: null, running: false },
+      props: { flow: flow(), latestRunByNode: new Map(), nodeRuns: [] },
     })
 
-    expect(wrapper.find('[data-testid="debug-last-pump-empty"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('Stopped')
+    expect(wrapper.find('[data-testid="debug-last-run-empty"]').exists()).toBe(true)
 
     wrapper.unmount()
   })

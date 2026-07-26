@@ -1,11 +1,11 @@
 import { ref } from 'vue'
-import { Catalog, Render } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice'
-import type { Prompt } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/prompts/models'
+import { Catalog, Render } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice'
+import type { Prompt } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/prompts/models'
 import { commandCatalog } from '../keybindings/catalog'
 
 // The frontend never builds prompt text. Every prompt — the settings catalog
 // and the context-scoped ones offered from an editor — is assembled by
-// internal/desktop/prompts from templates that compose shared fragments, so
+// internal/app/prompts from templates that compose shared fragments, so
 // wording is written once and each prompt names this install's real config
 // paths rather than a placeholder.
 //

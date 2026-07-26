@@ -1,22 +1,22 @@
 <script setup lang="ts">
 // Debug/health panel: a read-only view over the same node_run data
 // FlowsCanvas already polls via usePipelineEditor (nodeRuns/
-// latestRunByNode — see composables/usePipelineEditor.ts), plus the
-// mounting component's usePipelineRuntime summary of its last pump(). Pure
-// display — this never mutates its props, so it takes plain values rather
-// than a live client of its own.
+// latestRunByNode — see composables/usePipelineEditor.ts). Pure display —
+// this never mutates its props, so it takes plain values rather than a live
+// client of its own.
+//
+// Everything here is derived from node runs the Go engine wrote. There is no
+// separate frontend runtime to report on any more, and a "Running/Stopped"
+// chip would be describing a process this window does not own.
 import { computed } from 'vue'
 import { byType } from '../registry'
 import type { EditorFlow, NodeRunRecord } from '../lib/wireFlow'
-import type { RuntimeSummary } from '../composables/usePipelineRuntime'
 
 const props = defineProps<{
   flow: EditorFlow
   latestRunByNode: Map<string, NodeRunRecord>
   /** Newest-first, as returned by PipelineService.NodeRuns. */
   nodeRuns: NodeRunRecord[]
-  runtimeSummary: RuntimeSummary | null
-  running: boolean
 }>()
 
 /** How many of the newest-first nodeRuns rows the RECENT list shows. */
@@ -54,6 +54,10 @@ const endToEnd = computed(() => {
     durMs: tick.reduce((sum, r) => sum + r.durMs, 0),
     nodeCount: tick.length,
     endedAt: latestEndedAt,
+    inCount: tick.reduce((sum, r) => sum + r.inCount, 0),
+    outCount: tick.reduce((sum, r) => sum + r.outCount, 0),
+    dropCount: tick.reduce((sum, r) => sum + r.dropCount, 0),
+    errorCount: tick.filter((r) => !r.ok).length,
   }
 })
 
@@ -86,19 +90,16 @@ function ageLabel(endedAtNano: number): string {
       Debug
     </div>
 
-    <!-- Runtime summary — the mounting component's usePipelineRuntime last-pump result. -->
+    <!-- The latest tick's totals, summed from the node runs Go recorded for it. -->
     <div class="shrink-0 border-b border-row px-3 py-2">
-      <div class="flex items-center gap-1.5 text-[10.5px] text-text-3">
-        <span class="size-1.5 rounded-full" :class="running ? 'bg-severity-success' : 'bg-text-4'" />
-        {{ running ? 'Running' : 'Stopped' }}
+      <div class="text-[10.5px] uppercase tracking-wide text-text-3">Last run</div>
+      <div v-if="endToEnd" class="mt-1 text-text-2" data-testid="debug-last-run">
+        {{ endToEnd.inCount }} msg{{ endToEnd.inCount === 1 ? '' : 's' }}
+        → {{ endToEnd.outCount }} output{{ endToEnd.outCount === 1 ? '' : 's' }}
+        / {{ endToEnd.dropCount }} discard{{ endToEnd.dropCount === 1 ? '' : 's' }}
+        <span v-if="endToEnd.errorCount > 0" class="text-severity-error">/ {{ endToEnd.errorCount }} error{{ endToEnd.errorCount === 1 ? '' : 's' }}</span>
       </div>
-      <div v-if="runtimeSummary" class="mt-1 text-text-2" data-testid="debug-last-pump">
-        Last pump: {{ runtimeSummary.batchSize }} msg{{ runtimeSummary.batchSize === 1 ? '' : 's' }}
-        → {{ runtimeSummary.outputCount }} output{{ runtimeSummary.outputCount === 1 ? '' : 's' }}
-        / {{ runtimeSummary.discardCount }} discard{{ runtimeSummary.discardCount === 1 ? '' : 's' }}
-        <span v-if="runtimeSummary.errorCount > 0" class="text-severity-error">/ {{ runtimeSummary.errorCount }} error{{ runtimeSummary.errorCount === 1 ? '' : 's' }}</span>
-      </div>
-      <div v-else class="mt-1 text-text-4" data-testid="debug-last-pump-empty">No pump yet.</div>
+      <div v-else class="mt-1 text-text-4" data-testid="debug-last-run-empty">No runs yet.</div>
     </div>
 
     <!-- End-to-end figure for the latest tick. -->

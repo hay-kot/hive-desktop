@@ -5,7 +5,6 @@ import TextareaField from '../TextareaField.vue'
 import SelectField from '../SelectField.vue'
 import NumberField from '../NumberField.vue'
 import ToggleField from '../ToggleField.vue'
-import TabStrip from '../TabStrip.vue'
 import GlobListField from '../GlobListField.vue'
 import CodeField from '../CodeField.vue'
 import { chooseOption, openSelect } from '../../../test-utils/select'
@@ -143,25 +142,6 @@ describe('ToggleField', () => {
     await wrapper.vm.$nextTick()
 
     expect(wrapper.emitted('update:modelValue')).toEqual([[true]])
-  })
-})
-
-describe('TabStrip', () => {
-  it('emits update:modelValue with the clicked tab value', async () => {
-    const tabs = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
-    const wrapper = mount(TabStrip, { props: { modelValue: 'a', tabs, testid: 'ts' } })
-
-    await wrapper.get('[data-testid="ts-b"]').trigger('click')
-
-    expect(wrapper.emitted('update:modelValue')).toEqual([['b']])
-  })
-
-  it('marks the active tab aria-selected', () => {
-    const tabs = [{ value: 'a', label: 'A' }, { value: 'b', label: 'B' }]
-    const wrapper = mount(TabStrip, { props: { modelValue: 'b', tabs } })
-    const buttons = wrapper.findAll('button')
-    expect(buttons[0]!.attributes('aria-selected')).toBe('false')
-    expect(buttons[1]!.attributes('aria-selected')).toBe('true')
   })
 })
 

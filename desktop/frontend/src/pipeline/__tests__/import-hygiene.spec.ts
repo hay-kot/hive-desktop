@@ -1,10 +1,16 @@
-// Import-hygiene guard (D2): a node type's runtime.ts is worker-side code —
-// in production it runs inside a Web Worker (WebWorkerTransport) with no
-// DOM and no Vue instance. This asserts every nodes/*/runtime.ts stays free
-// of both, by reading each file as text rather than importing it (importing
-// would silently succeed in vitest's happy-dom environment even for a
-// module that reaches for `document`/`window`, since those globals DO exist
-// there — text inspection is the only way to catch the mistake).
+// Execution-stays-in-Go guard.
+//
+// This used to police the boundary between a node's editor module and its
+// worker-side runtime.ts. There is no worker-side runtime any more: the flow
+// engine is `internal/app/runtime`, and a node type's execution is a Go
+// registry line (ADR 0011). What the frontend still owns is the editor —
+// config.ts, editor.vue, index.ts.
+//
+// The failure this guards against is a quiet one. Adding a runtime.ts back
+// would not break anything visibly: it would ship a second implementation of
+// a node's semantics that nothing calls, and the next person to change the
+// rule would change only one of the two. Files are read as text rather than
+// imported, so a module is caught whether or not anything references it.
 
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -14,77 +20,41 @@ import { fileURLToPath } from 'node:url'
 const here = dirname(fileURLToPath(import.meta.url))
 const nodesDir = join(here, '..', 'nodes')
 
-function runtimeFiles(): string[] {
+function nodeDirs(): string[] {
   return readdirSync(nodesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
-    .map((entry) => join(nodesDir, entry.name, 'runtime.ts'))
-    .filter((path) => {
-      try {
-        readFileSync(path)
-        return true
-      } catch {
-        return false
-      }
-    })
+    .map((entry) => entry.name)
 }
 
-describe('pipeline node runtime import hygiene', () => {
-  const files = runtimeFiles()
+function readIfPresent(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf-8')
+  } catch {
+    return null
+  }
+}
 
-  it('finds at least one runtime.ts module to check (guards against a silently-empty glob)', () => {
-    expect(files.length).toBeGreaterThan(0)
+describe('node execution stays in Go', () => {
+  const dirs = nodeDirs()
+
+  it('finds the node type directories to check (guards against a silently-empty scan)', () => {
+    expect(dirs.length).toBeGreaterThan(0)
   })
 
-  it('no runtime.ts imports vue', () => {
-    for (const file of files) {
-      const src = readFileSync(file, 'utf-8')
-      expect(src, file).not.toMatch(/from\s+['"]vue['"]/)
-      expect(src, file).not.toMatch(/require\(\s*['"]vue['"]\s*\)/)
+  it('no node type has a runtime.ts — the engine that runs nodes is internal/app/runtime', () => {
+    for (const dir of dirs) {
+      expect(readIfPresent(join(nodesDir, dir, 'runtime.ts')), `nodes/${dir}/runtime.ts must not exist`).toBeNull()
     }
   })
 
-  it('no runtime.ts reaches for DOM/browser-window globals', () => {
-    const domGlobals = [/\bdocument\./, /\bwindow\./, /\blocalStorage\b/, /\bsessionStorage\b/]
-    for (const file of files) {
-      const src = readFileSync(file, 'utf-8')
-      for (const pattern of domGlobals) {
-        expect(src, `${file} matched ${pattern}`).not.toMatch(pattern)
+  it('no editor module imports a runtime module', () => {
+    for (const dir of dirs) {
+      for (const file of ['index.ts', 'config.ts', 'editor.vue']) {
+        const src = readIfPresent(join(nodesDir, dir, file))
+        if (src === null) continue
+        expect(src, `nodes/${dir}/${file}`).not.toMatch(/from\s+['"]\.\/runtime['"]/)
+        expect(src, `nodes/${dir}/${file}`).not.toMatch(/require\(\s*['"]\.\/runtime['"]\s*\)/)
       }
-    }
-  })
-})
-
-// D2's other import-hygiene rule, the app-bundle side: index.ts (and its
-// editor.vue) must never import runtime.ts, or worker code ships in the main
-// chunk. Checked the same way — reading source text, not importing — so a
-// module that imports runtime.ts only for its side effects (no named binding
-// used) still gets caught.
-function appModuleFiles(): string[] {
-  return readdirSync(nodesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
-    .flatMap((entry) => [join(nodesDir, entry.name, 'index.ts'), join(nodesDir, entry.name, 'editor.vue')])
-    .filter((path) => {
-      try {
-        readFileSync(path)
-        return true
-      } catch {
-        return false
-      }
-    })
-}
-
-describe('pipeline node app-module import hygiene', () => {
-  const files = appModuleFiles()
-
-  it('finds at least one index.ts/editor.vue to check (guards against a silently-empty glob)', () => {
-    expect(files.length).toBeGreaterThan(0)
-  })
-
-  it('no index.ts/editor.vue imports runtime.ts', () => {
-    for (const file of files) {
-      const src = readFileSync(file, 'utf-8')
-      expect(src, file).not.toMatch(/from\s+['"]\.\/runtime['"]/)
-      expect(src, file).not.toMatch(/require\(\s*['"]\.\/runtime['"]\s*\)/)
     }
   })
 })

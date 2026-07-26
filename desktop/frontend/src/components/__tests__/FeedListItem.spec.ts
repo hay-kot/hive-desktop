@@ -5,7 +5,7 @@ import type { InboxItem } from '../../types/feed'
 
 const baseItem: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
-  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'hayden', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
+  payload: { id: 'pr-42', kind: 'PR', repo: 'colonyops/hive', num: 42, author: 'octocat', branch: 'feat/desktop-ui-shell', body: 'Body' }, revision: 3, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: Date.now(),
 }
 function mountItem(overrides: Partial<InboxItem> = {}, selected = false) { return mount(FeedListItem, { props: { item: { ...baseItem, ...overrides }, selected } }) }
 
@@ -15,7 +15,7 @@ describe('FeedListItem', () => {
     expect(wrapper.find('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.find('[data-testid="type-pill"]').classes()).toContain('type-pill-pr')
     expect(wrapper.find('[data-testid="type-pill"]').text()).toBe('Pull Request')
-    expect(wrapper.find('[data-testid="item-snippet"]').text()).toContain('hayden — Body')
+    expect(wrapper.find('[data-testid="item-snippet"]').text()).toContain('octocat — Body')
   })
 
   it('renders issue styling and an unread indicator only when inbox state is unread', () => {
@@ -54,9 +54,9 @@ describe('FeedListItem', () => {
 
   it('renders webhook items with the source node icon and no open affordance without a URL', () => {
     const wrapper = mount(FeedListItem, { props: {
-      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: { id: 'run-1', status: 'failure' } },
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1', status: 'failure' } },
       selected: false,
-      sourceIcons: { 'webhook-source-1': 'bell' },
+      sourceIcons: { 'sources.webhook-1': 'bell' },
     } })
     const badge = wrapper.get('[data-testid="source-badge"]')
     expect(badge.attributes('data-source')).toBe('webhook')
@@ -68,7 +68,7 @@ describe('FeedListItem', () => {
 
   it('falls back to the webhook glyph when the source node has no configured icon', () => {
     const wrapper = mount(FeedListItem, { props: {
-      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'webhook-source-1', url: '', payload: {} },
+      item: { ...baseItem, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: {} },
       selected: false,
     } })
     expect(wrapper.get('[data-testid="source-badge"]').find('svg').exists()).toBe(true)

@@ -1,0 +1,144 @@
+package ingest
+
+import (
+	"context"
+	"encoding/json"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// capableInstance is one instance that declares the classification and
+// absence capabilities, wired the way a real connector's factory wires them.
+// The producer reads them straight off the instance — there is no assertion
+// to miss and no adapter map to look up by source kind.
+func capableInstance(flowID, nodeID string, pull connector.PullSource, classifier store.Classifier, absence store.AbsenceConfirmer) connector.Instance {
+	return connector.Instance{
+		Type: "sources.test",
+		Node: connector.Node{FlowID: flowID, NodeID: nodeID},
+		Metadata: connector.Metadata{
+			ProfileID:  flowID,
+			SourceKind: "github",
+			Policy:     store.ResurfacePolicyStateChanges,
+		},
+		Pull:       pull,
+		Classifier: classifier,
+		Absence:    absence,
+	}
+}
+
+type countingAbsence struct{ calls atomic.Int32 }
+
+func (c *countingAbsence) ConfirmAbsence(context.Context, store.Observation) (store.AbsenceVerdict, error) {
+	c.calls.Add(1)
+	return store.AbsenceVerdict{}, nil
+}
+
+type payloadHydratingAbsence struct {
+	calls     int
+	observed  store.Observation
+	updatedAt int64
+	terminal  bool
+}
+
+func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
+	c.calls++
+	c.observed = prev
+	var item feed.Item
+	if err := json.Unmarshal(prev.Payload, &item); err != nil {
+		return store.AbsenceVerdict{}, err
+	}
+	item.UpdatedAt = c.updatedAt
+	payload, err := json.Marshal(item)
+	if err != nil {
+		return store.AbsenceVerdict{}, err
+	}
+	current := prev
+	current.Payload = payload
+	current.ObservedAt = item.UpdatedAt
+	return store.AbsenceVerdict{Current: &current, Terminal: c.terminal}, nil
+}
+
+type activeAbsenceClassifier struct{}
+
+func (activeAbsenceClassifier) Classify(_ *store.Observation, current store.Observation) store.Classification {
+	return store.Classification{
+		Kind: "updated", Attention: store.AttentionTrivial,
+		Transition: store.TransitionNone, Lifecycle: store.LifecycleActive,
+		Summary: current.Title,
+	}
+}
+
+func TestProducerAbsenceIsScopedToExactSourceTopic(t *testing.T) {
+	db := openTestPipelineDB(t)
+	classifier := genericClassifier{}
+	_, err := db.IngestObservation(t.Context(), classifier, store.IngestObservationParams{ProfileID: "profile", Topic: "source:profile/second", Current: store.Observation{ExternalID: "only-second", SourceKind: "github", Payload: []byte(`{"v":1}`), ObservedAt: 1}})
+	require.NoError(t, err)
+	absence := &countingAbsence{}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "first", &fakeSource{}, classifier, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+	producer.Tick(t.Context())
+	assert.Zero(t, absence.calls.Load(), "a sibling source topic must not be considered absent")
+}
+
+func TestProducerAbsenceHydrationPreservesInboxMetadata(t *testing.T) {
+	db := openTestPipelineDB(t)
+	item := feed.Item{ID: "acme/repo#1", Title: "Keep this title", URL: "https://example.test/acme/repo/issues/1", UpdatedAt: 100}
+	payload, err := json.Marshal(item)
+	require.NoError(t, err)
+	src := &fakeSource{batches: [][]Msg{{{
+		Topic: "source:profile/source", Key: item.ID, Payload: payload,
+	}}}}
+	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: true}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+	producer.Tick(t.Context())
+
+	require.Equal(t, 1, absence.calls)
+	assert.Equal(t, item.Title, absence.observed.Title)
+	assert.Equal(t, item.URL, absence.observed.URL)
+	assert.Equal(t, item.UpdatedAt, absence.observed.ObservedAt)
+	var title, url string
+	var lastEventAt int64
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT title, url, last_event_at FROM inbox_item`).Scan(&title, &url, &lastEventAt))
+	assert.Equal(t, item.Title, title)
+	assert.Equal(t, item.URL, url)
+	assert.Equal(t, int64(200), lastEventAt)
+}
+
+func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
+	db := openTestPipelineDB(t)
+	item := feed.Item{ID: "acme/repo#1", Title: "Still active", URL: "https://example.test/acme/repo/issues/1", State: "open", UpdatedAt: 100}
+	payload, err := json.Marshal(item)
+	require.NoError(t, err)
+	src := &fakeSource{batches: [][]Msg{{{
+		Topic: "source:profile/source", Key: item.ID, Payload: payload,
+	}}}}
+	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, activeAbsenceClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+	producer.Tick(t.Context())
+
+	require.Equal(t, 1, absence.calls)
+	var lifecycle string
+	var archivedAt *int64
+	var lastEventAt int64
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT lifecycle, archived_at, last_event_at FROM inbox_item`).Scan(&lifecycle, &archivedAt, &lastEventAt))
+	assert.Equal(t, store.LifecycleActive.String(), lifecycle)
+	assert.Nil(t, archivedAt)
+	assert.Equal(t, int64(200), lastEventAt)
+}

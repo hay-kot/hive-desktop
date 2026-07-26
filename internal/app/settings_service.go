@@ -1,0 +1,170 @@
+package app
+
+import (
+	"context"
+	"time"
+
+	"github.com/hay-kot/hive-desktop/internal/app/ingest"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+)
+
+// SettingsService owns settings.yaml: reading the resolved values, validating
+// a change, persisting it, and applying what can be applied to the running
+// subsystems without a restart.
+//
+// Every setter is load-modify-save so unrelated fields survive; writing a
+// fresh single-field Settings would clobber them.
+type SettingsService struct {
+	store    *settings.Store
+	producer *ingest.Producer
+	fetchers *ghsource.Fetchers
+}
+
+// newSettingsService builds the service. producer and fetchers are nil in
+// mock mode, where persistence still works and there is simply nothing live
+// to apply a change to.
+func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
+	return &SettingsService{store: store, producer: producer, fetchers: fetchers}
+}
+
+// NewSettingsService builds a settings-only view of the core's settings
+// service, over the same *settings.Store App itself reads and writes. It
+// exists for a driven port the adapter must construct before App does:
+// app.Config's notification Gate is one of the two arguments New itself
+// needs, so it cannot wait for core.Settings to exist. Nothing built this way
+// calls SetGithub, so a nil producer and fetchers cost it nothing.
+func NewSettingsService(store *settings.Store) *SettingsService {
+	return newSettingsService(store, nil, nil)
+}
+
+// Keybindings returns the persisted shortcut overrides keyed by command id.
+// A nil map is normalized to an empty one so callers never null-check it.
+func (s *SettingsService) Keybindings(context.Context) (map[string][]string, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "reading settings")
+	}
+	if cfg.Keybindings == nil {
+		return map[string][]string{}, nil
+	}
+	return cfg.Keybindings, nil
+}
+
+// SetKeybindings persists shortcut overrides. An empty map clears the section
+// entirely, which is how "reset everything to defaults" is expressed.
+func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string][]string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		if len(overrides) == 0 {
+			current.Keybindings = nil
+		} else {
+			current.Keybindings = overrides
+		}
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// Theme returns the persisted theme, or "" when nothing has been recorded.
+// The value is opaque here: the frontend owns the valid set and heals unknown
+// values.
+func (s *SettingsService) Theme(context.Context) (string, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return "", Wrap(err, KindInternal, "reading settings")
+	}
+	return cfg.Appearance.Theme, nil
+}
+
+func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.Theme = theme
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// NotificationSettings is the resolved notification configuration.
+type NotificationSettings struct {
+	Enabled bool
+	// Delivery is where an eligible notification surfaces: "auto" (an OS
+	// banner only while the app is unfocused), "system", or "app".
+	Delivery string
+	Sound    bool
+}
+
+func (s *SettingsService) Notifications(context.Context) (NotificationSettings, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return NotificationSettings{}, Wrap(err, KindInternal, "reading settings")
+	}
+	return NotificationSettings{
+		Enabled:  cfg.Notifications.Enabled,
+		Delivery: cfg.Notifications.Delivery,
+		Sound:    cfg.Notifications.Sound,
+	}, nil
+}
+
+func (s *SettingsService) SetNotifications(_ context.Context, in NotificationSettings) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Notifications.Enabled = in.Enabled
+		current.Notifications.Delivery = settings.ResolveNotificationDelivery(in.Delivery)
+		current.Notifications.Sound = in.Sound
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// GithubSettings is the GitHub integration's polling configuration. It is
+// carried as a Duration: the seconds encoding is a wire concern.
+type GithubSettings struct {
+	PollInterval    time.Duration
+	MinPollInterval time.Duration
+}
+
+// SetUpdatesEnabled persists the user's value and returns the effective value
+// after any process environment override is reapplied.
+func (s *SettingsService) SetUpdatesEnabled(enabled bool) (bool, error) {
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Updates.Enabled = enabled
+		return nil
+	})
+	if err != nil {
+		return false, Wrap(err, KindInternal, "saving settings")
+	}
+	return effective.Updates.Enabled, nil
+}
+
+func (s *SettingsService) Github(context.Context) (GithubSettings, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return GithubSettings{}, Wrap(err, KindInternal, "reading settings")
+	}
+	return GithubSettings{PollInterval: cfg.Polling.Interval.Duration(), MinPollInterval: settings.MinPollInterval}, nil
+}
+
+// SetGithub validates against the floor, persists, and applies to the running
+// producer and fetch layer. A caller below the floor is rejected rather than
+// clamped: an API caller asking to poll every second should be told no, where
+// a settings.yaml written by hand is clamped at load.
+func (s *SettingsService) SetGithub(_ context.Context, in GithubSettings) error {
+	if in.PollInterval < settings.MinPollInterval {
+		return Errorf(KindInvalid, "poll interval must be at least %d seconds", int(settings.MinPollInterval/time.Second))
+	}
+
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Polling.Interval = settings.Duration(in.PollInterval)
+		return nil
+	})
+	if err != nil {
+		return Wrap(err, KindInternal, "saving settings")
+	}
+	interval := effective.Polling.Interval.Duration()
+	if s.producer != nil {
+		s.producer.SetInterval(interval)
+	}
+	if s.fetchers != nil {
+		s.fetchers.SetSearchTTL(interval)
+	}
+	return nil
+}

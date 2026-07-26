@@ -10,16 +10,21 @@ lefthook = "2.1.10"
 # hive is fetched directly: the sum.golang.org proxy lags freshly pushed
 # commits, and the vendor pin usually is one.
 GOPRIVATE = "github.com/colonyops/hive"
-# Local secrets (release signing/notary/R2). Gitignored; absent in CI.
+# Local secrets (release signing/notary/R2). The generated launch.env is
+# intentionally scoped to desktop:dev so tests, release tools, and the
+# headless server do not inherit development paths or framework ports.
 _.file = { path = ".env", redact = true }
 
-# Wires .git/hooks to lefthook after `mise install`, so a fresh clone gets the
-# quality gates without a separate manual step. Idempotent; safe to re-run.
+# A tool install wires hooks and prepares this worktree's isolated desktop
+# instance. The enter hook only fills a missing launch.env. Each later mise
+# command reloads the generated file before running, including desktop:dev.
 [hooks]
-postinstall = "{{config_root}}/scripts/hooks/install.sh"
+postinstall = { task = "setup" }
+enter = "test -f '{{config_root}}/launch.env' || (cd '{{config_root}}' && go run ./cmd/devtools prepare)"
 
 [tasks.setup]
-description = "Install the lefthook git hooks (runs automatically after `mise install`)"
+description = "Install git hooks and prepare this worktree's isolated desktop launch environment"
+depends = ["desktop:dev:prepare"]
 run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
@@ -32,24 +37,28 @@ run = "go run ./cmd/vendorhive"
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
-sources = ["internal/desktop/activity/activity.go", "internal/desktop/jobs/jobs.go", "internal/desktop/pipeline/pipelinedb/classify.go", "internal/desktop/pipeline/flow/flow.go"]
-outputs = ["internal/desktop/activity/activity_enum.go", "internal/desktop/jobs/jobs_enum.go", "internal/desktop/pipeline/pipelinedb/classify_enum.go", "internal/desktop/pipeline/flow/flow_enum.go"]
-run = "go-enum --nocase --names --marshal -f internal/desktop/activity/activity.go -f internal/desktop/jobs/jobs.go -f internal/desktop/pipeline/pipelinedb/classify.go -f internal/desktop/pipeline/flow/flow.go"
+# The file list appears twice on purpose. `sources` must be a literal array:
+# templating it from a [vars] entry renders to a path that matches nothing, and
+# mise then silently reruns the task every time instead of erroring.
+sources = ["internal/app/activity/activity.go", "internal/app/jobs/jobs.go", "internal/app/store/classify.go", "internal/app/flow/flow.go"]
+outputs = { auto = true }
+run = "go-enum --nocase --names --marshal -f internal/app/activity/activity.go -f internal/app/jobs/jobs.go -f internal/app/store/classify.go -f internal/app/flow/flow.go"
 
-[tasks.generate]
-description = "Run all code generators (vendored hivecore is generated upstream)"
-depends = ["generate:enums"]
+[tasks."generate:sqlc"]
+description = "Generate the store layer from SQL queries and migrations"
 sources = [
-  "internal/desktop/pipeline/pipelinedb/queries/queries.sql",
-  "internal/desktop/pipeline/pipelinedb/migrations/*.up.sql",
+  "internal/app/store/queries/queries.sql",
+  "internal/app/store/migrations/*.up.sql",
   "sqlc.yaml",
 ]
-outputs = [
-  "internal/desktop/pipeline/pipelinedb/db.go",
-  "internal/desktop/pipeline/pipelinedb/models.go",
-  "internal/desktop/pipeline/pipelinedb/queries.sql.go",
-]
+outputs = { auto = true }
 run = "sqlc generate"
+
+# Aggregate only. The two generators write disjoint files, so mise running
+# `depends` in parallel is safe here.
+[tasks.generate]
+description = "Run all code generators (vendored hivecore is generated upstream)"
+depends = ["generate:enums", "generate:sqlc"]
 
 [tasks.test]
 description = "Run all go tests"
@@ -67,20 +76,63 @@ run = "golangci-lint fmt ./..."
 description = "Run golangci-lint fmt on the given Go files (pre-commit hook target)"
 run = "golangci-lint fmt"
 
+[tasks.tidy]
+description = "Rewrite go.mod/go.sum to be tidy"
+run = "go mod tidy"
+
+# The whole Go gate, in one definition, so lefthook's pre-push and the release
+# workflow can both call `mise run check` instead of restating the sequence.
+# Frontend tests are deliberately not here: pre-push only wants them when the
+# push touches desktop/frontend/, and that condition belongs in lefthook.
+#
+# Ordered, not `depends`: mise runs `depends` in parallel, and check:generate
+# rewrites the .go files that lint and test read. A run list is sequential, so
+# generation finishes before anything reads its output. The second group is
+# safe to run concurrently — all three only read.
 [tasks.check]
-description = "Run tidy, lint, and test"
-run = ["go mod tidy", { tasks = ["lint", "test"] }]
+description = "Full Go gate: generated code, tidy, lint, test"
+run = [
+  { tasks = ["check:generate"] },
+  { tasks = ["check:tidy", "lint", "test"] },
+]
 
 [tasks."check:tidy"]
 description = "Verify go.mod/go.sum are tidy without rewriting them"
-run = "go mod tidy -diff"
+run = """
+go mod tidy -diff || {
+  echo "go.mod/go.sum are not tidy. Run 'mise run tidy' and commit the result." >&2
+  exit 1
+}
+"""
 
 [tasks."check:generate"]
 description = "Verify generated code (enums, sqlc) matches its sources"
 run = """
 mise run --force generate
-git diff --exit-code -- '*_enum.go' internal/desktop/pipeline/pipelinedb || {
+# -N registers files the generators created that the checkout lacks, for the
+# same reason check:bindings and check:vendor do it: plain git diff cannot see
+# an untracked file, so a brand-new enum or query output would pass unnoticed.
+# The diff is against HEAD because that same git add stages any deletion the
+# generators made, which a worktree-only diff would then report as clean.
+git add -N internal/app
+git diff HEAD --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
+  exit 1
+}
+"""
+
+[tasks."check:bindings"]
+description = "Verify the committed Wails TS bindings match the Go service surface"
+run = """
+mise run desktop:generate
+# -N registers files the generator created that the checkout lacks, for the
+# same reason check:vendor does: -clean=true deletes and recreates the tree,
+# and plain git diff cannot see an untracked file. The diff is against HEAD
+# because that same git add stages the deletions -clean=true made, which a
+# worktree-only diff would then report as clean.
+git add -N desktop/frontend/bindings
+git diff HEAD --exit-code -- desktop/frontend/bindings || {
+  echo "Wails bindings are out of date. Run 'mise run desktop:generate' and commit the result." >&2
   exit 1
 }
 """
@@ -91,24 +143,41 @@ run = """
 go run ./cmd/vendorhive --skip-gomod
 # -N registers files vendorhive created that the checkout lacks (e.g. a new
 # embed asset) so git diff reports them as drift too — plain git diff cannot
-# see untracked files.
+# see untracked files. The diff is against HEAD because that same git add
+# stages the deletions vendorhive made (it recreates the tree from scratch),
+# which a worktree-only diff would then report as clean.
 git add -N internal/hivecore
-git diff --exit-code -- internal/hivecore || {
+git diff HEAD --exit-code -- internal/hivecore || {
   echo "internal/hivecore has drifted. Never edit vendored code; run 'mise run vendor' after landing changes in hive." >&2
   exit 1
 }
 """
 
 [tasks."desktop:dev"]
-description = "Run the desktop app in dev mode (wails3 dev). Picks a free Vite port so instances run concurrently; injects the git branch for the dev bar; runs against an ephemeral per-worktree copy of the local data dir and desktop config (set HIVE_DATA_DIR / HIVE_DESKTOP_CONFIG to override)."
+description = "Run Wails directly using launch.env and this worktree's isolated .hive-desktop instance"
 dir = "desktop"
+# launch.env is generated; optional overrides.env is developer-authored and
+# wins because mise loads it second.
+env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}" }
 run = """
-port="$(./build/scripts/dev-port.sh)"
-branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
-eval "$(./build/scripts/dev-data-dir.sh)"
-echo "hive desktop dev: vite port ${port}, branch ${branch}"
-WAILS_VITE_PORT="${port}" VITE_HIVE_DEV_BRANCH="${branch}" wails3 dev -config ./build/config.yml
+test -f ../launch.env || {
+  echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2
+  exit 1
+}
+wails3 dev -config ./build/config.yml
 """
+
+[tasks."desktop:dev:prepare"]
+description = "Create or reuse this worktree's desktop instance and generate launch.env"
+run = "go run ./cmd/devtools prepare"
+
+[tasks."desktop:dev:fresh"]
+description = "Safely recreate this worktree's desktop instance and regenerate launch.env"
+run = "go run ./cmd/devtools fresh"
+
+[tasks."desktop:dev:reset"]
+description = "Safely delete this worktree's marked desktop instance and launch.env"
+run = "go run ./cmd/devtools reset"
 
 [tasks."desktop:build"]
 description = "Build the desktop app"
@@ -143,7 +212,7 @@ run = "npm test"
 [tasks."desktop:test"]
 description = "Run desktop frontend + Go tests"
 depends = ["desktop:test:frontend"]
-run = "go test ./desktop/... ./internal/desktop/..."
+run = "go test ./desktop/... ./internal/app/... ./internal/adapter/..."
 
 [tasks."desktop:e2e"]
 description = "Run desktop e2e tests in the pinned Docker/Playwright environment"

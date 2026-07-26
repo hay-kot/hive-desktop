@@ -43,7 +43,7 @@ namespacing would orphan every already-stored payload the moment it landed.
 
 **Every item has a kind.** A payload that declares no `kind` (or a blank one)
 projects as `Item` — `DefaultItemKind` in
-`internal/desktop/pipeline/action_item.go`, `DEFAULT_ITEM_KIND` in
+`internal/app/dispatch/action_item.go`, `DEFAULT_ITEM_KIND` in
 `desktop/frontend/src/lib/itemPresentation.ts`. Without this, an untyped item
 was automatable only by an action with no `applies_to` at all: it could not be
 named, so it never appeared in the actions editor's autocomplete and
@@ -63,7 +63,7 @@ The contract is enforced by two provider-dispatch seams, both now
   search haystack, clipboard text — are module functions applied identically
   to every source. The only thing a provider adapter can vary is
   `sourceLabel`, the badge `mark`, and the detail-pane `actionContextLine`.
-- **Actions** (`internal/desktop/pipeline/action_item.go`,
+- **Actions** (`internal/app/dispatch/action_item.go`,
   `desktop/pipelineservice.go`): `DecodeActionItem` projects any source's
   persisted payload into `{ID, Kind, Payload}` and passes the grab bag through
   unmodified. `ActionApplicability` gates an action on an item by two rules —
@@ -79,7 +79,7 @@ The contract is enforced by two provider-dispatch seams, both now
 Webhook items get a real lifecycle instead of staying permanently active. The
 webhook classifier reads the canonical top-level `state` (case-insensitive)
 and maps it like GitHub's classifier: `resolved`, `closed`, and `done`
-(`webhookTerminalStates` in `internal/desktop/pipeline/webhook_source.go`) are
+(`webhookTerminalStates` in `internal/app/sources/webhook/webhook_source.go`) are
 terminal and system-archive the item on entry, with the state as the archive
 reason; any other or absent state keeps the item active, so a stateless
 webhook behaves exactly as before. A later delivery that leaves a terminal
@@ -119,4 +119,4 @@ is worth it while GitHub is the only source with a filter node.
   today.
 - The conformance probe (`MissingFeedItemFields`) intentionally stays
   narrower than the full contract — see
-  `internal/desktop/pipeline/webhook_source.go`'s `feedItemFields` comment.
+  `internal/app/sources/webhook/webhook_source.go`'s `feedItemFields` comment.

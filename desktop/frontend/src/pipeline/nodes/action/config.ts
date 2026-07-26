@@ -4,7 +4,6 @@
 // engine's single source of truth for commit-tagging a terminal node).
 
 import IconZap from '~icons/lucide/zap'
-import type { Sink } from '../../types'
 
 export const type = 'action'
 export const role = 'output' as const
@@ -16,10 +15,6 @@ export interface Config {
 
 /** Action outputs are enqueued commands, not feed items — unread has no meaning here. */
 export const unread = false
-
-export function sink(_flowId: string, _nodeId: string, config: Config): Sink {
-  return { kind: 'action', targetId: config.action }
-}
 
 // ── App-registry metadata ───────────────────────────────────────────────────
 

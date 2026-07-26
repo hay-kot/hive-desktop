@@ -16,13 +16,7 @@ const mocks = vi.hoisted(() => ({
   SaveFlow: vi.fn(),
   SaveLayout: vi.fn(),
   ListInboxItemsByFeed: vi.fn(),
-  ListUnarchivedInboxItems: vi.fn(),
-  ListReplaySourceSnapshots: vi.fn(),
-  EventLogTailOffset: vi.fn(),
-  ActivateReplay: vi.fn(),
   NodeRuns: vi.fn(),
-  ReadFrom: vi.fn(),
-  Commit: vi.fn(),
   On: vi.fn(),
   SetText: vi.fn(),
   RenderPrompt: vi.fn(),
@@ -30,12 +24,12 @@ const mocks = vi.hoisted(() => ({
 
 // Prompt text is assembled by the Go prompts service, so "Copy prompt" is a
 // service call followed by a clipboard write.
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/promptsservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice', () => ({
   Catalog: vi.fn(),
   Render: mocks.RenderPrompt,
 }))
 
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   GetLayout: mocks.GetLayout,
@@ -43,15 +37,9 @@ vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservi
   SaveLayout: mocks.SaveLayout,
 }))
 
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
+vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
-  ListUnarchivedInboxItems: mocks.ListUnarchivedInboxItems,
-  ListReplaySourceSnapshots: mocks.ListReplaySourceSnapshots,
-  EventLogTailOffset: mocks.EventLogTailOffset,
-  ActivateReplay: mocks.ActivateReplay,
   NodeRuns: mocks.NodeRuns,
-  ReadFrom: mocks.ReadFrom,
-  Commit: mocks.Commit,
 }))
 
 vi.mock('@wailsio/runtime', () => ({
@@ -85,12 +73,6 @@ describe('FlowsView flow selector', () => {
     mocks.GetFlow.mockImplementation(async (id: string) => wireFlow(id, id === 'flow-2' ? 'Flow two' : 'Flow one'))
     mocks.GetLayout.mockResolvedValue({ nodes: {} })
     mocks.NodeRuns.mockResolvedValue([])
-    mocks.ListUnarchivedInboxItems.mockResolvedValue([])
-    mocks.ListReplaySourceSnapshots.mockResolvedValue([])
-    mocks.EventLogTailOffset.mockResolvedValue('0')
-    mocks.ActivateReplay.mockResolvedValue(undefined)
-    mocks.ReadFrom.mockResolvedValue([])
-    mocks.Commit.mockResolvedValue(undefined)
     mocks.On.mockReturnValue(() => {})
   })
 
@@ -137,12 +119,6 @@ describe('FlowsView deploy menu', () => {
     mocks.GetFlow.mockImplementation(async (id: string) => wireFlow(id, id === 'flow-2' ? 'Flow two' : 'Flow one'))
     mocks.GetLayout.mockResolvedValue({ nodes: {} })
     mocks.NodeRuns.mockResolvedValue([])
-    mocks.ListUnarchivedInboxItems.mockResolvedValue([])
-    mocks.ListReplaySourceSnapshots.mockResolvedValue([])
-    mocks.EventLogTailOffset.mockResolvedValue('0')
-    mocks.ActivateReplay.mockResolvedValue(undefined)
-    mocks.ReadFrom.mockResolvedValue([])
-    mocks.Commit.mockResolvedValue(undefined)
     mocks.On.mockReturnValue(() => {})
   })
 
@@ -152,30 +128,6 @@ describe('FlowsView deploy menu', () => {
     await flushPromises()
     return wrapper
   }
-
-  it('"Refresh now" triggers an immediate manual pump via the session and closes the menu', async () => {
-    const wrapper = await mountWithActiveFlow()
-    mocks.ReadFrom.mockClear()
-
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-    await wrapper.get('[data-testid="deploy-menu-refresh"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.ReadFrom).toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="deploy-menu"]').exists()).toBe(false)
-
-    wrapper.unmount()
-  })
-
-  it('"Refresh now" is disabled when no flow is active', async () => {
-    const wrapper = await mountFlowsView()
-
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-
-    expect(wrapper.get('[data-testid="deploy-menu-refresh"]').attributes('disabled')).toBeDefined()
-
-    wrapper.unmount()
-  })
 
   it('"Copy prompt" copies the rendered flows prompt', async () => {
     mocks.SetText.mockResolvedValue(undefined)

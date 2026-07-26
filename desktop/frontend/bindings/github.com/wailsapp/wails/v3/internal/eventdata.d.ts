@@ -7,21 +7,22 @@ import type { Events } from "@wailsio/runtime";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
-import type * as main$0 from "../../../../hay-kot/hive-desktop/desktop/models.js";
+import type * as wailsui$0 from "../../../../hay-kot/hive-desktop/internal/adapter/wailsui/models.js";
 
 declare module "@wailsio/runtime" {
     namespace Events {
         interface CustomEvents {
             "actions:updated": string;
             "activity:appended": number;
-            "auth:updated": string;
+            "connection:updated": string;
             "flows:updated": string;
+            "inbox:updated": string;
             "jobs:updated": string;
             "log:appended": number;
-            "notification:activated": main$0.NotificationActivation;
-            "notification:toast": main$0.NotificationToast;
-            "update:available": main$0.UpdateInfo;
-            "update:none": main$0.UpdateInfo;
+            "notification:activated": wailsui$0.NotificationActivation;
+            "notification:toast": wailsui$0.NotificationToast;
+            "update:available": wailsui$0.UpdateInfo;
+            "update:none": wailsui$0.UpdateInfo;
             "window:blur": boolean;
             "window:focus": boolean;
         }

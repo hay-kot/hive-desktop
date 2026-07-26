@@ -1,72 +1,38 @@
-// App-wide flow editor/runtime session. The editor owns one mutable local
-// draft, while the deployed-runtime manager owns an independent snapshot for
-// every enabled flow. Canvas/profile selection therefore never gates work.
+// App-wide flow editor session: one mutable local draft, plus the flow
+// listing every surface reads.
+//
+// Execution is not here and cannot be. The Go flow engine owns it, reloads
+// itself from the same flows/*.yaml change this session refreshes on, and
+// keeps running with this window closed. What is left on this side is the
+// editor: which flow is being edited, whether it is dirty, and writing it
+// back. See docs/architecture.md ▸ Execution model.
 import { computed, shallowRef, watch, type ComputedRef, type Ref } from 'vue'
-import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice'
-import { ActivateReplay, Commit, EventLogTailOffset, ListReplaySourceSnapshots, ListUnarchivedInboxItems, NodeRuns, ReadFrom } from '../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
-import { BACKEND_SOURCE_TYPES } from '../engine/runGraph'
-import { flowFromWire, type EditorFlow, type WireFlow } from '../lib/wireFlow'
+import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
+import { NodeRuns } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { usePipelineEditor, type PipelineEditorClient } from './usePipelineEditor'
-import { usePipelineRuntime, type RuntimeSummary } from './usePipelineRuntime'
-import type { PipelineClient } from '../driver'
-import type { FeedMembershipClaim, InboxItemView, Msg } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb/models'
 
 type PipelineEditor = ReturnType<typeof usePipelineEditor>
-type PipelineRuntime = ReturnType<typeof usePipelineRuntime>
-type ReplayClient = PipelineClient & {
-  eventLogTailOffset?: () => Promise<string>
-  activateReplay?: (profileID: string, tail: string, claims: FeedMembershipClaim[], feedIDs: string[], sourceIDs: string[]) => Promise<void>
-  listUnarchivedInboxItems?: (profileID: string) => Promise<InboxItemView[]>
-  listReplaySourceSnapshots?: (profileID: string, throughOffset: string) => Promise<Msg[]>
-}
 
-export interface FlowsSession extends Omit<PipelineEditor, 'deploy' | 'replaceDraft'> {
+export interface FlowsSession extends PipelineEditor {
   flowsOpen: Ref<boolean>
   flowFocusNodeId: Ref<string | null>
   /**
-   * True once the boot reconcile ran with the loaded flows list and its
-   * trailing catch-up pump completed. App.vue stamps this on the app root
-   * (data-pipeline-ready) so tests can gate backend event injection on
-   * "subscribed + caught up" instead of guessing with timeouts.
+   * The selected flow's load error, as reported by the Go listing. A flow
+   * whose file does not parse keeps its last deployed version running, so this
+   * is what tells the author that what is on disk is not what is executing.
    */
-  ready: Ref<boolean>
-  /**
-   * Count of completed pump passes. Incremented only after a pass's commits
-   * have landed, so a watcher re-reads feed state at exactly the right moment
-   * — including when a wake-up was serviced by a boot/deploy/reload trailing
-   * catch-up pass instead of the pump() call it triggered.
-   */
-  pumpCount: Ref<number>
-  running: ComputedRef<boolean>
-  lastRun: ComputedRef<RuntimeSummary | null>
-  runtimeError: ComputedRef<string | null>
-  /** The selected profile's runtime id, or null when it has no enabled runtime. */
-  runtimeFlowId: ComputedRef<string | null>
-  /** Binds profile selection to the editor only; it never controls runtimes. */
+  flowLoadError: ComputedRef<string | null>
+  /** Binds profile selection to the editor draft. */
   bindActiveFlow(id: string | undefined): void
   openFlows(focusNodeId?: string): void
   exitFlows(): void
   discardDraft(): Promise<void>
-  /** Saves the editor draft, then updates that flow's runtime if it is enabled. */
-  deploy(): Promise<void>
-  /** Reconciles every enabled deployed runtime after flows:updated. */
-  reloadDeployed(): Promise<void>
-  /**
-   * Requests a drain of every enabled runtime. Level-triggered: the request
-   * is sticky, so one arriving while a serialized operation is still
-   * installing or replacing runtimes is serviced by that operation's trailing
-   * catch-up pass rather than dropped.
-   */
-  pump(): Promise<void>
-  /** Permanently disposes every managed runtime; used on session shutdown. */
-  disposeRuntime(): void
+  /** Re-reads the listing and, when the open draft is clean, the draft itself. */
+  reloadFlows(): Promise<void>
 }
 
 export interface FlowsSessionDeps {
   editorClient?: PipelineEditorClient
-  runtimeClient?: PipelineClient
-  /** Test seam for observing runtime lifecycle without constructing browser workers. */
-  runtimeFactory?: typeof usePipelineRuntime
 }
 
 function defaultEditorClient(): PipelineEditorClient {
@@ -80,173 +46,25 @@ function defaultEditorClient(): PipelineEditorClient {
   }
 }
 
-function defaultRuntimeClient(): ReplayClient {
-  return {
-    async readFrom(consumer, limit) { return await ReadFrom(consumer, limit) },
-    async commit(batch) { await Commit(batch) },
-    async eventLogTailOffset() { return await EventLogTailOffset() },
-    async activateReplay(profileID, tail, claims, feedIDs, sourceIDs) { await ActivateReplay(profileID, tail, claims, feedIDs, sourceIDs) },
-    async listUnarchivedInboxItems(profileID) { return (await ListUnarchivedInboxItems(profileID)) ?? [] },
-    async listReplaySourceSnapshots(profileID, throughOffset) { return (await ListReplaySourceSnapshots(profileID, throughOffset)) ?? [] },
-  }
-}
-
 function errorMessage(err: unknown, fallback: string): string {
   return err instanceof Error && err.message ? err.message : fallback
 }
 
-function deployedSnapshot(wire: WireFlow): EditorFlow {
-  // Wails values are JSON-shaped. Never share nodes/config with the editor's
-  // mutable draft, including when both came from the same GetFlow result.
-  return flowFromWire(JSON.parse(JSON.stringify(wire)) as WireFlow)
-}
-
 function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
   const editor = usePipelineEditor(deps.editorClient)
-  const { flows, activeFlow, selectFlow, replaceDraft, deploy: saveDraft, ...editorState } = editor
+  const { flows, activeFlow, selectFlow, replaceDraft } = editor
 
   const flowsOpen = shallowRef(false)
   const flowFocusNodeId = shallowRef<string | null>(null)
-  const ready = shallowRef(false)
-  const pumpCount = shallowRef(0)
   const selectedProfileId = shallowRef<string | undefined>(undefined)
-  const runtimes = shallowRef<Map<string, PipelineRuntime>>(new Map())
-  const runtimeLoadErrors = shallowRef<Map<string, string>>(new Map())
 
-  // Lifecycle changes and log drains share one tail. A reload can therefore
-  // never replace a graph halfway through one of its commits.
+  // Draft loads and saves share one tail, so a reload can never land a stale
+  // draft on top of one the user just selected.
   let operationTail: Promise<void> = Promise.resolve()
   function serialize<T>(operation: () => Promise<T>): Promise<T> {
     const result = operationTail.then(operation, operation)
     operationTail = result.then(() => undefined, () => undefined)
     return result
-  }
-
-  // "log:appended" is a one-shot wake-up, so the session treats it as
-  // level-triggered: a signal landing while a serialized operation is still
-  // installing or replacing runtimes stays pending until a drain has read
-  // against the CURRENT runtimes. Cleared before reading so a signal landing
-  // during an in-flight drain re-arms it instead of coalescing away.
-  let pumpPending = false
-
-  /** Drains every runtime, then publishes the completed pass via pumpCount. */
-  async function drainRuntimes(): Promise<void> {
-    pumpPending = false
-    if (runtimes.value.size === 0) return
-    await Promise.all([...runtimes.value.values()].map(async (runtime) => { await runtime.pump() }))
-    pumpCount.value++
-  }
-
-  function setRuntime(id: string, runtime: PipelineRuntime): void {
-    const next = new Map(runtimes.value)
-    next.set(id, runtime)
-    runtimes.value = next
-  }
-
-  function removeRuntime(id: string): void {
-    const existing = runtimes.value.get(id)
-    if (!existing) return
-    existing.dispose()
-    const next = new Map(runtimes.value)
-    next.delete(id)
-    runtimes.value = next
-  }
-
-  function setRuntimeLoadError(id: string, message: string | null): void {
-    const next = new Map(runtimeLoadErrors.value)
-    if (message) next.set(id, message)
-    else next.delete(id)
-    runtimeLoadErrors.value = next
-  }
-
-  function isEnabledFlow(id: string): boolean {
-    return flows.value.some((flow) => flow.id === id && flow.valid && flow.enabled)
-  }
-
-  /** Replaces one runtime only after a complete valid candidate exists. */
-  async function loadRuntime(id: string): Promise<void> {
-    let wire: WireFlow
-    try {
-      wire = await deps.editorClient.getFlow(id)
-    } catch (err) {
-      if (isEnabledFlow(id)) setRuntimeLoadError(id, errorMessage(err, 'Could not reload the deployed flow.'))
-      return // An external reload failure keeps the last known-good runtime.
-    }
-
-    if (!isEnabledFlow(id) || wire.id !== id) {
-      if (isEnabledFlow(id) && wire.id !== id) {
-        setRuntimeLoadError(id, 'Deployed flow identity did not match its listing.')
-      }
-      return
-    }
-
-    let snapshot: EditorFlow
-    try {
-      snapshot = deployedSnapshot(wire)
-    } catch (err) {
-      setRuntimeLoadError(id, errorMessage(err, 'Could not load the deployed flow.'))
-      return
-    }
-
-    // The serialized caller has drained all earlier work. Build and prepare
-    // the candidate while the last known-good runtime remains available.
-    const runtime = deps.runtimeFactory(deps.runtimeClient, snapshot)
-    try {
-      await initializeReplay(snapshot, runtime)
-    } catch (err) {
-      runtime.dispose()
-      setRuntimeLoadError(id, errorMessage(err, 'Could not prepare the deployed flow.'))
-      return
-    }
-    removeRuntime(id)
-    setRuntime(id, runtime)
-    setRuntimeLoadError(id, null)
-    await runtime.run()
-  }
-
-  // The deploy/startup protocol must complete before run(): stale event-log
-  // rows cannot be allowed through action terminals while the runtime starts.
-  async function initializeReplay(snapshot: EditorFlow, runtime: PipelineRuntime): Promise<void> {
-    const client = deps.runtimeClient as ReplayClient
-    if (!client.eventLogTailOffset || !client.activateReplay || !client.listUnarchivedInboxItems || !client.listReplaySourceSnapshots) return
-    const tail = await client.eventLogTailOffset()
-
-    const feedIDs = snapshot.nodes.filter((node) => node.type === 'feed').map((node) => `${snapshot.id}/${node.id}`)
-    const sourceIDs = snapshot.nodes
-      .filter((node) => BACKEND_SOURCE_TYPES.has(node.type) && !node.disabled)
-      .map((node) => `source:${snapshot.id}/${node.id}`)
-      .sort()
-    const items = await client.listUnarchivedInboxItems(snapshot.id)
-    const byIdentity = new Map(items.map((item) => [`${item.sourceKind}\u0000${item.sourceScope}\u0000${item.externalId}`, item]))
-    const currentSources = new Set(sourceIDs)
-    const messages = (await client.listReplaySourceSnapshots(snapshot.id, tail))
-      .filter((message) => currentSources.has(message.Topic))
-    const result = await runtime.recompute(messages)
-    const claims: FeedMembershipClaim[] = result.outputs
-      .filter((output) => output.sink.kind === 'feed')
-      .flatMap((output) => {
-        const item = byIdentity.get(`${output.sourceKind}\u0000${output.sourceScope}\u0000${output.key}`)
-        return item ? [{ profile_id: snapshot.id, feed_id: output.sink.targetId, item_id: item.id, source_id: output.sourceTopic }] : []
-      })
-    // Install the prepared graph state and consumer checkpoint together so a
-    // failed candidate leaves the last-known-good runtime fully intact.
-    await client.activateReplay(snapshot.id, tail, claims, feedIDs, sourceIDs)
-  }
-
-  /** Starts missing enabled runtimes and stops disabled/deleted ones. */
-  async function reconcileRuntimes(reload: boolean): Promise<void> {
-    const enabledIDs = new Set(flows.value.filter((flow) => flow.valid && flow.enabled).map((flow) => flow.id))
-
-    for (const id of runtimes.value.keys()) {
-      if (!enabledIDs.has(id)) {
-        removeRuntime(id)
-        setRuntimeLoadError(id, null)
-      }
-    }
-
-    for (const id of enabledIDs) {
-      if (reload || !runtimes.value.has(id)) await loadRuntime(id)
-    }
   }
 
   function openFlows(focusNodeId?: string): void {
@@ -262,8 +80,7 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
   async function selectBoundEditor(id: string): Promise<void> {
     if (pendingEditorProfile !== id || selectedProfileId.value !== id || !flows.value.some((flow) => flow.id === id)) return
     try {
-      // Profile navigation has already guarded dirty drafts in App.vue. This
-      // selection does not touch runtime ownership, which remains per-flow.
+      // Profile navigation has already guarded dirty drafts in App.vue.
       await selectFlow(id)
     } finally {
       if (pendingEditorProfile === id) pendingEditorProfile = undefined
@@ -285,24 +102,11 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     void serialize(async () => { await selectBoundEditor(id) })
   }
 
-  // The editor's initial ListFlows is asynchronous. Once it arrives, start
-  // all enabled runtimes, and complete a profile/editor binding that happened
-  // while the list was still loading. Later list refreshes only add/remove
-  // runtimes; they deliberately do not overwrite an independently selected
-  // editor draft.
+  // The editor's initial ListFlows is asynchronous. Complete a profile/editor
+  // binding that happened while the list was still loading.
   watch(flows, () => {
     void serialize(async () => {
-      await reconcileRuntimes(false)
       if (pendingEditorProfile) await selectBoundEditor(pendingEditorProfile)
-      // Listen-then-read boot ordering: the log:appended subscription is live
-      // before these async reads complete (App.vue registers it at mount), so
-      // one unconditional trailing drain against the just-installed runtimes
-      // closes the boot window a wake-up could otherwise be lost in.
-      await drainRuntimes()
-      // The immediate watch pass runs before the editor's initial ListFlows
-      // settles; readiness means that load landed AND its reconcile plus
-      // catch-up pump completed.
-      if (!editor.loadingFlows.value) ready.value = true
     })
   }, { immediate: true })
 
@@ -320,19 +124,6 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     })
   }
 
-  async function deploy(): Promise<void> {
-    await serialize(async () => {
-      const wire = await saveDraft()
-      if (!wire) return
-      if (wire.enabled) await loadRuntime(wire.id)
-      else removeRuntime(wire.id)
-      // The replacement's stop() discards any in-flight page, so a wake-up
-      // that raced the swap would otherwise be swallowed — always end a
-      // runtime-replacing operation with a catch-up drain.
-      await drainRuntimes()
-    })
-  }
-
   async function refreshCleanEditorDraft(): Promise<void> {
     const id = activeFlow.value?.id
     if (!id || editor.dirty.value) return
@@ -344,61 +135,29 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
     }
   }
 
-  async function reloadDeployed(): Promise<void> {
+  async function reloadFlows(): Promise<void> {
     await serialize(async () => {
       await editor.refreshFlows()
-      await reconcileRuntimes(true)
       await refreshCleanEditorDraft()
-      // Same trailing catch-up as deploy: every runtime was just replaced.
-      await drainRuntimes()
     })
   }
 
-  async function pump(): Promise<void> {
-    pumpPending = true
-    await serialize(async () => {
-      // A trailing drain inside an earlier queued operation already read past
-      // this signal; skip the redundant pass.
-      if (!pumpPending) return
-      await drainRuntimes()
-    })
-  }
-
-  function disposeRuntime(): void {
-    for (const runtime of runtimes.value.values()) runtime.dispose()
-    runtimes.value = new Map()
-  }
-
-  const selectedRuntime = computed(() => selectedProfileId.value ? runtimes.value.get(selectedProfileId.value) : undefined)
-  const running = computed(() => selectedRuntime.value?.running.value ?? false)
-  const lastRun = computed(() => selectedRuntime.value?.lastRun.value ?? null)
-  const runtimeError = computed(() => {
-    const id = selectedProfileId.value
-    return (id ? runtimeLoadErrors.value.get(id) : null) ?? selectedRuntime.value?.error.value ?? null
+  const flowLoadError = computed(() => {
+    const id = selectedProfileId.value ?? activeFlow.value?.id
+    if (!id) return null
+    return flows.value.find((flow) => flow.id === id)?.error || null
   })
-  const runtimeFlowId = computed(() => selectedRuntime.value ? selectedProfileId.value ?? null : null)
 
   return {
-    ...editorState,
-    flows,
-    activeFlow,
-    selectFlow,
+    ...editor,
     flowsOpen,
     flowFocusNodeId,
-    ready,
-    pumpCount,
-    running,
-    lastRun,
-    runtimeError,
-    runtimeFlowId,
+    flowLoadError,
     bindActiveFlow,
     openFlows,
     exitFlows,
     discardDraft,
-    deploy,
-    reloadDeployed,
-    pump,
-    disposeRuntime,
+    reloadFlows,
   }
 }
 
@@ -408,14 +167,11 @@ export function useFlowsSession(deps: FlowsSessionDeps = {}): FlowsSession {
   if (!sharedSession) {
     sharedSession = createFlowsSession({
       editorClient: deps.editorClient ?? defaultEditorClient(),
-      runtimeClient: deps.runtimeClient ?? defaultRuntimeClient(),
-      runtimeFactory: deps.runtimeFactory ?? usePipelineRuntime,
     })
   }
   return sharedSession
 }
 
 export function resetFlowsSessionForTests(): void {
-  sharedSession?.disposeRuntime()
   sharedSession = null
 }

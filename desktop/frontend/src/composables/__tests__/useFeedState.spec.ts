@@ -6,13 +6,13 @@ import { resetToastsForTests } from '../useToasts'
 import type { InboxItem } from '../../types/feed'
 
 const mocks = vi.hoisted(() => ({
-  ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
+  ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), SeedStarterFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
   ListInboxItemsByFeed: vi.fn(), ListArchivedInboxItemsByFeed: vi.fn(), ListInboxItemsTrash: vi.fn(), FeedCounts: vi.fn(), MarkInboxItemUnread: vi.fn(), MarkInboxItemsRead: vi.fn(), ToggleInboxItemArchived: vi.fn(), ToggleInboxItemIgnored: vi.fn(), InboxItemEvents: vi.fn(),
   ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(),
   notify: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, SeedStarterFlow: mocks.SeedStarterFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed, ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed, ListInboxItemsTrash: mocks.ListInboxItemsTrash, FeedCounts: mocks.FeedCounts,
   MarkInboxItemUnread: mocks.MarkInboxItemUnread, MarkInboxItemsRead: mocks.MarkInboxItemsRead, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
   ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, SessionLaunchOptions: mocks.SessionLaunchOptions,
@@ -20,7 +20,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservi
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Call: { ByID: vi.fn() } }))
 vi.mock('../useNotify', () => ({ useNotify: () => ({ notify: mocks.notify }) }))
 
-const flow = { id: 'triage', name: 'Frontend Triage', enabled: true, nodes: [{ id: 'source', type: 'github-source' }, { id: 'my-prs', type: 'feed', name: 'My PRs' }], wires: [] }
+const flow = { id: 'triage', name: 'Frontend Triage', enabled: true, nodes: [{ id: 'source', type: 'sources.github' }, { id: 'my-prs', type: 'feed', name: 'My PRs' }], wires: [] }
 function item(id: number, overrides: Partial<InboxItem> = {}): InboxItem {
   return { id, profileId: 'triage', sourceKind: 'github', sourceScope: 'acme/app', externalId: `pr-${id}`, title: `Item ${id}`, url: `https://example.test/${id}`, payload: { id: `pr-${id}`, kind: 'PR', repo: 'acme/app', num: id, author: 'hay', body: `body ${id}`, branch: 'main' }, revision: 1, unread: true, lifecycle: 'active', firstSeenAt: 1, lastEventAt: id, ...overrides }
 }
@@ -110,6 +110,36 @@ describe('useFeedState', () => {
     handlers['flows:updated']!(); await flushPromises(); handlers['flows:updated']!(); await flushPromises()
     resolve[1]!({ ...flow, nodes: [flow.nodes[0], { ...flow.nodes[1], name: 'New name' }] }); await flushPromises(); resolve[0]!(flow); await flushPromises()
     expect(get().activeProfile.value?.feeds[0]?.name).toBe('New name')
+  })
+
+  // A workspace whose flow has no feed nodes has to be distinguishable from
+  // one whose feeds simply have not been read yet — App.vue's empty state
+  // hangs off that difference, and a stub mid-reload must not trip it.
+  it('leaves a reloading profile without a tree until its feeds are read', async () => {
+    const handlers: Record<string, () => void> = {}; mocks.On.mockImplementation((name: string, callback: () => void) => { handlers[name] = callback; return () => {} })
+    const get = mountState(); await flushPromises()
+    expect(get().activeProfile.value?.tree).toBeDefined()
+
+    let release!: (value: typeof flow) => void
+    mocks.GetFlow.mockImplementation(() => new Promise(r => { release = r }))
+    handlers['flows:updated']!(); await flushPromises()
+    expect(get().activeProfile.value?.tree).toBeUndefined()
+
+    release({ ...flow, nodes: [flow.nodes[0]] }); await flushPromises()
+    expect(get().activeProfile.value?.tree).toEqual([])
+    expect(get().activeProfile.value?.feeds).toHaveLength(0)
+  })
+
+  it('seeds the starter flow into a workspace and re-reads its feeds', async () => {
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true })
+    const get = mountState(); await flushPromises()
+    const flowReads = mocks.GetFlow.mock.calls.length
+
+    await get().seedStarterFlow('triage')
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('triage')
+    // The sidebar's feeds must be readable when this resolves, not whenever
+    // the backend's flows:updated happens to land.
+    expect(mocks.GetFlow.mock.calls.length).toBeGreaterThan(flowReads)
   })
 
   it('filters and navigates loaded feed rows while retaining SQL order', async () => {
@@ -349,6 +379,55 @@ describe('useFeedState', () => {
     expect(get().actionRuns.value.review).toBeUndefined()
     await get().selectItem(1); await flushPromises()
     expect(mocks.ActionRun).toHaveBeenCalledTimes(2)
+  })
+
+  // The Kind the Go core assigns is what decides whether a stale run id is
+  // dropped. Matching on the message used to do this by accident: any error
+  // whose text happened to contain "missing" silently forgot a live run.
+  function bindingError(kind: string): Error {
+    const error = new Error('a bound method returned an error')
+    ;(error as Error & { cause?: unknown }).cause = { kind, message: 'action run 41 not found' }
+    return error
+  }
+
+  it('drops a stale action run id when the core says not_found', async () => {
+    localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+    mocks.ActionRun.mockRejectedValue(bindingError('not_found'))
+
+    const get = mountState(); await flushPromises()
+
+    expect(get().actionRuns.value.review).toBeUndefined()
+    expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}')).toEqual({})
+  })
+
+  it('keeps a run id when the failure is not a missing row', async () => {
+    for (const kind of ['internal', 'unavailable', 'unauthenticated']) {
+      localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+      mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+      mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+      mocks.ActionRun.mockRejectedValue(bindingError(kind))
+
+      const get = mountState(); await flushPromises()
+
+      expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}'), kind)
+        .toEqual({ '1': { review: 41 } })
+      expect(get().actionRuns.value.review, kind).toBeUndefined()
+    }
+  })
+
+  it('keeps a run id when the failure carries no kind at all', async () => {
+    localStorage.setItem('hive.action-run-ids', JSON.stringify({ '1': { review: 41 } }))
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(1)])
+    mocks.ActionViews.mockResolvedValue([{ id: 'review', label: 'Review', type: 'shell', showInDetail: true, requiresSessionInput: false }])
+    mocks.ActionRun.mockRejectedValue(new Error('the item was not found'))
+
+    mountState(); await flushPromises()
+
+    // The old regex matched this message and forgot the run. A message is
+    // not a contract.
+    expect(JSON.parse(localStorage.getItem('hive.action-run-ids') ?? '{}')).toEqual({ '1': { review: 41 } })
   })
 
   it('rejects malformed persisted action run ids without restoring them', async () => {

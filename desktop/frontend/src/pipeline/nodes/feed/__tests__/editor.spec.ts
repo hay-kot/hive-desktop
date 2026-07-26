@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
-import { defaults, descriptionMaxLen, notifyBodyMaxLen, notifySink, notifyTitleMaxLen, sink, validate } from '../config'
+import { defaults, descriptionMaxLen, notifyBodyMaxLen, notifyTitleMaxLen, validate } from '../config'
 import { chooseOption } from '../../../../test-utils/select'
 
 describe('feed editor', () => {
@@ -116,11 +116,4 @@ describe('feed config', () => {
     expect(validate({ notify: { title: 'x', severity: 'critical' } })).toHaveLength(1)
   })
 
-  it('sinks to the flow-qualified node id', () => {
-    expect(sink('triage', 'team-feed')).toEqual({ kind: 'feed', targetId: 'triage/team-feed' })
-  })
-
-  it('notifies under the same id, since the feed is what asked to interrupt', () => {
-    expect(notifySink('triage', 'team-feed')).toEqual({ kind: 'notify', targetId: 'triage/team-feed' })
-  })
 })

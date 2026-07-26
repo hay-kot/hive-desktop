@@ -40,7 +40,7 @@ import { request as apiRequest, test as base, expect } from '@playwright/test'
 //    /_e2e/reset does not cover — no reset could return those servers to the
 //    signed-out baseline the journey starts from. For the same reason the
 //    journey keeps its `retries: 0` opt-out: a retry would meet an
-//    already-authenticated server and could not replay the pre-auth cards.
+//    already-connected server and could not replay the pre-connect cards.
 
 export type ServerStateResetMode = 'per-test' | 'per-file'
 

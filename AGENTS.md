@@ -2,9 +2,27 @@
 
 Private product monorepo: Hive desktop app, future admin server, and landing page.
 
+## Before building a feature
+
+**Read [`docs/architecture.md`](docs/architecture.md) first.** It is the
+standing reference for how this app is structured and how it should grow —
+the core/adapter shape, the named patterns each part of the app follows, the
+directory layout, the four extension points, and the rules every PR is
+reviewed against.
+
+Two tables in it answer most "how do I build this?" questions directly:
+**Named patterns** (what each pattern is called and where it applies) and
+**Which pattern governs what** (what you are building → the section that
+specifies it). Use the pattern names in code review and commit messages —
+naming them is what keeps independently-built features consistent.
+
+The document describes a **target state**; parts of it are not built yet and
+are marked as such. Where the current code and the document disagree, the
+document wins for new work — do not extend the shape it is replacing.
+
 ## Module layout
 
-- **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/desktop/`) and vendored hive core (`internal/hivecore/`).
+- **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/app/`, `internal/adapter/`) and vendored hive core (`internal/hivecore/`).
 - **`server/`** — future Go admin backend (analytics, licenses, purchases). When built, it gets its own nested `go.mod` (`github.com/hay-kot/hive-desktop/server`) so the deployed service does not carry wails/charm dependencies; a root `go.work` is added at that point. Shared wire types (analytics events, license payloads) go in a `shared/` nested module if needed.
 - **`web/`** — plain static HTML landing page (`web/public/`), served as Cloudflare Workers static assets (`web/wrangler.jsonc`; the custom domain `hivedesktop.com` is declared there and attaches on deploy). No build step. Deploys via `.github/workflows/deploy-web.yml` on pushes to main touching `web/**`, or locally with `npm run deploy`.
 
@@ -20,7 +38,8 @@ Release CI signs and notarizes the macOS app, then uploads versioned artifacts p
 
 ## Documentation
 
-- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them.
+- `docs/architecture.md` is the standing architectural reference — see [Before building a feature](#before-building-a-feature). Keep it current when the shape changes; it is reviewed as a spec, not as prose.
+- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/` (next number, Status/Date/Context/Decision/Consequences) and add them to the index in `docs/README.md`. Mark superseded ADRs instead of deleting them. An ADR records *why one choice was made*; `architecture.md` records *the shape that resulted*. A decision that changes the shape updates both.
 - Concrete distribution facts (bucket, domains, manifest schema, publish/rollback runbook, credentials) live in `docs/distribution.md` — keep it current when infra changes.
 
 ## Quality gates
@@ -28,7 +47,7 @@ Release CI signs and notarizes the macOS app, then uploads versioned artifacts p
 Every gate is a mise task (`mise tasks`); lefthook runs the relevant ones as git hooks so they fire without anyone remembering to. `mise install` wires them up (mise `postinstall` → `scripts/hooks/install.sh`); re-run `mise run setup` after editing `lefthook.yml`. CI remains the source of truth — hooks are a fast local mirror.
 
 - **pre-commit** (~0.1s): formats staged Go files (`golangci-lint fmt`) and re-stages them; blocks edits to vendored `internal/hivecore/`; when a generator input is staged, regenerates and blocks if the committed output differs. A partially staged Go file gets its unstaged hunks staged too — stage whole files.
-- **pre-push** (~2s, ~6s when the push touches `desktop/frontend/`): `check:generate`, `check:tidy`, `lint`, `test`, and the frontend unit tests. Jobs are piped, so the first failure stops the rest.
+- **pre-push** (~2s, ~6s when the push touches `desktop/frontend/`): `mise run check` — `check:generate`, `check:tidy`, `lint`, `test` — plus the frontend unit tests when the push touches `desktop/frontend/`. The gate's contents and their order live in the `check` task, so the hook, CI, and the release workflow cannot drift from it. Jobs are piped, so the first failure stops the rest. `check` regenerates in place to detect drift, but no longer tidies `go.mod` behind your back — `mise run tidy` is the mutating counterpart to `check:tidy`.
 
 Wails TS bindings and the e2e suite are deliberately not hooked — both need a full app build. Run `mise run desktop:generate` / `mise run desktop:e2e` when the change warrants it; CI covers them either way.
 

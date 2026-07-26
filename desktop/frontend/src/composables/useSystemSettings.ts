@@ -11,13 +11,13 @@ import {
   RevealPath,
   SetConfigDir,
   SetDataDir,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/systemservice'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice'
 import {
   CheckNow,
   SetEnabled,
   Status,
-} from '../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
-import type { BuildInfo, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
+import type { BuildInfo, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)

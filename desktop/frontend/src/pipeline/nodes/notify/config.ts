@@ -5,7 +5,6 @@
 // engine's single source of truth for commit-tagging this node.
 
 import IconBell from '~icons/lucide/bell'
-import type { Sink } from '../../types'
 
 export const type = 'notify'
 export const role = 'output' as const
@@ -39,9 +38,6 @@ export const unread = false
  * The notify node's durable key is the flow-qualified node id, so two notify
  * nodes fed by the same message deduplicate (and cool down) independently.
  */
-export function sink(flowId: string, nodeId: string): Sink {
-  return { kind: 'notify', targetId: `${flowId}/${nodeId}` }
-}
 
 // ── App-registry metadata ───────────────────────────────────────────────────
 

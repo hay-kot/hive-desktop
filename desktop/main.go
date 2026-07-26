@@ -1,43 +1,17 @@
+// Command hive-desktop is the desktop app's entrypoint. It does four things:
+// apply the bootstrap overrides, build the headless core, mount the Wails
+// adapter over it, and run. Everything else belongs to internal/app (what the
+// app does) or internal/adapter/wailsui (how a window talks to it).
 package main
 
 import (
 	"context"
 	"embed"
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
-	"os"
-	"path/filepath"
-	"strconv"
-	"time"
 
-	"github.com/rs/zerolog"
-
-	"github.com/colonyops/hive/pkg/executil"
-	"github.com/colonyops/hive/pkg/tmpl"
-	"github.com/hay-kot/hive-desktop/internal/desktop"
-	"github.com/hay-kot/hive-desktop/internal/desktop/activity"
-	"github.com/hay-kot/hive-desktop/internal/desktop/auth"
-	"github.com/hay-kot/hive-desktop/internal/desktop/feed"
-	"github.com/hay-kot/hive-desktop/internal/desktop/jobs"
-	desktopnotify "github.com/hay-kot/hive-desktop/internal/desktop/notify"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow"
-	"github.com/hay-kot/hive-desktop/internal/desktop/pipeline/pipelinedb"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
-	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/github"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
-	"github.com/hay-kot/hive-desktop/internal/hivecore/hive/scripts"
-	"github.com/wailsapp/wails/v3/pkg/application"
-	"github.com/wailsapp/wails/v3/pkg/events"
-	wailsnotify "github.com/wailsapp/wails/v3/pkg/services/notifications"
-	"github.com/wailsapp/wails/v3/pkg/updater"
+	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
+	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 //go:embed all:frontend/dist
@@ -51,684 +25,83 @@ var appIcon []byte
 //go:embed build/icons/tray-templateTemplate@2x.png
 var trayIcon []byte
 
-// Package-variable initialization instead of init(): this repo enables
-// gochecknoinits.
-var _ = registerEvents()
-
-func registerEvents() struct{} {
-	// auth:updated carries the new auth state string; log:appended carries the
-	// pipeline event log's new tail offset after a producer tick appends at
-	// least one row; flows:updated fires after a flows/*.yaml directory reload
-	// (an external edit, or the app's own SaveFlow/SaveLayout — see
-	// buildFlowsStore); actions:updated fires after an actions.yml reload.
-	// All are wake-up signals: the frontend re-reads the relevant service on
-	// receipt.
-	application.RegisterEvent[string]("auth:updated")
-	application.RegisterEvent[int64]("log:appended")
-	application.RegisterEvent[string]("flows:updated")
-	application.RegisterEvent[string]("actions:updated")
-	application.RegisterEvent[string]("jobs:updated")
-	// window:focus and window:blur carry the current focus state. Consumers use
-	// them to update focus-sensitive UI without querying the native window.
-	application.RegisterEvent[bool]("window:focus")
-	application.RegisterEvent[bool]("window:blur")
-	// activity:appended carries the new event's id after any subsystem (or the
-	// frontend, via ActivityService.Record) appends to the activity log. The
-	// Activity view re-reads its latest page and advances its unseen marker.
-	application.RegisterEvent[int64]("activity:appended")
-	// update:available carries the latest UpdateInfo when a self-update check
-	// finds a newer desktop release; update:none fires when the check confirms
-	// the app is current. The title bar reacts to update:available.
-	application.RegisterEvent[UpdateInfo]("update:available")
-	application.RegisterEvent[UpdateInfo]("update:none")
-	// notification:activated carries the workspace and inbox item behind a
-	// native notification the user clicked. Unlike the wake-up signals above
-	// its payload is the whole message: the window is already being raised by
-	// the time it fires, and the frontend's job is only to route to that item.
-	application.RegisterEvent[NotificationActivation]("notification:activated")
-	// notification:toast carries a flow notification the user chose to receive
-	// inside Hive rather than as an OS banner (Settings -> Notifications ->
-	// Delivery). The frontend surfaces it through the same toast stack every
-	// other in-app notification uses.
-	application.RegisterEvent[NotificationToast]("notification:toast")
-	return struct{}{}
-}
-
-// buildSourceFetcher builds the GitHub fetch layer the pipeline producer polls
-// through, or nil in a mock mode (where the producer is skipped anyway — see
-// buildPipelineProducer). Now that a profile is a flow, there is no profiles
-// config to load or hot-reload here: source config lives in the flow's
-// github-source nodes, and the producer enumerates them from the flow store.
-func buildSourceFetcher(logger zerolog.Logger) *feed.LiveProvider {
-	if desktop.MockMode() != "" {
-		return nil
-	}
-	return feed.NewLiveProvider(github.NewClient(), github.NewKeychainStore(), logger)
-}
-
-// buildPipelineProducer starts the pipeline event-log producer over every
-// enabled github-source node across all flows (via flows), or returns nil when
-// there is nothing to poll (mock mode, so fetcher is nil).
-func buildPipelineProducer(db *pipelinedb.DB, fetcher *feed.LiveProvider, flows pipeline.FlowLister, recorder activity.Recorder, interval time.Duration, logger zerolog.Logger) *pipeline.Producer {
-	if fetcher == nil {
-		return nil
-	}
-	producer := pipeline.NewProducer(db, pipeline.NewFlowSourceLister(fetcher, flows), interval, emitLogAppended, logger)
-	producer.SetRecorder(recorder)
-	producer.SetPrefetcher(fetcher)
-	producer.SetSourceAdapter(pipeline.NewGithubSourceAdapter(fetcher))
-	return producer
-}
-
-// emitLogAppended pushes the pipeline event log's new tail offset to the
-// frontend after a producer tick appends at least one row. Safe to call
-// from the producer goroutine once the app is running.
-func emitLogAppended(nextOffset int64) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("log:appended", nextOffset)
-	}
-}
-
-func buildAuthBackend(onChange func()) auth.Backend {
-	switch desktop.MockMode() {
-	case "feed", "pipeline", "action-smoke":
-		return auth.NewMockBackend(true, onChange)
-	case "onboarding":
-		return auth.NewMockBackend(false, onChange)
-	default:
-		return auth.NewLiveBackend(github.NewClient(), github.NewKeychainStore(), onChange)
-	}
-}
-
-// emitActivityAppended pushes the activity:appended wake-up (carrying the new
-// event's id) to the frontend after any subsystem records an activity event.
-// Safe to call from any goroutine once the app is running.
-func emitActivityAppended(id int64) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("activity:appended", id)
-	}
-}
-
-// emitJobsUpdated wakes frontend consumers after any successful job lifecycle
-// transition. The payload is intentionally only a wake-up signal.
-func emitJobsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("jobs:updated", "changed")
-	}
-}
-
-// emitNotificationActivated tells the frontend which item a clicked
-// notification came from, so it can route to it.
-func emitNotificationActivated(activation NotificationActivation) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("notification:activated", activation)
-	}
-}
-
-// emitNotificationToast hands a flow notification to the frontend to surface
-// in-app. Safe to call from the output worker's goroutine once the app is
-// running; before that (or in a headless build) it is a no-op, which matches
-// the native path's own behavior when notifications are unavailable.
-func emitNotificationToast(toast NotificationToast) {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("notification:toast", toast)
-	}
-}
-
-// notificationActivation reads the item a clicked notification was sent
-// about out of the payload the notify executor attached to it. The user info
-// makes a native round trip, so its numbers come back in whatever shape the
-// platform's serialization chose — hence the tolerant decode. App-level
-// notifications carry no such payload and report false.
-func notificationActivation(result wailsnotify.NotificationResult) (NotificationActivation, bool) {
-	profileID, _ := result.Response.UserInfo["profileId"].(string)
-	if profileID == "" {
-		return NotificationActivation{}, false
-	}
-	activation := NotificationActivation{ProfileID: profileID}
-	switch id := result.Response.UserInfo["itemId"].(type) {
-	case float64:
-		activation.ItemID = int64(id)
-	case int64:
-		activation.ItemID = id
-	case int:
-		activation.ItemID = int64(id)
-	case json.Number:
-		activation.ItemID, _ = id.Int64()
-	case string:
-		activation.ItemID, _ = strconv.ParseInt(id, 10, 64)
-	}
-	return activation, true
-}
-
-// emitWindowFocus pushes the current focused state to the frontend. Safe to
-// call from native window event callbacks once the app is running.
-func emitWindowFocus() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("window:focus", true)
-	}
-}
-
-// emitWindowBlur pushes the current unfocused state to the frontend. Safe to
-// call from native window event callbacks once the app is running.
-func emitWindowBlur() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("window:blur", false)
-	}
-}
-
-// emitAuthUpdated pushes the auth:updated wake-up to the frontend. Safe to
-// call from any goroutine once the app is running.
-func emitAuthUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("auth:updated", "changed")
-	}
-}
-
-// buildFlowsStore constructs the flow.FlowStore over desktop.FlowsDir(),
-// backed by a Refs adapter over actionStore. It also starts a FlowsWatcher
-// that reloads the store and wakes the frontend on any flows/*.yaml change,
-// including the app's own SaveFlow/SaveLayout writes. A watcher that fails to
-// start degrades to no hot-reload: the app still works, edits just need a
-// restart to pick up.
-func buildFlowsStore(actionStore *actions.ActionStore, onUpdated func(), logger zerolog.Logger) (*flow.FlowStore, *flow.FlowsWatcher) {
-	dir := desktop.FlowsDir()
-	store := flow.NewFlowStore(dir, newActionsRefs(actionStore))
-
-	watcher, err := flow.NewFlowsWatcher(dir, func() {
-		if err := store.Reload(); err != nil {
-			logger.Warn().Err(err).Msg("flows reload failed")
-		}
-		if onUpdated != nil {
-			onUpdated()
-		}
-	}, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("flows hot-reload unavailable")
-		return store, nil
-	}
-	return store, watcher
-}
-
-// emitFlowsUpdated pushes the flows:updated wake-up to the frontend. Safe to
-// call from any goroutine once the app is running.
-func emitFlowsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("flows:updated", "changed")
-	}
-}
-
-// emitActionsUpdated wakes frontend consumers after a successful catalog
-// change or a watcher reload. Service mutations call it only after success.
-func emitActionsUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("actions:updated", "changed")
-	}
-}
-
-// buildActionStore constructs the actions.ActionStore over
-// desktop.ActionsPath(), loading it eagerly (rather than waiting for the
-// first lazy List/Get) so a broken actions.yml is logged at startup instead
-// of only surfacing silently as "no actions found" the first time something
-// asks. It also starts an ActionsWatcher so hand edits to actions.yml apply
-// live, matching flows hot-reload posture. A watcher that fails to start
-// degrades to no hot-reload: the app still works, edits just need a restart
-// to pick up.
-func buildActionStore(recorder activity.Recorder, logger zerolog.Logger) (*actions.ActionStore, *actions.ActionsWatcher) {
-	path := desktop.ActionsPath()
-	if _, err := actions.SeedDefaultsIfMissing(path); err != nil {
-		logger.Warn().Err(err).Msg("actions seed failed")
-	}
-	store := actions.NewActionStore(path)
-	if err := store.Reload(); err != nil {
-		logger.Warn().Err(err).Msg("actions.yml load failed; using last-good (likely empty) action set")
-	}
-
-	watcher, err := actions.NewActionsWatcher(path, func() {
-		if err := store.Reload(); err != nil {
-			logger.Warn().Err(err).Msg("actions.yml reload failed")
-		}
-		emitActionsUpdated()
-		// A hand edit (or the app's own write) reloaded actions.yml: record the
-		// now-effective action count so the change is auditable.
-		if recorder != nil {
-			recorder.Record(context.Background(), activity.ConfigReloaded("actions.yml", len(store.List())))
-		}
-	}, logger)
-	if err != nil {
-		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
-		return store, nil
-	}
-	return store, watcher
-}
-
-// hiveActionRuntime owns the Hive dependencies needed by desktop actions.
-// The desktop pipeline keeps its own database, while sessions and internal
-// events intentionally use Hive's shared state and event bus.
-type hiveActionRuntime struct {
-	db     *coredb.DB
-	cancel context.CancelFunc
-
-	launcher  *pipeline.HiveSessionLauncher
-	publisher pipeline.MessagePublisher
-}
-
-func (r *hiveActionRuntime) Close() {
-	r.cancel()
-	if err := r.db.Close(); err != nil {
-		log.Printf("close hive action database: %v", err)
-	}
-}
-
-func buildHiveActionRuntime(recorder activity.Recorder, logger zerolog.Logger) (*hiveActionRuntime, error) {
-	dataDir := filepath.Dir(desktop.StateDir())
-	if err := os.MkdirAll(dataDir, 0o755); err != nil {
-		return nil, fmt.Errorf("create hive data directory: %w", err)
-	}
-
-	configPath := os.Getenv("HIVE_CONFIG")
-	if configPath == "" {
-		configPath = config.DefaultConfigPath()
-	}
-	cfg, err := config.Load(configPath, dataDir)
-	if err != nil {
-		return nil, fmt.Errorf("load hive config for actions: %w", err)
-	}
-	if err := scripts.EnsureExtracted(dataDir, "desktop"); err != nil {
-		logger.Warn().Err(err).Msg("extract hive action scripts failed")
-	}
-
-	database, err := coredb.Open(dataDir, coredb.OpenOptions{
-		MaxOpenConns: cfg.Database.MaxOpenConns,
-		MaxIdleConns: cfg.Database.MaxIdleConns,
-		BusyTimeout:  cfg.Database.BusyTimeout,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("open hive action database: %w", err)
-	}
-	if err := stores.MigrateFromJSON(context.Background(), database, dataDir); err != nil {
-		_ = database.Close()
-		return nil, fmt.Errorf("migrate hive action data: %w", err)
-	}
-
-	bus := eventbus.New(64)
-	busCtx, cancel := context.WithCancel(context.Background())
-	go bus.Start(busCtx)
-
-	profile := cfg.Agents.DefaultProfile()
-	renderer := tmpl.New(tmpl.Config{
-		ScriptPaths:  scripts.ScriptPaths(dataDir),
-		AgentCommand: profile.CommandOrDefault(cfg.Agents.Default),
-		AgentWindow:  cfg.Agents.Default,
-		AgentFlags:   profile.ShellFlags(),
-	})
-	exec := &executil.RealExecutor{}
-	sessions := hive.NewSessionService(
-		stores.NewSessionStore(database),
-		git.NewExecutor(cfg.GitPath, exec),
-		cfg,
-		bus,
-		exec,
-		renderer,
-		logger.With().Str("component", "hive-actions").Logger(),
-		io.Discard,
-		io.Discard,
-	)
-
-	launcher := pipeline.NewHiveSessionLauncher(sessions)
-	launcher.SetRecorder(recorder)
-
-	return &hiveActionRuntime{
-		db:        database,
-		cancel:    cancel,
-		launcher:  launcher,
-		publisher: pipeline.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, cfg.Messaging.MaxMessages), cfg, bus)),
-	}, nil
-}
-
-// buildOutputWorker constructs the output worker over db and actionStore.
-// Mock modes do not start its background loop because no fixture flow emits
-// output commands, but they retain this worker for explicit detail-pane
-// confirmation RPCs. That keeps the configured action path real in e2e while
-// avoiding a background shell action from compromising fixture determinism.
-//
-// Actions resolve through FlowNotifyActions rather than the store directly:
-// a notify node's config lives in its flow, not in actions.yml, so the
-// worker resolves those ids from the live flow set and everything else from
-// the authored catalog.
-func buildOutputWorker(db *pipelinedb.DB, actionStore *actions.ActionStore, flows pipeline.FlowLister, notifier pipeline.SystemNotifier, focus *focusState, launcher pipeline.SessionLauncher, publisher pipeline.MessagePublisher, recorder activity.Recorder, jobRecorder jobs.Recorder, logger zerolog.Logger) *pipeline.Worker {
-	dispatcher := pipeline.NewDispatcher(map[string]pipeline.Executor{
-		pipeline.ActionTypeLaunchSession: pipeline.NewLaunchSessionExecutor(launcher),
-		"shell":                          pipeline.NewShellExecutor(logger),
-		"publish-message":                pipeline.NewPublishMessageExecutor(publisher),
-		pipeline.ActionTypeNotify:        pipeline.NewNotifyExecutor(notifier, settingsNotificationGate{focus: focus, logger: logger}, db, logger),
-	})
-	worker := pipeline.NewWorker(db, pipeline.NewFlowNotifyActions(flows, actionStore), dispatcher, pipeline.DefaultOutputWorkerInterval, logger)
-	worker.SetRecorder(recorder)
-	worker.SetJobRecorder(jobRecorder)
-	return worker
-}
-
 func main() {
-	// Seed HIVE_DATA_DIR / HIVE_DESKTOP_CONFIG from the bootstrap pointer file
-	// before any path is resolved, so a data/config directory override chosen
-	// in System settings applies to a dock-launched app. Must precede
-	// StateDir/ConfigPath use below. An explicit env var still wins.
-	bootstrapErr := desktop.ApplyBootstrap()
-
-	logger, logCloser, logErr := desktop.NewLogger()
+	bootstrap, err := settings.LoadBootstrap()
+	if err != nil {
+		log.Fatal(err)
+	}
+	paths := settings.ResolvePaths(bootstrap, "")
+	settingsStore := settings.NewStore(paths.SettingsPath)
+	cfg, err := settingsStore.Effective()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Mock mode can select an isolated flows directory, so finalize the path
+	// snapshot only after settings and environment precedence are resolved.
+	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	settingsStore = settings.NewStore(paths.SettingsPath)
+	level, err := settings.ResolveLogLevel()
+	if err != nil {
+		log.Fatal(err)
+	}
+	logger, logCloser, logErr := settings.NewLogger(paths.LogFile, level)
 	if logErr != nil {
 		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
 	}
-	if bootstrapErr != nil {
-		logger.Warn().Err(bootstrapErr).Msg("desktop bootstrap overrides ignored")
-	}
 
-	interval := feed.DefaultPollInterval
-	settings, err := desktop.LoadSettings()
-	if err != nil {
-		logger.Warn().Err(err).Msg("desktop settings load failed; using defaults")
-	} else if resolved, err := settings.PollIntervalOrDefault(feed.DefaultPollInterval); err != nil {
-		logger.Warn().Err(err).Msg("desktop settings poll interval invalid; using defaults")
-	} else {
-		interval = resolved
-		if raw, parseErr := time.ParseDuration(settings.PollInterval); parseErr == nil && raw < desktop.MinPollInterval {
-			logger.Warn().Str("configured_interval", settings.PollInterval).Dur("interval", interval).Msg("desktop poll interval below minimum; clamped")
-		}
-	}
+	// Cancelled by shutdown rather than deferred: log.Fatal below would skip a
+	// defer, and shutdown is the one path both exits take.
+	ctx, cancel := context.WithCancel(context.Background())
 
-	fetcher := buildSourceFetcher(logger)
-	if fetcher != nil {
-		fetcher.SetSearchTTL(interval)
-	}
+	// The adapter is built first because the core takes two driven ports from
+	// it — where a notification is delivered, and whether it may be.
+	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
-	pipelineDB, err := pipelinedb.Open(desktop.StateDir(), pipelinedb.DefaultOpenOptions())
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// The activity recorder is shared by every subsystem that reports to the
-	// Activity view (producer, worker, session launcher, config watcher) and by
-	// the ActivityService the frontend reads/writes. It emits activity:appended
-	// on each append so open views refresh.
-	activityStore := activity.NewStore(pipelineDB, activity.Options{Emit: emitActivityAppended})
-	jobStore := jobs.NewStore(pipelineDB, jobs.Options{Emit: func(int64) { emitJobsUpdated() }})
-	if fetcher != nil {
-		fetcher.SetRecorder(activityStore)
-	}
-
-	actionRuntime, err := buildHiveActionRuntime(activityStore, logger)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Mock mode has no live producer, so seed deterministic inbox rows for the
-	// fixture flow in desktop/e2e/fixtures/flows/frontend-triage.yaml.
-	if desktop.MockMode() == "feed" || desktop.MockMode() == "action-smoke" {
-		seedMockInboxItemsOrWarn(pipelineDB, logger)
-	}
-
-	actionStore, actionsWatcher := buildActionStore(activityStore, logger)
-	if actionsWatcher != nil {
-		actionsWatcher.Start()
-	}
-
-	var refreshProfileTray func()
-	onFlowsUpdated := func() {
-		emitFlowsUpdated()
-		if refreshProfileTray != nil {
-			refreshProfileTray()
-		}
-	}
-
-	// The flows store must exist before the producer and retention maintenance:
-	// both resolve enabled flow IDs live from it.
-	flowsStore, flowsWatcher := buildFlowsStore(actionStore, onFlowsUpdated, logger)
-	actionStore.SetUsageChecker(actionUsageChecker{flows: flowsStore, db: pipelineDB})
-
-	// Mock/server builds deliberately do not start the native Wails
-	// Focus feeds both the frontend's focus-sensitive UI and the notification
-	// gate's automatic delivery mode, so it is built before the output worker
-	// that gate belongs to.
-	focus := newFocusState()
-	// notification service: E2E verifies preference persistence without an OS
-	// bus, banner, or permission prompt. The frontend still gets a descriptive
-	// unavailable binding through NotificationService. Built before the output
-	// worker because a flow's notify node delivers through the same notifier.
-	notificationService := NewUnavailableNotificationService(fmt.Errorf("native notifications unavailable in desktop mock mode"))
-	var nativeNotifications *wailsnotify.NotificationService
-	if desktop.MockMode() == "" {
-		nativeNotifications = wailsnotify.New()
-		notifier, err := desktopnotify.New(nativeNotifications, appIcon)
-		if err != nil {
-			logger.Warn().Err(err).Msg("native notifications unavailable")
-			notificationService = NewUnavailableNotificationService(err)
-		} else {
-			notificationService = NewNotificationService(notifier)
-		}
-	}
-
-	outputWorker := buildOutputWorker(pipelineDB, actionStore, flowsStore, flowNotifier{notifier: notificationService.notifier}, focus, actionRuntime.launcher, actionRuntime.publisher, activityStore, jobStore, logger)
-	if desktop.MockMode() == "" {
-		outputWorker.Start()
-	}
-
-	maintenance := pipeline.NewMaintenance(
-		pipelineDB,
-		flowsStore,
-		pipelinedb.DefaultRetentionPolicy(),
-		pipeline.DefaultRetentionInterval,
-		logger,
-	)
-	maintenance.Start()
-
-	producer := buildPipelineProducer(pipelineDB, fetcher, flowsStore, activityStore, interval, logger)
-	if producer != nil {
-		producer.Start()
-	}
-
-	// The webhook listener is the push-driven counterpart to the poll
-	// producer: it serves user-declared webhook-source endpoints on
-	// 127.0.0.1 and ingests deliveries directly. It starts when settings
-	// enable it (the default) and, in mock modes, only when a port is
-	// explicitly claimed via HIVE_DESKTOP_WEBHOOK_PORT so parallel e2e server
-	// instances never fight over one. The port is drawn at random on first
-	// run and persisted; a failure to find one, like a bind failure, logs and
-	// the app runs on without webhooks.
-	webhookPort, err := desktop.ResolveWebhookPort(settings)
-	if err != nil {
-		logger.Warn().Err(err).Msg("webhook port unavailable")
-	}
-	webhookEnabled := settings.WebhookEnabledOrDefault()
-	var webhookListener *pipeline.WebhookListener
-	if webhookEnabled && webhookPort > 0 && (desktop.MockMode() == "" || os.Getenv(desktop.EnvWebhookPort) != "") {
-		webhookListener = pipeline.NewWebhookListener(pipelineDB, flowsStore, webhookPort, emitLogAppended, logger)
-		webhookListener.SetRecorder(activityStore)
-		if err := webhookListener.Start(); err != nil {
-			logger.Warn().Err(err).Int("port", webhookPort).Msg("webhook listener unavailable")
-		}
-	}
-
-	// Every auth transition drops the fetch cache before the frontend is
-	// notified: a different account must never be served items fetched with
-	// the previous token.
-	onAuthChange := func() {
-		if fetcher != nil {
-			fetcher.Invalidate()
-		}
-		emitAuthUpdated()
-	}
-
-	// The updater service is created before the app (it goes in the Services
-	// slice) but its engine (app.Updater) only exists after application.New, so
-	// the live Updater is attached below. Auto-update defaults on; the persisted
-	// toggle seeds the initial state.
-	updaterVersion, _, _ := resolvedBuildInfo()
-	updaterService := NewUpdaterService(updaterVersion, settings.AutoUpdateOrDefault(), defaultUpdateCheckInterval, logger)
-
-	services := []application.Service{
-		application.NewService(auth.NewService(buildAuthBackend(onAuthChange))),
-		application.NewService(NewPipelineService(pipelineDB, actionStore, outputWorker, actionRuntime.launcher)),
-		application.NewService(NewFlowsService(flowsStore, pipelineDB, onFlowsUpdated)),
-		application.NewService(NewActionsService(actionStore, emitActionsUpdated)),
-		application.NewService(NewActivityService(activityStore)),
-		application.NewService(NewJobService(jobStore)),
-		application.NewService(NewSystemService()),
-		application.NewService(NewSettingsService(producer, fetcher, logger)),
-		application.NewService(NewWebhookService(pipelineDB, webhookListener, webhookPort)),
-		application.NewService(NewPromptsService(webhookListener, webhookPort)),
-		application.NewService(updaterService),
-	}
-	if nativeNotifications != nil {
-		services = append(services, application.NewService(nativeNotifications))
-	}
-	services = append(services,
-		application.NewService(notificationService),
-		application.NewService(NewWindowService(focus)),
-	)
-
-	// Test-only /_e2e/reset harness (nil outside the Docker e2e mock modes).
-	// Built this late deliberately: buildActionStore has seeded actions.yml and
-	// mock seeding has run, so the captured config baseline is the post-boot
-	// state a reset must restore.
-	resetHarness := newStateResetHarness(pipelineDB, actionRuntime.db, logger)
-
-	options := application.Options{
-		Name:        "Hive",
-		Description: "Hive desktop application",
-		Icon:        appIcon,
-		Services:    services,
-		Assets: application.AssetOptions{
-			Handler:    application.AssetFileServerFS(assets),
-			Middleware: desktopSmokeMiddleware(pipelineDB, actionRuntime.db, resetHarness),
-		},
-		Mac: application.MacOptions{
-			ActivationPolicy: application.ActivationPolicyRegular,
-			ApplicationShouldTerminateAfterLastWindowClosed: false,
-		},
-	}
-	app := application.New(options)
-
-	// Configure self-update only for published release builds: releaseChannel
-	// rejects source builds ("dev") and pseudo-versions, so the engine stays
-	// nil there and the service degrades to Available:false with a no-op
-	// ticker. A published build follows its own channel (a beta build tracks
-	// beta, per docs/decisions/0004) unless settings.yaml's update_channel
-	// overrides it.
-	if channel, ok := releaseChannel(updaterVersion); ok {
-		provider := newManifestProvider(defaultManifestBaseURL, settings.UpdateChannelOrDefault(channel))
-		if initErr := app.Updater.Init(updater.Config{
-			CurrentVersion: updaterVersion,
-			Providers:      []updater.Provider{provider},
-		}); initErr != nil {
-			logger.Warn().Err(initErr).Msg("desktop auto-update unavailable; updater init failed")
-		} else {
-			updaterService.attach(app.Updater)
-		}
-	}
-
-	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:            "Hive",
-		Width:            1360,
-		Height:           864,
-		BackgroundColour: application.NewRGB(24, 26, 31),
-		URL:              "/",
-		Mac: application.MacWindow{
-			// HiddenInset with an explicit compact toolbar style: the default
-			// (Automatic) lets AppKit pick the toolbar height, which drifts
-			// across macOS versions. UnifiedCompact pins it — 42pt as measured
-			// on macOS Tahoe — so the traffic lights center on the 42px HTML
-			// titlebar.
-			TitleBar: application.MacTitleBar{
-				AppearsTransparent:   true,
-				HideTitle:            true,
-				FullSizeContent:      true,
-				UseToolbar:           true,
-				HideToolbarSeparator: true,
-				ToolbarStyle:         application.MacToolbarStyleUnifiedCompact,
-			},
-			InvisibleTitleBarHeight: 42,
-		},
+	core, err := app.New(ctx, app.Config{
+		Settings:      cfg,
+		SettingsStore: settingsStore,
+		Paths:         paths,
+		MockMode:      cfg.MockMode(),
+		Logger:        logger,
+		Notifier:      ui.Notifier(),
+		Gate:          ui.Gate(),
 	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	ui.SeedMock(core)
 
-	// This is the sole owner of notification activation: a click brings the
-	// existing window forward, and — for a notification a flow's notify node
-	// sent — publishes which item it came from. Routing to that item stays in
-	// the frontend, and out of the notification binding.
-	if nativeNotifications != nil {
-		nativeNotifications.OnNotificationResponse(func(result wailsnotify.NotificationResult) {
-			window.Show()
-			window.Focus()
-			if activation, ok := notificationActivation(result); ok {
-				emitNotificationActivated(activation)
+	version, commit, date := resolvedBuildInfo()
+	ui.Mount(ctx, core, wailsui.MountOptions{
+		Assets:     assets,
+		AppIcon:    appIcon,
+		TrayIcon:   trayIcon,
+		Build:      wailsui.Build{Version: version, Commit: commit, Date: date},
+		AutoUpdate: cfg.Updates.Enabled,
+		UpdateChannel: func(buildChannel string) string {
+			if cfg.Updates.Channel == "" {
+				return buildChannel
 			}
-		})
-	}
-
-	window.OnWindowEvent(events.Common.WindowFocus, func(*application.WindowEvent) {
-		if focus.set(true) {
-			emitWindowFocus()
-		}
-	})
-	window.OnWindowEvent(events.Common.WindowLostFocus, func(*application.WindowEvent) {
-		if focus.set(false) {
-			emitWindowBlur()
-		}
-	})
-
-	// Closing the window keeps the app running in the dock and tray; it can be
-	// reopened from either. Quitting is done via Cmd+Q or the tray menu.
-	// This must be a hook, not OnWindowEvent: hooks run synchronously before
-	// listeners, so Cancel() reliably aborts Wails' own window-destroy listener,
-	// which otherwise races this callback in a separate goroutine.
-	window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		window.Hide()
-		if focus.set(false) {
-			emitWindowBlur()
-		}
-		e.Cancel()
-	})
-
-	app.Event.OnApplicationEvent(events.Mac.ApplicationShouldHandleReopen, func(*application.ApplicationEvent) {
-		window.Show()
-	})
-
-	profilesTray := newProfileTray(
-		app,
-		flowsStore,
-		logger,
-		trayIcon,
-		onFlowsUpdated,
-		func() {
-			window.Show()
-			window.Focus()
+			return cfg.Updates.Channel
 		},
-		app.Quit,
-	)
-	refreshProfileTray = profilesTray.Refresh
-	if flowsWatcher != nil {
-		// Start only after refreshProfileTray is published. The watcher invokes
-		// onFlowsUpdated from its goroutine, so starting earlier would race the
-		// callback assignment above.
-		flowsWatcher.Start()
-	}
-	app.OnShutdown(func() {
-		profilesTray.Close()
-		if flowsWatcher != nil {
-			flowsWatcher.Close()
-		}
 	})
+
+	// Background work starts after the adapter is mounted: the flows watcher
+	// calls event subscribers from its own goroutine, and the tray subscriber
+	// has to exist before it can fire.
+	if err := core.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
 
 	shutdown := func() {
-		updaterService.stop()
-		if webhookListener != nil {
-			webhookListener.Stop()
+		ui.Close()
+		cancel()
+		if err := core.Close(); err != nil {
+			logger.Warn().Err(err).Msg("core shutdown reported an error")
 		}
-		maintenance.Stop()
-		actionRuntime.Close()
 		logCloser()
 	}
-	if err := app.Run(); err != nil {
+	if err := ui.Run(); err != nil {
 		shutdown()
 		log.Fatal(err)
 	}

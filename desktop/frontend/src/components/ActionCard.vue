@@ -4,7 +4,7 @@ import AppIcon from './AppIcon.vue'
 import IconCornerDownLeft from '~icons/lucide/corner-down-left'
 import { actionTypeMeta } from '../lib/actionPresentation'
 import type { ActionView } from '../types/action'
-import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/models'
+import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = defineProps<{ action: ActionView; pending?: boolean; run?: ActionRunView }>()
 const view = computed(() => actionTypeMeta(props.action.type))

@@ -1,10 +1,11 @@
 # Isolated composition fixture for source-to-commit.spec.ts.
-# The function node ensures this smoke test uses the production browser Worker
-# transport before the feed terminal's output is committed by Go.
+# The function node ensures this smoke test crosses a script node — the one
+# part of the graph that leaves Go for an interpreter — before the feed
+# terminal's output is committed.
 version: 1
 name: Source to Commit Smoke
 nodes:
-  - { id: fixture-source, type: github-source, kind: search, query: "is:open" }
+  - { id: fixture-source, type: sources.github, credential: github/octocat, kind: search, query: "is:open" }
   - { id: worker-transform, type: function, on_message: "return msg" }
   - { id: smoke-feed, type: feed, name: "Smoke feed" }
 wires:

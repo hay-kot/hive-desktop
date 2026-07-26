@@ -27,7 +27,6 @@ Packages:
 - data/db
 - data/migrate
 - data/stores
-- github
 - hive
 - hive/plugins
 - hive/scripts

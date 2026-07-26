@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { List, Record as RecordEvent } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/activityservice'
-import type { Event as ActivityEvent, RecordInput } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/activity/models'
+import { List, Record as RecordEvent } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice'
+import type { Event as ActivityEvent, RecordInput } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/activity/models'
 
 // useActivity is a module singleton (like useFlowsSession): the activity log is
 // app-global, so the titlebar's unseen indicator and the Activity view share

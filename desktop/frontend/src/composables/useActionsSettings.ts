@@ -1,6 +1,6 @@
 import { onMounted, ref } from 'vue'
-import { CreateAction, DeleteAction, ListActions, ReorderActions, UpdateAction } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/actionsservice'
-import type { EditableAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/actions/models'
+import { CreateAction, DeleteAction, ListActions, ReorderActions, UpdateAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice'
+import type { EditableAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import { useWailsEvent } from './useWailsEvent'
 
 export type { EditableAction }

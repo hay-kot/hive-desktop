@@ -19,7 +19,7 @@ const mocks = vi.hoisted(() => ({
   SetEnabled: vi.fn(),
   CheckNow: vi.fn(),
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/systemservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
   Build: mocks.Build,
   OpenPath: mocks.OpenPath,
@@ -31,7 +31,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/systemservice
   ClearConfigDir: mocks.ClearConfigDir,
   Quit: mocks.Quit,
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice', () => ({
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice', () => ({
   Status: mocks.Status,
   SetEnabled: mocks.SetEnabled,
   CheckNow: mocks.CheckNow,

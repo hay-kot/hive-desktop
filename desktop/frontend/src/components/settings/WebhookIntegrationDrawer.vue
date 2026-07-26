@@ -30,11 +30,11 @@ watch(settings, (value) => {
 }, { immediate: true })
 
 const parsedPort = computed(() => Number(port.value))
-const portValid = computed(() => Number.isInteger(parsedPort.value) && parsedPort.value >= 1024 && parsedPort.value <= 65535)
+const portValid = computed(() => Number.isInteger(parsedPort.value) && (parsedPort.value === 0 || (parsedPort.value >= 1024 && parsedPort.value <= 65535)))
 const overridden = computed(() => settings.value?.portOverridden === true)
 const portHint = computed(() => overridden.value
-  ? 'Fixed by HIVE_DESKTOP_WEBHOOK_PORT for this session — edits here have no effect until the variable is unset.'
-  : `Chosen at random on first run and kept for good, so endpoint URLs stay valid. Generated ports come from ${settings.value?.portMin ?? 20000}–${settings.value?.portMax ?? 32767}.`)
+  ? 'Fixed by HIVE_DESKTOP_WEBHOOKS_PORT for this session — edits here have no effect until the variable is unset.'
+  : `Use 0 to allocate a port when the listener is enabled, or choose a stable port. Generated candidates come from ${settings.value?.portMin ?? 20000}–${settings.value?.portMax ?? 32767}.`)
 
 const baseUrl = computed(() => settings.value?.baseUrl ?? '')
 const dirty = computed(() => {
@@ -49,7 +49,7 @@ const status = computed(() => {
   const value = settings.value
   if (!value) return { tone: 'neutral', label: 'Unknown', detail: '' }
   if (value.startError) return { tone: 'error', label: 'Failed to start', detail: value.startError }
-  if (value.running) return { tone: 'success', label: 'Running', detail: `Listening on 127.0.0.1:${value.boundPort}` }
+  if (value.running) return { tone: 'success', label: 'Running', detail: `Listening on ${value.host}:${value.boundPort}` }
   if (!value.enabled) return { tone: 'neutral', label: 'Disabled', detail: 'No local port is bound.' }
   return { tone: 'neutral', label: 'Not running', detail: 'Enabled but not started in this session.' }
 })
@@ -116,7 +116,7 @@ onMounted(() => void refresh())
       <AppSwitch
         v-model="enabled"
         label="Enable webhook listener"
-        hint="Serves flow-declared /hooks/ routes on 127.0.0.1. Takes effect after restarting Hive."
+        :hint="`Serves flow-declared /hooks/ routes on ${settings?.host ?? '127.0.0.1'}. Takes effect after restarting Hive.`"
         testid="webhook-settings-enabled"
       />
 
@@ -145,9 +145,9 @@ onMounted(() => void refresh())
           ><IconRefresh class="size-[14px]" /></button>
         </div>
       </SettingsField>
-      <p v-if="!portValid" class="-mt-3 text-xs text-severity-error" data-testid="webhook-settings-port-error">Enter a whole number between 1024 and 65535.</p>
+      <p v-if="!portValid" class="-mt-3 text-xs text-severity-error" data-testid="webhook-settings-port-error">Enter 0 for automatic allocation or a whole number between 1024 and 65535.</p>
 
-      <SettingsField v-if="baseUrl" label="Base URL" hint="Each webhook-source node appends its own path to this." testid="webhook-settings-base-url">
+      <SettingsField v-if="baseUrl" label="Base URL" hint="Each sources.webhook node appends its own path to this." testid="webhook-settings-base-url">
         <div class="flex items-center gap-2">
           <code
             class="min-w-0 flex-1 truncate rounded-lg border border-strong bg-app px-3 py-2 font-mono text-[12px] text-text-2"

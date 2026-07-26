@@ -1,7 +1,7 @@
 import { computed, ref } from 'vue'
 import { Events } from '@wailsio/runtime'
-import { ListActive } from '../../bindings/github.com/hay-kot/hive-desktop/desktop/jobservice'
-import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/jobs/models'
+import { ListActive } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/jobservice'
+import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/jobs/models'
 
 // useJobs is a module singleton: the titlebar chip and popover share one live
 // list and one app-lifetime jobs:updated subscription. The backend owns the

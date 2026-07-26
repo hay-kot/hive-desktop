@@ -6,7 +6,7 @@
 // FeedSummary objects. buildFeedTree reconciles the two — honoring saved
 // order/folders, appending feeds the layout doesn't mention (so a newly added
 // feed is never hidden) and dropping references to feeds that no longer exist.
-import type { SidebarLayout as WireSidebarLayout } from '../../bindings/github.com/hay-kot/hive-desktop/internal/desktop/pipeline/flow/models'
+import type { SidebarLayout as WireSidebarLayout } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/flow/models'
 import type { FeedSummary, FeedTree, SidebarNode } from '../types/feed'
 
 // The dataTransfer MIME type for a sidebar drag. Set on dragstart so a drop

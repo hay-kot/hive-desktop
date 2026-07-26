@@ -26,7 +26,7 @@ import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
 import OnboardingScreen from './components/OnboardingScreen.vue'
 import ToastStack from './components/ToastStack.vue'
-import { useAuth } from './composables/useAuth'
+import { useGitHubConnection } from './composables/useGitHubConnection'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
@@ -36,9 +36,9 @@ import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget } from './lib/isEditableTarget'
-import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/desktop/updaterservice'
-import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/desktop/pipelineservice'
-import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/desktop/models'
+import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
+import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
   isApplicationSettingsSection,
   isProfileSettingsSection,
@@ -56,14 +56,14 @@ const DevBar = devMode ? defineAsyncComponent(() => import('./components/DevBar.
 const DevView = devMode ? defineAsyncComponent(() => import('./components/DevView.vue')) : null
 
 const {
-  status: authStatus, authenticated, deviceFlow, card: authCard, error: authError, busy: authBusy,
+  status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
   startDeviceFlow, useTokenInstead, backToStart, submitToken,
-} = useAuth()
+} = useGitHubConnection()
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, visibleItems, unreadCount, search, loadError,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
-  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, renameProfile, setProfileEnabled, deleteProfile,
+  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
   toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
@@ -102,10 +102,13 @@ watch(selectedItem, async (item) => {
 // profile in the spaces rail or the ⌘K "Back to feed" command.
 //
 // The session (useFlowsSession) is a module singleton shared with
-// FlowsView.vue: it owns the pipeline editor and a runtime for every enabled
-// flow, so feeds keep updating while the canvas is closed or another profile
-// is selected. App.vue is the first caller, which makes the manager app-lived
-// rather than dependent on FlowsView mounting/unmounting.
+// FlowsView.vue: it owns the pipeline editor state — which flow is being
+// edited, its dirty draft, the flow listing — nothing more. Execution is the
+// Go engine's (runtime.Engine) alone, and it keeps every enabled flow running
+// with the canvas closed or another profile selected; that is why feeds keep
+// updating regardless of what this session is doing. App.vue is the first
+// caller, which makes the session app-lived rather than dependent on
+// FlowsView mounting/unmounting.
 const session = useFlowsSession()
 
 // ── Route-driven navigation ────────────────────────────────────────────────
@@ -427,17 +430,6 @@ function openErrorNode(): void {
   if (firstErrorNodeId.value) openFlows(firstErrorNodeId.value)
 }
 
-// ── Always-on runtime pump (hc-8ft4yhm6) ─────────────────────────────────────
-// Drives every enabled runtime on each backend log append. The subscription
-// lives here so processing continues with the canvas closed and regardless of
-// profile selection. log:appended is a one-shot wake-up, so the session keeps
-// it sticky (level-triggered): a signal landing while a serialized operation
-// is still installing or replacing runtimes is drained by that operation's
-// trailing catch-up pump — never dropped. The feed re-read keys off pumpCount
-// rather than the pump() call so commits complete BEFORE useFeedState.refresh()
-// re-reads inbox items and membership claims, even when the servicing pass was
-// a boot/reload catch-up instead of the pump this event requested.
-watch(session.pumpCount, () => { void refresh() })
 // A clicked notification arrives with the workspace and item it was sent
 // about (see the notify node). The window is already raised by the time this
 // fires; routing to a feed route that reveals the item is all that is left.
@@ -462,8 +454,8 @@ async function revealNotification(activation: NotificationActivation): Promise<v
   void router.push({ name: 'feed', params: { profileId }, query })
 }
 
-let unsubscribeLog: (() => void) | undefined
-let unsubscribeFlowsRuntime: (() => void) | undefined
+let unsubscribeInbox: (() => void) | undefined
+let unsubscribeFlowsUpdated: (() => void) | undefined
 let unsubscribeUpdate: (() => void) | undefined
 let unsubscribeNotification: (() => void) | undefined
 let unsubscribeNotificationToast: (() => void) | undefined
@@ -476,11 +468,14 @@ function toastSeverity(severity: string): 'info' | 'success' | 'warning' | 'erro
   return known.includes(severity as (typeof known)[number]) ? severity as (typeof known)[number] : 'info'
 }
 onMounted(() => {
-  unsubscribeLog = Events.On('log:appended', () => { void session.pump() })
-  // The app owns this subscription, rather than FlowsView, because deployed
-  // graphs must reload even while the canvas is closed. The session keeps an
-  // unsaved editor draft private while replacing only its runtime snapshot.
-  unsubscribeFlowsRuntime = Events.On('flows:updated', () => { void session.reloadDeployed() })
+  // The Go flow engine commits before it announces, so this is the moment
+  // membership claims and inbox items are readable — not log:appended, which
+  // only says a source observed something that may route nowhere at all.
+  unsubscribeInbox = Events.On('inbox:updated', () => { void refresh() })
+  // The app owns this subscription, rather than FlowsView, because the flow
+  // listing feeds the sidebar whether or not the canvas is open. The session
+  // keeps an unsaved editor draft private while refreshing the rest.
+  unsubscribeFlowsUpdated = Events.On('flows:updated', () => { void session.reloadFlows() })
   // Seed the update chip from the last cached check, then react to background
   // checks. The event payload is the same UpdateInfo shape Status() returns.
   void UpdaterStatus().then((status) => { updateInfo.value = status }).catch((error) => {
@@ -504,12 +499,11 @@ onMounted(() => {
   })
 })
 onUnmounted(() => {
-  unsubscribeLog?.()
-  unsubscribeFlowsRuntime?.()
+  unsubscribeInbox?.()
+  unsubscribeFlowsUpdated?.()
   unsubscribeUpdate?.()
   unsubscribeNotification?.()
   unsubscribeNotificationToast?.()
-  session.disposeRuntime()
 })
 
 // ── Profile create / delete overlays ─────────────────────────────────────────
@@ -553,15 +547,58 @@ async function confirmDeleteProfile() {
   openFeed()
 }
 
-// Booting while signed out leaves profiles unloaded (or the live backend
-// erroring); re-load the moment auth lands — and when the login changes, so
-// a different account never sees the previous account's data.
-watch(() => (authenticated.value ? authStatus.value?.login ?? '' : null), (key) => {
+// Profiles load at startup regardless of GitHub (useFeedState's onMounted) —
+// nothing in the app is gated on being connected. This reload is about
+// identity, not availability: a different account must never be shown the
+// previous account's data.
+watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (key) => {
   if (key !== null) void loadProfiles()
 })
 
-// Step 2 of onboarding: authenticated but no workspace exists yet.
-const needsWorkspace = computed(() => authenticated.value && profilesLoaded.value && profiles.value.length === 0)
+// ── First run ────────────────────────────────────────────────────────────────
+// create workspace -> connect GitHub -> feed. The workspace goes first because
+// it is the one thing that exists without a credential; connecting is the
+// expected next step but can be skipped past a warning, and skipping lands on
+// a feed whose empty state points at Integrations.
+
+// Step 1: no workspace exists yet. This is also where deleting the last
+// workspace lands.
+const needsWorkspace = computed(() => profilesLoaded.value && profiles.value.length === 0)
+
+// Step 2. It is the tail of one continuous first run rather than a state the
+// app persists: set when the first workspace is created with nothing
+// connected, cleared by connecting or skipping. Disconnecting later never
+// sets it — Settings ▸ Integrations is where that is repaired.
+const firstRunConnect = ref(false)
+const onboardingActive = computed(() => needsWorkspace.value || firstRunConnect.value)
+
+async function submitOnboardingWorkspace(name: string): Promise<void> {
+  // Claim the connect step before creating: the profiles list gains the new
+  // workspace partway through createProfile, and without this the feed would
+  // render for a frame in between.
+  firstRunConnect.value = !githubConnected.value
+  if (!(await createProfile(name))) firstRunConnect.value = false
+}
+
+// Connecting during first run seeds the workspace made a step earlier. It was
+// made empty because a source node names the account it fetches as and there
+// was none; this is the moment there is one. The connect card stays up until
+// the seed lands, so the feed is never rendered sourceless on the way through.
+watch(githubConnected, async (connected) => {
+  if (!connected || !firstRunConnect.value) return
+  const profileId = activeProfileId.value
+  try {
+    if (profileId) await seedStarterFlow(profileId)
+  } catch (error) {
+    console.warn('Unable to seed the starter flow', error)
+    showToast('Starter feeds were not added', {
+      body: 'This workspace has no sources yet — add one in the flow editor.',
+      severity: 'error',
+    })
+  } finally {
+    firstRunConnect.value = false
+  }
+})
 
 // ── Layout chrome ─────────────────────────────────────────────────────────────
 // The feed sidebar and the detail preview both collapse to reclaim horizontal
@@ -571,7 +608,7 @@ const needsWorkspace = computed(() => authenticated.value && profilesLoaded.valu
 const sidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
-  authenticated.value && !needsWorkspace.value &&
+  !onboardingActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
@@ -623,7 +660,7 @@ const catalogById = new Map(commandCatalog.map((command) => [command.id, command
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
 const feedNavActive = computed(() =>
-  route.name === 'feed' && authenticated.value && !needsWorkspace.value && !!activeProfile.value,
+  route.name === 'feed' && !onboardingActive.value && !!activeProfile.value,
 )
 
 // While an overlay owns the screen, only the palette toggle stays live.
@@ -793,14 +830,10 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- data-pipeline-ready is the test-visible readiness marker: stamped once
-       the flows session's boot reconcile + trailing catch-up pump completed
-       ("subscribed + caught up"), so e2e tests can gate backend event
-       injection on it. -->
-  <main class="h-screen w-screen overflow-hidden bg-app text-text" :data-pipeline-ready="session.ready.value || undefined">
+  <main class="h-screen w-screen overflow-hidden bg-app text-text">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
-        :profile-name="authenticated && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"
+        :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -826,20 +859,22 @@ onUnmounted(() => {
         @open-palette="togglePalette"
         @toggle-maximise="toggleMaximise"
       />
-      <!-- Hold an empty frame until auth status resolves so an authenticated
-           user never sees onboarding flash by. -->
-      <div v-if="authStatus === null" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
+      <!-- Hold an empty frame until the workspaces resolve so a returning user
+           never sees onboarding flash by. A load failure falls through to the
+           shell below, which renders the error with a retry. -->
+      <div v-if="!profilesLoaded && !profilesError" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
-        v-else-if="!authenticated || needsWorkspace"
-        :card="needsWorkspace ? 'workspace' : authCard"
+        v-else-if="onboardingActive"
+        :card="needsWorkspace ? 'workspace' : connectCard"
         :device-flow="deviceFlow"
-        :error="needsWorkspace ? createProfileError : authError"
-        :busy="needsWorkspace ? creatingProfile : authBusy"
+        :error="needsWorkspace ? createProfileError : connectError"
+        :busy="needsWorkspace ? creatingProfile : connectBusy"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
         @submit-token="submitToken"
-        @create-workspace="createProfile"
+        @create-workspace="submitOnboardingWorkspace"
+        @skip-connect="firstRunConnect = false"
       />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is
@@ -856,8 +891,6 @@ onUnmounted(() => {
         <DevView v-if="devMode && devActive" @close="closeSettings" />
         <SettingsView
           v-else-if="applicationSettingsActive"
-          :github-connected="authenticated"
-          :github-login="authStatus?.login"
           :active-category="applicationSettingsSection"
           :known-feed-types="knownFeedTypes"
           @close="closeSettings"
@@ -891,7 +924,39 @@ onUnmounted(() => {
             @mark-read="markFeedRead"
             @reorder="(t) => activeProfile && reorderFeeds(activeProfile.id, t)"
           />
-          <section v-if="activeProfile" class="flex min-w-0 flex-1">
+          <!-- A workspace created before an account was connected has no
+               graph at all, so there is no feed to render. Say what is
+               missing and where to fix it rather than showing an empty Trash
+               view, which is where a feedless flow otherwise lands.
+               `tree` is what tells "this flow has no feed nodes" apart from
+               "the feeds have not been read yet": a stub whose feeds a reload
+               is still fetching has no tree, and must not flash this. -->
+          <div
+            v-if="activeProfile?.tree && activeProfile.feeds.length === 0"
+            class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 px-10 text-center"
+            data-testid="workspace-empty"
+          >
+            <div class="text-[13.5px] font-semibold">No sources yet</div>
+            <p class="max-w-[400px] text-xs leading-relaxed text-text-3">
+              {{ githubConnected
+                ? 'This workspace has no feeds. Open the flow editor to wire a source into one.'
+                : 'This workspace has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
+            </p>
+            <div class="mt-1 flex items-center gap-2">
+              <button
+                v-if="!githubConnected"
+                class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
+                data-testid="workspace-empty-integrations"
+                @click="selectApplicationSettingsSection('integrations')"
+              >Open Integrations</button>
+              <button
+                class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
+                data-testid="workspace-empty-flows"
+                @click="openFlows()"
+              >Edit flow</button>
+            </div>
+          </div>
+          <section v-else-if="activeProfile" class="flex min-w-0 flex-1">
             <FeedList
               :title="title"
               :visible-items="visibleItems"

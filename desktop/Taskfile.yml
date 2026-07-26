@@ -34,23 +34,32 @@ tasks:
       - task: "{{.GOOS}}:run"
 
   dev:
-    summary: Runs the application in development mode
-    # Resolve a free Vite port (honoring an explicit WAILS_VITE_PORT) so multiple
-    # dev instances can run at once, inject the git branch for the dev bar, and
-    # snapshot the local data dir + desktop config into an ephemeral per-worktree
-    # copy so dev never mutates real user state (explicit HIVE_DATA_DIR /
-    # HIVE_DESKTOP_CONFIG overrides win).
+    summary: Runs Wails directly using this worktree's launch.env
     vars:
-      VITE_PORT:
-        sh: ./build/scripts/dev-port.sh
       DEV_BRANCH:
-        sh: git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown
+        sh: git branch --show-current 2>/dev/null || echo unknown
     env:
       VITE_HIVE_DEV_BRANCH: '{{.DEV_BRANCH}}'
+    preconditions:
+      - sh: test -f ../launch.env
+        msg: launch.env is missing; run `mise run desktop:dev:prepare` first
     cmds:
-      - |
-        eval "$(./build/scripts/dev-data-dir.sh)"
-        wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}
+      - wails3 dev -config ./build/config.yml
+
+  dev:prepare:
+    summary: Creates or reuses the local instance and generates launch.env
+    cmds:
+      - go run ../cmd/devtools prepare
+
+  dev:fresh:
+    summary: Recreates the local instance and regenerates launch.env
+    cmds:
+      - go run ../cmd/devtools fresh
+
+  dev:reset:
+    summary: Safely removes the marked local instance and launch.env
+    cmds:
+      - go run ../cmd/devtools reset
 
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)
