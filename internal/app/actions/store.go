@@ -118,10 +118,20 @@ func (s *ActionStore) ListEditable() EditableCatalog {
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
 	out := make([]EditableAction, 0, len(s.actions))
+	catalog := EditableCatalog{}
 	for _, a := range s.actions {
-		out = append(out, editableFromAction(a))
+		e, err := editableFromAction(a)
+		if err != nil {
+			// A registered type with no editable-catalog branch is a
+			// registry/editable.go mismatch, not a bad hand edit: surface it
+			// the same way a disk parse error is surfaced rather than
+			// silently omitting the action from the catalog.
+			catalog.Error = err.Error()
+			continue
+		}
+		out = append(out, e)
 	}
-	catalog := EditableCatalog{Actions: out}
+	catalog.Actions = out
 	if s.err != nil {
 		catalog.Error = s.err.Error()
 	}
@@ -133,7 +143,16 @@ func (s *ActionStore) GetEditable(id string) (EditableAction, bool) {
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
 	a, ok := s.index[id]
-	return editableFromAction(a), ok
+	if !ok {
+		return EditableAction{}, false
+	}
+	e, err := editableFromAction(a)
+	if err != nil {
+		// Fail closed: never hand back a zero-valued EditableAction that
+		// looks like a real (if empty) record for this id.
+		return EditableAction{}, false
+	}
+	return e, true
 }
 
 func (s *ActionStore) Create(e EditableAction) (EditableAction, error) {
@@ -274,17 +293,25 @@ func (s *ActionStore) mutateLocked(mode, id string, a Action) (EditableAction, e
 		if i >= 0 {
 			return EditableAction{}, fmt.Errorf("action %q already exists", id)
 		}
-		list.Content = append(list.Content, actionNode(a))
+		node, err := actionNode(a)
+		if err != nil {
+			return EditableAction{}, err
+		}
+		list.Content = append(list.Content, node)
 	} else {
 		if i < 0 {
 			return EditableAction{}, fmt.Errorf("action %q not found", id)
 		}
-		list.Content[i] = actionNode(a)
+		node, err := actionNode(a)
+		if err != nil {
+			return EditableAction{}, err
+		}
+		list.Content[i] = node
 	}
 	if err := s.writeDocumentLocked(doc); err != nil {
 		return EditableAction{}, err
 	}
-	return editableFromAction(a), nil
+	return editableFromAction(a)
 }
 
 // latestDocumentLocked rejects invalid latest disk bytes before altering disk
@@ -390,7 +417,7 @@ func byID(list []Action) map[string]Action {
 
 func scalar(v string) *yaml.Node { return &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: v} }
 
-func actionNode(a Action) *yaml.Node {
+func actionNode(a Action) (*yaml.Node, error) {
 	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	add := func(k, v string) { n.Content = append(n.Content, scalar(k), scalar(v)) }
 	add("id", a.ID)
@@ -438,8 +465,15 @@ func actionNode(a Action) *yaml.Node {
 	case *PublishMessageConfig:
 		add("message_template", c.MessageTemplate)
 		add("topic", c.Topic)
+	default:
+		// A registered type (registry, actions.go) with no case here would
+		// otherwise serialize with only the envelope fields above, silently
+		// dropping every per-type config field on save. That is a registry/
+		// writer mismatch — a programmer error, not a user data problem — so
+		// this fails loudly instead of writing a truncated action.
+		return nil, fmt.Errorf("actions: action %q (type %q): no actionNode writer case for config type %T; registry and writer are out of sync", a.ID, a.Type, a.Config)
 	}
-	return n
+	return n, nil
 }
 
 // actionFileOps isolates filesystem failures that cannot be reliably induced

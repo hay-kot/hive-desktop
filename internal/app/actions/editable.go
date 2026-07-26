@@ -45,7 +45,7 @@ type EditableMessageConfig struct {
 	Topic           string `json:"topic"`
 }
 
-func editableFromAction(a Action) EditableAction {
+func editableFromAction(a Action) (EditableAction, error) {
 	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, AppliesTo: append([]string(nil), a.AppliesTo...)}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
@@ -58,8 +58,14 @@ func editableFromAction(a Action) EditableAction {
 		out.Shell = &EditableShellConfig{CommandTemplate: c.CommandTemplate, Cwd: c.Cwd, Timeout: timeout, Env: cloneEnv(c.Env)}
 	case *PublishMessageConfig:
 		out.Message = &EditableMessageConfig{MessageTemplate: c.MessageTemplate, Topic: c.Topic}
+	default:
+		// A registered type with no case here would otherwise return an
+		// EditableAction with every config branch left nil — the frontend
+		// would render an action it cannot show any fields for. Fail rather
+		// than serve that silently-empty record.
+		return EditableAction{}, fmt.Errorf("action %q: no editable-catalog branch for config type %T (type %q); registry and editable.go are out of sync", a.ID, a.Config, a.Type)
 	}
-	return out
+	return out, nil
 }
 
 func actionFromEditable(e EditableAction) (Action, error) {
