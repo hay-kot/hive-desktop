@@ -8,9 +8,20 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
 )
+
+// Seed is the graph a newly created flow starts with, plus the canvas
+// positions for it. Create takes one from its caller rather than building it:
+// a starter graph names source connectors, and this package is
+// connector-neutral by design.
+//
+// The zero Seed is an empty graph, which is a valid flow — a workspace is the
+// thing that exists before any credential does.
+type Seed struct {
+	Nodes  []Node
+	Wires  []Wire
+	Layout Layout
+}
 
 // FlowStatus is one flows/*.yaml file's load outcome, keyed by the flow id
 // (the filename stem — see LoadFlow). Valid flows carry Flow and any soft
@@ -120,22 +131,21 @@ func (s *FlowStore) Save(f Flow) error {
 	return s.reloadLocked()
 }
 
-// Create seeds a new flow (a new "profile") named name: it slugifies name to
-// a flow id unique among existing flows, writes a starter graph plus its
-// layout, reloads, and returns the loaded flow. A profile is a flow, so this
-// is how the app's "New profile" affordance is backed.
+// Create writes a new flow (a new "profile") named name: it slugifies name to
+// a flow id unique among existing flows, writes seed's graph plus its layout,
+// reloads, and returns the loaded flow. A profile is a flow, so this is how
+// the app's "New profile" affordance is backed.
 //
-// credential is the account the starter graph's source nodes fetch as, as
-// "github/<login>". A source node carries a credential ref, so a starter
-// graph cannot be seeded before one exists — which is why connecting an
-// account is the step before creating a workspace, not after.
-func (s *FlowStore) Create(name, credential string) (Flow, error) {
+// An empty seed writes an empty graph, which is what a workspace created
+// before any account is connected gets: a source node carries a credential
+// ref, so there is no unconfigured source node to stand in for one.
+func (s *FlowStore) Create(name string, seed Seed) (Flow, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.ensureLoadedLocked()
 
 	id := s.uniqueIDLocked(slugify(name))
-	f, layout := starterFlow(id, name, credential)
+	f := Flow{ID: id, Name: name, Enabled: true, Resurface: ResurfacePolicyStateChanges, Nodes: seed.Nodes, Wires: seed.Wires}
 	if _, err := validateFlow(&f, s.refs); err != nil {
 		return Flow{}, fmt.Errorf("flow %q: %w", id, err)
 	}
@@ -143,7 +153,7 @@ func (s *FlowStore) Create(name, credential string) (Flow, error) {
 	if err := SaveFlow(filepath.Join(s.dir, id+".yaml"), f); err != nil {
 		return Flow{}, err
 	}
-	if err := SaveUI(s.uiPath(id), layout); err != nil {
+	if err := SaveUI(s.uiPath(id), seed.Layout); err != nil {
 		return Flow{}, err
 	}
 	if err := s.reloadLocked(); err != nil {
@@ -242,66 +252,6 @@ func (s *FlowStore) uniqueIDLocked(base string) string {
 		id = fmt.Sprintf("%s-%d", base, i)
 	}
 	return id
-}
-
-// starterFlow is the graph a freshly created profile begins with: a few
-// sources.github nodes each wired to its own feed terminal, laid out in two
-// columns (sources left, feeds right), plus a notifying "Review requests" feed
-// behind a filter on the notifications source.
-//
-// That last feed ships on by default deliberately: "tell me when I'm asked to
-// review something" is the case a quiet feed cannot serve — the item sits
-// unread until you happen to look — and it should not require hand-authoring a
-// flow to get.
-func starterFlow(id, name, credential string) (Flow, Layout) {
-	seeds := []struct {
-		feedID, feedName, kind, query string
-	}{
-		{"my-open-prs", "My open PRs", "search", "is:open is:pr author:@me archived:false"},
-		{"assigned", "Assigned", "search", "is:open assignee:@me archived:false"},
-		{"notifications", "Notifications", "notifications", ""},
-	}
-
-	const notificationsSeedID = "notifications"
-
-	var nodes []Node
-	var wires []Wire
-	layout := Layout{Nodes: map[string]NodePosition{}}
-	for i, seed := range seeds {
-		srcID := seed.feedID + "-src"
-		nodes = append(nodes,
-			Node{ID: srcID, Type: github.Descriptor.Type, Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: credential, Kind: seed.kind, Query: seed.query})},
-			Node{ID: seed.feedID, Type: "feed", Name: seed.feedName, Config: &FeedConfig{}},
-		)
-		wires = append(wires, Wire{From: srcID, To: seed.feedID})
-		layout.Nodes[srcID] = NodePosition{X: 48, Y: 48 + i*96}
-		layout.Nodes[seed.feedID] = NodePosition{X: 360, Y: 48 + i*96}
-
-		if seed.feedID != notificationsSeedID {
-			continue
-		}
-		// The filter takes a second branch off the same source rather than
-		// sitting between it and the Notifications feed: everything still lands
-		// there to read at leisure, and only review requests also land in the
-		// feed that interrupts.
-		nodes = append(nodes,
-			Node{ID: "review-requests-filter", Type: "github-filter", Config: &GithubFilterConfig{Reasons: []string{"review_requested"}}},
-			Node{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &FeedConfig{
-				Icon: "eye",
-				Notify: &NotifyConfig{
-					Title: "Review requested",
-					Body:  "{{ .Payload.repo }} #{{ .Payload.num }} · {{ .Payload.title }}",
-				},
-			}},
-		)
-		wires = append(wires,
-			Wire{From: srcID, To: "review-requests-filter"},
-			Wire{From: "review-requests-filter", Out: 0, To: "review-requests"},
-		)
-		layout.Nodes["review-requests-filter"] = NodePosition{X: 360, Y: 48 + (i+1)*96}
-		layout.Nodes["review-requests"] = NodePosition{X: 672, Y: 48 + (i+1)*96}
-	}
-	return Flow{ID: id, Name: name, Enabled: true, Resurface: ResurfacePolicyStateChanges, Nodes: nodes, Wires: wires}, layout
 }
 
 // GetLayout returns id's node layout — see LoadUI for missing/broken-file

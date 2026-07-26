@@ -1,7 +1,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
-import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
+import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { appErrorKind } from '../lib/appError'
@@ -220,7 +220,9 @@ export function useFeedState() {
   }
 
   // A flow summary maps to a profile; feeds are filled in by loadFeeds once
-  // the profile is selected (the rail only needs the letter/name).
+  // the profile is selected (the rail only needs the letter/name). An
+  // undefined tree is therefore "feeds not read yet", which is distinct from
+  // a workspace whose flow genuinely has no feed nodes.
   function toProfileStub(flow: { id: string; name: string; enabled: boolean }): Profile {
     const name = flow.name || flow.id
     return { id: flow.id, letter: letter(name), name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
@@ -338,20 +340,35 @@ export function useFeedState() {
     }
   }
 
-  async function createProfile(name: string) {
-    if (creatingProfile.value) return
+  // Returns the new workspace's id, or null if it could not be created —
+  // onboarding needs it to seed the workspace it just made once GitHub is
+  // connected, and reading it back off activeProfileId would depend on a
+  // selection a concurrent reload could have moved.
+  async function createProfile(name: string): Promise<string | null> {
+    if (creatingProfile.value) return null
     creatingProfile.value = true
     createProfileError.value = null
     try {
       const created = await CreateFlow(name)
       profiles.value = [...profiles.value, toProfileStub(created)]
       await selectProfile(created.id)
+      return created.id
     } catch (error) {
       console.warn('Unable to create flow', error)
       createProfileError.value = error instanceof Error && error.message ? error.message : 'Could not create the workspace.'
+      return null
     } finally {
       creatingProfile.value = false
     }
+  }
+
+  // seedStarterFlow fills an empty workspace with the starter graph. The
+  // backend also publishes flows:updated, but this reload is what makes the
+  // sidebar's feeds readable by the time the caller continues, rather than
+  // whenever the event lands.
+  async function seedStarterFlow(profileID: string): Promise<void> {
+    await SeedStarterFlow(profileID)
+    await reloadProfilesQuietly()
   }
 
   async function renameProfile(profileID: string, name: string): Promise<boolean> {
@@ -965,6 +982,7 @@ export function useFeedState() {
     deletingProfile,
     loadProfiles,
     createProfile,
+    seedStarterFlow,
     renameProfile,
     setProfileEnabled,
     deleteProfile,

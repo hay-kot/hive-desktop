@@ -63,7 +63,7 @@ const {
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, visibleItems, unreadCount, search, loadError,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
-  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, renameProfile, setProfileEnabled, deleteProfile,
+  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
   toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
@@ -544,15 +544,58 @@ async function confirmDeleteProfile() {
   openFeed()
 }
 
-// Booting with GitHub disconnected leaves profiles unloaded (or the live
-// connection erroring); re-load the moment it connects — and when the login
-// changes, so a different account never sees the previous account's data.
+// Profiles load at startup regardless of GitHub (useFeedState's onMounted) —
+// nothing in the app is gated on being connected. This reload is about
+// identity, not availability: a different account must never be shown the
+// previous account's data.
 watch(() => (githubConnected.value ? githubStatus.value?.login ?? '' : null), (key) => {
   if (key !== null) void loadProfiles()
 })
 
-// Step 2 of onboarding: GitHub connected but no workspace exists yet.
-const needsWorkspace = computed(() => githubConnected.value && profilesLoaded.value && profiles.value.length === 0)
+// ── First run ────────────────────────────────────────────────────────────────
+// create workspace -> connect GitHub -> feed. The workspace goes first because
+// it is the one thing that exists without a credential; connecting is the
+// expected next step but can be skipped past a warning, and skipping lands on
+// a feed whose empty state points at Integrations.
+
+// Step 1: no workspace exists yet. This is also where deleting the last
+// workspace lands.
+const needsWorkspace = computed(() => profilesLoaded.value && profiles.value.length === 0)
+
+// Step 2. It is the tail of one continuous first run rather than a state the
+// app persists: set when the first workspace is created with nothing
+// connected, cleared by connecting or skipping. Disconnecting later never
+// sets it — Settings ▸ Integrations is where that is repaired.
+const firstRunConnect = ref(false)
+const onboardingActive = computed(() => needsWorkspace.value || firstRunConnect.value)
+
+async function submitOnboardingWorkspace(name: string): Promise<void> {
+  // Claim the connect step before creating: the profiles list gains the new
+  // workspace partway through createProfile, and without this the feed would
+  // render for a frame in between.
+  firstRunConnect.value = !githubConnected.value
+  if (!(await createProfile(name))) firstRunConnect.value = false
+}
+
+// Connecting during first run seeds the workspace made a step earlier. It was
+// made empty because a source node names the account it fetches as and there
+// was none; this is the moment there is one. The connect card stays up until
+// the seed lands, so the feed is never rendered sourceless on the way through.
+watch(githubConnected, async (connected) => {
+  if (!connected || !firstRunConnect.value) return
+  const profileId = activeProfileId.value
+  try {
+    if (profileId) await seedStarterFlow(profileId)
+  } catch (error) {
+    console.warn('Unable to seed the starter flow', error)
+    showToast('Starter feeds were not added', {
+      body: 'This workspace has no sources yet — add one in the flow editor.',
+      severity: 'error',
+    })
+  } finally {
+    firstRunConnect.value = false
+  }
+})
 
 // ── Layout chrome ─────────────────────────────────────────────────────────────
 // The feed sidebar and the detail preview both collapse to reclaim horizontal
@@ -562,7 +605,7 @@ const needsWorkspace = computed(() => githubConnected.value && profilesLoaded.va
 const sidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
-  githubConnected.value && !needsWorkspace.value &&
+  !onboardingActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
@@ -614,7 +657,7 @@ const catalogById = new Map(commandCatalog.map((command) => [command.id, command
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
 const feedNavActive = computed(() =>
-  route.name === 'feed' && githubConnected.value && !needsWorkspace.value && !!activeProfile.value,
+  route.name === 'feed' && !onboardingActive.value && !!activeProfile.value,
 )
 
 // While an overlay owns the screen, only the palette toggle stays live.
@@ -787,7 +830,7 @@ onUnmounted(() => {
   <main class="h-screen w-screen overflow-hidden bg-app text-text">
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
-        :profile-name="githubConnected && !needsWorkspace ? activeProfile?.name ?? 'Loading' : undefined"
+        :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -813,11 +856,12 @@ onUnmounted(() => {
         @open-palette="togglePalette"
         @toggle-maximise="toggleMaximise"
       />
-      <!-- Hold an empty frame until the connection status resolves so a
-           connected user never sees onboarding flash by. -->
-      <div v-if="githubStatus === null" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
+      <!-- Hold an empty frame until the workspaces resolve so a returning user
+           never sees onboarding flash by. A load failure falls through to the
+           shell below, which renders the error with a retry. -->
+      <div v-if="!profilesLoaded && !profilesError" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
-        v-else-if="!githubConnected || needsWorkspace"
+        v-else-if="onboardingActive"
         :card="needsWorkspace ? 'workspace' : connectCard"
         :device-flow="deviceFlow"
         :error="needsWorkspace ? createProfileError : connectError"
@@ -826,7 +870,8 @@ onUnmounted(() => {
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
         @submit-token="submitToken"
-        @create-workspace="createProfile"
+        @create-workspace="submitOnboardingWorkspace"
+        @skip-connect="firstRunConnect = false"
       />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is
@@ -876,7 +921,39 @@ onUnmounted(() => {
             @mark-read="markFeedRead"
             @reorder="(t) => activeProfile && reorderFeeds(activeProfile.id, t)"
           />
-          <section v-if="activeProfile" class="flex min-w-0 flex-1">
+          <!-- A workspace created before an account was connected has no
+               graph at all, so there is no feed to render. Say what is
+               missing and where to fix it rather than showing an empty Trash
+               view, which is where a feedless flow otherwise lands.
+               `tree` is what tells "this flow has no feed nodes" apart from
+               "the feeds have not been read yet": a stub whose feeds a reload
+               is still fetching has no tree, and must not flash this. -->
+          <div
+            v-if="activeProfile?.tree && activeProfile.feeds.length === 0"
+            class="flex min-w-0 flex-1 flex-col items-center justify-center gap-3 px-10 text-center"
+            data-testid="workspace-empty"
+          >
+            <div class="text-[13.5px] font-semibold">No sources yet</div>
+            <p class="max-w-[400px] text-xs leading-relaxed text-text-3">
+              {{ githubConnected
+                ? 'This workspace has no feeds. Open the flow editor to wire a source into one.'
+                : 'This workspace has no feeds, and no account is connected to fetch as. Connect one under Integrations, then wire a source into a feed.' }}
+            </p>
+            <div class="mt-1 flex items-center gap-2">
+              <button
+                v-if="!githubConnected"
+                class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
+                data-testid="workspace-empty-integrations"
+                @click="selectApplicationSettingsSection('integrations')"
+              >Open Integrations</button>
+              <button
+                class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text"
+                data-testid="workspace-empty-flows"
+                @click="openFlows()"
+              >Edit flow</button>
+            </div>
+          </div>
+          <section v-else-if="activeProfile" class="flex min-w-0 flex-1">
             <FeedList
               :title="title"
               :visible-items="visibleItems"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
+import IconAlertTriangle from '~icons/lucide/alert-triangle'
 import IconCheck from '~icons/lucide/check'
 import IconGithub from '~icons/lucide/github'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
@@ -9,7 +10,8 @@ import type { ConnectCard } from '../composables/useGitHubConnection'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
-  // 'workspace' is step 2, shown once GitHub is connected with no workspaces yet.
+  // 'workspace' is step 1: the workspace is the thing that exists before any
+  // credential does. The connect cards are step 2, and are skippable.
   card: ConnectCard | 'workspace'
   deviceFlow: DeviceFlowInfo | null
   error: string | null
@@ -22,16 +24,22 @@ const emit = defineEmits<{
   backToStart: []
   submitToken: [token: string]
   createWorkspace: [name: string]
+  skipConnect: []
 }>()
 
 const tokenInput = ref('')
 const workspaceInput = ref('')
 const { copy, copied } = useClipboard({ resetDelay: 1600 })
 
-const activeStep = computed(() => props.card === 'workspace' ? 2 : 1)
+// Confirming the skip is local to this screen: it is a warning to read, not a
+// state the app has to hold. Leaving the connect step at all drops it.
+const confirmingSkip = ref(false)
+watch(() => props.card, () => { confirmingSkip.value = false })
+
+const activeStep = computed(() => props.card === 'workspace' ? 1 : 2)
 const steps = [
-  { label: 'Connect GitHub', step: 1 },
-  { label: 'Create your first workspace', step: 2 },
+  { label: 'Create your first workspace', step: 1 },
+  { label: 'Connect GitHub', step: 2 },
   { label: 'Add feeds & tasks', step: 3 },
 ]
 
@@ -71,7 +79,7 @@ function submitWorkspace() {
         <span class="font-mono text-[17px] font-semibold">hive</span>
       </div>
       <h1 class="mb-3 text-[26px] font-semibold leading-[1.25] tracking-[-.02em]">Triage GitHub and<br>spin up sessions.</h1>
-      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">Connect your account to pull PRs, issues, and notifications into workspaces you control.</p>
+      <p class="mb-11 max-w-[330px] text-sm leading-relaxed text-text-3">Name a workspace, then connect the account it pulls PRs, issues, and notifications from.</p>
       <ol class="flex flex-col gap-5">
         <li v-for="step in steps" :key="step.label" class="flex items-center gap-3.5">
           <span
@@ -89,14 +97,28 @@ function submitWorkspace() {
     <section class="flex flex-1 items-center justify-center bg-pane p-10">
       <div class="w-[420px] text-center">
         <div class="mx-auto mb-5 flex size-[60px] items-center justify-center rounded-[15px] border border-strong bg-chip text-text">
-          <IconLayoutGrid v-if="card === 'workspace'" class="size-[30px]" />
+          <IconAlertTriangle v-if="confirmingSkip" class="size-[30px]" />
+          <IconLayoutGrid v-else-if="card === 'workspace'" class="size-[30px]" />
           <IconGithub v-else class="size-[30px]" />
         </div>
-        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ card === 'workspace' ? 'Create your first workspace' : 'Connect to GitHub' }}</h2>
+        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ confirmingSkip ? 'Skip connecting GitHub?' : card === 'workspace' ? 'Create your first workspace' : 'Connect to GitHub' }}</h2>
 
-        <!-- workspace: step 2, once GitHub is connected with no workspaces -->
-        <template v-if="card === 'workspace'">
-          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">A workspace groups your feeds. It starts with your open PRs, the notifications inbox, and cross-repo assignments.</p>
+        <!-- skip: the warning the bypass goes past, not a gate -->
+        <template v-if="confirmingSkip">
+          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">This workspace will have no sources, so your feed stays empty until you connect an account under Settings ▸ Integrations.</p>
+          <button
+            class="primary-button"
+            data-testid="onboarding-skip-confirm"
+            @click="emit('skipConnect')"
+          >Continue without GitHub</button>
+          <p class="mt-4 text-xs text-text-4">
+            <button class="link-quiet" data-testid="onboarding-skip-back" @click="confirmingSkip = false">Back to connecting</button>
+          </p>
+        </template>
+
+        <!-- workspace: step 1, the one step that needs no credential -->
+        <template v-else-if="card === 'workspace'">
+          <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">A workspace groups your feeds. Connect an account next and it starts with your open PRs, the notifications inbox, and cross-repo assignments.</p>
           <input
             v-model="workspaceInput"
             type="text"
@@ -168,6 +190,12 @@ function submitWorkspace() {
             <button class="link-quiet" data-testid="onboarding-back" @click="emit('backToStart')">Back to device sign-in</button>
           </p>
         </template>
+
+        <!-- Bypassing GitHub is expected to be rare, so it sits below every
+             connect card rather than beside the action that is the point. -->
+        <p v-if="card !== 'workspace' && !confirmingSkip" class="mt-2.5 text-xs text-text-4">
+          <button class="link-quiet" data-testid="onboarding-skip" @click="confirmingSkip = true">Skip for now</button>
+        </p>
       </div>
     </section>
   </div>

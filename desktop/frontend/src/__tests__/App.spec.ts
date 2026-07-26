@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(),
   GetFlow: vi.fn(),
   CreateFlow: vi.fn(),
+  SeedStarterFlow: vi.fn(),
   RenameFlow: vi.fn(),
   SetFlowEnabled: vi.fn(),
   DeleteFlow: vi.fn(),
@@ -65,6 +66,7 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   ListFlows: mocks.ListFlows,
   GetFlow: mocks.GetFlow,
   CreateFlow: mocks.CreateFlow,
+  SeedStarterFlow: mocks.SeedStarterFlow,
   RenameFlow: mocks.RenameFlow,
   SetFlowEnabled: mocks.SetFlowEnabled,
   DeleteFlow: mocks.DeleteFlow,
@@ -200,6 +202,99 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
+  })
+
+  // ── First run ──────────────────────────────────────────────────────────────
+  // create workspace -> connect GitHub -> feed. Nothing in the app is gated on
+  // GitHub, so the only step that can hold the app back is having no workspace.
+
+  it('opens the feed with GitHub disconnected — the app is not gated on it', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Personal')
+
+    wrapper.unmount()
+  })
+
+  it('walks first run: workspace first, then connect, which seeds the workspace it made', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    const wrapper = await mountApp()
+
+    // Step 1 is the workspace: it is the thing that exists without a credential.
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-workspace-input"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="onboarding-connect"]').exists()).toBe(false)
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+
+    // Step 2 is connecting, and the app has not fallen through to the feed.
+    expect(mocks.CreateFlow).toHaveBeenCalledWith('Frontend Triage')
+    expect(wrapper.get('[data-testid="onboarding-connect"]').isVisible()).toBe(true)
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+
+    // The device-flow grant lands as connection:updated, not as a call result.
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    expect(connection).toBeDefined()
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('skipping the connect step lands on a feed whose empty state points at Integrations', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    // A workspace created before an account was connected has no graph at all.
+    mocks.GetFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, nodes: [], wires: [] })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
+    await wrapper.get('[data-testid="onboarding-skip-confirm"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(mocks.SeedStarterFlow).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="workspace-empty"]').text()).toContain('no account is connected')
+
+    await wrapper.get('[data-testid="workspace-empty-integrations"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+    expect(router.currentRoute.value.params.section).toBe('integrations')
+
+    wrapper.unmount()
+  })
+
+  it('stays on the feed when GitHub disconnects — Integrations is where that is repaired', async () => {
+    const wrapper = await mountApp()
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="sidebar-profile-name"]').text()).toBe('Personal')
+
+    wrapper.unmount()
   })
 
   it('confirms updates in-app and shows install failures', async () => {

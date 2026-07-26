@@ -61,6 +61,14 @@ export function SaveSidebar(id: string, layout: flow$0.SidebarLayout): $Cancella
     return $Call.ByID(1405338909, id, layout);
 }
 
+/**
+ * SeedStarterFlow fills an empty workspace with the starter graph. First run
+ * calls it once the GitHub account the graph fetches as has been connected.
+ */
+export function SeedStarterFlow(id: string): $CancellablePromise<$models.FlowSummary> {
+    return $Call.ByID(1972722162, id);
+}
+
 export function SetFlowEnabled(id: string, enabled: boolean): $CancellablePromise<$models.FlowSummary> {
     return $Call.ByID(2806455367, id, enabled);
 }

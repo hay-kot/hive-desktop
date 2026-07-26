@@ -11,9 +11,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testCredential is the account a seeded starter graph fetches as. Source
-// nodes carry a credential ref, so creating a flow has to name one.
-const testCredential = "github/octocat"
+// testSeed is a stand-in starter graph: one source wired to one feed. Create
+// writes whatever graph its caller hands it, so the real starter graph — and
+// the assertions about what it contains — live in internal/app, which is the
+// package allowed to name a connector.
+func testSeed() Seed {
+	return Seed{
+		Nodes: []Node{
+			{ID: "src", Type: "sources.github", Config: NewSourceConfig(github.Descriptor.Type, &github.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
+			{ID: "inbox", Type: "feed", Name: "Inbox", Config: &FeedConfig{}},
+		},
+		Wires:  []Wire{{From: "src", To: "inbox"}},
+		Layout: Layout{Nodes: map[string]NodePosition{"src": {X: 48, Y: 48}, "inbox": {X: 360, Y: 48}}},
+	}
+}
 
 func TestFlowStore_ListGet(t *testing.T) {
 	dir := t.TempDir()
@@ -140,73 +151,56 @@ func TestFlowStore_Reload_PicksUpExternalChange(t *testing.T) {
 	assert.Equal(t, "triage", list[0].ID)
 }
 
-func TestFlowStore_Create_SeedsStarterFlowWithUniqueID(t *testing.T) {
+func TestFlowStore_Create_WritesTheSeedUnderAUniqueID(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
 
-	f, err := store.Create("Frontend Triage", testCredential)
+	seed := testSeed()
+	f, err := store.Create("Frontend Triage", seed)
 	require.NoError(t, err)
 	assert.Equal(t, "frontend-triage", f.ID)
 	assert.Equal(t, "Frontend Triage", f.Name)
 	assert.True(t, f.Enabled)
-	assert.NotEmpty(t, f.Nodes)
-	assert.NotEmpty(t, f.Wires)
+	assert.Equal(t, seed.Nodes, f.Nodes)
+	assert.Equal(t, seed.Wires, f.Wires)
 
-	// It loads back clean (starter flow references no actions).
+	// It loads back clean (the seed references no actions).
 	loaded, warnings, err := LoadFlow(filepath.Join(dir, "frontend-triage.yaml"), minimalRefs())
 	require.NoError(t, err)
 	assert.Empty(t, warnings)
 	assert.Equal(t, "Frontend Triage", loaded.Name)
 
 	// A second create of the same name gets a unique id, not a clobber.
-	f2, err := store.Create("Frontend Triage", testCredential)
+	f2, err := store.Create("Frontend Triage", testSeed())
 	require.NoError(t, err)
 	assert.Equal(t, "frontend-triage-2", f2.ID)
 
-	// A layout was seeded too.
-	layout := store.GetLayout("frontend-triage")
-	assert.NotEmpty(t, layout.Nodes)
+	// The seed's layout was written alongside it.
+	assert.Equal(t, seed.Layout, store.GetLayout("frontend-triage"))
 }
 
-func TestFlowStore_Create_SeedsANotifyingReviewRequestsFeed(t *testing.T) {
+func TestFlowStore_Create_EmptySeedIsAValidWorkspace(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
 
-	f, err := store.Create("Work", testCredential)
+	// A workspace created before any account is connected has no graph at all
+	// — a source node names the credential it fetches as, so there is no
+	// unconfigured source node to stand in for one. It still has to load back.
+	f, err := store.Create("Frontend Triage", Seed{})
 	require.NoError(t, err)
+	assert.Empty(t, f.Nodes)
+	assert.Empty(t, f.Wires)
 
-	nodesByID := map[string]Node{}
-	for _, node := range f.Nodes {
-		nodesByID[node.ID] = node
-	}
-
-	filter, ok := nodesByID["review-requests-filter"]
-	require.True(t, ok, "the starter flow should ship a review-request filter")
-	require.Equal(t, []string{"review_requested"}, filter.Config.(*GithubFilterConfig).Reasons)
-
-	reviewRequests, ok := nodesByID["review-requests"]
-	require.True(t, ok, "the starter flow should ship a review-requests feed")
-	notify := reviewRequests.Config.(*FeedConfig).Notify
-	require.NotNil(t, notify, "the seeded review-requests feed should notify")
-	require.NotEmpty(t, notify.Title)
-
-	// Every other seeded feed stays quiet — only the one feed whose whole
-	// purpose is interrupting you does.
-	require.Nil(t, nodesByID["notifications"].Config.(*FeedConfig).Notify)
-	require.Nil(t, nodesByID["my-open-prs"].Config.(*FeedConfig).Notify)
-
-	// The filter branches off the notifications source rather than sitting in
-	// front of the Notifications feed: everything still lands there too.
-	assert.Contains(t, f.Wires, Wire{From: "notifications-src", To: "notifications"})
-	assert.Contains(t, f.Wires, Wire{From: "notifications-src", To: "review-requests-filter"})
-	assert.Contains(t, f.Wires, Wire{From: "review-requests-filter", Out: 0, To: "review-requests"})
-	assert.Contains(t, store.GetLayout(f.ID).Nodes, "review-requests", "the seeded node needs a canvas position")
+	loaded, ok := store.Get(f.ID)
+	require.True(t, ok, "an empty workspace must load back like any other")
+	assert.Empty(t, loaded.Nodes)
+	assert.True(t, loaded.Enabled)
 }
 
 func TestFlowStore_Rename_UpdatesOnlyDisplayName(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	created, err := store.Create("Frontend Triage", testCredential)
+	created, err := store.Create("Frontend Triage", testSeed())
 	require.NoError(t, err)
 
 	renamed, err := store.Rename(created.ID, "  Team Triage  ")
@@ -229,7 +223,7 @@ func TestFlowStore_Rename_UpdatesOnlyDisplayName(t *testing.T) {
 func TestFlowStore_SetEnabled_PreservesFlowAndPersists(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	created, err := store.Create("Triage", testCredential)
+	created, err := store.Create("Triage", testSeed())
 	require.NoError(t, err)
 
 	disabled, err := store.SetEnabled(created.ID, false)
@@ -260,7 +254,7 @@ func TestFlowStore_SetEnabled_PreservesFlowAndPersists(t *testing.T) {
 func TestFlowStore_Delete_RemovesFlowAndLayout(t *testing.T) {
 	dir := t.TempDir()
 	store := NewFlowStore(dir, minimalRefs())
-	f, err := store.Create("Triage", testCredential)
+	f, err := store.Create("Triage", testSeed())
 	require.NoError(t, err)
 
 	require.NoError(t, store.Delete(f.ID))

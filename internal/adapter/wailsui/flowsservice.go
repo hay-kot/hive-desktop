@@ -48,6 +48,12 @@ func (s *FlowsService) CreateFlow(ctx context.Context, name string) (FlowSummary
 	return summarize(s.flows.Create(ctx, name))
 }
 
+// SeedStarterFlow fills an empty workspace with the starter graph. First run
+// calls it once the GitHub account the graph fetches as has been connected.
+func (s *FlowsService) SeedStarterFlow(ctx context.Context, id string) (FlowSummary, error) {
+	return summarize(s.flows.SeedStarter(ctx, id))
+}
+
 func (s *FlowsService) RenameFlow(ctx context.Context, id, name string) (FlowSummary, error) {
 	return summarize(s.flows.Rename(ctx, id, name))
 }

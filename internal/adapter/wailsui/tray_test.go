@@ -10,12 +10,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const testCredential = "github/octocat"
-
 func TestTrayProfilesIncludesValidAndInvalidFlows(t *testing.T) {
 	dir := t.TempDir()
 	store := flow.NewFlowStore(dir, nil)
-	created, err := store.Create("Triage", testCredential)
+	// The tray lists flows by identity; an empty graph is all this needs, and
+	// it is what a workspace created before any account is connected has.
+	created, err := store.Create("Triage", flow.Seed{})
 	require.NoError(t, err)
 	_, err = store.SetEnabled(created.ID, false)
 	require.NoError(t, err)
