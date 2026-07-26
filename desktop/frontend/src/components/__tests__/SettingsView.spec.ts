@@ -118,6 +118,28 @@ describe('SettingsView', () => {
     }
   })
 
+  // The card list's presentation/drawer maps (in SettingsView.vue) are keyed
+  // by connector type and documented as incomplete by design: a type the
+  // registry reports but the maps have not met yet still renders — generic
+  // icon, no blurb, no configure gear — rather than being dropped from the
+  // list. A connector added in Go before its presentation entry lands must
+  // not silently disappear from Settings.
+  it('renders a card for a connector type its presentation maps do not know', async () => {
+    listIntegrations.mockResolvedValue([
+      { type: 'sources.grafana', title: 'Grafana source', stability: 'experimental', mode: 'pull', provider: 'grafana', accounts: [], envOverride: false },
+    ])
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
+    await flushPromises()
+
+    const card = wrapper.find('[data-testid="integration-grafana"]')
+    expect(card.exists()).toBe(true)
+    expect(card.text()).toContain('Grafana source')
+    // No presentation entry means no blurb, not a crash or a missing card.
+    expect(wrapper.find('[data-testid="integration-grafana-status"]').text()).toBe('Not connected')
+    // No drawer entry means no configure gear, rather than a dead button.
+    expect(wrapper.find('[data-testid="integration-grafana-configure"]').exists()).toBe(false)
+  })
+
   it('reports a connector connected by an environment override', async () => {
     listIntegrations.mockResolvedValue([
       { type: 'sources.github', title: 'GitHub source', stability: 'stable', mode: 'pull', provider: 'github', accounts: [], envOverride: true },
