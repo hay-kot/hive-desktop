@@ -131,6 +131,12 @@ running; starting a second is a no-op. The task preflights it and fails with
 instructions if nothing answers. To use real GitHub, set
 `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in the gitignored `overrides.env`.
 
+`solo up` brings the whole session up from the checked-in `.solo.yml` (devserver
++ the app + a shell) and `solo down` tears it down. Because both tabs start at
+once, the desktop tab uses `devtools check-proxy --wait` to let the proxy finish
+linking; the bare task still probes once so a manual run fails immediately
+rather than hanging on a proxy nobody started.
+
 Go lint/format is the root `mise run lint` (golangci-lint); frontend type
 errors surface via `vue-tsc` in the build. Run quality gates after changes.
 

@@ -1,0 +1,31 @@
+# solo tmux layout for hive-desktop development. `solo up` from anywhere in the
+# worktree brings up the whole dev session; `solo down` tears it back down.
+#
+# This lives in the repo rather than ~/.config/solo/config.yaml for two reasons:
+# it is versioned with the tasks it invokes, and a global entry would have to be
+# keyed on a worktree basename (hive-desktop-j28hih) that differs per worktree.
+#
+# Order matters. devserver is started first because desktop:dev routes GitHub
+# through it by default (ADR 0017), and the desktop tab waits for it rather than
+# assuming — see the comment on that tab.
+tabs:
+  # The shared GitHub proxy: response cache + event simulator dashboard on
+  # http://127.0.0.1:7777. It is a singleton across every worktree, so if one is
+  # already running from another session this exits 0 and leaves it alone
+  # instead of failing on the port.
+  - title: devserver
+    cmd: mise run devserver
+
+  # `go run ./cmd/devserver` has to link modernc.org/sqlite before it binds, so
+  # the proxy is not up the instant the tab above starts. --wait polls until it
+  # is, which is the launcher's job: a human running desktop:dev by hand wants
+  # to be told immediately, so the task's own preflight still probes once.
+  #
+  # Opting out of the proxy (HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE="" in
+  # overrides.env) makes the wait a no-op, so this line works either way.
+  - title: desktop
+    cmd: go run ./cmd/devtools check-proxy --wait 90s && mise run desktop:dev
+
+  - title: shell
+
+timeout: 15

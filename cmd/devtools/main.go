@@ -85,7 +85,14 @@ func newDevtoolsCommand(logger *zerolog.Logger) *cli.Command {
 				Name:        "check-proxy",
 				Usage:       "verify the development GitHub proxy is reachable",
 				Description: "Reads the effective HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE and fails with instructions when no devserver answers there. Development is proxied by default, so this turns connection-refused-on-every-GitHub-call into one actionable message before Wails starts. An empty value means direct-to-GitHub and passes.",
-				Action:      checkProxyAction(logger),
+				Flags: []cli.Flag{
+					&cli.DurationFlag{
+						Name: "wait",
+						Usage: "keep retrying for this long before failing, for a launcher that " +
+							"starts devserver and the app together (default: probe once)",
+					},
+				},
+				Action: checkProxyAction(logger),
 			},
 		},
 	}
@@ -105,19 +112,44 @@ func checkProxyAction(logger *zerolog.Logger) cli.ActionFunc {
 			logger.Debug().Msg("no GitHub API base override; talking to api.github.com directly")
 			return nil
 		}
-		switch devproxy.Probe(ctx, base) {
-		case devproxy.StatusRunning:
-			logger.Info().Str("api_base", base).Msg("development GitHub proxy is reachable")
-			return nil
-		case devproxy.StatusForeign:
-			return cli.Exit(base+" is answering but is not devserver", 1)
-		case devproxy.StatusAbsent:
-			fmt.Fprint(os.Stderr, "\n"+devproxy.NotRunningHelp(base)+"\n")
-			return cli.Exit("development GitHub proxy is not running", 1)
+
+		// --wait exists for a launcher (.solo.yml) that starts devserver and the
+		// app in the same breath: `go run ./cmd/devserver` has to link before it
+		// binds, so a single probe would usually lose that race. Waiting is the
+		// launcher's concern, not the task's — someone running desktop:dev by
+		// hand wants to be told immediately, which is why the default is one
+		// probe.
+		deadline := time.Now().Add(cmd.Duration("wait"))
+		for attempt := 0; ; attempt++ {
+			switch devproxy.Probe(ctx, base) {
+			case devproxy.StatusRunning:
+				logger.Info().Str("api_base", base).Msg("development GitHub proxy is reachable")
+				return nil
+			case devproxy.StatusForeign:
+				// Retrying cannot help: something else owns the port, and it is
+				// not going to become devserver.
+				return cli.Exit(base+" is answering but is not devserver", 1)
+			case devproxy.StatusAbsent:
+				if time.Now().After(deadline) {
+					fmt.Fprint(os.Stderr, "\n"+devproxy.NotRunningHelp(base)+"\n")
+					return cli.Exit("development GitHub proxy is not running", 1)
+				}
+				if attempt == 0 {
+					logger.Info().Str("api_base", base).Msg("waiting for the development GitHub proxy")
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(probeInterval):
+			}
 		}
-		return nil
 	}
 }
+
+// probeInterval paces the --wait retry loop. The target is loopback, so this is
+// about not spinning rather than about network cost.
+const probeInterval = 500 * time.Millisecond
 
 func devtoolsAction(logger *zerolog.Logger, action func(*devtools) error) cli.ActionFunc {
 	return func(_ context.Context, cmd *cli.Command) error {

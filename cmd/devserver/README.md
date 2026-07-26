@@ -20,6 +20,8 @@ mise run desktop:dev   # already routed through it
 
 Because every dev run is proxied, `desktop:dev` preflights the proxy and fails with instructions if nothing answers — otherwise a forgotten devserver would surface as every GitHub call failing at once.
 
+`solo up` runs both from the checked-in `.solo.yml`. Since the tabs start together, its desktop tab passes `--wait` to the preflight so the proxy has time to link and bind; the bare task probes once, so a manual `desktop:dev` still fails immediately.
+
 ### Running against real GitHub
 
 Put this in the gitignored `overrides.env` beside `launch.env` (mise loads it second, so it wins):
