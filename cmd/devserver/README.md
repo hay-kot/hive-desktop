@@ -75,15 +75,8 @@ overlays:
       reason: approval_requested
       labels: [needs-review]
 
-scenarios:                      # multi-step sequences, one dashboard click
-  pr-review-cycle:
-    description: Review requested, then approval requested, then merged
-    steps:
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: review_requested}
-      - wait: 60s
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {state: merged, absent: true}
+# Multi-step lifecycle sequences are not configured. They are composed and run
+# at runtime through POST /_ctl/scenario — see the Control API below.
 
 webhooks:
   # Commented out in the shipped config: the desktop's webhook port is random
@@ -104,7 +97,7 @@ webhooks:
 
 Overlay state is in-memory. Config seeds it; the dashboard and control API mutate it; a restart returns to exactly what the file says. A debugging session cannot leave permanent fake data behind.
 
-The shipped scenarios point at `hay-kot/hive-desktop#58` as a placeholder. Retarget them at an item your feed actually shows — the dashboard lists everything the proxy has observed, so start devserver, let an instance poll once, and copy a repo and number from there.
+Overlays, actions, and scenarios all target an item by `repo` and `num`, and only an item the proxy has already observed will exist to rewrite. Start devserver, let an instance poll once, and read the repo and number from the dashboard or `GET /_ctl/state` — that is the item list.
 
 ### Mutation fields
 
@@ -142,10 +135,13 @@ The desktop's `sources.github` reads exactly four things: `state`, `updatedAt`, 
 
 ## Control API
 
-The dashboard is a thin renderer over these. All under `/_ctl/`.
+The dashboard is a thin renderer over these, and an agent drives the same surface directly. All under `/_ctl/`. `GET /_ctl/help` returns the machine-readable contract — every endpoint, the action vocabulary, and the mutation fields — so a caller can discover the surface without this file.
 
 ```bash
-# everything the dashboard shows, in one read
+# the fixed contract (endpoints, actions, mutation fields)
+curl localhost:7777/_ctl/help
+
+# everything live: observed items, overlays, running scenarios, targets, payloads
 curl localhost:7777/_ctl/state
 
 # quick action
@@ -156,21 +152,31 @@ curl -XPOST localhost:7777/_ctl/action \
 curl -XPOST localhost:7777/_ctl/overlay \
   -d '{"repo":"hay-kot/hive-desktop","num":58,"set":{"state":"open","labels":["wip"]}}'
 
+# a multi-step scenario, composed inline and run in the background; each step is
+# an action or a raw set, with an optional wait. Steps accumulate onto the item.
+# Returns {"scenario":"scenario-1"}; watch it under scenarios in /_ctl/state.
+curl -XPOST localhost:7777/_ctl/scenario -d '{"steps":[
+  {"repo":"hay-kot/hive-desktop","num":58,"action":"review-requested"},
+  {"wait":"60s"},
+  {"repo":"hay-kot/hive-desktop","num":58,"set":{"state":"merged","absent":true}}
+]}'
+
 curl -XPOST localhost:7777/_ctl/overlay/clear -d '{"repo":"hay-kot/hive-desktop","num":58}'
 curl -XPOST localhost:7777/_ctl/overlays/clear
-curl -XPOST localhost:7777/_ctl/scenarios/pr-review-cycle/run
 curl -XPOST localhost:7777/_ctl/cache/purge
 
-# push a webhook; overrides merge over the named payload
+# push a webhook to a configured target; overrides merge over the named payload
 curl -XPOST localhost:7777/_ctl/webhooks/push \
   -d '{"target":"local-desktop","payload":"pr-opened","overrides":{"state":"resolved"}}'
 
-# or an inline body
+# or to an inline target — the only way to reach a desktop instance, whose
+# webhook port is random per install. target may be a name or a {url, secret}.
 curl -XPOST localhost:7777/_ctl/webhooks/push \
-  -d '{"target":"local-desktop","body":{"id":"x","title":"Inline","state":"open"}}'
+  -d '{"target":{"url":"http://127.0.0.1:24681/hooks/devserver","secret":"dev-secret"},
+       "body":{"id":"x","title":"Inline","state":"open"}}'
 ```
 
-Unknown JSON fields are rejected, so a typo in a hand-written call fails loudly instead of silently doing nothing.
+Unknown JSON fields are rejected, so a typo in a hand-written call fails loudly instead of silently doing nothing. Inline webhook targets must be loopback.
 
 ## Webhook pusher
 

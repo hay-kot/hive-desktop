@@ -50,36 +50,10 @@ cache:
 #       updated_at: 2026-07-25T12:00:00Z   # auto-stamped to now when omitted
 
 # ── Scenarios ────────────────────────────────────────────────────────────────
-# Named sequences, run from one dashboard click. Nothing runs on startup.
-# Steps accumulate onto the item rather than replacing each other.
-#
-# The `match` values below are placeholders — point them at an item your feed
-# actually shows. The dashboard lists every item it has observed, so start
-# devserver, let an instance poll once, and copy a repo/number from there.
-#
-# Waits should exceed the app's poll interval (60s floor) if you want each step
-# to land as a separate event rather than collapsing into one.
-scenarios:
-  pr-review-cycle:
-    description: Review requested, then approval requested, then merged
-    steps:
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: review_requested}
-      - wait: 60s
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: approval_requested}
-      - wait: 60s
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {state: merged, absent: true}
-
-  ci-fails-then-passes:
-    description: Two CI notifications with a label flip between them
-    steps:
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: ci_activity, labels: [ci-failed]}
-      - wait: 60s
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: ci_activity, labels: []}
+# Multi-step lifecycle sequences are not configured here. They are composed and
+# driven at runtime through POST /_ctl/scenario — an agent builds the sequence
+# it needs for a test rather than picking from a fixed list. See the skill in
+# .agents/skills/devserver and GET /_ctl/help.
 
 # ── Webhook pusher ───────────────────────────────────────────────────────────
 # Payloads are ready to use; targets are not, because the desktop's webhook

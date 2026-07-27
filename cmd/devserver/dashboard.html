@@ -243,17 +243,15 @@ function renderItems() {
 function renderScenarios() {
   const scenarios = state.scenarios || [];
   if (!scenarios.length) {
-    $('scenarios').innerHTML = '<p class="empty">No scenarios configured.</p>';
+    $('scenarios').innerHTML = '<p class="empty">No scenarios running. Drive one with POST /_ctl/scenario.</p>';
     return;
   }
   $('scenarios').innerHTML = scenarios.map((s) => `<div class="item">
     <div class="item-head">
       <strong>${escapeHtml(s.name)}</strong>
       <span class="tag">${s.steps} steps</span>
-      ${s.running ? '<span class="tag warn">running</span>' : ''}
+      <span class="tag warn">running</span>
     </div>
-    <div class="item-title">${escapeHtml(s.description || '')}</div>
-    <div class="btns"><button data-scenario="${escapeHtml(s.name)}" ${s.running ? 'disabled' : ''}>run</button></div>
   </div>`).join('');
 }
 
@@ -346,9 +344,6 @@ document.addEventListener('click', async (event) => {
   } else if (el.dataset.clear) {
     const done = await post('/_ctl/overlay/clear', {repo: el.dataset.repo, num: Number(el.dataset.num)});
     if (done) toast('cleared ' + done.item);
-  } else if (el.dataset.scenario) {
-    const done = await post(`/_ctl/scenarios/${encodeURIComponent(el.dataset.scenario)}/run`);
-    if (done) toast('running ' + done.scenario);
   } else if (el.id === 'clear-all') {
     if (await post('/_ctl/overlays/clear')) toast('all overlays cleared');
   } else if (el.id === 'purge') {

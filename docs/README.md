@@ -27,6 +27,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0017](decisions/0017-devserver-github-proxy.md) | Development GitHub proxy and event simulator |
 | [0018](decisions/0018-source-http-toolkit.md) | A shared HTTP toolkit for source connectors |
 | [0019](decisions/0019-batched-absence-confirmation.md) | Batched, keyed GitHub absence confirmation |
+| [0018](decisions/0018-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
 
 ## References
 
