@@ -37,6 +37,8 @@ Binaries that support development and release; none ship inside the app.
 - **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `desktop:dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one parks it as a standby that takes over when the live one stops. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR 0017.
 - **`cmd/internal/devproxy`** — the address-and-health contract shared by `cmd/devserver` and `cmd/devtools`, so the proxy's port and the worktree's `launch.env` cannot drift apart.
 
+**Dev session:** `solo up` brings up the whole session from the checked-in `.solo.yml` — a `devserver` tmux window and a `desktop:dev` window — and `solo down` tears it down. The config is versioned in the repo rather than `~/.config/solo` so it stays in step with the mise tasks it invokes and works from any worktree.
+
 ## Vendored code — `internal/hivecore/`
 
 - Vendored from `colonyops/hive` `internal/` packages at the SHA pinned in `cmd/vendorhive/vendor.lock`; import paths are rewritten by the sync tool.
