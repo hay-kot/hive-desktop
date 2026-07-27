@@ -3,6 +3,7 @@ package flow
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hay-kot/hive-desktop/internal/app/icons"
@@ -77,6 +78,11 @@ var notifySeverities = map[string]bool{
 // none: an ordinary, non-interrupting banner.
 const NotifySeverityDefault = "info"
 
+// NotifyCooldownDefault is the per-item delivery floor a notify node uses
+// when it declares no cooldown of its own: once a node interrupts about an
+// item, it stays quiet about that same item for this long.
+const NotifyCooldownDefault = 5 * time.Minute
+
 // notifyTitleMaxLen and notifyBodyMaxLen cap the *templates*, not the
 // rendered result — enough room for a sentence of context each while keeping
 // the persisted YAML bounded. The executor separately bounds what a template
@@ -109,6 +115,13 @@ type NotifyConfig struct {
 	// silence a notification — the global notification-sound setting still
 	// wins when it is off. Resolve through SoundOrDefault.
 	Sound *bool `json:"sound,omitempty" yaml:"sound,omitempty"`
+	// CooldownSeconds is a per-item delivery floor: once this node interrupts
+	// about an item, it stays quiet about that same item for this long. A
+	// pointer so an absent key ("use NotifyCooldownDefault") is distinct from
+	// an explicit 0 ("no cooldown; every accepted message may interrupt").
+	// This is a delivery floor, not dedup — deciding *whether* an item is
+	// worth notifying is upstream's job. Resolve through CooldownOrDefault.
+	CooldownSeconds *int `json:"cooldownSeconds,omitempty" yaml:"cooldownSeconds,omitempty"`
 }
 
 func (c *NotifyConfig) Inputs() int  { return 1 }
@@ -139,6 +152,16 @@ func (c *NotifyConfig) SoundOrDefault() bool {
 	return *c.Sound
 }
 
+// CooldownOrDefault resolves CooldownSeconds, defaulting to
+// NotifyCooldownDefault when the key is absent. An explicit 0 disables the
+// cooldown entirely.
+func (c *NotifyConfig) CooldownOrDefault() time.Duration {
+	if c.CooldownSeconds == nil {
+		return NotifyCooldownDefault
+	}
+	return time.Duration(*c.CooldownSeconds) * time.Second
+}
+
 func (c *NotifyConfig) Validate(Refs) error {
 	if strings.TrimSpace(c.Title) == "" {
 		return fmt.Errorf("title: title is required")
@@ -151,6 +174,9 @@ func (c *NotifyConfig) Validate(Refs) error {
 	}
 	if c.Severity != "" && !notifySeverities[c.Severity] {
 		return fmt.Errorf("severity: %q is not a supported severity (info, success, warning, error)", c.Severity)
+	}
+	if c.CooldownSeconds != nil && *c.CooldownSeconds < 0 {
+		return fmt.Errorf("cooldownSeconds: must not be negative")
 	}
 	return nil
 }

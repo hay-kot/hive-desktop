@@ -3,6 +3,7 @@ package dispatch
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -26,6 +27,10 @@ type NotifyActionConfig struct {
 	Body     string
 	Severity string
 	Sound    bool
+	// Cooldown is the node's resolved per-item delivery floor:
+	// flow.NotifyCooldownDefault when the node declares none, 0 when it
+	// explicitly disabled the cooldown.
+	Cooldown time.Duration
 }
 
 // Validate satisfies actions.ActionConfig. The flow's own validator is
@@ -120,6 +125,7 @@ func (l *FlowNotifyActions) Get(id string) (actions.Action, bool) {
 					Body:     cfg.Body,
 					Severity: cfg.SeverityOrDefault(),
 					Sound:    cfg.SoundOrDefault(),
+					Cooldown: cfg.CooldownOrDefault(),
 				},
 			}, true
 		}

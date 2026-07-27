@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"testing"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -49,6 +50,7 @@ func TestFlowNotifyActions_SynthesizesFromTheFlowNode(t *testing.T) {
 		Body:     "{{ .Payload.title }}",
 		Severity: "warning",
 		Sound:    false,
+		Cooldown: flow.NotifyCooldownDefault,
 	}, action.Config)
 }
 
@@ -60,7 +62,22 @@ func TestFlowNotifyActions_FillsDefaultsForABareNode(t *testing.T) {
 	action, ok := lister.Get(store.NotifyActionID("triage/bare"))
 	require.True(t, ok)
 	assert.Equal(t, "Notify bare", action.Label)
-	assert.Equal(t, &NotifyActionConfig{Title: "hi", Severity: flow.NotifySeverityDefault, Sound: true}, action.Config)
+	assert.Equal(t, &NotifyActionConfig{Title: "hi", Severity: flow.NotifySeverityDefault, Sound: true, Cooldown: flow.NotifyCooldownDefault}, action.Config)
+}
+
+// The node's own cooldown — including an explicit 0 — is resolved into the
+// action config, so the executor never has to know the default.
+func TestFlowNotifyActions_ProjectsTheResolvedCooldown(t *testing.T) {
+	disabled := 0
+	flows := flowListerTest{flows: []flow.Flow{{ID: "triage", Nodes: []flow.Node{
+		{ID: "eager", Type: "notify", Config: &flow.NotifyConfig{Title: "hi", CooldownSeconds: &disabled}},
+	}}}}
+
+	action, ok := NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/eager"))
+	require.True(t, ok)
+	cfg, ok := action.Config.(*NotifyActionConfig)
+	require.True(t, ok)
+	assert.Equal(t, time.Duration(0), cfg.Cooldown)
 }
 
 func TestFlowNotifyActions_DelegatesAuthoredIDs(t *testing.T) {

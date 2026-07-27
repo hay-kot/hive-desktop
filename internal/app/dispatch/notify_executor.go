@@ -24,13 +24,6 @@ const (
 	// NotifyExecutor).
 	NotifyMaxAge = 10 * time.Minute
 
-	// NotifyCooldown coalesces repeat notifications for the same item from
-	// the same node. Durable dedup on the occurrence key already collapses
-	// "the source re-emitted an unchanged item"; this bounds the remaining
-	// case — an item that genuinely changes over and over (a busy PR
-	// collecting comments) — to one interrupt per window.
-	NotifyCooldown = 5 * time.Minute
-
 	// notifyRenderedTitleMax and notifyRenderedBodyMax bound what a template
 	// may render to. The config caps the template's own length, but a
 	// template can expand a payload field of any size; the OS truncates the
@@ -157,7 +150,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		e.logger.Debug().Str("action_id", action.ID).Msg("notify: suppressed by notification settings")
 		return ExecutionResult{}, nil
 	}
-	if e.withinCooldown(action.ID, cmd.ExternalID, now) {
+	if cfg.Cooldown > 0 && e.withinCooldown(action.ID, cmd.ExternalID, cfg.Cooldown, now) {
 		e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
 		return ExecutionResult{}, nil
 	}
@@ -205,7 +198,9 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 	// Recorded only now: a delivery that never happened — a template error,
 	// a refusal from the OS — must not start a window that silences the
 	// worker's own retry of the same command.
-	e.recordFired(action.ID, cmd.ExternalID, now)
+	if cfg.Cooldown > 0 {
+		e.recordFired(action.ID, cmd.ExternalID, cfg.Cooldown, now)
+	}
 	e.logger.Info().Str("action_id", action.ID).Msg("notify: notification delivered")
 	return ExecutionResult{Attempted: true}, nil
 }
@@ -230,26 +225,27 @@ func (e *NotifyExecutor) clickData(ctx context.Context, cmd store.NotifyCommand)
 }
 
 // withinCooldown reports whether this node already notified about this item
-// recently enough that doing so again would just be a repeat interrupt. A
-// command with no item identity is never coalesced — there is nothing to
-// coalesce it against.
+// recently enough that doing so again would just be a repeat interrupt. The
+// window is the node's own resolved cooldown, so each notify node sets its
+// per-item delivery floor. A command with no item identity is never coalesced
+// — there is nothing to coalesce it against.
 //
 // The window is deliberately in-memory: it bounds how often the user is
 // interrupted, which is a property of this running session, not of the
 // durable queue (that is what the command's dedup key is for). A restart
 // starting everyone's window fresh is the right behavior.
-func (e *NotifyExecutor) withinCooldown(actionID, externalID string, now time.Time) bool {
+func (e *NotifyExecutor) withinCooldown(actionID, externalID string, cooldown time.Duration, now time.Time) bool {
 	if externalID == "" {
 		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	last, ok := e.fired[cooldownKey(actionID, externalID)]
-	return ok && now.Sub(last) < NotifyCooldown
+	return ok && now.Sub(last) < cooldown
 }
 
 // recordFired starts this (node, item) pair's cooldown window.
-func (e *NotifyExecutor) recordFired(actionID, externalID string, now time.Time) {
+func (e *NotifyExecutor) recordFired(actionID, externalID string, cooldown time.Duration, now time.Time) {
 	if externalID == "" {
 		return
 	}
@@ -259,7 +255,7 @@ func (e *NotifyExecutor) recordFired(actionID, externalID string, now time.Time)
 	// mattering once it ages out — drop those while we hold the lock rather
 	// than growing forever across a long-running session.
 	for k, at := range e.fired {
-		if now.Sub(at) >= NotifyCooldown {
+		if now.Sub(at) >= cooldown {
 			delete(e.fired, k)
 		}
 	}

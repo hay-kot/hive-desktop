@@ -19,6 +19,12 @@ export interface Config {
   severity?: string
   /** Absent means "play the notification sound"; only `false` silences it. */
   sound?: boolean
+  /**
+   * Per-item delivery floor in seconds: once this node interrupts about an
+   * item, it stays quiet about that same item for this long. Absent means
+   * `defaultCooldownSeconds`; an explicit 0 disables the cooldown.
+   */
+  cooldownSeconds?: number
 }
 
 /** The severities a notify node may declare — mirrors Go's notifySeverities. */
@@ -30,6 +36,9 @@ export const defaultSeverity = 'info'
 /** Longest templates the editor accepts — mirror Go's notify*MaxLen. */
 export const titleMaxLen = 200
 export const bodyMaxLen = 1000
+
+/** The cooldown used when the node declares none — mirrors Go's NotifyCooldownDefault. */
+export const defaultCooldownSeconds = 300
 
 /** Notifications are transient interrupts, not feed items. */
 export const unread = false
@@ -64,6 +73,9 @@ export function validate(config: Config): string[] {
   if ((config.body?.length ?? 0) > bodyMaxLen) errors.push(`Body must be at most ${bodyMaxLen} characters.`)
   if (config.severity && !severities.includes(config.severity as (typeof severities)[number])) {
     errors.push(`Severity "${config.severity}" is not supported.`)
+  }
+  if (config.cooldownSeconds !== undefined && (config.cooldownSeconds < 0 || !Number.isInteger(config.cooldownSeconds))) {
+    errors.push('Cooldown must be a whole, non-negative number of seconds.')
   }
   return errors
 }

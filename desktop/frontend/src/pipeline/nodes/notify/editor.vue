@@ -1,8 +1,8 @@
 <script setup lang="ts">
-// Sound and severity are stored only when they differ from the default, so a
-// flow file stays free of keys the author never touched.
-import { SelectField, TextField, TextareaField, ToggleField } from '../../fields'
-import { defaultSeverity, severities, type Config } from './config'
+// Sound, severity and cooldown are stored only when they differ from the
+// default, so a flow file stays free of keys the author never touched.
+import { NumberField, SelectField, TextField, TextareaField, ToggleField } from '../../fields'
+import { defaultCooldownSeconds, defaultSeverity, severities, type Config } from './config'
 
 const props = defineProps<{ config: Config; errors?: string[] }>()
 const emit = defineEmits<{ 'update:config': [config: Config] }>()
@@ -26,6 +26,10 @@ function setSeverity(severity: string) {
 
 function setSound(sound: boolean) {
   emit('update:config', { ...props.config, sound: sound ? undefined : false })
+}
+
+function setCooldown(cooldownSeconds: number) {
+  emit('update:config', { ...props.config, cooldownSeconds: cooldownSeconds === defaultCooldownSeconds ? undefined : cooldownSeconds })
 }
 </script>
 
@@ -72,6 +76,16 @@ function setSound(sound: boolean) {
       hint="Silences this node only; the global notification sound setting still applies."
       testid="notify-node-editor-sound"
       @update:model-value="setSound"
+    />
+
+    <NumberField
+      label="Cooldown (seconds)"
+      :model-value="config.cooldownSeconds ?? defaultCooldownSeconds"
+      :min="0"
+      :step="1"
+      hint="Delivery floor per item, not dedup: after interrupting about an item this node stays quiet about it for this long. 0 disables the cooldown."
+      testid="notify-node-editor-cooldown"
+      @update:model-value="setCooldown"
     />
   </div>
 </template>

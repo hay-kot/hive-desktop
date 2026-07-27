@@ -31,8 +31,12 @@ the click just raises the window.
   re-emitting an unchanged item on every poll notifies once, not once per
   tick. A message with no occurrence key falls back to a digest of its
   payload, so identical payloads still collapse.
-- **Cooldown.** One item can only interrupt you once every 5 minutes per
-  node, however often it genuinely changes.
+- **Cooldown.** A per-item delivery floor: after this node interrupts about
+  an item, it stays quiet about that same item for `cooldownSeconds` (default
+  300; `0` disables the floor entirely), however often the item genuinely
+  changes. It is not dedup — deciding *whether* an item is worth notifying
+  belongs upstream; the cooldown only bounds how often the same accepted item
+  may re-interrupt.
 - **Staleness.** A notification queued more than 10 minutes before it could
   be delivered — the app was closed, or the queue was backed up — is dropped
   instead of arriving late.

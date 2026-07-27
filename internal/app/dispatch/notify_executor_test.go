@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -47,6 +48,7 @@ func notifyAction() actions.Action {
 			Body:     "{{ .Payload.title }}",
 			Severity: "warning",
 			Sound:    true,
+			Cooldown: flow.NotifyCooldownDefault,
 		},
 	}
 }
@@ -159,10 +161,58 @@ func TestNotifyExecutor_CoalescesRepeatsForTheSameItem(t *testing.T) {
 	assert.Len(t, notifier.sent, 2)
 
 	// Past the window the same item may interrupt again.
-	now = now.Add(NotifyCooldown + time.Second)
+	now = now.Add(flow.NotifyCooldownDefault + time.Second)
 	_, err = executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, notifier.sent, 3)
+}
+
+// The cooldown window is the node's own resolved config: a short window
+// suppresses inside it and delivers past it, and an explicit 0 means every
+// accepted delivery may interrupt.
+func TestNotifyExecutor_CooldownIsConfigurable(t *testing.T) {
+	withCooldown := func(cooldown time.Duration) actions.Action {
+		action := notifyAction()
+		cfg, ok := action.Config.(*NotifyActionConfig)
+		require.True(t, ok)
+		updated := *cfg
+		updated.Cooldown = cooldown
+		action.Config = &updated
+		return action
+	}
+
+	t.Run("suppresses within the configured window and delivers past it", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+		now := time.Now()
+		executor.now = func() time.Time { return now }
+
+		action := withCooldown(30 * time.Second)
+		_, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+
+		result, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.False(t, result.Attempted)
+		assert.Len(t, notifier.sent, 1)
+
+		now = now.Add(31 * time.Second)
+		_, err = executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.Len(t, notifier.sent, 2)
+	})
+
+	t.Run("a zero cooldown never suppresses", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+
+		action := withCooldown(0)
+		_, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		_, err = executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.Len(t, notifier.sent, 2)
+	})
 }
 
 // Two notify nodes fed by the same message are independent destinations, so
