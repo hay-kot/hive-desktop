@@ -1,0 +1,296 @@
+---
+import { onboarding } from "../data";
+
+const { editor } = onboarding;
+---
+
+<section class="onboarding shell">
+  <div class="onboarding__head" data-reveal>
+    <div class="eyebrow">{onboarding.eyebrow}</div>
+    <h2 class="onboarding__title">{onboarding.title}</h2>
+    <p class="onboarding__body" set:html={onboarding.body} />
+  </div>
+
+  <div class="onboarding__grid" data-reveal>
+    <ol class="steps">
+      {
+        onboarding.steps.map((step, index) => (
+          <li class="step">
+            <span class="step__number mono">{String(index + 1).padStart(2, "0")}</span>
+            <div>
+              <h3 class="step__title">{step.title}</h3>
+              <p class="step__body" set:html={step.body} />
+            </div>
+          </li>
+        ))
+      }
+    </ol>
+
+    <!-- Illustrative config sample; the highlighting is presentational. -->
+    <div class="editor" aria-hidden="true">
+      <div class="editor__bar">
+        <span class="editor__dot"></span><span class="editor__dot"></span><span
+          class="editor__dot"></span>
+        <span class="editor__path mono">{editor.path}</span>
+        <span class="editor__file mono">{editor.filename}</span>
+      </div>
+
+      <pre class="editor__code mono"><span class="c-comment"># nodes and wires as code, written by your agent</span>
+<span class="c-key">version</span>: <span class="c-value">1</span>
+<span class="c-key">name</span>: <span class="c-string">Frontend Triage</span>
+<span class="c-key">nodes</span>:
+  - <span class="c-key">id</span>: <span class="c-value">needs-review-src</span>
+    <span class="c-key">type</span>: <span class="c-value">github-source</span>
+    <span class="c-key">kind</span>: <span class="c-value">search</span>
+    <span class="c-key">query</span>: <span class="c-expr">"is:open is:pr review-requested:@me"</span>
+  - <span class="c-key">id</span>: <span class="c-value">needs-review</span>
+    <span class="c-key">type</span>: <span class="c-value">feed</span>
+    <span class="c-key">name</span>: <span class="c-string">Needs My Review</span>
+<span class="c-key">wires</span>:
+  - &#123; <span class="c-key">from</span>: <span class="c-value">needs-review-src</span>, <span class="c-key">to</span>: <span class="c-value">needs-review</span> &#125;</pre>
+
+      <div class="editor__term mono">
+        <div class="c-dim"># Copy prompt → your agent → it writes the flow</div>
+        <div><span class="c-ok">✓</span> wrote <span class="c-key">flows/frontend-triage.yaml</span></div>
+        <div class="c-dim">watching config dir · reloaded</div>
+        <div class="c-ok">✓ 4 feeds · 1 action <span class="c-caret">▌</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="onboarding__pills" data-reveal>
+    {
+      onboarding.pills.map((pill) => (
+        <span class="pill">
+          <span style={`color:var(--${pill.accent})`}>{pill.icon}</span>
+          {pill.label}
+        </span>
+      ))
+    }
+  </div>
+
+  <p class="onboarding__footnote" data-reveal>{onboarding.footnote}</p>
+</section>
+
+<style>
+  .onboarding {
+    padding-block: 80px 24px;
+  }
+
+  .onboarding__head {
+    text-align: center;
+    max-width: 680px;
+    margin: 0 auto 44px;
+  }
+
+  .onboarding__title {
+    margin-top: 16px;
+    font-size: clamp(27px, 3.8vw, 38px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+
+  .onboarding__body {
+    margin-top: 16px;
+    font-size: 16.5px;
+    color: var(--text-muted);
+    line-height: 1.65;
+    text-wrap: pretty;
+  }
+
+  .onboarding__body :global(em) {
+    color: var(--text-diagram);
+    font-style: normal;
+  }
+
+  .onboarding__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 24px;
+    align-items: stretch;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .step {
+    display: flex;
+    gap: 16px;
+    background: var(--surface);
+    border: 1px solid var(--line-3);
+    border-radius: 14px;
+    padding: 20px 22px;
+  }
+
+  .step__number {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--amber);
+    background: rgba(245, 158, 11, 0.12);
+    border: 1px solid rgba(245, 158, 11, 0.3);
+    border-radius: 9px;
+    width: 38px;
+    height: 38px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+  }
+
+  .step__title {
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .step__body {
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+    margin-top: 5px;
+    text-wrap: pretty;
+  }
+
+  .step__body :global(code) {
+    font-family: var(--font-mono);
+    color: var(--text-diagram);
+  }
+
+  /* editor ---------------------------------------------------------------- */
+
+  .editor {
+    background: var(--bg);
+    border: 1px solid var(--line-3);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+  }
+
+  .editor__bar {
+    height: 38px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 0 13px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--line-3);
+  }
+
+  .editor__dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #3a3a40;
+  }
+
+  .editor__path {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-left: 8px;
+  }
+
+  .editor__file {
+    font-size: 11px;
+    color: var(--text-diagram);
+    background: var(--surface-2);
+    border: 1px solid var(--line-3);
+    border-radius: 6px;
+    padding: 2px 9px;
+  }
+
+  .editor__code {
+    margin: 0;
+    padding: 16px 18px;
+    font-size: 12px;
+    line-height: 1.75;
+    color: #c8cdd6;
+    overflow-x: auto;
+  }
+
+  .editor__term {
+    border-top: 1px solid var(--line-3);
+    padding: 14px 18px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #c8cdd6;
+    overflow-x: auto;
+  }
+
+  .editor__term > div {
+    white-space: nowrap;
+  }
+
+  .c-comment,
+  .c-dim {
+    color: #5c6370;
+  }
+
+  .c-dim {
+    color: var(--text-ghost);
+  }
+
+  .c-key {
+    color: #82aaff;
+  }
+
+  .c-string {
+    color: var(--green);
+  }
+
+  .c-value {
+    color: #c792ea;
+  }
+
+  .c-expr {
+    color: #e6c07b;
+  }
+
+  .c-prompt {
+    color: #565863;
+  }
+
+  .c-ok {
+    color: var(--green);
+  }
+
+  .c-caret {
+    color: var(--amber);
+    animation: hivePulse 1.1s steps(1, end) infinite;
+  }
+
+  .onboarding__pills {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 9px;
+    margin-top: 26px;
+  }
+
+  .onboarding__footnote {
+    text-align: center;
+    margin-top: 16px;
+    font-size: 13.5px;
+    color: var(--text-dim);
+    line-height: 1.55;
+  }
+
+  @media (max-width: 720px) {
+    .onboarding {
+      padding-block: 40px 16px;
+    }
+
+    .onboarding__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>

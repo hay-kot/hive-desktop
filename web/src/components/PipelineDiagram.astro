@@ -1,0 +1,256 @@
+---
+import { pipeline } from "../data";
+import Icon from "./Icon.astro";
+
+const { sources, filters, feeds, crossLinks, routes } = pipeline.diagram;
+
+/* Geometry. Rows are evenly spaced; everything else hangs off the box origin,
+   so adding a source or feed in pipeline.json just extends the column. */
+const BOX = { w: 230, h: 64 };
+const FEED_W = 250;
+const COL = { source: 40, filter: 520, feed: 1020 };
+const ROW = { top: 88, gap: 180 };
+const FEED_ROW = { top: 58, gap: 150 };
+
+const rowY = (index: number) => ROW.top + index * ROW.gap;
+const feedY = (index: number) => FEED_ROW.top + index * FEED_ROW.gap;
+const midY = (y: number) => y + BOX.h / 2;
+
+const sourceRight = COL.source + BOX.w;
+const filterRight = COL.filter + BOX.w;
+
+/** Deepest box, plus room for the stat line that hangs below it. */
+const height =
+  Math.max(rowY(sources.length - 1) + BOX.h, feedY(feeds.length - 1) + BOX.h) + 48;
+
+/** Animation cadences, cycled so packets do not travel in lockstep. */
+const INGEST_DUR = [2.8, 3.1, 2.6, 2.9];
+const ROUTE_DUR = [2.7, 2.6, 2.9, 2.8];
+const ROUTE_BEGIN = [0.3, 0.9, 1.7, 0.6, 1.2];
+
+type Wire = { id: string; d: string; dur?: number; begin?: number; color?: string };
+
+const wires: Wire[] = [];
+
+sources.forEach((source, index) => {
+  const y = midY(rowY(index));
+  wires.push({
+    id: `ingest-${index}`,
+    d: `M${sourceRight},${y} C370,${y} 420,${y} ${COL.filter},${y}`,
+    // Nothing flows from a source that does not exist yet.
+    ...(source.planned
+      ? {}
+      : {
+          dur: INGEST_DUR[index % INGEST_DUR.length],
+          begin: index * 0.5,
+          color: "var(--green-2)",
+        }),
+  });
+});
+
+crossLinks.forEach((link, index) => {
+  const from = midY(rowY(link.from));
+  const to = midY(rowY(link.to));
+  wires.push({
+    id: `cross-${index}`,
+    d: `M${sourceRight},${from} C390,${from} 400,${to} ${COL.filter},${to}`,
+  });
+});
+
+routes.forEach((route, index) => {
+  const from = midY(rowY(route.from));
+  const to = midY(feedY(route.to));
+  wires.push({
+    id: `route-${index}`,
+    d: `M${filterRight},${from} C880,${from} 900,${to} ${COL.feed},${to}`,
+    ...(route.flow && !sources[route.from]?.planned
+      ? {
+          dur: ROUTE_DUR[index % ROUTE_DUR.length],
+          begin: ROUTE_BEGIN[index % ROUTE_BEGIN.length],
+          color: "var(--green)",
+        }
+      : {}),
+  });
+});
+
+const nodes = [
+  ...sources.map((source, index) => ({
+    x: COL.source,
+    y: rowY(index),
+    w: BOX.w,
+    accent: source.accent,
+    icon: source.icon,
+    iconColor: source.accent,
+    title: source.name,
+    slug: source.slug,
+    stat: source.stat,
+    planned: source.planned ?? false,
+  })),
+  ...filters.map((filter, index) => ({
+    x: COL.filter,
+    y: rowY(index),
+    w: BOX.w,
+    accent: "#2ee6a6",
+    icon: filter.icon ?? "filter",
+    iconColor: "#2ee6a6",
+    title: filter.name,
+    slug: filter.slug,
+    stat: filter.stat,
+    // Rows pair 1:1 with sources, so a filter is only live if its source is.
+    planned: sources[index]?.planned ?? false,
+  })),
+  ...feeds.map((feed, index) => {
+    // A feed only carries traffic if something live routes into it.
+    const inbound = routes.filter((route) => route.to === index);
+    const planned =
+      inbound.length > 0 && inbound.every((route) => sources[route.from]?.planned);
+
+    return {
+      x: COL.feed,
+      y: feedY(index),
+      w: FEED_W,
+      accent: "#34d399",
+      icon: "feed",
+      iconColor: "#34d399",
+      title: feed.name,
+      slug: "feed",
+      stat: planned ? "planned" : feed.stat,
+      planned,
+    };
+  }),
+];
+
+const summary = `${sources.length} sources flow through ${filters.length} filters into ${feeds.length} sorted feeds.`;
+---
+
+<div class="diagram">
+  <div class="diagram__scroll">
+    <svg viewBox={`0 0 1320 ${height}`} role="img" aria-label={summary} class="diagram__svg">
+      {
+        wires.map((wire) => (
+          <path
+            id={wire.id}
+            d={wire.d}
+            fill="none"
+            stroke="#565d6a"
+            stroke-width="2.4"
+            stroke-linecap="round"
+          />
+        ))
+      }
+
+      {
+        wires
+          .filter((wire) => wire.dur !== undefined)
+          .map((wire) => (
+            <circle r="4.5" fill={wire.color} class="packet">
+              <animateMotion dur={`${wire.dur}s`} begin={`${wire.begin}s`} repeatCount="indefinite">
+                <mpath href={`#${wire.id}`} />
+              </animateMotion>
+              <animate
+                attributeName="opacity"
+                values="0;1;1;0"
+                keyTimes="0;.12;.85;1"
+                dur={`${wire.dur}s`}
+                begin={`${wire.begin}s`}
+                repeatCount="indefinite"
+              />
+            </circle>
+          ))
+      }
+
+      {
+        nodes.map((node) => (
+          <g class:list={[node.planned && "is-planned"]}>
+            <rect
+              x={node.x}
+              y={node.y}
+              width={node.w}
+              height={BOX.h}
+              rx="12"
+              fill="#1b1f28"
+              stroke="#2a2f3a"
+              stroke-dasharray={node.planned ? "6 5" : undefined}
+            />
+            <rect x={node.x + 7} y={node.y + 11} width="4" height="42" rx="2" fill={node.accent} />
+            <rect
+              x={node.x + 22}
+              y={node.y + 17}
+              width="30"
+              height="30"
+              rx="8"
+              fill="#13161c"
+              stroke="#2a2f3a"
+            />
+            <g transform={`translate(${node.x + 29},${node.y + 24})`} style={`color:${node.iconColor}`}>
+              <Icon name={node.icon} size={16} />
+            </g>
+            <text x={node.x + 62} y={node.y + 29} fill="#e8eaed" font-size="15" font-weight="600">
+              {node.title}
+            </text>
+            <text x={node.x + 62} y={node.y + 47} fill="#7c828d" font-size="12" class="slug">
+              {node.slug}
+            </text>
+            <circle cx={node.x + 9} cy={node.y + 80} r="4" fill={node.planned ? "#4a4f5c" : "#34d399"} />
+            <text x={node.x + 22} y={node.y + 84} fill="#7c828d" font-size="12" class="slug">
+              {node.stat}
+            </text>
+          </g>
+        ))
+      }
+    </svg>
+  </div>
+</div>
+
+<style>
+  .diagram {
+    position: relative;
+    background: var(--diagram-bg);
+    background-image: radial-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 24px 24px;
+    border: 1px solid #1b2028;
+    border-radius: 20px;
+    padding: 24px 22px;
+    overflow: hidden;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  }
+
+  .diagram__scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+
+  .diagram__svg {
+    width: 100%;
+    height: auto;
+    display: block;
+    font-family: var(--font-sans);
+  }
+
+  .slug {
+    font-family: var(--font-mono);
+  }
+
+  /* Sources that are not built yet read as outlines, not live nodes. */
+  .is-planned {
+    opacity: 0.5;
+  }
+
+  /* Below this the boxes stop being legible when scaled to fit, so the
+     diagram scrolls horizontally at a fixed minimum width instead. */
+  @media (max-width: 900px) {
+    .diagram {
+      padding: 18px 0 18px 18px;
+    }
+
+    .diagram__svg {
+      width: 900px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .packet {
+      display: none;
+    }
+  }
+</style>

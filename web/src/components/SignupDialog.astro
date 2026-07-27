@@ -1,0 +1,129 @@
+---
+/**
+ * Modal wrapper around the signup form. Every link on the page that targets
+ * #beta opens this instead of scrolling; the anchor stays in the href so the
+ * beta section remains the no-JS fallback.
+ */
+import { beta } from "../data";
+import SignupForm from "./SignupForm.astro";
+---
+
+<dialog class="signup-dialog" data-signup-dialog aria-labelledby="signup-dialog-title">
+  <div class="signup-dialog__panel">
+    <button class="signup-dialog__close" type="button" data-close aria-label="Close">✕</button>
+    <div class="signup-dialog__status mono">
+      <span class="signup-dialog__dot"></span>{beta.status}
+    </div>
+    <h2 class="signup-dialog__title" id="signup-dialog-title">{beta.dialog.title}</h2>
+    <p class="signup-dialog__body">{beta.dialog.body}</p>
+    <SignupForm />
+  </div>
+</dialog>
+
+<script>
+  const dialog = document.querySelector<HTMLDialogElement>("[data-signup-dialog]");
+
+  if (dialog) {
+    document.addEventListener("click", (event) => {
+      if (!(event.target instanceof Element)) return;
+      const link = event.target.closest('a[href="#beta"]');
+      if (!link) return;
+
+      event.preventDefault();
+      dialog.showModal();
+      dialog.querySelector<HTMLInputElement>("input[name=email]")?.focus();
+    });
+
+    dialog.querySelector("[data-close]")?.addEventListener("click", () => dialog.close());
+
+    // A click on the dialog element itself is the backdrop; the panel fills
+    // everything else.
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+</script>
+
+<style>
+  .signup-dialog {
+    margin: auto;
+    border: none;
+    padding: 0;
+    background: transparent;
+    max-width: none;
+  }
+
+  .signup-dialog::backdrop {
+    background: rgba(8, 9, 12, 0.66);
+    backdrop-filter: blur(3px);
+  }
+
+  .signup-dialog__panel {
+    position: relative;
+    width: min(430px, calc(100vw - 32px));
+    background: var(--surface);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    padding: 30px 28px 26px;
+    box-shadow: 0 40px 90px -30px rgba(0, 0, 0, 0.8);
+  }
+
+  .signup-dialog__close {
+    position: absolute;
+    top: 14px;
+    right: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 8px;
+    background: none;
+    color: var(--text-faint);
+    font-size: 14px;
+    cursor: pointer;
+    transition:
+      background 0.2s,
+      color 0.2s;
+  }
+
+  .signup-dialog__close:hover {
+    background: var(--surface-2);
+    color: var(--text-bright);
+  }
+
+  .signup-dialog__status {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 10.5px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--amber);
+  }
+
+  .signup-dialog__dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--amber);
+    animation: hivePulse 2s ease-in-out infinite;
+  }
+
+  .signup-dialog__title {
+    margin-top: 12px;
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+  }
+
+  .signup-dialog__body {
+    margin-top: 8px;
+    margin-bottom: 20px;
+    font-size: 13.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+</style>

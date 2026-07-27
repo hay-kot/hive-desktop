@@ -24,7 +24,9 @@ document wins for new work — do not extend the shape it is replacing.
 
 - **Root module** `github.com/hay-kot/hive-desktop` — the desktop app (`desktop/`, `internal/app/`, `internal/adapter/`) and vendored hive core (`internal/hivecore/`).
 - **`server/`** — future Go admin backend (analytics, licenses, purchases). When built, it gets its own nested `go.mod` (`github.com/hay-kot/hive-desktop/server`) so the deployed service does not carry wails/charm dependencies; a root `go.work` is added at that point. Shared wire types (analytics events, license payloads) go in a `shared/` nested module if needed.
-- **`web/`** — plain static HTML landing page (`web/public/`), served as Cloudflare Workers static assets (`web/wrangler.jsonc`; the custom domain `hivedesktop.com` is declared there and attaches on deploy). No build step. Deploys via `.github/workflows/deploy-web.yml` on pushes to main touching `web/**`, or locally with `npm run deploy`.
+- **`web/`** — the landing page, an Astro static build (`web/src/`) output to `web/dist/` and served as Cloudflare Workers static assets (`web/wrangler.jsonc`; the custom domain `hivedesktop.com` is declared there and attaches on deploy). Page copy is data, not markup: the JSON in `web/src/data/` is schema-validated in `web/src/data/index.ts`, so a bad edit fails the build. `web/worker/index.ts` adds two routes on top of the assets — `/api/latest` (proxies the release manifest for the download CTA) and `/api/subscribe` (private-beta signups, honeypot-filtered and forwarded to listmonk). Deploys via `.github/workflows/deploy-web.yml` on pushes to main touching `web/**`, or locally with `npm run deploy`.
+  - Nav and footer links with `"href": null` in `web/src/data/site.json` are not rendered; filling in the URL is all it takes to bring one back.
+  - A `/docs` section is a content change: add an Astro content collection under `web/src/content/` and a route — the page shell, styles and deploy path stay as they are.
 
 ## Development tooling — `cmd/`
 

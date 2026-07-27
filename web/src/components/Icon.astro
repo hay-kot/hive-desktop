@@ -1,0 +1,380 @@
+---
+/**
+ * Icon set for the landing page. Everything inherits `currentColor` except the
+ * Slack mark, which is multi-colour by brand.
+ */
+interface Props {
+  name: string;
+  size?: number;
+  class?: string;
+}
+
+const { name, size = 16, class: className } = Astro.props;
+
+const GITHUB_PATH =
+  "M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z";
+
+const stroke = {
+  fill: "none",
+  stroke: "currentColor",
+  "stroke-width": "2",
+  "stroke-linecap": "round" as const,
+  "stroke-linejoin": "round" as const,
+};
+---
+
+{
+  name === "github" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="currentColor"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d={GITHUB_PATH} />
+    </svg>
+  )
+}
+{
+  name === "slack" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" class={className} aria-hidden="true">
+      <rect x="9" y="2" width="2.7" height="20" rx="1.35" fill="#36C5F0" />
+      <rect x="12.3" y="2" width="2.7" height="20" rx="1.35" fill="#2EB67D" />
+      <rect x="2" y="9" width="20" height="2.7" rx="1.35" fill="#ECB22E" />
+      <rect x="2" y="12.3" width="20" height="2.7" rx="1.35" fill="#E01E5A" />
+    </svg>
+  )
+}
+{
+  name === "grafana" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="3.4" />
+      <path d="M12 4.2a7.8 7.8 0 1 0 6.9 4" />
+    </svg>
+  )
+}
+{
+  name === "posthog" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      class={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="13" width="4" height="8" rx="1" />
+      <rect x="10" y="9" width="4" height="12" rx="1" />
+      <rect x="17" y="4" width="4" height="17" rx="1" />
+    </svg>
+  )
+}
+{
+  name === "filter" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <polygon points="21 4 3 4 10 12.5 10 18 14 20 14 12.5 21 4" />
+    </svg>
+  )
+}
+{
+  name === "feed" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M4 11a9 9 0 0 1 9 9" />
+      <path d="M4 4a16 16 0 0 1 16 16" />
+      <circle cx="5" cy="19" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+{
+  name === "bell" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" />
+      <path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" />
+    </svg>
+  )
+}
+{
+  name === "braces" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M9 4H7a2 2 0 0 0-2 2v3a2 2 0 0 1-2 2 2 2 0 0 1 2 2v3a2 2 0 0 0 2 2h2" />
+      <path d="M15 4h2a2 2 0 0 1 2 2v3a2 2 0 0 0 2 2 2 2 0 0 0-2 2v3a2 2 0 0 1-2 2h-2" />
+    </svg>
+  )
+}
+{
+  name === "router" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <circle cx="6" cy="18" r="3" />
+      <circle cx="18" cy="6" r="3" />
+      <path d="M6 15V9a6 6 0 0 1 6-6" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  )
+}
+{
+  name === "sparkle" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M12 2l1.9 5.1L19 9l-5.1 1.9L12 16l-1.9-5.1L5 9l5.1-1.9z" />
+    </svg>
+  )
+}
+{
+  name === "command" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M4 6l5 6-5 6" />
+      <path d="M13 18h7" />
+    </svg>
+  )
+}
+{
+  name === "bolt" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M13 2 4 14h6l-1 8 9-12h-6z" />
+    </svg>
+  )
+}
+{
+  name === "download" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M12 3v12M7 10l5 5 5-5M5 21h14" />
+    </svg>
+  )
+}
+{
+  name === "search" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.6"
+      stroke-linecap="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M11 11l3 3" />
+    </svg>
+  )
+}
+{
+  name === "mail" && (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.8"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+      class={className}
+      aria-hidden="true"
+    >
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="m3 7 9 6 9-6" />
+    </svg>
+  )
+}
+{
+  name === "panel-left" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M9 4v16" />
+    </svg>
+  )
+}
+{
+  name === "panel-right" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      <path d="M15 4v16" />
+    </svg>
+  )
+}
+{
+  name === "arrow-left" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M19 12H5M11 6l-6 6 6 6" />
+    </svg>
+  )
+}
+{
+  name === "arrow-right" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M5 12h14M13 6l6 6-6 6" />
+    </svg>
+  )
+}
+{
+  name === "activity" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M3 12h4l3 8 4-16 3 8h4" />
+    </svg>
+  )
+}
+{
+  name === "plus" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  )
+}
+{
+  name === "settings" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+    </svg>
+  )
+}
+{
+  name === "git-branch" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M6 3v12" />
+      <circle cx="18" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M18 9a9 9 0 0 1-9 9" />
+    </svg>
+  )
+}
+{
+  name === "list" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
+    </svg>
+  )
+}
+{
+  name === "folder" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M4 20a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2z" />
+    </svg>
+  )
+}
+{
+  name === "chevron-down" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  )
+}
+{
+  name === "chevron-right" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="m9 6 6 6-6 6" />
+    </svg>
+  )
+}
+{
+  name === "rss" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M4 11a9 9 0 0 1 9 9" />
+      <path d="M4 4a16 16 0 0 1 16 16" />
+      <circle cx="5" cy="19" r="1" fill="currentColor" />
+    </svg>
+  )
+}
+{
+  name === "at" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="4" />
+      <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-4 8" />
+    </svg>
+  )
+}
+{
+  name === "pr" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <circle cx="6" cy="6" r="3" />
+      <circle cx="6" cy="18" r="3" />
+      <path d="M6 9v6" />
+      <circle cx="18" cy="18" r="3" />
+      <path d="M18 15V9a3 3 0 0 0-3-3h-3" />
+      <path d="m15 9-3-3 3-3" />
+    </svg>
+  )
+}
+{
+  name === "package" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="m12 2 9 5v10l-9 5-9-5V7z" />
+      <path d="m3 7 9 5 9-5M12 12v10" />
+    </svg>
+  )
+}
+{
+  name === "issue" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <circle cx="12" cy="12" r="9" />
+      <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+{
+  name === "workflow" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+      <path d="M6.5 10v4a3 3 0 0 0 3 3H14" />
+    </svg>
+  )
+}
+{
+  name === "sliders" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />
+      <circle cx="16" cy="7" r="2" />
+      <circle cx="10" cy="17" r="2" />
+    </svg>
+  )
+}
+{
+  name === "external-link" && (
+    <svg width={size} height={size} viewBox="0 0 24 24" {...stroke} class={className} aria-hidden="true">
+      <path d="M15 3h6v6M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </svg>
+  )
+}
+{
+  name === "hex" && (
+    <svg
+      width={size}
+      height={(size / 22) * 24}
+      viewBox="0 0 22 24"
+      fill="currentColor"
+      class={className}
+      aria-hidden="true"
+    >
+      <path d="M11 0l9.5 5.5v11L11 24 1.5 16.5v-11z" />
+    </svg>
+  )
+}

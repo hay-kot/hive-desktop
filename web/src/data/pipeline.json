@@ -1,0 +1,66 @@
+{
+  "eyebrow": "The routing engine",
+  "titleLines": ["Sources in.", "Sorted feeds out."],
+  "body": "The flow editor is the same canvas that runs in the app. Sources stream raw items through filters and functions that pass, drop and split them, so a noisy firehose becomes a handful of feeds you can actually act on.",
+  "diagram": {
+    "sources": [
+      { "name": "GitHub source", "slug": "search · review-requested", "icon": "github", "accent": "#4c86e6", "stat": "78 → 78 · 2m ago" },
+      { "name": "GitHub source", "slug": "notifications", "icon": "github", "accent": "#4c86e6", "stat": "34 → 34 · 4m ago" },
+      { "name": "GitHub source", "slug": "search · renovate", "icon": "github", "accent": "#4c86e6", "stat": "20 → 20 · 6m ago" },
+      { "name": "Slack · Grafana · PostHog", "slug": "more sources", "icon": "bolt", "accent": "#565d6a", "stat": "planned", "planned": true }
+    ],
+    "filters": [
+      { "name": "GitHub filter", "slug": "repos · labels", "stat": "78 → 31 · 2m ago" },
+      { "name": "GitHub filter", "slug": "reasons · types", "stat": "34 → 12 · 4m ago" },
+      { "name": "Function", "slug": "custom JavaScript", "icon": "braces", "stat": "20 → 20 · 6m ago" },
+      { "name": "Filter", "slug": "per-source", "stat": "planned" }
+    ],
+    "feeds": [
+      { "name": "Needs My Review", "stat": "31 → 31 · 2m ago" },
+      { "name": "My Mentions", "stat": "8 → 8 · 4m ago" },
+      { "name": "Renovate PRs", "stat": "20 → 20 · 6m ago" },
+      { "name": "Assigned", "stat": "4 → 4 · 4m ago" },
+      { "name": "Firing Alerts", "stat": "planned" }
+    ],
+    "crossLinks": [{ "from": 1, "to": 0 }],
+    "routes": [
+      { "from": 0, "to": 0, "flow": true },
+      { "from": 0, "to": 3 },
+      { "from": 1, "to": 1, "flow": true },
+      { "from": 1, "to": 3, "flow": true },
+      { "from": 2, "to": 2, "flow": true },
+      { "from": 3, "to": 4, "flow": true }
+    ]
+  },
+  "sourcesCard": {
+    "label": "Sources",
+    "hint": "what streams in",
+    "accent": "blue",
+    "items": [
+      { "icon": "github", "title": "GitHub", "meta": "issues · PRs · reviews", "tag": "1st-class" },
+      {
+        "icon": "bolt",
+        "title": "Webhooks",
+        "meta": "POST from scripts · CI · cron",
+        "tag": "live",
+        "tagAccent": "green"
+      },
+      { "icon": "slack", "title": "Slack", "meta": "messages · mentions", "tag": "planned", "tagAccent": "muted" },
+      { "icon": "grafana", "title": "Grafana", "meta": "alerts · panels", "tag": "planned", "tagAccent": "muted" },
+      { "icon": "posthog", "title": "PostHog", "meta": "product signals", "tag": "planned", "tagAccent": "muted" }
+    ]
+  },
+  "nodesCard": {
+    "label": "Nodes",
+    "hint": "every node type there is",
+    "accent": "green2",
+    "items": [
+      { "icon": "download", "title": "Source", "meta": "GitHub · webhooks" },
+      { "icon": "filter", "title": "GitHub filter", "meta": "repos · authors · labels · types" },
+      { "icon": "braces", "title": "Function", "meta": "your own JavaScript", "tag": "JS", "tagAccent": "green2" },
+      { "icon": "feed", "title": "Feed", "meta": "sorted output" },
+      { "icon": "sparkle", "title": "Action", "meta": "session · shell · message" },
+      { "icon": "bell", "title": "Notify", "meta": "one ping per change" }
+    ]
+  }
+}
