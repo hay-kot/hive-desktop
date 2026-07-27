@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -11,6 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/singleflight"
+
+	"github.com/hay-kot/hive-desktop/internal/webtools"
 )
 
 // maxBodyBytes caps a proxied request body. The desktop's largest request by
@@ -388,9 +389,5 @@ func classify(method, path string) route {
 
 // writeJSON is the shared JSON response helper for the control API.
 func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		return
-	}
+	webtools.WriteJSON(w, status, payload)
 }

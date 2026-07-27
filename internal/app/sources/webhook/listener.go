@@ -141,11 +141,14 @@ func (l *Listener) Host() string {
 	return l.host
 }
 
-// MountAPI mounts an additional handler at prefix on this listener's server,
-// so a driving adapter (the dev HTTP API) can share the loopback port instead
-// of binding a second one. The listener treats the handler as opaque. Call
-// before Start.
+// MountAPI mounts an additional handler at prefix on this listener's server so
+// a driving adapter can share the loopback port. Must be called before Start:
+// Handler() is built once there, so a later mount would be silently dropped.
 func (l *Listener) MountAPI(prefix string, h http.Handler) {
+	if l.server != nil {
+		l.logger.Warn().Str("prefix", prefix).Msg("MountAPI called after Start; handler will not be served")
+		return
+	}
 	l.apiPrefix, l.apiHandler = prefix, h
 }
 

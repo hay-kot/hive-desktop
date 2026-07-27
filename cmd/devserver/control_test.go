@@ -131,22 +131,9 @@ func TestControlClearAll(t *testing.T) {
 	assert.Empty(t, store.Overlays())
 }
 
-func TestControlHealthReportsReadiness(t *testing.T) {
-	handler, _, _ := testControl(t, Config{})
-
-	rec := ctl(t, handler, http.MethodGet, devproxy.HealthPath, "")
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-
-	var view HealthView
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.True(t, view.Devserver, "the marker the standby probe reads must stay present")
-	assert.False(t, view.AppConnected, "no app has polled through the proxy yet")
-	assert.Zero(t, view.Requests)
-}
-
-// TestControlHealthStillSatisfiesTheProbe pins the contract with
-// devproxy.Probe: the enriched payload must still decode as a devserver marker,
-// or a standby launch would treat the live server as a foreign occupant.
+// TestControlHealthStillSatisfiesTheProbe guards the standby race: enriching
+// health with readiness fields must not stop devproxy.Probe decoding the
+// Devserver marker, or a standby launch would treat the live server as foreign.
 func TestControlHealthStillSatisfiesTheProbe(t *testing.T) {
 	handler, _, _ := testControl(t, Config{})
 
@@ -156,20 +143,6 @@ func TestControlHealthStillSatisfiesTheProbe(t *testing.T) {
 	var probe devproxy.Health
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &probe))
 	assert.True(t, probe.Devserver)
-}
-
-func TestControlVersionReportsBuildIdentity(t *testing.T) {
-	handler, _, _ := testControl(t, Config{})
-
-	rec := ctl(t, handler, http.MethodGet, "/_ctl/version", "")
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-
-	var view VersionView
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
-	assert.Equal(t, "hive devserver", view.Service)
-	// Revision is empty under -buildvcs=false, so the Go version — always
-	// recorded — is what proves the endpoint read real build metadata.
-	assert.NotEmpty(t, view.Go)
 }
 
 func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {

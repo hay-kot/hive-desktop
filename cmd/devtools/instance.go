@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -126,12 +125,14 @@ func (d *devtools) prepare(fresh bool) error {
 		return err
 	}
 	existing, err := d.readLaunchIfPresent()
+	if err != nil && !errors.Is(err, errLaunchEnvUnusable) {
+		return err
+	}
+	// usable gates reuse; existing still carries the parsed ports (even when
+	// unusable) so the active-server check below sees a running dev server.
+	usable := err == nil
 	if err != nil {
-		if !errors.Is(err, errLaunchEnvUnusable) {
-			return err
-		}
 		d.logger.Warn().Err(err).Msg("existing launch.env unusable; regenerating")
-		existing = nil
 	}
 	if fresh {
 		if err := d.ensureLaunchInactive(existing); err != nil {
@@ -145,7 +146,7 @@ func (d *devtools) prepare(fresh bool) error {
 		}
 	}
 
-	if !fresh && existing != nil {
+	if !fresh && usable {
 		if err := d.validateInstance(); err == nil {
 			d.logger.Info().Str("instance", d.instanceDir).Str("launch_env", d.launchPath).Msg("reusing desktop development environment")
 			return nil
@@ -186,13 +187,13 @@ func (d *devtools) prepare(fresh bool) error {
 		return fmt.Errorf("resolve Wails port: %w", err)
 	}
 	// The webhook listener boots on so an agent can push deliveries and reach
-	// the agent HTTP API, which shares this port (ADR 0019), with no manual
-	// step. Allocated per worktree and preserved across prepares by the reuse
-	// path above.
-	webhookPort, err := resolveWebhookPort(vitePort, wailsPort)
+	// the agent HTTP API, which shares this port (ADR 0019). Preserved across
+	// prepares by the reuse path above.
+	webhookPorts, err := freePorts(1, vitePort, wailsPort)
 	if err != nil {
 		return fmt.Errorf("resolve webhook port: %w", err)
 	}
+	webhookPort := webhookPorts[0]
 	// Development runs through the shared proxy by default (ADR 0017): the
 	// address comes from the checked-in devserver config, so changing the port
 	// there reaches every worktree without editing this. Opting out is setting
@@ -237,12 +238,11 @@ func (d *devtools) reset() error {
 		return err
 	}
 	existing, err := d.readLaunchIfPresent()
-	if err != nil {
-		if !errors.Is(err, errLaunchEnvUnusable) {
-			return err
-		}
-		existing = nil
+	if err != nil && !errors.Is(err, errLaunchEnvUnusable) {
+		return err
 	}
+	// existing carries the parsed ports even when unusable, so a running dev
+	// server still blocks reset rather than having its data deleted underneath.
 	if err := d.ensureLaunchInactive(existing); err != nil {
 		return err
 	}
@@ -386,29 +386,44 @@ func installedPaths() (settings.Paths, error) {
 	return settings.ResolvePaths(bootstrap, ""), nil
 }
 
-// resolveWebhookPort allocates a free loopback port for the webhook listener,
-// avoiding the two already handed to Vite and Wails. Like those, a small
-// time-of-check/time-of-use window remains before the app binds it.
-func resolveWebhookPort(exclude ...int) (int, error) {
-	for range 20 {
+// freePorts allocates count distinct free loopback ports, none of them in
+// exclude. Every socket is held open until all are chosen so the OS hands out
+// distinct ports, then released — a small time-of-check/time-of-use window
+// remains before a caller binds one.
+func freePorts(count int, exclude ...int) ([]int, error) {
+	excluded := make(map[int]bool, len(exclude))
+	for _, p := range exclude {
+		excluded[p] = true
+	}
+	var (
+		open  []net.Listener
+		ports []int
+	)
+	defer func() {
+		for _, ln := range open {
+			_ = ln.Close()
+		}
+	}()
+	for attempts := 0; len(ports) < count; attempts++ {
+		if attempts >= count+40 {
+			return nil, fmt.Errorf("could not find %d free loopback ports", count)
+		}
 		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", "0"))
 		if err != nil {
-			return 0, fmt.Errorf("preflight webhook port: %w", err)
+			return nil, fmt.Errorf("preflight port: %w", err)
 		}
+		open = append(open, listener)
 		addr, ok := listener.Addr().(*net.TCPAddr)
 		if !ok {
-			_ = listener.Close()
-			return 0, fmt.Errorf("preflight webhook port: listener address is %T, want *net.TCPAddr", listener.Addr())
+			return nil, fmt.Errorf("preflight port: listener address is %T, want *net.TCPAddr", listener.Addr())
 		}
-		port := addr.Port
-		if err := listener.Close(); err != nil {
-			return 0, fmt.Errorf("close webhook preflight listener: %w", err)
+		if excluded[addr.Port] {
+			continue
 		}
-		if !slices.Contains(exclude, port) {
-			return port, nil
-		}
+		excluded[addr.Port] = true
+		ports = append(ports, addr.Port)
 	}
-	return 0, fmt.Errorf("no free webhook port found after 20 attempts")
+	return ports, nil
 }
 
 func resolvePort(server settings.ServerSettings, excluded int) (int, error) {
@@ -579,12 +594,14 @@ func (d *devtools) readLaunchIfPresent() (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: parse %s: %w", errLaunchEnvUnusable, d.launchPath, err)
 	}
+	// The parsed map is returned even for an unusable file, so callers can still
+	// read its ports for the active-server check before regenerating it.
 	if env[launchMarkerEnv] != d.launchPath {
-		return nil, fmt.Errorf("%w: %s is not owned by this worktree", errLaunchEnvUnusable, d.launchPath)
+		return env, fmt.Errorf("%w: %s is not owned by this worktree", errLaunchEnvUnusable, d.launchPath)
 	}
 	for _, key := range launchKeys {
 		if _, ok := env[key]; !ok {
-			return nil, fmt.Errorf("%w: %s is missing %s", errLaunchEnvUnusable, d.launchPath, key)
+			return env, fmt.Errorf("%w: %s is missing %s", errLaunchEnvUnusable, d.launchPath, key)
 		}
 	}
 	return env, nil

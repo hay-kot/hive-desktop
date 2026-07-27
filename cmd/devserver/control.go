@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -17,6 +16,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/cmd/internal/devproxy"
+	"github.com/hay-kot/hive-desktop/internal/webtools"
 )
 
 // Control is the devserver's own API: everything that drives the simulation,
@@ -49,7 +49,7 @@ func NewControl(cfg Config, store *Store, cache *Cache, proxy *Proxy, pusher *Pu
 func (c *Control) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+devproxy.HealthPath, c.handleHealth)
-	mux.HandleFunc("GET /_ctl/version", handleVersion)
+	mux.Handle("GET /_ctl/version", webtools.VersionHandler("hive devserver"))
 	mux.HandleFunc("GET /_ctl/help", c.handleHelp)
 	mux.HandleFunc("GET /_ctl/state", c.handleState)
 	mux.HandleFunc("POST /_ctl/overlay", c.handleSetOverlay)
@@ -125,12 +125,10 @@ func (c *Control) handleState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HealthView is a superset of devproxy.Health: Probe reads only Devserver and
-// ignores the readiness fields, so enriching the payload keeps the probe
-// contract.
+// HealthView is a superset of devproxy.Health: Probe reads only Devserver, so
+// the readiness fields do not change the probe contract.
 type HealthView struct {
-	Devserver bool `json:"devserver"`
-	// AppConnected is Requests > 0: an instance has fetched through the proxy.
+	Devserver      bool      `json:"devserver"`
 	AppConnected   bool      `json:"appConnected"`
 	Requests       int64     `json:"requests"`
 	UpstreamCalls  int64     `json:"upstreamCalls"`
@@ -139,9 +137,8 @@ type HealthView struct {
 	LastUpstreamAt time.Time `json:"lastUpstreamAt"`
 }
 
-// handleHealth answers the standby probe and reports readiness. Devserver is
-// written first, so the standby-vs-foreign answer never hinges on the
-// readiness read.
+// handleHealth writes Devserver first so the standby-vs-foreign answer never
+// hinges on the readiness read.
 func (c *Control) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	stats, _ := c.proxy.Snapshot()
 	writeJSON(w, http.StatusOK, HealthView{
@@ -153,36 +150,6 @@ func (c *Control) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		CacheEntries:   c.cache.Entries(),
 		LastUpstreamAt: stats.LastUpstreamAt,
 	})
-}
-
-// VersionView is the running binary's build identity, so a harness can confirm
-// the singleton is the build under test.
-type VersionView struct {
-	Service  string `json:"service"`
-	Revision string `json:"revision"`
-	Modified bool   `json:"modified"`
-	Time     string `json:"time"`
-	Go       string `json:"go"`
-}
-
-// handleVersion reads the VCS metadata Go stamps into the binary. -buildvcs=false
-// leaves Revision empty, which reads as an unknown build.
-func handleVersion(w http.ResponseWriter, _ *http.Request) {
-	view := VersionView{Service: "hive devserver"}
-	if info, ok := debug.ReadBuildInfo(); ok {
-		view.Go = info.GoVersion
-		for _, s := range info.Settings {
-			switch s.Key {
-			case "vcs.revision":
-				view.Revision = s.Value
-			case "vcs.modified":
-				view.Modified = s.Value == "true"
-			case "vcs.time":
-				view.Time = s.Value
-			}
-		}
-	}
-	writeJSON(w, http.StatusOK, view)
 }
 
 // overlayRequest is the body of POST /_ctl/overlay.

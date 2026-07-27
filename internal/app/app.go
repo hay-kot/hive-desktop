@@ -477,26 +477,21 @@ func (a *App) PublishFlowsUpdated(reason string) {
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
 }
 
-// RefreshSources forces an immediate re-poll: it drops the fetch caches so the
-// tick re-fetches rather than re-serving cached items, then drains every pull
-// source once. It returns once the event log is appended; the engine commits
-// on its own goroutine, so a caller reads back with a short retry. Mock modes
-// have no producer and report KindUnavailable.
-func (a *App) RefreshSources(ctx context.Context) error {
+// RefreshSources drops the fetch caches and drives one producer tick, returning
+// its summary. The engine commits on its own goroutine, so a caller reads back
+// with a short retry. Mock modes have no producer and report KindUnavailable.
+func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 	if a.producer == nil {
-		return Errorf(KindUnavailable, "source refresh is unavailable in this mode")
+		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
 	}
 	if a.fetchers != nil {
 		a.fetchers.InvalidateAll()
 	}
-	a.producer.Tick(ctx)
-	return nil
+	return a.producer.Tick(ctx), nil
 }
 
-// MountAPI mounts a driving adapter's handler onto the loopback webhook
-// listener at prefix, so the dev HTTP API shares the webhook port rather than
-// binding a second one. It reports false when no listener exists — the API
-// rides the webhook listener, so webhooks must be enabled. Call before Start.
+// MountAPI mounts h onto the loopback webhook listener at prefix so the HTTP API
+// shares its port. It reports false when no listener exists. Call before Start.
 func (a *App) MountAPI(prefix string, h http.Handler) bool {
 	if a.webhook == nil {
 		return false

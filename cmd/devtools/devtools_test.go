@@ -52,6 +52,14 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	assert.NotZero(t, vite)
 	assert.NotZero(t, wails)
 	assert.NotEqual(t, vite, wails)
+	// The webhook listener + agent API boot on a distinct allocated port (Item 3).
+	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
+	assert.Equal(t, "true", launch[settings.EnvAPIEnabled])
+	webhook, err := strconv.Atoi(launch[settings.EnvWebhookPort])
+	require.NoError(t, err)
+	assert.NotZero(t, webhook)
+	assert.NotEqual(t, vite, webhook)
+	assert.NotEqual(t, wails, webhook)
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "data", "hive.db"))
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
 
@@ -189,25 +197,6 @@ func TestLockRejectsDifferentOwner(t *testing.T) {
 // imports both, so it is the one place the two spellings can be compared.
 func TestDevproxyEnvNameMatchesSettings(t *testing.T) {
 	assert.Equal(t, settings.EnvGitHubAPIBase, devproxy.EnvAPIBase)
-}
-
-// A prepared worktree boots the webhook listener at a known random port and
-// flips the agent HTTP API on (ADR 0019), so a harness can push deliveries and
-// observe the pipeline with no manual step.
-func TestPrepareBootstrapsWebhookAndAPI(t *testing.T) {
-	tools, _, _ := testDevtools(t)
-	require.NoError(t, tools.prepare(false))
-
-	launch, err := tools.readLaunchIfPresent()
-	require.NoError(t, err)
-	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
-	assert.Equal(t, "true", launch[settings.EnvAPIEnabled])
-
-	webhook, err := strconv.Atoi(launch[settings.EnvWebhookPort])
-	require.NoError(t, err)
-	assert.NotZero(t, webhook)
-	assert.NotEqual(t, launch["WAILS_VITE_PORT"], launch[settings.EnvWebhookPort])
-	assert.NotEqual(t, launch["WAILS_SERVER_PORT"], launch[settings.EnvWebhookPort])
 }
 
 // A launch.env from before these keys were added must not wedge prepare: it is

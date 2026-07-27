@@ -126,16 +126,12 @@ func (p *Pusher) Push(ctx context.Context, targetName, label string, payload map
 	return p.deliver(ctx, target, label, payload)
 }
 
-// PushInline delivers to a target given by URL rather than by name. The
-// desktop's webhook port is random per install (ADR 0007), so no target can be
-// committed to config — an agent reads the base URL from Settings ▸ Webhooks
-// and supplies it per call. The target is not remembered.
+// PushInline delivers to a target given by URL rather than by name; the target
+// is not remembered.
 func (p *Pusher) PushInline(ctx context.Context, targetURL, secret, label string, payload map[string]any) (PushResult, error) {
 	return p.deliver(ctx, WebhookTarget{Name: "inline", URL: targetURL, Secret: secret}, label, payload)
 }
 
-// deliver POSTs the payload to one target and records the attempt. label names
-// the payload for the delivery log only.
 func (p *Pusher) deliver(ctx context.Context, target WebhookTarget, label string, payload map[string]any) (PushResult, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
