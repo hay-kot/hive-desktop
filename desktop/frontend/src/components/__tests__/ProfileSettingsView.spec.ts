@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import ProfileSettingsView from '../ProfileSettingsView.vue'
 
@@ -70,5 +70,40 @@ describe('ProfileSettingsView', () => {
     const wrapper = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
     await wrapper.find('[data-testid="profile-settings-close"]').trigger('click')
     expect(wrapper.emitted('close')).toHaveLength(1)
+  })
+
+  it('offers upload with no image and preview + remove with one', async () => {
+    const noImage = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
+    expect(noImage.get('[data-testid="profile-settings-image-upload"]').text()).toBe('Upload image')
+    expect(noImage.find('[data-testid="profile-settings-image-remove"]').exists()).toBe(false)
+    expect(noImage.find('[data-testid="profile-settings-image-preview"] img').exists()).toBe(false)
+
+    const withImage = mount(ProfileSettingsView, {
+      props: { profile: { ...profile, image: 'data:image/png;base64,AAAA' }, activeSection: 'general' },
+    })
+    expect(withImage.get('[data-testid="profile-settings-image-upload"]').text()).toBe('Replace image')
+    expect(withImage.get('[data-testid="profile-settings-image-preview"] img').attributes('src')).toBe('data:image/png;base64,AAAA')
+    await withImage.get('[data-testid="profile-settings-image-remove"]').trigger('click')
+    expect(withImage.emitted('clear-image')).toHaveLength(1)
+  })
+
+  it('surfaces a rejected upload from the backend', () => {
+    const wrapper = mount(ProfileSettingsView, {
+      props: { profile, activeSection: 'general', imageError: 'That image is too large.' },
+    })
+    expect(wrapper.get('[data-testid="profile-settings-image-error"]').text()).toBe('That image is too large.')
+  })
+
+  it('reads a picked file and emits it as base64', async () => {
+    const wrapper = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
+    const input = wrapper.get('[data-testid="profile-settings-image-input"]')
+    const file = new File([Uint8Array.from([1, 2, 3, 4])], 'avatar.png', { type: 'image/png' })
+    Object.defineProperty(input.element, 'files', { value: [file], configurable: true })
+    await input.trigger('change')
+
+    await vi.waitFor(() => expect(wrapper.emitted('set-image')).toHaveLength(1))
+    const [[data]] = wrapper.emitted('set-image') as [string][]
+    expect(typeof data).toBe('string')
+    expect(data.length).toBeGreaterThan(0)
   })
 })

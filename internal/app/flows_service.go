@@ -2,24 +2,28 @@ package app
 
 import (
 	"context"
+	"errors"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // FlowsService owns the flow definitions: the listing the picker renders,
-// the CRUD the editor drives, and the layout files the canvas persists.
+// the CRUD the editor drives, the layout files the canvas persists, and each
+// profile's sidebar-rail avatar.
 type FlowsService struct {
 	flows     *flow.FlowStore
 	db        *store.DB
 	creds     credentials.Store
+	images    *profileimg.Store
 	onUpdated func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, creds: creds, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, db: db, creds: creds, images: images, onUpdated: onUpdated}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -147,6 +151,8 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	if err := s.flows.Delete(id); err != nil {
 		return Wrap(err, KindInvalid, "deleting flow %q", id)
 	}
+	// A leftover avatar is orphaned data, never a reason to fail the delete.
+	_ = s.images.Delete(id)
 	s.notifyUpdated()
 	if s.db == nil {
 		return Errorf(KindUnavailable, "the desktop store is unavailable")
@@ -168,6 +174,69 @@ func (s *FlowsService) Get(_ context.Context, id string) (flow.Flow, error) {
 // untouched.
 func (s *FlowsService) Save(_ context.Context, f flow.Flow) error {
 	return Wrap(s.flows.Save(f), KindInvalid, "saving flow %q", f.ID)
+}
+
+// SetProfileImage normalizes raw into the square avatar the rail draws, stores
+// it under the data dir, and records its content hash on the flow. Replacing
+// an existing image overwrites it.
+func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte) (flow.Flow, error) {
+	if _, ok := s.flows.Get(id); !ok {
+		return flow.Flow{}, Errorf(KindNotFound, "flow %q not found", id)
+	}
+	hash, err := s.images.Set(id, raw)
+	if err != nil {
+		return flow.Flow{}, mapImageError(err)
+	}
+	f, err := s.flows.SetImage(id, hash)
+	if err != nil {
+		// The bytes landed but the reference did not; drop the orphan so a
+		// retry starts clean and nothing renders an unreferenced file.
+		_ = s.images.Delete(id)
+		return flow.Flow{}, Wrap(err, KindInternal, "recording image for flow %q", id)
+	}
+	s.notifyUpdated()
+	return f, nil
+}
+
+// ClearProfileImage removes a profile's avatar: the reference is dropped first
+// so the rail stops drawing it even if the file removal that follows fails,
+// leaving at worst an orphaned file the next set or delete reclaims.
+func (s *FlowsService) ClearProfileImage(_ context.Context, id string) (flow.Flow, error) {
+	f, err := s.flows.SetImage(id, "")
+	if err != nil {
+		return flow.Flow{}, Wrap(err, KindInvalid, "clearing image for flow %q", id)
+	}
+	_ = s.images.Delete(id)
+	s.notifyUpdated()
+	return f, nil
+}
+
+// ProfileImage returns a profile's stored avatar PNG, or nil when it has none.
+func (s *FlowsService) ProfileImage(_ context.Context, id string) ([]byte, error) {
+	data, ok, err := s.images.Get(id)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "reading image for flow %q", id)
+	}
+	if !ok {
+		return nil, nil
+	}
+	return data, nil
+}
+
+// mapImageError turns a normalization failure into a user-facing message: the
+// bad-input cases are KindInvalid so the settings view can show them verbatim,
+// while an I/O failure stays internal.
+func mapImageError(err error) error {
+	switch {
+	case errors.Is(err, profileimg.ErrEmpty):
+		return Errorf(KindInvalid, "No image was provided.")
+	case errors.Is(err, profileimg.ErrUnsupported):
+		return Errorf(KindInvalid, "That file isn't a supported image. Use PNG, JPEG, GIF, or WebP.")
+	case errors.Is(err, profileimg.ErrTooLarge):
+		return Errorf(KindInvalid, "That image is too large. Choose a smaller file.")
+	default:
+		return Wrap(err, KindInternal, "processing image")
+	}
 }
 
 // Layout returns a flow's canvas positions. A missing or broken layout file

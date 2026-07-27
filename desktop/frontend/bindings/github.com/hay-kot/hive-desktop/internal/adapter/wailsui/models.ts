@@ -45,6 +45,13 @@ export interface FlowSummary {
     "name": string;
     "enabled": boolean;
     "valid": boolean;
+
+    /**
+     * Image is the profile's avatar as a data URL, or empty when it has none
+     * (the rail falls back to the letter chip). Encoding the small stored PNG
+     * inline keeps the rail a pure prop render with no second fetch.
+     */
+    "image"?: string;
     "error"?: string;
     "warnings"?: string[] | null;
 }

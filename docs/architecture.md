@@ -57,9 +57,11 @@ individual choices; this document describes the shape everything fits into.
 > each worktree under `.hive-desktop/` (ADR 0014).
 >
 > Partly built: the first HTTP adapter exists —
-> `internal/adapter/httpapi` is an agent-facing read + reload API over
-> `app.App`, mounted onto a single loopback `http` server (on by default) that
-> also hosts the webhook listener, rather than owning one (ADR 0021). The full
+> `internal/adapter/httpapi` is an agent-facing control surface over `app.App`
+> (read, reload, and mutations like setting a profile avatar), mounted onto a
+> single loopback `http` server (on by default) that also hosts the webhook
+> listener, rather than owning one (ADR 0021). It grows toward full agentic
+> control, with the same core methods later exposed as MCP tools. The full
 > REST + SSE product surface and the MCP adapter are still absent.
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
@@ -283,7 +285,8 @@ internal/
       windowservice.go  tray.go  focusstate.go  updater.go  notify.go
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route.
-                                  #   First slice built: an agent read+reload API
+                                  #   Built: an agent-facing control surface
+                                  #   (read, reload, mutate — e.g. profile avatars)
                                   #   on the shared loopback http server that also
                                   #   hosts the webhook listener (ADR 0021), in
                                   #   the errchain shape (ADR 0022): routes.go +
@@ -488,6 +491,17 @@ User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 `$XDG_CONFIG_HOME/hive/desktop/` so it can be dotfiles-managed. App-local
 state (SQLite: items, triage, offsets, queued commands) lives under the data
 dir. Respect the boundary when adding persistence.
+
+A profile's avatar is the worked example of an asset that straddles the two
+(ADR 0025): the normalized PNG is app-local state at
+`<StateDir>/assets/profiles/<flow-id>.png` (`internal/app/profileimg`), while
+the flow YAML records only its content hash (`image:`). Config stays small and
+text; a reference with no file — a config synced to a machine without its data
+dir — reads as no image and the rail falls back to the letter chip, never an
+error. The reference is owned by `FlowsService`'s image methods, not the graph
+editor: `FlowStore.Save` preserves whatever the loaded flow declares, since the
+editor round-trips only `{id, name, enabled, nodes, wires}` and would otherwise
+drop the key.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
 `notifications`, `appearance`, `webhooks`, `keybindings`, and `development`
@@ -759,10 +773,11 @@ The target is reached in this order; each step is independently shippable.
    graph from its caller.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle
    (the lifecycle half is blocked on appkit — see
-   [Background lifecycle](#background-lifecycle)). **In progress:** the first
-   HTTP slice is an agent read+reload API on a shared loopback `http` server
-   (on by default) that also hosts the webhook listener (ADR 0021); the full
-   REST + SSE surface and MCP are still to come.
+   [Background lifecycle](#background-lifecycle)). **In progress:** the HTTP
+   slice is an agent-facing control surface (read, reload, and mutations like
+   profile avatars) on a shared loopback `http` server (on by default) that
+   also hosts the webhook listener (ADR 0021), growing toward full agentic
+   control; the full REST + SSE surface and MCP are still to come.
 
 ### Data that must survive
 

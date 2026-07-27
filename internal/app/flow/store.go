@@ -119,9 +119,17 @@ func (s *FlowStore) Save(f Flow) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
 
 	if _, err := validateFlow(&f, s.refs); err != nil {
 		return fmt.Errorf("flow %q: %w", f.ID, err)
+	}
+
+	// The avatar reference is owned by SetImage, not the graph editor, which
+	// does not round-trip it — take whatever the loaded flow already declares
+	// so a graph save never drops the image.
+	if cur, ok := s.flows[f.ID]; ok {
+		f.Image = cur.Image
 	}
 
 	path := filepath.Join(s.dir, f.ID+".yaml")
@@ -129,6 +137,36 @@ func (s *FlowStore) Save(f Flow) error {
 		return err
 	}
 	return s.reloadLocked()
+}
+
+// SetImage sets a flow's avatar reference — the content hash of its stored
+// image, or "" to clear it — without touching its graph or other fields. Like
+// SetEnabled it reads the file directly rather than the possibly-stale cached
+// snapshot, so a concurrent external graph edit is not reverted.
+func (s *FlowStore) SetImage(id, hash string) (Flow, error) {
+	if !validSlug(id) {
+		return Flow{}, fmt.Errorf("flow: id %q is not a valid slug", id)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	path := filepath.Join(s.dir, id+".yaml")
+	f, _, err := LoadFlow(path, s.refs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Flow{}, fmt.Errorf("flow %q not found", id)
+		}
+		return Flow{}, err
+	}
+	f.Image = hash
+	if err := SaveFlow(path, f); err != nil {
+		return Flow{}, err
+	}
+	if err := s.reloadLocked(); err != nil {
+		return Flow{}, err
+	}
+	return s.flows[id], nil
 }
 
 // Create writes a new flow (a new "profile") named name: it slugifies name to

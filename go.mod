@@ -22,6 +22,7 @@ require (
 	github.com/urfave/cli/v3 v3.10.1
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.117
 	github.com/zalando/go-keyring v0.2.8
+	golang.org/x/image v0.43.0
 	golang.org/x/mod v0.38.0
 	golang.org/x/sync v0.22.0
 	gopkg.in/yaml.v3 v3.0.1

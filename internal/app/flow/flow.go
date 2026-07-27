@@ -29,8 +29,14 @@ type Flow struct {
 	Name      string          `json:"name"`
 	Enabled   bool            `json:"enabled"`
 	Resurface ResurfacePolicy `json:"resurface,omitempty"`
-	Nodes     []Node          `json:"nodes"`
-	Wires     []Wire          `json:"wires"`
+	// Image is the content hash of the profile's avatar, whose normalized PNG
+	// lives in the app data dir (see internal/app/profileimg). It is owned by
+	// SetImage, not the graph editor: FlowStore.Save preserves whatever is on
+	// disk so a graph save never drops it. Empty means "no avatar" — the rail
+	// falls back to the letter chip.
+	Image string `json:"image,omitempty"`
+	Nodes []Node `json:"nodes"`
+	Wires []Wire `json:"wires"`
 }
 
 // Wire is a directed edge from one node's output port to another node's
@@ -49,6 +55,7 @@ type flowFile struct {
 	Name      string          `yaml:"name,omitempty"`
 	Enabled   *bool           `yaml:"enabled,omitempty"`
 	Resurface ResurfacePolicy `yaml:"resurface,omitempty"`
+	Image     string          `yaml:"image,omitempty"`
 	Nodes     []Node          `yaml:"nodes"`
 	Wires     []Wire          `yaml:"wires,omitempty"`
 }

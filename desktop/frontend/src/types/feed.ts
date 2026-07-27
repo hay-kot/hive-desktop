@@ -58,6 +58,9 @@ export type FeedTree = SidebarNode[]
 export interface Profile {
   id: string
   letter: string
+  // image is the avatar as a data URL when the profile has one; the rail draws
+  // it in place of the letter chip. Undefined means no image is set.
+  image?: string
   name: string
   enabled: boolean
   sourceSummary: string

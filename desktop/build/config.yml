@@ -14,9 +14,10 @@ info:
   comments: ""
   version: "0.1.0"
 
-# Dev mode configuration
+# root_path is the repo root so the watcher sees internal/** and cmd/**;
+# executes set `dir: desktop` to run the build from the app package.
 dev_mode:
-  root_path: .
+  root_path: ..
   log_level: warn
   debounce: 1000
   ignore:
@@ -37,8 +38,11 @@ dev_mode:
     git_ignore: true
   executes:
     - cmd: wails3 build DEV=true
+      dir: desktop
       type: blocking
     - cmd: wails3 task common:dev:frontend
+      dir: desktop
       type: background
     - cmd: wails3 task run
+      dir: desktop
       type: primary
