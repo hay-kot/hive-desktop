@@ -191,6 +191,51 @@ func TestDevproxyEnvNameMatchesSettings(t *testing.T) {
 	assert.Equal(t, settings.EnvGitHubAPIBase, devproxy.EnvAPIBase)
 }
 
+// A prepared worktree boots the webhook listener at a known random port and
+// flips the agent HTTP API on (ADR 0018), so a harness can push deliveries and
+// observe the pipeline with no manual step.
+func TestPrepareBootstrapsWebhookAndAPI(t *testing.T) {
+	tools, _, _ := testDevtools(t)
+	require.NoError(t, tools.prepare(false))
+
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
+	assert.Equal(t, "true", launch[settings.EnvAPIEnabled])
+
+	webhook, err := strconv.Atoi(launch[settings.EnvWebhookPort])
+	require.NoError(t, err)
+	assert.NotZero(t, webhook)
+	assert.NotEqual(t, launch["WAILS_VITE_PORT"], launch[settings.EnvWebhookPort])
+	assert.NotEqual(t, launch["WAILS_SERVER_PORT"], launch[settings.EnvWebhookPort])
+}
+
+// A launch.env from before these keys were added must not wedge prepare: it is
+// regenerated rather than reported as an error.
+func TestPrepareRegeneratesStaleLaunchEnv(t *testing.T) {
+	tools, _, _ := testDevtools(t)
+	require.NoError(t, tools.prepare(false))
+
+	stale := map[string]string{
+		settings.EnvDataDir:       filepath.Join(tools.instanceDir, "data"),
+		settings.EnvConfigDir:     filepath.Join(tools.instanceDir, "config"),
+		settings.EnvGitHubAPIBase: "http://127.0.0.1:7777",
+		"WAILS_VITE_HOST":         "127.0.0.1",
+		"WAILS_VITE_PORT":         "1",
+		"WAILS_SERVER_HOST":       "127.0.0.1",
+		"WAILS_SERVER_PORT":       "2",
+		launchMarkerEnv:           tools.launchPath,
+	}
+	require.NoError(t, writeDotenvAtomic(tools.launchPath, stale))
+	_, err := tools.readLaunchIfPresent()
+	require.ErrorIs(t, err, errLaunchEnvUnusable, "the stale file is detected as unusable")
+
+	require.NoError(t, tools.prepare(false), "prepare regenerates instead of failing")
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
+}
+
 // Development is proxied by default (ADR 0017): prepare must write the API base
 // into launch.env so a worktree opts in with no manual step, and it must take
 // the address from the checked-in devserver config.

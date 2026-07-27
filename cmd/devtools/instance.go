@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,12 +27,21 @@ var launchKeys = []string{
 	settings.EnvConfigDir,
 	settings.EnvGitHubAPIBase,
 	settings.EnvLogLevel,
+	settings.EnvWebhookEnabled,
+	settings.EnvWebhookPort,
+	settings.EnvAPIEnabled,
 	"WAILS_VITE_HOST",
 	"WAILS_VITE_PORT",
 	"WAILS_SERVER_HOST",
 	"WAILS_SERVER_PORT",
 	launchMarkerEnv,
 }
+
+// errLaunchEnvUnusable marks a launch.env that exists but cannot be reused —
+// stale (missing a key added since it was written), corrupt, or copied from
+// another worktree. Prepare and reset regenerate rather than fail on it, so a
+// worktree from before a launch-key change opts in with no manual step.
+var errLaunchEnvUnusable = errors.New("launch.env is unusable")
 
 type devtools struct {
 	worktree    string
@@ -117,7 +127,11 @@ func (d *devtools) prepare(fresh bool) error {
 	}
 	existing, err := d.readLaunchIfPresent()
 	if err != nil {
-		return err
+		if !errors.Is(err, errLaunchEnvUnusable) {
+			return err
+		}
+		d.logger.Warn().Err(err).Msg("existing launch.env unusable; regenerating")
+		existing = nil
 	}
 	if fresh {
 		if err := d.ensureLaunchInactive(existing); err != nil {
@@ -171,6 +185,14 @@ func (d *devtools) prepare(fresh bool) error {
 	if err != nil {
 		return fmt.Errorf("resolve Wails port: %w", err)
 	}
+	// The webhook listener boots on so an agent can push deliveries and reach
+	// the agent HTTP API, which shares this port (ADR 0018), with no manual
+	// step. Allocated per worktree and preserved across prepares by the reuse
+	// path above.
+	webhookPort, err := resolveWebhookPort(vitePort, wailsPort)
+	if err != nil {
+		return fmt.Errorf("resolve webhook port: %w", err)
+	}
 	// Development runs through the shared proxy by default (ADR 0017): the
 	// address comes from the checked-in devserver config, so changing the port
 	// there reaches every worktree without editing this. Opting out is setting
@@ -179,15 +201,18 @@ func (d *devtools) prepare(fresh bool) error {
 	proxyListen := devproxy.ListenFromConfig(d.worktree)
 
 	env := map[string]string{
-		settings.EnvDataDir:       dataDir,
-		settings.EnvConfigDir:     configDir,
-		settings.EnvGitHubAPIBase: devproxy.BaseURL(proxyListen),
-		settings.EnvLogLevel:      "debug",
-		"WAILS_VITE_HOST":         cfg.Development.Vite.Host,
-		"WAILS_VITE_PORT":         strconv.Itoa(vitePort),
-		"WAILS_SERVER_HOST":       cfg.Development.Wails.Host,
-		"WAILS_SERVER_PORT":       strconv.Itoa(wailsPort),
-		launchMarkerEnv:           d.launchPath,
+		settings.EnvDataDir:        dataDir,
+		settings.EnvConfigDir:      configDir,
+		settings.EnvGitHubAPIBase:  devproxy.BaseURL(proxyListen),
+		settings.EnvLogLevel:       "debug",
+		settings.EnvWebhookEnabled: "true",
+		settings.EnvWebhookPort:    strconv.Itoa(webhookPort),
+		settings.EnvAPIEnabled:     "true",
+		"WAILS_VITE_HOST":          cfg.Development.Vite.Host,
+		"WAILS_VITE_PORT":          strconv.Itoa(vitePort),
+		"WAILS_SERVER_HOST":        cfg.Development.Wails.Host,
+		"WAILS_SERVER_PORT":        strconv.Itoa(wailsPort),
+		launchMarkerEnv:            d.launchPath,
 	}
 	if err := writeDotenvAtomic(d.launchPath, env); err != nil {
 		return err
@@ -202,6 +227,7 @@ func (d *devtools) prepare(fresh bool) error {
 		Str("launch_env", d.launchPath).
 		Str("vite", net.JoinHostPort(cfg.Development.Vite.Host, strconv.Itoa(vitePort))).
 		Str("wails", net.JoinHostPort(cfg.Development.Wails.Host, strconv.Itoa(wailsPort))).
+		Str("webhook", net.JoinHostPort("127.0.0.1", strconv.Itoa(webhookPort))).
 		Msg("desktop development environment ready")
 	return nil
 }
@@ -212,7 +238,10 @@ func (d *devtools) reset() error {
 	}
 	existing, err := d.readLaunchIfPresent()
 	if err != nil {
-		return err
+		if !errors.Is(err, errLaunchEnvUnusable) {
+			return err
+		}
+		existing = nil
 	}
 	if err := d.ensureLaunchInactive(existing); err != nil {
 		return err
@@ -355,6 +384,31 @@ func installedPaths() (settings.Paths, error) {
 		return settings.Paths{}, fmt.Errorf("load installed bootstrap: %w", err)
 	}
 	return settings.ResolvePaths(bootstrap, ""), nil
+}
+
+// resolveWebhookPort allocates a free loopback port for the webhook listener,
+// avoiding the two already handed to Vite and Wails. Like those, a small
+// time-of-check/time-of-use window remains before the app binds it.
+func resolveWebhookPort(exclude ...int) (int, error) {
+	for range 20 {
+		listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", "0"))
+		if err != nil {
+			return 0, fmt.Errorf("preflight webhook port: %w", err)
+		}
+		addr, ok := listener.Addr().(*net.TCPAddr)
+		if !ok {
+			_ = listener.Close()
+			return 0, fmt.Errorf("preflight webhook port: listener address is %T, want *net.TCPAddr", listener.Addr())
+		}
+		port := addr.Port
+		if err := listener.Close(); err != nil {
+			return 0, fmt.Errorf("close webhook preflight listener: %w", err)
+		}
+		if !slices.Contains(exclude, port) {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no free webhook port found after 20 attempts")
 }
 
 func resolvePort(server settings.ServerSettings, excluded int) (int, error) {
@@ -523,14 +577,14 @@ func (d *devtools) readLaunchIfPresent() (map[string]string, error) {
 	}
 	env, err := parseDotenv(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s: %w", d.launchPath, err)
+		return nil, fmt.Errorf("%w: parse %s: %w", errLaunchEnvUnusable, d.launchPath, err)
 	}
 	if env[launchMarkerEnv] != d.launchPath {
-		return nil, fmt.Errorf("%s is not owned by this worktree", d.launchPath)
+		return nil, fmt.Errorf("%w: %s is not owned by this worktree", errLaunchEnvUnusable, d.launchPath)
 	}
 	for _, key := range launchKeys {
 		if _, ok := env[key]; !ok {
-			return nil, fmt.Errorf("%s is missing %s", d.launchPath, key)
+			return nil, fmt.Errorf("%w: %s is missing %s", errLaunchEnvUnusable, d.launchPath, key)
 		}
 	}
 	return env, nil
