@@ -286,45 +286,90 @@ func TestConfirmTerminal_HonorsCooldownWithoutRequest(t *testing.T) {
 	live.cooldownErr = sourcehttp.ErrRateLimited
 	live.mu.Unlock()
 
-	_, err := live.ConfirmTerminal(t.Context(), "acme/repo", 42, false)
+	_, err := live.ConfirmTerminal(t.Context(), []AbsentRef{{Repo: "acme/repo", Num: 42}})
 	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 	assert.Zero(t, requests, "an active cooldown must suppress terminal hydration")
 }
 
-func TestConfirmTerminal_SelectsIssueOrPullHydration(t *testing.T) {
+func TestConfirmTerminal_BatchesRefsIntoOneRequest(t *testing.T) {
 	var mu sync.Mutex
-	var paths []string
+	requests := 0
 	live := newLiveProviderWithHandler(t, func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		paths = append(paths, r.URL.Path)
+		requests++
 		mu.Unlock()
+		assert.Equal(t, "/graphql", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"number":42,"state":"CLOSED","merged":true,"updated_at":"2026-07-22T12:00:00Z"}`))
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"r0": itemStateNode("Issue", 10, "OPEN", "2026-07-22T12:00:00Z"),
+			"r1": itemStateNode("PullRequest", 20, "MERGED", "2026-07-22T12:01:00Z"),
+			"r2": itemStateNode("Issue", 30, "CLOSED", "2026-07-22T12:02:00Z"),
+		}})
 	})
-	fixedNow := time.Date(2026, 7, 22, 12, 0, 0, 0, time.UTC)
-	live.now = func() time.Time { return fixedNow }
 
-	tests := []struct {
-		name       string
-		isPR       bool
-		path       string
-		wantMerged bool
-	}{
-		{name: "issue", path: "/repos/acme/repo/issues/42"},
-		{name: "pull request", isPR: true, path: "/repos/acme/repo/pulls/42", wantMerged: true},
+	refs := []AbsentRef{
+		{Repo: "acme/repo", Num: 10},
+		{Repo: "acme/repo", Num: 20},
+		{Repo: "acme/repo", Num: 30},
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			issue, err := live.ConfirmTerminal(t.Context(), "acme/repo", 42, tt.isPR)
-			require.NoError(t, err)
-			assert.Equal(t, "closed", issue.State)
-			assert.Equal(t, tt.wantMerged, issue.Merged)
-		})
-	}
+	states, err := live.ConfirmTerminal(t.Context(), refs)
+	require.NoError(t, err)
 
 	mu.Lock()
-	defer mu.Unlock()
-	assert.Equal(t, []string{"/repos/acme/repo/issues/42", "/repos/acme/repo/pulls/42"}, paths)
+	assert.Equal(t, 1, requests, "all refs are resolved in one GraphQL request")
+	mu.Unlock()
+
+	require.Len(t, states, 3)
+	assert.Equal(t, "open", states[0].State)
+	assert.True(t, states[0].Found)
+	assert.Equal(t, "merged", states[1].State)
+	assert.True(t, states[1].Found)
+	assert.Equal(t, "closed", states[2].State)
+	assert.True(t, states[2].Found)
+}
+
+func TestConfirmTerminal_MalformedRefIsNotFound(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	live := newLiveProviderWithHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{
+			"r0": itemStateNode("Issue", 42, "OPEN", "2026-07-22T12:00:00Z"),
+		}})
+	})
+
+	refs := []AbsentRef{
+		{Repo: "no-slash", Num: 1},
+		{Repo: "acme/repo", Num: 0},
+		{Repo: "acme/repo", Num: 42},
+	}
+	states, err := live.ConfirmTerminal(t.Context(), refs)
+	require.NoError(t, err)
+
+	mu.Lock()
+	assert.Equal(t, 1, requests, "only the valid ref reaches the wire")
+	mu.Unlock()
+
+	require.Len(t, states, 3)
+	assert.False(t, states[0].Found)
+	assert.False(t, states[1].Found)
+	assert.True(t, states[2].Found)
+	assert.Equal(t, "open", states[2].State)
+}
+
+func itemStateNode(typename string, number int, state, updatedAt string) map[string]any {
+	return map[string]any{
+		"issueOrPullRequest": map[string]any{
+			"__typename": typename,
+			"number":     number,
+			"state":      state,
+			"updatedAt":  updatedAt,
+			"repository": map[string]any{"nameWithOwner": "acme/repo"},
+		},
+	}
 }
 
 func TestCooldown_ServesStale(t *testing.T) {

@@ -416,36 +416,56 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 	}
 }
 
-// ConfirmTerminal hydrates an item that disappeared from a source result.
-// The caller uses its state to distinguish terminal lifecycle changes from
-// non-terminal query churn. It uses the same token and rate-limit cooldown as
-// polling.
-func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int, isPR bool) (ghclient.Issue, error) {
+// AbsentRef identifies one item that disappeared from a source result and
+// needs its current lifecycle state confirmed.
+type AbsentRef struct {
+	Repo string
+	Num  int
+}
+
+// ConfirmTerminal hydrates the current state of items that disappeared from a
+// source result. The caller uses each state to distinguish terminal lifecycle
+// changes from non-terminal query churn. It uses the same token and
+// rate-limit cooldown as polling.
+//
+// A ref whose repo does not split into owner/name, or whose number is not
+// positive, comes back Found: false rather than failing the batch.
+func (p *LiveProvider) ConfirmTerminal(ctx context.Context, refs []AbsentRef) ([]ghclient.ItemState, error) {
 	if cooling, err := p.inCooldown(); cooling {
-		return ghclient.Issue{}, err
-	}
-	parts := strings.SplitN(repo, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || num <= 0 {
-		return ghclient.Issue{}, fmt.Errorf("feed: invalid GitHub item %q#%d", repo, num)
+		return nil, err
 	}
 	token, err := p.tokens()
 	if err != nil {
-		return ghclient.Issue{}, err
+		return nil, err
 	}
 	if token == "" {
-		return ghclient.Issue{}, ErrNotAuthenticated
+		return nil, ErrNotAuthenticated
 	}
+
+	out := make([]ghclient.ItemState, len(refs))
+	itemRefs := make([]ghclient.ItemRef, 0, len(refs))
+	originalIndex := make([]int, 0, len(refs))
+	for i, ref := range refs {
+		owner, name, ok := strings.Cut(ref.Repo, "/")
+		if !ok || owner == "" || name == "" || ref.Num <= 0 {
+			continue
+		}
+		itemRefs = append(itemRefs, ghclient.ItemRef{Owner: owner, Name: name, Number: ref.Num})
+		originalIndex = append(originalIndex, i)
+	}
+	if len(itemRefs) == 0 {
+		return out, nil
+	}
+
 	client := p.client.WithTokenCopy(token)
-	var issue ghclient.Issue
-	if isPR {
-		issue, err = client.GetPullRequest(ctx, parts[0], parts[1], num)
-	} else {
-		issue, err = client.GetIssue(ctx, parts[0], parts[1], num)
+	states, err := client.ItemStates(ctx, itemRefs)
+	for j, st := range states {
+		out[originalIndex[j]] = st
 	}
 	if errors.Is(err, sourcehttp.ErrRateLimited) {
 		p.noteRateLimit(ctx, err)
 	}
-	return issue, err
+	return out, err
 }
 
 func (p *LiveProvider) setCache(key string, cached *cachedSource) {

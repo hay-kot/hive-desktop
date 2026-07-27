@@ -3,6 +3,8 @@ package ingest
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -36,34 +38,42 @@ func capableInstance(flowID, nodeID string, pull connector.PullSource, classifie
 
 type countingAbsence struct{ calls atomic.Int32 }
 
-func (c *countingAbsence) ConfirmAbsence(context.Context, store.Observation) (store.AbsenceVerdict, error) {
+func (c *countingAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
 	c.calls.Add(1)
-	return store.AbsenceVerdict{}, nil
+	return map[string]store.AbsenceVerdict{}, nil
 }
 
 type payloadHydratingAbsence struct {
-	calls     int
-	observed  store.Observation
-	updatedAt int64
-	terminal  bool
+	calls      int
+	batchSizes []int
+	observed   store.Observation
+	updatedAt  int64
+	terminal   bool
 }
 
-func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
+func (c *payloadHydratingAbsence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
 	c.calls++
-	c.observed = prev
-	var item feed.Item
-	if err := json.Unmarshal(prev.Payload, &item); err != nil {
-		return store.AbsenceVerdict{}, err
+	c.batchSizes = append(c.batchSizes, len(previous))
+	if len(previous) > 0 {
+		c.observed = previous[0]
 	}
-	item.UpdatedAt = c.updatedAt
-	payload, err := json.Marshal(item)
-	if err != nil {
-		return store.AbsenceVerdict{}, err
+	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+	for _, prev := range previous {
+		var item feed.Item
+		if err := json.Unmarshal(prev.Payload, &item); err != nil {
+			return nil, err
+		}
+		item.UpdatedAt = c.updatedAt
+		payload, err := json.Marshal(item)
+		if err != nil {
+			return nil, err
+		}
+		current := prev
+		current.Payload = payload
+		current.ObservedAt = item.UpdatedAt
+		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: c.terminal}
 	}
-	current := prev
-	current.Payload = payload
-	current.ObservedAt = item.UpdatedAt
-	return store.AbsenceVerdict{Current: &current, Terminal: c.terminal}, nil
+	return verdicts, nil
 }
 
 type activeAbsenceClassifier struct{}
@@ -141,4 +151,100 @@ func TestProducerIngestsNonTerminalAbsenceConfirmation(t *testing.T) {
 	assert.Equal(t, store.LifecycleActive.String(), lifecycle)
 	assert.Nil(t, archivedAt)
 	assert.Equal(t, int64(200), lastEventAt)
+}
+
+func TestProducerConfirmsAbsentItemsInOneCall(t *testing.T) {
+	db := openTestPipelineDB(t)
+	const absentCount = 250
+	batch := make([]Msg, absentCount)
+	for i := range absentCount {
+		item := feed.Item{ID: fmt.Sprintf("acme/repo#%d", i+1), Title: fmt.Sprintf("item %d", i+1), UpdatedAt: 100}
+		payload, err := json.Marshal(item)
+		require.NoError(t, err)
+		batch[i] = Msg{Topic: "source:profile/source", Key: item.ID, Payload: payload}
+	}
+	src := &fakeSource{batches: [][]Msg{batch}}
+	absence := &payloadHydratingAbsence{updatedAt: 200, terminal: false}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+	producer.Tick(t.Context())
+
+	require.Len(t, absence.batchSizes, 1, "one ConfirmAbsence call per tick regardless of how many keys are absent")
+	assert.Equal(t, absentCount, absence.batchSizes[0])
+}
+
+type partialAbsence struct {
+	verdicts map[string]store.AbsenceVerdict
+}
+
+func (p partialAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
+	return p.verdicts, errors.New("boom")
+}
+
+func TestProducerIngestsPartialAbsenceBatch(t *testing.T) {
+	db := openTestPipelineDB(t)
+	itemA := feed.Item{ID: "acme/repo#1", Title: "A", UpdatedAt: 100}
+	payloadA, err := json.Marshal(itemA)
+	require.NoError(t, err)
+	itemB := feed.Item{ID: "acme/repo#2", Title: "B", UpdatedAt: 100}
+	payloadB, err := json.Marshal(itemB)
+	require.NoError(t, err)
+	src := &fakeSource{batches: [][]Msg{{
+		{Topic: "source:profile/source", Key: itemA.ID, Payload: payloadA},
+		{Topic: "source:profile/source", Key: itemB.ID, Payload: payloadB},
+	}}}
+
+	currentA := store.Observation{ExternalID: itemA.ID, SourceKind: "github", Title: "A updated", Payload: payloadA, ObservedAt: 200}
+	currentB := store.Observation{ExternalID: itemB.ID, SourceKind: "github", Title: "B updated", Payload: payloadB, ObservedAt: 200}
+	absence := partialAbsence{verdicts: map[string]store.AbsenceVerdict{
+		itemA.ID: {Current: &currentA},
+		itemB.ID: {Current: &currentB},
+	}}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+	producer.Tick(t.Context())
+
+	var count int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM inbox_item`).Scan(&count))
+	assert.Equal(t, 2, count, "both resolved verdicts are ingested despite the confirmer's error")
+}
+
+type emptyAbsence struct{}
+
+func (emptyAbsence) ConfirmAbsence(context.Context, []store.Observation) (map[string]store.AbsenceVerdict, error) {
+	return map[string]store.AbsenceVerdict{}, nil
+}
+
+func TestProducerKeepsNotFoundItems(t *testing.T) {
+	db := openTestPipelineDB(t)
+	item := feed.Item{ID: "acme/repo#1", Title: "A", UpdatedAt: 100}
+	payload, err := json.Marshal(item)
+	require.NoError(t, err)
+	src := &fakeSource{batches: [][]Msg{{
+		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
+	}}}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, emptyAbsence{}),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+	producer.Tick(t.Context())
+
+	var count int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM inbox_item`).Scan(&count))
+	assert.Equal(t, 1, count, "an item with no verdict is not re-ingested")
+
+	var archivedAt *int64
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT archived_at FROM inbox_item`).Scan(&archivedAt))
+	assert.Nil(t, archivedAt, "an item with no verdict is not archived")
+
+	keys, err := db.ListSourceHeadKeys(t.Context(), "source:profile/source")
+	require.NoError(t, err)
+	assert.Contains(t, keys, item.ID, "source_head keeps the item when the confirmer has no answer")
 }

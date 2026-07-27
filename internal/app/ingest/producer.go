@@ -246,6 +246,8 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
 	}
+
+	prevs := make([]store.Observation, 0, len(keys))
 	for _, key := range keys {
 		if _, present := observed[key]; present {
 			continue
@@ -259,19 +261,27 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// Reconstruct the prior observation from that payload so an absence
 		// confirmer that starts from prev retains the item's title, URL, and
 		// upstream observation time when it returns a hydrated Current.
-		prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
-		verdict, err := instance.Absence.ConfirmAbsence(ctx, prev)
-		debugPause(ctx, pr.pauseIngest)
-		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
+		prevs = append(prevs, observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope))
+	}
+	if len(prevs) == 0 {
+		return
+	}
+
+	verdicts, err := instance.Absence.ConfirmAbsence(ctx, prevs)
+	debugPause(ctx, pr.pauseIngest)
+	if err != nil {
+		// A partial failure still resolves some verdicts; those are ingested
+		// below rather than discarded.
+		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: absence confirmation failed")
+	}
+	for _, prev := range prevs {
+		v, ok := verdicts[prev.ExternalID]
+		if !ok || v.Current == nil {
 			continue
 		}
-		if verdict.Current == nil {
-			continue
-		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
+		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence ingestion failed")
+			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
 		}
 		if result.Wrote {

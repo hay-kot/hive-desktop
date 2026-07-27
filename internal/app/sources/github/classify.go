@@ -7,36 +7,65 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-type absenceConfirmer struct{ live *feed.LiveProvider }
+type terminalConfirmer interface {
+	ConfirmTerminal(ctx context.Context, refs []feed.AbsentRef) ([]ghclient.ItemState, error)
+}
 
-func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
-	var item feed.Item
-	if err := json.Unmarshal(prev.Payload, &item); err != nil {
-		return store.AbsenceVerdict{}, fmt.Errorf("decoding GitHub observation: %w", err)
+type absenceConfirmer struct{ live terminalConfirmer }
+
+// resolvedAbsence pairs a prior observation with its decoded feed item, kept
+// index-parallel to the refs sent to ConfirmTerminal.
+type resolvedAbsence struct {
+	observation store.Observation
+	item        feed.Item
+}
+
+func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+	resolvable := make([]resolvedAbsence, 0, len(previous))
+	refs := make([]feed.AbsentRef, 0, len(previous))
+	for _, observation := range previous {
+		var item feed.Item
+		if err := json.Unmarshal(observation.Payload, &item); err != nil {
+			continue
+		}
+		owner, name, ok := strings.Cut(item.Repo, "/")
+		if item.Num <= 0 || !ok || owner == "" || name == "" {
+			continue
+		}
+		resolvable = append(resolvable, resolvedAbsence{observation: observation, item: item})
+		refs = append(refs, feed.AbsentRef{Repo: item.Repo, Num: item.Num})
 	}
-	issue, err := c.live.ConfirmTerminal(ctx, item.Repo, item.Num, item.Kind == "PR")
-	if err != nil {
-		return store.AbsenceVerdict{}, err
+
+	states, err := c.live.ConfirmTerminal(ctx, refs)
+
+	verdicts := make(map[string]store.AbsenceVerdict)
+	for i, st := range states {
+		if !st.Found {
+			continue
+		}
+		observation, item := resolvable[i].observation, resolvable[i].item
+		item.State = st.State
+		item.UpdatedAt = st.UpdatedAt.UnixMilli()
+		payload, marshalErr := json.Marshal(item)
+		if marshalErr != nil {
+			continue
+		}
+		current := observation
+		// source_head stores only payload. Set display metadata from its decoded
+		// feed item so absence hydration never overwrites the inbox with blanks.
+		current.Title, current.URL = item.Title, item.URL
+		current.Payload, current.ObservedAt = payload, item.UpdatedAt
+		verdicts[observation.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: terminalState(st.State)}
 	}
-	state := issue.State
-	if issue.Merged {
-		state = "merged"
-	}
-	item.State = state
-	item.UpdatedAt = issue.UpdatedAt.UnixMilli()
-	payload, err := json.Marshal(item)
-	if err != nil {
-		return store.AbsenceVerdict{}, err
-	}
-	current := prev
-	// source_head stores only payload. Set display metadata from its decoded
-	// feed item so absence hydration never overwrites the inbox with blanks.
-	current.Title, current.URL = item.Title, item.URL
-	current.Payload, current.ObservedAt = payload, item.UpdatedAt
-	return store.AbsenceVerdict{Current: &current, Terminal: state == "closed" || state == "merged"}, nil
+	return verdicts, err
+}
+
+func terminalState(state string) bool {
+	return state == "closed" || state == "merged"
 }
 
 type classifier struct{ absence store.AbsenceConfirmer }
@@ -45,8 +74,8 @@ func newClassifier(absence store.AbsenceConfirmer) *classifier {
 	return &classifier{absence: absence}
 }
 
-func (c *classifier) ConfirmAbsence(ctx context.Context, prev store.Observation) (store.AbsenceVerdict, error) {
-	return c.absence.ConfirmAbsence(ctx, prev)
+func (c *classifier) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+	return c.absence.ConfirmAbsence(ctx, previous)
 }
 
 func (c *classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
@@ -55,7 +84,7 @@ func (c *classifier) Classify(previous *store.Observation, current store.Observa
 	if cur.State == "open" {
 		lifecycle = store.LifecycleActive
 	}
-	if cur.State == "closed" || cur.State == "merged" {
+	if terminalState(cur.State) {
 		lifecycle = store.LifecycleTerminal
 	}
 	out := store.Classification{Kind: "updated", Transition: store.TransitionNone, Attention: store.AttentionTrivial, Lifecycle: lifecycle, SourceState: cur.State}
@@ -65,8 +94,8 @@ func (c *classifier) Classify(previous *store.Observation, current store.Observa
 		return out
 	}
 	prev := decodeGithub(previous.Payload)
-	prevTerminal := prev.State == "closed" || prev.State == "merged"
-	curTerminal := cur.State == "closed" || cur.State == "merged"
+	prevTerminal := terminalState(prev.State)
+	curTerminal := terminalState(cur.State)
 	switch {
 	case !prevTerminal && curTerminal:
 		out.Kind, out.Summary, out.Transition, out.Attention, out.ArchivedReason = cur.State, titleCase(cur.State), store.TransitionEnteredTerminal, store.AttentionActivity, cur.State
