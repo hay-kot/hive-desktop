@@ -18,6 +18,26 @@ body:  "{{ .Payload.title }}"
 `.Payload` is the item, `.Key` its source id. A title that renders blank
 fails the command rather than sending a nameless banner.
 
+## Firing once, not on every update
+
+An item changes many times over its life — a PR you are watching collects
+comments, commits and reviews — and each change is a distinct event. By
+default a notify node fires **once per item** and stays quiet through that
+later churn: the notification you asked for is the item arriving, not every
+subsequent nudge to it.
+
+Set `dedup` to control what counts as "again". It is a template rendered over
+the message, and its value is the key delivery deduplicates on — so the node
+fires once per distinct value and again only when that value changes:
+
+```
+dedup: "{{ .Payload.state }}"
+```
+
+fires when a PR's state changes but not on its comment traffic. `dedup`
+matches on a *value*, not a transition: a value returning to one already seen
+(open → closed → open) does not fire again.
+
 ## Clicking a notification
 
 Clicking the banner focuses Hive and selects the item that triggered it. An
@@ -26,11 +46,11 @@ the click just raises the window.
 
 ## What stops it from being noisy
 
-- **Dedup.** Commands deduplicate on the message's occurrence key, which
-  changes only when something meaningful about the item changed. A source
-  re-emitting an unchanged item on every poll notifies once, not once per
-  tick. A message with no occurrence key falls back to a digest of its
-  payload, so identical payloads still collapse.
+- **Dedup.** Delivery deduplicates on the item id by default, or on the
+  `dedup` value when set (see *Firing once, not on every update*), so an item
+  that keeps changing interrupts once rather than on every update. A message
+  with no id and no `dedup` falls back to a digest of its payload, so identical
+  payloads still collapse.
 - **Cooldown.** One item can only interrupt you once every 5 minutes per
   node, however often it genuinely changes.
 - **Staleness.** A notification queued more than 10 minutes before it could

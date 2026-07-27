@@ -106,13 +106,14 @@ var notifySeverities = map[string]bool{
 // none: an ordinary, non-interrupting banner.
 const NotifySeverityDefault = "info"
 
-// notifyTitleMaxLen and notifyBodyMaxLen cap the *templates*, not the
-// rendered result — enough room for a sentence of context each while keeping
-// the persisted YAML bounded. The executor separately bounds what a template
-// actually renders to.
+// notifyTitleMaxLen, notifyBodyMaxLen and notifyDedupMaxLen cap the
+// *templates*, not the rendered result — enough room for a sentence of context
+// each while keeping the persisted YAML bounded. The executor separately
+// bounds what a template actually renders to.
 const (
 	notifyTitleMaxLen = 200
 	notifyBodyMaxLen  = 1000
+	notifyDedupMaxLen = 500
 )
 
 // NotifyConfig is a notify node: 1 input, 0 outputs (terminal). Every
@@ -138,6 +139,21 @@ type NotifyConfig struct {
 	// silence a notification — the global notification-sound setting still
 	// wins when it is off. Resolve through SoundOrDefault.
 	Sound *bool `json:"sound,omitempty" yaml:"sound,omitempty"`
+	// Dedup is a Go template rendered over the message whose value becomes the
+	// notify command's durable dedup key, decoupling "notify me again?" from
+	// the occurrence key. The occurrence key changes on every meaningful update
+	// to an item (a new comment on a PR is a distinct event), so keying notify
+	// delivery on it re-interrupts for each such update — the exact complaint
+	// this field answers.
+	//
+	// Absent, the key is the item's source id: a notify node fires once per
+	// item and stays quiet through its later churn. Set, it fires once per
+	// distinct rendered value and again only when that value changes — e.g.
+	// `{{ .Payload.state }}` re-notifies when a PR's state changes but not on
+	// its comment traffic. It dedups on a *value*, not a true edge: a value
+	// that returns to one already seen (open -> closed -> open) does not
+	// re-fire. `.Payload` is the item, `.Key` its source id, as in Title/Body.
+	Dedup string `json:"dedup,omitempty" yaml:"dedup,omitempty"`
 }
 
 func (c *NotifyConfig) Inputs() int  { return 1 }
@@ -181,6 +197,9 @@ func (c *NotifyConfig) Validate(Refs) error {
 	}
 	if c.Severity != "" && !notifySeverities[c.Severity] {
 		return fmt.Errorf("severity: %q is not a supported severity (info, success, warning, error)", c.Severity)
+	}
+	if utf8.RuneCountInString(c.Dedup) > notifyDedupMaxLen {
+		return fmt.Errorf("dedup: must be at most %d characters", notifyDedupMaxLen)
 	}
 	return nil
 }

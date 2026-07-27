@@ -39,12 +39,12 @@
       },
       {
         "sink": { "kind": "notify", "targetId": "multi/log" },
-        "key": "mine", "occurrenceKey": "oc-30", "payload": { "v": 1, "seen": true },
+        "key": "mine", "occurrenceKey": "oc-30", "notifyDedupKey": "mine", "payload": { "v": 1, "seen": true },
         "sourceKind": "github", "sourceScope": "notifications", "sourceTopic": "source:multi/src"
       },
       {
         "sink": { "kind": "notify", "targetId": "multi/log" },
-        "key": "theirs", "occurrenceKey": "oc-28", "payload": { "v": 2, "seen": true },
+        "key": "theirs", "occurrenceKey": "oc-28", "notifyDedupKey": "theirs", "payload": { "v": 2, "seen": true },
         "sourceKind": "github", "sourceScope": "notifications", "sourceTopic": "source:other/src"
       }
     ],

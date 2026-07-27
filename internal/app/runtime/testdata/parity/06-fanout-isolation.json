@@ -32,12 +32,12 @@
     "outputs": [
       {
         "sink": { "kind": "notify", "targetId": "fan/na" },
-        "key": "k", "occurrenceKey": "oc", "payload": { "v": 1, "tag": "a" },
+        "key": "k", "occurrenceKey": "oc", "notifyDedupKey": "k", "payload": { "v": 1, "tag": "a" },
         "sourceKind": "webhook", "sourceScope": "hook", "sourceTopic": "source:fan/src"
       },
       {
         "sink": { "kind": "notify", "targetId": "fan/nb" },
-        "key": "k", "occurrenceKey": "oc", "payload": { "v": 1, "tag": "b" },
+        "key": "k", "occurrenceKey": "oc", "notifyDedupKey": "k", "payload": { "v": 1, "tag": "b" },
         "sourceKind": "webhook", "sourceScope": "hook", "sourceTopic": "source:fan/src"
       }
     ],

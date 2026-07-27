@@ -27,6 +27,10 @@ function setSeverity(severity: string) {
 function setSound(sound: boolean) {
   emit('update:config', { ...props.config, sound: sound ? undefined : false })
 }
+
+function setDedup(dedup: string) {
+  emit('update:config', { ...props.config, dedup: dedup || undefined })
+}
 </script>
 
 <template>
@@ -55,6 +59,16 @@ function setSound(sound: boolean) {
       monospace
       testid="notify-node-editor-body"
       @update:model-value="setBody"
+    />
+
+    <TextField
+      label="Dedup key"
+      :model-value="config.dedup ?? ''"
+      placeholder="{{ .Payload.state }}"
+      hint="Optional. Fires once per rendered value; empty fires once per item. Stops repeat notifications as an item keeps changing."
+      monospace
+      testid="notify-node-editor-dedup"
+      @update:model-value="setDedup"
     />
 
     <SelectField

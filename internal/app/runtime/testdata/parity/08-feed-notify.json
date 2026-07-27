@@ -1,6 +1,6 @@
 {
   "name": "a feed that interrupts raises the same notify output a notify node does",
-  "why": "Two things are pinned here. A feed with a notify block emits two outputs for one message but counts as one out — the node saw one message. And a snapshot item passing through that same feed emits only the membership claim: re-announcing the whole feed on every poll is exactly what the snapshot rule exists to prevent.",
+  "why": "Three things are pinned here. A feed with a notify block emits two outputs for one message but counts as one out — the node saw one message. A snapshot item passing through that same feed emits only the membership claim: re-announcing the whole feed on every poll is exactly what the snapshot rule exists to prevent. And a notify node carries its own dedup key (the item id by default) while the feed's notify carries none and falls back to the occurrence key — the two notify raisers deliberately deduplicate on different granularities.",
   "flow": {
     "id": "loud",
     "name": "Loud",
@@ -50,7 +50,8 @@
       },
       {
         "sink": { "kind": "notify", "targetId": "loud/n" },
-        "key": "k1", "occurrenceKey": "oc-1", "payload": { "title": "hello" },
+        "key": "k1", "occurrenceKey": "oc-1", "notifyDedupKey": "k1",
+        "payload": { "title": "hello" },
         "sourceKind": "github", "sourceScope": "notifications",
         "sourceTopic": "source:loud/src"
       }

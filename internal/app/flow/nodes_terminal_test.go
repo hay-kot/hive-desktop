@@ -100,6 +100,16 @@ func TestNotifyConfig_Validate(t *testing.T) {
 		assert.Contains(t, err.Error(), "body")
 	})
 
+	t.Run("dedup template within the cap is allowed", func(t *testing.T) {
+		require.NoError(t, (&NotifyConfig{Title: "hi", Dedup: "{{ .Payload.state }}"}).Validate(nil))
+	})
+
+	t.Run("dedup over the cap is rejected", func(t *testing.T) {
+		err := (&NotifyConfig{Title: "hi", Dedup: strings.Repeat("x", notifyDedupMaxLen+1)}).Validate(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "dedup")
+	})
+
 	t.Run("every supported severity is allowed", func(t *testing.T) {
 		for _, severity := range []string{"info", "success", "warning", "error"} {
 			require.NoError(t, (&NotifyConfig{Title: "hi", Severity: severity}).Validate(nil), severity)
@@ -133,6 +143,7 @@ func TestNotifyConfig_RoundTrip(t *testing.T) {
 			Body:     "{{ .Payload.title }}",
 			Severity: "warning",
 			Sound:    &silent,
+			Dedup:    "{{ .Payload.state }}",
 		},
 	}
 
@@ -157,4 +168,5 @@ func TestNotifyConfig_OmitsEmptyFields(t *testing.T) {
 	assert.NotContains(t, string(data), "body")
 	assert.NotContains(t, string(data), "severity")
 	assert.NotContains(t, string(data), "sound")
+	assert.NotContains(t, string(data), "dedup")
 }

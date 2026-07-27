@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
-import { bodyMaxLen, defaults, titleMaxLen, validate } from '../config'
+import { bodyMaxLen, dedupMaxLen, defaults, titleMaxLen, validate } from '../config'
 import { chooseOption } from '../../../../test-utils/select'
 
 describe('notify editor', () => {
   it('renders the notify node body with its template and delivery fields', () => {
     const wrapper = mount(Editor, { props: { config: defaults } })
     expect(wrapper.get('[data-testid="notify-node-editor"]').text()).toContain('notification settings always win')
-    for (const field of ['title', 'body', 'severity', 'sound']) {
+    for (const field of ['title', 'body', 'dedup', 'severity', 'sound']) {
       expect(wrapper.find(`[data-testid="notify-node-editor-${field}"]`).exists(), field).toBe(true)
     }
   })
@@ -23,6 +23,16 @@ describe('notify editor', () => {
     const wrapper = mount(Editor, { props: { config: { title: 'hi', body: 'x' } } })
     await wrapper.get('[data-testid="notify-node-editor-body"]').setValue('')
     expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', body: undefined })
+  })
+
+  it('emits the dedup template and clears an emptied one back to undefined', async () => {
+    const wrapper = mount(Editor, { props: { config: { title: 'hi' } } })
+    await wrapper.get('[data-testid="notify-node-editor-dedup"]').setValue('{{ .Payload.state }}')
+    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', dedup: '{{ .Payload.state }}' })
+
+    const set = mount(Editor, { props: { config: { title: 'hi', dedup: '{{ .Payload.state }}' } } })
+    await set.get('[data-testid="notify-node-editor-dedup"]').setValue('')
+    expect(set.emitted('update:config')?.at(-1)?.[0]).toEqual({ title: 'hi', dedup: undefined })
   })
 
   // Only a non-default choice is persisted, so a flow file stays free of keys
@@ -60,6 +70,7 @@ describe('notify config', () => {
   it('rejects over-long templates', () => {
     expect(validate({ title: 'x'.repeat(titleMaxLen + 1) })).toHaveLength(1)
     expect(validate({ title: 'hi', body: 'x'.repeat(bodyMaxLen + 1) })).toHaveLength(1)
+    expect(validate({ title: 'hi', dedup: 'x'.repeat(dedupMaxLen + 1) })).toHaveLength(1)
   })
 
   it('rejects an unsupported severity', () => {

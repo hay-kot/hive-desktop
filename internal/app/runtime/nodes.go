@@ -2,8 +2,11 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
+	"strings"
 
+	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -136,14 +139,48 @@ func actionSinks(_, _ string, cfg flow.NodeConfig, msg store.Msg) []store.Output
 // carries the message's source identity as well as its payload so the backend
 // can resolve the inbox row behind it and a clicked notification can reveal
 // that item.
-func notifySinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
+//
+// It also carries its own dedup key (NotifyDedupKey), so delivery collapses on
+// what the author cares about rather than the occurrence key — which bumps on
+// every meaningful update and would otherwise re-interrupt for each one.
+func notifySinks(flowID, nodeID string, cfg flow.NodeConfig, msg store.Msg) []store.Output {
+	config, _ := cfg.(*flow.NotifyConfig)
 	return []store.Output{{
-		Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: flowID + "/" + nodeID},
-		Key:           msg.Key,
-		OccurrenceKey: msg.OccurrenceKey,
-		Payload:       msg.Payload,
-		SourceTopic:   msg.Topic,
-		SourceKind:    msg.SourceKind,
-		SourceScope:   msg.SourceScope,
+		Sink:           store.Sink{Kind: store.SinkKindNotify, TargetID: flowID + "/" + nodeID},
+		Key:            msg.Key,
+		OccurrenceKey:  msg.OccurrenceKey,
+		NotifyDedupKey: notifyDedup(config, msg),
+		Payload:        msg.Payload,
+		SourceTopic:    msg.Topic,
+		SourceKind:     msg.SourceKind,
+		SourceScope:    msg.SourceScope,
 	}}
+}
+
+// notifyDedup resolves a notify node's dedup key. With no `dedup` template the
+// key is the item's source id, so a notify fires once per item and stays quiet
+// through its later updates. With one, it is that template rendered over the
+// message — fire once per distinct value. A template that errors or renders
+// blank falls back to the item id rather than wedging the commit or collapsing
+// every item onto one key; an item with no id (a function-synthesized message)
+// leaves the key empty for commit.go's occurrence/digest fallback.
+func notifyDedup(cfg *flow.NotifyConfig, msg store.Msg) string {
+	if cfg == nil || cfg.Dedup == "" {
+		return msg.Key
+	}
+	data := struct {
+		Key     string
+		Payload map[string]any
+	}{Key: msg.Key}
+	if len(msg.Payload) > 0 {
+		_ = json.Unmarshal(msg.Payload, &data.Payload)
+	}
+	rendered, err := tmpl.New(tmpl.Config{}).Render(cfg.Dedup, data)
+	if err != nil {
+		return msg.Key
+	}
+	if rendered = strings.TrimSpace(rendered); rendered != "" {
+		return rendered
+	}
+	return msg.Key
 }

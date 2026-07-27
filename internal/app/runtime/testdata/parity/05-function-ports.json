@@ -45,7 +45,7 @@
       },
       {
         "sink": { "kind": "notify", "targetId": "fn/lo" },
-        "key": "small", "occurrenceKey": "oc-small", "payload": { "n": 1 },
+        "key": "small", "occurrenceKey": "oc-small", "notifyDedupKey": "small", "payload": { "n": 1 },
         "sourceKind": "webhook", "sourceScope": "hook",
         "sourceTopic": "source:fn/src"
       }

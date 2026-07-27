@@ -163,6 +163,47 @@ func TestCommitBatch_NotifyOutput_DedupesOnPayloadWithoutAnOccurrenceKey(t *test
 	assert.Equal(t, 2, countOutputCommands(t, database, ctx))
 }
 
+// A notify node's own dedup key (NotifyDedupKey) wins over the occurrence key,
+// which is how a notify node collapses an item's stream of distinct
+// occurrences onto what the author cares about — the item id by default, so a
+// PR collecting comments interrupts once, not once per update. The occurrence
+// key still rides along in the command for the OnlyWhenNew activity check.
+func TestCommitBatch_NotifyOutput_PrefersTheNotifyDedupKey(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	notifyOutput := func(occurrence string) Output {
+		return Output{
+			Sink:           Sink{Kind: SinkKindNotify, TargetID: "flow-1/tell-me"},
+			Key:            "item-1",
+			OccurrenceKey:  occurrence,
+			NotifyDedupKey: "item-1",
+			Payload:        []byte(`{"repo":"acme/api"}`),
+		}
+	}
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1, Outputs: []Output{notifyOutput("item-1@2")},
+	}))
+
+	var key string
+	var payload []byte
+	require.NoError(t, database.Conn().QueryRowContext(ctx,
+		`SELECT key, payload FROM output_command`).Scan(&key, &payload))
+	assert.Equal(t, "item-1", key, "the notify dedup key is the command key, not the occurrence key")
+
+	var cmd NotifyCommand
+	require.NoError(t, json.Unmarshal(payload, &cmd))
+	assert.Equal(t, "item-1@2", cmd.OccurrenceKey, "the occurrence key still rides along for the activity check")
+
+	// A later occurrence for the same item — a new comment bumping updatedAt —
+	// shares the notify dedup key, so it does not interrupt a second time.
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 2, Outputs: []Output{notifyOutput("item-1@9")},
+	}))
+	assert.Equal(t, 1, countOutputCommands(t, database, ctx))
+}
+
 // Two notify nodes fed by the same message are independent destinations.
 func TestCommitBatch_NotifyOutput_IsPerNode(t *testing.T) {
 	database := openTestDB(t)

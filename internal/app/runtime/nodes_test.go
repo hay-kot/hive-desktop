@@ -74,6 +74,7 @@ func TestTerminalSinks(t *testing.T) {
 		require.Equal(t, "notify", outputs[1].Sink.Kind)
 		require.Equal(t, "f/inbox", outputs[1].Sink.TargetID, "both deliver through one executor, targeting the feed's own id")
 		require.JSONEq(t, `{"title":"hi"}`, string(outputs[1].Payload))
+		require.Empty(t, outputs[1].NotifyDedupKey, "a feed keeps occurrence-key dedup; only a notify node overrides it")
 	})
 
 	t.Run("an action names its catalog id and carries no source identity", func(t *testing.T) {
@@ -94,5 +95,51 @@ func TestTerminalSinks(t *testing.T) {
 		require.Equal(t, "f/ping", outputs[0].Sink.TargetID)
 		require.Equal(t, "github", outputs[0].SourceKind)
 		require.Equal(t, "source:f/src", outputs[0].SourceTopic)
+	})
+
+	t.Run("a notify node with no dedup template keys on the item id", func(t *testing.T) {
+		t.Parallel()
+		outputs := notifySinks("f", "ping", &flow.NotifyConfig{Title: "Ping"}, msg)
+		require.Equal(t, "k", outputs[0].NotifyDedupKey, "fire once per item, not once per occurrence")
+	})
+}
+
+// A notify node's dedup key is what stops it re-interrupting for every update
+// to an item: by default the item id (fire once), or a template rendered over
+// the message (fire once per distinct value).
+func TestNotifyDedup(t *testing.T) {
+	t.Parallel()
+
+	base := store.Msg{Key: "pr-7", OccurrenceKey: "pr-7:open:1700:comment", Payload: json.RawMessage(`{"state":"approved","n":3,"blank":""}`)}
+
+	t.Run("absent template defaults to the item id", func(t *testing.T) {
+		t.Parallel()
+		require.Equal(t, "pr-7", notifyDedup(&flow.NotifyConfig{Title: "x"}, base))
+	})
+
+	t.Run("a template renders over the message payload", func(t *testing.T) {
+		t.Parallel()
+		require.Equal(t, "approved", notifyDedup(&flow.NotifyConfig{Title: "x", Dedup: "{{ .Payload.state }}"}, base))
+	})
+
+	t.Run("Key is addressable in the template", func(t *testing.T) {
+		t.Parallel()
+		require.Equal(t, "pr-7/approved", notifyDedup(&flow.NotifyConfig{Title: "x", Dedup: "{{ .Key }}/{{ .Payload.state }}"}, base))
+	})
+
+	t.Run("a blank render falls back to the item id rather than collapsing every item onto one key", func(t *testing.T) {
+		t.Parallel()
+		require.Equal(t, "pr-7", notifyDedup(&flow.NotifyConfig{Title: "x", Dedup: "{{ .Payload.blank }}"}, base))
+	})
+
+	t.Run("a broken template falls back to the item id rather than wedging the commit", func(t *testing.T) {
+		t.Parallel()
+		require.Equal(t, "pr-7", notifyDedup(&flow.NotifyConfig{Title: "x", Dedup: "{{ .Payload.state "}, base))
+	})
+
+	t.Run("a keyless message with no usable dedup leaves the key empty for the digest fallback", func(t *testing.T) {
+		t.Parallel()
+		keyless := store.Msg{Payload: json.RawMessage(`{}`)}
+		require.Empty(t, notifyDedup(&flow.NotifyConfig{Title: "x"}, keyless))
 	})
 }

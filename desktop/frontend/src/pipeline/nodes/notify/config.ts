@@ -19,6 +19,11 @@ export interface Config {
   severity?: string
   /** Absent means "play the notification sound"; only `false` silences it. */
   sound?: boolean
+  /**
+   * Go text/template whose value is the delivery dedup key. Absent means the
+   * item id (fire once per item); set means fire once per distinct value.
+   */
+  dedup?: string
 }
 
 /** The severities a notify node may declare — mirrors Go's notifySeverities. */
@@ -30,6 +35,7 @@ export const defaultSeverity = 'info'
 /** Longest templates the editor accepts — mirror Go's notify*MaxLen. */
 export const titleMaxLen = 200
 export const bodyMaxLen = 1000
+export const dedupMaxLen = 500
 
 /** Notifications are transient interrupts, not feed items. */
 export const unread = false
@@ -37,6 +43,7 @@ export const unread = false
 /**
  * The notify node's durable key is the flow-qualified node id, so two notify
  * nodes fed by the same message deduplicate (and cool down) independently.
+ * Within one node, delivery dedups on the item id (or the `dedup` value).
  */
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -62,6 +69,7 @@ export function validate(config: Config): string[] {
   if (!config.title || !config.title.trim()) errors.push('title is required')
   if ((config.title?.length ?? 0) > titleMaxLen) errors.push(`Title must be at most ${titleMaxLen} characters.`)
   if ((config.body?.length ?? 0) > bodyMaxLen) errors.push(`Body must be at most ${bodyMaxLen} characters.`)
+  if ((config.dedup?.length ?? 0) > dedupMaxLen) errors.push(`Dedup must be at most ${dedupMaxLen} characters.`)
   if (config.severity && !severities.includes(config.severity as (typeof severities)[number])) {
     errors.push(`Severity "${config.severity}" is not supported.`)
   }

@@ -75,6 +75,12 @@ type Output struct {
 	SourceScope   string          `json:"sourceScope,omitempty"`
 	SourceTopic   string          `json:"sourceTopic"`
 	SnapshotID    string          `json:"snapshotId,omitempty"`
+	// NotifyDedupKey overrides a notify command's dedup key, set by a notify
+	// node from its own config (its `dedup` template, or the item id by
+	// default) so delivery deduplicates on what the author cares about rather
+	// than the occurrence key. Empty for a notifying feed, which keeps
+	// occurrence-key dedup. Notify sink only; see notifyDedupKey.
+	NotifyDedupKey string `json:"notifyDedupKey,omitempty"`
 }
 
 // FeedSnapshot declares one source's complete current output scope for a feed.
@@ -250,18 +256,27 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 	})
 }
 
-// notifyDedupKey is the output_command dedup key for a notify output. The
-// classifier's occurrence key is the right one whenever it exists: it changes
-// exactly when something meaningful changed about the item, so a source that
-// re-emits an unchanged item on every poll notifies once, not once per tick.
+// notifyDedupKey is the output_command dedup key for a notify output.
 //
-// Not every event carries one — a trivial update, or a message a function
-// node synthesized, may have none — and falling back to the empty string
-// would make (action_id, "") unique for the node forever, i.e. it would
-// notify exactly once and then go permanently silent. The fallback is
+// A notify node computes its own key (NotifyDedupKey) from config — the item
+// id by default, or a rendered `dedup` template — so a busy item interrupts
+// once rather than on every update. That key wins when present.
+//
+// A notifying feed sets no NotifyDedupKey and falls to the occurrence key: it
+// changes exactly when something meaningful changed about the item, so a
+// source re-emitting an unchanged item on every poll notifies once, not once
+// per tick.
+//
+// Not every event carries an occurrence key — a trivial update, or a message a
+// function node synthesized, may have none — and falling back to the empty
+// string would make (action_id, "") unique for the node forever, i.e. it would
+// notify exactly once and then go permanently silent. The final fallback is
 // therefore the item plus a digest of its payload: distinct payloads still
 // notify, identical ones still deduplicate.
 func notifyDedupKey(out Output) string {
+	if out.NotifyDedupKey != "" {
+		return out.NotifyDedupKey
+	}
 	if out.OccurrenceKey != "" {
 		return out.OccurrenceKey
 	}
