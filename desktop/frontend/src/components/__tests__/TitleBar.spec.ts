@@ -10,17 +10,27 @@ describe('TitleBar', () => {
     expect(wrapper.find('[data-testid="titlebar-command-palette"]').exists()).toBe(false)
   })
 
-  it('shows the Activity link once a profile is loaded and emits open-activity on click', async () => {
+  it('shows the Activity icon once a profile is loaded and emits open-activity on click', async () => {
     const onboarding = mount(TitleBar, { props: {} })
     expect(onboarding.find('[data-testid="titlebar-activity"]').exists()).toBe(false)
 
     const wrapper = mount(TitleBar, { props: { profileName: 'Triage' } })
     const link = wrapper.find('[data-testid="titlebar-activity"]')
     expect(link.exists()).toBe(true)
-    expect(link.text()).toContain('Activity')
+    expect(link.attributes('aria-label')).toBe('Open activity')
 
     await link.trigger('click')
     expect(wrapper.emitted('open-activity')).toHaveLength(1)
+  })
+
+  it('exposes the report-a-problem icon and emits open-report on click', async () => {
+    const wrapper = mount(TitleBar, { props: {} })
+    const bug = wrapper.find('[data-testid="titlebar-report"]')
+    expect(bug.exists()).toBe(true)
+    expect(bug.attributes('aria-label')).toBe('Report a problem')
+
+    await bug.trigger('click')
+    expect(wrapper.emitted('open-report')).toHaveLength(1)
   })
 
   it('shows the unseen-activity dot only with unseen events and not while on the Activity page', () => {
@@ -77,13 +87,15 @@ describe('TitleBar', () => {
     expect(wrapper.emitted('open-palette')).toHaveLength(1)
   })
 
-  it('shows the sidebar toggle only when a sidebar exists and reflects the collapsed state', async () => {
-    const hidden = mount(TitleBar, { props: { profileName: 'Triage' } })
-    expect(hidden.find('[data-testid="titlebar-toggle-sidebar"]').exists()).toBe(false)
+  it('keeps the sidebar toggle mounted with a profile, disabling it when no sidebar is available', async () => {
+    const disabled = mount(TitleBar, { props: { profileName: 'Triage' } })
+    const disabledToggle = disabled.find('[data-testid="titlebar-toggle-sidebar"]')
+    expect(disabledToggle.exists()).toBe(true)
+    expect(disabledToggle.attributes('disabled')).toBeDefined()
 
     const expanded = mount(TitleBar, { props: { profileName: 'Triage', canToggleSidebar: true } })
     const toggle = expanded.find('[data-testid="titlebar-toggle-sidebar"]')
-    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('disabled')).toBeUndefined()
     expect(toggle.attributes('aria-label')).toBe('Hide sidebar')
 
     await toggle.trigger('click')
@@ -93,13 +105,15 @@ describe('TitleBar', () => {
     expect(collapsed.find('[data-testid="titlebar-toggle-sidebar"]').attributes('aria-label')).toBe('Show sidebar')
   })
 
-  it('shows the preview toggle only when the feed view is active and reflects the collapsed state', async () => {
-    const hidden = mount(TitleBar, { props: { profileName: 'Triage' } })
-    expect(hidden.find('[data-testid="titlebar-toggle-preview"]').exists()).toBe(false)
+  it('keeps the preview toggle mounted with a profile, disabling it outside the feed view', async () => {
+    const disabled = mount(TitleBar, { props: { profileName: 'Triage' } })
+    const disabledToggle = disabled.find('[data-testid="titlebar-toggle-preview"]')
+    expect(disabledToggle.exists()).toBe(true)
+    expect(disabledToggle.attributes('disabled')).toBeDefined()
 
     const expanded = mount(TitleBar, { props: { profileName: 'Triage', canTogglePreview: true } })
     const toggle = expanded.find('[data-testid="titlebar-toggle-preview"]')
-    expect(toggle.exists()).toBe(true)
+    expect(toggle.attributes('disabled')).toBeUndefined()
     expect(toggle.attributes('aria-label')).toBe('Hide preview')
 
     await toggle.trigger('click')

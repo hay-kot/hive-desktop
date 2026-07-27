@@ -47,7 +47,6 @@ useAutofocus(nameInput)
     :title="actionLabel"
     :icon="IconPlay"
     :width="460"
-    pt="pt-[18vh]"
     :busy="busy"
     testid="create-session-dialog"
     @close="emit('close')"

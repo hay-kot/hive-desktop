@@ -36,7 +36,8 @@ describe('DetailPane', () => {
   it('emits action and browser intents and has an empty state', async () => {
     const wrapper = mount(DetailPane, { props: { item, actions } })
     await wrapper.get('[data-testid="action-card"]').trigger('click')
-    await wrapper.get('button.open-button').trigger('click')
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="menu-open-browser"]').trigger('click')
     expect(wrapper.emitted('run-action')).toEqual([['summarize']])
     expect(wrapper.emitted('open-browser')).toHaveLength(1)
     expect(mount(DetailPane, { props: { item: null, actions: [] } }).text()).toContain('Select an item')
@@ -96,10 +97,11 @@ describe('DetailPane', () => {
     expect(wrapper.text()).not.toContain('#42')
   })
 
-  it('hides the open button for webhook items without a URL, and the ACTIONS block when it has no applicable actions', () => {
+  it('omits the open-in-browser menu entry for webhook items without a URL, and the ACTIONS block when it has no applicable actions', async () => {
     const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', url: '', payload: { id: 'run-1' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
-    expect(wrapper.find('button.open-button').exists()).toBe(false)
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="menu-open-browser"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('ACTIONS')
     expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
   })
@@ -118,10 +120,11 @@ describe('DetailPane', () => {
     expect(wrapper.find('[data-testid="action-footer-meta"]').exists()).toBe(false)
   })
 
-  it('keeps the open button for webhook items that carry a URL', () => {
+  it('offers the open-in-browser menu entry for webhook items that carry a URL', async () => {
     const webhookItem: InboxItem = { ...item, sourceKind: 'webhook', sourceScope: 'sources.webhook-1', payload: { id: 'run-1', url: 'https://ci.example.com/run/1' } }
     const wrapper = mount(DetailPane, { props: { item: webhookItem, actions: [] } })
-    expect(wrapper.find('button.open-button').exists()).toBe(true)
+    await wrapper.get('[data-testid="item-actions-toggle"]').trigger('click')
+    expect(wrapper.find('[data-testid="menu-open-browser"]').exists()).toBe(true)
   })
 
   it('renders the Observed activity timeline in supplied chronological order', () => {

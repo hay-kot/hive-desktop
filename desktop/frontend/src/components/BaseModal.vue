@@ -12,7 +12,6 @@ const props = withDefaults(defineProps<{
   busy?: boolean
   closeOnBackdrop?: boolean
   closeOnEscape?: boolean
-  pt?: string
   testid?: string
 }>(), {
   tone: 'accent',
@@ -21,7 +20,6 @@ const props = withDefaults(defineProps<{
   busy: false,
   closeOnBackdrop: true,
   closeOnEscape: true,
-  pt: 'pt-[24vh]',
 })
 
 const emit = defineEmits<{ close: [] }>()
@@ -44,19 +42,19 @@ useEscapeToClose(close, { enabled: () => props.closeOnEscape && !props.busy })
 <template>
   <Teleport to="body">
     <div
-      :class="['fixed inset-0 z-40 flex items-start justify-center bg-backdrop', pt]"
+      class="fixed inset-0 z-40 flex items-center justify-center bg-backdrop py-[6vh]"
       :data-testid="testid ? `${testid}-backdrop` : undefined"
       @click.self="onBackdropClick"
     >
       <div
-        class="overflow-hidden rounded-xl border border-strong bg-pane text-text shadow-2xl"
+        class="flex max-h-full flex-col overflow-hidden rounded-xl border border-strong bg-pane text-text shadow-2xl"
         :style="{ width: `${width}px` }"
         :role="ariaRole"
         :aria-label="title"
         aria-modal="true"
         :data-testid="testid"
       >
-        <header class="flex items-center gap-3 border-b border-row px-5 py-4">
+        <header class="flex shrink-0 items-center gap-3 border-b border-row px-5 py-4">
           <span v-if="icon" :class="['flex size-7 items-center justify-center rounded-[7px]', badgeClasses]"><component :is="icon" class="size-4" /></span>
           <div class="flex-1 text-[15px] font-semibold tracking-[-.01em]">{{ title }}</div>
           <button
@@ -67,8 +65,10 @@ useEscapeToClose(close, { enabled: () => props.closeOnEscape && !props.busy })
             @click="close"
           ><IconX class="size-4" /></button>
         </header>
-        <slot />
-        <footer v-if="$slots.footer" class="flex gap-2.5 border-t border-row bg-raised px-5 py-3.5">
+        <div class="min-h-0 flex-1 overflow-y-auto">
+          <slot />
+        </div>
+        <footer v-if="$slots.footer" class="flex shrink-0 gap-2.5 border-t border-row bg-raised px-5 py-3.5">
           <slot name="footer" />
         </footer>
       </div>
