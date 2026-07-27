@@ -144,6 +144,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSettingsService(core.Settings)),
 		application.NewService(NewWebhookService(core.Webhooks)),
 		application.NewService(NewPromptsService(core.Prompts)),
+		application.NewService(NewReportService(core.Report)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

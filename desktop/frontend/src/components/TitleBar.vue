@@ -4,6 +4,7 @@ import { ref, watch } from 'vue'
 import IconActivity from '~icons/lucide/activity'
 import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconArrowRight from '~icons/lucide/arrow-right'
+import IconBug from '~icons/lucide/bug'
 import IconPanelLeftClose from '~icons/lucide/panel-left-close'
 import IconPanelLeftOpen from '~icons/lucide/panel-left-open'
 import IconPanelRightClose from '~icons/lucide/panel-right-close'
@@ -15,24 +16,30 @@ import IconArrowUpCircle from '~icons/lucide/arrow-up-circle'
 import JobsPopover from './JobsPopover.vue'
 import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/jobs/models'
 
-// The bar is a three-column grid: a left cluster (sidebar toggle), a center
-// cluster (history + command-palette launcher) that stays centered in the
-// window regardless of how wide the side clusters grow, and a right cluster
-// (error/activity chips). Each column is flex-1 so the center is the middle
-// third of the full window width — the Slack-style centered search.
+// One button grammar for the whole chrome, with a fixed slot per zone. The bar
+// is three flex-1 columns so the center stays the middle third of the window:
+//   left   — structure then history: the sidebar (left-panel) toggle brackets
+//            the far edge, a divider, then feed-scoped back/forward.
+//   center — the command palette launcher, window-centered.
+//   right  — app-level utilities (Activity, Report a problem) as one icon run,
+//            a divider, then the preview (right-panel) toggle bracketing the
+//            far edge. Panel toggles are the only things at the extremes, so
+//            they read as the frame; new utilities append to the icon run.
+// Every control is one of two shapes: a 28px square icon button or a 28px
+// labeled/segmented button, both 7px-radius with a `chip` hover fill. Amber is
+// reserved for on-state and unread.
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
-// no toggle, no center/right clusters. errorCount (8d) is the count of the active flow's
-// nodes whose last run failed. activityActive highlights the Activity link when
-// the audit-log page is open; unseenActivity (6d) is the number of activity
-// events recorded since the user last opened that page, shown as a pulsing dot.
-// sidebarCollapsed drives the panel-toggle glyph; canToggleSidebar hides the
-// toggle in views that have no feed sidebar (settings, flows, onboarding).
-// previewCollapsed/canTogglePreview are the same pair for the detail preview
-// pane, mirrored at the far right of the bar to match the panel it controls.
-// updateAvailable renders a click-to-install chip (with the latestVersion
-// label) in the right cluster, mirroring the error/activity chip pattern. It
-// is independent of profileName so it can show during onboarding too.
+// no toggle, no history, no palette — but Report a problem stays reachable.
+// errorCount (8d) is the count of the active flow's nodes whose last run
+// failed. activityActive marks the Activity icon on when the audit-log page is
+// open; unseenActivity (6d) is the number of events since it was last opened,
+// shown as a pulsing amber dot. sidebarCollapsed drives the panel-toggle glyph;
+// canToggleSidebar hides the toggle in views with no feed sidebar (settings,
+// flows, onboarding). previewCollapsed/canTogglePreview are the same pair for
+// the detail preview pane. updateAvailable renders a click-to-install chip in
+// the right cluster, independent of profileName so it can show during
+// onboarding too.
 const props = defineProps<{
   profileName?: string
   activityActive?: boolean
@@ -60,6 +67,7 @@ const emit = defineEmits<{
   'toggle-sidebar': []
   'toggle-preview': []
   'open-palette': []
+  'open-report': []
   'toggle-maximise': []
 }>()
 
@@ -90,26 +98,24 @@ function onTitlebarDblclick(event: MouseEvent): void {
     style="--wails-draggable: drag"
     @dblclick="onTitlebarDblclick"
   >
-    <!-- Left: sidebar toggle -->
-    <div class="flex min-w-0 flex-1 items-center gap-2 pr-2" :class="isMac ? 'pl-[84px]' : 'pl-3'">
+    <!-- Left: panel toggle (frame) · divider · feed history -->
+    <div class="flex min-w-0 flex-1 items-center gap-1 pr-2" :class="isMac ? 'pl-[84px]' : 'pl-3'">
       <button
-        v-if="canToggleSidebar"
+        v-if="profileName"
         type="button"
-        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-text-3 hover:bg-chip hover:text-text"
+        class="flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
         style="--wails-draggable: no-drag"
+        :disabled="!canToggleSidebar"
         :aria-label="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
         :title="sidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'"
         data-testid="titlebar-toggle-sidebar"
         @click="emit('toggle-sidebar')"
       ><component :is="sidebarCollapsed ? IconPanelLeftOpen : IconPanelLeftClose" class="size-3.5" /></button>
-    </div>
-
-    <!-- Center: history controls + command-palette launcher, window-centered -->
-    <div v-if="profileName" class="flex min-w-0 flex-1 items-center justify-center gap-1.5 px-2">
-      <nav class="flex shrink-0 items-center gap-0.5" aria-label="Page history" style="--wails-draggable: no-drag">
+      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
+      <nav v-if="profileName" class="flex shrink-0 items-center gap-0.5" aria-label="Page history" style="--wails-draggable: no-drag">
         <button
           type="button"
-          class="flex size-6 items-center justify-center rounded text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:opacity-30"
+          class="flex size-7 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:opacity-30"
           :disabled="!canGoBack"
           aria-label="Go back"
           data-testid="titlebar-back"
@@ -117,13 +123,17 @@ function onTitlebarDblclick(event: MouseEvent): void {
         ><IconArrowLeft class="size-3.5" /></button>
         <button
           type="button"
-          class="flex size-6 items-center justify-center rounded text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:opacity-30"
+          class="flex size-7 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:opacity-30"
           :disabled="!canGoForward"
           aria-label="Go forward"
           data-testid="titlebar-forward"
           @click="emit('forward')"
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
+    </div>
+
+    <!-- Center: command-palette launcher, window-centered -->
+    <div v-if="profileName" class="flex min-w-0 flex-1 items-center justify-center px-2">
       <button
         type="button"
         class="flex h-7 min-w-0 max-w-[460px] flex-1 cursor-pointer items-center gap-2 rounded-md border border-border bg-app px-2.5 text-text-3 hover:border-strong hover:text-text-2"
@@ -139,8 +149,8 @@ function onTitlebarDblclick(event: MouseEvent): void {
     </div>
     <div v-else class="flex-1" />
 
-    <!-- Right: update / error / live jobs / activity chips -->
-    <div class="flex min-w-0 flex-1 items-center justify-end gap-2 pl-2 pr-3">
+    <!-- Right: status chips · utility icon run (Activity, Report) · divider · preview toggle (frame) -->
+    <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5 pl-2 pr-3">
       <button
         v-if="updateAvailable"
         class="flex shrink-0 items-center gap-1.5 rounded-md border border-severity-info-border bg-severity-info-tint px-2 py-1 text-[11.5px] font-semibold text-severity-info disabled:cursor-wait enabled:cursor-pointer enabled:hover:opacity-85"
@@ -180,32 +190,42 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @open-run="(commandId) => { jobsOpen = false; emit('open-job-run', commandId) }"
         />
       </div>
-      <!-- A link to the Activity audit log. A pulsing dot flags activity
-           recorded since the page was last opened. -->
+      <!-- Activity: a 28px icon in the utility run. An amber dot flags activity
+           recorded since the page was last opened; amber fill marks it on. -->
       <button
         v-if="profileName"
-        class="relative flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] font-medium"
-        :class="activityActive
-          ? 'border-accent bg-accent text-accent-contrast'
-          : 'border-border text-text-2 hover:border-strong hover:text-text'"
+        type="button"
+        class="relative flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px]"
+        :class="activityActive ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
         style="--wails-draggable: no-drag"
         data-testid="titlebar-activity"
         aria-label="Open activity"
+        title="Activity"
         @click="emit('open-activity')"
       >
         <IconActivity class="size-3.5" />
-        Activity
         <span
           v-if="unseenActivity && unseenActivity > 0 && !activityActive"
-          class="size-[7px] rounded-full bg-accent [animation:hivePulse_2.4s_ease-in-out_infinite]"
+          class="absolute right-1 top-1 size-[6px] rounded-full bg-accent ring-2 ring-raised [animation:hivePulse_2.4s_ease-in-out_infinite]"
           data-testid="titlebar-activity-unseen"
         />
       </button>
       <button
-        v-if="canTogglePreview"
         type="button"
-        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded text-text-3 hover:bg-chip hover:text-text"
+        class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
         style="--wails-draggable: no-drag"
+        data-testid="titlebar-report"
+        aria-label="Report a problem"
+        :title="isMac ? 'Report a problem  ⌘⇧B' : 'Report a problem  Ctrl+Shift+B'"
+        @click="emit('open-report')"
+      ><IconBug class="size-3.5" /></button>
+      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
+      <button
+        v-if="profileName"
+        type="button"
+        class="flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
+        style="--wails-draggable: no-drag"
+        :disabled="!canTogglePreview"
         :aria-label="previewCollapsed ? 'Show preview' : 'Hide preview'"
         :title="previewCollapsed ? 'Show preview' : 'Hide preview'"
         data-testid="titlebar-toggle-preview"

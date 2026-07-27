@@ -31,6 +31,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0021](decisions/0021-agent-http-api.md) | Agent-facing HTTP API (read + reload) sharing the webhook port |
 | [0022](decisions/0022-http-handler-conventions.md) | HTTP handler conventions: errchain, extractors, criterio validation |
 | [0023](decisions/0023-pprof-debug-endpoint.md) | pprof debug endpoint mounted on the shared loopback HTTP server |
+| [0024](decisions/0024-in-app-problem-reporting.md) | In-app problem reporting: redacted diagnostics to a private R2 bucket |
 
 ## References
 

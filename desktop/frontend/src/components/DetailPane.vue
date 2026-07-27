@@ -8,7 +8,6 @@ import { useResizablePanel } from '../composables/useResizablePanel'
 import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kindStyle, presentationFor } from '../lib/itemPresentation'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
-import IconExternalLink from '~icons/lucide/external-link'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
@@ -106,7 +105,6 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
           </span>
           <span v-if="itemContainer" class="min-w-0 truncate font-mono text-xs text-text-3">{{ itemContainerLine }}</span>
           <span class="flex-1" />
-          <button v-if="item.url" class="open-button shrink-0" @click="emit('open-browser')">open <IconExternalLink class="size-3" /></button>
           <div class="relative shrink-0">
             <button ref="itemMenuToggle" class="more-button" aria-label="Item actions" aria-haspopup="menu" data-testid="item-actions-toggle" :aria-expanded="itemMenuOpen" @click="itemMenuOpen = !itemMenuOpen"><IconEllipsis class="size-4" /></button>
             <ItemActionMenu
@@ -168,10 +166,10 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .kind-pill-pr { background: var(--color-kind-pr-tint); color: var(--color-kind-pr); }
 .kind-pill-issue { background: var(--color-kind-issue-tint); color: var(--color-kind-issue); }
 .kind-pill-neutral { background: var(--color-chip); color: var(--color-text-2); }
-.open-button, .edit-button, .more-button { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--color-card); border-radius: 4px; padding: 2px 7px; color: var(--color-text-2); font-family: var(--font-mono); font-size: 11px; }
+.edit-button, .more-button { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; border: 1px solid var(--color-card); border-radius: 4px; padding: 2px 7px; color: var(--color-text-2); font-family: var(--font-mono); font-size: 11px; }
 .edit-button { border-radius: 5px; padding: 3px 8px; font-family: var(--font-sans); }
 .more-button { height: 24px; padding: 0 5px; }
-.open-button:hover, .edit-button:hover, .more-button:hover, .more-button[aria-expanded="true"] { border-color: var(--color-strong); color: var(--color-text); }
+.edit-button:hover, .more-button:hover, .more-button[aria-expanded="true"] { border-color: var(--color-strong); color: var(--color-text); }
 .action-footer-meta { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 
 /* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline

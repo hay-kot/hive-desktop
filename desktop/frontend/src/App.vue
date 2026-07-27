@@ -17,6 +17,7 @@ import DetailPane from './components/DetailPane.vue'
 import CreateSessionDialog from './components/CreateSessionDialog.vue'
 import ConfirmationDialog from './components/ConfirmationDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import ReportProblemDialog from './components/ReportProblemDialog.vue'
 import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
@@ -31,6 +32,7 @@ import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
+import { useReportDialog } from './composables/useReportDialog'
 import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
 import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
@@ -636,6 +638,7 @@ async function toggleMaximise(): Promise<void> {
 // ── Command palette ──────────────────────────────────────────────────────────
 
 const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
+const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
 const kb = useKeybindings()
 
 // One handler per bindable command id. Both the keydown dispatcher and the
@@ -653,6 +656,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-all-read': markSelectedFeedRead,
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
+  'report.open': openReportDialog,
   'window.hide': hideWindow,
 }
 const catalogById = new Map(commandCatalog.map((command) => [command.id, command]))
@@ -665,7 +669,7 @@ const feedNavActive = computed(() =>
 
 // While an overlay owns the screen, only the palette toggle stays live.
 const anyOverlayOpen = computed(() =>
-  paletteOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
+  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
 )
 
 // Seed commands — reactive getter so they update when profiles/flows load
@@ -857,6 +861,7 @@ onUnmounted(() => {
         @toggle-sidebar="toggleSidebar"
         @toggle-preview="togglePreview"
         @open-palette="togglePalette"
+        @open-report="openReportDialog"
         @toggle-maximise="toggleMaximise"
       />
       <!-- Hold an empty frame until the workspaces resolve so a returning user
@@ -1046,6 +1051,7 @@ onUnmounted(() => {
     />
     <ToastStack :toasts="toasts" @dismiss="dismissToast" @clear-all="clearToasts" />
     <CommandPalette />
+    <ReportProblemDialog v-if="reportDialogOpen" @close="reportDialogOpen = false" />
     <NewProfileModal
       v-if="newProfileOpen"
       :busy="creatingProfile"

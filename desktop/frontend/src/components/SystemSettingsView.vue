@@ -8,9 +8,14 @@ import { onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconBug from '~icons/lucide/bug'
+import IconChevronRight from '~icons/lucide/chevron-right'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
 import AppSwitch from './AppSwitch.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
+import { useReportDialog } from '../composables/useReportDialog'
+
+const { openDialog: openReport } = useReportDialog()
 
 const {
   info,
@@ -62,6 +67,22 @@ onMounted(() => {
       class="rounded-md border border-border bg-severity-error-tint px-3 py-2 text-xs text-severity-error"
       data-testid="system-error"
     >{{ error }}</div>
+
+    <button
+      type="button"
+      class="group flex cursor-pointer items-center gap-3.5 overflow-hidden rounded-[11px] border border-accent/40 bg-raised px-4 py-3.5 text-left transition-colors hover:border-accent hover:bg-accent-tint/20"
+      data-testid="system-report-problem"
+      @click="openReport"
+    >
+      <span class="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-accent-tint text-accent">
+        <IconBug class="size-[18px]" />
+      </span>
+      <div class="min-w-0 flex-1">
+        <div class="text-[13.5px] font-semibold text-text">Report a problem</div>
+        <div class="mt-0.5 text-[11.5px] text-text-3">Send build info, recent logs, and redacted config — secrets are removed first.</div>
+      </div>
+      <IconChevronRight class="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5 group-hover:text-text-2" />
+    </button>
 
     <section class="flex flex-col gap-2.5">
       <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">

@@ -597,8 +597,9 @@ Retry, backoff, and pagination are absent until a second connector shows what
 they should look like — the package is an extraction from one implementation
 and should grow by evidence, not by anticipation.
 
-The app's other outbound HTTP — the updater and `cmd/release` — is not a
-source and has not adopted it.
+The app's other outbound HTTP — the updater, `cmd/release`, and the
+problem-report uploader (`report.Uploader`, ADR 0024) — is not a source and has
+not adopted it.
 
 ## Execution model
 

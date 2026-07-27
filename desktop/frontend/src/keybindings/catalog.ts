@@ -1,6 +1,7 @@
 import type { Component } from 'vue'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconArrowUp from '~icons/lucide/arrow-up'
+import IconBug from '~icons/lucide/bug'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
@@ -125,6 +126,15 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+k'],
     context: 'global',
     paletteHidden: true,
+  },
+  {
+    id: 'report.open',
+    title: 'Report a problem',
+    group: 'General',
+    keywords: ['bug', 'issue', 'feedback', 'diagnostics', 'crash', 'report'],
+    icon: IconBug,
+    defaultCombos: ['mod+shift+b'],
+    context: 'global',
   },
   {
     id: 'window.hide',

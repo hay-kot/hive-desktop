@@ -10,6 +10,7 @@ import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
 import * as PipelineService from "./pipelineservice.js";
 import * as PromptsService from "./promptsservice.js";
+import * as ReportService from "./reportservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SystemService from "./systemservice.js";
 import * as UpdaterService from "./updaterservice.js";
@@ -25,6 +26,7 @@ export {
     NotificationService,
     PipelineService,
     PromptsService,
+    ReportService,
     SettingsService,
     SystemService,
     UpdaterService,
@@ -43,6 +45,9 @@ export type {
     NotificationToast,
     NotifyInput,
     PathInfo,
+    ReportInput,
+    ReportPreview,
+    ReportResult,
     SystemInfo,
     UpdateInfo,
     WebhookCaptureView,

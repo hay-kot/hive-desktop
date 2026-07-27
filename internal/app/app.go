@@ -21,6 +21,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
+	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -51,6 +52,11 @@ type Config struct {
 	// enter as interfaces defined by their consumer.
 	Notifier dispatch.SystemNotifier
 	Gate     dispatch.NotificationGate
+
+	// Build stamps the running binary into report bundles. ReportUploader is a
+	// driven port; nil disables problem reporting (no report token in the build).
+	Build          report.Build
+	ReportUploader report.Uploader
 }
 
 // App is the headless core. Driving adapters hold *App and the concrete
@@ -72,6 +78,7 @@ type App struct {
 	Activity     *ActivityService
 	Jobs         *JobService
 	Prompts      *PromptsService
+	Report       *ReportService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -258,6 +265,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Activity = newActivityService(a.activityStore)
 	a.Jobs = newJobService(a.jobStore)
 	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
+	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 
 	return a, nil
 }
