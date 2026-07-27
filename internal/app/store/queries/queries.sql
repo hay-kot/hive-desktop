@@ -109,6 +109,18 @@ RETURNING *;
 SELECT * FROM inbox_item
 WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?;
 
+-- name: FindInboxItemsByExternalID :many
+SELECT * FROM inbox_item
+WHERE external_id = sqlc.arg(external_id)
+  AND (sqlc.arg(profile_id) = '' OR profile_id = sqlc.arg(profile_id))
+ORDER BY profile_id, source_kind, source_scope;
+
+-- name: ListAllInboxItems :many
+SELECT * FROM inbox_item
+WHERE (sqlc.arg(profile_id) = '' OR profile_id = sqlc.arg(profile_id))
+ORDER BY last_event_at DESC, id DESC
+LIMIT sqlc.arg(lim);
+
 -- name: ListUnarchivedInboxItemsByProfile :many
 SELECT * FROM inbox_item WHERE profile_id = ? AND archived_at IS NULL;
 
