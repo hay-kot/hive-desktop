@@ -15,7 +15,7 @@ the SQLite schema, which a test then couples to.
 `architecture.md` already names an `httpapi/` adapter (REST + SSE) as a target
 that is "not yet built". This is the first slice of it, scoped to the harness
 need: read the pipeline's conclusions and force a re-evaluation. The devserver
-control API (ADR 0018) is the *act* half — this is the *observe/arrange* half.
+control API (ADR 0020) is the *act* half — this is the *observe/arrange* half.
 
 The webhook listener (ADR 0016) already owns a loopback server, and
 `architecture.md` describes `httpapi` as "mounted via ServeHTTP at a Route" —

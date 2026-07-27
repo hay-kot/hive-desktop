@@ -83,7 +83,7 @@ func main() {
 	ui.SeedMock(core)
 
 	// The agent HTTP API shares the loopback HTTP server with the webhook
-	// listener (ADR 0019); mount it before Start whenever that server is up.
+	// listener (ADR 0021); mount it before Start whenever that server is up.
 	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger).Handler()) {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}

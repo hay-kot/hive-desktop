@@ -6,7 +6,7 @@ compatibility: Requires a running desktop instance built from this worktree. The
 
 # Observe the pipeline through the agent API
 
-The desktop exposes a loopback read + reload API over `app.App` (ADR 0019), so a
+The desktop exposes a loopback read + reload API over `app.App` (ADR 0021), so a
 test asserts against a supported surface instead of `desktop-pipeline.db`. One
 loopback `http` server (on by default) serves both webhook push (`/hooks/…`) and
 this API (`/api/…`) on the same port.

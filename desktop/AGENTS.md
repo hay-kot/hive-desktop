@@ -261,7 +261,7 @@ more expensive, which is the whole reason it is being done now.
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
   appearance: {theme: ""}
-  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0019)
+  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
   development:
     mocks: {mode: live}

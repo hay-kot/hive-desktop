@@ -5,8 +5,8 @@
 
 ## Context
 
-The first two JSON APIs (the `httpapi` adapter, ADR 0019, and the devserver
-control API, ADR 0018) grew three different handler styles: `httpapi` handlers
+The first two JSON APIs (the `httpapi` adapter, ADR 0021, and the devserver
+control API, ADR 0020) grew three different handler styles: `httpapi` handlers
 called a `writeError` helper per call site, devserver handlers picked statuses
 inline, and each surface had its own body-decoding and validation code. Before
 building more endpoints on either surface, the shape needed to be fixed once —
@@ -20,7 +20,7 @@ modeled on recipinned, whose httpkit-based structure is the reference.
    The middleware's built-in cases: an unreadable body (`web.BadRequestError`)
    is 400, a validation failure (`criterio.FieldErrors`) is 422 with a
    `fields` map. API-specific vocabulary is injected as `mid.Mapper` functions:
-   `httpapi` maps `app.Error` Kinds (preserving ADR 0019's map-Kind-once rule);
+   `httpapi` maps `app.Error` Kinds (preserving ADR 0021's map-Kind-once rule);
    the devserver maps everything else to a 500 that keeps the cause on the
    wire, since it is local dev tooling.
 

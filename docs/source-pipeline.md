@@ -103,7 +103,7 @@ policy.
 
 `sources.webhook` nodes are push-driven and bypass the producer entirely
 (docs/decisions/0007, 0014, and 0019). The listener shares one loopback `http`
-server with the agent API, on by default (ADR 0019). When `http.enabled` is true
+server with the agent API, on by default (ADR 0021). When `http.enabled` is true
 it binds `http.host` (loopback-only) and `http.port`; port `0` asks the OS to
 select the port directly, and the running endpoint reports the selected address.
 Typed process overrides are `HIVE_DESKTOP_HTTP_ENABLED`,

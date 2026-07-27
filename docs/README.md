@@ -27,9 +27,9 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0017](decisions/0017-devserver-github-proxy.md) | Development GitHub proxy and event simulator |
 | [0018](decisions/0018-source-http-toolkit.md) | A shared HTTP toolkit for source connectors |
 | [0019](decisions/0019-batched-absence-confirmation.md) | Batched, keyed GitHub absence confirmation |
-| [0018](decisions/0018-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
-| [0019](decisions/0019-agent-http-api.md) | Agent-facing HTTP API (read + reload) sharing the webhook port |
-| [0020](decisions/0020-http-handler-conventions.md) | HTTP handler conventions: errchain, extractors, criterio validation |
+| [0020](decisions/0020-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
+| [0021](decisions/0021-agent-http-api.md) | Agent-facing HTTP API (read + reload) sharing the webhook port |
+| [0022](decisions/0022-http-handler-conventions.md) | HTTP handler conventions: errchain, extractors, criterio validation |
 
 ## References
 
