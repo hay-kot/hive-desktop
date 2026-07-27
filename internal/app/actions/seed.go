@@ -8,6 +8,16 @@ import (
 )
 
 const defaultActionsYAML = `version: 1
+
+# This is your action catalog: the buttons on an item's detail pane and the
+# targets a flow action node can fire. Every action has a type —
+# launch-session, shell, or publish-message — and its templates are rendered
+# over the triggering item with Go text/template. This starter set demonstrates
+# all three; edit or delete anything here to fit your workflow.
+#
+# GitHub items expose {{ .Payload.repo }}, {{ .Payload.num }},
+# {{ .Payload.title }}, {{ .Payload.author }}, {{ .Payload.url }},
+# {{ .Payload.body }}, and {{ .Payload.labels }}.
 actions:
   - id: review-pr
     label: Review PR
@@ -16,21 +26,89 @@ actions:
     applies_to: [pr]
     repo_template: "https://github.com/{{ .Payload.repo }}.git"
     prompt_template: |
-      Review pull request {{ .Payload.title }}
+      Review pull request #{{ .Payload.num }}: {{ .Payload.title }}
+      Repository: {{ .Payload.repo }}
+      {{ if .Payload.author }}Author: {{ .Payload.author }}
+      {{ end }}{{ if .Payload.labels }}Labels: {{ range $i, $l := .Payload.labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}
+      {{ end }}{{ .Payload.url }}
 
+      {{ .Payload.body }}
+
+      Review this pull request and report back to me — do not push commits or
+      submit the review on GitHub.
+
+      - Check out the branch and read the full diff before forming an opinion.
+      - Check CI: if any checks are failing, explain what broke and how to fix it.
+      - Summarize what the change does, then flag anything risky, unclear, or
+        missing test coverage.
+      - Draft specific, line-level comments where you would request changes:
+        quote the code and suggest the fix.
+      - Call out what is clearly correct too, so the review is not only criticism.
+  - id: address-review-feedback
+    label: Address review feedback
+    type: launch-session
+    show_in_detail: true
+    applies_to: [pr]
+    repo_template: "https://github.com/{{ .Payload.repo }}.git"
+    prompt_template: |
+      Address the review feedback on pull request #{{ .Payload.num }}: {{ .Payload.title }}
+      Repository: {{ .Payload.repo }}
       {{ .Payload.url }}
+
+      This is my pull request and it has review feedback to resolve.
+
+      - Check out the branch for this PR.
+      - Read the review comments and unresolved conversations
+        (gh pr view {{ .Payload.num }} -R {{ .Payload.repo }} --comments).
+      - Make the change each comment calls for, then run the project's tests and
+        linters before finishing.
+      - Summarize what you changed in response to each piece of feedback.
+
+      Ask me before force-pushing or resolving conversations on GitHub.
   - id: start-implementation
-    label: Start implementation
+    label: Start work on issue
     type: launch-session
     show_in_detail: true
     applies_to: [issue]
     repo_template: "https://github.com/{{ .Payload.repo }}.git"
     prompt_template: |
-      Work on {{ .Payload.title }}
-
-      {{ .Payload.url }}
+      Start work on issue #{{ .Payload.num }}: {{ .Payload.title }}
+      Repository: {{ .Payload.repo }}
+      {{ if .Payload.author }}Reported by: {{ .Payload.author }}
+      {{ end }}{{ if .Payload.labels }}Labels: {{ range $i, $l := .Payload.labels }}{{ if $i }}, {{ end }}{{ $l }}{{ end }}
+      {{ end }}{{ .Payload.url }}
 
       {{ .Payload.body }}
+
+      Before writing any code:
+      - Restate the problem in your own words and list your assumptions and any
+        open questions.
+      - Explore the relevant code and outline a short implementation plan.
+      - Share the plan and wait for my confirmation on anything ambiguous.
+
+      Then implement the change, add or update tests, and run the project's tests
+      and linters before summarizing what you did.
+  # shell runs any local command, rendered over the item. Pipe interpolated
+  # values through shq so a repo or title with spaces or quotes cannot break
+  # the command. This one puts a gh checkout command on the clipboard.
+  - id: copy-checkout
+    label: Copy checkout command
+    type: shell
+    show_in_detail: true
+    applies_to: [pr]
+    command_template: "printf 'gh pr checkout %s -R %s' {{ .Payload.num }} {{ .Payload.repo | shq }} | pbcopy"
+  # publish-message publishes a durable message to a fixed topic another hive
+  # agent or session can subscribe to. The topic is a constant chosen here, not
+  # computed from the item.
+  - id: share-to-team
+    label: Share to team channel
+    type: publish-message
+    show_in_detail: true
+    applies_to: [pr, issue]
+    topic: team.updates
+    message_template: |
+      {{ .Payload.title }} — {{ .Payload.repo }} #{{ .Payload.num }}
+      {{ .Payload.url }}
 `
 
 // SeedDefaultsIfMissing installs the exact starter catalog only if path does
