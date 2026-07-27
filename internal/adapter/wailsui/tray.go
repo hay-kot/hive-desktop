@@ -2,6 +2,7 @@ package wailsui
 
 import (
 	"context"
+	"runtime"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -61,7 +62,7 @@ func NewProfileTray(
 	app *application.App,
 	flows *FlowsService,
 	logger zerolog.Logger,
-	icon []byte,
+	templateIcon, linuxIcon []byte,
 	show func(),
 	quit func(),
 ) *ProfileTray {
@@ -73,9 +74,21 @@ func NewProfileTray(
 		quit:   quit,
 		active: true,
 	}
-	result.tray = app.SystemTray.New().SetTemplateIcon(icon)
+	result.tray = applyTrayIcon(app.SystemTray.New(), templateIcon, linuxIcon)
 	result.Refresh()
 	return result
+}
+
+// applyTrayIcon installs the tray icon using the platform's icon semantics.
+// macOS tints a template icon to match the menu bar in both appearances. Linux
+// has no template concept — wails' StatusNotifierItem backend pushes the bytes
+// to the panel as a raw pixmap — so it takes the pre-coloured white mark
+// instead; the black template would be invisible on a dark panel.
+func applyTrayIcon(tray *application.SystemTray, templateIcon, linuxIcon []byte) *application.SystemTray {
+	if runtime.GOOS == "linux" {
+		return tray.SetIcon(linuxIcon)
+	}
+	return tray.SetTemplateIcon(templateIcon)
 }
 
 // Refresh replaces the tray menu from the current flow listing. Wails

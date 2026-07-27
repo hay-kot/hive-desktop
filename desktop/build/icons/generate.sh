@@ -57,3 +57,15 @@ render "$mark" 128 "$build_dir/linux/icon-128.png"
 # Template-suffixed tray assets let macOS tint the pure-black mark automatically.
 render "$tray" 18 "$script_dir/tray-templateTemplate.png"
 render "$tray" 36 "$script_dir/tray-templateTemplate@2x.png"
+
+# Linux has no template-icon concept: wails' StatusNotifierItem backend pushes
+# the bytes to the panel as a raw pixmap (systemtray_linux.go setIcon), so the
+# pure-black macOS mark would render invisible on the dark panels GNOME and
+# Ubuntu use unconditionally. Negate the RGB channels — alpha is untouched, so
+# the masked prompt cutout survives — to get the white mark Linux panels expect.
+# 44px is 2x the 22px panel icon size, so HiDPI panels downscale cleanly.
+rsvg-convert --width 44 --height 44 "$tray" |
+  magick png:- -channel RGB -negate +channel -strip \
+    -define png:exclude-chunks=date,time \
+    -define png:compression-level=9 -define png:compression-filter=5 \
+    -define png:color-type=6 "PNG32:$build_dir/linux/tray-icon.png"

@@ -152,9 +152,23 @@ func (s *UpdaterService) InstallUpdate(ctx context.Context) error {
 	log := s.logger.With().Str("current_version", s.currentVersion).Str("latest_version", latestVersion).Logger()
 	log.Info().Msg("update install started")
 
-	if err := engine.DownloadAndInstall(ctx); err != nil {
-		log.Error().Err(err).Str("stage", "download_install").Msg("update install failed")
+	// Point the updater's staging directory at the filesystem holding the
+	// running binary before anything downloads, so the helper's rename-based
+	// swap cannot fail with EXDEV, and so a read-only install is rejected up
+	// front rather than after a pointless download. No-op off Linux.
+	restoreStaging, err := prepareUpdateStaging(currentGOOS())
+	if err != nil {
+		log.Error().Err(err).Str("stage", "prepare_staging").Msg("update install failed")
 		return err
+	}
+
+	installErr := engine.DownloadAndInstall(ctx)
+	// The staged artifact stays on disk for Restart to hand to the helper; only
+	// the environment override is scoped to the download.
+	restoreStaging()
+	if installErr != nil {
+		log.Error().Err(installErr).Str("stage", "download_install").Msg("update install failed")
+		return installErr
 	}
 	log.Info().Msg("update downloaded and verified; requesting restart")
 
