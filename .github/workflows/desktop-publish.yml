@@ -23,6 +23,8 @@ name: Publish Desktop
 #   AC_API_ISSUER_ID        App Store Connect API issuer id
 #   R2_ACCESS_KEY_ID        R2 S3 credential (Object Read & Write on the bucket)
 #   R2_SECRET_ACCESS_KEY    R2 S3 credential secret
+#   HIVE_DESKTOP_REPORT_TOKEN  problem-report write token stamped into the app
+#                              (same value as the worker's REPORT_TOKEN secret)
 
 permissions:
   contents: read
@@ -87,4 +89,5 @@ jobs:
           AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          HIVE_DESKTOP_REPORT_TOKEN: ${{ secrets.HIVE_DESKTOP_REPORT_TOKEN }}
         run: go run ./cmd/release publish "${GITHUB_REF_NAME#desktop-v}"

@@ -18,6 +18,15 @@ import (
 
 const defaultDownloadBase = "https://dl.hivedesktop.com"
 
+const defaultSiteBase = "https://hivedesktop.com"
+
+func siteBaseURL() string {
+	if value := strings.TrimSpace(os.Getenv("HIVE_DESKTOP_SITE_BASE")); value != "" {
+		return strings.TrimRight(value, "/")
+	}
+	return defaultSiteBase
+}
+
 var errManifestNotFound = errors.New("manifest not found")
 
 type platformManifest struct {

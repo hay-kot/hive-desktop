@@ -68,6 +68,7 @@ func newReleaseCommand() *cli.Command {
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "skip-notarize", Usage: "skip notarization and stapling (requires --skip-upload)"},
 					&cli.BoolFlag{Name: "skip-upload", Usage: "build and package without publishing"},
+					&cli.BoolFlag{Name: "skip-web", Usage: "skip deploying and verifying the web landing page and worker"},
 					&cli.BoolFlag{Name: "force", Usage: "permit overwriting an existing immutable release"},
 				},
 				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
@@ -75,7 +76,7 @@ func newReleaseCommand() *cli.Command {
 						return cli.Exit("expected exactly one version", 2)
 					}
 					args := []string{cmd.Args().First()}
-					for _, flag := range []string{"skip-notarize", "skip-upload", "force"} {
+					for _, flag := range []string{"skip-notarize", "skip-upload", "skip-web", "force"} {
 						if cmd.Bool(flag) {
 							args = append(args, "--"+flag)
 						}

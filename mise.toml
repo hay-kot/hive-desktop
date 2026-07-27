@@ -30,7 +30,7 @@ depends = ["desktop:dev:prepare"]
 run = "./scripts/hooks/install.sh"
 
 [tasks."release:desktop"]
-description = "Build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
+description = "Deploy the web landing page/worker, then build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
 run = "go run ./cmd/release publish"
 
 [tasks.vendor]

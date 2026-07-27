@@ -48,9 +48,13 @@ tasks:
       # version in System settings. The release pipeline
       # (cmd/release) exports them; local production
       # builds fall back to the dev defaults via ${VAR:-...}.
+      # HIVE_DESKTOP_REPORT_TOKEN stamps the problem-report write token
+      # (internal/adapter/wailsui.reportToken); empty in source builds, which
+      # disables problem reporting. Its value must equal the worker's
+      # REPORT_TOKEN secret.
       - '{{if eq .OBFUSCATED "true"}}garble {{.GARBLE_ARGS}} build{{else}}go build{{end}} {{.BUILD_FLAGS}} -o "{{.OUTPUT}}"'
     vars:
-      VERSION_LDFLAGS: '-X main.version=${HIVE_DESKTOP_VERSION:-dev} -X main.commit=${HIVE_DESKTOP_COMMIT:-HEAD} -X main.date=${HIVE_DESKTOP_DATE:-now}'
+      VERSION_LDFLAGS: '-X main.version=${HIVE_DESKTOP_VERSION:-dev} -X main.commit=${HIVE_DESKTOP_COMMIT:-HEAD} -X main.date=${HIVE_DESKTOP_DATE:-now} -X github.com/hay-kot/hive-desktop/internal/adapter/wailsui.reportToken=${HIVE_DESKTOP_REPORT_TOKEN:-}'
       BUILD_FLAGS: '{{if eq .DEV "true"}}{{if or .EXTRA_TAGS (eq .OBFUSCATED "true")}}-tags {{if eq .OBFUSCATED "true"}}wails_obfuscated{{if .EXTRA_TAGS}},{{end}}{{end}}{{.EXTRA_TAGS}} {{end}}-buildvcs=false -gcflags=all="-l"{{else}}-tags production{{if eq .OBFUSCATED "true"}},wails_obfuscated{{end}}{{if .EXTRA_TAGS}},{{.EXTRA_TAGS}}{{end}} -trimpath -buildvcs=false -ldflags="-w -s {{.VERSION_LDFLAGS}}"{{end}}'
       DEFAULT_OUTPUT: '{{.BIN_DIR}}/{{.APP_NAME}}'
       OUTPUT: '{{ .OUTPUT | default .DEFAULT_OUTPUT }}'
