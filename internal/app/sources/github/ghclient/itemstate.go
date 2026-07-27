@@ -29,6 +29,11 @@ const itemStateChunk = 100
 // aliased GraphQL query, chunked at itemStateChunk refs per request. out is
 // always len(refs), including alongside an error: a failing chunk stops the
 // rest, and the states already resolved are still in out.
+//
+// A ref whose repository is deleted or private resolves to a null alias plus a
+// NOT_FOUND error, which is tolerated: that ref comes back Found:false while
+// the rest of its chunk resolves normally, so one gone repo cannot strand the
+// whole batch.
 func (c *Client) ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState, error) {
 	if len(refs) == 0 {
 		return []ItemState{}, nil
@@ -39,7 +44,7 @@ func (c *Client) ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState, e
 	for chunk := range slices.Chunk(refs, itemStateChunk) {
 		doc, variables := buildItemStateQuery(chunk)
 		var data map[string]gqlItemResult
-		if err := c.postGraphQL(ctx, doc, variables, &data); err != nil {
+		if err := c.postGraphQL(ctx, doc, variables, &data, true); err != nil {
 			return out, err
 		}
 		for i := range chunk {

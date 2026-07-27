@@ -153,7 +153,7 @@ func (c *Client) SearchIssuesBatch(ctx context.Context, reqs []SearchRequest) ([
 
 	doc, variables := buildSearchQuery(reqs)
 	var data map[string]gqlSearchResult
-	if err := c.postGraphQL(ctx, doc, variables, &data); err != nil {
+	if err := c.postGraphQL(ctx, doc, variables, &data, false); err != nil {
 		return nil, err
 	}
 
@@ -300,7 +300,12 @@ func (c *Client) getJSON(ctx context.Context, path string, params url.Values, ou
 // postGraphQL executes one GraphQL request and decodes the data object into
 // out. GraphQL reports rate limits in the response body rather than the
 // status, so RATE_LIMITED is mapped here rather than by sourcehttp.
-func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any, out any) error {
+//
+// When tolerateNotFound is set, a NOT_FOUND error is not fatal: GitHub returns
+// it alongside partial data (the unresolved alias is null) for a deleted or
+// private repository, so out is still decoded and the caller reads the null
+// alias as absent. RATE_LIMITED and every other error type remain fatal.
+func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any, out any, tolerateNotFound bool) error {
 	payload, err := json.Marshal(struct {
 		Query     string         `json:"query"`
 		Variables map[string]any `json:"variables"`
@@ -331,18 +336,30 @@ func (c *Client) postGraphQL(ctx context.Context, query string, variables map[st
 	}
 	if len(response.Errors) > 0 {
 		messages := make([]string, 0, len(response.Errors))
+		tolerated := 0
 		for _, gqlErr := range response.Errors {
 			if gqlErr.Type == "RATE_LIMITED" {
 				return sourcehttp.RateLimit(resp.Header)
+			}
+			if tolerateNotFound && gqlErr.Type == "NOT_FOUND" {
+				tolerated++
+				continue
 			}
 			if gqlErr.Message != "" {
 				messages = append(messages, gqlErr.Message)
 			}
 		}
-		if len(messages) == 0 {
-			messages = append(messages, "request failed")
+		// Fail unless every error was a tolerated NOT_FOUND; otherwise fall
+		// through to decode the partial data those nulls sit beside.
+		if tolerated < len(response.Errors) {
+			if len(messages) == 0 {
+				messages = append(messages, "request failed")
+			}
+			return c.errs.Errorf("graphql: %s", strings.Join(messages, "; "))
 		}
-		return c.errs.Errorf("graphql: %s", strings.Join(messages, "; "))
+	}
+	if len(response.Data) == 0 {
+		return nil
 	}
 	if err := json.Unmarshal(response.Data, out); err != nil {
 		return c.errs.Errorf("decode graphql data: %w", err)

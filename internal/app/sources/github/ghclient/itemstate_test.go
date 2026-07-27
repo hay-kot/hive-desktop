@@ -144,6 +144,56 @@ func TestItemStates_NullAliasIsNotFound(t *testing.T) {
 	assert.False(t, out[1].Found)
 }
 
+// GitHub answers a deleted or private repository with a null alias AND a
+// top-level NOT_FOUND error carrying partial data. The found alias in the same
+// response must still resolve rather than be discarded with the error.
+func TestItemStates_NotFoundErrorWithPartialData(t *testing.T) {
+	t.Parallel()
+
+	refs := []ItemRef{
+		{Owner: "o", Name: "live", Number: 42},
+		{Owner: "o", Name: "gone", Number: 7},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"data":{"r0":{"issueOrPullRequest":{"__typename":"Issue","number":42,"state":"CLOSED","updatedAt":"2026-07-18T09:00:00Z","repository":{"nameWithOwner":"o/live"}}},"r1":null},
+			"errors":[{"type":"NOT_FOUND","path":["r1"],"message":"Could not resolve to a Repository with the name 'o/gone'."}]
+		}`))
+	}))
+	defer server.Close()
+
+	out, err := NewClient(WithAPIBase(server.URL)).ItemStates(t.Context(), refs)
+	require.NoError(t, err, "a NOT_FOUND alias must not fail the batch")
+	require.Len(t, out, 2)
+	assert.True(t, out[0].Found, "the resolved alias survives the NOT_FOUND on its neighbour")
+	assert.Equal(t, "closed", out[0].State)
+	assert.Equal(t, 42, out[0].Number)
+	assert.False(t, out[1].Found, "the gone repo resolves to not-found")
+}
+
+// A non-NOT_FOUND GraphQL error alongside partial data is still fatal: the
+// tolerance is scoped to NOT_FOUND, so a real query error is never swallowed.
+func TestItemStates_FatalErrorAlongsideNotFoundStillFails(t *testing.T) {
+	t.Parallel()
+
+	refs := []ItemRef{{Owner: "o", Name: "r", Number: 1}}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"r0":null},"errors":[
+			{"type":"NOT_FOUND","path":["r0"],"message":"gone"},
+			{"type":"FORBIDDEN","message":"resource not accessible"}
+		]}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(WithAPIBase(server.URL)).ItemStates(t.Context(), refs)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "resource not accessible")
+}
+
 func TestItemStates_PartialChunkFailure(t *testing.T) {
 	t.Parallel()
 
