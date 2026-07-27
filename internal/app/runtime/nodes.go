@@ -37,12 +37,16 @@ type behavior struct {
 	// the same flag to know what replay must recompute membership for and,
 	// on disable, must remove. It is meaningless on a behavior with no sinks.
 	snapshotReconciled bool
+	// kvCapable marks a node that owns durable node KV. The engine derives
+	// the ids ActivateReplay retains from this flag; a node type missing it
+	// has its rows reconciled away on the next activation.
+	kvCapable bool
 }
 
 // processor transforms one message into port-indexed outputs. A nil result
 // (or one whose ports are all empty) discards the message.
 type processor interface {
-	process(ctx context.Context, msg store.Msg) ([][]store.Msg, error)
+	process(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error)
 	// reset drops whatever state the processor accumulated for its node,
 	// so the next message starts clean. The engine calls it after a timeout —
 	// the "terminate, respawn" the browser gave a wedged worker.
@@ -60,7 +64,7 @@ type processor interface {
 // a change to internal/app/sources alone.
 var behaviors = buildBehaviors(map[string]behavior{
 	"github-filter": {processor: newFilterNode},
-	"function":      {processor: newFunctionNode},
+	"function":      {processor: newFunctionNode, kvCapable: true},
 	"feed":          {sinks: feedSinks, snapshotReconciled: true},
 	"action":        {sinks: actionSinks},
 	"notify":        {sinks: notifySinks},
@@ -82,36 +86,16 @@ func buildBehaviors(declared map[string]behavior) map[string]behavior {
 	return out
 }
 
-// feedSinks claims immutable inbox membership for the arriving item, and —
-// when the feed is one that interrupts — raises the same notify output a
-// notify node does, targeting the feed's own id so both deliver through one
-// executor.
-//
-// A snapshot re-states every current item on every poll. It must therefore
-// reconcile membership and nothing else: notifying from one would re-announce
-// the whole feed every tick.
-func feedSinks(flowID, nodeID string, cfg flow.NodeConfig, msg store.Msg) []store.Output {
-	target := flowID + "/" + nodeID
-	output := store.Output{
-		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: target},
+// feedSinks claims immutable inbox membership for the arriving item. A feed
+// is a pure inbox surface: it never interrupts — raising a notification is a
+// notify node's job.
+func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
+	return []store.Output{{
+		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: flowID + "/" + nodeID},
 		Key:         msg.Key,
 		SourceTopic: msg.Topic,
 		SourceKind:  msg.SourceKind,
 		SourceScope: msg.SourceScope,
-	}
-
-	config, _ := cfg.(*flow.FeedConfig)
-	if config == nil || config.Notify == nil {
-		return []store.Output{output}
-	}
-	return []store.Output{output, {
-		Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: target},
-		Key:           msg.Key,
-		OccurrenceKey: msg.OccurrenceKey,
-		Payload:       msg.Payload,
-		SourceTopic:   msg.Topic,
-		SourceKind:    msg.SourceKind,
-		SourceScope:   msg.SourceScope,
 	}}
 }
 

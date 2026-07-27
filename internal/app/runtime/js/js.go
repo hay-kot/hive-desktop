@@ -40,12 +40,27 @@ const Name = "javascript"
 // compiled program; wrapperLineOffset undoes that when reporting a position,
 // so an author sees the line they wrote.
 const (
-	wrapperPrefix     = "(function (msg, node, state) {\n"
+	wrapperPrefix     = "(function (msg, node, state, kv) {\n"
 	wrapperSuffix     = "\n})"
 	wrapperLineOffset = 1
 	// scriptName is the filename goja attributes positions to. It shows up in
 	// stack traces, so it names the thing an author recognises.
 	scriptName = "on_message"
+)
+
+// maxKVKeyBytes and maxKVValueBytes cap what kv.set accepts: this is a
+// small-value dedup store, not a blob store. Over either cap the host func
+// throws so the script sees a catchable exception rather than silent
+// truncation. The number of keys is deliberately uncapped: the only writer
+// is the user's own script against their own local database, growth per tick
+// is bounded by the batch's message count, and TTL plus flow/node teardown
+// reclaim rows — a count quota would turn a working dedup memory into
+// silent re-notification the moment it filled.
+const (
+	maxKVKeyBytes   = 512
+	maxKVValueBytes = 4096
+	// maxKVTTLSeconds rejects absurd ttls before ttl*1000 can overflow int64.
+	maxKVTTLSeconds = 100 * 365 * 24 * 60 * 60
 )
 
 // Runtime is the goja implementation of runtime.ScriptRuntime.
@@ -98,7 +113,7 @@ func (r *Runtime) New(src string, outputs int) (runtime.ScriptInstance, error) {
 		return nil, err
 	}
 
-	return &instance{
+	inst := &instance{
 		vm:      vm,
 		fn:      fn,
 		outputs: outputs,
@@ -108,17 +123,31 @@ func (r *Runtime) New(src string, outputs int) (runtime.ScriptInstance, error) {
 		// `state.counts ??= {}` on one message is visible to the next — the
 		// same object identity the browser worker kept.
 		state: vm.NewObject(),
-	}, nil
+	}
+	// The kv façade is likewise built once and lives with the VM: a script
+	// may stash `kv` (or a bound method) in `state` on one message and call
+	// it on a later one, so the methods resolve the *current* invocation's
+	// NodeKV and ctx at call time rather than closing over one message's.
+	inst.kvObject = inst.buildKVObject()
+	return inst, nil
 }
 
 // instance is one node instance's compiled script plus its VM and state.
 type instance struct {
-	vm      *goja.Runtime
-	fn      goja.Callable
-	outputs int
-	json    jsonFuncs
-	pool    *runtime.ScriptPool
-	state   *goja.Object
+	vm       *goja.Runtime
+	fn       goja.Callable
+	outputs  int
+	json     jsonFuncs
+	pool     *runtime.ScriptPool
+	state    *goja.Object
+	kvObject *goja.Object
+	// curKV/curCtx are the live invocation's KV handle and timeout ctx, set
+	// by OnMessage around each evaluation. nil curKV means kv is unavailable
+	// (preview / dry-run) and every method throws. The ctx must live on the
+	// struct: the VM's host closures cannot take a Go parameter, and the
+	// façade outlives any one invocation by design.
+	curKV  runtime.NodeKV
+	curCtx context.Context //nolint:containedctx // invocation-scoped; set/cleared by OnMessage
 	// wedged records that an evaluation outlived its interrupt and may still
 	// be running on an abandoned goroutine. The VM must never be touched
 	// again: another Run on it would race that goroutine.
@@ -166,7 +195,7 @@ const interruptGrace = 250 * time.Millisecond
 // from stopping its flow. A goroutine that outlives its interrupt is
 // abandoned and keeps its pool slot, and the instance is marked wedged so the
 // engine's reset drops it.
-func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any) ([][]store.Msg, error) {
+func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv runtime.NodeKV) ([][]store.Msg, error) {
 	if i.wedged {
 		return nil, &runtime.ScriptError{Kind: runtime.ScriptErrorTimeout, Message: "script instance is still running a previous message"}
 	}
@@ -204,8 +233,15 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any) ([]
 	stop := context.AfterFunc(ctx, func() { i.vm.Interrupt(errTimeout) })
 	defer stop()
 
+	// Set before the eval goroutine starts; cleared only on paths where that
+	// goroutine has finished. The wedged path deliberately skips the clear —
+	// the instance is never reused, and clearing would race the abandoned
+	// goroutine.
+	i.curKV, i.curCtx = kv, ctx
+	clearKV := func() { i.curKV, i.curCtx = nil, nil }
+
 	go func() {
-		value, err := i.fn(goja.Undefined(), msgValue, nodeValue, i.state)
+		value, err := i.fn(goja.Undefined(), msgValue, nodeValue, i.state, i.kvObject)
 		// done is buffered, so this never blocks even when nobody is left
 		// listening — and the slot is returned only now, when the VM is
 		// genuinely idle again.
@@ -215,6 +251,7 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any) ([]
 
 	select {
 	case result := <-done:
+		clearKV()
 		if result.err != nil {
 			return nil, evaluationError(result.err)
 		}
@@ -223,6 +260,7 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any) ([]
 		i.vm.Interrupt(errTimeout)
 		select {
 		case result := <-done:
+			clearKV()
 			// The interrupt landed. A script that returned a value in the same
 			// breath still loses: it ran past its deadline.
 			if result.err != nil {

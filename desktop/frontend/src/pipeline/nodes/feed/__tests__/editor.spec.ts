@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
-import { defaults, descriptionMaxLen, notifyBodyMaxLen, notifyTitleMaxLen, validate } from '../config'
+import { defaults, descriptionMaxLen, validate } from '../config'
 import { chooseOption } from '../../../../test-utils/select'
 
 describe('feed editor', () => {
@@ -33,58 +33,11 @@ describe('feed editor', () => {
     const events = wrapper.emitted('update:config')
     expect(events?.at(-1)?.[0]).toEqual({ description: undefined })
   })
-})
 
-describe('feed notify editor', () => {
-  it('hides the notification options until notifications are turned on', () => {
+  it('carries no notification controls — a feed never interrupts', () => {
     const wrapper = mount(Editor, { props: { config: {} } })
-    expect(wrapper.get<HTMLInputElement>('[data-testid="feed-editor-notify"]').element.checked).toBe(false)
+    expect(wrapper.find('[data-testid="feed-editor-notify"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="feed-editor-notify-options"]').exists()).toBe(false)
-
-    const notifying = mount(Editor, { props: { config: { notify: { title: 'Review requested' } } } })
-    expect(notifying.get<HTMLInputElement>('[data-testid="feed-editor-notify"]').element.checked).toBe(true)
-    expect(notifying.find('[data-testid="feed-editor-notify-options"]').exists()).toBe(true)
-  })
-
-  it('turning notifications on and off adds and drops the whole block', async () => {
-    const wrapper = mount(Editor, { props: { config: {} } })
-    // On seeds the title a notification needs rather than starting invalid.
-    await wrapper.get('[data-testid="feed-editor-notify"]').setValue(true)
-    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: '{{ .Payload.title }}' } })
-
-    // Off drops the block rather than leaving its settings behind: presence is
-    // the switch, so a stale block would silently notify again when re-enabled.
-    const notifying = mount(Editor, { props: { config: { notify: { title: 'Review requested' } } } })
-    await notifying.get('[data-testid="feed-editor-notify"]').setValue(false)
-    expect(notifying.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: undefined })
-  })
-
-  it('emits the typed templates and clears an emptied one back to undefined', async () => {
-    const wrapper = mount(Editor, { props: { config: { notify: { title: 'Review requested' } } } })
-    await wrapper.get('[data-testid="feed-editor-notify-body"]').setValue('{{ .Payload.repo }}')
-    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: 'Review requested', body: '{{ .Payload.repo }}' } })
-
-    // Title is required, so an emptied one stays empty rather than vanishing —
-    // validation then flags it, matching the notify node's own rule.
-    await wrapper.get('[data-testid="feed-editor-notify-title"]').setValue('')
-    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: '' } })
-  })
-
-  it('omits the notification defaults rather than writing them out', async () => {
-    const wrapper = mount(Editor, { props: { config: { notify: { title: 'x', severity: 'warning' } } } })
-    await chooseOption(wrapper, 'feed-editor-notify-severity', 'info')
-    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: 'x', severity: undefined } })
-    wrapper.unmount()
-
-    const silenced = mount(Editor, { props: { config: { notify: { title: 'x', sound: false } } } })
-    await silenced.get('[data-testid="feed-editor-notify-sound"]').setValue(true)
-    expect(silenced.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: 'x', sound: undefined } })
-  })
-
-  it('emits an explicit false when a feed silences itself', async () => {
-    const wrapper = mount(Editor, { props: { config: { notify: { title: 'Review requested' } } } })
-    await wrapper.get('[data-testid="feed-editor-notify-sound"]').setValue(false)
-    expect(wrapper.emitted('update:config')?.at(-1)?.[0]).toEqual({ notify: { title: 'Review requested', sound: false } })
   })
 })
 
@@ -104,16 +57,4 @@ describe('feed config', () => {
   it('rejects an over-long description', () => {
     expect(validate({ description: 'x'.repeat(descriptionMaxLen + 1) })).toHaveLength(1)
   })
-
-  it('accepts a notify block and its templates', () => {
-    expect(validate({ notify: { title: 'Review requested' } })).toEqual([])
-    expect(validate({ notify: { title: 'Review requested', body: '{{ .Payload.repo }}', severity: 'warning' } })).toEqual([])
-  })
-
-  it('rejects over-long notification templates and an unsupported severity', () => {
-    expect(validate({ notify: { title: 'x'.repeat(notifyTitleMaxLen + 1) } })).toHaveLength(1)
-    expect(validate({ notify: { title: 'x', body: 'x'.repeat(notifyBodyMaxLen + 1) } })).toHaveLength(1)
-    expect(validate({ notify: { title: 'x', severity: 'critical' } })).toHaveLength(1)
-  })
-
 })

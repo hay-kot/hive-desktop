@@ -36,8 +36,9 @@ type ScriptRuntime interface {
 type ScriptInstance interface {
 	// OnMessage evaluates the script for msg and returns its outputs indexed
 	// by output port. config is the node's own config, passed as the script's
-	// `node` argument. A returned error is always a *ScriptError.
-	OnMessage(ctx context.Context, msg store.Msg, config any) ([][]store.Msg, error)
+	// `node` argument; kv is the node's per-message durable-KV handle. A
+	// returned error is always a *ScriptError.
+	OnMessage(ctx context.Context, msg store.Msg, config any, kv NodeKV) ([][]store.Msg, error)
 	// Close releases the instance. An instance whose evaluation timed out may
 	// still be running, in which case Close interrupts it and returns without
 	// waiting.

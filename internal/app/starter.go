@@ -7,13 +7,14 @@ import (
 
 // starterSeed is the graph a freshly seeded workspace begins with: a few
 // sources.github nodes each wired to its own feed terminal, laid out in two
-// columns (sources left, feeds right), plus a notifying "Review requests" feed
-// behind a filter on the notifications source.
+// columns (sources left, feeds right), plus a "Review requests" feed and a
+// notify node behind a filter on the notifications source.
 //
-// That last feed ships on by default deliberately: "tell me when I'm asked to
-// review something" is the case a quiet feed cannot serve — the item sits
-// unread until you happen to look — and it should not require hand-authoring a
-// flow to get.
+// That notify branch ships on by default deliberately: "tell me when I'm
+// asked to review something" is the case a quiet feed cannot serve — the item
+// sits unread until you happen to look — and it should not require
+// hand-authoring a flow to get. A feed never interrupts, so the interrupt is
+// its own notify terminal on a second branch off the filter.
 //
 // It lives here rather than in flow because it names a connector, and flow is
 // connector-neutral: a flow's graph is built by whoever knows which connectors
@@ -47,24 +48,25 @@ func starterSeed(credential string) flow.Seed {
 		}
 		// The filter takes a second branch off the same source rather than
 		// sitting between it and the Notifications feed: everything still lands
-		// there to read at leisure, and only review requests also land in the
-		// feed that interrupts.
+		// there to read at leisure, and only review requests reach the branch
+		// that interrupts. The feed collects them; the notify node alongside it
+		// is what raises the banner.
 		out.Nodes = append(out.Nodes,
 			flow.Node{ID: "review-requests-filter", Type: "github-filter", Config: &flow.GithubFilterConfig{Reasons: []string{"review_requested"}}},
-			flow.Node{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &flow.FeedConfig{
-				Icon: "eye",
-				Notify: &flow.NotifyConfig{
-					Title: "Review requested",
-					Body:  "{{ .Payload.repo }} #{{ .Payload.num }} · {{ .Payload.title }}",
-				},
+			flow.Node{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &flow.FeedConfig{Icon: "eye"}},
+			flow.Node{ID: "review-requests-notify", Type: "notify", Name: "Review requested", Config: &flow.NotifyConfig{
+				Title: "Review requested",
+				Body:  "{{ .Payload.repo }} #{{ .Payload.num }} · {{ .Payload.title }}",
 			}},
 		)
 		out.Wires = append(out.Wires,
 			flow.Wire{From: srcID, To: "review-requests-filter"},
 			flow.Wire{From: "review-requests-filter", Out: 0, To: "review-requests"},
+			flow.Wire{From: "review-requests-filter", Out: 0, To: "review-requests-notify"},
 		)
 		out.Layout.Nodes["review-requests-filter"] = flow.NodePosition{X: 360, Y: 48 + (i+1)*96}
 		out.Layout.Nodes["review-requests"] = flow.NodePosition{X: 672, Y: 48 + (i+1)*96}
+		out.Layout.Nodes["review-requests-notify"] = flow.NodePosition{X: 672, Y: 48 + (i+2)*96}
 	}
 	return out
 }

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -31,18 +32,10 @@ func (g gateTest) NotificationPolicy() NotificationPolicy { return g.policy }
 type itemLocatorTest struct {
 	id  int64
 	err error
-	// notifiable answers InboxItemNotifiable; the zero value is "new
-	// activity", so the existing tests read unchanged.
-	notNew      bool
-	notifiedErr error
 }
 
 func (l itemLocatorTest) InboxItemID(context.Context, string, string, string, string) (int64, error) {
 	return l.id, l.err
-}
-
-func (l itemLocatorTest) InboxItemNotifiable(context.Context, string, string, string, string, string) (bool, error) {
-	return !l.notNew, l.notifiedErr
 }
 
 func notifyAction() actions.Action {
@@ -55,6 +48,7 @@ func notifyAction() actions.Action {
 			Body:     "{{ .Payload.title }}",
 			Severity: "warning",
 			Sound:    true,
+			Cooldown: flow.NotifyCooldownDefault,
 		},
 	}
 }
@@ -167,10 +161,85 @@ func TestNotifyExecutor_CoalescesRepeatsForTheSameItem(t *testing.T) {
 	assert.Len(t, notifier.sent, 2)
 
 	// Past the window the same item may interrupt again.
-	now = now.Add(NotifyCooldown + time.Second)
+	now = now.Add(flow.NotifyCooldownDefault + time.Second)
 	_, err = executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, notifier.sent, 3)
+}
+
+// The cooldown window is the node's own resolved config: a short window
+// suppresses inside it and delivers past it, and an explicit 0 means every
+// accepted delivery may interrupt.
+func TestNotifyExecutor_CooldownIsConfigurable(t *testing.T) {
+	withCooldown := func(cooldown time.Duration) actions.Action {
+		action := notifyAction()
+		cfg, ok := action.Config.(*NotifyActionConfig)
+		require.True(t, ok)
+		updated := *cfg
+		updated.Cooldown = cooldown
+		action.Config = &updated
+		return action
+	}
+
+	t.Run("suppresses within the configured window and delivers past it", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+		now := time.Now()
+		executor.now = func() time.Time { return now }
+
+		action := withCooldown(30 * time.Second)
+		_, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+
+		result, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.False(t, result.Attempted)
+		assert.Len(t, notifier.sent, 1)
+
+		now = now.Add(31 * time.Second)
+		_, err = executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.Len(t, notifier.sent, 2)
+	})
+
+	t.Run("a zero cooldown never suppresses", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+
+		action := withCooldown(0)
+		_, err := executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		_, err = executor.Execute(t.Context(), action, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.Len(t, notifier.sent, 2)
+	})
+
+	t.Run("a shorter-cooldown node firing does not shorten another node's window", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+		now := time.Now()
+		executor.now = func() time.Time { return now }
+
+		patient := withCooldown(time.Hour)
+		eager := withCooldown(30 * time.Second)
+		eager.ID = store.NotifyActionID("triage/also-tell-me")
+
+		_, err := executor.Execute(t.Context(), patient, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+
+		// The eager node fires in between; its record-time pruning must not
+		// evict the patient node's still-live entry.
+		now = now.Add(time.Minute)
+		_, err = executor.Execute(t.Context(), eager, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, notifier.sent, 2)
+
+		now = now.Add(time.Minute)
+		result, err := executor.Execute(t.Context(), patient, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.False(t, result.Attempted)
+		assert.Len(t, notifier.sent, 2, "the patient node is still inside its hour-long window")
+	})
 }
 
 // Two notify nodes fed by the same message are independent destinations, so
@@ -225,58 +294,6 @@ func TestNotifyExecutor_ReportsDeliveryFailure(t *testing.T) {
 	result, err := executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
 	require.ErrorIs(t, err, notifier.err)
 	assert.True(t, result.Attempted, "the notification was dispatched and the OS refused it")
-}
-
-// A notifying feed only interrupts for genuinely new activity; a notify node
-// notifies for whatever the author routed to it. Both resolve to the same
-// executor, so the distinction rides on the action config.
-func TestNotifyExecutor_OnlyWhenNew(t *testing.T) {
-	feedAction := func() actions.Action {
-		action := notifyAction()
-		base, ok := action.Config.(*NotifyActionConfig)
-		require.True(t, ok, "notifyAction should carry a *NotifyActionConfig")
-		cfg := *base
-		cfg.OnlyWhenNew = true
-		action.Config = &cfg
-		return action
-	}
-
-	t.Run("suppressed when ingestion judged the observation not new", func(t *testing.T) {
-		notifier := &notifierTest{}
-		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notNew: true}, zerolog.Nop())
-
-		result, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
-		require.NoError(t, err)
-		assert.False(t, result.Attempted, "a suppressed notification records no activity")
-		assert.Empty(t, notifier.sent)
-	})
-
-	t.Run("delivered when it is new", func(t *testing.T) {
-		notifier := &notifierTest{}
-		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42}, zerolog.Nop())
-
-		_, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
-		require.NoError(t, err)
-		require.Len(t, notifier.sent, 1)
-	})
-
-	t.Run("a lookup failure notifies rather than swallowing the interrupt", func(t *testing.T) {
-		notifier := &notifierTest{}
-		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notifiedErr: errors.New("database is locked")}, zerolog.Nop())
-
-		_, err := executor.Execute(t.Context(), feedAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
-		require.NoError(t, err)
-		require.Len(t, notifier.sent, 1)
-	})
-
-	t.Run("a notify node is unaffected by the item's state", func(t *testing.T) {
-		notifier := &notifierTest{}
-		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{id: 42, notNew: true}, zerolog.Nop())
-
-		_, err := executor.Execute(t.Context(), notifyAction(), notifyData(t, notifyCommand()), ActionInvocationInput{})
-		require.NoError(t, err)
-		require.Len(t, notifier.sent, 1)
-	})
 }
 
 // The delivery preference decides where a notification surfaces; the executor

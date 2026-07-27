@@ -3,6 +3,7 @@ package flow
 import (
 	"fmt"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/hay-kot/hive-desktop/internal/app/icons"
@@ -21,34 +22,10 @@ const feedDescriptionMaxLen = 500
 type FeedConfig struct {
 	Icon        string `json:"icon,omitempty"        yaml:"icon,omitempty"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	// Notify turns this feed into one that interrupts: a present block means
-	// "tell me when something new lands here", and its absence means the feed
-	// is read at the user's leisure like any other. Presence is the switch so
-	// a quiet feed carries no notify keys at all — the same absent-means-
-	// default idiom Icon and Description use.
-	//
-	// A notify *node* (see NotifyConfig) is the general form: it notifies for
-	// whatever is routed to it and claims no feed membership. This is the
-	// common case of the same idea — the feed you point at "things that need
-	// my attention right now" — expressed on the feed itself rather than as a
-	// second terminal alongside it. Both deliver through the same executor.
-	Notify *NotifyConfig `json:"notify,omitempty" yaml:"notify,omitempty"`
 }
 
 func (c *FeedConfig) Inputs() int  { return 1 }
 func (c *FeedConfig) Outputs() int { return 0 }
-
-// NotifyDeclaration satisfies dispatch's notify-raiser capability: a feed
-// only raises a notify output when it carries a Notify block, and — unlike a
-// notify node — restricts delivery to genuinely new arrivals. A feed is a
-// place items live, so "notify me about this feed" means the arrivals, not
-// every later comment on something already sitting in it.
-func (c *FeedConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
-	if c.Notify == nil {
-		return nil, false, false
-	}
-	return c.Notify, true, true
-}
 
 func (c *FeedConfig) Validate(Refs) error {
 	if !icons.ValidFeed(c.Icon) {
@@ -56,11 +33,6 @@ func (c *FeedConfig) Validate(Refs) error {
 	}
 	if utf8.RuneCountInString(c.Description) > feedDescriptionMaxLen {
 		return fmt.Errorf("description: must be at most %d characters", feedDescriptionMaxLen)
-	}
-	if c.Notify != nil {
-		if err := c.Notify.Validate(nil); err != nil {
-			return fmt.Errorf("notify: %w", err)
-		}
 	}
 	return nil
 }
@@ -106,6 +78,11 @@ var notifySeverities = map[string]bool{
 // none: an ordinary, non-interrupting banner.
 const NotifySeverityDefault = "info"
 
+// NotifyCooldownDefault is the per-item delivery floor a notify node uses
+// when it declares no cooldown of its own: once a node interrupts about an
+// item, it stays quiet about that same item for this long.
+const NotifyCooldownDefault = 5 * time.Minute
+
 // notifyTitleMaxLen and notifyBodyMaxLen cap the *templates*, not the
 // rendered result — enough room for a sentence of context each while keeping
 // the persisted YAML bounded. The executor separately bounds what a template
@@ -138,17 +115,23 @@ type NotifyConfig struct {
 	// silence a notification — the global notification-sound setting still
 	// wins when it is off. Resolve through SoundOrDefault.
 	Sound *bool `json:"sound,omitempty" yaml:"sound,omitempty"`
+	// CooldownSeconds is a per-item delivery floor: once this node interrupts
+	// about an item, it stays quiet about that same item for this long. A
+	// pointer so an absent key ("use NotifyCooldownDefault") is distinct from
+	// an explicit 0 ("no cooldown; every accepted message may interrupt").
+	// This is a delivery floor, not dedup — deciding *whether* an item is
+	// worth notifying is upstream's job. Resolve through CooldownOrDefault.
+	CooldownSeconds *int `json:"cooldownSeconds,omitempty" yaml:"cooldownSeconds,omitempty"`
 }
 
 func (c *NotifyConfig) Inputs() int  { return 1 }
 func (c *NotifyConfig) Outputs() int { return 0 }
 
 // NotifyDeclaration satisfies dispatch's notify-raiser capability: a notify
-// node always has content to raise and never restricts delivery to new
-// arrivals — it notifies for whatever is routed to it, unconditionally,
-// which is the author's explicit choice in authoring the node at all.
-func (c *NotifyConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
-	return c, false, true
+// node always has content to raise — it notifies for whatever is routed to
+// it, which is the author's explicit choice in authoring the node at all.
+func (c *NotifyConfig) NotifyDeclaration() (cfg *NotifyConfig, ok bool) {
+	return c, true
 }
 
 // SeverityOrDefault resolves Severity, defaulting to NotifySeverityDefault
@@ -169,6 +152,16 @@ func (c *NotifyConfig) SoundOrDefault() bool {
 	return *c.Sound
 }
 
+// CooldownOrDefault resolves CooldownSeconds, defaulting to
+// NotifyCooldownDefault when the key is absent. An explicit 0 disables the
+// cooldown entirely.
+func (c *NotifyConfig) CooldownOrDefault() time.Duration {
+	if c.CooldownSeconds == nil {
+		return NotifyCooldownDefault
+	}
+	return time.Duration(*c.CooldownSeconds) * time.Second
+}
+
 func (c *NotifyConfig) Validate(Refs) error {
 	if strings.TrimSpace(c.Title) == "" {
 		return fmt.Errorf("title: title is required")
@@ -181,6 +174,9 @@ func (c *NotifyConfig) Validate(Refs) error {
 	}
 	if c.Severity != "" && !notifySeverities[c.Severity] {
 		return fmt.Errorf("severity: %q is not a supported severity (info, success, warning, error)", c.Severity)
+	}
+	if c.CooldownSeconds != nil && *c.CooldownSeconds < 0 {
+		return fmt.Errorf("cooldownSeconds: must not be negative")
 	}
 	return nil
 }

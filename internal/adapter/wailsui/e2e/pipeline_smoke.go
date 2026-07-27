@@ -22,6 +22,7 @@ const (
 	sourceToCommitSmokeFlowID   = "source-to-commit"
 	sourceToCommitSmokeSourceID = "fixture-source"
 	sourceToCommitSmokeFeedID   = "source-to-commit/smoke-feed"
+	sourceToCommitSmokeNotifyID = "source-to-commit/smoke-notify"
 )
 
 var sourceToCommitSmokeItems = []feed.Item{
@@ -46,6 +47,10 @@ var sourceToCommitSmokeItems = []feed.Item{
 type sourceToCommitSmokeState struct {
 	Claims   []store.InboxItemView `json:"claims"`
 	NodeRuns []store.NodeRunRecord `json:"nodeRuns"`
+	// NotifyCommands counts the notify node's enqueued output commands: the
+	// observable proof that the KV-backed dedup branch fired once per item
+	// and stayed quiet on a changed re-observation.
+	NotifyCommands int `json:"notifyCommands"`
 }
 
 // sourceToCommitSmokeClassifier is the deliberately small source-side
@@ -84,7 +89,7 @@ func sourceToCommitSmokeMiddleware(db *store.DB, mock string, onAppended func(ne
 
 			switch r.Method {
 			case http.MethodPost:
-				if err := appendSourceToCommitSmokeItems(r.Context(), db, onAppended); err != nil {
+				if err := appendSourceToCommitSmokeItems(r.Context(), db, r.URL.Query().Get("rev"), onAppended); err != nil {
 					http.Error(w, err.Error(), http.StatusInternalServerError)
 					return
 				}
@@ -106,9 +111,15 @@ func sourceToCommitSmokeMiddleware(db *store.DB, mock string, onAppended func(ne
 	}
 }
 
-func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, onAppended func(nextOffset int64)) error {
+// appendSourceToCommitSmokeItems ingests the fixture items. A non-empty rev
+// beyond "1" varies each title, so the re-observation is a genuine change
+// that appends and routes — the case KV dedup exists to suppress.
+func appendSourceToCommitSmokeItems(ctx context.Context, db *store.DB, rev string, onAppended func(nextOffset int64)) error {
 	var lastOffset int64
 	for _, item := range sourceToCommitSmokeItems {
+		if rev != "" && rev != "1" {
+			item.Title += " (rev " + rev + ")"
+		}
 		payload, err := json.Marshal(item)
 		if err != nil {
 			return fmt.Errorf("encode smoke fixture item %q: %w", item.ID, err)
@@ -148,5 +159,12 @@ func readSourceToCommitSmokeState(ctx context.Context, db *store.DB) (sourceToCo
 	if err != nil {
 		return sourceToCommitSmokeState{}, fmt.Errorf("read smoke node runs: %w", err)
 	}
-	return sourceToCommitSmokeState{Claims: claims, NodeRuns: runs}, nil
+	var notifyCommands int
+	if err := db.Conn().QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM output_command WHERE action_id = ?`,
+		store.NotifyActionID(sourceToCommitSmokeNotifyID),
+	).Scan(&notifyCommands); err != nil {
+		return sourceToCommitSmokeState{}, fmt.Errorf("count smoke notify commands: %w", err)
+	}
+	return sourceToCommitSmokeState{Claims: claims, NodeRuns: runs, NotifyCommands: notifyCommands}, nil
 }

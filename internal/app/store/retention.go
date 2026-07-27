@@ -120,6 +120,11 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 		if err := q.TrimInboxItemEvents(ctx, policy.EventPerItemLimit); err != nil {
 			return fmt.Errorf("trimming inbox item events: %w", err)
 		}
+		// No row-count cap on node_kv on purpose: a pruned "seen" key would
+		// make its item re-notify, so bounding relies on TTL and teardown.
+		if err := q.DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true}); err != nil {
+			return fmt.Errorf("sweeping expired node kv: %w", err)
+		}
 		return nil
 	})
 	if err != nil {

@@ -24,7 +24,7 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 
 	for _, table := range []string{
 		"activity_event", "consumer_offset", "event_log", "feed_membership_claim",
-		"inbox_event", "inbox_item", "job", "node_run", "output_command", "source_head", "webhook_capture",
+		"inbox_event", "inbox_item", "job", "node_kv", "node_run", "output_command", "source_head", "webhook_capture",
 	} {
 		_, err := database.Conn().ExecContext(ctx, "SELECT 1 FROM "+table+" LIMIT 0")
 		require.NoError(t, err, "%s table should exist", table)
@@ -34,11 +34,11 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := migrate.Load(sub)
 	require.NoError(t, err)
-	require.Len(t, migrations, 4)
+	require.Len(t, migrations, 5)
 
 	applied, err := migrate.AppliedVersions(ctx, database.Conn())
 	require.NoError(t, err)
-	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true}, applied)
+	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true}, applied)
 }
 
 func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {

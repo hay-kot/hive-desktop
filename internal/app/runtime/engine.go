@@ -28,9 +28,13 @@ type Store interface {
 	// ListReplaySourceSnapshots returns each source's newest authoritative
 	// snapshot at or before an offset.
 	ListReplaySourceSnapshots(ctx context.Context, profileID string, throughOffset int64) ([]store.Msg, error)
-	// ActivateReplay installs a prepared replay: claims, removed structure, and
-	// the consumer checkpoint, in one transaction.
-	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []store.FeedMembershipClaim, feedIDs, sourceIDs []string) error
+	// ActivateReplay installs a prepared replay: claims, removed structure,
+	// node-KV reconciliation, and the consumer checkpoint, in one transaction.
+	ActivateReplay(ctx context.Context, profileID string, tail int64, claims []store.FeedMembershipClaim, feedIDs, sourceIDs, kvNodeIDs []string) error
+	// NodeKVGet and NodeKVKeys are the KVReader port live runners read
+	// durable node KV through.
+	NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int64) (string, bool, error)
+	NodeKVKeys(ctx context.Context, flowID, nodeID, prefix string, now int64) ([]string, error)
 }
 
 // Flows is the engine's view of the flow set: whatever loaded successfully,
@@ -213,7 +217,7 @@ func (e *Engine) install(ctx context.Context) {
 // that were already run for those items. The recompute is a plain Run whose
 // result is not committed — only its feed claims are installed.
 func (e *Engine) installFlow(ctx context.Context, f flow.Flow) error {
-	runner, err := NewRunner(f, Options{Scripts: e.opts.Scripts})
+	runner, err := NewRunner(f, Options{Scripts: e.opts.Scripts, KV: e.opts.Store})
 	if err != nil {
 		return err
 	}
@@ -266,7 +270,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 		}
 	}
 
-	result, err := runner.Run(ctx, kept)
+	result, err := runner.RunReplay(ctx, kept)
 	if err != nil {
 		return fmt.Errorf("recomputing membership: %w", err)
 	}
@@ -292,9 +296,9 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 	}
 
 	// One transaction installs the claims, removes the structure this flow no
-	// longer has, and moves the checkpoint. A failure here leaves the previous
-	// flow's claims and offset exactly as they were.
-	if err := e.opts.Store.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs); err != nil {
+	// longer has, reconciles node KV, and moves the checkpoint. A failure here
+	// leaves the previous flow's claims, KV and offset exactly as they were.
+	if err := e.opts.Store.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs, flowKVNodeIDs(f)); err != nil {
 		return fmt.Errorf("activating replay: %w", err)
 	}
 	return nil
@@ -360,6 +364,20 @@ func flowTargets(f flow.Flow) (feedIDs, sourceIDs []string) {
 		}
 	}
 	return feedIDs, sourceIDs
+}
+
+// flowKVNodeIDs lists the ids of the flow's KV-capable nodes, from the same
+// declared behavior flags flowTargets reads. Converting a node to a type
+// without the capability under the same id drops it from this set, so its
+// now-inaccessible KV is reconciled away rather than retained forever.
+func flowKVNodeIDs(f flow.Flow) []string {
+	var ids []string
+	for i := range f.Nodes {
+		if behaviors[f.Nodes[i].Type].kvCapable {
+			ids = append(ids, f.Nodes[i].ID)
+		}
+	}
+	return ids
 }
 
 // identityKey is the source-identity triple an inbox item is found by. The

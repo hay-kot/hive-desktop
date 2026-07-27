@@ -51,7 +51,7 @@ func newFunctionNode(r *Runner, nodeID string, config flow.NodeConfig) (processo
 	}, nil
 }
 
-func (p *functionProcessor) process(ctx context.Context, msg store.Msg) ([][]store.Msg, error) {
+func (p *functionProcessor) process(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error) {
 	if p.instance == nil {
 		instance, err := p.rt.New(p.src, p.outputs)
 		if err != nil {
@@ -59,7 +59,7 @@ func (p *functionProcessor) process(ctx context.Context, msg store.Msg) ([][]sto
 		}
 		p.instance = instance
 	}
-	return p.instance.OnMessage(ctx, msg, p.config)
+	return p.instance.OnMessage(ctx, msg, p.config, kv)
 }
 
 // reset drops the instance so the next message compiles a fresh one with a

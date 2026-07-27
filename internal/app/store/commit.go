@@ -52,17 +52,11 @@ func NotifyActionTarget(actionID string) (string, bool) {
 // action node's executor sees, so `{{ .Payload.title }}` means the same
 // thing in both.
 type NotifyCommand struct {
-	ProfileID   string `json:"profileId"`
-	ExternalID  string `json:"externalId,omitempty"`
-	SourceKind  string `json:"sourceKind,omitempty"`
-	SourceScope string `json:"sourceScope,omitempty"`
-	// OccurrenceKey identifies the observation that raised this notification,
-	// so a delivery that only wants genuinely new activity can ask ingestion
-	// what it made of that observation (see DB.InboxItemNotifiable). It is the
-	// message's own key, not the command's dedup key, which may be a payload
-	// digest when a message carries none.
-	OccurrenceKey string          `json:"occurrenceKey,omitempty"`
-	Item          json.RawMessage `json:"item,omitempty"`
+	ProfileID   string          `json:"profileId"`
+	ExternalID  string          `json:"externalId,omitempty"`
+	SourceKind  string          `json:"sourceKind,omitempty"`
+	SourceScope string          `json:"sourceScope,omitempty"`
+	Item        json.RawMessage `json:"item,omitempty"`
 }
 
 // Output is one committed side effect of a flow run.
@@ -112,6 +106,17 @@ type NodeRunView struct {
 	DurMs     int64  `json:"durMs"`
 }
 
+// KVMutation is one node's durable KV write, flushed inside CommitBatch so
+// it is durable iff the tick that produced it commits. The row's flow_id is
+// CommitBatch.Consumer.
+type KVMutation struct {
+	NodeID    string `json:"nodeId"`
+	Key       string `json:"key"`
+	Delete    bool   `json:"delete,omitempty"`
+	Value     string `json:"value,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"` // unix ms, 0 = no expiry
+}
+
 // CommitBatch is the graph runtime's (internal/app/runtime) atomic write: it
 // advances a consumer's committed offset and persists the outputs/node-run
 // metrics produced while processing up to that offset, all in one transaction
@@ -123,6 +128,7 @@ type CommitBatch struct {
 	FeedSnapshots []FeedSnapshot `json:"feedSnapshots"`
 	Discards      []Discard      `json:"discards"`
 	NodeRuns      []NodeRunView  `json:"nodeRuns"`
+	KVMutations   []KVMutation   `json:"kvMutations,omitempty"` // omitempty: invisible to fixtures with none
 }
 
 // CommitBatch applies b atomically: feed outputs resolve their inbox item and
@@ -177,12 +183,11 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				}
 			case SinkKindNotify:
 				payload, err := json.Marshal(NotifyCommand{
-					ProfileID:     b.Consumer,
-					ExternalID:    out.Key,
-					SourceKind:    out.SourceKind,
-					SourceScope:   out.SourceScope,
-					OccurrenceKey: out.OccurrenceKey,
-					Item:          out.Payload,
+					ProfileID:   b.Consumer,
+					ExternalID:  out.Key,
+					SourceKind:  out.SourceKind,
+					SourceScope: out.SourceScope,
+					Item:        out.Payload,
 				})
 				if err != nil {
 					return fmt.Errorf("encoding notify command %s/%s: %w", out.Sink.TargetID, out.Key, err)
@@ -216,6 +221,25 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				}
 			} else if err := q.DeleteFeedMembershipClaimsNotInSnapshot(ctx, DeleteFeedMembershipClaimsNotInSnapshotParams{FeedID: snapshot.FeedID, SourceID: snapshot.SourceTopic, ItemIds: itemIDs}); err != nil {
 				return fmt.Errorf("reconciling feed snapshot: %w", err)
+			}
+		}
+
+		for _, m := range b.KVMutations {
+			if m.Delete {
+				if err := q.DeleteNodeKV(ctx, DeleteNodeKVParams{FlowID: b.Consumer, NodeID: m.NodeID, Scope: KVScopeNode, Key: m.Key}); err != nil {
+					return fmt.Errorf("deleting node kv %s/%s: %w", m.NodeID, m.Key, err)
+				}
+				continue
+			}
+			var expiresAt sql.NullInt64
+			if m.ExpiresAt > 0 {
+				expiresAt = sql.NullInt64{Int64: m.ExpiresAt, Valid: true}
+			}
+			if err := q.UpsertNodeKV(ctx, UpsertNodeKVParams{
+				FlowID: b.Consumer, NodeID: m.NodeID, Scope: KVScopeNode, Key: m.Key,
+				Value: m.Value, ExpiresAt: expiresAt, UpdatedAt: now,
+			}); err != nil {
+				return fmt.Errorf("writing node kv %s/%s: %w", m.NodeID, m.Key, err)
 			}
 		}
 

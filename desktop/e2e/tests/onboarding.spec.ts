@@ -108,10 +108,11 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
 
     // Connecting is what fills the workspace: it was created empty because a
     // source node names the account it fetches as. The starter graph is three
-    // sources.github -> feed pairs plus a notifying "Review requests" feed.
-    // Nothing has polled GitHub yet in mock mode (buildPipelineProducer is
-    // skipped, and only the fixture flow desktop/mockseed.go targets gets
-    // seeded feed_item rows), so the feeds start with zero items.
+    // sources.github -> feed pairs plus a "Review requests" feed and notify
+    // node behind a filter. Nothing has polled GitHub yet in mock mode
+    // (buildPipelineProducer is skipped, and only the fixture flow
+    // desktop/mockseed.go targets gets seeded feed_item rows), so the feeds
+    // start with zero items.
     await expect(page.getByTestId('sidebar-profile-name')).toHaveText('Frontend Triage', { timeout: 15_000 })
     await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
     await expect(page.getByTestId('feed-item')).toHaveCount(0)
@@ -137,9 +138,9 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await page.getByTestId('sidebar-edit-flow').click()
     const flowsView = page.getByTestId('flows-view')
     await expect(flowsView).toBeVisible()
-    // Three source→feed pairs, plus the seeded notifying "Review requests"
-    // feed behind a filter on the notifications source.
-    await expect(page.getByTestId('canvas-node-wire-count')).toHaveText('8 nodes · 5 wires')
+    // Three source→feed pairs, plus the seeded "Review requests" feed and
+    // notify node behind a filter on the notifications source.
+    await expect(page.getByTestId('canvas-node-wire-count')).toHaveText('9 nodes · 6 wires')
     await expect(page.locator('[data-testid="flow-node-review-requests"]')).toBeVisible()
 
     await page.locator('[data-testid="flow-node-my-open-prs"]').dblclick()

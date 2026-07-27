@@ -239,10 +239,12 @@ internal/
       docs/                       # per-node-type markdown — read by the node drawer
                                   #   AND by an LLM (ADR 0009)
     runtime/                      # graph engine
-      runtime.go                  #   package doc, Runner Options — no DB access
+      runtime.go                  #   package doc, Runner Options — no DB writes;
+                                  #   durable KV reads via the KVReader port
       engine.go                   #   Engine: a runner per enabled flow, driven
                                   #   by App — installs, wakes, reloads, drains
       graph.go  run.go            #   index a flow, execute a batch -> CommitBatch
+      kv.go                       #   the commit-atomic node-KV buffer
       nodes.go                    #   what each node type does at run time
       filter.go  function.go      #   the two processing node types
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
@@ -619,6 +621,22 @@ caller, which is what would let a dry-run and a live tick be one code path
 rather than two implementations of the same semantics, once a caller asks for
 one without committing.
 
+The engine never *writes* the database. Its one read path is the `KVReader`
+driven port behind a function node's `kv` object — durable per-node key-value
+state (the `node_kv` table), read live during a tick and written back as
+`CommitBatch.KVMutations` so a script's writes are durable iff its tick
+commits, with per-message staging discarding the writes of a message that
+threw. `kv` is `state`'s durable sibling: `state` is in-memory scratch per
+deploy, `kv` is the dedup/change-detection memory that survives restarts,
+reconciled against the flow's KV-capable node ids inside `ActivateReplay`'s
+transaction and read as absent during replay so membership recompute stays a
+pure function of snapshots and graph. Entries are size-capped but not
+count-capped — growth is bounded by TTL and teardown, never by pruning live
+keys, because a pruned seen-set re-notifies. Only notify nodes notify — feeds are
+pure membership surfaces — and dedup for the notify branch belongs in a
+function node backed by `kv`, not in the delivery path (whose only noise
+control is a per-node, per-item delivery cooldown).
+
 Two registries describe a node type between them: `flow`'s says how it is
 configured, `runtime`'s says what it does when a message arrives. Neither the
 router nor the executor branches on a type string.
@@ -747,13 +765,16 @@ The target is reached in this order; each step is independently shippable.
 
 ### Data that must survive
 
-Breaking changes to schema and config format are acceptable. Two things are
+Breaking changes to schema and config format are acceptable. Three things are
 not rebuildable and must be carried across any migration:
 
 - `inbox_item.unread` / `archived_at` / `archived_actor` / `archived_reason` —
   triage decisions, not derivable from any source.
 - `output_command`'s unique `(action_id, key)` index — the only thing
   preventing an already-run action from re-firing.
+- `node_kv` — a function node's dedup/change-detection memory. Replay is
+  deliberately KV-inert, so a lost seen-set cannot be recomputed; dropping
+  it re-fires every notify-once branch.
 
 Everything else (`event_log`, `feed_membership_claim`, `node_run`,
 `source_head`, `consumer_offset`, `activity_event`, `job`) is derived or

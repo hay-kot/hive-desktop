@@ -1,13 +1,13 @@
 {
-  "name": "a feed that interrupts raises the same notify output a notify node does",
-  "why": "Two things are pinned here. A feed with a notify block emits two outputs for one message but counts as one out — the node saw one message. And a snapshot item passing through that same feed emits only the membership claim: re-announcing the whole feed on every poll is exactly what the snapshot rule exists to prevent.",
+  "name": "a feed only claims membership; a notify node is what interrupts",
+  "why": "Two things are pinned here. A feed emits exactly one output per message — the membership claim — whatever else the flow wants announced. And a snapshot item reaches the feed but is dropped before the notify terminal: re-announcing the whole feed on every poll is exactly what the snapshot rule exists to prevent.",
   "flow": {
     "id": "loud",
     "name": "Loud",
     "enabled": true,
     "nodes": [
       { "id": "src", "type": "sources.github", "kind": "notifications" },
-      { "id": "f", "type": "feed", "notify": { "title": "New", "severity": "warning" } },
+      { "id": "f", "type": "feed" },
       { "id": "n", "type": "notify", "title": "Ping" }
     ],
     "wires": [
@@ -35,12 +35,6 @@
       {
         "sink": { "kind": "feed", "targetId": "loud/f" },
         "key": "k1", "sourceKind": "github", "sourceScope": "notifications",
-        "sourceTopic": "source:loud/src"
-      },
-      {
-        "sink": { "kind": "notify", "targetId": "loud/f" },
-        "key": "k1", "occurrenceKey": "oc-1", "payload": { "title": "hello" },
-        "sourceKind": "github", "sourceScope": "notifications",
         "sourceTopic": "source:loud/src"
       },
       {

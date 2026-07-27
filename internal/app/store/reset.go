@@ -16,6 +16,7 @@ var resetTables = []string{
 	"event_log",
 	"consumer_offset",
 	"source_head",
+	"node_kv",
 	"output_command",
 	"node_run",
 	"activity_event",

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +35,23 @@ func TestFeedConfig_Validate(t *testing.T) {
 	t.Run("description at the cap is allowed", func(t *testing.T) {
 		require.NoError(t, (&FeedConfig{Description: strings.Repeat("x", feedDescriptionMaxLen)}).Validate(nil))
 	})
+}
+
+// Feeds never notify; the strict per-type decode makes a leftover `notify:`
+// key a parse error on save/deploy rather than a silently ignored setting.
+func TestFeedConfig_RejectsARemovedNotifyKey(t *testing.T) {
+	_, _, err := parseFlow("work", []byte(`version: 1
+nodes:
+  - { id: src, type: sources.github, credential: github/octocat, kind: notifications }
+  - id: inbox
+    type: feed
+    notify:
+      title: Review requested
+wires:
+  - { from: src, to: inbox }
+`), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "notify")
 }
 
 func TestFeedConfig_RoundTrip(t *testing.T) {
@@ -111,6 +129,13 @@ func TestNotifyConfig_Validate(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "severity")
 	})
+
+	t.Run("a negative cooldown is rejected", func(t *testing.T) {
+		negative := -1
+		err := (&NotifyConfig{Title: "hi", CooldownSeconds: &negative}).Validate(nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "cooldownSeconds")
+	})
 }
 
 func TestNotifyConfig_Defaults(t *testing.T) {
@@ -120,6 +145,18 @@ func TestNotifyConfig_Defaults(t *testing.T) {
 
 	silent := false
 	assert.False(t, (&NotifyConfig{Title: "hi", Sound: &silent}).SoundOrDefault())
+}
+
+// The cooldown is a per-node delivery floor: absent means the 5-minute
+// default, an explicit 0 disables it, and anything else is taken literally.
+func TestNotifyConfig_CooldownOrDefault(t *testing.T) {
+	assert.Equal(t, NotifyCooldownDefault, (&NotifyConfig{Title: "hi"}).CooldownOrDefault())
+
+	disabled := 0
+	assert.Equal(t, time.Duration(0), (&NotifyConfig{Title: "hi", CooldownSeconds: &disabled}).CooldownOrDefault())
+
+	window := 90
+	assert.Equal(t, 90*time.Second, (&NotifyConfig{Title: "hi", CooldownSeconds: &window}).CooldownOrDefault())
 }
 
 func TestNotifyConfig_RoundTrip(t *testing.T) {

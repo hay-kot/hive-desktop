@@ -38,11 +38,32 @@ type snapshotContext struct {
 // Run does not commit anything. A caller that wants the batch applied passes
 // it to store.CommitBatch; a caller previewing a flow simply reads it.
 func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+	return r.run(ctx, batch, false)
+}
+
+// RunReplay recomputes membership with a fully inert KV — durable and
+// overlay reads miss, staged writes are discarded — so replay stays a pure
+// function of (current snapshots, current graph) and never suppresses items
+// via dedup history. It resets the processors on the way out, so state
+// mutated during the recompute never reaches the next live Run.
+func (r *Runner) RunReplay(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+	result, err := r.run(ctx, batch, true)
+	r.resetProcessors()
+	return result, err
+}
+
+func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.CommitBatch, error) {
+	now := time.Now().UnixMilli()
+	kv := newKVBuffer(r.opts.KV, r.flow.ID, now)
+	if inert {
+		kv = newInertKVBuffer(r.flow.ID, now)
+	}
 	state := &runState{
 		runner:       r,
 		pending:      map[string][]message{},
 		runs:         map[string]*nodeRunAcc{},
 		snapshotSeen: map[string]bool{},
+		kv:           kv,
 	}
 
 	state.route(batch)
@@ -57,6 +78,7 @@ func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch,
 		FeedSnapshots: state.snapshots,
 		Discards:      state.discards,
 		NodeRuns:      state.nodeRuns(),
+		KVMutations:   state.kv.mutations(),
 	}, nil
 }
 
@@ -80,6 +102,8 @@ type runState struct {
 	// that actually received a message.
 	runs     map[string]*nodeRunAcc
 	runOrder []string
+
+	kv *kvBuffer
 }
 
 type nodeRunAcc struct {
@@ -246,13 +270,16 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 	}
 
 	timeout := s.runner.timeouts[node.ID]
+	staging := s.kv.node(node.ID)
 	nodeCtx, cancel := context.WithTimeout(ctx, timeout)
 	started := time.Now()
-	produced, err := proc.process(nodeCtx, m.msg)
+	produced, err := proc.process(nodeCtx, m.msg, staging)
 	run.dur += time.Since(started)
 	cancel()
 
 	if err != nil {
+		// Staged KV writes go down with the errored message: a kv.set
+		// followed by a throw must persist nothing.
 		run.ok = false
 		run.err = err.Error()
 		s.drop(run, node.ID, m)
@@ -262,6 +289,8 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 		}
 		return nil
 	}
+
+	staging.commit()
 
 	if emptyPorts(produced) {
 		s.drop(run, node.ID, m)

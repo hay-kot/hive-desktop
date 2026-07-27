@@ -302,3 +302,21 @@ func inboxEventIDs(t *testing.T, ctx context.Context, database *DB, itemID int64
 	require.NoError(t, rows.Err())
 	return ids
 }
+
+func TestPrune_SweepsExpiredNodeKVAlways(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	past := time.Now().Add(-time.Minute).UnixMilli()
+	future := time.Now().Add(time.Hour).UnixMilli()
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "expired", `1`, past))
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "live", `1`, future))
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "forever", `1`, 0))
+
+	_, err := db.Prune(ctx, nil, DefaultRetentionPolicy())
+	require.NoError(t, err)
+
+	var rows int
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&rows))
+	assert.Equal(t, 2, rows, "only the expired row is swept — pruning unexpired keys would re-notify their items")
+}
