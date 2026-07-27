@@ -1,6 +1,7 @@
 # 0018 — devserver agent-facing control API
 
-- **Status:** accepted
+- **Status:** accepted (point 3, `/_ctl/help`, superseded by ADR 0020 — the
+  endpoint was dropped; `/_ctl/state` carries the action vocabulary)
 - **Date:** 2026-07-26
 
 ## Context

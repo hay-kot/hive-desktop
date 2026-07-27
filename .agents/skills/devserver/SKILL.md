@@ -34,9 +34,6 @@ curl -sf localhost:7777/_ctl/health | jq .   # {devserver, appConnected, request
 
 # is this the build under test? (VCS revision + dirty flag)
 curl -s localhost:7777/_ctl/version | jq .    # compare .revision to `git rev-parse HEAD`
-
-# the fixed contract: endpoints, the action vocabulary, mutation fields
-curl -s localhost:7777/_ctl/help | jq .
 ```
 
 If `/_ctl/health` fails, devserver is not running — ask the user to start it
@@ -65,7 +62,7 @@ by the payload, so no observed item is needed.
 ### One event
 
 ```bash
-# a quick action from the vocabulary (see /_ctl/help for the full list)
+# a quick action from the vocabulary (see .actions in /_ctl/state for the full list)
 curl -XPOST localhost:7777/_ctl/action \
   -d '{"repo":"acme/widgets","num":42,"action":"review-requested"}'
 
@@ -104,8 +101,8 @@ curl -s localhost:7777/_ctl/state | jq '.scenarios'   # [] once the run complete
 ```
 
 A bad step (unknown action, invalid repo, both `action` and `set`, a step that
-does nothing) fails the whole request with a `400` — read the message and fix
-the step rather than retrying blind.
+does nothing) fails the whole request with a `422` naming the step in `fields`
+— read it and fix the step rather than retrying blind.
 
 ### A webhook push
 

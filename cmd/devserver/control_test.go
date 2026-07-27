@@ -72,7 +72,7 @@ func TestControlRejectsUnknownAction(t *testing.T) {
 		`{"repo":"o/r","num":1,"action":"approve"}`)
 	// "approve" is deliberately absent: GitHub has no such notification
 	// reason, and inventing one would teach a wrong lesson about the app.
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "unknown action")
 }
 
@@ -84,7 +84,7 @@ func TestControlRejectsInvalidMatcher(t *testing.T) {
 		`{"repo":"","num":1,"action":"comment"}`,
 	} {
 		rec := ctl(t, handler, http.MethodPost, "/_ctl/action", body)
-		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, body)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestControlOverlayRejectsInvalidState(t *testing.T) {
 	handler, _, _ := testControl(t, Config{})
 	rec := ctl(t, handler, http.MethodPost, "/_ctl/overlay",
 		`{"repo":"o/r","num":1,"set":{"state":"squashed"}}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "not one of")
 }
 
@@ -295,11 +295,15 @@ func TestControlScenarioRejectsBadSteps(t *testing.T) {
 		"no-op step":     `{"steps":[{"repo":"o/r","num":1}]}`,
 		"bad wait":       `{"steps":[{"wait":"soon"}]}`,
 		"bad mutation":   `{"steps":[{"repo":"o/r","num":1,"set":{"state":"squashed"}}]}`,
-		"unknown field":  `{"steps":[{"repo":"o/r","num":1,"action":"comment","typo":true}]}`,
 	} {
 		rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario", body)
-		assert.Equal(t, http.StatusBadRequest, rec.Code, name)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, name)
 	}
+
+	// A typo'd key is a body the decoder rejects, not a validation failure.
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario",
+		`{"steps":[{"repo":"o/r","num":1,"action":"comment","typo":true}]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // ── Pusher ───────────────────────────────────────────────────────────────────
@@ -418,7 +422,7 @@ func TestPushRejectsNonLoopbackInlineTarget(t *testing.T) {
 	handler, _, _ := testControl(t, Config{})
 	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push",
 		`{"target":{"url":"http://example.com/hooks/x"},"body":{"id":"x"}}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "loopback")
 }
 
@@ -428,7 +432,7 @@ func TestPushRequiresExactlyOneTargetForm(t *testing.T) {
 	}})
 	// Neither a name nor a url.
 	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push", `{"payload":"p"}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "target")
 }
 
@@ -443,7 +447,7 @@ func TestPusherRequiresExactlyOnePayloadSource(t *testing.T) {
 		`{"target":"local","payload":"p","body":{"id":"1"}}`,
 	} {
 		rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push", body)
-		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, body)
 	}
 }
 

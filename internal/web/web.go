@@ -1,22 +1,37 @@
-// Package webtools holds the transport-neutral HTTP helpers shared by every
-// JSON API in this repo (the devserver control API and the app's httpapi
-// adapter), so version, build identity, and JSON writing stay one shape across
-// them. It knows nothing about app vocabulary — Kind-to-status mapping stays in
-// the adapter that owns the vocabulary.
-package webtools
+// Package web holds the HTTP plumbing shared by the JSON APIs in this repo:
+// the error wire shape, build identity, and the version handler.
+package web
 
 import (
-	"encoding/json"
 	"net/http"
 	"runtime/debug"
+
+	"github.com/hay-kot/httpkit/server"
 )
 
-// WriteJSON writes payload as JSON with status.
-func WriteJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(payload)
+// ErrorBody is the error wire shape: {kind, message}, with per-field detail
+// on validation failures.
+type ErrorBody struct {
+	Kind    string            `json:"kind"`
+	Message string            `json:"message"`
+	Fields  map[string]string `json:"fields,omitempty"`
 }
+
+// BadRequestError marks a body the transport could not read (400), as
+// distinct from a well-formed request that failed validation (422).
+type BadRequestError struct {
+	Msg string
+	Err error
+}
+
+func (e *BadRequestError) Error() string {
+	if e.Err == nil {
+		return e.Msg
+	}
+	return e.Msg + ": " + e.Err.Error()
+}
+
+func (e *BadRequestError) Unwrap() error { return e.Err }
 
 // Build is the VCS identity Go stamps into a binary. Revision is empty under
 // -buildvcs=false, which reads as an unknown build.
@@ -57,6 +72,6 @@ func VersionHandler(service string) http.HandlerFunc {
 	build := ReadBuild()
 
 	return func(w http.ResponseWriter, _ *http.Request) {
-		WriteJSON(w, http.StatusOK, resp{Service: service, Build: build})
+		_ = server.JSON(w, http.StatusOK, resp{Service: service, Build: build})
 	}
 }

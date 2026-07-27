@@ -145,7 +145,8 @@ async function post(path, body) {
   });
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    toast(data.error || ('HTTP ' + resp.status), true);
+    const fields = Object.entries(data.fields || {}).map(([k, v]) => k + ' ' + v).join('; ');
+    toast(fields || data.message || ('HTTP ' + resp.status), true);
     return null;
   }
   return data;

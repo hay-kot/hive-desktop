@@ -135,12 +135,9 @@ The desktop's `sources.github` reads exactly four things: `state`, `updatedAt`, 
 
 ## Control API
 
-The dashboard is a thin renderer over these, and an agent drives the same surface directly. All under `/_ctl/`. `GET /_ctl/help` returns the machine-readable contract — every endpoint, the action vocabulary, and the mutation fields — so a caller can discover the surface without this file.
+The dashboard is a thin renderer over these, and an agent drives the same surface directly. All under `/_ctl/`.
 
 ```bash
-# the fixed contract (endpoints, actions, mutation fields)
-curl localhost:7777/_ctl/help
-
 # preflight: is this the build under test, and has an app connected yet?
 # health reports {devserver, appConnected, requests, itemsObserved, ...};
 # version reports the VCS revision + dirty flag Go stamped into the binary.

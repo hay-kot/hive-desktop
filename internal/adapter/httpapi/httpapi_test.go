@@ -34,7 +34,7 @@ func testServer(t *testing.T) (*app.App, http.Handler) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
-	return core, httpapi.New(core).Handler()
+	return core, httpapi.New(core, zerolog.Nop()).Handler()
 }
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
@@ -72,7 +72,7 @@ func TestServedOverWebhookListener(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
 
-	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core).Handler()),
+	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core, zerolog.Nop()).Handler()),
 		"the webhook listener exists, so the API mounts")
 	seedItem(t, core, "p1", "PR_1", `{"repo":"acme/widgets","num":7}`)
 	require.NoError(t, core.Start(t.Context()))
@@ -118,7 +118,7 @@ func TestEventsResolution(t *testing.T) {
 	id := seedItem(t, core, "p1", "PR_1", `{}`)
 	seedItem(t, core, "p2", "PR_1", `{}`) // same external id, second profile
 
-	assert.Equal(t, http.StatusBadRequest, get(t, handler, "/api/inbox/events").Code,
+	assert.Equal(t, http.StatusUnprocessableEntity, get(t, handler, "/api/inbox/events").Code,
 		"itemId or externalId is required")
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/inbox/events?itemId="+strconv.FormatInt(id, 10)).Code)
 	assert.Equal(t, http.StatusConflict, get(t, handler, "/api/inbox/events?externalId=PR_1").Code,
@@ -129,9 +129,19 @@ func TestEventsResolution(t *testing.T) {
 // feed-scoped inbox read demands a profile rather than silently returning empty.
 func TestProfileRequired(t *testing.T) {
 	_, handler := testServer(t)
-	assert.Equal(t, http.StatusBadRequest, get(t, handler, "/api/feeds").Code)
+
+	rec := get(t, handler, "/api/feeds")
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	var body struct {
+		Kind   string            `json:"kind"`
+		Fields map[string]string `json:"fields"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, "invalid", body.Kind)
+	assert.Contains(t, body.Fields, "profile")
+
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/feeds?profile=p1").Code)
-	assert.Equal(t, http.StatusBadRequest, get(t, handler, "/api/inbox?feed=team").Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, get(t, handler, "/api/inbox?feed=team").Code)
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/inbox?feed=team&profile=p1").Code)
 }
 

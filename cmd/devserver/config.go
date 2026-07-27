@@ -66,8 +66,11 @@ func (m Matcher) Key() string { return fmt.Sprintf("%s#%d", m.Repo, m.Num) }
 
 // Valid reports whether the matcher identifies exactly one item.
 func (m Matcher) Valid() bool {
-	return strings.Count(m.Repo, "/") == 1 && !strings.HasPrefix(m.Repo, "/") &&
-		!strings.HasSuffix(m.Repo, "/") && m.Num > 0
+	return validRepo(m.Repo) && m.Num > 0
+}
+
+func validRepo(repo string) bool {
+	return strings.Count(repo, "/") == 1 && !strings.HasPrefix(repo, "/") && !strings.HasSuffix(repo, "/")
 }
 
 // Overlay is one declared mutation: which item, and what to change about it.
