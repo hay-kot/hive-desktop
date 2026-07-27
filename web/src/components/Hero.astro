@@ -1,0 +1,105 @@
+---
+import { hero } from "../data";
+import AppPreview from "./AppPreview.astro";
+import Lines from "./Lines.astro";
+---
+
+<section class="hero shell" id="top">
+  <div class="hero__eyebrow eyebrow">{hero.eyebrow}</div>
+
+  <h1 class="hero__title"><Lines lines={hero.titleLines} /></h1>
+
+  <p class="hero__subtitle">{hero.subtitle}</p>
+
+  <div class="hero__ctas">
+    <a class="btn btn--primary" href={hero.primaryCta.href ?? "#beta"}>
+      {hero.primaryCta.label} <span class="hero__arrow">→</span>
+    </a>
+
+    {
+      hero.secondaryCta.href && (
+        <a
+          class="btn btn--ghost"
+          href={hero.secondaryCta.href}
+          target={hero.secondaryCta.external ? "_blank" : undefined}
+          rel={hero.secondaryCta.external ? "noreferrer" : undefined}
+        >
+          {hero.secondaryCta.label} <span class="hero__ext">↗</span>
+        </a>
+      )
+    }
+  </div>
+
+  <p class="hero__note mono">{hero.note}</p>
+
+  <AppPreview />
+</section>
+
+<style>
+  .hero {
+    position: relative;
+    padding-block: 104px 48px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .hero__eyebrow {
+    margin-bottom: 22px;
+    animation: hiveUp 0.6s both;
+  }
+
+  .hero__title {
+    font-size: clamp(34px, 6.2vw, 62px);
+    line-height: 1.04;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    max-width: 900px;
+    text-wrap: balance;
+    animation: hiveUp 0.7s 0.06s both;
+  }
+
+  .hero__subtitle {
+    margin-top: 26px;
+    font-size: clamp(16px, 1.6vw, 18px);
+    line-height: 1.6;
+    color: var(--text-muted);
+    max-width: 660px;
+    text-wrap: pretty;
+    animation: hiveUp 0.7s 0.14s both;
+  }
+
+  .hero__ctas {
+    display: flex;
+    gap: 14px;
+    margin-top: 34px;
+    flex-wrap: wrap;
+    justify-content: center;
+    animation: hiveUp 0.7s 0.22s both;
+  }
+
+  .hero__arrow {
+    font-size: 15px;
+  }
+
+  .hero__ext {
+    font-size: 12px;
+  }
+
+  .hero__note {
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  @media (max-width: 720px) {
+    .hero {
+      padding-block: 64px 32px;
+    }
+
+    .hero__ctas .btn {
+      width: 100%;
+    }
+  }
+</style>

@@ -8,6 +8,10 @@ bin/
 node_modules/
 dist/
 
+# Astro generated types / wrangler local dev state (web/)
+.astro/
+.wrangler/
+
 # Local env
 .env
 launch.env

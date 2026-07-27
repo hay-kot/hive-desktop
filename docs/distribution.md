@@ -9,6 +9,7 @@ Concrete infrastructure and runbook for shipping the desktop app. Decisions behi
 | Cloudflare account | `bce6b95e4e84d92b1972d3b55b6cfaf6` |
 | Zone | `hivedesktop.com` (`654b5078db773efcbf7c73b7c67eae89`) |
 | Landing page worker | `hive-desktop-web` → https://hivedesktop.com (config: `web/wrangler.jsonc`) |
+| Beta signup list | listmonk at https://listmonk.haybytes.com, list `ae24f0b5-c230-4d2e-9fc0-747e9270636e` (Hive Desktop) |
 | Artifact bucket | R2 `hive-desktop-releases` (ENAM, Standard) |
 | Download domain | https://dl.hivedesktop.com (bucket custom domain, public, TLS ≥ 1.2) |
 | Liveness probe | https://dl.hivedesktop.com/healthcheck.txt |
@@ -39,6 +40,12 @@ desktop/
   }
 }
 ```
+
+## Landing page
+
+The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`#beta`) rather than breaking.
+
+Private-beta signups POST to `/api/subscribe`; the worker validates the address, drops honeypot submissions (the form's hidden `company` field, answered with a fake success), and forwards the rest to listmonk's public form endpoint with the Hive Desktop list UUID. Subscribers are managed in the listmonk admin at https://listmonk.haybytes.com/admin.
 
 ## Cache-Control (set per object at upload)
 

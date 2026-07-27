@@ -1,0 +1,44 @@
+[
+  {
+    "icon": "⤵",
+    "accent": "blue",
+    "title": "Every GitHub feed in one inbox",
+    "body": "Point a source at any GitHub search query, or at your notification inbox. Hive polls in the background, normalizes what comes back into typed items, and keeps read, archive and ignore state local. Triaging here never writes back to GitHub.",
+    "meta": "search queries · notifications · background polling"
+  },
+  {
+    "icon": "◈",
+    "accent": "amber",
+    "title": "Feeds you arrange yourself",
+    "body": "Every feed is a node in your graph. Drag them into folders, rename them, give them icons. Unread counts roll up as you go, so the sidebar ends up mirroring how you actually triage.",
+    "meta": "folders · unread counts · drag to reorder"
+  },
+  {
+    "icon": "▷",
+    "accent": "green",
+    "title": "Flows you can see",
+    "body": "Wire sources through filters and functions on a canvas, watch per-node run status, preview matching items in the debug panel, then deploy. Filters are declarative; functions are your own JavaScript.",
+    "meta": "source → filter → function → feed / action"
+  },
+  {
+    "icon": "▤",
+    "accent": "violet",
+    "title": "Config is a file you own",
+    "body": "Flows and actions are plain YAML in your config directory: diff them, PR them, keep them in your dotfiles. Edit on the canvas or in your editor; Hive validates on save, reloads live, and flags a broken file with its error instead of taking the rest down.",
+    "meta": "flows/*.yaml · hot reload · validated"
+  },
+  {
+    "icon": "✦",
+    "accent": "green2",
+    "title": "Actions that do the work",
+    "body": "An item can launch a coding-agent session from a prompt template, run a shell command, or publish a message for another agent session to pick up. Fire one by hand from the detail pane, or let an action node in the flow do it for you.",
+    "meta": "launch session · shell · publish message"
+  },
+  {
+    "icon": "❐",
+    "accent": "blue",
+    "title": "Local-first, keyboard-first",
+    "body": "Items live in local SQLite and your token in the OS keychain. Drive the whole app from ⌘K or rebindable keys, switch profiles from the rail, and pick a theme that suits.",
+    "meta": "sqlite · os keychain · ⌘K · rebindable keys"
+  }
+]

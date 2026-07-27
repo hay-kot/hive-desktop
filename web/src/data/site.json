@@ -1,0 +1,24 @@
+{
+  "brand": {
+    "name": "Hive",
+    "tagline": "feeds in, triaged work out"
+  },
+  "version": "v0.4 beta",
+  "betaBadge": "Private beta",
+  "description": "Hive pulls the GitHub work you care about into one inbox, then runs flows that filter it, hand an item to a coding agent, or fire a command.",
+  "nav": [
+    { "label": "Features", "href": "#features" },
+    { "label": "How it works", "href": "#flow" },
+    { "label": "Docs", "href": null, "external": true },
+    { "label": "Pricing", "href": "#pricing" }
+  ],
+  "navCta": { "label": "Request access", "href": "#beta" },
+  "footerLinks": [
+    { "label": "Docs", "href": null },
+    { "label": "GitHub", "href": null },
+    { "label": "Changelog", "href": null },
+    { "label": "Join beta", "href": "#beta" },
+    { "label": "Get early access", "href": "#beta", "accent": true }
+  ],
+  "copyrightSuffix": "Hive · feeds in, triaged work out"
+}

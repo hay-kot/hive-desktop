@@ -1,0 +1,29 @@
+{
+  "eyebrow": "Onboarding",
+  "title": "Set up by talking to your agent",
+  "body": "Every feed, filter and action is just a node in a YAML file. Because the config is code, you can hand it to the coding agent you already use. Hive ships the prompt that teaches it the schema, so you describe how you work and it writes the flow.",
+  "steps": [
+    {
+      "title": "Connect GitHub",
+      "body": "Sign in with the device flow, or paste a token. Either way it goes straight to your OS keychain. Hive never keeps a copy."
+    },
+    {
+      "title": "Copy the prompt",
+      "body": "The flow editor's deploy menu has <code>Copy prompt</code>. It builds a schema-complete brief: every node type, its options and defaults, plus a worked example."
+    },
+    {
+      "title": "Let it write the flow",
+      "body": "Paste it into your agent, describe the work you want surfaced, and it writes <code>flows/&lt;id&gt;.yaml</code>. Hive picks the file up live. Review it on the canvas and deploy."
+    }
+  ],
+  "editor": {
+    "path": "~/.config/hive/desktop/flows",
+    "filename": "frontend-triage.yaml"
+  },
+  "pills": [
+    { "icon": "◆", "accent": "green2", "label": "Versioned config: diff it, PR it" },
+    { "icon": "⚡", "accent": "amber", "label": "Hot reload: bad files flagged, not applied" },
+    { "icon": "✦", "accent": "violet", "label": "Built around your real workflow" }
+  ],
+  "footnote": "Prefer to do it yourself? Every feed, filter and action can also be created and edited by hand, on the canvas or straight in the YAML."
+}

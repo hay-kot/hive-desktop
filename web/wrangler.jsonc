@@ -1,13 +1,17 @@
 {
-  // Static landing page for hivedesktop.com, served as Worker static assets.
+  // Landing page for hivedesktop.com. The Astro build in ./dist is served as
+  // Worker static assets; worker/index.ts handles /api/latest and
+  // /api/subscribe and falls through to the assets for everything else.
   "name": "hive-desktop-web",
   "account_id": "bce6b95e4e84d92b1972d3b55b6cfaf6",
   "compatibility_date": "2026-07-01",
+  "main": "./worker/index.ts",
   "assets": {
-    "directory": "./public"
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
   },
+  "observability": { "enabled": true },
   "workers_dev": false,
-  "routes": [
-    { "pattern": "hivedesktop.com", "custom_domain": true }
-  ]
+  "routes": [{ "pattern": "hivedesktop.com", "custom_domain": true }]
 }
