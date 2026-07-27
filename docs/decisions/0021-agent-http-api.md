@@ -1,7 +1,20 @@
-# 0019 — Agent-facing HTTP API on a unified loopback server
+# 0021 — Agent-facing HTTP API on a unified loopback server
 
 - **Status:** accepted
 - **Date:** 2026-07-27
+
+> **Scope (amended 2026-07-27):** the "read + reload" framing below was the
+> first slice, not the ceiling. This is the app's **agent-facing control
+> surface** — an agent drives it to observe *and operate* the app without
+> touching SQLite or the config files, and it grows toward full agentic
+> control. The profile resource (`GET /api/profiles` and
+> `GET|PUT|DELETE /api/profiles/{id}/image`) is the first mutation beyond a
+> reload: `PUT` runs the same normalize-store-reference path the Wails settings
+> view uses, so an agent sets an avatar the supported way rather than editing
+> the flow YAML and data dir by hand. The same core methods are what a future
+> MCP adapter exposes as tools. The loopback bind and single-writer model are
+> unchanged; each new mutation still maps its `app.Kind` to a status exactly
+> once and holds no logic of its own.
 
 ## Context
 

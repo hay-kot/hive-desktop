@@ -1,8 +1,13 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -52,6 +57,30 @@ func get(t *testing.T, handler http.Handler, target string) *httptest.ResponseRe
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
 	return rec
+}
+
+func do(t *testing.T, handler http.Handler, method, target string, body []byte) *httptest.ResponseRecorder {
+	t.Helper()
+	var r io.Reader
+	if body != nil {
+		r = bytes.NewReader(body)
+	}
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(method, target, r))
+	return rec
+}
+
+func testPNG(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 48, 32))
+	for y := range 32 {
+		for x := range 48 {
+			img.Set(x, y, color.RGBA{R: uint8(x * 5), G: uint8(y * 7), B: 200, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	require.NoError(t, png.Encode(&buf, img))
+	return buf.Bytes()
 }
 
 // TestServedOverWebhookListener exercises main.go's real path: MountAPI onto the
@@ -143,6 +172,67 @@ func TestProfileRequired(t *testing.T) {
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/feeds?profile=p1").Code)
 	assert.Equal(t, http.StatusUnprocessableEntity, get(t, handler, "/api/inbox?feed=team").Code)
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/inbox?feed=team&profile=p1").Code)
+}
+
+func TestProfileImageLifecycleOverHTTP(t *testing.T) {
+	core, handler := testServer(t)
+	created, err := core.Flows.Create(t.Context(), "Agent Profile")
+	require.NoError(t, err)
+
+	// PUT the raw image bytes; the core normalizes and stores.
+	put := do(t, handler, http.MethodPut, "/api/profiles/"+created.ID+"/image", testPNG(t))
+	require.Equal(t, http.StatusOK, put.Code, put.Body.String())
+	var view struct {
+		ID       string `json:"id"`
+		HasImage bool   `json:"hasImage"`
+	}
+	require.NoError(t, json.Unmarshal(put.Body.Bytes(), &view))
+	assert.Equal(t, created.ID, view.ID)
+	assert.True(t, view.HasImage)
+
+	// GET returns a 128px-square PNG.
+	img := get(t, handler, "/api/profiles/"+created.ID+"/image")
+	require.Equal(t, http.StatusOK, img.Code)
+	assert.Equal(t, "image/png", img.Header().Get("Content-Type"))
+	decoded, err := png.Decode(bytes.NewReader(img.Body.Bytes()))
+	require.NoError(t, err)
+	assert.Equal(t, image.Rect(0, 0, 128, 128), decoded.Bounds())
+
+	// The listing reports it.
+	list := get(t, handler, "/api/profiles")
+	require.Equal(t, http.StatusOK, list.Code)
+	var listed struct {
+		Profiles []struct {
+			ID       string `json:"id"`
+			HasImage bool   `json:"hasImage"`
+		} `json:"profiles"`
+	}
+	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &listed))
+	found := false
+	for _, p := range listed.Profiles {
+		if p.ID == created.ID {
+			found = true
+			assert.True(t, p.HasImage)
+		}
+	}
+	assert.True(t, found, "the created profile appears in the listing")
+
+	// DELETE clears it; the image then reads as absent.
+	del := do(t, handler, http.MethodDelete, "/api/profiles/"+created.ID+"/image", nil)
+	require.Equal(t, http.StatusOK, del.Code)
+	assert.Equal(t, http.StatusNotFound, get(t, handler, "/api/profiles/"+created.ID+"/image").Code)
+}
+
+func TestProfileImageRejectsBadRequests(t *testing.T) {
+	core, handler := testServer(t)
+	created, err := core.Flows.Create(t.Context(), "Agent Profile")
+	require.NoError(t, err)
+
+	bad := do(t, handler, http.MethodPut, "/api/profiles/"+created.ID+"/image", []byte("not an image"))
+	assert.Equal(t, http.StatusBadRequest, bad.Code, "an undecodable body is a 400")
+
+	missing := do(t, handler, http.MethodPut, "/api/profiles/does-not-exist/image", testPNG(t))
+	assert.Equal(t, http.StatusNotFound, missing.Code, "an unknown profile is a 404")
 }
 
 func TestRefreshUnavailableInMockMode(t *testing.T) {
