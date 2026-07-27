@@ -619,6 +619,20 @@ caller, which is what would let a dry-run and a live tick be one code path
 rather than two implementations of the same semantics, once a caller asks for
 one without committing.
 
+The engine never *writes* the database. Its one read path is the `KVReader`
+driven port behind a function node's `kv` object — durable per-node key-value
+state (the `node_kv` table), read live during a tick and written back as
+`CommitBatch.KVMutations` so a script's writes are durable iff its tick
+commits, with per-message staging discarding the writes of a message that
+threw. `kv` is `state`'s durable sibling: `state` is in-memory scratch per
+deploy, `kv` is the dedup/change-detection memory that survives restarts,
+reconciled against the flow's function-node ids inside `ActivateReplay`'s
+transaction and read as absent during replay so membership recompute stays a
+pure function of snapshots and graph. Only notify nodes notify — feeds are
+pure membership surfaces — and dedup for the notify branch belongs in a
+function node backed by `kv`, not in the delivery path (whose only noise
+control is a per-node, per-item delivery cooldown).
+
 Two registries describe a node type between them: `flow`'s says how it is
 configured, `runtime`'s says what it does when a message arrives. Neither the
 router nor the executor branches on a type string.
