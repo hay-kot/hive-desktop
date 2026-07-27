@@ -89,6 +89,16 @@ type Job struct {
 	CommandID sql.NullInt64 `json:"command_id"`
 }
 
+type NodeKv struct {
+	FlowID    string        `json:"flow_id"`
+	NodeID    string        `json:"node_id"`
+	Scope     string        `json:"scope"`
+	Key       string        `json:"key"`
+	Value     string        `json:"value"`
+	ExpiresAt sql.NullInt64 `json:"expires_at"`
+	UpdatedAt int64         `json:"updated_at"`
+}
+
 type NodeRun struct {
 	FlowID    string         `json:"flow_id"`
 	NodeID    string         `json:"node_id"`

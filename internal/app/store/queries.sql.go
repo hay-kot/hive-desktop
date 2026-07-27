@@ -268,6 +268,15 @@ func (q *Queries) DeleteEventsOverLimitPerTopic(ctx context.Context, limit int64
 	return err
 }
 
+const deleteExpiredNodeKV = `-- name: DeleteExpiredNodeKV :exec
+DELETE FROM node_kv WHERE expires_at IS NOT NULL AND expires_at <= ?
+`
+
+func (q *Queries) DeleteExpiredNodeKV(ctx context.Context, expiresAt sql.NullInt64) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredNodeKV, expiresAt)
+	return err
+}
+
 const deleteFeedMembershipClaimsForFeeds = `-- name: DeleteFeedMembershipClaimsForFeeds :exec
 DELETE FROM feed_membership_claim
 WHERE feed_membership_claim.profile_id = ? AND feed_id NOT IN (/*SLICE:feed_ids*/?)
@@ -390,6 +399,64 @@ DELETE FROM inbox_item WHERE profile_id = ?
 
 func (q *Queries) DeleteInboxItemsByProfile(ctx context.Context, profileID string) error {
 	_, err := q.db.ExecContext(ctx, deleteInboxItemsByProfile, profileID)
+	return err
+}
+
+const deleteNodeKV = `-- name: DeleteNodeKV :exec
+DELETE FROM node_kv WHERE flow_id = ? AND node_id = ? AND scope = ? AND key = ?
+`
+
+type DeleteNodeKVParams struct {
+	FlowID string `json:"flow_id"`
+	NodeID string `json:"node_id"`
+	Scope  string `json:"scope"`
+	Key    string `json:"key"`
+}
+
+func (q *Queries) DeleteNodeKV(ctx context.Context, arg DeleteNodeKVParams) error {
+	_, err := q.db.ExecContext(ctx, deleteNodeKV,
+		arg.FlowID,
+		arg.NodeID,
+		arg.Scope,
+		arg.Key,
+	)
+	return err
+}
+
+const deleteNodeKVByFlow = `-- name: DeleteNodeKVByFlow :exec
+DELETE FROM node_kv WHERE flow_id = ?
+`
+
+func (q *Queries) DeleteNodeKVByFlow(ctx context.Context, flowID string) error {
+	_, err := q.db.ExecContext(ctx, deleteNodeKVByFlow, flowID)
+	return err
+}
+
+const deleteNodeKVForFlowExceptNodes = `-- name: DeleteNodeKVForFlowExceptNodes :exec
+DELETE FROM node_kv WHERE flow_id = ? AND node_id NOT IN (/*SLICE:node_ids*/?)
+`
+
+type DeleteNodeKVForFlowExceptNodesParams struct {
+	FlowID  string   `json:"flow_id"`
+	NodeIds []string `json:"node_ids"`
+}
+
+// The empty-slice case is invalid SQL (NOT IN ()); callers with no node ids
+// to retain use DeleteNodeKVByFlow instead, mirroring the
+// DeleteFeedMembershipClaimsForFeeds / *All pair.
+func (q *Queries) DeleteNodeKVForFlowExceptNodes(ctx context.Context, arg DeleteNodeKVForFlowExceptNodesParams) error {
+	query := deleteNodeKVForFlowExceptNodes
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.FlowID)
+	if len(arg.NodeIds) > 0 {
+		for _, v := range arg.NodeIds {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:node_ids*/?", strings.Repeat(",?", len(arg.NodeIds))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:node_ids*/?", "NULL", 1)
+	}
+	_, err := q.db.ExecContext(ctx, query, queryParams...)
 	return err
 }
 
@@ -657,6 +724,36 @@ func (q *Queries) GetLatestOutputCommandForAction(ctx context.Context, arg GetLa
 		&i.IsRerun,
 	)
 	return i, err
+}
+
+const getNodeKV = `-- name: GetNodeKV :one
+SELECT value FROM node_kv
+WHERE flow_id = ? AND node_id = ? AND scope = ? AND key = ?
+  AND (expires_at IS NULL OR expires_at > ?)
+`
+
+type GetNodeKVParams struct {
+	FlowID    string        `json:"flow_id"`
+	NodeID    string        `json:"node_id"`
+	Scope     string        `json:"scope"`
+	Key       string        `json:"key"`
+	ExpiresAt sql.NullInt64 `json:"expires_at"`
+}
+
+// Expiry-aware read: an expired row reads as absent (sql.ErrNoRows). The
+// final arg is an explicit `now` cutoff -- never a fresh time.Now() inside
+// the query -- so the expiry boundary is deterministically testable.
+func (q *Queries) GetNodeKV(ctx context.Context, arg GetNodeKVParams) (string, error) {
+	row := q.db.QueryRowContext(ctx, getNodeKV,
+		arg.FlowID,
+		arg.NodeID,
+		arg.Scope,
+		arg.Key,
+		arg.ExpiresAt,
+	)
+	var value string
+	err := row.Scan(&value)
+	return value, err
 }
 
 const getOutputCommand = `-- name: GetOutputCommand :one
@@ -1435,6 +1532,58 @@ func (q *Queries) ListLatestSourceSnapshotsByTopicPrefix(ctx context.Context, ar
 	return items, nil
 }
 
+const listNodeKVKeysByPrefix = `-- name: ListNodeKVKeysByPrefix :many
+SELECT key FROM node_kv
+WHERE flow_id = ? AND node_id = ? AND scope = ?
+  AND key GLOB ?4
+  AND (expires_at IS NULL OR expires_at > ?5)
+ORDER BY key
+`
+
+type ListNodeKVKeysByPrefixParams struct {
+	FlowID  string        `json:"flow_id"`
+	NodeID  string        `json:"node_id"`
+	Scope   string        `json:"scope"`
+	Pattern string        `json:"pattern"`
+	Now     sql.NullInt64 `json:"now"`
+}
+
+// Unexpired keys under one node/scope whose key has the given prefix. Uses
+// GLOB, which is binary/case-SENSITIVE, so it matches Go strings.HasPrefix
+// exactly; default LIKE is ASCII case-insensitive and would silently
+// disagree on a mixed-case prefix. The wrapper escapes GLOB metacharacters
+// in the prefix and appends `*`; a literal leading prefix lets SQLite
+// range-scan the composite PK index. The final arg is an explicit `now`
+// cutoff.
+func (q *Queries) ListNodeKVKeysByPrefix(ctx context.Context, arg ListNodeKVKeysByPrefixParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listNodeKVKeysByPrefix,
+		arg.FlowID,
+		arg.NodeID,
+		arg.Scope,
+		arg.Pattern,
+		arg.Now,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listNodeRunsByFlow = `-- name: ListNodeRunsByFlow :many
 SELECT flow_id, node_id, ok, in_count, out_count, drop_count, err, ended_at, dur_ms FROM node_run
 WHERE flow_id = ?
@@ -1793,6 +1942,25 @@ DELETE FROM inbox_item WHERE archived_at IS NOT NULL AND archived_at <= ?
 // Cascades to inbox_event and feed_membership_claim through their item FKs.
 func (q *Queries) PruneArchivedInboxItems(ctx context.Context, archivedAt sql.NullInt64) error {
 	_, err := q.db.ExecContext(ctx, pruneArchivedInboxItems, archivedAt)
+	return err
+}
+
+const pruneNodeKVOverLimitPerNode = `-- name: PruneNodeKVOverLimitPerNode :exec
+DELETE FROM node_kv AS target
+WHERE (
+    SELECT COUNT(*) FROM node_kv AS newer
+    WHERE newer.flow_id = target.flow_id
+      AND newer.node_id = target.node_id
+      AND newer.scope   = target.scope
+      AND (newer.updated_at, newer.rowid) > (target.updated_at, target.rowid)
+) >= CAST(?1 AS INTEGER)
+`
+
+// Per-node newest-N cap, modelled on DeleteEventsOverLimitPerTopic: delete a
+// row once at least `limit` newer rows share its (flow_id, node_id, scope).
+// rowid breaks same-updated_at ties so the cap is exact.
+func (q *Queries) PruneNodeKVOverLimitPerNode(ctx context.Context, limit int64) error {
+	_, err := q.db.ExecContext(ctx, pruneNodeKVOverLimitPerNode, limit)
 	return err
 }
 
@@ -2279,6 +2447,36 @@ func (q *Queries) UpsertInboxItem(ctx context.Context, arg UpsertInboxItemParams
 		&i.IgnoredAt,
 	)
 	return i, err
+}
+
+const upsertNodeKV = `-- name: UpsertNodeKV :exec
+INSERT INTO node_kv (flow_id, node_id, scope, key, value, expires_at, updated_at)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT (flow_id, node_id, scope, key) DO UPDATE SET
+    value = excluded.value, expires_at = excluded.expires_at, updated_at = excluded.updated_at
+`
+
+type UpsertNodeKVParams struct {
+	FlowID    string        `json:"flow_id"`
+	NodeID    string        `json:"node_id"`
+	Scope     string        `json:"scope"`
+	Key       string        `json:"key"`
+	Value     string        `json:"value"`
+	ExpiresAt sql.NullInt64 `json:"expires_at"`
+	UpdatedAt int64         `json:"updated_at"`
+}
+
+func (q *Queries) UpsertNodeKV(ctx context.Context, arg UpsertNodeKVParams) error {
+	_, err := q.db.ExecContext(ctx, upsertNodeKV,
+		arg.FlowID,
+		arg.NodeID,
+		arg.Scope,
+		arg.Key,
+		arg.Value,
+		arg.ExpiresAt,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const upsertSourceHead = `-- name: UpsertSourceHead :exec
