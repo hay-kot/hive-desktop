@@ -59,7 +59,6 @@ type Listener struct {
 	stopOnce sync.Once
 }
 
-// mount is an additional handler served on this listener's server at prefix.
 type mount struct {
 	prefix  string
 	handler http.Handler
@@ -146,11 +145,9 @@ func (l *Listener) Host() string {
 	return l.host
 }
 
-// MountAPI mounts an additional handler at prefix on this listener's server so
-// a driving adapter can share the loopback port. Call it once per prefix (the
-// agent API and the pprof endpoint each mount their own). Must be called before
-// Start: Handler() is built once there, so a later mount would be silently
-// dropped.
+// MountAPI mounts an additional handler at prefix so a driving adapter can
+// share the loopback port. Call it before Start: Handler() is built once there,
+// so a later mount is silently dropped.
 func (l *Listener) MountAPI(prefix string, h http.Handler) {
 	if l.server != nil {
 		l.logger.Warn().Str("prefix", prefix).Msg("MountAPI called after Start; handler will not be served")

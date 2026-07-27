@@ -5,14 +5,11 @@ import (
 	"net/http/pprof"
 )
 
-// PprofPathPrefix is where the pprof handler mounts on the shared loopback
-// server when development.pprof is enabled.
+// PprofPathPrefix is where PprofHandler mounts on the shared loopback server.
 const PprofPathPrefix = "/debug/pprof/"
 
-// PprofHandler serves Go's net/http/pprof handlers. It is mounted on the shared
-// loopback server only when development.pprof is enabled (ADR 0023), so the
-// handlers are never reachable by default. Registered on a private mux, not the
-// http.DefaultServeMux that importing net/http/pprof writes to.
+// PprofHandler serves net/http/pprof on a private mux, not the
+// http.DefaultServeMux that importing the package writes to.
 func PprofHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/debug/pprof/", pprof.Index)

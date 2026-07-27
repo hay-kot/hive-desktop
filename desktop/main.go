@@ -87,8 +87,7 @@ func main() {
 	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger).Handler()) {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}
-	// pprof rides the same server when development.pprof is enabled (ADR 0023);
-	// off by default, so nothing is mounted unless asked for.
+	// pprof shares the same server when enabled (ADR 0023).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}

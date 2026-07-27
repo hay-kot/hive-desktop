@@ -105,9 +105,8 @@ type ServerSettings struct {
 	Port int    `yaml:"port" env:"PORT"`
 }
 
-// PprofSettings gates the pprof debug endpoint. It carries no host or port:
-// when enabled the handler mounts on the shared loopback HTTP server (ADR
-// 0023), so its address is that server's http.host/http.port.
+// PprofSettings gates the pprof endpoint; when enabled it mounts on the shared
+// HTTP server (ADR 0023), so it has no host/port of its own.
 type PprofSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
 }
