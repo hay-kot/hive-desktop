@@ -22,13 +22,14 @@ function mountScreen(props: Partial<InstanceType<typeof OnboardingScreen>['$prop
 }
 
 describe('OnboardingScreen', () => {
-  // Two steps, because there are two screens. A step the walk can never make
-  // active reads as a step that got skipped.
+  // Three steps, because there are three screens. A step the walk can never
+  // make active reads as a step that got skipped.
   it('lists exactly the steps onboarding has', () => {
     const wrapper = mountScreen()
-    expect(wrapper.findAll('ol li').map((li) => li.text())).toHaveLength(2)
+    expect(wrapper.findAll('ol li').map((li) => li.text())).toHaveLength(3)
     expect(wrapper.text()).toContain('Create your first workspace')
     expect(wrapper.text()).toContain('Connect GitHub')
+    expect(wrapper.text()).toContain('Turn on notifications')
     expect(wrapper.text()).toContain('Tokens are stored in your OS keychain.')
   })
 
@@ -133,5 +134,50 @@ describe('OnboardingScreen', () => {
     await wrapper.get('[data-testid="onboarding-token-input"]').setValue('ghp_abc')
     await wrapper.get('[data-testid="onboarding-token-input"]').trigger('keydown.enter')
     expect(wrapper.emitted('submitToken')).toEqual([['ghp_abc']])
+  })
+
+  // The permission grant is step 3: it marks the notifications step active and
+  // asks for the OS grant rather than leaving it to a mid-usage dialog.
+  it('marks the notifications step active on the permissions card', () => {
+    const steps = mountScreen({ card: 'permissions', permission: 'not-requested' }).findAll('ol li').map((li) => li.text())
+    expect(steps[0]).not.toContain('1')
+    expect(steps[1]).not.toContain('2')
+    expect(steps[2]).toContain('Turn on notifications')
+    expect(steps[2]).toContain('3')
+  })
+
+  it('requests permission from the not-requested permissions card, and offers an honest skip', async () => {
+    const wrapper = mountScreen({ card: 'permissions', permission: 'not-requested' })
+    // The GitHub skip belongs to the connect cards; this card has its own.
+    expect(wrapper.find('[data-testid="onboarding-skip"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="onboarding-permissions-allow"]').trigger('click')
+    expect(wrapper.emitted('requestPermission')).toHaveLength(1)
+
+    expect(wrapper.text()).toContain('Activity')
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    expect(wrapper.emitted('finishPermissions')).toHaveLength(1)
+  })
+
+  it('disables the allow button and shows progress while requesting', () => {
+    const wrapper = mountScreen({ card: 'permissions', permission: 'not-requested', busy: true })
+    const allow = wrapper.get('[data-testid="onboarding-permissions-allow"]')
+    expect(allow.attributes('disabled')).toBeDefined()
+    expect(allow.text()).toContain('Requesting')
+  })
+
+  it('confirms the grant and finishes from the granted permissions card', async () => {
+    const wrapper = mountScreen({ card: 'permissions', permission: 'granted' })
+    expect(wrapper.find('[data-testid="onboarding-permissions-allow"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="onboarding-permissions-finish"]').trigger('click')
+    expect(wrapper.emitted('finishPermissions')).toHaveLength(1)
+  })
+
+  it('shows guidance instead of a dead button when permission is denied', async () => {
+    const wrapper = mountScreen({ card: 'permissions', permission: 'denied' })
+    expect(wrapper.find('[data-testid="onboarding-permissions-allow"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="onboarding-permissions-denied-guidance"]').text()).toContain('blocked')
+    await wrapper.get('[data-testid="onboarding-permissions-finish"]').trigger('click')
+    expect(wrapper.emitted('finishPermissions')).toHaveLength(1)
   })
 })

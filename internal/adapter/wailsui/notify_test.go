@@ -149,7 +149,7 @@ func TestNotifyRejectsEmptyTitle(t *testing.T) {
 	require.Empty(t, sender.sent)
 }
 
-func TestPermissionStatusTriStateAndLazyRequest(t *testing.T) {
+func TestNotifyNeverSelfRequestsPermission(t *testing.T) {
 	sender := &fakeSender{requestGranted: false}
 	notifier, err := newNotifier(sender, []byte("icon"), t.TempDir())
 	require.NoError(t, err)
@@ -158,17 +158,17 @@ func TestPermissionStatusTriStateAndLazyRequest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, permissionNotRequested, status)
 
+	// An unauthorized delivery must fail closed without popping an OS dialog:
+	// the only prompt is an explicit RequestPermission from onboarding or
+	// Settings, so the request count and the not-requested status both hold.
 	err = notifier.Notify(Input{Title: "requires permission"})
-	require.ErrorContains(t, err, "permission denied")
-	require.Equal(t, 1, sender.requests)
+	require.ErrorContains(t, err, "permission not granted")
+	require.Zero(t, sender.requests)
+	require.Empty(t, sender.sent)
 
 	status, err = notifier.PermissionStatus()
 	require.NoError(t, err)
-	require.Equal(t, permissionDenied, status)
-
-	err = notifier.Notify(Input{Title: "still denied"})
-	require.ErrorContains(t, err, "permission denied")
-	require.Equal(t, 1, sender.requests, "denied permission must not be requested repeatedly")
+	require.Equal(t, permissionNotRequested, status)
 }
 
 func TestPermissionStatusGrantedAndRequestError(t *testing.T) {

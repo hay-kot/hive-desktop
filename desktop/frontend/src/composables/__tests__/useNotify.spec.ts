@@ -8,7 +8,6 @@ function makeSettings(overrides: Partial<NotifyDeps['settings']> = {}): NotifyDe
     delivery: ref('auto'),
     notificationSound: ref(true),
     permission: ref('granted'),
-    requestPermission: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
@@ -94,22 +93,10 @@ describe('useNotify', () => {
     expect(deps.osNotify).not.toHaveBeenCalled()
   })
 
-  it('requests not-requested permission then delivers when granted', async () => {
-    const permission = ref<'not-requested' | 'granted' | 'denied'>('not-requested')
-    const requestPermission = vi.fn().mockImplementation(async () => { permission.value = 'granted' })
-    const deps = makeDeps({ focused: ref(false), settings: makeSettings({ permission, requestPermission }) })
+  it('falls back to a toast without requesting when permission was never requested', async () => {
+    const deps = makeDeps({ focused: ref(false), settings: makeSettings({ permission: ref('not-requested') }) })
     await useNotify(deps).notify({ title: 'Ask' })
-    expect(requestPermission).toHaveBeenCalledOnce()
-    expect(deps.osNotify).toHaveBeenCalledOnce()
-  })
-
-  it('requests not-requested permission then falls back when denied', async () => {
-    const permission = ref<'not-requested' | 'granted' | 'denied'>('not-requested')
-    const requestPermission = vi.fn().mockImplementation(async () => { permission.value = 'denied' })
-    const deps = makeDeps({ focused: ref(false), settings: makeSettings({ permission, requestPermission }) })
-    await useNotify(deps).notify({ title: 'Ask denied' })
-    expect(requestPermission).toHaveBeenCalledOnce()
-    expect(deps.showToast).toHaveBeenCalledOnce()
+    expect(deps.showToast).toHaveBeenCalledWith('Ask', { body: '', severity: 'info' })
     expect(deps.osNotify).not.toHaveBeenCalled()
   })
 

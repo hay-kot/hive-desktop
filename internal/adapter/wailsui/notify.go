@@ -76,8 +76,11 @@ func newNotifier(svc sender, iconPNG []byte, cacheDir string) (*Notifier, error)
 	return &Notifier{sender: svc, iconPath: iconPath, iconPNG: append([]byte(nil), iconPNG...), cacheDir: cacheDir}, nil
 }
 
-// Notify validates in, requests authorization only when it has not been
-// explicitly requested before, and sends the resulting native notification.
+// Notify validates in and sends the resulting native notification only when
+// permission has already been granted. It never requests authorization on its
+// own: the sole permission prompt is the one an explicit RequestPermission
+// makes (onboarding or Settings), so an unauthorized delivery falls back
+// rather than surprising the user with an OS dialog mid-usage.
 func (n *Notifier) Notify(in Input) error {
 	title := strings.TrimSpace(in.Title)
 	if title == "" {
@@ -95,17 +98,8 @@ func (n *Notifier) Notify(in Input) error {
 	if err != nil {
 		return err
 	}
-	switch status {
-	case permissionNotRequested:
-		granted, err := n.requestPermissionLocked()
-		if err != nil {
-			return err
-		}
-		if !granted {
-			return errors.New("notification permission denied")
-		}
-	case permissionDenied:
-		return errors.New("notification permission denied")
+	if status != permissionGranted {
+		return errors.New("notification permission not granted")
 	}
 
 	// UNNotificationAttachment may move its source file into the system's

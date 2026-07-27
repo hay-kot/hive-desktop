@@ -42,7 +42,6 @@ export interface NotifySettings {
   delivery: Readonly<Ref<NotificationDelivery>>
   notificationSound: Readonly<Ref<boolean>>
   permission: Readonly<Ref<NotificationPermission>>
-  requestPermission: () => Promise<void>
 }
 
 export interface NotifyDeps {
@@ -67,7 +66,6 @@ function defaults(): NotifyDeps {
       delivery: settings.delivery,
       notificationSound: settings.notificationSound,
       permission: settings.permission,
-      requestPermission: settings.requestPermission,
     },
     osNotify: NotifyNative,
   }
@@ -102,7 +100,10 @@ export function useNotify(overrides: Partial<NotifyDeps> = {}) {
       return
     }
 
-    if (deps.settings.permission.value === 'not-requested') await deps.settings.requestPermission()
+    // A banner needs a granted OS permission. This path never requests it: the
+    // grant is asked once, deliberately, during onboarding (or later in
+    // Settings), so a not-requested or denied state falls back to a toast
+    // instead of surprising the user with a dialog mid-usage.
     if (deps.settings.permission.value !== 'granted') {
       toast()
       return
