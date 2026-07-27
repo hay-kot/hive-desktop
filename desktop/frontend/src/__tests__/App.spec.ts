@@ -4,6 +4,7 @@ import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
+import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
 import { applicationSettingsSections, createAppRouter } from '../router'
 
 const mocks = vi.hoisted(() => ({
@@ -167,6 +168,9 @@ describe('App', () => {
     // prior test's instance, including its already-torn-down onMounted/
     // watch hooks from that test's wrapper.unmount().
     resetFlowsSessionForTests()
+    // useNotificationSettings is a module singleton too — reset it so a test's
+    // resolved permission state cannot leak into the next test's first-run walk.
+    resetNotificationSettingsForTests()
     vi.clearAllMocks()
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
@@ -248,6 +252,43 @@ describe('App', () => {
     await flushPromises()
 
     expect(mocks.SeedStarterFlow).toHaveBeenCalledWith('personal')
+
+    // Step 3 is the notification grant — the last leg before the feed. Skipping
+    // it lands on the feed just as granting would.
+    expect(wrapper.get('[data-testid="onboarding-permissions-allow"]').isVisible()).toBe(true)
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('asks for notification permission as the last first-run step, then grants and lands on the feed', async () => {
+    mocks.Status.mockResolvedValue({ state: 'disconnected', login: '', name: '', avatarUrl: '', message: '' })
+    mocks.ListFlows.mockResolvedValue([])
+    mocks.CreateFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    mocks.SeedStarterFlow.mockResolvedValue({ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true })
+    const wrapper = await mountApp()
+
+    mocks.ListFlows.mockResolvedValue([{ id: 'personal', name: 'Frontend Triage', enabled: true, valid: true }])
+    await wrapper.get('[data-testid="onboarding-workspace-input"]').setValue('Frontend Triage')
+    await wrapper.get('[data-testid="onboarding-workspace-submit"]').trigger('click')
+    await flushPromises()
+
+    mocks.Status.mockResolvedValue({ state: 'connected', login: 'octocat', name: 'Octocat', avatarUrl: '', message: '' })
+    const connection = mocks.On.mock.calls.find(([event]) => event === 'connection:updated')?.[1] as ((ev: { data: string }) => void) | undefined
+    connection?.({ data: 'github' })
+    await flushPromises()
+
+    // The permission prompt is asked here, deliberately — not lazily mid-usage.
+    expect(wrapper.get('[data-testid="onboarding-permissions-allow"]').isVisible()).toBe(true)
+    mocks.PermissionStatus.mockResolvedValue('granted')
+    await wrapper.get('[data-testid="onboarding-permissions-allow"]').trigger('click')
+    await flushPromises()
+    expect(mocks.RequestNotificationPermission).toHaveBeenCalledOnce()
+
+    await wrapper.get('[data-testid="onboarding-permissions-finish"]').trigger('click')
+    await flushPromises()
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)
 
     wrapper.unmount()
@@ -268,6 +309,10 @@ describe('App', () => {
 
     await wrapper.get('[data-testid="onboarding-skip"]').trigger('click')
     await wrapper.get('[data-testid="onboarding-skip-confirm"]').trigger('click')
+    await flushPromises()
+
+    // Skipping connect advances to the notification grant; skip that too.
+    await wrapper.get('[data-testid="onboarding-permissions-skip"]').trigger('click')
     await flushPromises()
 
     expect(wrapper.find('[data-testid="onboarding"]').exists()).toBe(false)

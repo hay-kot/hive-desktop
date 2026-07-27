@@ -28,6 +28,7 @@ import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
 import OnboardingScreen from './components/OnboardingScreen.vue'
 import ToastStack from './components/ToastStack.vue'
 import { useGitHubConnection } from './composables/useGitHubConnection'
+import { useNotificationSettings } from './composables/useNotificationSettings'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
@@ -61,6 +62,10 @@ const {
   status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
   startDeviceFlow, useTokenInstead, backToStart, submitToken,
 } = useGitHubConnection()
+
+const {
+  permission: notificationPermission, requestingPermission, error: notificationError, requestPermission,
+} = useNotificationSettings()
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, visibleItems, unreadCount, search, loadError,
@@ -582,7 +587,26 @@ const needsWorkspace = computed(() => profilesLoaded.value && profiles.value.len
 // connected, cleared by connecting or skipping. Disconnecting later never
 // sets it — Settings ▸ Integrations is where that is repaired.
 const firstRunConnect = ref(false)
-const onboardingActive = computed(() => needsWorkspace.value || firstRunConnect.value)
+
+// Step 3: the OS notification grant. Like firstRunConnect it is the tail of
+// one first run, not persisted state — set when the connect step resolves and
+// cleared once the user grants, denies, or skips. Requesting it here is the
+// only place onboarding pops the OS prompt; a returning user whose permission
+// is already resolved never sees this step (advanceToPermissions gates on it).
+const firstRunPermissions = ref(false)
+const onboardingActive = computed(() => needsWorkspace.value || firstRunConnect.value || firstRunPermissions.value)
+
+// Move off the connect step onto the permissions step, unless the OS decision
+// is already made — a grant or a denial has nothing left to ask, so first run
+// ends and the feed takes over.
+function advanceToPermissions(): void {
+  firstRunPermissions.value = notificationPermission.value === 'not-requested'
+}
+
+function skipConnectStep(): void {
+  firstRunConnect.value = false
+  advanceToPermissions()
+}
 
 async function submitOnboardingWorkspace(name: string): Promise<void> {
   // Claim the connect step before creating: the profiles list gains the new
@@ -609,6 +633,7 @@ watch(githubConnected, async (connected) => {
     })
   } finally {
     firstRunConnect.value = false
+    advanceToPermissions()
   }
 })
 
@@ -880,16 +905,19 @@ onUnmounted(() => {
       <div v-if="!profilesLoaded && !profilesError" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
         v-else-if="onboardingActive"
-        :card="needsWorkspace ? 'workspace' : connectCard"
+        :card="needsWorkspace ? 'workspace' : firstRunConnect ? connectCard : 'permissions'"
         :device-flow="deviceFlow"
-        :error="needsWorkspace ? createProfileError : connectError"
-        :busy="needsWorkspace ? creatingProfile : connectBusy"
+        :error="needsWorkspace ? createProfileError : firstRunConnect ? connectError : notificationError"
+        :busy="needsWorkspace ? creatingProfile : firstRunConnect ? connectBusy : requestingPermission"
+        :permission="notificationPermission"
         @start-device-flow="startDeviceFlow"
         @use-token-instead="useTokenInstead"
         @back-to-start="backToStart"
         @submit-token="submitToken"
         @create-workspace="submitOnboardingWorkspace"
-        @skip-connect="firstRunConnect = false"
+        @skip-connect="skipConnectStep"
+        @request-permission="requestPermission"
+        @finish-permissions="firstRunPermissions = false"
       />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is

@@ -2,20 +2,26 @@
 import { computed, ref, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import IconAlertTriangle from '~icons/lucide/alert-triangle'
+import IconBell from '~icons/lucide/bell'
 import IconCheck from '~icons/lucide/check'
 import IconGithub from '~icons/lucide/github'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import type { DeviceFlowInfo } from '../types/github'
 import type { ConnectCard } from '../composables/useGitHubConnection'
+import type { NotificationPermission } from '../composables/useNotificationSettings'
 import { useClipboard } from '../composables/useClipboard'
 
 const props = defineProps<{
   // 'workspace' is step 1: the workspace is the thing that exists before any
   // credential does. The connect cards are step 2, and are skippable.
-  card: ConnectCard | 'workspace'
+  // 'permissions' is step 3: the OS notification grant, asked once the account
+  // is settled so the prompt lands with context instead of mid-usage.
+  card: ConnectCard | 'workspace' | 'permissions'
   deviceFlow: DeviceFlowInfo | null
   error: string | null
   busy: boolean
+  // The live OS permission state; only read on the 'permissions' card.
+  permission?: NotificationPermission
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +31,8 @@ const emit = defineEmits<{
   submitToken: [token: string]
   createWorkspace: [name: string]
   skipConnect: []
+  requestPermission: []
+  finishPermissions: []
 }>()
 
 const tokenInput = ref('')
@@ -36,15 +44,30 @@ const { copy, copied } = useClipboard({ resetDelay: 1600 })
 const confirmingSkip = ref(false)
 watch(() => props.card, () => { confirmingSkip.value = false })
 
-// Two steps, because onboarding has two screens. A third "add feeds & tasks"
-// entry used to sit here and could never become active — the app leaves this
-// screen after the last card — and it is not even a user task now: connecting
-// is what seeds the workspace's feeds.
-const activeStep = computed(() => props.card === 'workspace' ? 1 : 2)
+// Three steps, one screen each: name a workspace, connect the account, grant
+// notifications. Connecting seeds the workspace's feeds, so "add feeds & tasks"
+// is not a user task and never was a step of its own.
+const activeStep = computed(() => {
+  if (props.card === 'workspace') return 1
+  if (props.card === 'permissions') return 3
+  return 2
+})
 const steps = [
   { label: 'Create your first workspace', step: 1 },
   { label: 'Connect GitHub', step: 2 },
+  { label: 'Turn on notifications', step: 3 },
 ]
+
+// The GitHub skip link belongs to the connect cards only — the workspace step
+// has nothing to skip past, and the permissions card carries its own skip.
+const isConnectCard = computed(() => props.card === 'idle' || props.card === 'device' || props.card === 'token')
+
+const heading = computed(() => {
+  if (confirmingSkip.value) return 'Skip connecting GitHub?'
+  if (props.card === 'workspace') return 'Create your first workspace'
+  if (props.card === 'permissions') return 'Turn on notifications'
+  return 'Connect to GitHub'
+})
 
 async function openVerification() {
   const uri = props.deviceFlow?.verificationUri
@@ -102,9 +125,10 @@ function submitWorkspace() {
         <div class="mx-auto mb-5 flex size-[60px] items-center justify-center rounded-[15px] border border-strong bg-chip text-text">
           <IconAlertTriangle v-if="confirmingSkip" class="size-[30px]" />
           <IconLayoutGrid v-else-if="card === 'workspace'" class="size-[30px]" />
+          <IconBell v-else-if="card === 'permissions'" class="size-[30px]" />
           <IconGithub v-else class="size-[30px]" />
         </div>
-        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ confirmingSkip ? 'Skip connecting GitHub?' : card === 'workspace' ? 'Create your first workspace' : 'Connect to GitHub' }}</h2>
+        <h2 class="mb-2 text-xl font-semibold tracking-[-.01em]">{{ heading }}</h2>
 
         <!-- skip: the warning the bypass goes past, not a gate -->
         <template v-if="confirmingSkip">
@@ -137,6 +161,39 @@ function submitWorkspace() {
             @click="submitWorkspace"
           >Create workspace</button>
           <p v-if="error" class="mt-4 text-xs text-kind-issue" data-testid="onboarding-error">{{ error }}</p>
+        </template>
+
+        <!-- permissions: step 3, the OS notification grant -->
+        <template v-else-if="card === 'permissions'">
+          <template v-if="permission === 'granted'">
+            <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Notifications are on. Hive will raise a system banner when activity needs you while you are working in another app.</p>
+            <button
+              class="primary-button"
+              data-testid="onboarding-permissions-finish"
+              @click="emit('finishPermissions')"
+            >Go to your feed</button>
+          </template>
+          <template v-else-if="permission === 'denied'">
+            <p class="mb-6 text-[13.5px] leading-relaxed text-text-3" data-testid="onboarding-permissions-denied-guidance">Notifications are blocked. You can enable them for Hive in your operating system's notification settings whenever you like — until then, activity still lands in Activity and as in-app alerts while Hive is focused.</p>
+            <button
+              class="primary-button"
+              data-testid="onboarding-permissions-finish"
+              @click="emit('finishPermissions')"
+            >Continue</button>
+          </template>
+          <template v-else>
+            <p class="mb-6 text-[13.5px] leading-relaxed text-text-3">Hive can raise a system banner when new feed activity lands or a session finishes while you are working in another app. Turn it on so nothing slips by in the background.</p>
+            <button
+              class="primary-button"
+              :disabled="busy"
+              data-testid="onboarding-permissions-allow"
+              @click="emit('requestPermission')"
+            >{{ busy ? 'Requesting…' : 'Allow notifications' }}</button>
+            <p v-if="error" class="mt-4 text-xs text-kind-issue" data-testid="onboarding-error">{{ error }}</p>
+            <p class="mt-4 text-xs leading-relaxed text-text-4">
+              Prefer to decide later? <button class="link-quiet underline" data-testid="onboarding-permissions-skip" @click="emit('finishPermissions')">Skip for now</button> — activity still shows in Activity and as in-app alerts, just without background banners until you enable them in Settings.
+            </p>
+          </template>
         </template>
 
         <!-- idle: not started -->
@@ -196,7 +253,7 @@ function submitWorkspace() {
 
         <!-- Bypassing GitHub is expected to be rare, so it sits below every
              connect card rather than beside the action that is the point. -->
-        <p v-if="card !== 'workspace' && !confirmingSkip" class="mt-2.5 text-xs text-text-4">
+        <p v-if="isConnectCard && !confirmingSkip" class="mt-2.5 text-xs text-text-4">
           <button class="link-quiet" data-testid="onboarding-skip" @click="confirmingSkip = true">Skip for now</button>
         </p>
       </div>
