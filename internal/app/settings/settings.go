@@ -108,6 +108,13 @@ type PprofSettings struct {
 	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT"`
 }
 
+// APISettings gates the agent-facing HTTP API. It has no host/port: the API
+// rides the webhook listener's loopback port (ADR 0018), so enabling it
+// requires webhooks enabled.
+type APISettings struct {
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_API_ENABLED"`
+}
+
 type DebugSettings struct {
 	PauseIngest Duration `yaml:"pause_ingest" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST"`
 	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT"`
@@ -133,6 +140,7 @@ type DevelopmentSettings struct {
 	Mocks    MockSettings      `yaml:"mocks"`
 	Instance InstanceSettings  `yaml:"instance,omitempty"`
 	GitHub   GitHubDevSettings `yaml:"github,omitempty"`
+	API      APISettings       `yaml:"api"`
 	Vite     ServerSettings    `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
 	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`

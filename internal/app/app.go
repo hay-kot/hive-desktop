@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -474,6 +475,34 @@ func (a *App) PublishLogAppended(nextOffset int64) {
 func (a *App) PublishFlowsUpdated(reason string) {
 	a.engine.Reload()
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
+}
+
+// RefreshSources forces an immediate re-poll: it drops the fetch caches so the
+// tick re-fetches rather than re-serving cached items, then drains every pull
+// source once. It returns once the event log is appended; the engine commits
+// on its own goroutine, so a caller reads back with a short retry. Mock modes
+// have no producer and report KindUnavailable.
+func (a *App) RefreshSources(ctx context.Context) error {
+	if a.producer == nil {
+		return Errorf(KindUnavailable, "source refresh is unavailable in this mode")
+	}
+	if a.fetchers != nil {
+		a.fetchers.InvalidateAll()
+	}
+	a.producer.Tick(ctx)
+	return nil
+}
+
+// MountAPI mounts a driving adapter's handler onto the loopback webhook
+// listener at prefix, so the dev HTTP API shares the webhook port rather than
+// binding a second one. It reports false when no listener exists — the API
+// rides the webhook listener, so webhooks must be enabled. Call before Start.
+func (a *App) MountAPI(prefix string, h http.Handler) bool {
+	if a.webhook == nil {
+		return false
+	}
+	a.webhook.MountAPI(prefix, h)
+	return true
 }
 
 // buildEngine wires the flow engine over the store and the live flow set. It

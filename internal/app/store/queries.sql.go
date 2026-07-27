@@ -461,6 +461,60 @@ func (q *Queries) EnqueueOutputCommand(ctx context.Context, arg EnqueueOutputCom
 	return err
 }
 
+const findInboxItemsByExternalID = `-- name: FindInboxItemsByExternalID :many
+SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item
+WHERE external_id = ?1
+  AND (?2 = '' OR profile_id = ?2)
+ORDER BY profile_id, source_kind, source_scope
+`
+
+type FindInboxItemsByExternalIDParams struct {
+	ExternalID string      `json:"external_id"`
+	ProfileID  interface{} `json:"profile_id"`
+}
+
+func (q *Queries) FindInboxItemsByExternalID(ctx context.Context, arg FindInboxItemsByExternalIDParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, findInboxItemsByExternalID, arg.ExternalID, arg.ProfileID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InboxItem{}
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
+			&i.Title,
+			&i.Url,
+			&i.Payload,
+			&i.Revision,
+			&i.Unread,
+			&i.ArchivedAt,
+			&i.ArchivedActor,
+			&i.ArchivedReason,
+			&i.Lifecycle,
+			&i.SourceState,
+			&i.FirstSeenAt,
+			&i.LastEventAt,
+			&i.IgnoredAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const findRunningJobByCommandID = `-- name: FindRunningJobByCommandID :one
 SELECT id, created_at, updated_at, status, label, step, action_id, target, error, command_id FROM job
 WHERE command_id = ? AND status = 'running'
@@ -1028,6 +1082,60 @@ func (q *Queries) ListActivityEvents(ctx context.Context, arg ListActivityEvents
 			&i.Body,
 			&i.Source,
 			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllInboxItems = `-- name: ListAllInboxItems :many
+SELECT id, profile_id, source_kind, source_scope, external_id, title, url, payload, revision, unread, archived_at, archived_actor, archived_reason, lifecycle, source_state, first_seen_at, last_event_at, ignored_at FROM inbox_item
+WHERE (?1 = '' OR profile_id = ?1)
+ORDER BY last_event_at DESC, id DESC
+LIMIT ?2
+`
+
+type ListAllInboxItemsParams struct {
+	ProfileID interface{} `json:"profile_id"`
+	Lim       int64       `json:"lim"`
+}
+
+func (q *Queries) ListAllInboxItems(ctx context.Context, arg ListAllInboxItemsParams) ([]InboxItem, error) {
+	rows, err := q.db.QueryContext(ctx, listAllInboxItems, arg.ProfileID, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []InboxItem{}
+	for rows.Next() {
+		var i InboxItem
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
+			&i.Title,
+			&i.Url,
+			&i.Payload,
+			&i.Revision,
+			&i.Unread,
+			&i.ArchivedAt,
+			&i.ArchivedActor,
+			&i.ArchivedReason,
+			&i.Lifecycle,
+			&i.SourceState,
+			&i.FirstSeenAt,
+			&i.LastEventAt,
+			&i.IgnoredAt,
 		); err != nil {
 			return nil, err
 		}

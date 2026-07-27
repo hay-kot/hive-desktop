@@ -54,6 +54,9 @@ type Listener struct {
 	listener net.Listener
 	startErr error
 
+	apiPrefix  string
+	apiHandler http.Handler
+
 	stopOnce sync.Once
 }
 
@@ -138,12 +141,23 @@ func (l *Listener) Host() string {
 	return l.host
 }
 
+// MountAPI mounts an additional handler at prefix on this listener's server,
+// so a driving adapter (the dev HTTP API) can share the loopback port instead
+// of binding a second one. The listener treats the handler as opaque. Call
+// before Start.
+func (l *Listener) MountAPI(prefix string, h http.Handler) {
+	l.apiPrefix, l.apiHandler = prefix, h
+}
+
 // Handler returns the listener's route handler. Exposed (rather than only
 // being installed by Start) so tests can drive deliveries through httptest
 // without binding a real port.
 func (l *Listener) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathPrefix, l.handleHook)
+	if l.apiHandler != nil {
+		mux.Handle(l.apiPrefix, l.apiHandler)
+	}
 	return mux
 }
 

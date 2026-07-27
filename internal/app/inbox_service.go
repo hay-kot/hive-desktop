@@ -104,6 +104,24 @@ func (s *InboxService) FeedCounts(ctx context.Context, profileID string) ([]stor
 	return counts, Wrap(err, KindInternal, "counting feeds for %q", profileID)
 }
 
+// ListItems returns inbox items newest-first, optionally scoped to a profile
+// (empty matches all), unfiltered by feed or triage — a debug/observation read.
+func (s *InboxService) ListItems(ctx context.Context, profileID string, limit int) ([]store.InboxItemView, error) {
+	items, err := s.db.ListAllInboxItems(ctx, profileID, limit)
+	return items, Wrap(err, KindInternal, "listing inbox items")
+}
+
+// FindItems returns every inbox item sharing an external id, optionally scoped
+// to a profile (empty profileID matches all). The same external id can exist
+// across profiles and source scopes, hence a slice.
+func (s *InboxService) FindItems(ctx context.Context, profileID, externalID string) ([]store.InboxItemView, error) {
+	if externalID == "" {
+		return nil, Errorf(KindInvalid, "external id is required")
+	}
+	items, err := s.db.FindInboxItemsByExternalID(ctx, profileID, externalID)
+	return items, Wrap(err, KindInternal, "finding items for external id %q", externalID)
+}
+
 // ActionViews returns the configured actions applicable to an inbox item:
 // shown-in-detail, applies_to matches the item's canonical kind, and every
 // hard template capability is satisfiable for the item's payload.

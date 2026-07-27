@@ -9,6 +9,7 @@ import (
 	"embed"
 	"log"
 
+	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -80,6 +81,16 @@ func main() {
 		log.Fatal(err)
 	}
 	ui.SeedMock(core)
+
+	// The agent HTTP API rides the webhook listener's loopback port (ADR 0018),
+	// so it mounts before Start and is up only when webhooks are enabled.
+	if cfg.Development.API.Enabled {
+		if core.MountAPI(httpapi.PathPrefix, httpapi.New(core).Handler()) {
+			logger.Info().Msg("agent HTTP API mounted on the webhook listener at /api/")
+		} else {
+			logger.Warn().Msg("development.api.enabled but the webhook listener is not running; enable webhooks to serve /api/")
+		}
+	}
 
 	version, commit, date := resolvedBuildInfo()
 	ui.Mount(ctx, core, wailsui.MountOptions{
