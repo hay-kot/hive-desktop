@@ -2,8 +2,12 @@ package github
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/feed"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -11,21 +15,21 @@ import (
 
 type fakeAbsenceConfirmer struct {
 	called  bool
-	verdict store.AbsenceVerdict
+	verdict map[string]store.AbsenceVerdict
 }
 
-func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ store.Observation) (store.AbsenceVerdict, error) {
+func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ []store.Observation) (map[string]store.AbsenceVerdict, error) {
 	f.called = true
 	return f.verdict, nil
 }
 
 func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
-	fake := &fakeAbsenceConfirmer{verdict: store.AbsenceVerdict{Terminal: true}}
+	fake := &fakeAbsenceConfirmer{verdict: map[string]store.AbsenceVerdict{"o/r#1": {Terminal: true}}}
 	classifier := newClassifier(fake)
-	verdict, err := classifier.ConfirmAbsence(t.Context(), store.Observation{ExternalID: "o/r#1"})
+	verdicts, err := classifier.ConfirmAbsence(t.Context(), []store.Observation{{ExternalID: "o/r#1"}})
 	require.NoError(t, err)
 	assert.True(t, fake.called)
-	assert.True(t, verdict.Terminal)
+	assert.True(t, verdicts["o/r#1"].Terminal)
 }
 
 func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
@@ -38,6 +42,67 @@ func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
 	reopened := classifier.Classify(&closed, previous)
 	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition)
 	assert.Equal(t, "Reopened", reopened.Summary)
+}
+
+type stubTerminalConfirmer struct {
+	t        *testing.T
+	wantRefs []feed.AbsentRef
+	states   []ghclient.ItemState
+}
+
+func (s *stubTerminalConfirmer) ConfirmTerminal(_ context.Context, refs []feed.AbsentRef) ([]ghclient.ItemState, error) {
+	s.t.Helper()
+	assert.Equal(s.t, s.wantRefs, refs)
+	return s.states, nil
+}
+
+func TestAbsenceConfirmer_KeysVerdictsByExternalID(t *testing.T) {
+	mustPayload := func(item feed.Item) []byte {
+		b, err := json.Marshal(item)
+		require.NoError(t, err)
+		return b
+	}
+
+	previous := []store.Observation{
+		{ExternalID: "a-undecodable", Payload: []byte("not json")},
+		{ExternalID: "b-zero-num", Payload: mustPayload(feed.Item{Repo: "acme/repo", Num: 0})},
+		{ExternalID: "c-no-slash", Payload: mustPayload(feed.Item{Repo: "acme", Num: 5})},
+		{ExternalID: "d-not-found", Payload: mustPayload(feed.Item{Repo: "acme/repo", Num: 10})},
+		{ExternalID: "e-closed", Payload: mustPayload(feed.Item{Repo: "acme/repo", Num: 20})},
+		{ExternalID: "e-open", Payload: mustPayload(feed.Item{Repo: "acme/repo", Num: 30})},
+	}
+
+	updatedAt := time.Date(2026, time.July, 22, 12, 0, 0, 0, time.UTC)
+	stub := &stubTerminalConfirmer{
+		t: t,
+		wantRefs: []feed.AbsentRef{
+			{Repo: "acme/repo", Num: 10},
+			{Repo: "acme/repo", Num: 20},
+			{Repo: "acme/repo", Num: 30},
+		},
+		states: []ghclient.ItemState{
+			{Found: false},
+			{Found: true, State: "closed", UpdatedAt: updatedAt},
+			{Found: true, State: "open", UpdatedAt: updatedAt},
+		},
+	}
+	confirmer := &absenceConfirmer{live: stub}
+
+	verdicts, err := confirmer.ConfirmAbsence(t.Context(), previous)
+	require.NoError(t, err)
+
+	require.Len(t, verdicts, 2)
+	closedVerdict, ok := verdicts["e-closed"]
+	require.True(t, ok)
+	assert.True(t, closedVerdict.Terminal)
+	openVerdict, ok := verdicts["e-open"]
+	require.True(t, ok)
+	assert.False(t, openVerdict.Terminal)
+
+	for _, id := range []string{"a-undecodable", "b-zero-num", "c-no-slash", "d-not-found"} {
+		_, ok := verdicts[id]
+		assert.False(t, ok, "external id %q must have no verdict", id)
+	}
 }
 
 func TestGithubClassifierDescribesObservedActivity(t *testing.T) {

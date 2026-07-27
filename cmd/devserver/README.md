@@ -46,7 +46,7 @@ GitHub's limits are **per token**, so concurrent dev instances share one budget.
 
 - `LiveProvider`'s cache is in-memory, and `wails3 dev` restarts the Go process on every backend edit
 - each worktree owns an isolated data root (ADR 0014), so two instances share no fetch results
-- `ConfirmTerminal` is unbatched and uncached — a churning query bursts individual REST calls, which trips *secondary* limits early
+- `ConfirmTerminal` batches every absent item into one aliased GraphQL request per 100, but the client never caches it — it fires fresh every tick
 
 devserver also stores ETags and revalidates with `If-None-Match`. A 304 costs no primary quota, so even an expired entry is usually far cheaper than a refetch. The client itself has none of this ([#62](https://github.com/hay-kot/hive-desktop/issues/62)).
 
@@ -115,7 +115,7 @@ The shipped scenarios point at `hay-kot/hive-desktop#58` as a placeholder. Retar
 | `reason` | Notification reason; becomes the feed's activity summary |
 | `title`, `body` | Display text |
 | `draft` | Marks a PR draft |
-| `absent` | Removes from search results while single-item endpoints still answer |
+| `absent` | Removes from search results while the batched GraphQL state lookup still answers |
 | `updated_at` | Overrides the timestamp; auto-stamped to now when omitted |
 
 `updated_at` is auto-stamped because the classifier ignores any change that does not advance it — an un-stamped mutation would be silently invisible.
@@ -138,7 +138,7 @@ The desktop's `sources.github` reads exactly four things: `state`, `updatedAt`, 
 
 **There is no `approve` action.** GitHub has no such notification reason, and the app never reads review state — an approval reaches it as activity on the item. Inventing a richer vocabulary would teach a wrong model of how the app behaves.
 
-`merge` and `close` also set `absent`, because that is how GitHub behaves once an item leaves an `is:open` query, and it is the only way to exercise the desktop's `ConfirmAbsence` path. One overlay is rendered consistently into all three response shapes the app reads — search nodes, notification entries, and single-item REST — so a simulated merge cannot produce a state the real API could never return.
+`merge` and `close` also set `absent`, because that is how GitHub behaves once an item leaves an `is:open` query, and it is the only way to exercise the desktop's `ConfirmAbsence` path. One overlay is rendered consistently into all three response shapes the app reads — search nodes, notification entries, and the batched GraphQL state lookup — so a simulated merge cannot produce a state the real API could never return.
 
 ## Control API
 
@@ -188,7 +188,7 @@ Overlays, observed items, stats, and the activity log are all in-memory and rese
 
 ## Scope
 
-Six endpoints are cached and rewritten: `POST /graphql`, `GET /notifications`, `GET /user`, and issue/pull single items. Everything else passes straight through, so a new client call keeps working without devserver knowing about it.
+Three endpoints are cached: `POST /graphql`, `GET /notifications`, `GET /user`. `POST /graphql` carries two rewritten document shapes — the batched search and the batched state lookup (`repository.issueOrPullRequest`) that `ConfirmTerminal` sends — and `GET /notifications` is rewritten too; `GET /user` is cached but never rewritten. Everything else passes straight through, so a new client call keeps working without devserver knowing about it.
 
 Only 2xx responses are cached — caching a 401 would outlive the bad token, and caching a rate-limit 403 would extend the outage past its own reset. When upstream fails and a cached copy exists, it is served stale rather than failing the instance.
 

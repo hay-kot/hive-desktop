@@ -45,6 +45,24 @@ Binaries that support development and release; none ship inside the app.
 
 Release CI signs and notarizes the macOS app, then uploads versioned artifacts plus a `latest.json` manifest (version, URL, sha256) to Cloudflare R2 behind a stable download domain. The in-app updater polls the manifest; the landing page download link resolves through it. Tags use the `desktop-v*` namespace as the version anchor.
 
+## Comments
+
+Comment sparingly. A comment earns its place only where a reader would
+otherwise be confused: a non-obvious invariant, a footgun, or why an unusual
+choice was made over the obvious one. Never narrate what the code does, and
+never encode reasoning that was worked out while writing it — a design
+rationale belongs in an ADR, or nowhere.
+
+Draft, then delete every comment a competent reader could derive from the code
+itself.
+
+Much of the existing code is densely commented. It is not the target; do not
+match it.
+
+The same restraint applies to prose. An ADR states the decision and the
+constraint that forced it, not every alternative considered. Keep additions to
+`docs/architecture.md` to what a future implementer must follow.
+
 ## Documentation
 
 - `docs/architecture.md` is the standing architectural reference — see [Before building a feature](#before-building-a-feature). Keep it current when the shape changes; it is reviewed as a spec, not as prose.

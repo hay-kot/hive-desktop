@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -174,47 +173,6 @@ func TestProxyCoalescesConcurrentIdenticalRequests(t *testing.T) {
 	assert.Equal(t, int64(1), calls.Load())
 }
 
-func TestProxyAppliesOverlayToProxiedResponse(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"number":58,"state":"open","merged":false}`)) //nolint:errcheck // test server
-	}))
-	defer upstream.Close()
-
-	proxy, store, _ := testProxy(t, upstream.URL, time.Minute)
-	store.Apply("hay-kot/hive-desktop#58", quickActions["merge"].apply())
-
-	resp := do(t, proxy, http.MethodGet, "/repos/hay-kot/hive-desktop/pulls/58", "",
-		map[string]string{"Authorization": "Bearer token-a"})
-
-	assert.Equal(t, "true", resp.Header().Get("X-Devserver-Overlaid"))
-	var pull map[string]any
-	require.NoError(t, json.Unmarshal(resp.Body.Bytes(), &pull))
-	assert.Equal(t, "closed", pull["state"])
-	assert.Equal(t, true, pull["merged"])
-}
-
-func TestProxyOverlayAppliesToCachedResponsesToo(t *testing.T) {
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"number":58,"state":"open","merged":false}`)) //nolint:errcheck // test server
-	}))
-	defer upstream.Close()
-
-	proxy, store, _ := testProxy(t, upstream.URL, time.Minute)
-	auth := map[string]string{"Authorization": "Bearer token-a"}
-
-	// Warm the cache first, then overlay. The overlay must apply on the way
-	// out, not on the way in — otherwise it could not be changed without
-	// purging, and the dashboard would feel broken.
-	do(t, proxy, http.MethodGet, "/repos/hay-kot/hive-desktop/pulls/58", "", auth)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: new("closed")})
-
-	resp := do(t, proxy, http.MethodGet, "/repos/hay-kot/hive-desktop/pulls/58", "", auth)
-	assert.Equal(t, "hit", resp.Header().Get("X-Devserver-Outcome"))
-	assert.Contains(t, resp.Body.String(), `"state":"closed"`)
-}
-
 func TestProxyServesStaleWhenUpstreamFails(t *testing.T) {
 	var fail atomic.Bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -303,28 +261,27 @@ func TestClassify(t *testing.T) {
 		method, path string
 		kind         routeKind
 		cacheable    bool
-		repo         string
-		num          int
 	}{
-		{http.MethodPost, "/graphql", routeGraphQL, true, "", 0},
-		{http.MethodGet, "/notifications", routeNotifications, true, "", 0},
-		{http.MethodGet, "/user", routeUser, true, "", 0},
-		{http.MethodGet, "/repos/o/r/pulls/58", routePull, true, "o/r", 58},
-		{http.MethodGet, "/repos/o/r/issues/7", routeIssue, true, "o/r", 7},
-		// Not item endpoints: must not be mistaken for one and rewritten.
-		{http.MethodGet, "/repos/o/r/pulls/58/reviews", routeOther, false, "", 0},
-		{http.MethodGet, "/repos/o/r/releases/9", routeOther, false, "", 0},
-		{http.MethodGet, "/repos/o/r/issues/abc", routeOther, false, "", 0},
-		{http.MethodPost, "/repos/o/r/issues/7", routeOther, false, "", 0},
-		{http.MethodGet, "/graphql", routeOther, false, "", 0},
-		{http.MethodPatch, "/notifications/threads/1", routeOther, false, "", 0},
+		{http.MethodPost, "/graphql", routeGraphQL, true},
+		{http.MethodGet, "/notifications", routeNotifications, true},
+		{http.MethodGet, "/user", routeUser, true},
+		// Not item endpoints: must not be mistaken for one and rewritten. The
+		// item-shaped GETs (/pulls/58, /issues/7) are no longer classified at
+		// all — the app confirms terminal state through the batched GraphQL
+		// state lookup, so these also pass through.
+		{http.MethodGet, "/repos/o/r/pulls/58", routeOther, false},
+		{http.MethodGet, "/repos/o/r/issues/7", routeOther, false},
+		{http.MethodGet, "/repos/o/r/pulls/58/reviews", routeOther, false},
+		{http.MethodGet, "/repos/o/r/releases/9", routeOther, false},
+		{http.MethodGet, "/repos/o/r/issues/abc", routeOther, false},
+		{http.MethodPost, "/repos/o/r/issues/7", routeOther, false},
+		{http.MethodGet, "/graphql", routeOther, false},
+		{http.MethodPatch, "/notifications/threads/1", routeOther, false},
 	}
 	for _, tc := range cases {
 		got := classify(tc.method, tc.path)
 		assert.Equal(t, tc.kind, got.kind, "%s %s kind", tc.method, tc.path)
 		assert.Equal(t, tc.cacheable, got.cacheable, "%s %s cacheable", tc.method, tc.path)
-		assert.Equal(t, tc.repo, got.repo, "%s %s repo", tc.method, tc.path)
-		assert.Equal(t, tc.num, got.num, "%s %s num", tc.method, tc.path)
 	}
 }
 

@@ -42,9 +42,9 @@ cache:
 #       reason: approval_requested   # becomes the feed's activity summary
 #       labels: [needs-review]
 #       absent: true                 # drop from search results while the
-#                                    # single-item endpoint still answers —
-#                                    # how a merged PR really behaves, and the
-#                                    # only way to exercise ConfirmAbsence
+#                                    # state lookup still answers — how a
+#                                    # merged PR really behaves, and the only
+#                                    # way to exercise ConfirmAbsence
 #       title: Overridden title
 #       draft: false
 #       updated_at: 2026-07-25T12:00:00Z   # auto-stamped to now when omitted

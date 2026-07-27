@@ -241,11 +241,13 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 
-	keys, err := pr.db.ListSourceHeadKeys(ctx, topic)
+	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, store.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
 	}
+
+	prevs := make([]store.Observation, 0, len(keys))
 	for _, key := range keys {
 		if _, present := observed[key]; present {
 			continue
@@ -259,24 +261,40 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		// Reconstruct the prior observation from that payload so an absence
 		// confirmer that starts from prev retains the item's title, URL, and
 		// upstream observation time when it returns a hydrated Current.
-		prev := observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope)
-		verdict, err := instance.Absence.ConfirmAbsence(ctx, prev)
-		debugPause(ctx, pr.pauseIngest)
-		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence hydration failed")
+		prevs = append(prevs, observationFromMsg(Msg{Key: key, Payload: payload}, meta.SourceKind, meta.SourceScope))
+	}
+	if len(prevs) == 0 {
+		return
+	}
+
+	verdicts, err := instance.Absence.ConfirmAbsence(ctx, prevs)
+	debugPause(ctx, pr.pauseIngest)
+	if err != nil {
+		// A partial failure still resolves some verdicts; those are ingested
+		// below rather than discarded.
+		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: absence confirmation failed")
+	}
+	for _, prev := range prevs {
+		v, ok := verdicts[prev.ExternalID]
+		if !ok || v.Current == nil {
 			continue
 		}
-		if verdict.Current == nil {
-			continue
-		}
-		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *verdict.Current})
+		result, err := pr.db.IngestObservation(ctx, classifier, store.IngestObservationParams{ProfileID: meta.ProfileID, Topic: topic, Policy: meta.Policy, Current: *v.Current})
 		if err != nil {
-			pr.logger.Debug().Err(err).Str("source", id).Str("key", key).Msg("pipeline producer: absence ingestion failed")
+			pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: absence ingestion failed")
 			continue
 		}
 		if result.Wrote {
 			out.appended++
 			out.lastOffset = result.Offset
+		}
+		// Evict after IngestObservation, regardless of Wrote: the dedup
+		// short-circuit still leaves the head row in place, and deleting
+		// before the ingest would be undone by its UpsertSourceHead.
+		if v.Terminal {
+			if err := pr.db.DeleteSourceHead(ctx, topic, prev.ExternalID); err != nil {
+				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
+			}
 		}
 	}
 }

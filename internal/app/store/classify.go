@@ -53,8 +53,11 @@ type AbsenceVerdict struct {
 	Terminal bool
 }
 
+// Verdicts are keyed by Observation.ExternalID; an item the connector could not
+// answer for is absent from the map. A returned error is a partial failure —
+// the verdicts already in the map are valid.
 type AbsenceConfirmer interface {
-	ConfirmAbsence(context.Context, Observation) (AbsenceVerdict, error)
+	ConfirmAbsence(ctx context.Context, previous []Observation) (map[string]AbsenceVerdict, error)
 }
 
 func boundEventDetail(detail []byte) []byte {

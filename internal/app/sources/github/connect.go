@@ -11,6 +11,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 // Connection states on the wire. Connected/disconnected, not
@@ -29,25 +30,6 @@ const EnvClientID = "HIVE_GITHUB_CLIENT_ID"
 // defaultClientID is the registered Hive Desktop OAuth app. Client IDs are
 // public; the device flow uses no client secret.
 const defaultClientID = "Ov23likA3JPBPkYbMGu4"
-
-// NewProductionClient builds the GitHub client every production Connection
-// and Fetchers instance shares. It carries no token — every request clones it
-// via WithTokenCopy — so one client safely backs both the connect flow and
-// every connected account's fetcher. Tests build their own client pointed at
-// an httptest server instead of calling this.
-//
-// apiBase is the development override (settings.Settings.GitHubAPIBase,
-// ADR 0017): it redirects the REST/GraphQL base at cmd/devserver, and empty —
-// the shipped value — selects the client's own api.github.com default. One
-// client for both callers is what keeps a redirected instance from splitting
-// its traffic between the proxy and real GitHub. The OAuth base is never
-// redirected, so the device flow still reaches github.com.
-func NewProductionClient(apiBase string) *ghclient.Client {
-	if apiBase == "" {
-		return ghclient.NewClient()
-	}
-	return ghclient.NewClient(ghclient.WithAPIBase(apiBase))
-}
 
 // deviceFlowScopes: repo covers PR/issue search on private repos;
 // notifications covers the inbox feed.
@@ -162,7 +144,7 @@ func (a *liveConnection) Status(ctx context.Context) ConnectionStatus {
 
 	user, err := a.client.WithTokenCopy(token).User(ctx)
 	switch {
-	case errors.Is(err, ghclient.ErrUnauthorized):
+	case errors.Is(err, sourcehttp.ErrUnauthorized):
 		return ConnectionStatus{State: StateDisconnected, Message: "Stored GitHub token is no longer valid."}
 	case err != nil:
 		// Unreachable/rate limited with a stored token: optimistically
@@ -233,7 +215,7 @@ func (a *liveConnection) SetToken(ctx context.Context, token string) (Connection
 	}
 
 	user, err := a.client.WithTokenCopy(token).User(ctx)
-	if errors.Is(err, ghclient.ErrUnauthorized) {
+	if errors.Is(err, sourcehttp.ErrUnauthorized) {
 		return ConnectionStatus{}, fmt.Errorf("GitHub rejected the token")
 	}
 	if err != nil {

@@ -5,90 +5,107 @@
 // unread state live in internal/app/sources/github/feed — and no
 // persistence: callers hold whatever token they have and pass it in via
 // WithToken or WithTokenCopy.
+//
+// HTTP plumbing — the failure taxonomy, status mapping, conditional requests,
+// request logging — comes from sources/sourcehttp.
 package ghclient
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hay-kot/appkit/httpclient"
+	"github.com/rs/zerolog"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 const (
 	defaultAPIBase  = "https://api.github.com"
 	defaultAuthBase = "https://github.com"
-	requestTimeout  = 30 * time.Second
+	apiVersion      = "2022-11-28"
+	sourceName      = "github"
 )
-
-// Sentinel errors form the taxonomy the UI maps onto design states
-// (unauthorized -> re-auth, rate limited / unreachable -> "GitHub unreachable").
-var (
-	ErrUnauthorized = errors.New("github: unauthorized")
-	ErrRateLimited  = errors.New("github: rate limited")
-	ErrUnreachable  = errors.New("github: unreachable")
-)
-
-// RateLimitError is a rate-limit response carrying the server-provided retry
-// time. It unwraps to ErrRateLimited so errors.Is-based handling keeps working;
-// callers that can honor the wait can inspect ResetAt with errors.As.
-type RateLimitError struct {
-	// ResetAt is when the limit resets. It is zero when the server supplied
-	// neither Retry-After nor X-RateLimit-Reset.
-	ResetAt time.Time
-}
-
-func (e *RateLimitError) Error() string {
-	if e.ResetAt.IsZero() {
-		return ErrRateLimited.Error()
-	}
-	return fmt.Sprintf("%s until %s", ErrRateLimited, e.ResetAt.Format(time.RFC3339))
-}
-
-func (e *RateLimitError) Unwrap() error { return ErrRateLimited }
 
 // Client is a GitHub REST v3 / GraphQL client. The zero value is not usable;
 // construct with NewClient.
 type Client struct {
-	httpClient *http.Client
-	apiBase    string
-	authBase   string
-	token      string
+	api  *httpclient.Client
+	auth *httpclient.Client
+	errs sourcehttp.Errors
+	// token is read per request through bearer, so WithTokenCopy stays a
+	// plain struct copy that shares api/auth and their connection pools.
+	token string
 }
 
-type Option func(*Client)
+type options struct {
+	apiBase  string
+	authBase string
+	token    string
+	logger   zerolog.Logger
+}
+
+type Option func(*options)
 
 // WithToken sets the bearer token used for API calls.
 func WithToken(token string) Option {
-	return func(c *Client) { c.token = token }
+	return func(o *options) { o.token = token }
 }
 
-// WithAPIBase overrides the REST API base URL (tests).
+// WithAPIBase overrides the REST API base URL (tests, cmd/devserver).
 func WithAPIBase(base string) Option {
-	return func(c *Client) { c.apiBase = base }
+	return func(o *options) { o.apiBase = base }
 }
 
 // WithAuthBase overrides the OAuth base URL used by the device flow (tests).
 func WithAuthBase(base string) Option {
-	return func(c *Client) { c.authBase = base }
+	return func(o *options) { o.authBase = base }
+}
+
+// WithLogger enables request logging at debug level.
+func WithLogger(logger zerolog.Logger) Option {
+	return func(o *options) { o.logger = logger }
 }
 
 func NewClient(opts ...Option) *Client {
-	c := &Client{
-		httpClient: &http.Client{Timeout: requestTimeout},
-		apiBase:    defaultAPIBase,
-		authBase:   defaultAuthBase,
-	}
+	o := options{apiBase: defaultAPIBase, authBase: defaultAuthBase}
 	for _, opt := range opts {
-		opt(c)
+		opt(&o)
 	}
-	return c
+
+	return &Client{
+		api: sourcehttp.New(sourcehttp.Config{
+			Name:    sourceName,
+			BaseURL: o.apiBase,
+			Logger:  o.logger,
+		},
+			httpclient.Header("Accept", "application/vnd.github+json"),
+			httpclient.Header("X-GitHub-Api-Version", apiVersion),
+			httpclient.JSONContent(),
+		),
+		auth: sourcehttp.New(sourcehttp.Config{
+			Name:    sourceName + "-auth",
+			BaseURL: o.authBase,
+			Logger:  o.logger,
+		},
+			httpclient.Header("Accept", "application/json"),
+		),
+		errs:  sourcehttp.Errors{Name: sourceName, Forbidden: forbiddenIsRateLimit},
+		token: o.token,
+	}
+}
+
+// bearer resolves the token off the receiver, so a clone authenticates as
+// itself rather than as the template it was copied from.
+func (c *Client) bearer() httpclient.Middleware {
+	return httpclient.BearerAuth(func() string { return c.token })
 }
 
 // WithTokenCopy returns a copy of the client using the given token. Every
@@ -128,7 +145,7 @@ func (c *Client) SearchIssuesBatch(ctx context.Context, reqs []SearchRequest) ([
 
 	doc, variables := buildSearchQuery(reqs)
 	var data map[string]gqlSearchResult
-	if err := c.postGraphQL(ctx, doc, variables, &data); err != nil {
+	if err := c.postGraphQL(ctx, doc, variables, &data, false); err != nil {
 		return nil, err
 	}
 
@@ -206,25 +223,25 @@ type gqlSearchResult struct {
 }
 
 type gqlSearchNode struct {
-	Type       string              `json:"__typename"`
-	Number     int                 `json:"number"`
-	Title      string              `json:"title"`
-	Body       string              `json:"body"`
-	State      string              `json:"state"`
-	URL        string              `json:"url"`
-	Draft      bool                `json:"isDraft"`
-	CreatedAt  time.Time           `json:"createdAt"`
-	UpdatedAt  time.Time           `json:"updatedAt"`
-	Author     *gqlSearchAuthor    `json:"author"`
-	Repository gqlSearchRepository `json:"repository"`
-	Labels     gqlSearchLabels     `json:"labels"`
+	Type       string           `json:"__typename"`
+	Number     int              `json:"number"`
+	Title      string           `json:"title"`
+	Body       string           `json:"body"`
+	State      string           `json:"state"`
+	URL        string           `json:"url"`
+	Draft      bool             `json:"isDraft"`
+	CreatedAt  time.Time        `json:"createdAt"`
+	UpdatedAt  time.Time        `json:"updatedAt"`
+	Author     *gqlSearchAuthor `json:"author"`
+	Repository gqlRepository    `json:"repository"`
+	Labels     gqlSearchLabels  `json:"labels"`
 }
 
 type gqlSearchAuthor struct {
 	Login string `json:"login"`
 }
 
-type gqlSearchRepository struct {
+type gqlRepository struct {
 	NameWithOwner string `json:"nameWithOwner"`
 }
 
@@ -233,76 +250,69 @@ type gqlSearchLabels struct {
 }
 
 // NotificationsResult is one notifications poll. When NotModified is true the
-// inbox has not changed since the ifModifiedSince timestamp and Items is nil —
-// the caller keeps its cached copy. LastModified echoes the response's
-// Last-Modified header for the next conditional request, and PollInterval is
-// the server-mandated minimum seconds between polls (X-Poll-Interval, 0 when
-// the header is absent).
+// inbox has not changed and Items is nil — the caller keeps its cached copy.
+// Validators are echoed back on the next request, and PollInterval is the
+// server-mandated minimum seconds between polls (X-Poll-Interval, 0 when the
+// header is absent).
 type NotificationsResult struct {
 	Items        []Notification
 	NotModified  bool
-	LastModified string
+	Validators   sourcehttp.Validators
 	PollInterval int
 }
 
 // Notifications lists the user's notification inbox, including read threads,
-// so the app can mirror the full inbox and keep triage state locally. A
-// non-empty ifModifiedSince makes the request conditional: authenticated 304
+// so the app can mirror the full inbox and keep triage state locally.
+// Non-empty prev validators make the request conditional: authenticated 304
 // responses are free of rate-limit cost, so polling an unchanged inbox costs
 // nothing.
-func (c *Client) Notifications(ctx context.Context, limit int, ifModifiedSince string) (NotificationsResult, error) {
+func (c *Client) Notifications(ctx context.Context, limit int, prev sourcehttp.Validators) (NotificationsResult, error) {
 	params := url.Values{}
 	params.Set("all", "true")
 	params.Set("per_page", strconv.Itoa(limit))
 
 	var notifications []Notification
-	meta, err := c.getJSONConditional(ctx, "/notifications", params, ifModifiedSince, &notifications)
+	meta, err := c.getJSONConditional(ctx, "/notifications", params, prev, &notifications)
 	if err != nil {
 		return NotificationsResult{}, err
 	}
 	return NotificationsResult{
 		Items:        notifications,
 		NotModified:  meta.notModified,
-		LastModified: meta.lastModified,
+		Validators:   meta.validators,
 		PollInterval: meta.pollInterval,
 	}, nil
 }
 
 func (c *Client) getJSON(ctx context.Context, path string, params url.Values, out any) error {
-	_, err := c.getJSONConditional(ctx, path, params, "", out)
+	_, err := c.getJSONConditional(ctx, path, params, sourcehttp.Validators{}, out)
 	return err
 }
 
 // postGraphQL executes one GraphQL request and decodes the data object into
-// out. It maps transport failures to ErrUnreachable, non-2xx statuses through
-// statusError, and GraphQL RATE_LIMITED errors to RateLimitError.
-func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any, out any) error {
+// out. GraphQL reports rate limits in the response body rather than the
+// status, so RATE_LIMITED is mapped here rather than by sourcehttp.
+//
+// When tolerateNotFound is set, a NOT_FOUND error is not fatal: GitHub returns
+// it alongside partial data (the unresolved alias is null) for a deleted or
+// private repository, so out is still decoded and the caller reads the null
+// alias as absent. RATE_LIMITED and every other error type remain fatal.
+func (c *Client) postGraphQL(ctx context.Context, query string, variables map[string]any, out any, tolerateNotFound bool) error {
 	payload, err := json.Marshal(struct {
 		Query     string         `json:"query"`
 		Variables map[string]any `json:"variables"`
 	}{Query: query, Variables: variables})
 	if err != nil {
-		return fmt.Errorf("github: encode graphql request: %w", err)
+		return c.errs.Errorf("encode graphql request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.apiBase+"/graphql", bytes.NewReader(payload))
+	resp, err := c.api.Post(ctx, "/graphql", bytes.NewReader(payload), c.bearer())
 	if err != nil {
-		return fmt.Errorf("github: build request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrUnreachable, err)
+		return c.errs.Unreachable(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-only body close
 
-	if err := statusError(resp); err != nil {
+	if err := c.errs.Status(resp); err != nil {
 		return err
 	}
 
@@ -314,25 +324,37 @@ func (c *Client) postGraphQL(ctx context.Context, query string, variables map[st
 		} `json:"errors"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return fmt.Errorf("github: decode graphql: %w", err)
+		return c.errs.Errorf("decode graphql: %w", err)
 	}
 	if len(response.Errors) > 0 {
 		messages := make([]string, 0, len(response.Errors))
+		tolerated := 0
 		for _, gqlErr := range response.Errors {
 			if gqlErr.Type == "RATE_LIMITED" {
-				return rateLimitError(resp.Header)
+				return sourcehttp.RateLimit(resp.Header)
+			}
+			if tolerateNotFound && gqlErr.Type == "NOT_FOUND" {
+				tolerated++
+				continue
 			}
 			if gqlErr.Message != "" {
 				messages = append(messages, gqlErr.Message)
 			}
 		}
-		if len(messages) == 0 {
-			messages = append(messages, "request failed")
+		// Fail unless every error was a tolerated NOT_FOUND; otherwise fall
+		// through to decode the partial data those nulls sit beside.
+		if tolerated < len(response.Errors) {
+			if len(messages) == 0 {
+				messages = append(messages, "request failed")
+			}
+			return c.errs.Errorf("graphql: %s", strings.Join(messages, "; "))
 		}
-		return fmt.Errorf("github: graphql: %s", strings.Join(messages, "; "))
+	}
+	if len(response.Data) == 0 {
+		return nil
 	}
 	if err := json.Unmarshal(response.Data, out); err != nil {
-		return fmt.Errorf("github: decode graphql data: %w", err)
+		return c.errs.Errorf("decode graphql data: %w", err)
 	}
 	return nil
 }
@@ -340,52 +362,38 @@ func (c *Client) postGraphQL(ctx context.Context, query string, variables map[st
 // condMeta carries the conditional-request metadata of a response.
 type condMeta struct {
 	notModified  bool
-	lastModified string
+	validators   sourcehttp.Validators
 	pollInterval int
 }
 
-// getJSONConditional performs a GET, optionally conditional on
-// ifModifiedSince. A 304 response is a success with notModified set and out
-// untouched; every other non-2xx status maps through statusError.
-func (c *Client) getJSONConditional(ctx context.Context, path string, params url.Values, ifModifiedSince string, out any) (condMeta, error) {
-	endpoint := c.apiBase + path
+// getJSONConditional performs a GET, conditional when prev is non-empty. A 304
+// is a success with notModified set and out untouched.
+func (c *Client) getJSONConditional(ctx context.Context, path string, params url.Values, prev sourcehttp.Validators, out any) (condMeta, error) {
+	endpoint := path
 	if len(params) > 0 {
 		endpoint += "?" + params.Encode()
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	resp, err := c.api.Get(ctx, endpoint, c.bearer(), sourcehttp.Conditional(prev))
 	if err != nil {
-		return condMeta{}, fmt.Errorf("github: build request: %w", err)
-	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	if ifModifiedSince != "" {
-		req.Header.Set("If-Modified-Since", ifModifiedSince)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return condMeta{}, fmt.Errorf("%w: %w", ErrUnreachable, err)
+		return condMeta{}, c.errs.Unreachable(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-only body close
 
 	meta := condMeta{
-		lastModified: resp.Header.Get("Last-Modified"),
+		validators:   sourcehttp.ReadValidators(resp.Header),
 		pollInterval: parsePollInterval(resp.Header.Get("X-Poll-Interval")),
 	}
-	if resp.StatusCode == http.StatusNotModified {
+	if sourcehttp.NotModified(resp) {
 		meta.notModified = true
 		return meta, nil
 	}
-	if err := statusError(resp); err != nil {
+	if err := c.errs.Status(resp); err != nil {
 		return condMeta{}, err
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return condMeta{}, fmt.Errorf("github: decode %s: %w", path, err)
+		return condMeta{}, c.errs.Errorf("decode %s: %w", path, err)
 	}
 	return meta, nil
 }
@@ -404,39 +412,6 @@ func parsePollInterval(value string) int {
 	return seconds
 }
 
-func statusError(resp *http.Response) error {
-	switch {
-	case resp.StatusCode >= 200 && resp.StatusCode < 300:
-		return nil
-	case resp.StatusCode == http.StatusUnauthorized:
-		return ErrUnauthorized
-	case resp.StatusCode == http.StatusTooManyRequests:
-		return rateLimitError(resp.Header)
-	case resp.StatusCode == http.StatusForbidden:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		if forbiddenIsRateLimit(resp, body) {
-			return rateLimitError(resp.Header)
-		}
-		return fmt.Errorf("github: %s %s: %s", resp.Request.Method, resp.Request.URL.Path, summarize(resp.StatusCode, body))
-	default:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return fmt.Errorf("github: %s %s: %s", resp.Request.Method, resp.Request.URL.Path, summarize(resp.StatusCode, body))
-	}
-}
-
-// rateLimitError extracts GitHub's wait hints. Retry-After is preferred when
-// present because it describes the active secondary-limit penalty; otherwise
-// X-RateLimit-Reset is the primary-limit epoch reset.
-func rateLimitError(header http.Header) *RateLimitError {
-	if seconds, err := strconv.Atoi(header.Get("Retry-After")); err == nil && seconds >= 0 {
-		return &RateLimitError{ResetAt: time.Now().Add(time.Duration(seconds) * time.Second)}
-	}
-	if epoch, err := strconv.ParseInt(header.Get("X-RateLimit-Reset"), 10, 64); err == nil && epoch >= 0 {
-		return &RateLimitError{ResetAt: time.Unix(epoch, 0)}
-	}
-	return &RateLimitError{}
-}
-
 // forbiddenIsRateLimit distinguishes rate-limit 403s from permission 403s.
 // Primary limits set X-RateLimit-Remaining: 0; secondary (abuse) limits keep
 // a nonzero remaining but send Retry-After and a "rate limit" message.
@@ -444,14 +419,4 @@ func forbiddenIsRateLimit(resp *http.Response, body []byte) bool {
 	return resp.Header.Get("X-RateLimit-Remaining") == "0" ||
 		resp.Header.Get("Retry-After") != "" ||
 		strings.Contains(strings.ToLower(string(body)), "rate limit")
-}
-
-func summarize(status int, body []byte) string {
-	var payload struct {
-		Message string `json:"message"`
-	}
-	if err := json.Unmarshal(body, &payload); err == nil && payload.Message != "" {
-		return fmt.Sprintf("HTTP %d: %s", status, payload.Message)
-	}
-	return fmt.Sprintf("HTTP %d", status)
 }

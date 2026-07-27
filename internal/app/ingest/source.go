@@ -43,6 +43,7 @@ type FlowLister interface {
 type Appender interface {
 	IngestObservation(ctx context.Context, classifier store.Classifier, p store.IngestObservationParams) (store.IngestResult, error)
 	AppendSnapshot(ctx context.Context, topic, sourceKind, sourceScope string, items []store.SnapshotItem) (offset int64, err error)
-	ListSourceHeadKeys(ctx context.Context, topic string) ([]string, error)
+	ListActiveSourceHeadKeys(ctx context.Context, id store.SourceIdentity) ([]string, error)
 	SourceHeadPayload(ctx context.Context, topic, key string) ([]byte, error)
+	DeleteSourceHead(ctx context.Context, topic, key string) error
 }

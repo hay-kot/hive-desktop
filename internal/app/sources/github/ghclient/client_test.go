@@ -11,6 +11,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 func TestUserValidatesToken(t *testing.T) {
@@ -41,7 +43,7 @@ func TestUserUnauthorized(t *testing.T) {
 	defer server.Close()
 
 	_, err := NewClient(WithAPIBase(server.URL), WithToken("bad")).User(t.Context())
-	require.ErrorIs(t, err, ErrUnauthorized)
+	require.ErrorIs(t, err, sourcehttp.ErrUnauthorized)
 }
 
 func TestRateLimitedMapsToSentinel(t *testing.T) {
@@ -57,8 +59,8 @@ func TestRateLimitedMapsToSentinel(t *testing.T) {
 	defer server.Close()
 
 	_, err := NewClient(WithAPIBase(server.URL)).User(t.Context())
-	require.ErrorIs(t, err, ErrRateLimited)
-	var rateErr *RateLimitError
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	var rateErr *sourcehttp.RateLimitError
 	require.ErrorAs(t, err, &rateErr)
 	assert.Equal(t, time.Unix(resetEpoch, 0), rateErr.ResetAt)
 }
@@ -77,8 +79,8 @@ func TestSecondaryRateLimitMapsToSentinel(t *testing.T) {
 	before := time.Now()
 	_, err := NewClient(WithAPIBase(server.URL)).User(t.Context())
 	after := time.Now()
-	require.ErrorIs(t, err, ErrRateLimited)
-	var rateErr *RateLimitError
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	var rateErr *sourcehttp.RateLimitError
 	require.ErrorAs(t, err, &rateErr)
 	assert.WithinDuration(t, before.Add(time.Minute), rateErr.ResetAt, time.Second)
 	assert.WithinDuration(t, after.Add(time.Minute), rateErr.ResetAt, time.Second)
@@ -93,8 +95,8 @@ func TestRateLimitedWithoutResetHasZeroResetAt(t *testing.T) {
 	defer server.Close()
 
 	_, err := NewClient(WithAPIBase(server.URL)).User(t.Context())
-	require.ErrorIs(t, err, ErrRateLimited)
-	var rateErr *RateLimitError
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	var rateErr *sourcehttp.RateLimitError
 	require.ErrorAs(t, err, &rateErr)
 	assert.True(t, rateErr.ResetAt.IsZero())
 }
@@ -110,7 +112,7 @@ func TestForbiddenWithoutRateLimitIsGeneric(t *testing.T) {
 	defer server.Close()
 
 	_, err := NewClient(WithAPIBase(server.URL)).User(t.Context())
-	require.NotErrorIs(t, err, ErrRateLimited)
+	require.NotErrorIs(t, err, sourcehttp.ErrRateLimited)
 	require.ErrorContains(t, err, "HTTP 403")
 }
 
@@ -121,7 +123,7 @@ func TestUnreachableMapsToSentinel(t *testing.T) {
 	server.Close() // immediately closed: connection refused
 
 	_, err := NewClient(WithAPIBase(server.URL)).User(t.Context())
-	require.ErrorIs(t, err, ErrUnreachable)
+	require.ErrorIs(t, err, sourcehttp.ErrUnreachable)
 }
 
 func TestBuildSearchQuery(t *testing.T) {
@@ -235,8 +237,8 @@ func TestSearchIssuesBatch_RateLimitedGraphQLError(t *testing.T) {
 	defer server.Close()
 
 	_, err := NewClient(WithAPIBase(server.URL)).SearchIssuesBatch(t.Context(), []SearchRequest{{Query: "is:open", Limit: 25}})
-	require.ErrorIs(t, err, ErrRateLimited)
-	var rateErr *RateLimitError
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	var rateErr *sourcehttp.RateLimitError
 	require.ErrorAs(t, err, &rateErr)
 	assert.Equal(t, time.Unix(resetEpoch, 0), rateErr.ResetAt)
 }
@@ -250,8 +252,8 @@ func TestSearchIssuesBatch_HTTPErrors(t *testing.T) {
 		headers map[string]string
 		want    error
 	}{
-		{name: "unauthorized", status: http.StatusUnauthorized, want: ErrUnauthorized},
-		{name: "rate limited", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0"}, want: ErrRateLimited},
+		{name: "unauthorized", status: http.StatusUnauthorized, want: sourcehttp.ErrUnauthorized},
+		{name: "rate limited", status: http.StatusForbidden, headers: map[string]string{"X-RateLimit-Remaining": "0"}, want: sourcehttp.ErrRateLimited},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -294,11 +296,11 @@ func TestNotifications(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := NewClient(WithAPIBase(server.URL)).Notifications(t.Context(), 50, "")
+	result, err := NewClient(WithAPIBase(server.URL)).Notifications(t.Context(), 50, sourcehttp.Validators{})
 	require.NoError(t, err)
 	require.Len(t, result.Items, 1)
 	assert.False(t, result.NotModified)
-	assert.Equal(t, "Sat, 18 Jul 2026 08:00:00 GMT", result.LastModified)
+	assert.Equal(t, "Sat, 18 Jul 2026 08:00:00 GMT", result.Validators.LastModified)
 	assert.Equal(t, 60, result.PollInterval)
 
 	n := result.Items[0]
@@ -319,7 +321,7 @@ func TestNotificationsConditionalNotModified(t *testing.T) {
 	}))
 	defer server.Close()
 
-	result, err := NewClient(WithAPIBase(server.URL)).Notifications(t.Context(), 50, lastModified)
+	result, err := NewClient(WithAPIBase(server.URL)).Notifications(t.Context(), 50, sourcehttp.Validators{LastModified: lastModified})
 	require.NoError(t, err)
 	assert.True(t, result.NotModified)
 	assert.Empty(t, result.Items)

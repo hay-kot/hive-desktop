@@ -114,6 +114,9 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 		if err := q.PruneArchivedInboxItems(ctx, sql.NullInt64{Int64: time.Now().Add(-policy.ArchivedItemRetention).UnixMilli(), Valid: true}); err != nil {
 			return fmt.Errorf("pruning archived inbox items: %w", err)
 		}
+		if err := q.DeleteOrphanedSourceHeads(ctx); err != nil {
+			return fmt.Errorf("reclaiming orphaned source heads: %w", err)
+		}
 		if err := q.TrimInboxItemEvents(ctx, policy.EventPerItemLimit); err != nil {
 			return fmt.Errorf("trimming inbox item events: %w", err)
 		}

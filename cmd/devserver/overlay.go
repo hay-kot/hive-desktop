@@ -204,15 +204,20 @@ func (s *Store) Items() []Item {
 // ── Response rewriting ───────────────────────────────────────────────────────
 //
 // The desktop reads the same logical item through three different response
-// shapes. All three are rewritten from one Mutations value so a simulated
-// merge stays consistent: the item leaves the search result *and* the REST
-// endpoint reports merged. An overlay that only rewrote one shape would
-// produce a state the real API can never return, and the bug would look like
-// an app bug.
+// shapes: a batched GraphQL search, a batched GraphQL state lookup, and REST
+// notifications. All three are rewritten from one Mutations value so a
+// simulated merge stays consistent: the item leaves the search result *and*
+// the state lookup reports it merged. An overlay that only rewrote one shape
+// would produce a state the real API can never return, and the bug would look
+// like an app bug.
 
-// RewriteGraphQL rewrites a GraphQL search response body in place. It matches
-// nodes by repository.nameWithOwner + number, drops nodes whose overlay marks
-// them absent, and returns the rewritten body. A body it cannot parse is
+// RewriteGraphQL rewrites a GraphQL response body in place. The desktop sends
+// two aliased document shapes under this one endpoint — a batched search
+// (`data.sN.nodes[]`) and a batched state lookup
+// (`data.rN.issueOrPullRequest`) — and a single response can only ever be one
+// of them, so both are tried per top-level value. Search nodes are matched by
+// repository.nameWithOwner + number, dropped when their overlay marks them
+// absent, and the rewritten body is returned. A body it cannot parse is
 // returned unchanged — the proxy must never turn a valid upstream response
 // into a broken one.
 func (s *Store) RewriteGraphQL(body []byte) []byte {
@@ -229,6 +234,10 @@ func (s *Store) RewriteGraphQL(body []byte) []byte {
 	for _, raw := range data {
 		result, ok := raw.(map[string]any)
 		if !ok {
+			continue
+		}
+		if s.rewriteItemAlias(result) {
+			changed = true
 			continue
 		}
 		nodes, ok := result["nodes"].([]any)
@@ -276,6 +285,29 @@ func (s *Store) RewriteGraphQL(body []byte) []byte {
 		return body
 	}
 	return rewritten
+}
+
+// An item marked absent is still answered here: leaving a query is what
+// "absent" means, and the state lookup is how the app finds out why.
+func (s *Store) rewriteItemAlias(result map[string]any) bool {
+	node, ok := result["issueOrPullRequest"].(map[string]any)
+	if !ok {
+		return false
+	}
+	repo, num := graphQLIdentity(node)
+	kind := "Issue"
+	if typename, _ := node["__typename"].(string); typename == "PullRequest" {
+		kind = "PR"
+	}
+	state, _ := node["state"].(string)
+	s.observe(repo, num, kind, "", strings.ToLower(state))
+
+	overlay, ok := s.Get(repo + "#" + strconv.Itoa(num))
+	if !ok {
+		return false
+	}
+	applyGraphQLNode(node, overlay)
+	return true
 }
 
 // graphQLIdentity pulls the repo and number out of a search node.
@@ -372,63 +404,6 @@ func (s *Store) RewriteNotifications(body []byte) []byte {
 		return body
 	}
 	rewritten, err := json.Marshal(entries)
-	if err != nil {
-		return body
-	}
-	return rewritten
-}
-
-// RewriteIssue rewrites a single-item REST response for the given repo and
-// number. Unlike the collection shapes the identity comes from the request
-// path, because the response body carries no repository field.
-//
-// isPull selects GitHub's merged-PR encoding: the pulls endpoint reports
-// state=closed with merged=true, never state=merged. The desktop relies on
-// exactly that distinction (internal/app/sources/github/classify.go:24).
-func (s *Store) RewriteIssue(body []byte, repo string, num int, isPull bool) []byte {
-	var payload map[string]any
-	if err := json.Unmarshal(body, &payload); err != nil {
-		return body
-	}
-	title, _ := payload["title"].(string)
-	state, _ := payload["state"].(string)
-	kind := "Issue"
-	if isPull {
-		kind = "PR"
-	}
-	s.observe(repo, num, kind, title, strings.ToLower(state))
-
-	overlay, ok := s.Get(repo + "#" + strconv.Itoa(num))
-	if !ok {
-		return body
-	}
-	if overlay.State != nil {
-		switch *overlay.State {
-		case "merged":
-			payload["state"] = "closed"
-			if isPull {
-				payload["merged"] = true
-			}
-		default:
-			payload["state"] = *overlay.State
-			if isPull {
-				payload["merged"] = false
-			}
-		}
-	}
-	if overlay.Title != nil {
-		payload["title"] = *overlay.Title
-	}
-	if overlay.Body != nil {
-		payload["body"] = *overlay.Body
-	}
-	if overlay.Draft != nil {
-		payload["draft"] = *overlay.Draft
-	}
-	if overlay.UpdatedAt != nil {
-		payload["updated_at"] = overlay.UpdatedAt.UTC().Format(time.RFC3339)
-	}
-	rewritten, err := json.Marshal(payload)
 	if err != nil {
 		return body
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 // ErrNotAuthenticated is returned when no GitHub token is available.
@@ -64,7 +65,7 @@ type searchFailure struct {
 type cachedSource struct {
 	items        []liveItem
 	fetchedAt    time.Time
-	lastModified string
+	validators   sourcehttp.Validators
 	pollInterval time.Duration
 }
 
@@ -129,10 +130,10 @@ func (p *LiveProvider) inCooldown() (bool, error) {
 // takes precedence over the local fallback; an existing later cooldown is
 // retained so concurrent failures cannot shorten it.
 func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
-	if !errors.Is(err, ghclient.ErrRateLimited) {
+	if !errors.Is(err, sourcehttp.ErrRateLimited) {
 		return
 	}
-	var rateErr *ghclient.RateLimitError
+	var rateErr *sourcehttp.RateLimitError
 	until := time.Time{}
 	if errors.As(err, &rateErr) {
 		until = rateErr.ResetAt
@@ -236,7 +237,7 @@ func (p *LiveProvider) sourceItems(ctx context.Context, src SourceDef) ([]liveIt
 // transient failures, while authentication failures must reach the caller so
 // it can prompt for a reconnect.
 func (p *LiveProvider) serveFetchError(src SourceDef, cached *cachedSource, ok bool, err error) ([]liveItem, error) {
-	if ok && !errors.Is(err, ghclient.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
+	if ok && !errors.Is(err, sourcehttp.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
 		p.logger.Debug().Err(err).Str("source", src.ID).Msg("source fetch failed; serving stale cache")
 		return cached.items, nil
 	}
@@ -299,7 +300,7 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 	}
 	results, err := p.client.WithTokenCopy(token).SearchIssuesBatch(ctx, reqs)
 	if err != nil {
-		if errors.Is(err, ghclient.ErrRateLimited) {
+		if errors.Is(err, sourcehttp.ErrRateLimited) {
 			p.noteRateLimit(ctx, err)
 		}
 		p.recordSearchFailures(dueKeys, err)
@@ -367,15 +368,15 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 	case "notifications":
 		p.mu.Lock()
 		prev := p.cache[key]
-		ifModifiedSince := ""
+		var prevValidators sourcehttp.Validators
 		if prev != nil {
-			ifModifiedSince = prev.lastModified
+			prevValidators = prev.validators
 		}
 		p.mu.Unlock()
 
-		result, err := client.Notifications(ctx, src.effectiveLimit(), ifModifiedSince)
+		result, err := client.Notifications(ctx, src.effectiveLimit(), prevValidators)
 		if err != nil {
-			if errors.Is(err, ghclient.ErrRateLimited) {
+			if errors.Is(err, sourcehttp.ErrRateLimited) {
 				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
@@ -387,8 +388,8 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 			if pollInterval > 0 {
 				next.pollInterval = pollInterval
 			}
-			if result.LastModified != "" {
-				next.lastModified = result.LastModified
+			if !result.Validators.Empty() {
+				next.validators = result.Validators
 			}
 			p.setCache(key, &next)
 			return next.items, nil
@@ -397,7 +398,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 		p.setCache(key, &cachedSource{
 			items:        items,
 			fetchedAt:    p.now(),
-			lastModified: result.LastModified,
+			validators:   result.Validators,
 			pollInterval: pollInterval,
 		})
 		return items, nil
@@ -407,7 +408,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 			Limit: src.effectiveLimit(),
 		}})
 		if err != nil {
-			if errors.Is(err, ghclient.ErrRateLimited) {
+			if errors.Is(err, sourcehttp.ErrRateLimited) {
 				p.noteRateLimit(ctx, err)
 			}
 			return nil, err
@@ -421,36 +422,56 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 	}
 }
 
-// ConfirmTerminal hydrates an item that disappeared from a source result.
-// The caller uses its state to distinguish terminal lifecycle changes from
-// non-terminal query churn. It uses the same token and rate-limit cooldown as
-// polling.
-func (p *LiveProvider) ConfirmTerminal(ctx context.Context, repo string, num int, isPR bool) (ghclient.Issue, error) {
+// AbsentRef identifies one item that disappeared from a source result and
+// needs its current lifecycle state confirmed.
+type AbsentRef struct {
+	Repo string
+	Num  int
+}
+
+// ConfirmTerminal hydrates the current state of items that disappeared from a
+// source result. The caller uses each state to distinguish terminal lifecycle
+// changes from non-terminal query churn. It uses the same token and
+// rate-limit cooldown as polling.
+//
+// A ref whose repo does not split into owner/name, or whose number is not
+// positive, comes back Found: false rather than failing the batch.
+func (p *LiveProvider) ConfirmTerminal(ctx context.Context, refs []AbsentRef) ([]ghclient.ItemState, error) {
 	if cooling, err := p.inCooldown(); cooling {
-		return ghclient.Issue{}, err
-	}
-	parts := strings.SplitN(repo, "/", 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" || num <= 0 {
-		return ghclient.Issue{}, fmt.Errorf("feed: invalid GitHub item %q#%d", repo, num)
+		return nil, err
 	}
 	token, err := p.tokens()
 	if err != nil {
-		return ghclient.Issue{}, err
+		return nil, err
 	}
 	if token == "" {
-		return ghclient.Issue{}, ErrNotAuthenticated
+		return nil, ErrNotAuthenticated
 	}
+
+	out := make([]ghclient.ItemState, len(refs))
+	itemRefs := make([]ghclient.ItemRef, 0, len(refs))
+	originalIndex := make([]int, 0, len(refs))
+	for i, ref := range refs {
+		owner, name, ok := strings.Cut(ref.Repo, "/")
+		if !ok || owner == "" || name == "" || ref.Num <= 0 {
+			continue
+		}
+		itemRefs = append(itemRefs, ghclient.ItemRef{Owner: owner, Name: name, Number: ref.Num})
+		originalIndex = append(originalIndex, i)
+	}
+	if len(itemRefs) == 0 {
+		return out, nil
+	}
+
 	client := p.client.WithTokenCopy(token)
-	var issue ghclient.Issue
-	if isPR {
-		issue, err = client.GetPullRequest(ctx, parts[0], parts[1], num)
-	} else {
-		issue, err = client.GetIssue(ctx, parts[0], parts[1], num)
+	states, err := client.ItemStates(ctx, itemRefs)
+	for j, st := range states {
+		out[originalIndex[j]] = st
 	}
-	if errors.Is(err, ghclient.ErrRateLimited) {
+	if errors.Is(err, sourcehttp.ErrRateLimited) {
 		p.noteRateLimit(ctx, err)
 	}
-	return issue, err
+	return out, err
 }
 
 func (p *LiveProvider) setCache(key string, cached *cachedSource) {

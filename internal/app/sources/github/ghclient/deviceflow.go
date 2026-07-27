@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/hay-kot/appkit/httpclient"
 )
 
 // DeviceAuth is the pending device authorization the UI presents: the user
@@ -28,7 +29,7 @@ func (c *Client) StartDeviceFlow(ctx context.Context, clientID string, scopes []
 	form.Set("scope", strings.Join(scopes, " "))
 
 	var auth DeviceAuth
-	if err := c.postForm(ctx, c.authBase+"/login/device/code", form, &auth); err != nil {
+	if err := c.postForm(ctx, "/login/device/code", form, &auth); err != nil {
 		return DeviceAuth{}, err
 	}
 	if auth.DeviceCode == "" || auth.UserCode == "" {
@@ -64,7 +65,7 @@ func (c *Client) PollDeviceFlow(ctx context.Context, clientID string, auth Devic
 		}
 
 		var token tokenResponse
-		if err := c.postForm(ctx, c.authBase+"/login/oauth/access_token", form, &token); err != nil {
+		if err := c.postForm(ctx, "/login/oauth/access_token", form, &token); err != nil {
 			return "", err
 		}
 
@@ -93,26 +94,20 @@ type tokenResponse struct {
 	Error       string `json:"error"`
 }
 
-func (c *Client) postForm(ctx context.Context, endpoint string, form url.Values, out any) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+func (c *Client) postForm(ctx context.Context, path string, form url.Values, out any) error {
+	resp, err := c.auth.Post(ctx, path, strings.NewReader(form.Encode()),
+		httpclient.Header("Content-Type", "application/x-www-form-urlencoded"))
 	if err != nil {
-		return fmt.Errorf("github: build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return fmt.Errorf("%w: %w", ErrUnreachable, err)
+		return c.errs.Unreachable(err)
 	}
 	defer resp.Body.Close() //nolint:errcheck // read-only body close
 
-	if err := statusError(resp); err != nil {
+	if err := c.errs.Status(resp); err != nil {
 		return err
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("github: decode device flow response: %w", err)
+		return c.errs.Errorf("decode device flow response: %w", err)
 	}
 	return nil
 }

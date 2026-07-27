@@ -148,7 +148,7 @@ column is the section that specifies it.
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
-| A new **outbound HTTP call** | `appkit/httpclient` with composable middleware, not a bespoke client | [Background lifecycle](#background-lifecycle) |
+| A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
 
 If what you are building is not on this list, it is probably a service method
 on `App` — see [Placement rules](#placement-rules).
@@ -246,6 +246,8 @@ internal/
       registry.go                 #   the map of descriptors, in one file
       connector/                  #   the vocabulary — a leaf, so a connector can
                                   #   name it without importing the registry back
+      sourcehttp/                 #   the HTTP toolkit every source client is
+                                  #   built over — a lighter leaf (ADR 0018)
       github/                     #   Descriptor + Config + Factory
         feed/                     #   fetch layer: per-account response cache,
                                   #   conditional requests, rate-limit cooldown
@@ -343,6 +345,10 @@ specified rather than left to grow. ADR 0012 records why.
   declares a capability its factory does not wire. Sniffing fails *open*: the
   assertion still compiles, the source still polls, and it silently ingests
   with no classifier and no absence confirmation.
+- **Absence confirmation is batched, not per-item.** A connector's
+  `AbsenceConfirmer` is asked once per tick over the whole absent set;
+  verdicts return keyed by external id, not positionally, and a terminal
+  verdict removes the item from the tracked set permanently. See ADR 0019.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.
@@ -531,16 +537,46 @@ this plugs lifecycle exists; it must not add a bespoke teardown branch in
 `main`.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
-client with composable middleware) and `mapx`.
+client with composable middleware, **adopted** — see below) and `mapx`.
 
-**Adopting `httpclient` is a choice now, not a blocker.** GitHub's connector
-owns its HTTP client end to end (`sources/github/ghclient`, ADR 0015) rather
-than routing through a vendored one with a concrete `*http.Client` field
-behind only a `WithHTTPClient` option, so there is no upstream signature to
-wait on. The app's outbound HTTP today is that owned client plus the updater
-and `cmd/release`; none has adopted `httpclient` yet. Doing so is a matter of
-shaping the fetch path, whenever composable middleware — retries, request
-signing, a shared cache — earns its keep there.
+### Source HTTP
+
+**Every source client is built over `sources/sourcehttp`** (ADR 0018), which
+is itself built over `appkit/httpclient`. Nothing constructs a bespoke
+`*http.Client` to reach a provider API.
+
+`sourcehttp` owns four things:
+
+- **The failure taxonomy** — `ErrUnauthorized`, `ErrRateLimited`,
+  `ErrUnreachable`, and `RateLimitError` with the server's reset time. This is
+  the app's vocabulary, not a provider's: the Integrations screen maps
+  unauthorized onto re-auth, and a provider pauses fetching on rate limited. A
+  connector that classifies into these three gets both behaviours without the
+  app learning its name. It lives here rather than in `sources/connector`
+  because `connector` reaches `app/store` and would drag the SQLite driver
+  into every client package.
+- **Status and rate-limit mapping** — `Errors.Status` maps a response onto the
+  taxonomy, with a provider-supplied hook for APIs that overload 403.
+  Rate-limit hints read `Retry-After` first, then `X-RateLimit-Reset`.
+- **Conditional requests** — `Validators` carries ETag and Last-Modified
+  between a response and the next request. An authenticated 304 is free of
+  rate-limit cost, so polling an unchanged resource costs nothing.
+- **A logging transport** — request, status, elapsed, and
+  `X-RateLimit-Remaining` at debug level, with secret-looking query parameters
+  redacted. It is a `RoundTripper`, not middleware, so it observes the request
+  that reaches the wire regardless of what a caller stacks in front; a
+  cancelled request logs at debug so shutdown writes no failure lines.
+
+What it deliberately does **not** own: response caching, poll cadence, and
+rate-limit cooldowns (source semantics — they stay in the provider, e.g.
+`github/feed`), credential resolution (already generic in `app/credentials`),
+and provider vocabulary such as GraphQL batching or an OAuth device flow.
+Retry, backoff, and pagination are absent until a second connector shows what
+they should look like — the package is an extraction from one implementation
+and should grow by evidence, not by anticipation.
+
+The app's other outbound HTTP — the updater and `cmd/release` — is not a
+source and has not adopted it.
 
 ## Execution model
 
