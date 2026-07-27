@@ -269,13 +269,14 @@ more expensive, which is the whole reason it is being done now.
     github: {api_base: ""}   # loopback-only devserver override (ADR 0017)
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
-    pprof: {enabled: false, host: 127.0.0.1, port: 0}
+    pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR 0023)
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
   The loopback HTTP server (webhook listener + agent API) is on by default and
-  allocates directly through port `0`. Pprof config
-  is validated but endpoint startup waits for the plugs lifecycle. Dev uses
+  allocates directly through port `0`. Pprof is off by default; when enabled it
+  mounts `/debug/pprof/` on that same server (`httpapi.PprofHandler`, ADR 0023),
+  so it has no address of its own and needs `http.enabled`. Dev uses
   `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
   runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
   marker-guarded destructive operations that refuse while a configured dev
@@ -361,9 +362,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Reserved pprof enable setting; runtime endpoint deferred |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST` | Reserved pprof loopback host |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT` | Reserved pprof port |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR 0023); off by default, needs `http.enabled` |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |

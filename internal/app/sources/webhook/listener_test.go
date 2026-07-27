@@ -110,6 +110,29 @@ func TestMountAPIServesAlongsideHooks(t *testing.T) {
 		"mounting the API does not disturb /hooks/")
 }
 
+func TestMountAPIServesMultipleHandlers(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
+	listener.MountAPI("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	listener.MountAPI("/debug/pprof/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	handler := listener.Handler()
+
+	for path, want := range map[string]int{
+		"/api/anything":     http.StatusTeapot,
+		"/debug/pprof/heap": http.StatusOK,
+	} {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+		assert.Equal(t, want, rec.Code, "%s routes to its mounted handler", path)
+	}
+
+	assert.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x"}`, nil).Code,
+		"the extra mounts do not disturb /hooks/")
+}
+
 func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()

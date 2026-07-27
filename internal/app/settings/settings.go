@@ -105,10 +105,10 @@ type ServerSettings struct {
 	Port int    `yaml:"port" env:"PORT"`
 }
 
+// PprofSettings gates the pprof endpoint; when enabled it mounts on the shared
+// HTTP server (ADR 0023), so it has no host/port of its own.
 type PprofSettings struct {
-	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
-	Host    string `yaml:"host"    env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST"`
-	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT"`
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
 }
 
 type DebugSettings struct {
@@ -166,7 +166,7 @@ func DefaultSettings() Settings {
 			Mocks: MockSettings{Mode: MockLive},
 			Vite:  ServerSettings{Host: "127.0.0.1", Port: 0},
 			Wails: ServerSettings{Host: "127.0.0.1", Port: 0},
-			Pprof: PprofSettings{Enabled: false, Host: "127.0.0.1", Port: 0},
+			Pprof: PprofSettings{Enabled: false},
 		},
 	}
 }
@@ -234,9 +234,6 @@ func (s Settings) Validate() error {
 	}
 	if !validServer(s.Development.Wails) {
 		return fmt.Errorf("development.wails must use a loopback host and port must be 0 or between 1024 and 65535")
-	}
-	if !validListenerHost(s.Development.Pprof.Host) || !ValidListenerPort(s.Development.Pprof.Port) {
-		return fmt.Errorf("development.pprof must use a loopback host and a valid port")
 	}
 	if s.Development.Debug.PauseIngest < 0 || s.Development.Debug.PauseCommit < 0 {
 		return fmt.Errorf("development debug pauses must not be negative")

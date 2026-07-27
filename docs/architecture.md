@@ -549,10 +549,12 @@ context-taking `Stop` behind a `stopOnce` (the webhook listener is the
 template — ADR 0016), `App.Start` starts them in dependency order, and
 `App.Close` unwinds them in reverse. `main` holds none of it.
 
-`development.pprof` is already typed and validated with disabled, loopback,
-port-zero-safe defaults. Starting the endpoint is deliberately deferred until
-this plugs lifecycle exists; it must not add a bespoke teardown branch in
-`main`.
+`development.pprof` is typed and defaulted off. The endpoint has no lifecycle
+of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
+loopback HTTP server (ADR 0021) beside the agent API, torn down with it, so
+there is no second listener and no teardown branch in `main` (ADR 0023). The
+config is `{ enabled }` only — the address is the shared server's, so pprof
+requires `http.enabled`, and a disabled endpoint has no route at all.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware, **adopted** — see below) and `mapx`.

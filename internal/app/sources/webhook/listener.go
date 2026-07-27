@@ -54,10 +54,14 @@ type Listener struct {
 	listener net.Listener
 	startErr error
 
-	apiPrefix  string
-	apiHandler http.Handler
+	mounts []mount
 
 	stopOnce sync.Once
+}
+
+type mount struct {
+	prefix  string
+	handler http.Handler
 }
 
 // NewListener builds a listener bound to host:port at Start. Configuration
@@ -141,15 +145,15 @@ func (l *Listener) Host() string {
 	return l.host
 }
 
-// MountAPI mounts an additional handler at prefix on this listener's server so
-// a driving adapter can share the loopback port. Must be called before Start:
-// Handler() is built once there, so a later mount would be silently dropped.
+// MountAPI mounts an additional handler at prefix so a driving adapter can
+// share the loopback port. Call it before Start: Handler() is built once there,
+// so a later mount is silently dropped.
 func (l *Listener) MountAPI(prefix string, h http.Handler) {
 	if l.server != nil {
 		l.logger.Warn().Str("prefix", prefix).Msg("MountAPI called after Start; handler will not be served")
 		return
 	}
-	l.apiPrefix, l.apiHandler = prefix, h
+	l.mounts = append(l.mounts, mount{prefix: prefix, handler: h})
 }
 
 // Handler returns the listener's route handler. Exposed (rather than only
@@ -158,8 +162,8 @@ func (l *Listener) MountAPI(prefix string, h http.Handler) {
 func (l *Listener) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathPrefix, l.handleHook)
-	if l.apiHandler != nil {
-		mux.Handle(l.apiPrefix, l.apiHandler)
+	for _, m := range l.mounts {
+		mux.Handle(m.prefix, m.handler)
 	}
 	return mux
 }
