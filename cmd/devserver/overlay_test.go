@@ -132,6 +132,26 @@ func TestRewriteGraphQLAbsentDropsNode(t *testing.T) {
 	assert.Equal(t, 12, nodeNumber(t, nodes[0]), "the surviving node must be the unmatched one")
 }
 
+func TestRewriteGraphQLStateLookup(t *testing.T) {
+	store := fixedStore(t)
+	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("merged"), Absent: boolPtr(true)})
+
+	body := `{"data":{"r0":{"issueOrPullRequest":{"__typename":"PullRequest","number":58,"state":"OPEN",
+	  "updatedAt":"2026-07-24T00:00:00Z","repository":{"nameWithOwner":"hay-kot/hive-desktop"}}}}}`
+
+	var payload struct {
+		Data map[string]struct {
+			IssueOrPullRequest map[string]any `json:"issueOrPullRequest"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(store.RewriteGraphQL([]byte(body)), &payload))
+
+	node, ok := payload.Data["r0"]
+	require.True(t, ok, "the r0 alias must not be dropped despite absent:true")
+	require.NotNil(t, node.IssueOrPullRequest)
+	assert.Equal(t, "MERGED", node.IssueOrPullRequest["state"], "absent is not honoured on the state-lookup shape")
+}
+
 func TestRewriteGraphQLMalformedBodyIsReturnedUnchanged(t *testing.T) {
 	store := fixedStore(t)
 	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("closed")})
@@ -184,41 +204,9 @@ func TestRewriteNotificationsIgnoresNonItemSubjects(t *testing.T) {
 	}
 }
 
-func TestRewriteIssueMergedUsesGitHubEncoding(t *testing.T) {
-	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("merged")})
-	body := []byte(`{"number":58,"state":"open","merged":false,"updated_at":"2026-07-24T00:00:00Z"}`)
-
-	var pull map[string]any
-	require.NoError(t, json.Unmarshal(store.RewriteIssue(body, "hay-kot/hive-desktop", 58, true), &pull))
-	// GitHub reports a merged PR as closed+merged, never state=merged. The
-	// desktop reads exactly that distinction in githubAbsenceConfirmer.
-	assert.Equal(t, "closed", pull["state"])
-	assert.Equal(t, true, pull["merged"])
-
-	// The issues endpoint has no merged field, so the rewriter must not invent
-	// one — a merged overlay on an issue is just a close.
-	issueBody := []byte(`{"number":58,"state":"open","updated_at":"2026-07-24T00:00:00Z"}`)
-	var issue map[string]any
-	require.NoError(t, json.Unmarshal(store.RewriteIssue(issueBody, "hay-kot/hive-desktop", 58, false), &issue))
-	assert.Equal(t, "closed", issue["state"])
-	assert.NotContains(t, issue, "merged")
-}
-
-func TestRewriteIssueClosedClearsMerged(t *testing.T) {
-	store := fixedStore(t)
-	store.Apply("hay-kot/hive-desktop#58", Mutations{State: stringPtr("closed")})
-	body := []byte(`{"number":58,"state":"open","merged":true,"updated_at":"2026-07-24T00:00:00Z"}`)
-
-	var pull map[string]any
-	require.NoError(t, json.Unmarshal(store.RewriteIssue(body, "hay-kot/hive-desktop", 58, true), &pull))
-	assert.Equal(t, "closed", pull["state"])
-	assert.Equal(t, false, pull["merged"], "closed-not-merged must not inherit a stale merged flag")
-}
-
 func TestMergeSimulationIsConsistentAcrossShapes(t *testing.T) {
 	// The whole point of one overlay driving every response shape: a merge has
-	// to leave the search result *and* report merged on the REST endpoint.
+	// to leave the search result *and* have the state lookup report it merged.
 	// Rewriting only one shape produces a state the real API cannot return.
 	store := fixedStore(t)
 	store.Apply("hay-kot/hive-desktop#58", quickActions["merge"].apply())
@@ -227,11 +215,16 @@ func TestMergeSimulationIsConsistentAcrossShapes(t *testing.T) {
 	require.Len(t, nodes, 1)
 	assert.Equal(t, 12, nodeNumber(t, nodes[0]), "the merged PR must be gone from search")
 
-	var pull map[string]any
-	require.NoError(t, json.Unmarshal(store.RewriteIssue(
-		[]byte(`{"number":58,"state":"open","merged":false}`), "hay-kot/hive-desktop", 58, true), &pull))
-	assert.Equal(t, "closed", pull["state"])
-	assert.Equal(t, true, pull["merged"], "the endpoint ConfirmAbsence calls must confirm the merge")
+	stateLookupBody := `{"data":{"r0":{"issueOrPullRequest":{"__typename":"PullRequest","number":58,"state":"OPEN",
+	  "updatedAt":"2026-07-24T00:00:00Z","repository":{"nameWithOwner":"hay-kot/hive-desktop"}}}}}`
+	var payload struct {
+		Data map[string]struct {
+			IssueOrPullRequest map[string]any `json:"issueOrPullRequest"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(store.RewriteGraphQL([]byte(stateLookupBody)), &payload))
+	assert.Equal(t, "MERGED", payload.Data["r0"].IssueOrPullRequest["state"],
+		"the state lookup ConfirmTerminal calls must confirm the merge")
 }
 
 func TestStoreApplyMergesSuccessiveMutations(t *testing.T) {

@@ -345,6 +345,10 @@ specified rather than left to grow. ADR 0012 records why.
   declares a capability its factory does not wire. Sniffing fails *open*: the
   assertion still compiles, the source still polls, and it silently ingests
   with no classifier and no absence confirmation.
+- **Absence confirmation is batched, not per-item.** A connector's
+  `AbsenceConfirmer` is asked once per tick over the whole absent set;
+  verdicts return keyed by external id, not positionally, and a terminal
+  verdict removes the item from the tracked set permanently. See ADR 0019.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.

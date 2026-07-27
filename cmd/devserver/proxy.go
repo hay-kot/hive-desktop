@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -262,10 +260,6 @@ func (p *Proxy) rewrite(body []byte, route route) []byte {
 		return p.store.RewriteGraphQL(body)
 	case routeNotifications:
 		return p.store.RewriteNotifications(body)
-	case routeIssue:
-		return p.store.RewriteIssue(body, route.repo, route.num, false)
-	case routePull:
-		return p.store.RewriteIssue(body, route.repo, route.num, true)
 	default:
 		return body
 	}
@@ -352,8 +346,6 @@ const (
 	routeOther routeKind = iota
 	routeGraphQL
 	routeNotifications
-	routeIssue
-	routePull
 	routeUser
 )
 
@@ -362,8 +354,6 @@ type route struct {
 	method    string
 	path      string
 	label     string
-	repo      string
-	num       int
 	cacheable bool
 }
 
@@ -383,33 +373,8 @@ func classify(method, path string) route {
 		r.kind, r.label, r.cacheable = routeNotifications, "notifications", true
 	case method == http.MethodGet && path == "/user":
 		r.kind, r.label, r.cacheable = routeUser, "user", true
-	case method == http.MethodGet:
-		if repo, kind, num, ok := parseItemPath(path); ok {
-			r.repo, r.num, r.cacheable = repo, num, true
-			if kind == "pulls" {
-				r.kind, r.label = routePull, fmt.Sprintf("pull %s#%d", repo, num)
-			} else {
-				r.kind, r.label = routeIssue, fmt.Sprintf("issue %s#%d", repo, num)
-			}
-		}
 	}
 	return r
-}
-
-// parseItemPath matches /repos/{owner}/{repo}/{issues|pulls}/{number}.
-func parseItemPath(path string) (repo, kind string, num int, ok bool) {
-	parts := strings.Split(strings.Trim(path, "/"), "/")
-	if len(parts) != 5 || parts[0] != "repos" {
-		return "", "", 0, false
-	}
-	if parts[3] != "issues" && parts[3] != "pulls" {
-		return "", "", 0, false
-	}
-	num, err := strconv.Atoi(parts[4])
-	if err != nil || num <= 0 {
-		return "", "", 0, false
-	}
-	return parts[1] + "/" + parts[2], parts[3], num, true
 }
 
 // writeJSON is the shared JSON response helper for the control API.

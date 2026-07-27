@@ -102,10 +102,10 @@ type Mutations struct {
 	Body  *string `json:"body,omitempty"  yaml:"body,omitempty"`
 	// Draft marks a pull request as a draft.
 	Draft *bool `json:"draft,omitempty" yaml:"draft,omitempty"`
-	// Absent removes the item from search results while leaving the
-	// single-item REST endpoints answering. That is how GitHub itself behaves
-	// once a PR merges out of an is:open query, and it is the only way to
-	// exercise the desktop's ConfirmAbsence path.
+	// Absent removes the item from search results while leaving the batched
+	// GraphQL state lookup (repository.issueOrPullRequest) answering. That is
+	// how GitHub itself behaves once a PR merges out of an is:open query, and
+	// it is the only way to exercise the desktop's ConfirmAbsence path.
 	Absent *bool `json:"absent,omitempty" yaml:"absent,omitempty"`
 	// UpdatedAt overrides the item's update timestamp. Left nil, any applied
 	// overlay bumps it to now, because the classifier ignores changes that do

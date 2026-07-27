@@ -328,6 +328,30 @@ func TestConfirmTerminal_BatchesRefsIntoOneRequest(t *testing.T) {
 	assert.True(t, states[2].Found)
 }
 
+func TestConfirmTerminal_CostsOneRequestPerHundred(t *testing.T) {
+	var mu sync.Mutex
+	requests := 0
+	live := newLiveProviderWithHandler(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requests++
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{}})
+	})
+
+	refs := make([]AbsentRef, 250)
+	for i := range refs {
+		refs[i] = AbsentRef{Repo: "acme/repo", Num: i + 1}
+	}
+	states, err := live.ConfirmTerminal(t.Context(), refs)
+	require.NoError(t, err)
+	require.Len(t, states, 250)
+
+	mu.Lock()
+	assert.Equal(t, 3, requests, "250 refs chunk into 100/100/50")
+	mu.Unlock()
+}
+
 func TestConfirmTerminal_MalformedRefIsNotFound(t *testing.T) {
 	var mu sync.Mutex
 	requests := 0
