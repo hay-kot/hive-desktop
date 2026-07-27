@@ -187,7 +187,7 @@ function onThemeChange(value: string): void {
           <BaseCard
             v-for="integration in integrations"
             :key="integration.type"
-            class="rounded-lg border border-border bg-raised"
+            class="flex-wrap items-start rounded-lg border border-border bg-raised @[600px]/pane:flex-nowrap @[600px]/pane:items-center"
             :data-testid="`integration-${cardId(integration.type)}`"
           >
             <template #icon>
@@ -202,7 +202,7 @@ function onThemeChange(value: string): void {
               <div class="mt-0.5 truncate text-xs text-text-3">{{ subtitleFor(integration) }}</div>
             </div>
             <template #actions>
-              <div class="flex shrink-0 items-center gap-2">
+              <div class="flex w-full items-center justify-end gap-2 @[600px]/pane:w-auto @[600px]/pane:shrink-0">
                 <BaseBadge
                   v-if="integration.stability !== 'stable'"
                   tone="neutral"

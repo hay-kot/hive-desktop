@@ -71,7 +71,7 @@ onMounted(() => void refresh())
         class="flex-col items-stretch rounded-lg border border-border bg-raised"
         :data-testid="`prompt-${prompt.id}`"
       >
-        <div class="flex items-start gap-4">
+        <div class="flex flex-col gap-3 @[600px]/pane:flex-row @[600px]/pane:items-start @[600px]/pane:gap-4">
           <div class="min-w-0 flex-1">
             <div class="text-[13.5px] font-semibold text-text">{{ prompt.title }}</div>
             <p class="mt-1 text-xs leading-relaxed text-text-3">{{ prompt.description }}</p>
@@ -81,7 +81,7 @@ onMounted(() => void refresh())
               :title="prompt.target"
             >{{ prompt.target }}</div>
           </div>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="flex shrink-0 items-center justify-end gap-2">
             <button
               type="button"
               class="flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 text-[11.5px] font-medium text-text-3 hover:bg-chip hover:text-text"

@@ -97,7 +97,7 @@ function dropClass(id: string): Record<string, boolean> {
         v-for="action in actions"
         :key="action.id"
         :padded="false"
-        class="action-row gap-4 rounded-[11px] border border-card bg-raised px-4 py-3.5 transition-colors hover:border-strong"
+        class="action-row flex-wrap items-start gap-3 rounded-[11px] border border-card bg-raised px-4 py-3.5 transition-colors hover:border-strong @[600px]/pane:flex-nowrap @[600px]/pane:items-center @[600px]/pane:gap-4"
         :class="dropClass(action.id)"
         :data-testid="`action-row-${action.id}`"
         draggable="true"
@@ -123,7 +123,7 @@ function dropClass(id: string): Record<string, boolean> {
           </div>
         </div>
         <template #actions>
-          <div class="flex shrink-0 items-center gap-2">
+          <div class="flex w-full items-center justify-end gap-2 @[600px]/pane:w-auto @[600px]/pane:shrink-0">
             <button class="rounded-[7px] border border-card px-3.5 py-1.5 text-[12.5px] text-text-2 hover:border-strong hover:text-text" @click="edit(action, $event)">Edit</button>
             <button class="flex size-[34px] items-center justify-center rounded-[7px] border border-card text-text-3 hover:border-severity-error-border hover:text-severity-error" aria-label="Delete" @click="requestDelete(action)"><IconTrash2 class="size-[15px]" /></button>
           </div>
