@@ -186,6 +186,35 @@ func TestPrune_PrunesExpiredArchivedInboxItemsAndCascades(t *testing.T) {
 	assert.Zero(t, claims)
 }
 
+func TestRunRetentionReclaimsOrphanedSourceHeads(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	const topic = "source:flow/source"
+	classifier := activityClassifier("")
+	_, err := database.IngestObservation(ctx, classifier, IngestObservationParams{
+		ProfileID: "flow", Topic: topic,
+		Current: Observation{ExternalID: "expired", Title: "expired", SourceKind: "github", SourceScope: "scope", ObservedAt: 1, Payload: []byte(`{"v":1}`)},
+	})
+	require.NoError(t, err)
+	_, err = database.IngestObservation(ctx, classifier, IngestObservationParams{
+		ProfileID: "flow", Topic: topic,
+		Current: Observation{ExternalID: "live", Title: "live", SourceKind: "github", SourceScope: "scope", ObservedAt: 1, Payload: []byte(`{"v":1}`)},
+	})
+	require.NoError(t, err)
+	_, err = database.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = ?, archived_actor = 'manual' WHERE external_id = 'expired'`, time.Now().Add(-91*24*time.Hour).UnixMilli())
+	require.NoError(t, err)
+
+	_, err = database.Prune(ctx, nil, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
+	require.NoError(t, err)
+
+	var expiredHeads, liveHeads int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_head WHERE topic = ? AND key = 'expired'`, topic).Scan(&expiredHeads))
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM source_head WHERE topic = ? AND key = 'live'`, topic).Scan(&liveHeads))
+	assert.Zero(t, expiredHeads, "the pruned item's orphaned head row is reclaimed")
+	assert.Equal(t, 1, liveHeads, "a live item's head row survives retention")
+}
+
 func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()

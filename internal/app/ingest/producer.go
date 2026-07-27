@@ -241,7 +241,7 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 	id := instance.Node.ID()
 	topic := instance.Node.Topic()
 
-	keys, err := pr.db.ListSourceHeadKeys(ctx, topic)
+	keys, err := pr.db.ListActiveSourceHeadKeys(ctx, store.SourceIdentity{Topic: topic, ProfileID: meta.ProfileID, SourceKind: meta.SourceKind, SourceScope: meta.SourceScope})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: listing source head failed")
 		return
@@ -287,6 +287,14 @@ func (pr *Producer) confirmAbsent(ctx context.Context, instance connector.Instan
 		if result.Wrote {
 			out.appended++
 			out.lastOffset = result.Offset
+		}
+		// Evict after IngestObservation, regardless of Wrote: the dedup
+		// short-circuit still leaves the head row in place, and deleting
+		// before the ingest would be undone by its UpsertSourceHead.
+		if v.Terminal {
+			if err := pr.db.DeleteSourceHead(ctx, topic, prev.ExternalID); err != nil {
+				pr.logger.Debug().Err(err).Str("source", id).Str("key", prev.ExternalID).Msg("pipeline producer: evicting source head failed")
+			}
 		}
 	}
 }

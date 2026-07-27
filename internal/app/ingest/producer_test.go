@@ -114,10 +114,15 @@ func (a *fakeAppender) IngestObservation(_ context.Context, _ store.Classifier, 
 	a.calls = append(a.calls, store.Msg{Topic: p.Topic, Key: p.Current.ExternalID, Payload: p.Current.Payload})
 	return store.IngestResult{Wrote: true, Offset: a.nextOff}, nil
 }
-func (a *fakeAppender) ListSourceHeadKeys(context.Context, string) ([]string, error) { return nil, nil }
+
+func (a *fakeAppender) ListActiveSourceHeadKeys(context.Context, store.SourceIdentity) ([]string, error) {
+	return nil, nil
+}
+
 func (a *fakeAppender) SourceHeadPayload(context.Context, string, string) ([]byte, error) {
 	return nil, nil
 }
+func (a *fakeAppender) DeleteSourceHead(context.Context, string, string) error { return nil }
 
 func (a *fakeAppender) AppendSnapshot(_ context.Context, _, _, _ string, _ []store.SnapshotItem) (int64, error) {
 	a.mu.Lock()

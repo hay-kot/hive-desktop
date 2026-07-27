@@ -393,6 +393,30 @@ func (q *Queries) DeleteInboxItemsByProfile(ctx context.Context, profileID strin
 	return err
 }
 
+const deleteOrphanedSourceHeads = `-- name: DeleteOrphanedSourceHeads :exec
+DELETE FROM source_head
+WHERE key NOT IN (SELECT external_id FROM inbox_item)
+`
+
+func (q *Queries) DeleteOrphanedSourceHeads(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteOrphanedSourceHeads)
+	return err
+}
+
+const deleteSourceHead = `-- name: DeleteSourceHead :exec
+DELETE FROM source_head WHERE topic = ? AND key = ?
+`
+
+type DeleteSourceHeadParams struct {
+	Topic string `json:"topic"`
+	Key   string `json:"key"`
+}
+
+func (q *Queries) DeleteSourceHead(ctx context.Context, arg DeleteSourceHeadParams) error {
+	_, err := q.db.ExecContext(ctx, deleteSourceHead, arg.Topic, arg.Key)
+	return err
+}
+
 const deleteSourceHeadByTopicPrefix = `-- name: DeleteSourceHeadByTopicPrefix :exec
 DELETE FROM source_head WHERE topic LIKE ? ESCAPE '\'
 `
@@ -925,6 +949,53 @@ func (q *Queries) ListActiveJobs(ctx context.Context, updatedAt int64) ([]Job, e
 	return items, nil
 }
 
+const listActiveSourceHeadKeys = `-- name: ListActiveSourceHeadKeys :many
+SELECT h.key
+FROM source_head h
+JOIN inbox_item i
+  ON i.external_id = h.key
+ AND i.profile_id = ?1
+ AND i.source_kind = ?2
+ AND i.source_scope = ?3
+WHERE h.topic = ?4
+  AND i.archived_at IS NULL
+`
+
+type ListActiveSourceHeadKeysParams struct {
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	Topic       string `json:"topic"`
+}
+
+func (q *Queries) ListActiveSourceHeadKeys(ctx context.Context, arg ListActiveSourceHeadKeysParams) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listActiveSourceHeadKeys,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.Topic,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, err
+		}
+		items = append(items, key)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listActivityEvents = `-- name: ListActivityEvents :many
 SELECT id, created_at, category, severity, title, body, source, metadata FROM activity_event
 WHERE id < ?
@@ -1414,33 +1485,6 @@ func (q *Queries) ListRunnableOutputCommandsAfter(ctx context.Context, arg ListR
 			return nil, err
 		}
 		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
-const listSourceHeadKeys = `-- name: ListSourceHeadKeys :many
-SELECT key FROM source_head WHERE topic = ?
-`
-
-func (q *Queries) ListSourceHeadKeys(ctx context.Context, topic string) ([]string, error) {
-	rows, err := q.db.QueryContext(ctx, listSourceHeadKeys, topic)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []string{}
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return nil, err
-		}
-		items = append(items, key)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err

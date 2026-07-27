@@ -244,7 +244,107 @@ func TestProducerKeepsNotFoundItems(t *testing.T) {
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT archived_at FROM inbox_item`).Scan(&archivedAt))
 	assert.Nil(t, archivedAt, "an item with no verdict is not archived")
 
-	keys, err := db.ListSourceHeadKeys(t.Context(), "source:profile/source")
+	var headCount int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM source_head WHERE topic = ? AND key = ?`, "source:profile/source", item.ID).Scan(&headCount))
+	assert.Equal(t, 1, headCount, "source_head keeps the item when the confirmer has no answer")
+}
+
+// recordingAbsence records every batch it is asked to confirm and, when
+// answer is set, echoes each item's own payload back as its verdict.
+type recordingAbsence struct {
+	calls      int
+	batchSizes []int
+	batchKeys  [][]string
+	answer     bool
+	terminal   bool
+}
+
+func (r *recordingAbsence) ConfirmAbsence(_ context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
+	r.calls++
+	keys := make([]string, len(previous))
+	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
+	for i, prev := range previous {
+		keys[i] = prev.ExternalID
+		if r.answer {
+			current := prev
+			verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &current, Terminal: r.terminal}
+		}
+	}
+	r.batchSizes = append(r.batchSizes, len(previous))
+	r.batchKeys = append(r.batchKeys, keys)
+	return verdicts, nil
+}
+
+func TestProducerConfirmsActiveAbsentItem(t *testing.T) {
+	db := openTestPipelineDB(t)
+	item := feed.Item{ID: "acme/repo#1", Title: "A", UpdatedAt: 100}
+	payload, err := json.Marshal(item)
 	require.NoError(t, err)
-	assert.Contains(t, keys, item.ID, "source_head keeps the item when the confirmer has no answer")
+	src := &fakeSource{batches: [][]Msg{{
+		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
+	}}}
+	absence := &recordingAbsence{}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context()) // tick 1: the item is observed, nothing absent yet
+	producer.Tick(t.Context()) // tick 2: the source no longer emits it
+
+	require.Equal(t, 1, absence.calls, "a non-archived, non-pruned absent item must reach the confirmer")
+	require.Len(t, absence.batchKeys, 1)
+	assert.Contains(t, absence.batchKeys[0], item.ID)
+}
+
+func TestProducerSkipsArchivedItemsInAbsence(t *testing.T) {
+	db := openTestPipelineDB(t)
+	item := feed.Item{ID: "acme/repo#1", Title: "A", UpdatedAt: 100}
+	payload, err := json.Marshal(item)
+	require.NoError(t, err)
+	src := &fakeSource{batches: [][]Msg{{
+		{Topic: "source:profile/source", Key: item.ID, Payload: payload},
+	}}}
+	absence := &recordingAbsence{}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context()) // tick 1: item ingested
+
+	_, err = db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE external_id = ?`, item.ID)
+	require.NoError(t, err)
+
+	producer.Tick(t.Context()) // tick 2: source still doesn't emit it, but it's archived
+
+	assert.Zero(t, absence.calls, "an archived item's key must never reach the confirmer")
+}
+
+func TestProducerStopsConfirmingTerminalItems(t *testing.T) {
+	db := openTestPipelineDB(t)
+	payload := []byte(`{"id":"acme/repo#1","title":"A"}`)
+	_, err := db.IngestObservation(t.Context(), genericClassifier{}, store.IngestObservationParams{
+		ProfileID: "profile", Topic: "source:profile/source",
+		Current: store.Observation{ExternalID: "acme/repo#1", Title: "A", SourceKind: "github", ObservedAt: 100, Payload: payload},
+	})
+	require.NoError(t, err)
+
+	src := &fakeSource{} // never emits: every tick treats the seeded item as absent
+	absence := &recordingAbsence{answer: true, terminal: true}
+	producer := NewProducer(db, stubSources{instances: []connector.Instance{
+		capableInstance("profile", "source", src, genericClassifier{}, absence),
+	}}, time.Hour, nil, zerolog.Nop())
+
+	producer.Tick(t.Context())
+
+	require.Equal(t, 1, absence.calls)
+	require.Len(t, absence.batchKeys, 1)
+	assert.Contains(t, absence.batchKeys[0], "acme/repo#1")
+
+	var headCount int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM source_head WHERE topic = ? AND key = ?`, "source:profile/source", "acme/repo#1").Scan(&headCount))
+	assert.Zero(t, headCount, "a terminal verdict evicts the head row even though IngestObservation short-circuited on Wrote:false")
+
+	producer.Tick(t.Context())
+
+	assert.Equal(t, 1, absence.calls, "tick 2 finds no active head keys, so the confirmer is never called again")
 }

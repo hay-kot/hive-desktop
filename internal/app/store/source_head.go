@@ -5,11 +5,26 @@ import (
 	"fmt"
 )
 
-// ListSourceHeadKeys returns membership for exactly one source topic.
-func (db *DB) ListSourceHeadKeys(ctx context.Context, topic string) ([]string, error) {
-	keys, err := db.queries.ListSourceHeadKeys(ctx, topic)
+// SourceIdentity scopes an active source head listing to the inbox rows one
+// connector instance owns.
+type SourceIdentity struct {
+	Topic       string
+	ProfileID   string
+	SourceKind  string
+	SourceScope string
+}
+
+// ListActiveSourceHeadKeys returns membership for one source topic, limited
+// to keys whose inbox row still exists and is not archived.
+func (db *DB) ListActiveSourceHeadKeys(ctx context.Context, id SourceIdentity) ([]string, error) {
+	keys, err := db.queries.ListActiveSourceHeadKeys(ctx, ListActiveSourceHeadKeysParams{
+		Topic:       id.Topic,
+		ProfileID:   id.ProfileID,
+		SourceKind:  id.SourceKind,
+		SourceScope: id.SourceScope,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("listing source head keys: %w", err)
+		return nil, fmt.Errorf("listing active source head keys: %w", err)
 	}
 	return keys, nil
 }
@@ -21,4 +36,12 @@ func (db *DB) SourceHeadPayload(ctx context.Context, topic, key string) ([]byte,
 		return nil, fmt.Errorf("getting source head payload: %w", err)
 	}
 	return payload, nil
+}
+
+// DeleteSourceHead evicts one topic-scoped source head row.
+func (db *DB) DeleteSourceHead(ctx context.Context, topic, key string) error {
+	if err := db.queries.DeleteSourceHead(ctx, DeleteSourceHeadParams{Topic: topic, Key: key}); err != nil {
+		return fmt.Errorf("deleting source head: %w", err)
+	}
+	return nil
 }
