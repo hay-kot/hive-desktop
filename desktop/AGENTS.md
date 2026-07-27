@@ -261,20 +261,20 @@ more expensive, which is the whole reason it is being done now.
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
   appearance: {theme: ""}
-  webhooks: {enabled: false, host: 127.0.0.1, port: 0}
+  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0019)
   keybindings: {}
   development:
     mocks: {mode: live}
     instance: {id: ""}
     github: {api_base: ""}   # loopback-only devserver override (ADR 0017)
-    api: {enabled: false}    # agent HTTP API on the webhook port (ADR 0019)
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
     pprof: {enabled: false, host: 127.0.0.1, port: 0}
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
-  Webhooks allocate directly through port `0` only when enabled. Pprof config
+  The loopback HTTP server (webhook listener + agent API) is on by default and
+  allocates directly through port `0`. Pprof config
   is validated but endpoint startup waits for the plugs lifecycle. Dev uses
   `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
   runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
@@ -351,13 +351,12 @@ persisted by UI writes.
 | `HIVE_DESKTOP_NOTIFICATIONS_DELIVERY` | `auto`, `system`, or `app` |
 | `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
 | `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
-| `HIVE_DESKTOP_WEBHOOKS_ENABLED` | Enable the loopback webhook listener |
-| `HIVE_DESKTOP_WEBHOOKS_HOST` | Webhook loopback host |
-| `HIVE_DESKTOP_WEBHOOKS_PORT` | Webhook port; `0` asks the OS to allocate |
+| `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
+| `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
+| `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
 | `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
-| `HIVE_DESKTOP_DEVELOPMENT_API_ENABLED` | Mount the agent-facing HTTP API (read + reload) on the webhook listener's loopback port (ADR 0019). **Set by `launch.env`** for `desktop:dev`. Requires webhooks enabled; loopback-only, default off |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |

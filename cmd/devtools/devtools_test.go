@@ -52,14 +52,14 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	assert.NotZero(t, vite)
 	assert.NotZero(t, wails)
 	assert.NotEqual(t, vite, wails)
-	// The webhook listener + agent API boot on a distinct allocated port (Item 3).
-	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
-	assert.Equal(t, "true", launch[settings.EnvAPIEnabled])
-	webhook, err := strconv.Atoi(launch[settings.EnvWebhookPort])
+	// The loopback HTTP server (webhook listener + agent API) boots on a
+	// distinct allocated port (Item 3).
+	assert.Equal(t, "true", launch[settings.EnvHTTPEnabled])
+	httpPort, err := strconv.Atoi(launch[settings.EnvHTTPPort])
 	require.NoError(t, err)
-	assert.NotZero(t, webhook)
-	assert.NotEqual(t, vite, webhook)
-	assert.NotEqual(t, wails, webhook)
+	assert.NotZero(t, httpPort)
+	assert.NotEqual(t, vite, httpPort)
+	assert.NotEqual(t, wails, httpPort)
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "data", "hive.db"))
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
 
@@ -222,7 +222,7 @@ func TestPrepareRegeneratesStaleLaunchEnv(t *testing.T) {
 	require.NoError(t, tools.prepare(false), "prepare regenerates instead of failing")
 	launch, err := tools.readLaunchIfPresent()
 	require.NoError(t, err)
-	assert.Equal(t, "true", launch[settings.EnvWebhookEnabled])
+	assert.Equal(t, "true", launch[settings.EnvHTTPEnabled])
 }
 
 // Development is proxied by default (ADR 0017): prepare must write the API base

@@ -63,8 +63,8 @@ func TestServedOverWebhookListener(t *testing.T) {
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
 	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
 	t.Setenv(settings.EnvMockMode, "feed")
-	t.Setenv(settings.EnvWebhookEnabled, "true")
-	t.Setenv(settings.EnvWebhookPort, "0")
+	t.Setenv(settings.EnvHTTPEnabled, "true")
+	t.Setenv(settings.EnvHTTPPort, "0")
 
 	cfg, err := settings.NewStore(filepath.Join(root, "config", "settings.yaml")).Effective()
 	require.NoError(t, err)

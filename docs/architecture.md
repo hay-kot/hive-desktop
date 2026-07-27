@@ -56,11 +56,11 @@ individual choices; this document describes the shape everything fits into.
 > resulting settings and immutable path snapshot. Development state is local to
 > each worktree under `.hive-desktop/` (ADR 0014).
 >
-> Partly built: the first HTTP adapter exists as a development surface —
+> Partly built: the first HTTP adapter exists —
 > `internal/adapter/httpapi` is an agent-facing read + reload API over
-> `app.App`, dev-gated and mounted onto the webhook listener's loopback server
-> rather than owning one (ADR 0019). The full REST + SSE product surface and
-> the MCP adapter are still absent.
+> `app.App`, mounted onto a single loopback `http` server (on by default) that
+> also hosts the webhook listener, rather than owning one (ADR 0019). The full
+> REST + SSE product surface and the MCP adapter are still absent.
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
 > see [Background lifecycle](#background-lifecycle)) and the MCP adapter — see
@@ -279,9 +279,9 @@ internal/
       windowservice.go  tray.go  focusstate.go  updater.go  notify.go
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route.
-                                  #   First slice built: an agent read+reload API,
-                                  #   dev-gated, mounted on the webhook listener's
-                                  #   loopback server (ADR 0019)
+                                  #   First slice built: an agent read+reload API
+                                  #   on the shared loopback http server that also
+                                  #   hosts the webhook listener (ADR 0019)
     mcpsrv/                       # tools over App; in-memory transport for the agent
 
   hivecore/                       # vendored, read-only
@@ -730,8 +730,8 @@ The target is reached in this order; each step is independently shippable.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle
    (the lifecycle half is blocked on appkit — see
    [Background lifecycle](#background-lifecycle)). **In progress:** the first
-   HTTP slice is an agent read+reload API, dev-gated and mounted on the webhook
-   listener's loopback server rather than owning one (ADR 0019); the full
+   HTTP slice is an agent read+reload API on a shared loopback `http` server
+   (on by default) that also hosts the webhook listener (ADR 0019); the full
    REST + SSE surface and MCP are still to come.
 
 ### Data that must survive

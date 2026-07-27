@@ -83,10 +83,13 @@ type Appearance struct {
 	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME"`
 }
 
-type WebhookSettings struct {
-	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_WEBHOOKS_ENABLED"`
-	Host    string `yaml:"host"    env:"HIVE_DESKTOP_WEBHOOKS_HOST"`
-	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_WEBHOOKS_PORT"`
+// HTTPSettings configures the local loopback HTTP server that hosts both the
+// webhook listener and the agent API. On by default: it is loopback-only, so it
+// is reachable only from this machine.
+type HTTPSettings struct {
+	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_HTTP_ENABLED"`
+	Host    string `yaml:"host"    env:"HIVE_DESKTOP_HTTP_HOST"`
+	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_HTTP_PORT"`
 }
 
 type MockSettings struct {
@@ -106,13 +109,6 @@ type PprofSettings struct {
 	Enabled bool   `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
 	Host    string `yaml:"host"    env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST"`
 	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT"`
-}
-
-// APISettings gates the agent-facing HTTP API. It has no host/port: the API
-// rides the webhook listener's loopback port (ADR 0019), so enabling it
-// requires webhooks enabled.
-type APISettings struct {
-	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_API_ENABLED"`
 }
 
 type DebugSettings struct {
@@ -140,7 +136,6 @@ type DevelopmentSettings struct {
 	Mocks    MockSettings      `yaml:"mocks"`
 	Instance InstanceSettings  `yaml:"instance,omitempty"`
 	GitHub   GitHubDevSettings `yaml:"github,omitempty"`
-	API      APISettings       `yaml:"api"`
 	Vite     ServerSettings    `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
 	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`
@@ -154,7 +149,7 @@ type Settings struct {
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
 	Appearance    Appearance           `yaml:"appearance,omitempty"`
-	Webhooks      WebhookSettings      `yaml:"webhooks"`
+	HTTP          HTTPSettings         `yaml:"http"`
 	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
 	Development   DevelopmentSettings  `yaml:"development"`
 
@@ -166,7 +161,7 @@ func DefaultSettings() Settings {
 		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
-		Webhooks:      WebhookSettings{Enabled: false, Host: "127.0.0.1", Port: 0},
+		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Development: DevelopmentSettings{
 			Mocks: MockSettings{Mode: MockLive},
 			Vite:  ServerSettings{Host: "127.0.0.1", Port: 0},
@@ -218,11 +213,11 @@ func (s Settings) Validate() error {
 	default:
 		return fmt.Errorf("notifications.delivery must be auto, system, or app")
 	}
-	if !validListenerHost(s.Webhooks.Host) {
-		return fmt.Errorf("webhooks.host must be a loopback address")
+	if !validListenerHost(s.HTTP.Host) {
+		return fmt.Errorf("http.host must be a loopback address")
 	}
-	if !ValidListenerPort(s.Webhooks.Port) {
-		return fmt.Errorf("webhooks.port must be 0 or between 1024 and 65535")
+	if !ValidListenerPort(s.HTTP.Port) {
+		return fmt.Errorf("http.port must be 0 or between 1024 and 65535")
 	}
 	switch s.Development.Mocks.Mode {
 	case MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke:

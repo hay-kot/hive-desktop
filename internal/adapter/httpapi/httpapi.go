@@ -27,7 +27,7 @@ func New(core *app.App) *Server { return &Server{core: core} }
 
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("GET /api/version", webtools.VersionHandler("hive desktop agent API"))
+	mux.Handle("GET /api/version", webtools.VersionHandler("hive.desktop.api"))
 	mux.HandleFunc("GET /api/status", s.handleStatus)
 	mux.HandleFunc("GET /api/feeds", s.handleFeeds)
 	mux.HandleFunc("GET /api/inbox", s.handleInbox)

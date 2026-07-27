@@ -102,13 +102,13 @@ policy.
 ### Webhook ingress
 
 `sources.webhook` nodes are push-driven and bypass the producer entirely
-(docs/decisions/0007 and 0014). The listener defaults off. When
-`webhooks.enabled` is true it binds `webhooks.host` (loopback-only) and
-`webhooks.port`; port `0` asks the OS to select the port directly, and the
-running endpoint reports the selected address. Typed process overrides are
-`HIVE_DESKTOP_WEBHOOKS_ENABLED`, `HIVE_DESKTOP_WEBHOOKS_HOST`, and
-`HIVE_DESKTOP_WEBHOOKS_PORT`. Settings → Integrations → Webhooks edits the
-persisted values. The listener resolves `/hooks/<path>` routes per request
+(docs/decisions/0007, 0014, and 0019). The listener shares one loopback `http`
+server with the agent API, on by default (ADR 0019). When `http.enabled` is true
+it binds `http.host` (loopback-only) and `http.port`; port `0` asks the OS to
+select the port directly, and the running endpoint reports the selected address.
+Typed process overrides are `HIVE_DESKTOP_HTTP_ENABLED`,
+`HIVE_DESKTOP_HTTP_HOST`, and `HIVE_DESKTOP_HTTP_PORT`. Settings → Integrations →
+Webhooks edits the persisted values. The listener resolves `/hooks/<path>` routes per request
 against the push-mode connector instances `ingest.Resolver` builds from the
 current flow set — the same resolution the producer's pull sources go through,
 so enabled/disabled filtering happens once for both. A delivery calls `IngestObservation` under topic

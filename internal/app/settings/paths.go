@@ -16,10 +16,10 @@ const (
 	EnvActionsPath = "HIVE_DESKTOP_ACTIONS_PATH"
 	EnvMockMode    = "HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE"
 	EnvE2EHarness  = "HIVE_DESKTOP_E2E_HARNESS"
-	EnvWebhookPort = "HIVE_DESKTOP_WEBHOOKS_PORT"
 
-	EnvWebhookEnabled = "HIVE_DESKTOP_WEBHOOKS_ENABLED"
-	EnvAPIEnabled     = "HIVE_DESKTOP_DEVELOPMENT_API_ENABLED"
+	EnvHTTPEnabled = "HIVE_DESKTOP_HTTP_ENABLED"
+	EnvHTTPHost    = "HIVE_DESKTOP_HTTP_HOST"
+	EnvHTTPPort    = "HIVE_DESKTOP_HTTP_PORT"
 )
 
 // Paths is the immutable startup snapshot of every desktop-owned location.

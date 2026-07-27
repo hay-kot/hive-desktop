@@ -137,7 +137,7 @@ you do not wait the 60s floor, then read and retry (the engine commits a moment
 after the fetch):
 
 ```bash
-API=127.0.0.1:$WEBHOOK_PORT   # same port as the webhook listener; see the desktop-api skill
+API=127.0.0.1:$(grep HIVE_DESKTOP_HTTP_PORT launch.env | cut -d'"' -f2)   # see the desktop-api skill
 curl -XPOST $API/api/sources/refresh          # reload now (pull sources)
 curl -s $API/api/inbox | jq '.items[] | {title, lifecycle, sourceState, unread}'
 ```

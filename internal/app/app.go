@@ -291,9 +291,9 @@ func (a *App) Start(ctx context.Context) error {
 		if err := a.webhook.Start(ctx); err != nil {
 			a.Webhooks.setStartError(err)
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
-		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
-				persisted.Webhooks.Port = a.webhook.Port()
+				persisted.HTTP.Port = a.webhook.Port()
 				return nil
 			})
 			if err != nil {
@@ -633,12 +633,12 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 // probe/rebind race. Mock instances only claim a listener through an explicit
 // port override, keeping parallel e2e lanes isolated.
 func (a *App) openWebhook(_ context.Context, cfg Config) {
-	a.webhookHost = cfg.Settings.Webhooks.Host
-	a.webhookPort = cfg.Settings.Webhooks.Port
-	if !cfg.Settings.Webhooks.Enabled {
+	a.webhookHost = cfg.Settings.HTTP.Host
+	a.webhookPort = cfg.Settings.HTTP.Port
+	if !cfg.Settings.HTTP.Enabled {
 		return
 	}
-	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 		return
 	}
 
