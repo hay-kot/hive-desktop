@@ -231,25 +231,25 @@ type gqlSearchResult struct {
 }
 
 type gqlSearchNode struct {
-	Type       string              `json:"__typename"`
-	Number     int                 `json:"number"`
-	Title      string              `json:"title"`
-	Body       string              `json:"body"`
-	State      string              `json:"state"`
-	URL        string              `json:"url"`
-	Draft      bool                `json:"isDraft"`
-	CreatedAt  time.Time           `json:"createdAt"`
-	UpdatedAt  time.Time           `json:"updatedAt"`
-	Author     *gqlSearchAuthor    `json:"author"`
-	Repository gqlSearchRepository `json:"repository"`
-	Labels     gqlSearchLabels     `json:"labels"`
+	Type       string           `json:"__typename"`
+	Number     int              `json:"number"`
+	Title      string           `json:"title"`
+	Body       string           `json:"body"`
+	State      string           `json:"state"`
+	URL        string           `json:"url"`
+	Draft      bool             `json:"isDraft"`
+	CreatedAt  time.Time        `json:"createdAt"`
+	UpdatedAt  time.Time        `json:"updatedAt"`
+	Author     *gqlSearchAuthor `json:"author"`
+	Repository gqlRepository    `json:"repository"`
+	Labels     gqlSearchLabels  `json:"labels"`
 }
 
 type gqlSearchAuthor struct {
 	Login string `json:"login"`
 }
 
-type gqlSearchRepository struct {
+type gqlRepository struct {
 	NameWithOwner string `json:"nameWithOwner"`
 }
 
