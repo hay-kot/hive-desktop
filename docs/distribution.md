@@ -49,6 +49,19 @@ The download CTA on hivedesktop.com resolves through the stable manifest at runt
 
 Private-beta signups POST to `/api/subscribe`; the worker validates the address, drops honeypot submissions (the form's hidden `company` field, answered with a fake success), and forwards the rest to listmonk's public form endpoint with the Hive Desktop list UUID. Subscribers are managed in the listmonk admin at https://listmonk.haybytes.com/admin.
 
+## Install script
+
+The one-line installer ([ADR 0026](decisions/0026-install-script.md)) is a static asset served by the same worker and shipped by `deploy-web.yml`:
+
+```
+curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash
+```
+
+It detects OS+arch, resolves the channel's latest build from the **same manifest the updater reads** (`channels/<channel>/latest.json`), verifies the artifact's sha256 from the manifest before installing, and on macOS unzips `Hive.app` into `/Applications` (falling back to `~/Applications`) and symlinks `hive` onto the PATH. The channel defaults to stable; pass another with `… | bash -s -- --channel dev` or the `HIVE_CHANNEL` env var, and `HIVE_BIN_DIR` sets the symlink dir. It always installs the channel's latest — no version pin — and re-running upgrades in place.
+
+- **macOS only during the beta.** The Linux branch is wired but inert until Linux artifacts exist (#36).
+- The path token is **obscurity, not authentication** — it keeps the link out of casual discovery while the repo is private, nothing more. `robots.txt` disallows the whole `/install/` prefix, so the token never appears in a public file. Rotating it means renaming both `web/public/install/<token>/install.sh` and the invite page `web/src/pages/install/<token>.astro` to a new token. Re-evaluate before the repo goes public.
+
 ## Problem reporting
 
 The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The reporter chooses what to attach: basic info (build/system info, a bounded log tail, connected accounts) as one group, and settings/flows/actions individually — each config surface is secret-scrubbed before it is included (ADR 0024). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
