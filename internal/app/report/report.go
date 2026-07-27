@@ -38,8 +38,15 @@ type Build struct {
 type Options struct {
 	Description string
 	Contact     string
-	IncludeLogs bool
 	Channel     string
+
+	// IncludeBasics gates build/system info, the log tail, and the connected
+	// account list as one group. Settings/Flows/Actions are opted in
+	// independently.
+	IncludeBasics   bool
+	IncludeSettings bool
+	IncludeFlows    bool
+	IncludeActions  bool
 }
 
 type Bundle struct {
@@ -47,9 +54,20 @@ type Bundle struct {
 	GeneratedAt time.Time      `json:"generated_at"`
 	Description string         `json:"description,omitempty"`
 	Contact     string         `json:"contact,omitempty"`
-	Build       BuildInfo      `json:"build"`
+	Build       *BuildInfo     `json:"build,omitempty"`
 	Logs        *LogTail       `json:"logs,omitempty"`
 	Config      ConfigSnapshot `json:"config"`
+}
+
+// Inventory is what the reporter could attach, read from disk, so the dialog
+// can label each toggle without the bundle itself.
+type Inventory struct {
+	HasSettings  bool
+	FlowCount    int
+	HasActions   bool
+	AccountCount int
+	HasLogs      bool
+	LogBytes     int
 }
 
 type BuildInfo struct {
@@ -97,15 +115,39 @@ func (a *Assembler) Assemble(id string, at time.Time, opts Options) *Bundle {
 		GeneratedAt: at,
 		Description: scrubText(truncateRunes(strings.TrimSpace(opts.Description), maxDescriptionRunes)),
 		Contact:     scrubText(truncateRunes(strings.TrimSpace(opts.Contact), maxContactRunes)),
-		Build:       a.buildInfo(opts.Channel),
-		Config:      a.configSnapshot(),
 	}
-	if opts.IncludeLogs {
-		if tail := readLogTail(a.paths.LogFile, maxLogTailBytes); tail != nil {
-			b.Logs = tail
-		}
+	if opts.IncludeBasics {
+		bi := a.buildInfo(opts.Channel)
+		b.Build = &bi
+		b.Logs = readLogTail(a.paths.LogFile, maxLogTailBytes)
+		b.Config.Accounts = readAccounts(a.paths.CredentialsIndexPath)
+	}
+	if opts.IncludeSettings {
+		b.Config.Settings = redactedYAML(a.paths.SettingsPath)
+	}
+	if opts.IncludeFlows {
+		b.Config.Flows = redactedFlows(a.paths.FlowsDir)
+	}
+	if opts.IncludeActions {
+		b.Config.Actions = redactedYAML(a.paths.ActionsPath)
 	}
 	return b
+}
+
+// Inventory reads every attachable surface and reports what is present, so the
+// dialog can show accurate counts and hide toggles for what does not exist.
+func (a *Assembler) Inventory() Inventory {
+	inv := Inventory{
+		HasSettings:  redactedYAML(a.paths.SettingsPath) != nil,
+		HasActions:   redactedYAML(a.paths.ActionsPath) != nil,
+		FlowCount:    len(redactedFlows(a.paths.FlowsDir)),
+		AccountCount: len(readAccounts(a.paths.CredentialsIndexPath)),
+	}
+	if tail := readLogTail(a.paths.LogFile, maxLogTailBytes); tail != nil {
+		inv.HasLogs = true
+		inv.LogBytes = tail.Bytes
+	}
+	return inv
 }
 
 func (a *Assembler) buildInfo(channel string) BuildInfo {
@@ -118,15 +160,6 @@ func (a *Assembler) buildInfo(channel string) BuildInfo {
 		Arch:      runtime.GOARCH,
 		GoVersion: runtime.Version(),
 		NumCPU:    runtime.NumCPU(),
-	}
-}
-
-func (a *Assembler) configSnapshot() ConfigSnapshot {
-	return ConfigSnapshot{
-		Settings: redactedYAML(a.paths.SettingsPath),
-		Actions:  redactedYAML(a.paths.ActionsPath),
-		Flows:    redactedFlows(a.paths.FlowsDir),
-		Accounts: readAccounts(a.paths.CredentialsIndexPath),
 	}
 }
 

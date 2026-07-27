@@ -60,15 +60,22 @@ func Redact(v any) any {
 }
 
 func redactCarrier(v any) any {
-	m, ok := v.(map[string]any)
-	if !ok {
-		return Redact(v)
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k := range t {
+			out[k] = redacted
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i := range t {
+			out[i] = redacted
+		}
+		return out
+	default:
+		return redacted
 	}
-	out := make(map[string]any, len(m))
-	for k := range m {
-		out[k] = redacted
-	}
-	return out
 }
 
 func isSecretKey(k string) bool {

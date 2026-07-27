@@ -143,16 +143,20 @@ export interface PathInfo {
 export interface ReportInput {
     "description": string;
     "contact": string;
-    "includeLogs": boolean;
+    "includeBasics": boolean;
+    "includeSettings": boolean;
+    "includeFlows": boolean;
+    "includeActions": boolean;
 }
 
 export interface ReportPreview {
     "available": boolean;
-    "attachments": string[] | null;
-    "logIncluded": boolean;
-    "logPath": string;
+    "hasSettings": boolean;
+    "flowCount": number;
+    "hasActions": boolean;
+    "accountCount": number;
+    "hasLogs": boolean;
     "logBytes": number;
-    "logContent": string;
 }
 
 export interface ReportResult {

@@ -102,10 +102,13 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	a := NewAssembler(paths, Build{Version: "1.2.3", Commit: "abcdef1", Date: "2026-07-27"})
 
 	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
-		Description: "here is my token ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD oops",
-		Contact:     "me@example.com",
-		IncludeLogs: true,
-		Channel:     "beta",
+		Description:     "here is my token ghp_DDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDDD oops",
+		Contact:         "me@example.com",
+		Channel:         "beta",
+		IncludeBasics:   true,
+		IncludeSettings: true,
+		IncludeFlows:    true,
+		IncludeActions:  true,
 	})
 
 	gz, err := GzipJSON(bundle)
@@ -143,18 +146,30 @@ func TestAssembleRedactsEverySecret(t *testing.T) {
 	}
 }
 
-func TestAssembleLogsOptOut(t *testing.T) {
+func TestAssembleBasicsOptOut(t *testing.T) {
 	paths := writeFixtures(t)
 	a := NewAssembler(paths, Build{Version: "1.0.0"})
 
-	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{IncludeLogs: false})
+	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
+		IncludeBasics: false,
+		IncludeFlows:  true,
+	})
+	if bundle.Build != nil {
+		t.Error("build info included despite basics opt-out")
+	}
 	if bundle.Logs != nil {
-		t.Fatal("logs included despite opt-out")
+		t.Error("logs included despite basics opt-out")
+	}
+	if len(bundle.Config.Accounts) != 0 {
+		t.Error("connected accounts included despite basics opt-out")
+	}
+	if len(bundle.Config.Flows) == 0 {
+		t.Error("flows should still be included when opted in independently")
 	}
 
 	payload := decompress(t, mustGzip(t, bundle))
 	if strings.Contains(payload, "starting up") {
-		t.Error("log content present with logs disabled")
+		t.Error("log content present with basics disabled")
 	}
 }
 
@@ -166,12 +181,35 @@ func TestAssembleMissingConfigIsNotFatal(t *testing.T) {
 		LogFile:      "/nonexistent/desktop.log",
 	}, Build{Version: "1.0.0"})
 
-	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{IncludeLogs: true})
-	if bundle.Build.Version != "1.0.0" {
+	bundle := a.Assemble("rpt_test", time.Now().UTC(), Options{
+		IncludeBasics:   true,
+		IncludeSettings: true,
+		IncludeFlows:    true,
+		IncludeActions:  true,
+	})
+	if bundle.Build == nil || bundle.Build.Version != "1.0.0" {
 		t.Fatal("build info missing")
 	}
 	if bundle.Logs != nil || bundle.Config.Settings != nil || len(bundle.Config.Flows) != 0 {
 		t.Fatal("missing files should produce empty sections, not errors")
+	}
+}
+
+func TestInventoryCounts(t *testing.T) {
+	a := NewAssembler(writeFixtures(t), Build{Version: "1.0.0"})
+	inv := a.Inventory()
+
+	if !inv.HasSettings || !inv.HasActions {
+		t.Errorf("expected settings and actions present: %+v", inv)
+	}
+	if inv.FlowCount != 1 {
+		t.Errorf("expected 1 flow (sidecar excluded), got %d", inv.FlowCount)
+	}
+	if inv.AccountCount != 1 {
+		t.Errorf("expected 1 account, got %d", inv.AccountCount)
+	}
+	if !inv.HasLogs || inv.LogBytes == 0 {
+		t.Errorf("expected a non-empty log tail: %+v", inv)
 	}
 }
 

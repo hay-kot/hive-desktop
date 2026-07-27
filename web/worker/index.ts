@@ -169,8 +169,14 @@ export async function handleReport(request: Request, env: Env): Promise<Response
     return json({ error: "invalid_report_id" }, 400);
   }
 
+  // Enforce the cap from the declared length before buffering the body, so an
+  // authenticated client cannot make the worker read an oversized payload into
+  // the isolate.
   const declared = Number(request.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_REPORT_BYTES) {
+  if (!Number.isFinite(declared) || declared <= 0) {
+    return json({ error: "length_required" }, 411);
+  }
+  if (declared > MAX_REPORT_BYTES) {
     return json({ error: "too_large" }, 413);
   }
 

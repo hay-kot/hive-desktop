@@ -58,6 +58,18 @@ func TestRedactCarrierMaps(t *testing.T) {
 	}
 }
 
+func TestRedactCarrierListForm(t *testing.T) {
+	in := map[string]any{
+		"env": []any{"HARMLESS=value-with-no-pattern", "DEPLOY_KEY=hunter2"},
+	}
+	env := asSlice(t, asMap(t, Redact(in))["env"])
+	for i, v := range env {
+		if v != redacted {
+			t.Errorf("env[%d] not redacted: %v", i, v)
+		}
+	}
+}
+
 func TestRedactValuePatterns(t *testing.T) {
 	cases := map[string]bool{
 		"ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA":   true,

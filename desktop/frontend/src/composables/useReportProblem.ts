@@ -1,6 +1,6 @@
 import { ref } from 'vue'
 import { Preview, Submit } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/reportservice'
-import type { ReportPreview } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
+import type { ReportInput, ReportPreview } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -13,11 +13,11 @@ export function useReportProblem() {
   const error = ref('')
   const reportId = ref('')
 
-  async function loadPreview(includeLogs: boolean): Promise<void> {
+  async function loadPreview(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      preview.value = await Preview({ description: '', contact: '', includeLogs })
+      preview.value = await Preview()
     } catch (err) {
       error.value = errText(err)
     } finally {
@@ -25,7 +25,7 @@ export function useReportProblem() {
     }
   }
 
-  async function submit(input: { description: string; contact: string; includeLogs: boolean }): Promise<boolean> {
+  async function submit(input: ReportInput): Promise<boolean> {
     submitting.value = true
     error.value = ''
     try {

@@ -9,8 +9,8 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
-export function Preview($in: $models.ReportInput): $CancellablePromise<$models.ReportPreview> {
-    return $Call.ByID(2830240947, $in);
+export function Preview(): $CancellablePromise<$models.ReportPreview> {
+    return $Call.ByID(2830240947);
 }
 
 export function Submit($in: $models.ReportInput): $CancellablePromise<$models.ReportResult> {

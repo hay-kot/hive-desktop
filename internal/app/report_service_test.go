@@ -44,7 +44,7 @@ func TestReportSubmit(t *testing.T) {
 		t.Fatal("service should be available with an uploader")
 	}
 
-	res, err := svc.Submit(t.Context(), ReportRequest{Description: "broken"})
+	res, err := svc.Submit(t.Context(), ReportRequest{Description: "broken", IncludeBasics: true})
 	if err != nil {
 		t.Fatalf("submit: %v", err)
 	}

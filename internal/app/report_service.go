@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
@@ -33,41 +32,43 @@ func newReportService(paths settings.Paths, store *settings.Store, build report.
 }
 
 type ReportRequest struct {
-	Description string
-	Contact     string
-	IncludeLogs bool
+	Description     string
+	Contact         string
+	IncludeBasics   bool
+	IncludeSettings bool
+	IncludeFlows    bool
+	IncludeActions  bool
 }
 
 type ReportResult struct {
 	ID string
 }
 
-// ReportPreview is what a report would contain, so the user can review the
-// attachment and opt out of the logs before sending.
+// ReportPreview is the inventory of what a report could attach, so the dialog
+// can label each toggle and hide the ones with nothing behind them.
 type ReportPreview struct {
-	Available   bool
-	Attachments []string
-	LogIncluded bool
-	LogPath     string
-	LogBytes    int
-	LogContent  string
+	Available    bool
+	HasSettings  bool
+	FlowCount    int
+	HasActions   bool
+	AccountCount int
+	HasLogs      bool
+	LogBytes     int
 }
 
 func (s *ReportService) Available() bool { return s.uploader != nil }
 
-func (s *ReportService) Preview(_ context.Context, req ReportRequest) ReportPreview {
-	bundle := s.assemble("", req)
-	p := ReportPreview{
-		Available:   s.uploader != nil,
-		Attachments: attachmentSummary(bundle),
-		LogIncluded: bundle.Logs != nil,
+func (s *ReportService) Preview(_ context.Context) ReportPreview {
+	inv := s.assembler.Inventory()
+	return ReportPreview{
+		Available:    s.uploader != nil,
+		HasSettings:  inv.HasSettings,
+		FlowCount:    inv.FlowCount,
+		HasActions:   inv.HasActions,
+		AccountCount: inv.AccountCount,
+		HasLogs:      inv.HasLogs,
+		LogBytes:     inv.LogBytes,
 	}
-	if bundle.Logs != nil {
-		p.LogPath = bundle.Logs.Path
-		p.LogBytes = bundle.Logs.Bytes
-		p.LogContent = bundle.Logs.Content
-	}
-	return p
 }
 
 func (s *ReportService) Submit(ctx context.Context, req ReportRequest) (ReportResult, error) {
@@ -86,7 +87,10 @@ func (s *ReportService) Submit(ctx context.Context, req ReportRequest) (ReportRe
 		return ReportResult{}, Errorf(KindInvalid, "diagnostic bundle is too large to send")
 	}
 
-	meta := report.Meta{ReportID: id, Version: bundle.Build.Version, OS: bundle.Build.OS, Arch: bundle.Build.Arch}
+	meta := report.Meta{ReportID: id}
+	if bundle.Build != nil {
+		meta.Version, meta.OS, meta.Arch = bundle.Build.Version, bundle.Build.OS, bundle.Build.Arch
+	}
 	if err := s.uploader.Upload(ctx, gz, meta); err != nil {
 		return ReportResult{}, Wrap(err, KindUnavailable, "sending the report")
 	}
@@ -97,10 +101,13 @@ func (s *ReportService) Submit(ctx context.Context, req ReportRequest) (ReportRe
 
 func (s *ReportService) assemble(id string, req ReportRequest) *report.Bundle {
 	return s.assembler.Assemble(id, time.Now().UTC(), report.Options{
-		Description: req.Description,
-		Contact:     req.Contact,
-		IncludeLogs: req.IncludeLogs,
-		Channel:     s.channel(),
+		Description:     req.Description,
+		Contact:         req.Contact,
+		Channel:         s.channel(),
+		IncludeBasics:   req.IncludeBasics,
+		IncludeSettings: req.IncludeSettings,
+		IncludeFlows:    req.IncludeFlows,
+		IncludeActions:  req.IncludeActions,
 	})
 }
 
@@ -114,24 +121,4 @@ func (s *ReportService) channel() string {
 
 func newReportID() string {
 	return "rpt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
-}
-
-func attachmentSummary(b *report.Bundle) []string {
-	items := []string{"Build and system info"}
-	if b.Logs != nil {
-		items = append(items, fmt.Sprintf("Recent logs (%d KB)", (b.Logs.Bytes+1023)/1024))
-	}
-	if b.Config.Settings != nil {
-		items = append(items, "Redacted settings")
-	}
-	if n := len(b.Config.Flows); n > 0 {
-		items = append(items, fmt.Sprintf("Redacted flows (%d)", n))
-	}
-	if b.Config.Actions != nil {
-		items = append(items, "Redacted actions")
-	}
-	if n := len(b.Config.Accounts); n > 0 {
-		items = append(items, fmt.Sprintf("Connected accounts (%d)", n))
-	}
-	return items
 }

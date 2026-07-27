@@ -51,7 +51,7 @@ Private-beta signups POST to `/api/subscribe`; the worker validates the address,
 
 ## Problem reporting
 
-The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The bundle carries build/system info, a bounded log tail, and a secret-scrubbed config snapshot (ADR 0024). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
+The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The reporter chooses what to attach: basic info (build/system info, a bounded log tail, connected accounts) as one group, and settings/flows/actions individually — each config surface is secret-scrubbed before it is included (ADR 0024). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
 
 **One-time setup to enable it:**
 

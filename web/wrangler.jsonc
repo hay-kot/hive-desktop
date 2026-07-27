@@ -1,7 +1,7 @@
 {
   // Landing page for hivedesktop.com. The Astro build in ./dist is served as
-  // Worker static assets; worker/index.ts handles /api/latest and
-  // /api/subscribe and falls through to the assets for everything else.
+  // Worker static assets; worker/index.ts handles /api/latest, /api/subscribe,
+  // and /api/report and falls through to the assets for everything else.
   "name": "hive-desktop-web",
   "account_id": "bce6b95e4e84d92b1972d3b55b6cfaf6",
   "compatibility_date": "2026-07-01",
