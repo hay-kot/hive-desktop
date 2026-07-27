@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -108,6 +109,52 @@ func TestRefreshUnavailableInMockMode(t *testing.T) {
 	var body map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, string(app.KindUnavailable), body["kind"], "the Kind reaches the wire")
+}
+
+// TestServedOverWebhookListener exercises main.go's real path: MountAPI onto the
+// webhook listener, Start binds one loopback port, and /api/ is reachable over
+// TCP on it — the shared-port design end to end.
+func TestServedOverWebhookListener(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
+	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
+	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
+	t.Setenv(settings.EnvMockMode, "feed")
+	// Enabling webhooks + a port override is what lifts the mock-mode guard and
+	// binds the listener the API rides.
+	t.Setenv(settings.EnvWebhookEnabled, "true")
+	t.Setenv(settings.EnvWebhookPort, "0")
+
+	cfg, err := settings.NewStore(filepath.Join(root, "config", "settings.yaml")).Effective()
+	require.NoError(t, err)
+	core, err := app.New(t.Context(), app.Config{Settings: cfg, MockMode: cfg.MockMode(), Logger: zerolog.Nop()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = core.Close() })
+
+	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core).Handler()),
+		"the webhook listener exists, so the API mounts")
+	seedItem(t, core, "p1", "PR_1", `{"repo":"acme/widgets","num":7}`)
+	require.NoError(t, core.Start(t.Context()))
+
+	running, port := core.Webhooks.Endpoint(t.Context())
+	require.True(t, running)
+	require.NotZero(t, port)
+	base := fmt.Sprintf("http://127.0.0.1:%d", port)
+
+	resp, err := http.Get(base + "/api/status") //nolint:noctx // loopback test
+	require.NoError(t, err)
+	defer resp.Body.Close() //nolint:errcheck // test
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "the API is reachable over the webhook port")
+
+	var listed struct {
+		Items []store.InboxItemView `json:"items"`
+	}
+	itemsResp, err := http.Get(base + "/api/inbox") //nolint:noctx // loopback test
+	require.NoError(t, err)
+	defer itemsResp.Body.Close() //nolint:errcheck // test
+	require.NoError(t, json.NewDecoder(itemsResp.Body).Decode(&listed))
+	require.Len(t, listed.Items, 1)
+	assert.Equal(t, "PR_1", listed.Items[0].ExternalID)
 }
 
 func TestStatusAndHelp(t *testing.T) {
