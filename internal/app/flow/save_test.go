@@ -55,6 +55,33 @@ func TestSaveFlow_NewFile_LoadSaveLoadRoundTrip(t *testing.T) {
 	assert.Equal(t, f, reloaded)
 }
 
+func TestSaveFlow_ImageRoundTripsAndClears(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "triage.yaml")
+
+	f := Flow{ID: "triage", Name: "Triage", Enabled: true, Resurface: ResurfacePolicyStateChanges, Image: "abc123def456"}
+	require.NoError(t, SaveFlow(path, f))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "image: abc123def456")
+
+	loaded, _, err := LoadFlow(path, minimalRefs())
+	require.NoError(t, err)
+	assert.Equal(t, "abc123def456", loaded.Image)
+
+	// Clearing the reference removes the key rather than writing an empty one.
+	loaded.Image = ""
+	require.NoError(t, SaveFlow(path, loaded))
+	data, err = os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "image:")
+
+	cleared, _, err := LoadFlow(path, minimalRefs())
+	require.NoError(t, err)
+	assert.Empty(t, cleared.Image)
+}
+
 func TestSaveFlow_WorkedExample_LoadSaveLoadRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := writeFlow(t, dir, "triage.yaml", WorkedExampleYAML)

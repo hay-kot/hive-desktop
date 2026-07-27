@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import IconSlidersHorizontal from '~icons/lucide/sliders-horizontal'
 import IconTrash2 from '~icons/lucide/trash-2'
 import AppSwitch from './AppSwitch.vue'
 import BaseButton from './BaseButton.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
+import { fileToBase64, ProfileImageError, profileImageAccept } from '../lib/profileImage'
 import type { Profile } from '../types/feed'
 import type { ProfileSettingsSection } from '../router'
 
@@ -16,17 +17,23 @@ const props = withDefaults(defineProps<{
   renameError?: string | null
   toggling?: boolean
   toggleError?: string | null
+  settingImage?: boolean
+  imageError?: string | null
 }>(), {
   renaming: false,
   renameError: null,
   toggling: false,
   toggleError: null,
+  settingImage: false,
+  imageError: null,
 })
 const emit = defineEmits<{
   close: []
   delete: []
   rename: [name: string]
   'toggle-enabled': [enabled: boolean]
+  'set-image': [data: string]
+  'clear-image': []
   'select-section': [section: ProfileSettingsSection]
 }>()
 
@@ -40,6 +47,34 @@ function submitRename(): void {
   const trimmed = name.value.trim()
   if (!trimmed || trimmed === props.profile.name || props.renaming) return
   emit('rename', trimmed)
+}
+
+// The picker's own read/validate failures are local; a rejected upload comes
+// back through imageError. Show whichever applies, local first.
+const fileInput = ref<HTMLInputElement | null>(null)
+const localImageError = ref<string | null>(null)
+const displayImageError = computed(() => localImageError.value ?? props.imageError)
+
+// Re-picking is cleared per selection so an old local error never lingers over
+// a fresh attempt.
+watch(() => props.profile.id, () => { localImageError.value = null })
+
+function pickImage(): void {
+  if (props.settingImage) return
+  fileInput.value?.click()
+}
+
+async function onImageChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // let the same file be re-picked after an error
+  if (!file) return
+  localImageError.value = null
+  try {
+    emit('set-image', await fileToBase64(file))
+  } catch (error) {
+    localImageError.value = error instanceof ProfileImageError ? error.message : 'That image could not be read.'
+  }
 }
 </script>
 
@@ -72,7 +107,38 @@ function submitRename(): void {
 
     <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
       <div class="mx-auto max-w-[560px]">
-        <form v-if="props.activeSection === 'general'" class="rounded-lg border border-border bg-raised p-4" @submit.prevent="submitRename">
+        <div v-if="props.activeSection === 'general'" class="space-y-4">
+          <div class="rounded-lg border border-border bg-raised p-4">
+            <div class="text-[13px] font-medium text-text">Profile image</div>
+            <p class="mt-1 text-xs leading-relaxed text-text-3">Shown in the sidebar rail. Square images look best — larger images are cropped to a square and downscaled.</p>
+            <div class="mt-3 flex items-center gap-4">
+              <div class="flex size-[52px] shrink-0 items-center justify-center overflow-hidden rounded-[12px] border border-card bg-chip font-mono text-lg font-semibold text-text-2" data-testid="profile-settings-image-preview">
+                <img v-if="props.profile.image" :src="props.profile.image" alt="" class="size-full object-cover">
+                <template v-else>{{ props.profile.letter }}</template>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <input ref="fileInput" type="file" :accept="profileImageAccept" class="hidden" data-testid="profile-settings-image-input" @change="onImageChange">
+                <BaseButton
+                  variant="secondary"
+                  size="sm"
+                  :busy="props.settingImage"
+                  data-testid="profile-settings-image-upload"
+                  @click="pickImage"
+                >{{ props.profile.image ? 'Replace image' : 'Upload image' }}</BaseButton>
+                <BaseButton
+                  v-if="props.profile.image"
+                  variant="ghost"
+                  size="sm"
+                  :disabled="props.settingImage"
+                  data-testid="profile-settings-image-remove"
+                  @click="emit('clear-image')"
+                >Remove</BaseButton>
+              </div>
+            </div>
+            <p v-if="displayImageError" class="mt-2 text-xs text-severity-error" data-testid="profile-settings-image-error">{{ displayImageError }}</p>
+          </div>
+
+          <form class="rounded-lg border border-border bg-raised p-4" @submit.prevent="submitRename">
           <label for="profile-settings-name" class="text-[12.5px] text-text-3">Profile name</label>
           <div class="mt-2 flex items-center gap-2.5">
             <input
@@ -108,7 +174,8 @@ function submitRename(): void {
             />
           </div>
           <p v-if="props.toggleError" class="mt-2 text-xs text-severity-error" data-testid="profile-settings-toggle-error">{{ props.toggleError }}</p>
-        </form>
+          </form>
+        </div>
 
         <div v-else class="rounded-lg border border-severity-error/35 bg-raised p-4">
           <div class="text-[14px] font-semibold text-text">Delete profile</div>

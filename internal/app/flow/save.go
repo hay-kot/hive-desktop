@@ -116,6 +116,14 @@ func populateFlowMapping(root *yaml.Node, f Flow) error {
 		return err
 	}
 
+	if f.Image != "" {
+		if err := setOrAddScalar(root, "image", f.Image); err != nil {
+			return err
+		}
+	} else {
+		removeMappingKey(root, "image")
+	}
+
 	nodesSeq, err := encodeNodesSeq(f.Nodes)
 	if err != nil {
 		return err

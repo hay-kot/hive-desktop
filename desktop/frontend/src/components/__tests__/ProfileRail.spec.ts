@@ -25,6 +25,17 @@ describe('ProfileRail', () => {
     expect(wrapper.emitted('select')).toEqual([['personal']])
   })
 
+  it('renders the avatar image when set, otherwise the letter chip', () => {
+    const withImage = { ...profiles[0], image: 'data:image/png;base64,AAAA' }
+    const wrapper = mount(ProfileRail, { props: { profiles: [withImage], activeProfileId: 'personal' } })
+    const img = wrapper.get('[data-testid="profile-tile"] img')
+    expect(img.attributes('src')).toBe('data:image/png;base64,AAAA')
+
+    const plain = mount(ProfileRail, { props: { profiles, activeProfileId: 'personal' } })
+    expect(plain.find('[data-testid="profile-tile"] img').exists()).toBe(false)
+    expect(plain.get('[data-testid="profile-tile"]').text()).toContain('P')
+  })
+
   it('shows one application settings action at the bottom', async () => {
     const wrapper = mount(ProfileRail, { props: { profiles, activeProfileId: 'personal' } })
 

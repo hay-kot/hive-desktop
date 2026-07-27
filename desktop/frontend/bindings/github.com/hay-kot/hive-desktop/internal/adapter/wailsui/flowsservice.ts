@@ -18,6 +18,14 @@ import * as flow$0 from "../../app/flow/models.js";
 // @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
+/**
+ * ClearProfileImage removes a profile's avatar, returning the summary with no
+ * image so the rail reverts to the letter chip.
+ */
+export function ClearProfileImage(id: string): $CancellablePromise<$models.FlowSummary> {
+    return $Call.ByID(1880618229, id);
+}
+
 export function CreateFlow(name: string): $CancellablePromise<$models.FlowSummary> {
     return $Call.ByID(2011944446, name);
 }
@@ -71,4 +79,14 @@ export function SeedStarterFlow(id: string): $CancellablePromise<$models.FlowSum
 
 export function SetFlowEnabled(id: string, enabled: boolean): $CancellablePromise<$models.FlowSummary> {
     return $Call.ByID(2806455367, id, enabled);
+}
+
+/**
+ * SetProfileImage sets a profile's sidebar-rail avatar. The frontend sends the
+ * picked file as base64 (a bare payload or a data: URL); the core normalizes,
+ * stores, and references it. The returned summary carries the stored image so
+ * the settings view and rail can preview it without a re-fetch.
+ */
+export function SetProfileImage(id: string, data: string): $CancellablePromise<$models.FlowSummary> {
+    return $Call.ByID(150160184, id, data);
 }

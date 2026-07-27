@@ -489,6 +489,17 @@ User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 state (SQLite: items, triage, offsets, queued commands) lives under the data
 dir. Respect the boundary when adding persistence.
 
+A profile's avatar is the worked example of an asset that straddles the two
+(ADR 0025): the normalized PNG is app-local state at
+`<StateDir>/assets/profiles/<flow-id>.png` (`internal/app/profileimg`), while
+the flow YAML records only its content hash (`image:`). Config stays small and
+text; a reference with no file — a config synced to a machine without its data
+dir — reads as no image and the rail falls back to the letter chip, never an
+error. The reference is owned by `FlowsService`'s image methods, not the graph
+editor: `FlowStore.Save` preserves whatever the loaded flow declares, since the
+editor round-trips only `{id, name, enabled, nodes, wires}` and would otherwise
+drop the key.
+
 `settings.yaml` is a nested typed document with `polling`, `updates`,
 `notifications`, `appearance`, `webhooks`, `keybindings`, and `development`
 sections. Resolution is deterministic: safe compiled defaults, one strictly

@@ -65,7 +65,7 @@ const {
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, visibleItems, unreadCount, search, loadError,
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
-  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile,
+  creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
   toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
@@ -535,6 +535,16 @@ async function submitProfileEnabled(enabled: boolean) {
   await setProfileEnabled(activeProfileId.value, enabled)
 }
 
+async function submitProfileImage(data: string) {
+  if (!activeProfileId.value) return
+  await setProfileImage(activeProfileId.value, data)
+}
+
+async function submitProfileClearImage() {
+  if (!activeProfileId.value) return
+  await clearProfileImage(activeProfileId.value)
+}
+
 const deleteProfileOpen = ref(false)
 
 function openDeleteProfile() {
@@ -909,9 +919,13 @@ onUnmounted(() => {
           :rename-error="renameProfileError"
           :toggling="togglingProfileId !== null"
           :toggle-error="toggleProfileError"
+          :setting-image="settingProfileImage"
+          :image-error="profileImageError"
           @close="closeSettings"
           @rename="submitProfileRename"
           @toggle-enabled="submitProfileEnabled"
+          @set-image="submitProfileImage"
+          @clear-image="submitProfileClearImage"
           @delete="openDeleteProfile"
           @select-section="selectProfileSettingsSection"
         />

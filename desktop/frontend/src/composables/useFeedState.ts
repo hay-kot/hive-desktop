@@ -1,10 +1,10 @@
 import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
-import { CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
+import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
-import { appErrorKind } from '../lib/appError'
+import { appErrorKind, appErrorMessage } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
 import { useNotify } from './useNotify'
@@ -97,6 +97,8 @@ export function useFeedState() {
   const togglingProfileId = ref<string | null>(null)
   const toggleProfileError = ref<string | null>(null)
   const deletingProfile = ref(false)
+  const settingProfileImage = ref(false)
+  const profileImageError = ref<string | null>(null)
   const markingAllRead = ref(false)
   // Monotonic token: out-of-order loadItems responses must not clobber newer.
   let loadSeq = 0
@@ -223,9 +225,9 @@ export function useFeedState() {
   // the profile is selected (the rail only needs the letter/name). An
   // undefined tree is therefore "feeds not read yet", which is distinct from
   // a workspace whose flow genuinely has no feed nodes.
-  function toProfileStub(flow: { id: string; name: string; enabled: boolean }): Profile {
+  function toProfileStub(flow: { id: string; name: string; enabled: boolean; image?: string }): Profile {
     const name = flow.name || flow.id
-    return { id: flow.id, letter: letter(name), name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
+    return { id: flow.id, letter: letter(name), image: flow.image || undefined, name, enabled: flow.enabled, sourceSummary: '', totalCount: 0, unreadCount: 0, feeds: [] }
   }
 
   async function loadProfiles() {
@@ -451,6 +453,44 @@ export function useFeedState() {
       else clearActive()
     }
     return true
+  }
+
+  // setProfileImage ships the picked file (already base64) to the backend,
+  // which normalizes and stores it, then reloads so the rail and settings
+  // preview pick up the new avatar. reloadProfilesQuietly rebuilds profiles
+  // from summaries, whose image field the backend now populates.
+  async function setProfileImage(profileID: string, data: string): Promise<boolean> {
+    if (settingProfileImage.value) return false
+    settingProfileImage.value = true
+    profileImageError.value = null
+    try {
+      await SetProfileImage(profileID, data)
+      await reloadProfilesQuietly()
+      return true
+    } catch (error) {
+      console.warn('Unable to set profile image', error)
+      profileImageError.value = appErrorMessage(error) || (error instanceof Error ? error.message : '') || 'Could not update the profile image.'
+      return false
+    } finally {
+      settingProfileImage.value = false
+    }
+  }
+
+  async function clearProfileImage(profileID: string): Promise<boolean> {
+    if (settingProfileImage.value) return false
+    settingProfileImage.value = true
+    profileImageError.value = null
+    try {
+      await ClearProfileImage(profileID)
+      await reloadProfilesQuietly()
+      return true
+    } catch (error) {
+      console.warn('Unable to clear profile image', error)
+      profileImageError.value = appErrorMessage(error) || (error instanceof Error ? error.message : '') || 'Could not remove the profile image.'
+      return false
+    } finally {
+      settingProfileImage.value = false
+    }
   }
 
   // ── Items (inbox_item) ───────────────────────────────────────────────────────
@@ -980,12 +1020,16 @@ export function useFeedState() {
     togglingProfileId,
     toggleProfileError,
     deletingProfile,
+    settingProfileImage,
+    profileImageError,
     loadProfiles,
     createProfile,
     seedStarterFlow,
     renameProfile,
     setProfileEnabled,
     deleteProfile,
+    setProfileImage,
+    clearProfileImage,
     reorderFeeds,
     selectProfile,
     defaultSelection,

@@ -115,7 +115,7 @@ func parseFlow(id string, data []byte, refs Refs) (Flow, []string, error) {
 	}
 	f := Flow{
 		ID: id, Name: file.Name, Enabled: enabled, Resurface: resurface,
-		Nodes: file.Nodes, Wires: file.Wires,
+		Image: file.Image, Nodes: file.Nodes, Wires: file.Wires,
 	}
 
 	warnings, err := validateFlow(&f, refs)

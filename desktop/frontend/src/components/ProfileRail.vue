@@ -23,7 +23,8 @@ const emit = defineEmits<{ select: [profileId: string]; add: []; 'open-settings'
       @click="emit('select', profile.id)"
     >
       <span v-if="profile.id === activeProfileId" class="absolute bottom-2 left-[-13px] top-2 w-[3px] rounded-sm bg-accent" />
-      {{ profile.letter }}
+      <img v-if="profile.image" :src="profile.image" alt="" draggable="false" class="size-full rounded-[9px] object-cover">
+      <template v-else>{{ profile.letter }}</template>
       <span v-if="!profile.enabled" class="absolute -bottom-1 -right-1 flex size-4 items-center justify-center rounded-full border border-border bg-raised text-text-3" aria-hidden="true"><IconPause class="size-2.5" /></span>
     </button>
     <button class="flex size-[38px] cursor-pointer items-center justify-center rounded-[10px] border border-dashed border-card text-text-4 hover:border-strong hover:text-text-2" aria-label="Add profile" data-testid="profile-add" @click="emit('add')"><IconPlus class="size-4" /></button>
