@@ -22,6 +22,8 @@ func (ctrl *Controller) Handler() http.Handler {
 	mux.HandleFunc("GET /api/inbox/events", chain.ToHandlerFunc(ctrl.InboxItemEvents))
 	mux.HandleFunc("POST /api/sources/refresh", chain.ToHandlerFunc(ctrl.SourcesRefresh))
 	mux.HandleFunc("GET /api/profiles", chain.ToHandlerFunc(ctrl.Profiles))
+	mux.HandleFunc("POST /api/profiles", chain.ToHandlerFunc(ctrl.CreateProfile))
+	mux.HandleFunc("DELETE /api/profiles/{id}", chain.ToHandlerFunc(ctrl.DeleteProfile))
 	mux.HandleFunc("GET /api/profiles/{id}/image", chain.ToHandlerFunc(ctrl.GetProfileImage))
 	mux.HandleFunc("PUT /api/profiles/{id}/image", chain.ToHandlerFunc(ctrl.SetProfileImage))
 	mux.HandleFunc("DELETE /api/profiles/{id}/image", chain.ToHandlerFunc(ctrl.ClearProfileImage))

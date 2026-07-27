@@ -223,6 +223,29 @@ func TestProfileImageLifecycleOverHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, get(t, handler, "/api/profiles/"+created.ID+"/image").Code)
 }
 
+func TestProfileCreateAndDeleteOverHTTP(t *testing.T) {
+	_, handler := testServer(t)
+
+	create := do(t, handler, http.MethodPost, "/api/profiles", []byte(`{"name":"Agent Made"}`))
+	require.Equal(t, http.StatusCreated, create.Code, create.Body.String())
+	var created struct {
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	}
+	require.NoError(t, json.Unmarshal(create.Body.Bytes(), &created))
+	assert.Equal(t, "Agent Made", created.Name)
+	require.NotEmpty(t, created.ID)
+
+	assert.Contains(t, get(t, handler, "/api/profiles").Body.String(), `"id":"`+created.ID+`"`)
+
+	bad := do(t, handler, http.MethodPost, "/api/profiles", []byte(`{"name":"  "}`))
+	assert.Equal(t, http.StatusUnprocessableEntity, bad.Code, "an empty name is rejected")
+
+	del := do(t, handler, http.MethodDelete, "/api/profiles/"+created.ID, nil)
+	assert.Equal(t, http.StatusNoContent, del.Code)
+	assert.NotContains(t, get(t, handler, "/api/profiles").Body.String(), `"id":"`+created.ID+`"`)
+}
+
 func TestProfileImageRejectsBadRequests(t *testing.T) {
 	core, handler := testServer(t)
 	created, err := core.Flows.Create(t.Context(), "Agent Profile")

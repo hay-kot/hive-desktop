@@ -7,11 +7,13 @@
 > first slice, not the ceiling. This is the app's **agent-facing control
 > surface** — an agent drives it to observe *and operate* the app without
 > touching SQLite or the config files, and it grows toward full agentic
-> control. The profile resource (`GET /api/profiles` and
-> `GET|PUT|DELETE /api/profiles/{id}/image`) is the first mutation beyond a
-> reload: `PUT` runs the same normalize-store-reference path the Wails settings
-> view uses, so an agent sets an avatar the supported way rather than editing
-> the flow YAML and data dir by hand. The same core methods are what a future
+> control. The profile resource is the first mutation surface beyond a reload:
+> `GET|POST /api/profiles`, `DELETE /api/profiles/{id}`, and
+> `GET|PUT|DELETE /api/profiles/{id}/image`. Each runs the same core method the
+> Wails UI does — create/delete a flow, set an avatar via the
+> normalize-store-reference path — so an agent operates the app the supported
+> way rather than editing flow YAML and the data dir by hand. The same core
+> methods are what a future
 > MCP adapter exposes as tools. The loopback bind and single-writer model are
 > unchanged; each new mutation still maps its `app.Kind` to a status exactly
 > once and holds no logic of its own.

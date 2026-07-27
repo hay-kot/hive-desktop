@@ -3,11 +3,14 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"strings"
 
+	"github.com/hay-kot/criterio"
 	"github.com/hay-kot/httpkit/server"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
+	"github.com/hay-kot/hive-desktop/internal/web/extractors"
 )
 
 // maxImageUpload caps a profile-image request body so an oversized upload is
@@ -44,6 +47,39 @@ func (ctrl *Controller) Profiles(w http.ResponseWriter, r *http.Request) error {
 		out = append(out, profileViewOf(st.ID, st.Flow.Name, st.Flow.Enabled, st.Valid, st.Flow.Image != ""))
 	}
 	return server.JSON(w, http.StatusOK, profilesResponse{Profiles: out})
+}
+
+type createProfileRequest struct {
+	Name string `json:"name"`
+}
+
+func (b createProfileRequest) Validate() error {
+	return criterio.Run("name", strings.TrimSpace(b.Name), criterio.Required)
+}
+
+// CreateProfile makes a new profile (flow), seeded with the starter graph when
+// exactly one GitHub account is connected and empty otherwise — the same
+// behaviour as the Wails "New profile" affordance.
+func (ctrl *Controller) CreateProfile(w http.ResponseWriter, r *http.Request) error {
+	body, err := extractors.Body[createProfileRequest](w, r)
+	if err != nil {
+		return err
+	}
+	f, err := ctrl.core.Flows.Create(r.Context(), body.Name)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusCreated, profileViewOf(f.ID, f.Name, f.Enabled, true, f.Image != ""))
+}
+
+// DeleteProfile removes a profile, its flow files, its stored avatar, and its
+// durable inbox state.
+func (ctrl *Controller) DeleteProfile(w http.ResponseWriter, r *http.Request) error {
+	if err := ctrl.core.Flows.Delete(r.Context(), r.PathValue("id")); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 // SetProfileImage stores a profile's avatar from the raw request body. The body
