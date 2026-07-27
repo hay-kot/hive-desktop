@@ -271,8 +271,6 @@ internal/
     prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
       templates/                 #   .tmpl files the registry renders
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
-    pprofsrv/                     # dev-only pprof endpoint (development.pprof),
-                                  #   its own loopback listener (ADR 0023)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -551,14 +549,12 @@ context-taking `Stop` behind a `stopOnce` (the webhook listener is the
 template — ADR 0016), `App.Start` starts them in dependency order, and
 `App.Close` unwinds them in reverse. `main` holds none of it.
 
-`development.pprof` is typed and validated with disabled, loopback,
-port-zero-safe defaults, and the endpoint now runs through the App-owned
-lifecycle above: `internal/app/pprofsrv.Server` on its own loopback listener,
-an idempotent context-taking `Stop` behind a `stopOnce`, started in `App.Start`
-and unwound in `App.Close` — no teardown branch in `main`. It stays off by
-default and is deliberately **not** mounted on the always-on HTTP server (ADR
-0021): a disabled endpoint is then reachable from nowhere, and its host/port
-stay independent of the product API surface (ADR 0023).
+`development.pprof` is typed and defaulted off. The endpoint has no lifecycle
+of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
+loopback HTTP server (ADR 0021) beside the agent API, torn down with it, so
+there is no second listener and no teardown branch in `main` (ADR 0023). The
+config is `{ enabled }` only — the address is the shared server's, so pprof
+requires `http.enabled`, and a disabled endpoint has no route at all.
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware, **adopted** — see below) and `mapx`.

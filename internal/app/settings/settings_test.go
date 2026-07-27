@@ -60,8 +60,6 @@ development:
     port: 0
   pprof:
     enabled: false
-    host: 127.0.0.1
-    port: 0
   debug:
     pause_ingest: 0s
     pause_commit: 0s
@@ -152,7 +150,6 @@ func TestSettingsValidation(t *testing.T) {
 		{"http port", func(s *Settings) { s.HTTP.Port = 80 }},
 		{"mock", func(s *Settings) { s.Development.Mocks.Mode = "mystery" }},
 		{"vite host", func(s *Settings) { s.Development.Vite.Host = "127.0.0.2" }},
-		{"pprof host", func(s *Settings) { s.Development.Pprof.Host = "::" }},
 		{"negative pause", func(s *Settings) { s.Development.Debug.PauseCommit = Duration(-time.Second) }},
 		{"excessive pause", func(s *Settings) { s.Development.Debug.PauseIngest = Duration(MaxDebugPause + time.Second) }},
 		{"github api base remote host", func(s *Settings) {

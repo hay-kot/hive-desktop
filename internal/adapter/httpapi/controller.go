@@ -1,6 +1,7 @@
 // Package httpapi is the agent-facing HTTP adapter over app.App: a loopback
 // read + reload surface for observing the pipeline without reading SQLite. It
-// mounts onto the webhook listener's loopback server (ADR 0021).
+// mounts onto the webhook listener's loopback server (ADR 0021), which also
+// hosts the optional pprof debug handler (PprofHandler, ADR 0023).
 package httpapi
 
 import (
