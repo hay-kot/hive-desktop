@@ -33,12 +33,13 @@ type UI struct {
 	notifications *NotificationService
 	native        *wailsnotify.NotificationService
 
-	trayIcon     []byte
-	app          *application.App
-	window       *application.WebviewWindow
-	tray         *ProfileTray
-	updater      *UpdaterService
-	cancelEvents func()
+	trayIcon      []byte
+	trayIconLinux []byte
+	app           *application.App
+	window        *application.WebviewWindow
+	tray          *ProfileTray
+	updater       *UpdaterService
+	cancelEvents  func()
 }
 
 // Build identifies the running binary. It is passed in because the ldflags
@@ -55,7 +56,12 @@ type MountOptions struct {
 	Assets   embed.FS
 	AppIcon  []byte
 	TrayIcon []byte
-	Build    Build
+	// TrayIconLinux is the pre-coloured (white) tray mark Linux needs: its
+	// StatusNotifierItem backend pushes the bytes to the panel as a raw pixmap,
+	// with no template-icon tinting, so the black TrayIcon would be invisible on
+	// a dark panel.
+	TrayIconLinux []byte
+	Build         Build
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.
 	AutoUpdate bool
 	// UpdateChannel is the resolved release channel to follow.
@@ -125,6 +131,7 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	u.cancelEvents = Subscribe(ctx, core.Events, u.refreshTray)
 
 	u.trayIcon = opts.TrayIcon
+	u.trayIconLinux = opts.TrayIconLinux
 	u.app = application.New(u.options(core, opts))
 	u.attachUpdater(opts)
 	u.buildWindow()
@@ -178,6 +185,16 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		Mac: application.MacOptions{
 			ActivationPolicy: application.ActivationPolicyRegular,
 			ApplicationShouldTerminateAfterLastWindowClosed: false,
+		},
+		Linux: application.LinuxOptions{
+			// The window-closing hook below hides rather than destroys, so the
+			// app already survives a close. This is the belt-and-braces peer of
+			// the Mac option above: whatever route destroys the last window,
+			// Hive keeps running in the tray until Quit.
+			DisableQuitOnLastWindowClosed: true,
+			// Matches the binary name so window managers group windows with the
+			// .desktop entry a tarball install may add by hand.
+			ProgramName: "hive-desktop",
 		},
 	}
 }
@@ -265,7 +282,20 @@ func (u *UI) buildWindow() {
 	// This must be a hook, not OnWindowEvent: hooks run synchronously before
 	// listeners, so Cancel() reliably aborts Wails' own window-destroy
 	// listener, which otherwise races this callback in a separate goroutine.
+	//
+	// Hiding is only safe when there is a tray to restore the window from. A
+	// Linux session with no StatusNotifier host — vanilla GNOME without the
+	// AppIndicator extension — has none, and hiding there would leave Hive
+	// running with no window, no tray, and no way back. Closing quits instead.
+	closeHidesWindow := trayHostAvailable()
+	if !closeHidesWindow {
+		u.logger.Info().Msg("no system tray host detected; closing the window will quit Hive")
+	}
 	u.window.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		if !closeHidesWindow {
+			u.app.Quit()
+			return
+		}
 		u.window.Hide()
 		if u.focus.Set(false) {
 			emitWindowBlur()
@@ -291,6 +321,7 @@ func (u *UI) buildTray(core *app.App) {
 		NewFlowsService(core.Flows),
 		u.logger,
 		u.trayIcon,
+		u.trayIconLinux,
 		u.reveal,
 		u.app.Quit,
 	)

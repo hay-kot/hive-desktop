@@ -1,20 +1,22 @@
 ---
 name: release
 description: Cut the next Hive Desktop dev, beta, or stable release. Use when asked to release or publish the desktop app, or when explicitly invoked with a release channel such as `/release dev`.
-compatibility: Requires git, Go, mise, GitHub CLI authentication, and repository release secrets configured in GitHub Actions.
+compatibility: Requires git, Go, mise, GitHub CLI authentication, a running Docker (Linux binaries build in a container), and the release secrets in the repo-root `.env`.
 disable-model-invocation: true
 ---
 
 # Release Hive Desktop
 
-Cut a release through the local publisher by default. `mise` loads release
-credentials automatically; never read `.env`, inspect secret values, or invoke
-the release CLI's `publish` command outside `mise`. Use the tag-triggered GitHub
-Actions publisher only when the user explicitly requests the CI workflow.
+Cut a release through the local publisher. `mise` loads release credentials
+automatically; never read `.env`, inspect secret values, or invoke the release
+CLI's `publish` command outside `mise`. Publishing is local-only — every
+platform (macOS plus both Linux architectures) is built on one machine, so the
+release needs macOS and a running Docker together (decision 0028). There is no
+CI publishing workflow.
 
-Never upload locally and then push the same tag: pushing the tag would trigger
-CI to republish an immutable version and fail. In the default local flow, create
-the release tag locally after publishing and do not push it.
+The release tag is created locally after publishing. Pushing it is safe and has
+no side effects — there is no workflow watching for it — but the convention is
+to tag locally and not push.
 
 ## Arguments
 
@@ -95,25 +97,10 @@ Reject missing or unknown channels instead of guessing.
     git tag "desktop-v<version>" HEAD
     ```
 
-    Do not push the tag: `.github/workflows/desktop-publish.yml` runs on the tag
-    push and would attempt to republish the immutable release. Report the
-    version, local tag, affected channel manifests, and artifact URL prefix
+    Pushing the tag is safe and has no side effects — there is no publishing
+    workflow. Report the version, local tag, affected channel manifests, and
+    artifact URL prefix
     (`https://dl.hivedesktop.com/desktop/releases/<version>/`).
-
-## Explicit CI workflow
-
-Only when the user explicitly asks to publish through GitHub Actions, replace
-steps 8-9 with:
-
-1. Create and push `desktop-v<version>` at `HEAD`. The workflow rechecks that
-   the tagged commit belongs to `origin/main` and runs the same release gates
-   before publishing.
-2. Locate the triggered `Publish Desktop` run with `gh run list` and watch it
-   with `gh run watch --exit-status`.
-3. On success, report the version, tag, workflow URL, channel manifests, and
-   artifact URL prefix. On failure, report the failed step and workflow URL; do
-   not delete or move the tag, force a rerun, overwrite artifacts, or choose a
-   replacement version without explicit user approval.
 
 ## Version selection rules
 

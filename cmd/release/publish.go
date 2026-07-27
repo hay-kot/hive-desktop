@@ -48,6 +48,20 @@ type publisher struct {
 	workDir           string
 	keychainPath      string
 	originalKeychains []string
+	// Stamped into every platform's binary, so all artifacts in a release
+	// report the same provenance.
+	commit    string
+	buildDate string
+}
+
+// releaseArtifact is one published file and the manifest metadata describing it.
+// A release produces one per platform key and registers them together.
+type releaseArtifact struct {
+	platformKey string // manifest platforms key, e.g. "linux-amd64"
+	name        string // file name within the release prefix
+	path        string // local path
+	checksum    string // hex sha256
+	size        int64
 }
 
 func publish(ctx context.Context, args []string) error {
@@ -181,6 +195,13 @@ func (p *publisher) run(ctx context.Context) error {
 		}
 	}()
 
+	commit, err := gitHead(ctx)
+	if err != nil {
+		return err
+	}
+	p.commit = commit
+	p.buildDate = time.Now().UTC().Format(time.RFC3339)
+
 	fmt.Printf("==> releasing %s (channel: %s -> manifests: %s)\n", p.options.version, p.options.version.channel(), strings.Join(p.options.version.affectedChannels(), " "))
 	// Deploy and verify the web landing page and worker before the app build, so a
 	// broken or misconfigured backend aborts the release before any immutable
@@ -206,12 +227,32 @@ func (p *publisher) run(ctx context.Context) error {
 	} else {
 		fmt.Println("==> skipping notarization (--skip-notarize)")
 	}
-	zipPath, checksum, size, err := p.packageApp(ctx)
+	macArtifact, err := p.packageApp(ctx)
 	if err != nil {
 		return err
 	}
+	artifacts := []releaseArtifact{macArtifact}
+
+	// A release covers every platform, so the manifest it writes is complete in
+	// one write. That is what keeps the strict manifest-advancement rule usable:
+	// a second, later publish topping up another platform would be rejected for
+	// not advancing the version it just set.
+	for _, arch := range linuxArches {
+		artifact, err := p.buildLinux(ctx, arch)
+		if err != nil {
+			return err
+		}
+		artifacts = append(artifacts, artifact)
+	}
+
+	if err := p.writeChecksums(artifacts); err != nil {
+		return err
+	}
 	if p.options.skipUpload {
-		fmt.Printf("==> skipping upload (--skip-upload); artifact at %s\n", zipPath)
+		fmt.Println("==> skipping upload (--skip-upload); artifacts:")
+		for _, artifact := range artifacts {
+			fmt.Printf("    %s\n", artifact.path)
+		}
 		return nil
 	}
 	// Re-check source state and manifests immediately before the irreversible
@@ -227,11 +268,25 @@ func (p *publisher) run(ctx context.Context) error {
 	if err := validateManifestAdvancement(p.options.version, manifests); err != nil {
 		return err
 	}
-	return p.upload(ctx, zipPath, checksum, size)
+	return p.upload(ctx, artifacts)
+}
+
+// writeChecksums writes one SHA256SUMS covering every artifact in the release.
+// A single release process writes it once, so it stays consistent with the
+// immutable prefix it lives in.
+func (p *publisher) writeChecksums(artifacts []releaseArtifact) error {
+	var contents strings.Builder
+	for _, artifact := range artifacts {
+		fmt.Fprintf(&contents, "%s  %s\n", artifact.checksum, artifact.name)
+	}
+	return os.WriteFile(filepath.Join("desktop", "bin", "SHA256SUMS"), []byte(contents.String()), 0o644)
 }
 
 func (p *publisher) preflight(ctx context.Context) error {
-	tools := []string{"/usr/libexec/PlistBuddy", "codesign", "ditto", "mise", "openssl", "security", "/usr/bin/unzip"}
+	// docker is required unconditionally: every release publishes Linux too, and
+	// the Linux binary is built in a container (the macOS host has no GTK4
+	// headers for CGO to link against).
+	tools := []string{"/usr/libexec/PlistBuddy", "codesign", "ditto", "docker", "mise", "openssl", "security", "/usr/bin/unzip"}
 	if !p.options.skipNotarize {
 		tools = append(tools, "xcrun")
 	}
@@ -368,10 +423,6 @@ func reportProbeResult(status int) error {
 }
 
 func (p *publisher) build(ctx context.Context) error {
-	commit, err := gitHead(ctx)
-	if err != nil {
-		return err
-	}
 	fmt.Println("==> building universal .app")
 	if os.Getenv("HIVE_DESKTOP_REPORT_TOKEN") == "" {
 		fmt.Fprintln(os.Stderr, "warning: HIVE_DESKTOP_REPORT_TOKEN is empty; problem reporting will be disabled in this build")
@@ -380,8 +431,8 @@ func (p *publisher) build(ctx context.Context) error {
 	command.Dir = "desktop"
 	command.Env = append(os.Environ(),
 		"HIVE_DESKTOP_VERSION="+p.options.version.String(),
-		"HIVE_DESKTOP_COMMIT="+commit,
-		"HIVE_DESKTOP_DATE="+time.Now().UTC().Format(time.RFC3339),
+		"HIVE_DESKTOP_COMMIT="+p.commit,
+		"HIVE_DESKTOP_DATE="+p.buildDate,
 	)
 	command.Stdout = os.Stdout
 	command.Stderr = os.Stderr
@@ -540,7 +591,7 @@ func (p *publisher) notarize(ctx context.Context) error {
 	return errors.New("timed out waiting for notarization")
 }
 
-func (p *publisher) packageApp(ctx context.Context) (string, string, int64, error) {
+func (p *publisher) packageApp(ctx context.Context) (releaseArtifact, error) {
 	zipName := fmt.Sprintf("Hive-%s-darwin-universal.zip", p.options.version)
 	zipPath := filepath.Join("desktop", "bin", zipName)
 	fmt.Printf("==> packaging %s\n", zipName)
@@ -549,25 +600,21 @@ func (p *publisher) packageApp(ctx context.Context) (string, string, int64, erro
 	command.Dir = filepath.Join("desktop", "bin")
 	command.Stdout, command.Stderr = os.Stdout, os.Stderr
 	if err := command.Run(); err != nil {
-		return "", "", 0, fmt.Errorf("package app: %w", err)
+		return releaseArtifact{}, fmt.Errorf("package app: %w", err)
 	}
 	checksum, size, err := fileChecksum(zipPath)
 	if err != nil {
-		return "", "", 0, err
-	}
-	sumsPath := filepath.Join("desktop", "bin", "SHA256SUMS")
-	if err := os.WriteFile(sumsPath, []byte(checksum+"  "+zipName+"\n"), 0o644); err != nil {
-		return "", "", 0, err
+		return releaseArtifact{}, err
 	}
 	fmt.Printf("%s  %s\n", checksum, zipName)
 
 	fmt.Println("==> verifying packaged app after plain ZIP extraction")
 	extracted := filepath.Join(p.workDir, "extracted")
 	if err := os.MkdirAll(extracted, 0o755); err != nil {
-		return "", "", 0, err
+		return releaseArtifact{}, err
 	}
 	if err := runCommand(ctx, "/usr/bin/unzip", "-q", zipPath, "-d", extracted); err != nil {
-		return "", "", 0, err
+		return releaseArtifact{}, err
 	}
 	extractedApp := filepath.Join(extracted, "Hive.app")
 	err = filepath.WalkDir(extractedApp, func(path string, entry os.DirEntry, err error) error {
@@ -580,17 +627,23 @@ func (p *publisher) packageApp(ctx context.Context) (string, string, int64, erro
 		return nil
 	})
 	if err != nil {
-		return "", "", 0, err
+		return releaseArtifact{}, err
 	}
 	if err := runCommand(ctx, "codesign", "--verify", "--deep", "--strict", "--verbose=2", extractedApp); err != nil {
-		return "", "", 0, err
+		return releaseArtifact{}, err
 	}
 	if !p.options.skipNotarize {
 		if err := runCommand(ctx, "xcrun", "stapler", "validate", extractedApp); err != nil {
-			return "", "", 0, err
+			return releaseArtifact{}, err
 		}
 	}
-	return zipPath, checksum, size, nil
+	return releaseArtifact{
+		platformKey: "darwin-universal",
+		name:        zipName,
+		path:        zipPath,
+		checksum:    checksum,
+		size:        size,
+	}, nil
 }
 
 func fileChecksum(path string) (string, int64, error) {
@@ -607,38 +660,45 @@ func fileChecksum(path string) (string, int64, error) {
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
 }
 
-func (p *publisher) upload(ctx context.Context, zipPath, checksum string, size int64) error {
-	zipName := filepath.Base(zipPath)
+func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) error {
 	releasePrefix := "desktop/releases/" + p.options.version.String()
-	exists, err := p.r2Exists(ctx, releasePrefix+"/"+zipName)
-	if err != nil {
-		return err
+	for _, artifact := range artifacts {
+		exists, err := p.r2Exists(ctx, releasePrefix+"/"+artifact.name)
+		if err != nil {
+			return err
+		}
+		if exists && !p.options.force {
+			return fmt.Errorf("release %s already has %s in the bucket (immutable); use --force to overwrite", p.options.version, artifact.name)
+		}
 	}
-	if exists && !p.options.force {
-		return fmt.Errorf("release %s already exists in the bucket (immutable); use --force to overwrite", p.options.version)
-	}
+
 	fmt.Printf("==> uploading artifacts to r2://%s/%s/\n", p.options.r2Bucket, releasePrefix)
-	if err := p.r2Put(ctx, releasePrefix+"/"+zipName, zipPath, "application/zip", "public, max-age=31536000, immutable"); err != nil {
-		return err
+	for _, artifact := range artifacts {
+		if err := p.r2Put(ctx, releasePrefix+"/"+artifact.name, artifact.path, artifactContentType(artifact.name), "public, max-age=31536000, immutable"); err != nil {
+			return err
+		}
 	}
 	if err := p.r2Put(ctx, releasePrefix+"/SHA256SUMS", filepath.Join("desktop", "bin", "SHA256SUMS"), "text/plain", "public, max-age=31536000, immutable"); err != nil {
 		return err
+	}
+
+	platforms := make(map[string]platformManifest, len(artifacts))
+	for _, artifact := range artifacts {
+		platforms[artifact.platformKey] = platformManifest{
+			URL:    fmt.Sprintf("%s/%s/%s", p.options.downloadBase, releasePrefix, artifact.name),
+			SHA256: artifact.checksum,
+			Size:   artifact.size,
+		}
 	}
 
 	pubDate := time.Now().UTC().Format(time.RFC3339)
 	for _, channel := range p.options.version.affectedChannels() {
 		fmt.Printf("==> writing channel manifest: %s\n", channel)
 		manifest := channelManifest{
-			Channel: channel,
-			Version: p.options.version.String(),
-			PubDate: pubDate,
-			Platforms: map[string]platformManifest{
-				"darwin-universal": {
-					URL:    fmt.Sprintf("%s/%s/%s", p.options.downloadBase, releasePrefix, zipName),
-					SHA256: checksum,
-					Size:   size,
-				},
-			},
+			Channel:   channel,
+			Version:   p.options.version.String(),
+			PubDate:   pubDate,
+			Platforms: platforms,
 		}
 		contents, err := json.MarshalIndent(manifest, "", "  ")
 		if err != nil {
@@ -653,9 +713,18 @@ func (p *publisher) upload(ctx context.Context, zipPath, checksum string, size i
 		}
 	}
 	fmt.Printf("Release %s published to the %s channel.\n", p.options.version, p.options.version.channel())
-	fmt.Printf("  artifact: %s/%s/%s\n", p.options.downloadBase, releasePrefix, zipName)
+	for _, artifact := range artifacts {
+		fmt.Printf("  %s: %s/%s/%s\n", artifact.platformKey, p.options.downloadBase, releasePrefix, artifact.name)
+	}
 	fmt.Printf("  manifests updated: %s\n", strings.Join(p.options.version.affectedChannels(), " "))
 	return nil
+}
+
+func artifactContentType(name string) string {
+	if strings.HasSuffix(name, ".zip") {
+		return "application/zip"
+	}
+	return "application/gzip"
 }
 
 func (p *publisher) r2Endpoint(key string) string {

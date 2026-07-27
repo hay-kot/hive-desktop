@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -67,5 +68,46 @@ func TestFetchManifestRejectsMissingFields(t *testing.T) {
 
 	if _, err := fetchManifest(context.Background(), server.Client(), server.URL); err == nil {
 		t.Fatal("fetchManifest unexpectedly accepted an incomplete manifest")
+	}
+}
+
+// Manifests published before Linux shipped carry only darwin-universal and must
+// still parse, since advancement checks read the live channels.
+func TestValidateManifestAcceptsLegacyAndMultiPlatform(t *testing.T) {
+	t.Parallel()
+
+	const digest = "0000000000000000000000000000000000000000000000000000000000000000"
+	base := func(platforms map[string]platformManifest) channelManifest {
+		return channelManifest{
+			Channel:   "dev",
+			Version:   "0.1.8-dev.1",
+			PubDate:   "2026-07-24T00:00:00Z",
+			Platforms: platforms,
+		}
+	}
+	good := platformManifest{URL: "https://example.com/a", SHA256: digest, Size: 1}
+
+	if err := validateManifest(base(map[string]platformManifest{"darwin-universal": good})); err != nil {
+		t.Fatalf("darwin-only manifest rejected: %v", err)
+	}
+	if err := validateManifest(base(map[string]platformManifest{
+		"darwin-universal": good,
+		"linux-amd64":      good,
+		"linux-arm64":      good,
+	})); err != nil {
+		t.Fatalf("multi-platform manifest rejected: %v", err)
+	}
+
+	// A malformed non-darwin entry must fail too — it is what the updater hands
+	// to a Linux client.
+	err := validateManifest(base(map[string]platformManifest{
+		"darwin-universal": good,
+		"linux-amd64":      {URL: "https://example.com/a", SHA256: "not-hex", Size: 1},
+	}))
+	if err == nil {
+		t.Fatal("expected a malformed linux-amd64 entry to be rejected")
+	}
+	if !strings.Contains(err.Error(), "linux-amd64") {
+		t.Fatalf("error %q does not name the offending platform", err)
 	}
 }

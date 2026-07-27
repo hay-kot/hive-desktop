@@ -1,0 +1,47 @@
+# Linux release builder — lets a non-Linux host produce the same binary the
+# release runner does.
+#
+# Unlike Dockerfile.cross (which carries a macOS SDK and zig for every target),
+# this image exists for exactly one job: run `wails3 task linux:build` for the
+# container's own architecture. It deliberately mirrors the ubuntu-24.04 release
+# runner, because GTK's API surface moves fast enough to matter — Debian
+# bookworm's GTK 4.8 cannot compile this app (GtkFileDialog landed in 4.10).
+#
+# Build it through `mise run desktop:build:linux`, which pins the versions below
+# from mise.toml so the image cannot drift from the toolchain everything else
+# uses. Cross-architecture works via emulation: pass --platform to docker.
+#
+#   docker build -t hive-linux-builder -f Dockerfile.linux \
+#     --build-arg WAILS3_VERSION=v3.0.0-alpha2.117 .
+
+ARG GO_IMAGE=golang:1.26-trixie
+ARG NODE_IMAGE=node:22-bookworm
+
+FROM ${GO_IMAGE} AS toolchain
+FROM ${NODE_IMAGE} AS node
+
+FROM ubuntu:24.04
+
+# The repo's pinned Go, not Ubuntu's — go.mod's toolchain is what CI resolves.
+COPY --from=toolchain /usr/local/go /usr/local/go
+# Node built against bookworm's glibc runs fine on 24.04's newer one.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
+
+RUN ln -sf /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+ && ln -sf /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+ && apt-get update -q \
+ && apt-get install -y -q --no-install-recommends \
+      libgtk-4-dev libwebkitgtk-6.0-dev \
+      gcc libc6-dev pkg-config ca-certificates git \
+ && rm -rf /var/lib/apt/lists/*
+
+# The same wails3 the mise toolchain pins, so the Taskfile it runs behaves
+# identically here and on the release runner.
+ARG WAILS3_VERSION
+RUN test -n "${WAILS3_VERSION}" || (echo "WAILS3_VERSION build arg is required" >&2; exit 1) \
+ && go install github.com/wailsapp/wails/v3/cmd/wails3@${WAILS3_VERSION}
+
+WORKDIR /src/desktop

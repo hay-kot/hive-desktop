@@ -27,6 +27,14 @@ var appIcon []byte
 //go:embed build/icons/tray-templateTemplate@2x.png
 var trayIcon []byte
 
+// Linux has no template-icon concept — the StatusNotifierItem backend hands the
+// bytes to the panel as a raw pixmap — so the pure-black macOS mark would be
+// invisible on GNOME's and Ubuntu's unconditionally dark panels. This is the
+// same mark rendered white (build/icons/generate.sh).
+//
+//go:embed build/linux/tray-icon.png
+var trayIconLinux []byte
+
 func main() {
 	bootstrap, err := settings.LoadBootstrap()
 	if err != nil {
@@ -97,11 +105,12 @@ func main() {
 	}
 
 	ui.Mount(ctx, core, wailsui.MountOptions{
-		Assets:     assets,
-		AppIcon:    appIcon,
-		TrayIcon:   trayIcon,
-		Build:      wailsui.Build{Version: version, Commit: commit, Date: date},
-		AutoUpdate: cfg.Updates.Enabled,
+		Assets:        assets,
+		AppIcon:       appIcon,
+		TrayIcon:      trayIcon,
+		TrayIconLinux: trayIconLinux,
+		Build:         wailsui.Build{Version: version, Commit: commit, Date: date},
+		AutoUpdate:    cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {
 			if cfg.Updates.Channel == "" {
 				return buildChannel
