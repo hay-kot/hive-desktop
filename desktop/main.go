@@ -82,7 +82,7 @@ func main() {
 	}
 	ui.SeedMock(core)
 
-	// The agent HTTP API rides the webhook listener's loopback port (ADR 0018),
+	// The agent HTTP API rides the webhook listener's loopback port (ADR 0019),
 	// so it mounts before Start and is up only when webhooks are enabled.
 	if cfg.Development.API.Enabled {
 		if core.MountAPI(httpapi.PathPrefix, httpapi.New(core).Handler()) {

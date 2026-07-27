@@ -28,6 +28,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0018](decisions/0018-source-http-toolkit.md) | A shared HTTP toolkit for source connectors |
 | [0019](decisions/0019-batched-absence-confirmation.md) | Batched, keyed GitHub absence confirmation |
 | [0018](decisions/0018-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
+| [0019](decisions/0019-agent-http-api.md) | Agent-facing HTTP API (read + reload) sharing the webhook port |
 
 ## References
 

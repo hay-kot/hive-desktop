@@ -192,7 +192,7 @@ func TestDevproxyEnvNameMatchesSettings(t *testing.T) {
 }
 
 // A prepared worktree boots the webhook listener at a known random port and
-// flips the agent HTTP API on (ADR 0018), so a harness can push deliveries and
+// flips the agent HTTP API on (ADR 0019), so a harness can push deliveries and
 // observe the pipeline with no manual step.
 func TestPrepareBootstrapsWebhookAndAPI(t *testing.T) {
 	tools, _, _ := testDevtools(t)

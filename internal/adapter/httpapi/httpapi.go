@@ -3,7 +3,7 @@
 // conclusions without reading SQLite. It is a driving adapter — it holds
 // *app.App, maps app.Kind to HTTP status once, and keeps no logic of its own.
 //
-// It mounts onto the webhook listener's loopback server (ADR 0018) rather than
+// It mounts onto the webhook listener's loopback server (ADR 0019) rather than
 // binding a second port, so the same port serves webhook push and this API.
 package httpapi
 

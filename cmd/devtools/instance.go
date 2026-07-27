@@ -186,7 +186,7 @@ func (d *devtools) prepare(fresh bool) error {
 		return fmt.Errorf("resolve Wails port: %w", err)
 	}
 	// The webhook listener boots on so an agent can push deliveries and reach
-	// the agent HTTP API, which shares this port (ADR 0018), with no manual
+	// the agent HTTP API, which shares this port (ADR 0019), with no manual
 	// step. Allocated per worktree and preserved across prepares by the reuse
 	// path above.
 	webhookPort, err := resolveWebhookPort(vitePort, wailsPort)

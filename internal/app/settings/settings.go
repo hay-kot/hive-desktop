@@ -109,7 +109,7 @@ type PprofSettings struct {
 }
 
 // APISettings gates the agent-facing HTTP API. It has no host/port: the API
-// rides the webhook listener's loopback port (ADR 0018), so enabling it
+// rides the webhook listener's loopback port (ADR 0019), so enabling it
 // requires webhooks enabled.
 type APISettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_API_ENABLED"`

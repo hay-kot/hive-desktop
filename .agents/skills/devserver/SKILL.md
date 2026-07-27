@@ -29,8 +29,11 @@ vocabulary; it would teach a wrong model of the app.
 ## 1. Confirm the setup
 
 ```bash
-# devserver is up (returns {"devserver":true})
-curl -sf localhost:7777/_ctl/health | jq .
+# readiness: devserver up, and whether an app has connected + observed items
+curl -sf localhost:7777/_ctl/health | jq .   # {devserver, appConnected, requests, itemsObserved, ...}
+
+# is this the build under test? (VCS revision + dirty flag)
+curl -s localhost:7777/_ctl/version | jq .    # compare .revision to `git rev-parse HEAD`
 
 # the fixed contract: endpoints, the action vocabulary, mutation fields
 curl -s localhost:7777/_ctl/help | jq .
@@ -39,7 +42,9 @@ curl -s localhost:7777/_ctl/help | jq .
 If `/_ctl/health` fails, devserver is not running — ask the user to start it
 with `mise run devserver` (leave it running). Do not start it yourself in a way
 that would block the session; suggest they run `! mise run devserver` or a
-background tab.
+background tab. If `appConnected` is false, no desktop instance has polled yet —
+start or wait for one before targeting items. If `/_ctl/version` `.revision`
+does not match your working tree, the running proxy is a stale build.
 
 ## 2. Find an item to target
 
@@ -105,9 +110,10 @@ the step rather than retrying blind.
 ### A webhook push
 
 The pusher needs a target. The desktop's webhook port is random per install, so
-supply it inline as `{url, secret}` — get the base URL from **Settings ▸
-Webhooks** in the app and append a `sources.webhook` node's path; `secret` must
-match that node's. Inline targets must be loopback.
+supply it inline as `{url, secret}`. Read the host/port and path prefix from the
+app API's `/api/status` (`.webhook.host`, `.webhook.port`, `.webhook.pathPrefix`
+— see the **desktop-api** skill) and append a `sources.webhook` node's path;
+`secret` must match that node's. Inline targets must be loopback.
 
 ```bash
 curl -XPOST localhost:7777/_ctl/webhooks/push -d '{
@@ -123,11 +129,23 @@ the canonical item contract (ADR 0008) render as first-party feed rows. A
 configured payload can be used instead of an inline body via
 `"payload":"pr-opened"` with optional `"overrides":{...}`.
 
-## 4. Verify, then clean up
+## 4. Verify through the app API, then clean up
 
-After driving an event, confirm the app reacted — read the feed in the running
-instance (or its logs) rather than assuming the mutation landed. Then reset so
-the next test starts clean:
+Confirm the app reacted through its loopback **agent HTTP API** — do not read
+`desktop-pipeline.db`. After a proxy overlay/action/scenario, force a re-poll so
+you do not wait the 60s floor, then read and retry (the engine commits a moment
+after the fetch):
+
+```bash
+API=127.0.0.1:$WEBHOOK_PORT   # same port as the webhook listener; see the desktop-api skill
+curl -XPOST $API/api/sources/refresh          # reload now (pull sources)
+curl -s $API/api/inbox | jq '.items[] | {title, lifecycle, sourceState, unread}'
+```
+
+A webhook push already appends directly, so skip the refresh and just read +
+retry. See the **desktop-api** skill for discovering the port, the read
+endpoints, and the reload → read → retry loop in full. Then reset so the next
+test starts clean:
 
 ```bash
 curl -XPOST localhost:7777/_ctl/overlay/clear -d '{"repo":"acme/widgets","num":42}'  # one item
