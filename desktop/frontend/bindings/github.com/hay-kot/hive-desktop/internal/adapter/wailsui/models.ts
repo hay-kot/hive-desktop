@@ -140,6 +140,25 @@ export interface PathInfo {
     "overridden": boolean;
 }
 
+export interface ReportInput {
+    "description": string;
+    "contact": string;
+    "includeLogs": boolean;
+}
+
+export interface ReportPreview {
+    "available": boolean;
+    "attachments": string[] | null;
+    "logIncluded": boolean;
+    "logPath": string;
+    "logBytes": number;
+    "logContent": string;
+}
+
+export interface ReportResult {
+    "id": string;
+}
+
 /**
  * SystemInfo is the full set of locations shown on the System settings screen.
  */

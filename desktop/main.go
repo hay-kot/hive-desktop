@@ -12,6 +12,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
@@ -68,14 +69,17 @@ func main() {
 	// it — where a notification is delivered, and whether it may be.
 	ui := wailsui.New(cfg.MockMode(), settingsStore, appIcon, logger)
 
+	version, commit, date := resolvedBuildInfo()
 	core, err := app.New(ctx, app.Config{
-		Settings:      cfg,
-		SettingsStore: settingsStore,
-		Paths:         paths,
-		MockMode:      cfg.MockMode(),
-		Logger:        logger,
-		Notifier:      ui.Notifier(),
-		Gate:          ui.Gate(),
+		Settings:       cfg,
+		SettingsStore:  settingsStore,
+		Paths:          paths,
+		MockMode:       cfg.MockMode(),
+		Logger:         logger,
+		Notifier:       ui.Notifier(),
+		Gate:           ui.Gate(),
+		Build:          report.Build{Version: version, Commit: commit, Date: date},
+		ReportUploader: ui.ReportUploader(),
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -92,7 +96,6 @@ func main() {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}
 
-	version, commit, date := resolvedBuildInfo()
 	ui.Mount(ctx, core, wailsui.MountOptions{
 		Assets:     assets,
 		AppIcon:    appIcon,

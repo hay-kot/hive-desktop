@@ -4,13 +4,17 @@
 // actions, point-only overrides for the data and config directories that take
 // effect after a restart, and an About card with the build strip and
 // auto-update controls.
-import { onMounted } from 'vue'
+import { onMounted, ref } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconBug from '~icons/lucide/bug'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
 import AppSwitch from './AppSwitch.vue'
+import ReportProblemDialog from './ReportProblemDialog.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
+
+const reportOpen = ref(false)
 
 const {
   info,
@@ -127,6 +131,21 @@ onMounted(() => {
           @reveal="revealPath(info.database.path)"
         />
       </div>
+      <div class="flex items-center gap-3.5 overflow-hidden rounded-[11px] border border-card bg-raised px-4 py-3.5">
+        <div class="min-w-0 flex-1">
+          <div class="text-[13.5px] font-semibold text-text">Report a problem</div>
+          <div class="mt-0.5 text-[11.5px] text-text-3">Send us build info, recent logs, and redacted config. Secrets are removed first.</div>
+        </div>
+        <button
+          type="button"
+          class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text"
+          data-testid="system-report-problem"
+          @click="reportOpen = true"
+        >
+          <IconBug class="size-3.5" />
+          Report a problem
+        </button>
+      </div>
     </section>
 
     <section class="flex flex-col gap-2.5" data-testid="system-about">
@@ -205,5 +224,7 @@ onMounted(() => {
         </div>
       </div>
     </section>
+
+    <ReportProblemDialog v-if="reportOpen" @close="reportOpen = false" />
   </div>
 </template>

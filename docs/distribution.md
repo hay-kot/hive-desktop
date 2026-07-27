@@ -1,6 +1,6 @@
 # Distribution Reference
 
-Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [0003](decisions/0003-r2-manifest-distribution.md) (R2 + manifests), [0004](decisions/0004-release-channels.md) (channels).
+Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [0003](decisions/0003-r2-manifest-distribution.md) (R2 + manifests), [0004](decisions/0004-release-channels.md) (channels), [0024](decisions/0024-in-app-problem-reporting.md) (problem reporting).
 
 ## Infrastructure
 
@@ -13,6 +13,8 @@ Concrete infrastructure and runbook for shipping the desktop app. Decisions behi
 | Artifact bucket | R2 `hive-desktop-releases` (ENAM, Standard) |
 | Download domain | https://dl.hivedesktop.com (bucket custom domain, public, TLS ≥ 1.2) |
 | Liveness probe | https://dl.hivedesktop.com/healthcheck.txt |
+| Reports bucket | R2 `hive-desktop-reports` (private, no custom domain, no public access) |
+| Report endpoint | `POST https://hivedesktop.com/api/report` (worker `REPORTS` binding) |
 
 ## Bucket layout
 
@@ -46,6 +48,35 @@ desktop/
 The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`#beta`) rather than breaking.
 
 Private-beta signups POST to `/api/subscribe`; the worker validates the address, drops honeypot submissions (the form's hidden `company` field, answered with a fake success), and forwards the rest to listmonk's public form endpoint with the Hive Desktop list UUID. Subscribers are managed in the listmonk admin at https://listmonk.haybytes.com/admin.
+
+## Problem reporting
+
+The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The bundle carries build/system info, a bounded log tail, and a secret-scrubbed config snapshot (ADR 0024). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
+
+**One-time setup to enable it:**
+
+```bash
+# 1. Create the private bucket (no public access, no custom domain).
+wrangler r2 bucket create hive-desktop-reports
+
+# 2. Set the shared token the worker checks (any long random string).
+cd web && wrangler secret put REPORT_TOKEN
+
+# 3. Expire reports after 90 days.
+wrangler r2 bucket lifecycle add hive-desktop-reports --expire-days 90 --prefix reports/
+
+# 4. Rate-limit the endpoint at the edge (dashboard): a WAF rate-limiting rule
+#    on hostname hivedesktop.com + path /api/report, e.g. 10 requests / 10 min / IP.
+```
+
+The same token value must be stamped into the released app so its uploads authenticate: add `-X github.com/hay-kot/hive-desktop/internal/adapter/wailsui.reportToken=<token>` to the release build's ldflags. With no token stamped in, the app hides/disables reporting and the worker answers `503 reporting_disabled` — the feature fails closed.
+
+**Reading reports** (no viewer UI yet):
+
+```bash
+wrangler r2 object get hive-desktop-reports/reports/2026/07/27/<id>.json.gz --file report.json.gz
+gunzip -c report.json.gz | jq .
+```
 
 ## Cache-Control (set per object at upload)
 

@@ -2,12 +2,16 @@
  * hivedesktop.com
  *
  * Static assets (the Astro build in dist/) are served by the platform before
- * this Worker runs; it only sees the two /api/* routes below and anything the
+ * this Worker runs; it only sees the /api/* routes below and anything the
  * asset router did not match.
  */
 
+// REPORTS/REPORT_TOKEN are optional: if either is absent the report endpoint
+// answers 503 rather than accepting uploads.
 export interface Env {
   ASSETS: Fetcher;
+  REPORTS?: R2Bucket;
+  REPORT_TOKEN?: string;
 }
 
 /** Release channel manifest the download CTA resolves through. */
@@ -27,6 +31,10 @@ const LISTMONK_LIST_UUID = "ae24f0b5-c230-4d2e-9fc0-747e9270636e";
 const MAX_EMAIL_LENGTH = 254;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
 
+const MAX_REPORT_BYTES = 5 * 1024 * 1024;
+const REPORT_ID_PATTERN = /^rpt_[0-9a-f]{32}$/;
+const META_MAX_LENGTH = 128;
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -37,6 +45,10 @@ export default {
 
     if (url.pathname === "/api/subscribe") {
       return handleSubscribe(request);
+    }
+
+    if (url.pathname === "/api/report") {
+      return handleReport(request, env);
     }
 
     return env.ASSETS.fetch(request);
@@ -129,6 +141,103 @@ async function handleSubscribe(request: Request): Promise<Response> {
   }
 
   return json({ ok: true });
+}
+
+// Ingest a gzipped diagnostic bundle from the desktop app and store it in the
+// private reports bucket. The object key is built here from the server clock,
+// so a client cannot choose where its report lands.
+export async function handleReport(request: Request, env: Env): Promise<Response> {
+  if (request.method !== "POST") {
+    return methodNotAllowed("POST");
+  }
+
+  if (!env.REPORT_TOKEN || !env.REPORTS) {
+    return json({ error: "reporting_disabled" }, 503);
+  }
+
+  const presented = bearerToken(request.headers.get("authorization"));
+  if (!timingSafeEqual(presented, env.REPORT_TOKEN)) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  if (request.headers.get("content-encoding") !== "gzip") {
+    return json({ error: "gzip_required" }, 415);
+  }
+
+  const reportId = request.headers.get("x-hive-report-id") ?? "";
+  if (!REPORT_ID_PATTERN.test(reportId)) {
+    return json({ error: "invalid_report_id" }, 400);
+  }
+
+  const declared = Number(request.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_REPORT_BYTES) {
+    return json({ error: "too_large" }, 413);
+  }
+
+  const body = new Uint8Array(await request.arrayBuffer());
+  if (body.byteLength === 0) {
+    return json({ error: "empty_body" }, 400);
+  }
+  if (body.byteLength > MAX_REPORT_BYTES) {
+    return json({ error: "too_large" }, 413);
+  }
+  // gzip magic; the worker stores the bytes as-is and never decompresses.
+  if (body[0] !== 0x1f || body[1] !== 0x8b) {
+    return json({ error: "not_gzip" }, 400);
+  }
+
+  const now = new Date();
+  const key = `reports/${objectDatePrefix(now)}/${reportId}.json.gz`;
+
+  try {
+    await env.REPORTS.put(key, body, {
+      httpMetadata: { contentType: "application/json", contentEncoding: "gzip" },
+      customMetadata: {
+        reportId,
+        receivedAt: now.toISOString(),
+        version: metaHeader(request, "x-hive-version"),
+        os: metaHeader(request, "x-hive-os"),
+        arch: metaHeader(request, "x-hive-arch"),
+      },
+    });
+  } catch (error) {
+    console.error("report store failed", error);
+    return json({ error: "store_failed" }, 502);
+  }
+
+  return json({ id: reportId });
+}
+
+function bearerToken(header: string | null): string {
+  const prefix = "Bearer ";
+  if (!header || !header.startsWith(prefix)) {
+    return "";
+  }
+  return header.slice(prefix.length);
+}
+
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+function objectDatePrefix(now: Date): string {
+  const yyyy = String(now.getUTCFullYear()).padStart(4, "0");
+  const mm = String(now.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(now.getUTCDate()).padStart(2, "0");
+  return `${yyyy}/${mm}/${dd}`;
+}
+
+function metaHeader(request: Request, name: string): string {
+  return (request.headers.get(name) ?? "")
+    .slice(0, META_MAX_LENGTH)
+    .replace(/[^\x20-\x7e]/g, "");
 }
 
 function json(body: unknown, status = 200): Response {

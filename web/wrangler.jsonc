@@ -13,5 +13,9 @@
   },
   "observability": { "enabled": true },
   "workers_dev": false,
-  "routes": [{ "pattern": "hivedesktop.com", "custom_domain": true }]
+  "routes": [{ "pattern": "hivedesktop.com", "custom_domain": true }],
+  // Private diagnostics bucket for /api/report. No public access, no custom
+  // domain — the binding is the only writer. REPORT_TOKEN is a secret set with
+  // `wrangler secret put`, never committed here.
+  "r2_buckets": [{ "binding": "REPORTS", "bucket_name": "hive-desktop-reports" }]
 }
