@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -27,6 +28,7 @@ type publishOptions struct {
 	version         releaseVersion
 	skipNotarize    bool
 	skipUpload      bool
+	skipWeb         bool
 	force           bool
 	r2Bucket        string
 	r2AccountID     string
@@ -88,6 +90,8 @@ func parsePublishOptions(args []string) (publishOptions, error) {
 			options.skipNotarize = true
 		case "--skip-upload":
 			options.skipUpload = true
+		case "--skip-web":
+			options.skipWeb = true
 		case "--force":
 			options.force = true
 		default:
@@ -95,13 +99,13 @@ func parsePublishOptions(args []string) (publishOptions, error) {
 				return publishOptions{}, fmt.Errorf("unknown flag %s", arg)
 			}
 			if versionText != "" {
-				return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--force]")
+				return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force]")
 			}
 			versionText = arg
 		}
 	}
 	if versionText == "" {
-		return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--force]")
+		return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force]")
 	}
 	if options.skipNotarize && !options.skipUpload {
 		return publishOptions{}, errors.New("--skip-notarize requires --skip-upload; public releases must be notarized")
@@ -178,6 +182,17 @@ func (p *publisher) run(ctx context.Context) error {
 	}()
 
 	fmt.Printf("==> releasing %s (channel: %s -> manifests: %s)\n", p.options.version, p.options.version.channel(), strings.Join(p.options.version.affectedChannels(), " "))
+	// Deploy and verify the web landing page and worker before the app build, so a
+	// broken or misconfigured backend aborts the release before any immutable
+	// artifact is uploaded. The app upload is the only irreversible step.
+	if p.webEnabled() {
+		if err := p.deployWeb(ctx); err != nil {
+			return err
+		}
+		if err := p.verifyWeb(ctx); err != nil {
+			return err
+		}
+	}
 	if err := p.build(ctx); err != nil {
 		return err
 	}
@@ -223,6 +238,9 @@ func (p *publisher) preflight(ctx context.Context) error {
 	if !p.options.skipUpload {
 		tools = append(tools, "curl")
 	}
+	if p.webEnabled() {
+		tools = append(tools, "node", "npm")
+	}
 	for _, tool := range tools {
 		if _, err := exec.LookPath(tool); err != nil {
 			return fmt.Errorf("required tool %s: %w", tool, err)
@@ -255,12 +273,109 @@ func (p *publisher) cleanup() error {
 	return cleanupErr
 }
 
+func (p *publisher) webEnabled() bool {
+	return !p.options.skipUpload && !p.options.skipWeb
+}
+
+func (p *publisher) deployWeb(ctx context.Context) error {
+	fmt.Println("==> deploying web (landing page + worker)")
+	for _, step := range [][]string{{"npm", "ci"}, {"npm", "run", "deploy"}} {
+		command := exec.CommandContext(ctx, step[0], step[1:]...)
+		command.Dir = "web"
+		command.Stdout = os.Stdout
+		command.Stderr = os.Stderr
+		if err := command.Run(); err != nil {
+			return fmt.Errorf("web deploy (%s): %w", strings.Join(step, " "), err)
+		}
+	}
+	return nil
+}
+
+func (p *publisher) verifyWeb(ctx context.Context) error {
+	client := &http.Client{Timeout: 30 * time.Second}
+	endpoint := siteBaseURL() + "/api/report"
+
+	// The report route is POST-only, so a live worker answers GET with 405; a
+	// missing worker or route answers 404. Retry briefly for edge propagation.
+	var liveErr error
+	for attempt := range 5 {
+		if attempt > 0 {
+			time.Sleep(2 * time.Second)
+		}
+		status, err := probeStatus(ctx, client, http.MethodGet, endpoint, "")
+		if err != nil {
+			liveErr = err
+			continue
+		}
+		if status == http.StatusMethodNotAllowed {
+			liveErr = nil
+			break
+		}
+		liveErr = fmt.Errorf("GET %s returned HTTP %d, want 405", endpoint, status)
+	}
+	if liveErr != nil {
+		return fmt.Errorf("verify web worker: %w", liveErr)
+	}
+
+	token := os.Getenv("HIVE_DESKTOP_REPORT_TOKEN")
+	if token == "" {
+		fmt.Println("==> web deployed; problem reporting disabled (HIVE_DESKTOP_REPORT_TOKEN unset)")
+		return nil
+	}
+	// An authenticated POST with a non-gzip body stops at the worker's gzip gate
+	// (415), which is past the 401 (token) and 503 (reporting disabled) checks.
+	// So a 415 proves the release token is accepted without writing a report.
+	status, err := probeStatus(ctx, client, http.MethodPost, endpoint, token)
+	if err != nil {
+		return fmt.Errorf("verify web report token: %w", err)
+	}
+	if err := reportProbeResult(status); err != nil {
+		return fmt.Errorf("verify web report token: %w", err)
+	}
+	fmt.Println("==> web deployed; report endpoint accepts the release token")
+	return nil
+}
+
+func probeStatus(ctx context.Context, client *http.Client, method, url, bearer string) (int, error) {
+	req, err := http.NewRequestWithContext(ctx, method, url, nil)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("User-Agent", "hive-desktop-release/1")
+	if bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+bearer)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+	return resp.StatusCode, nil
+}
+
+func reportProbeResult(status int) error {
+	switch status {
+	case http.StatusUnsupportedMediaType:
+		return nil
+	case http.StatusUnauthorized:
+		return errors.New("worker rejected the release token: HIVE_DESKTOP_REPORT_TOKEN does not match the worker's REPORT_TOKEN secret")
+	case http.StatusServiceUnavailable:
+		return errors.New("worker reports problem reporting disabled: set the REPORT_TOKEN secret on the worker (wrangler secret put REPORT_TOKEN)")
+	default:
+		return fmt.Errorf("unexpected status %d from the report endpoint", status)
+	}
+}
+
 func (p *publisher) build(ctx context.Context) error {
 	commit, err := gitHead(ctx)
 	if err != nil {
 		return err
 	}
 	fmt.Println("==> building universal .app")
+	if os.Getenv("HIVE_DESKTOP_REPORT_TOKEN") == "" {
+		fmt.Fprintln(os.Stderr, "warning: HIVE_DESKTOP_REPORT_TOKEN is empty; problem reporting will be disabled in this build")
+	}
 	command := exec.CommandContext(ctx, "mise", "x", "--", "wails3", "task", "darwin:package:universal")
 	command.Dir = "desktop"
 	command.Env = append(os.Environ(),

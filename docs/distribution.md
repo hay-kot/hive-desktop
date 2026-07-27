@@ -69,7 +69,9 @@ wrangler r2 bucket lifecycle add hive-desktop-reports --expire-days 90 --prefix 
 #    on hostname hivedesktop.com + path /api/report, e.g. 10 requests / 10 min / IP.
 ```
 
-The same token value must be stamped into the released app so its uploads authenticate: add `-X github.com/hay-kot/hive-desktop/internal/adapter/wailsui.reportToken=<token>` to the release build's ldflags. With no token stamped in, the app hides/disables reporting and the worker answers `503 reporting_disabled` — the feature fails closed.
+The same token value is stamped into the released app so its uploads pass the worker's bearer check. The release build reads `HIVE_DESKTOP_REPORT_TOKEN` from the environment (repo-root `.env` locally, a repo secret in CI) and stamps it via `-X github.com/hay-kot/hive-desktop/internal/adapter/wailsui.reportToken=$HIVE_DESKTOP_REPORT_TOKEN` in `desktop/build/darwin/Taskfile.yml`; set its value to the worker's `REPORT_TOKEN` secret. With no token stamped in — every source and dev build — the app hides/disables reporting and the worker answers `503 reporting_disabled`, so the feature fails closed. The publisher warns when `HIVE_DESKTOP_REPORT_TOKEN` is empty so a release cannot silently ship with reporting off.
+
+The stamped client token is not a secret — it ships in the binary and is extractable. It exists to gate the feature off in non-release builds and as a rotatable deterrent; the endpoint's real protection is edge rate-limiting plus the write-only private bucket, the server-chosen object key, and the size cap.
 
 **Reading reports** (no viewer UI yet):
 
@@ -87,11 +89,13 @@ gunzip -c report.json.gz | jq .
 
 The pipeline is the Go CLI in `cmd/release`. Its `publish` command builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, verifies the extracted archive's signature and stapled ticket, writes `SHA256SUMS`, uploads to `releases/<semver>/`, writes channel manifests, and verifies the live artifact. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
+The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`npm ci && npm run deploy`) and verifies the worker is live and — when `HIVE_DESKTOP_REPORT_TOKEN` is set — that the release token is accepted (an authenticated non-gzip `POST /api/report` must return `415`, past the `401`/`503` gates, so it never writes a report). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
+
 **Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise; tag afterwards):
 
 ```bash
 go run ./cmd/release prepare dev 1.4.0-dev.1
-mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --force
+mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --skip-web, --force
 git tag desktop-v1.4.0-dev.1             # local only; do not push after a local upload
 ```
 
@@ -125,4 +129,5 @@ Dev builds are pruned by a scheduled job (delete `-dev.` versions older than N d
 
 - `CLOUDFLARE_API_TOKEN` (repo secret) — web deploys; Workers edit on the account + `hivedesktop.com` zone. Dashboard-created (OAuth sessions cannot mint API tokens).
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (repo secrets + local `.env`) — S3 credentials for `hive-desktop-releases`.
+- `HIVE_DESKTOP_REPORT_TOKEN` (repo secret + local `.env`) — stamped into release builds so problem-report uploads pass the worker's bearer check; set it to the same value as the worker's `REPORT_TOKEN` secret. Extractable from the binary, so not a real secret (see [Problem reporting](#problem-reporting)).
 - Signing/notary set (repo secrets + local `.env`, same names in both): `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, `MACOS_SIGN_IDENTITY`, `AC_API_KEY`, `AC_API_KEY_ID`, `AC_API_ISSUER_ID`.
