@@ -1,15 +1,18 @@
 ---
 /**
  * Unlisted invite-only install page. The path is a random token so the page is
- * unguessable; it is `noindex` and disallowed in robots.txt as well. Move or
- * rename the file to rotate the URL. The one-line installer it documents is the
- * static asset at /install.sh (web/public/install.sh).
+ * unguessable; it is `noindex` and disallowed in robots.txt as well. The
+ * installer it documents is the static asset alongside it, under the same token
+ * (web/public/install/<token>/install.sh) — so robots.txt disallows the whole
+ * /install/ prefix without ever printing the token. Rotating the URL means
+ * renaming both this file and that directory to a new token.
  */
 import Icon from "../../components/Icon.astro";
 import Base from "../../layouts/Base.astro";
 
 const version = "v0.4 beta";
-const command = "curl -fsSL https://hivedesktop.com/install.sh | bash";
+const command =
+  "curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash";
 
 const mac = { arches: "Apple silicon · Intel", path: "/Applications/Hive.app" };
 
@@ -30,7 +33,7 @@ const steps = [
 
 const goodToKnow = [
   { title: "Updating", body: "hive update, or re-run the install command" },
-  { title: "Pin a version", body: "HIVE_VERSION=0.4.2 before the command" },
+  { title: "Beta / dev builds", body: "… | bash -s -- --channel dev" },
   { title: "Uninstall", body: "hive uninstall removes the binary and config" },
   { title: "Read it first", body: "Drop the | bash to inspect the script" },
 ];
@@ -174,6 +177,19 @@ const goodToKnow = [
 </Base>
 
 <script>
+  // Invite links may carry ?channel=beta|dev. The installer script is static and
+  // identical for every channel; only the command shown here gains the flag that
+  // picks the channel at run time.
+  const channel = new URLSearchParams(location.search).get("channel");
+  if (channel === "beta" || channel === "dev") {
+    const code = document.querySelector<HTMLElement>("[data-command]");
+    const copy = document.querySelector<HTMLButtonElement>("[data-copy]");
+    const base = copy?.dataset.copy ?? code?.textContent ?? "";
+    const flagged = `${base} -s -- --channel ${channel}`;
+    if (code) code.textContent = flagged;
+    if (copy) copy.dataset.copy = flagged;
+  }
+
   const tabs = document.querySelectorAll<HTMLButtonElement>(".tab");
   const panels = document.querySelectorAll<HTMLElement>("[data-panel]");
 

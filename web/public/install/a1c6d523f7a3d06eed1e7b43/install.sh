@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 #
-# Hive desktop installer - https://hivedesktop.com/install.sh
+# Hive desktop installer
 #
-#     curl -fsSL https://hivedesktop.com/install.sh | bash
+#     curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash
 #
-# Detects your OS + CPU, pulls the matching build from the release channel,
-# verifies its SHA-256 against the published manifest, installs the app, and
-# symlinks `hive` onto your PATH. macOS is the only platform during the private
-# beta; Linux is wired up but only installs once linux builds are published.
+# The path token keeps this out of casual discovery while the beta is private;
+# it is obscurity, not authentication (anyone with the link can fetch it). Drop
+# the `| bash` to read this first.
 #
-# Environment overrides:
-#   HIVE_CHANNEL   release channel: stable (default), beta, dev
-#   HIVE_VERSION   pin an exact version (e.g. 0.4.2) instead of the channel tip
-#   HIVE_BIN_DIR   directory to symlink the `hive` launcher into
+# Detects your OS + CPU, pulls the channel's latest build, verifies its SHA-256
+# against the published manifest, installs the app, and symlinks `hive` onto
+# your PATH. macOS is the only platform during the private beta; Linux is wired
+# up but only installs once linux builds are published.
+#
+# Channel defaults to stable. Track another by passing the flag through bash:
+#
+#     curl -fsSL <url> | bash -s -- --channel dev
+#
+# or set `HIVE_CHANNEL`. `HIVE_BIN_DIR` sets the `hive` symlink directory.
 #
 set -euo pipefail
 
@@ -31,6 +36,21 @@ say() { printf '%s %s\n' "${DIM}hive${RST}" "$*"; }
 ok()  { printf '%s %s\n' "${GRN}✓${RST}" "$*"; }
 die() { printf '%s %s\n' "${RED}✗${RST}" "$*" >&2; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "this installer needs \`$1\` on your PATH"; }
+
+# `bash -s -- --channel dev` passes the flag through to here; it wins over the
+# HIVE_CHANNEL env var.
+parse_args() {
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --channel) [ $# -ge 2 ] || die "--channel needs a value"; CHANNEL="$2"; shift 2 ;;
+      --channel=*) CHANNEL="${1#*=}"; shift ;;
+      -h | --help)
+        printf 'usage: install.sh [--channel stable|beta|dev]\n'
+        exit 0 ;;
+      *) die "unknown option: $1 (try --help)" ;;
+    esac
+  done
+}
 
 detect_platform() {
   case "$(uname -s)" in
@@ -81,19 +101,6 @@ resolve_from_channel() {
   die "the $CHANNEL channel has no ${OS}-${ARCH} build yet. macOS is the only platform during the private beta"
 }
 
-resolve_from_version() {
-  VERSION="$HIVE_VERSION"
-  [ "$OS" = darwin ] || die "pinned installs (HIVE_VERSION) support macOS only right now"
-  local prefix="$DL_BASE/desktop/releases/$VERSION"
-  local name="Hive-$VERSION-darwin-universal.zip"
-  PLATFORM="darwin-universal"
-  ART_URL="$prefix/$name"
-  local sums
-  sums="$(curl -fsSL "$prefix/SHA256SUMS")" || die "no release found at $prefix"
-  ART_SHA="$(printf '%s\n' "$sums" | awk -v f="$name" '$2 == f || $2 == "*" f { print $1; exit }')"
-  [ -n "$ART_SHA" ] || die "SHA256SUMS at $prefix has no entry for $name"
-}
-
 verify_sha() {
   [ -n "$ART_SHA" ] || die "the manifest has no checksum for $PLATFORM"
   local actual
@@ -113,6 +120,7 @@ install_darwin() {
   [ -d "$WORK/x/$APP_NAME" ] || die "archive did not contain $APP_NAME"
   local dest="/Applications"
   [ -w "$dest" ] || { dest="$HOME/Applications"; mkdir -p "$dest"; }
+  say "installing to ${BOLD}$dest/$APP_NAME${RST}…"
   rm -rf "${dest:?}/${APP_NAME:?}"
   if command -v ditto >/dev/null 2>&1; then
     ditto "$WORK/x/$APP_NAME" "$dest/$APP_NAME"
@@ -166,12 +174,13 @@ print_next() {
 }
 
 main() {
+  parse_args "$@"
   need curl
   need awk
   detect_platform
   say "installing Hive for ${BOLD}${OS}-${ARCH}${RST}…"
-  if [ -n "${HIVE_VERSION:-}" ]; then resolve_from_version; else resolve_from_channel; fi
-  say "release ${BOLD}$VERSION${RST} · $PLATFORM"
+  resolve_from_channel
+  say "release ${BOLD}$VERSION${RST} · $PLATFORM · $CHANNEL"
   WORK="$(mktemp -d)"
   trap 'rm -rf "$WORK"' EXIT
   PKG="$WORK/pkg"

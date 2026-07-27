@@ -33,6 +33,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0023](decisions/0023-pprof-debug-endpoint.md) | pprof debug endpoint mounted on the shared loopback HTTP server |
 | [0024](decisions/0024-in-app-problem-reporting.md) | In-app problem reporting: redacted diagnostics to a private R2 bucket |
 | [0025](decisions/0025-profile-images.md) | Profile images: normalized PNG in the data dir, hash-referenced from the flow |
+| [0026](decisions/0026-install-script.md) | One-line install script served behind an obscure path |
 
 ## References
 
