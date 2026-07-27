@@ -141,6 +141,12 @@ The dashboard is a thin renderer over these, and an agent drives the same surfac
 # the fixed contract (endpoints, actions, mutation fields)
 curl localhost:7777/_ctl/help
 
+# preflight: is this the build under test, and has an app connected yet?
+# health reports {devserver, appConnected, requests, itemsObserved, ...};
+# version reports the VCS revision + dirty flag Go stamped into the binary.
+curl localhost:7777/_ctl/health
+curl localhost:7777/_ctl/version
+
 # everything live: observed items, overlays, running scenarios, targets, payloads
 curl localhost:7777/_ctl/state
 

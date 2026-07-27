@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -47,7 +48,8 @@ func NewControl(cfg Config, store *Store, cache *Cache, proxy *Proxy, pusher *Pu
 // Handler returns the control routes.
 func (c *Control) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET "+devproxy.HealthPath, handleHealth)
+	mux.HandleFunc("GET "+devproxy.HealthPath, c.handleHealth)
+	mux.HandleFunc("GET /_ctl/version", handleVersion)
 	mux.HandleFunc("GET /_ctl/help", c.handleHelp)
 	mux.HandleFunc("GET /_ctl/state", c.handleState)
 	mux.HandleFunc("POST /_ctl/overlay", c.handleSetOverlay)
@@ -123,11 +125,64 @@ func (c *Control) handleState(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleHealth answers the standby launch's probe. It reads no
-// state, so it stays truthful about "a devserver owns this port" even if the
-// overlay store or cache is busy.
-func handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, devproxy.Health{Devserver: true})
+// HealthView is a superset of devproxy.Health: Probe reads only Devserver and
+// ignores the readiness fields, so enriching the payload keeps the probe
+// contract.
+type HealthView struct {
+	Devserver bool `json:"devserver"`
+	// AppConnected is Requests > 0: an instance has fetched through the proxy.
+	AppConnected   bool      `json:"appConnected"`
+	Requests       int64     `json:"requests"`
+	UpstreamCalls  int64     `json:"upstreamCalls"`
+	ItemsObserved  int       `json:"itemsObserved"`
+	CacheEntries   int       `json:"cacheEntries"`
+	LastUpstreamAt time.Time `json:"lastUpstreamAt"`
+}
+
+// handleHealth answers the standby probe and reports readiness. Devserver is
+// written first, so the standby-vs-foreign answer never hinges on the
+// readiness read.
+func (c *Control) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	stats, _ := c.proxy.Snapshot()
+	writeJSON(w, http.StatusOK, HealthView{
+		Devserver:      true,
+		AppConnected:   stats.Requests > 0,
+		Requests:       stats.Requests,
+		UpstreamCalls:  stats.UpstreamCalls,
+		ItemsObserved:  len(c.store.Items()),
+		CacheEntries:   c.cache.Entries(),
+		LastUpstreamAt: stats.LastUpstreamAt,
+	})
+}
+
+// VersionView is the running binary's build identity, so a harness can confirm
+// the singleton is the build under test.
+type VersionView struct {
+	Service  string `json:"service"`
+	Revision string `json:"revision"`
+	Modified bool   `json:"modified"`
+	Time     string `json:"time"`
+	Go       string `json:"go"`
+}
+
+// handleVersion reads the VCS metadata Go stamps into the binary. -buildvcs=false
+// leaves Revision empty, which reads as an unknown build.
+func handleVersion(w http.ResponseWriter, _ *http.Request) {
+	view := VersionView{Service: "hive devserver"}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		view.Go = info.GoVersion
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				view.Revision = s.Value
+			case "vcs.modified":
+				view.Modified = s.Value == "true"
+			case "vcs.time":
+				view.Time = s.Value
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, view)
 }
 
 // overlayRequest is the body of POST /_ctl/overlay.
@@ -526,6 +581,8 @@ type MutationDoc struct {
 
 var controlEndpoints = []EndpointDoc{
 	{"GET", "/_ctl/help", "This contract: endpoints, actions, and mutation fields."},
+	{"GET", "/_ctl/health", "Readiness: devserver up, whether an app has polled (appConnected/requests), items observed, cache entries, last upstream time."},
+	{"GET", "/_ctl/version", "Build identity: VCS revision, dirty flag, and build time — confirm this is the build under test."},
 	{"GET", "/_ctl/state", "Everything live: observed items, active overlays, running scenarios, targets, payloads, and recent activity."},
 	{"POST", "/_ctl/overlay", "Apply a raw mutation set to one item: {repo, num, set:{...}}."},
 	{"POST", "/_ctl/overlay/clear", "Drop one item's overlay: {repo, num}."},
