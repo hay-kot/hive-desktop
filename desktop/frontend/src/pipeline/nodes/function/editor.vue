@@ -6,7 +6,7 @@
 // can never drift from what it reports.
 import { computed } from 'vue'
 import { CodeField } from '../../fields'
-import { DEFAULT_OUTPUTS, checkSyntax, type Config } from './config'
+import { DEFAULT_OUTPUTS, checkSyntax, recipes, type Config } from './config'
 
 const props = defineProps<{ config: Config; errors?: string[] }>()
 const emit = defineEmits<{ 'update:config': [config: Config] }>()
@@ -51,12 +51,24 @@ function onTimeoutInput(text: string) {
   <div class="flex flex-col gap-4">
     <CodeField
       :model-value="config.on_message"
-      label="on_message(msg, node, state)"
-      hint="Required. Return msg | msg[] | a port-indexed array | null (discard)."
+      label="on_message(msg, node, state, kv)"
+      hint="Required. Return msg | msg[] | a port-indexed array | null (discard). kv is durable per-node storage."
       :error="onMessageErrors[0]"
       testid="function-editor-on-message"
       @update:model-value="(v) => set('on_message', v)"
     />
+
+    <div class="flex flex-wrap items-center gap-2 text-[11px] text-text-3" data-testid="function-editor-recipes">
+      Recipes
+      <button
+        v-for="recipe in recipes"
+        :key="recipe.id"
+        type="button"
+        class="rounded-md border border-row bg-app px-2 py-1 text-text-2 hover:border-accent"
+        :data-testid="`function-editor-recipe-${recipe.id}`"
+        @click="set('on_message', recipe.code)"
+      >{{ recipe.label }}</button>
+    </div>
 
     <div class="flex flex-wrap items-center gap-2 font-mono text-[11px] text-text-3" data-testid="function-editor-footer-chips">
       <label class="inline-flex items-center gap-1.5 rounded-md border border-row bg-app px-2 py-1">

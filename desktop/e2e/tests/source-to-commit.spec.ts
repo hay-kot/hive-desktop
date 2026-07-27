@@ -7,6 +7,7 @@ const smokePath = '/_e2e/source-to-commit'
 type SmokeState = {
   claims: Array<{ externalId: string; payload: { title: string }; unread: boolean }>
   nodeRuns: Array<{ flowId: string; nodeId: string; ok: boolean; inCount: number; outCount: number; dropCount: number }>
+  notifyCommands: number
 }
 
 test('commits Go-appended source messages through the flow engine', async ({ page }) => {
@@ -26,8 +27,8 @@ test('commits Go-appended source messages through the flow engine', async ({ pag
     const response = await page.request.get(smokePath)
     expect(response.ok()).toBeTruthy()
     const state = await response.json() as SmokeState
-    return { items: state.claims.length, runs: state.nodeRuns.length }
-  }).toEqual({ items: 2, runs: 3 })
+    return { items: state.claims.length, runs: state.nodeRuns.length, notified: state.notifyCommands }
+  }).toEqual({ items: 2, runs: 5, notified: 2 })
   const response = await page.request.get(smokePath)
   expect(response.ok()).toBeTruthy()
   const state = await response.json() as SmokeState
@@ -36,15 +37,31 @@ test('commits Go-appended source messages through the flow engine', async ({ pag
   expect(state.claims.every((item) => item.unread)).toBe(true)
 
   // These per-node facts prove the event crossed the source, the function
-  // node, and the feed terminal before the claims were persisted.
-  for (const nodeId of ['fixture-source', 'worker-transform', 'smoke-feed']) {
+  // node, and the feed terminal before the claims were persisted — and that
+  // the dedup branch forwarded every new item to its notify terminal.
+  for (const nodeId of ['fixture-source', 'worker-transform', 'smoke-feed', 'dedup-once', 'smoke-notify']) {
     expect(state.nodeRuns).toContainEqual(expect.objectContaining({
       flowId: 'source-to-commit',
       nodeId,
       ok: true,
       inCount: 2,
-      outCount: 2,
       dropCount: 0,
     }))
   }
+
+  // Re-observe both items with changed payloads: the feed keeps every item
+  // (same identities, updated titles) while the KV-backed dedup keeps the
+  // notify branch quiet — each item interrupts once, ever.
+  const rerun = await page.request.post(smokePath + '?rev=2')
+  expect(rerun.ok()).toBeTruthy()
+  await expect(page.getByTestId('feed-item').filter({ hasText: 'Source-to-commit smoke PR (rev 2)' })).toBeVisible()
+  await expect.poll(async () => {
+    const after = await page.request.get(smokePath)
+    const state = await after.json() as SmokeState
+    return {
+      items: state.claims.length,
+      notified: state.notifyCommands,
+      dedupDrops: state.nodeRuns.some((run) => run.nodeId === 'dedup-once' && run.dropCount === 2),
+    }
+  }).toEqual({ items: 2, notified: 2, dedupDrops: true })
 })

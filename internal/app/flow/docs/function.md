@@ -4,7 +4,7 @@ A **function** node runs author-trusted JavaScript against every message that re
 
 ## Fields
 
-- `on_message` (required) — the body of `function on_message(msg, node, state) { ... }`. Return:
+- `on_message` (required) — the body of `function on_message(msg, node, state, kv) { ... }`. Return:
   - a single `msg` — goes out port 0
   - an array of `msg` — multiple messages, all on port 0 (when `outputs` is 1)
   - a port-indexed array (e.g. `[msg, null]`) — `array[i]` goes out port `i`, once `outputs` is more than 1
@@ -29,6 +29,22 @@ msg.ID        // unique per log record
 ```
 
 The message envelope is exactly these fields plus `Ts`, `SourceKind`, `SourceScope` and `OccurrenceKey`. Extra properties attached to `msg` itself are not carried to the next node — per-message data belongs in `msg.Payload`, which is opaque and passes through whole.
+
+`msg.Payload` is usually a live object — never `JSON.parse` it. A scalar payload (a bare number or string) reads back `undefined` for any field access rather than throwing, so a change-detection recipe degrades to "never a meaningful change" instead of crashing.
+
+## Durable state: `kv`
+
+`kv` is a small durable key-value store scoped to this node — the memory behind "notify once" and "notify on change". Unlike `state` it survives restarts and redeploys, and a write becomes durable atomically with the tick that made it: a script that throws after `kv.set` persists nothing.
+
+- `kv.get(key)` — the stored value, or `undefined`
+- `kv.set(key, value, { ttl })` — store a JSON-serializable value; `ttl` is a whole number of seconds (omit or `0` = no expiry). An expired key reads as absent immediately — re-arming does not wait on cleanup
+- `kv.has(key)` / `kv.delete(key)` / `kv.keys(prefix)` — prefix matching is case-sensitive
+
+Values must be JSON-serializable (a function or `undefined` throws). Keys cap at 512 bytes and stored values at 4096 — this is a dedup memory, not a blob store.
+
+Key on the full identity tuple, `JSON.stringify([msg.SourceKind, msg.SourceScope, msg.Key])`, not `msg.Key` alone: two sources feeding one node can emit the same external id for different items.
+
+KV identity is the node **id**, which the editor preserves across renames — renaming a node keeps its memory and does not re-notify. The id disappearing is what reclaims it: deleting the node (or replacing it with a fresh one) clears its KV on the next deploy, converting the node to another type clears it too, while hand-recreating a node under the *same* id inherits the old memory. Keep dedup on the notify branch, not upstream of a feed — feeds recompute membership from full snapshots on deploy, with `kv` deliberately reading empty during that recompute, so a dedup in front of a feed and its live snapshot handling would disagree.
 
 ## Example
 

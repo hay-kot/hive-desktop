@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
-import { defaults, validate, type Config } from '../config'
+import { checkSyntax, compile, defaults, recipes, validate, type Config } from '../config'
 
 function fire(el: Element, type: string) {
   el.dispatchEvent(new Event(type, { bubbles: true }))
@@ -97,5 +97,51 @@ describe('function validate', () => {
   it('flags timeout out of the 100ms..60s range', () => {
     expect(validate({ on_message: 'return msg', timeout: 50 })).toContain('timeout must be between 100ms and 60s')
     expect(validate({ on_message: 'return msg', timeout: 70000 })).toContain('timeout must be between 100ms and 60s')
+  })
+})
+
+describe('function recipes', () => {
+  it('a recipe button sets on_message to its snippet', async () => {
+    const wrapper = mount(Editor, { props: { config: { on_message: 'return msg' } } })
+    await wrapper.get('[data-testid="function-editor-recipe-once"]').trigger('click')
+    const emitted = wrapper.emitted('update:config')?.at(-1)?.[0] as Config
+    expect(emitted.on_message).toBe(recipes[0].code)
+  })
+
+  it('every recipe compiles cleanly through checkSyntax, which now includes kv', () => {
+    for (const recipe of recipes) {
+      expect(checkSyntax(recipe.code), recipe.id).toEqual([])
+    }
+  })
+
+  it('a script referencing kv is not flagged by the live check', () => {
+    expect(checkSyntax('kv.set("k", 1); return msg')).toEqual([])
+  })
+
+  // The "meaningful change" recipe must degrade, not crash, when a source
+  // emits a scalar payload: field reads come back undefined and the digest
+  // is stable.
+  it('recipe #2 tolerates a scalar payload', () => {
+    const onChange = recipes.find((r) => r.id === 'on-change')
+    expect(onChange).toBeDefined()
+    const rows: Record<string, string> = {}
+    const kv = {
+      get: (k: string) => rows[k],
+      set: (k: string, v: unknown) => {
+        rows[k] = JSON.stringify(v)
+      },
+      has: (k: string) => k in rows,
+      delete: (k: string) => delete rows[k],
+      keys: () => Object.keys(rows),
+    }
+    const fn = compile(onChange!.code)
+    const msg = { SourceKind: 'github', SourceScope: 's', Key: 'k', Payload: 42 }
+
+    const digests: string[] = []
+    for (let i = 0; i < 2; i++) {
+      expect(() => fn(msg, {}, {}, kv)).not.toThrow()
+      digests.push(String(rows[JSON.stringify(['github', 's', 'k'])]))
+    }
+    expect(digests[0]).toBe(digests[1])
   })
 })

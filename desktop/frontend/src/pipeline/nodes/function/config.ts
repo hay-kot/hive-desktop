@@ -12,7 +12,7 @@ export const role = 'processor' as const
 
 export interface Config {
   /**
-   * required — the body of `on_message(msg, node, state)`, and the node's
+   * required — the body of `on_message(msg, node, state, kv)`, and the node's
    * whole lifecycle. There are no start/stop hooks: the node does no I/O, so
    * setup belongs in `on_message` as lazy init (`state.counts ??= {}`).
    */
@@ -34,7 +34,7 @@ export function timeoutMs(config: Config): number {
   return config.timeout ?? DEFAULT_TIMEOUT_MS
 }
 
-export type CompiledFn = (msg: unknown, node: Record<string, any>, state: Record<string, any>) => unknown
+export type CompiledFn = (msg: unknown, node: Record<string, any>, state: Record<string, any>, kv: Record<string, any>) => unknown
 
 /**
  * Compiles a JS body so a syntax error surfaces while typing. Nothing calls
@@ -44,7 +44,7 @@ export type CompiledFn = (msg: unknown, node: Record<string, any>, state: Record
  */
 export function compile(src: string): CompiledFn {
   // eslint-disable-next-line no-new-func
-  return new Function('msg', 'node', 'state', src) as CompiledFn
+  return new Function('msg', 'node', 'state', 'kv', src) as CompiledFn
 }
 
 /**
@@ -60,6 +60,44 @@ export function checkSyntax(src: string): string[] {
     return [error instanceof Error ? error.message : String(error)]
   }
 }
+
+/**
+ * Copy-paste starting points for the canonical dedup intents, faithful to the
+ * real runtime surface: `msg.Payload` is a live object (never JSON.parse it),
+ * and keys use the full source-identity tuple — two sources feeding one node
+ * can emit the same `msg.Key` for different items.
+ */
+export const recipes = [
+  {
+    id: 'once',
+    label: 'Notify once, ever',
+    code: `// Notify once, ever
+const k = JSON.stringify([msg.SourceKind, msg.SourceScope, msg.Key])
+if (kv.has(k)) return null
+kv.set(k, true)
+return msg`,
+  },
+  {
+    id: 'on-change',
+    label: 'Only on meaningful change',
+    code: `// Notify only on a meaningful change (you pick the fields)
+const k = JSON.stringify([msg.SourceKind, msg.SourceScope, msg.Key])
+const p = msg.Payload || {}
+const meaningful = JSON.stringify({ state: p.state, review: p.review_decision, sha: p.head_sha })
+if (kv.get(k) === meaningful) return null
+kv.set(k, meaningful)
+return msg`,
+  },
+  {
+    id: 'rate-limit',
+    label: 'At most once per 4h',
+    code: `// At most once per 4h per item (rate-limit / re-arm)
+const k = JSON.stringify([msg.SourceKind, msg.SourceScope, msg.Key])
+if (kv.has(k)) return null
+kv.set(k, true, { ttl: 4 * 60 * 60 })
+return msg`,
+  },
+] as const
 
 // ── App-registry metadata ───────────────────────────────────────────────────
 
