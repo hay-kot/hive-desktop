@@ -15,6 +15,7 @@
 package sources
 
 import (
+	"maps"
 	"sort"
 
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
@@ -55,8 +56,6 @@ func Lookup(connectorType string) (connector.Descriptor, bool) {
 // a caller ranging over it cannot mutate the registry.
 func All() map[string]connector.Descriptor {
 	out := make(map[string]connector.Descriptor, len(descriptors))
-	for name, d := range descriptors {
-		out[name] = d
-	}
+	maps.Copy(out, descriptors)
 	return out
 }

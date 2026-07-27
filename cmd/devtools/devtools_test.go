@@ -103,7 +103,9 @@ func TestFreshAndResetRefuseActiveLaunch(t *testing.T) {
 	launch, err := tools.readLaunchIfPresent()
 	require.NoError(t, err)
 	launch["WAILS_SERVER_HOST"] = "127.0.0.1"
-	launch["WAILS_SERVER_PORT"] = strconv.Itoa(listener.Addr().(*net.TCPAddr).Port)
+	addr, ok := listener.Addr().(*net.TCPAddr)
+	require.True(t, ok, "listener address should be *net.TCPAddr")
+	launch["WAILS_SERVER_PORT"] = strconv.Itoa(addr.Port)
 	require.NoError(t, writeDotenvAtomic(tools.launchPath, launch))
 
 	err = tools.withLock(func() error { return tools.prepare(true) })

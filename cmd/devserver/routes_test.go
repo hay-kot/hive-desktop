@@ -38,9 +38,9 @@ func get(t *testing.T, handler http.Handler, path string) *httptest.ResponseReco
 // GitHub passthrough, so before this it was forwarded to api.github.com and
 // counted as an upstream call on every page refresh.
 func TestBrowserChromePathsNeverReachUpstream(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		w.Write([]byte(`{}`)) //nolint:errcheck // test server
 	}))
 	defer upstream.Close()
@@ -51,7 +51,7 @@ func TestBrowserChromePathsNeverReachUpstream(t *testing.T) {
 		assert.Equal(t, http.StatusNoContent, get(t, handler, path).Code, path)
 	}
 
-	assert.Equal(t, int64(0), atomic.LoadInt64(&calls), "browser chrome must not generate GitHub traffic")
+	assert.Equal(t, int64(0), calls.Load(), "browser chrome must not generate GitHub traffic")
 	stats, recent := proxy.Snapshot()
 	assert.Zero(t, stats.Requests, "and must not be counted as proxied requests")
 	assert.Zero(t, stats.UpstreamCalls)
@@ -61,9 +61,9 @@ func TestBrowserChromePathsNeverReachUpstream(t *testing.T) {
 // TestDashboardLoadCostsNothingUpstream covers the whole page load the way a
 // browser performs it: the document, its favicon, and the state poll.
 func TestDashboardLoadCostsNothingUpstream(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 		w.Write([]byte(`{}`)) //nolint:errcheck // test server
 	}))
 	defer upstream.Close()
@@ -78,7 +78,7 @@ func TestDashboardLoadCostsNothingUpstream(t *testing.T) {
 		require.Equal(t, http.StatusOK, get(t, handler, "/_ctl/state").Code)
 	}
 
-	assert.Equal(t, int64(0), atomic.LoadInt64(&calls))
+	assert.Equal(t, int64(0), calls.Load())
 	stats, _ := proxy.Snapshot()
 	assert.Zero(t, stats.UpstreamCalls, "refreshing the dashboard must not change the numbers it reports")
 }
@@ -118,9 +118,9 @@ func TestGitHubPathsStillProxy(t *testing.T) {
 }
 
 func TestControlRoutesAreNotProxied(t *testing.T) {
-	var calls int64
+	var calls atomic.Int64
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		atomic.AddInt64(&calls, 1)
+		calls.Add(1)
 	}))
 	defer upstream.Close()
 
@@ -131,7 +131,7 @@ func TestControlRoutesAreNotProxied(t *testing.T) {
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/_ctl/overlays/clear",
 		strings.NewReader(`{}`)))
 	assert.Equal(t, http.StatusOK, rec.Code)
-	assert.Equal(t, int64(0), atomic.LoadInt64(&calls))
+	assert.Equal(t, int64(0), calls.Load())
 }
 
 func TestRootServesDashboardAndOnlyExactly(t *testing.T) {

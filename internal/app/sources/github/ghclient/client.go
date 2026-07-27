@@ -46,11 +46,10 @@ type Client struct {
 }
 
 type options struct {
-	apiBase   string
-	authBase  string
-	token     string
-	logger    zerolog.Logger
-	transport http.RoundTripper
+	apiBase  string
+	authBase string
+	token    string
+	logger   zerolog.Logger
 }
 
 type Option func(*options)
@@ -75,11 +74,6 @@ func WithLogger(logger zerolog.Logger) Option {
 	return func(o *options) { o.logger = logger }
 }
 
-// WithTransport overrides the base round tripper (tests).
-func WithTransport(rt http.RoundTripper) Option {
-	return func(o *options) { o.transport = rt }
-}
-
 func NewClient(opts ...Option) *Client {
 	o := options{apiBase: defaultAPIBase, authBase: defaultAuthBase}
 	for _, opt := range opts {
@@ -88,20 +82,18 @@ func NewClient(opts ...Option) *Client {
 
 	return &Client{
 		api: sourcehttp.New(sourcehttp.Config{
-			Name:      sourceName,
-			BaseURL:   o.apiBase,
-			Logger:    o.logger,
-			Transport: o.transport,
+			Name:    sourceName,
+			BaseURL: o.apiBase,
+			Logger:  o.logger,
 		},
 			httpclient.Header("Accept", "application/vnd.github+json"),
 			httpclient.Header("X-GitHub-Api-Version", apiVersion),
 			httpclient.JSONContent(),
 		),
 		auth: sourcehttp.New(sourcehttp.Config{
-			Name:      sourceName + "-auth",
-			BaseURL:   o.authBase,
-			Logger:    o.logger,
-			Transport: o.transport,
+			Name:    sourceName + "-auth",
+			BaseURL: o.authBase,
+			Logger:  o.logger,
 		},
 			httpclient.Header("Accept", "application/json"),
 		),

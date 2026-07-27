@@ -337,7 +337,13 @@ func (p *LiveProvider) fetchSource(ctx context.Context, src SourceDef) ([]liveIt
 	if err != nil {
 		return nil, err
 	}
-	return result.([]liveItem), nil
+	// singleflight hands back `any`; the only producer is the closure above,
+	// which returns fetchSourceDirect's typed result.
+	items, ok := result.([]liveItem)
+	if !ok {
+		return nil, fmt.Errorf("singleflight returned %T, want []liveItem", result)
+	}
+	return items, nil
 }
 
 // fetchSourceDirect is the uncoalesced fetch behind fetchSource. Notifications

@@ -37,7 +37,6 @@ func TestParseVersion(t *testing.T) {
 	t.Parallel()
 
 	for _, value := range []string{"0.1.0", "10.20.30-beta.2", "desktop-v1.2.3-dev.4"} {
-		value := value
 		t.Run(value, func(t *testing.T) {
 			t.Parallel()
 			if _, err := parseVersion(value); err != nil {
@@ -46,7 +45,6 @@ func TestParseVersion(t *testing.T) {
 		})
 	}
 	for _, value := range []string{"", "v1.2.3", "1.2", "1.2.3-rc.1", "1.2.3-dev.0"} {
-		value := value
 		t.Run("invalid-"+value, func(t *testing.T) {
 			t.Parallel()
 			if _, err := parseVersion(value); err == nil {

@@ -3,7 +3,6 @@ package runtime
 import (
 	"context"
 	"fmt"
-	"sort"
 	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -115,19 +114,6 @@ func (r *ScriptRegistry) Lookup(name string) (ScriptRuntime, bool) {
 	defer r.mu.RUnlock()
 	rt, ok := r.runtimes[name]
 	return rt, ok
-}
-
-// Names lists the registered languages, sorted. It is what a "which runtimes
-// exist" surface enumerates; it carries metadata only and never dispatches.
-func (r *ScriptRegistry) Names() []string {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	names := make([]string, 0, len(r.runtimes))
-	for name := range r.runtimes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
 
 // DefaultScriptLanguage is the language a function node is written in. There

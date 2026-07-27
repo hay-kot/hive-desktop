@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 )
 
 // nodeEnvelopeJSON is Node's envelope fields for JSON, mirroring nodeHeader
@@ -42,9 +43,7 @@ func (n Node) MarshalJSON() ([]byte, error) {
 	if err := json.Unmarshal(cfgBytes, &cfgFields); err != nil {
 		return nil, fmt.Errorf("node %q: config type %T did not encode to an object", n.ID, n.Config)
 	}
-	for k, v := range cfgFields {
-		merged[k] = v
-	}
+	maps.Copy(merged, cfgFields)
 	return json.Marshal(merged)
 }
 

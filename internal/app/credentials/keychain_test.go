@@ -112,12 +112,10 @@ func TestConcurrentSetsAllReachTheIndex(t *testing.T) {
 	const count = 12
 	var wg sync.WaitGroup
 	for i := range count {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			ref := Ref{Provider: "github", Account: fmt.Sprintf("account-%02d", i)}
 			assert.NoError(t, store.Set(ref, fmt.Sprintf("token-%02d", i)))
-		}()
+		})
 	}
 	wg.Wait()
 

@@ -15,7 +15,7 @@ func TestAppend_ReadFrom_Monotonic(t *testing.T) {
 
 	var offsets []int64
 	for i := range 3 {
-		offset, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), []byte(fmt.Sprintf(`{"n":%d}`, i)))
+		offset, err := database.Append(ctx, "source:test", fmt.Sprintf("key-%d", i), fmt.Appendf(nil, `{"n":%d}`, i))
 		require.NoError(t, err)
 		offsets = append(offsets, offset)
 	}

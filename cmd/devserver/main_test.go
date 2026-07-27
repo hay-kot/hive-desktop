@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,12 +33,12 @@ func occupant(t *testing.T, isDevserver bool) (addr string, release func()) {
 	}
 	go func() { _ = server.Serve(listener) }()
 
-	closed := false
+	// sync.Once, not a captured bool: the takeover test releases from its own
+	// goroutine and again from a defer, so the guard is read and written from
+	// two goroutines at once.
+	var once sync.Once
 	return listener.Addr().String(), func() {
-		if !closed {
-			closed = true
-			_ = server.Close()
-		}
+		once.Do(func() { _ = server.Close() })
 	}
 }
 

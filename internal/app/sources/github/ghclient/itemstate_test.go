@@ -78,11 +78,12 @@ func itemStateHandler(t *testing.T, state string, chunkSizes *[]int, mu *sync.Mu
 
 		data := make(map[string]any, aliasCount)
 		for i := range aliasCount {
-			num := int(request.Variables[fmt.Sprintf("i%d", i)].(float64))
+			num, ok := request.Variables[fmt.Sprintf("i%d", i)].(float64)
+			assert.True(t, ok)
 			data[fmt.Sprintf("r%d", i)] = map[string]any{
 				"issueOrPullRequest": map[string]any{
 					"__typename": "Issue",
-					"number":     num,
+					"number":     int(num),
 					"state":      state,
 					"updatedAt":  "2026-07-18T09:00:00Z",
 					"repository": map[string]any{"nameWithOwner": "o/x"},
