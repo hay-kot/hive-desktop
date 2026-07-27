@@ -84,11 +84,9 @@ type NotificationGate interface {
 }
 
 // InboxItemLocator resolves the durable inbox row a notification came from,
-// so a click can select that item, and answers whether that row's latest
-// observation was one worth interrupting for. Implemented by *store.DB.
+// so a click can select that item. Implemented by *store.DB.
 type InboxItemLocator interface {
 	InboxItemID(ctx context.Context, profileID, sourceKind, sourceScope, externalID string) (int64, error)
-	InboxItemNotifiable(ctx context.Context, profileID, sourceKind, sourceScope, externalID, occurrenceKey string) (bool, error)
 }
 
 // NotifyExecutor delivers a notify terminal's queued command as a native
@@ -163,21 +161,6 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
 		return ExecutionResult{}, nil
 	}
-	// A notifying feed only interrupts for genuinely new activity. Ingestion
-	// already made that call when it triaged the observation, so this asks it
-	// rather than guessing from the payload. A locator failure notifies: the
-	// item is real and something changed, and a database hiccup is a poor
-	// reason to swallow the one interrupt the user asked for.
-	if cfg.OnlyWhenNew && e.items != nil {
-		notifiable, err := e.items.InboxItemNotifiable(ctx, cmd.ProfileID, cmd.SourceKind, cmd.SourceScope, cmd.ExternalID, cmd.OccurrenceKey)
-		if err != nil {
-			e.logger.Warn().Err(err).Str("action_id", action.ID).Msg("notify: could not check item activity; notifying anyway")
-		} else if !notifiable {
-			e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed, not new activity")
-			return ExecutionResult{}, nil
-		}
-	}
-
 	// Templates render over the item exactly as an action's do, so
 	// `{{ .Payload.title }}` means the same thing in a notify node as in a
 	// launch-session action.

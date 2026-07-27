@@ -82,36 +82,16 @@ func buildBehaviors(declared map[string]behavior) map[string]behavior {
 	return out
 }
 
-// feedSinks claims immutable inbox membership for the arriving item, and —
-// when the feed is one that interrupts — raises the same notify output a
-// notify node does, targeting the feed's own id so both deliver through one
-// executor.
-//
-// A snapshot re-states every current item on every poll. It must therefore
-// reconcile membership and nothing else: notifying from one would re-announce
-// the whole feed every tick.
-func feedSinks(flowID, nodeID string, cfg flow.NodeConfig, msg store.Msg) []store.Output {
-	target := flowID + "/" + nodeID
-	output := store.Output{
-		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: target},
+// feedSinks claims immutable inbox membership for the arriving item. A feed
+// is a pure inbox surface: it never interrupts — raising a notification is a
+// notify node's job.
+func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
+	return []store.Output{{
+		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: flowID + "/" + nodeID},
 		Key:         msg.Key,
 		SourceTopic: msg.Topic,
 		SourceKind:  msg.SourceKind,
 		SourceScope: msg.SourceScope,
-	}
-
-	config, _ := cfg.(*flow.FeedConfig)
-	if config == nil || config.Notify == nil {
-		return []store.Output{output}
-	}
-	return []store.Output{output, {
-		Sink:          store.Sink{Kind: store.SinkKindNotify, TargetID: target},
-		Key:           msg.Key,
-		OccurrenceKey: msg.OccurrenceKey,
-		Payload:       msg.Payload,
-		SourceTopic:   msg.Topic,
-		SourceKind:    msg.SourceKind,
-		SourceScope:   msg.SourceScope,
 	}}
 }
 

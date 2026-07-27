@@ -108,7 +108,7 @@ func TestNotifyActionConfig_RequiresATitle(t *testing.T) {
 	require.Error(t, (&NotifyActionConfig{}).Validate())
 }
 
-// TestNotifyRaiserCoversExactlyFeedAndNotify guards the declared capability
+// TestNotifyRaiserCoversExactlyNotify guards the declared capability
 // notifyNodeConfig relies on instead of a type switch. An interface assertion
 // fails closed for any config that does not implement it, which is invisible
 // when a config should have the capability and silently does not — so this
@@ -118,7 +118,7 @@ func TestNotifyActionConfig_RequiresATitle(t *testing.T) {
 // updating this test trips the count check, forcing a conscious decision
 // about whether it raises a notification, rather than letting it silently
 // fall through the assertion in notifyNodeConfig.
-func TestNotifyRaiserCoversExactlyFeedAndNotify(t *testing.T) {
+func TestNotifyRaiserCoversExactlyNotify(t *testing.T) {
 	sample := map[string]flow.NodeConfig{
 		"feed":          &flow.FeedConfig{},
 		"action":        &flow.ActionConfig{},
@@ -126,7 +126,7 @@ func TestNotifyRaiserCoversExactlyFeedAndNotify(t *testing.T) {
 		"function":      &flow.FunctionConfig{},
 		"github-filter": &flow.GithubFilterConfig{},
 	}
-	raises := map[string]bool{"feed": true, "notify": true}
+	raises := map[string]bool{"notify": true}
 
 	excludedSourceTypes := make(map[string]bool)
 	for _, sourceType := range sources.Types() {
@@ -153,38 +153,13 @@ func TestNotifyRaiserCoversExactlyFeedAndNotify(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A notifying feed resolves through the same synthetic action id a notify
-// node does — one delivery path for both — and is the only shape that carries
-// the new-activity restriction.
-func TestFlowNotifyActions_ResolvesANotifyingFeed(t *testing.T) {
-	quiet := false
+// A feed never raises a notify output, so a notify id targeting one resolves
+// to nothing — exactly like any other node whose config is not a raiser.
+func TestFlowNotifyActions_AFeedIsNotANotifyTarget(t *testing.T) {
 	flows := flowListerTest{flows: []flow.Flow{{ID: "triage", Nodes: []flow.Node{
-		{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &flow.FeedConfig{
-			Icon: "eye",
-			Notify: &flow.NotifyConfig{
-				Title:    "Review requested",
-				Body:     "{{ .Payload.repo }}",
-				Severity: "warning",
-				Sound:    &quiet,
-			},
-		}},
-		{ID: "quiet", Type: "feed", Config: &flow.FeedConfig{}},
+		{ID: "review-requests", Type: "feed", Name: "Review requests", Config: &flow.FeedConfig{Icon: "eye"}},
 	}}}}
 
-	action, ok := NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/review-requests"))
-	require.True(t, ok)
-	assert.Equal(t, ActionTypeNotify, action.Type)
-	assert.Equal(t, "Review requests", action.Label)
-	assert.Equal(t, &NotifyActionConfig{
-		Title:       "Review requested",
-		Body:        "{{ .Payload.repo }}",
-		Severity:    "warning",
-		Sound:       false,
-		OnlyWhenNew: true,
-	}, action.Config)
-
-	// A feed that does not notify has nothing to resolve: reaching here for
-	// one means the flow was edited after the command was queued.
-	_, ok = NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/quiet"))
+	_, ok := NewFlowNotifyActions(flows, nil).Get(store.NotifyActionID("triage/review-requests"))
 	assert.False(t, ok)
 }

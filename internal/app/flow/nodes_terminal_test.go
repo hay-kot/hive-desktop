@@ -36,6 +36,23 @@ func TestFeedConfig_Validate(t *testing.T) {
 	})
 }
 
+// Feeds never notify; the strict per-type decode makes a leftover `notify:`
+// key a parse error on save/deploy rather than a silently ignored setting.
+func TestFeedConfig_RejectsARemovedNotifyKey(t *testing.T) {
+	_, _, err := parseFlow("work", []byte(`version: 1
+nodes:
+  - { id: src, type: sources.github, credential: github/octocat, kind: notifications }
+  - id: inbox
+    type: feed
+    notify:
+      title: Review requested
+wires:
+  - { from: src, to: inbox }
+`), nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "notify")
+}
+
 func TestFeedConfig_RoundTrip(t *testing.T) {
 	n := Node{
 		ID:     "team-feed",

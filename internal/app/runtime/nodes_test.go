@@ -44,8 +44,7 @@ func TestEveryNodeTypeHasARuntimeBehavior(t *testing.T) {
 }
 
 // A terminal's outputs are one message's committed side effects. The counts
-// here are the contract the engine's accounting depends on — a feed that
-// interrupts is two outputs for one message, not two messages.
+// here are the contract the engine's accounting depends on.
 func TestTerminalSinks(t *testing.T) {
 	t.Parallel()
 
@@ -56,7 +55,7 @@ func TestTerminalSinks(t *testing.T) {
 	msg.SourceKind = "github"
 	msg.SourceScope = "notifications"
 
-	t.Run("a quiet feed claims membership and nothing else", func(t *testing.T) {
+	t.Run("a feed claims membership and nothing else", func(t *testing.T) {
 		t.Parallel()
 		outputs := feedSinks("f", "inbox", &flow.FeedConfig{}, msg)
 		require.Len(t, outputs, 1)
@@ -64,16 +63,6 @@ func TestTerminalSinks(t *testing.T) {
 		require.Equal(t, "f/inbox", outputs[0].Sink.TargetID)
 		require.Equal(t, "k", outputs[0].Key)
 		require.Empty(t, outputs[0].Payload, "a membership claim carries identity, not content")
-	})
-
-	t.Run("a feed that interrupts also raises a notify targeting itself", func(t *testing.T) {
-		t.Parallel()
-		outputs := feedSinks("f", "inbox", &flow.FeedConfig{Notify: &flow.NotifyConfig{Title: "New"}}, msg)
-		require.Len(t, outputs, 2)
-		require.Equal(t, "feed", outputs[0].Sink.Kind)
-		require.Equal(t, "notify", outputs[1].Sink.Kind)
-		require.Equal(t, "f/inbox", outputs[1].Sink.TargetID, "both deliver through one executor, targeting the feed's own id")
-		require.JSONEq(t, `{"title":"hi"}`, string(outputs[1].Payload))
 	})
 
 	t.Run("an action names its catalog id and carries no source identity", func(t *testing.T) {

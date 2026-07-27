@@ -52,17 +52,11 @@ func NotifyActionTarget(actionID string) (string, bool) {
 // action node's executor sees, so `{{ .Payload.title }}` means the same
 // thing in both.
 type NotifyCommand struct {
-	ProfileID   string `json:"profileId"`
-	ExternalID  string `json:"externalId,omitempty"`
-	SourceKind  string `json:"sourceKind,omitempty"`
-	SourceScope string `json:"sourceScope,omitempty"`
-	// OccurrenceKey identifies the observation that raised this notification,
-	// so a delivery that only wants genuinely new activity can ask ingestion
-	// what it made of that observation (see DB.InboxItemNotifiable). It is the
-	// message's own key, not the command's dedup key, which may be a payload
-	// digest when a message carries none.
-	OccurrenceKey string          `json:"occurrenceKey,omitempty"`
-	Item          json.RawMessage `json:"item,omitempty"`
+	ProfileID   string          `json:"profileId"`
+	ExternalID  string          `json:"externalId,omitempty"`
+	SourceKind  string          `json:"sourceKind,omitempty"`
+	SourceScope string          `json:"sourceScope,omitempty"`
+	Item        json.RawMessage `json:"item,omitempty"`
 }
 
 // Output is one committed side effect of a flow run.
@@ -177,12 +171,11 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				}
 			case SinkKindNotify:
 				payload, err := json.Marshal(NotifyCommand{
-					ProfileID:     b.Consumer,
-					ExternalID:    out.Key,
-					SourceKind:    out.SourceKind,
-					SourceScope:   out.SourceScope,
-					OccurrenceKey: out.OccurrenceKey,
-					Item:          out.Payload,
+					ProfileID:   b.Consumer,
+					ExternalID:  out.Key,
+					SourceKind:  out.SourceKind,
+					SourceScope: out.SourceScope,
+					Item:        out.Payload,
 				})
 				if err != nil {
 					return fmt.Errorf("encoding notify command %s/%s: %w", out.Sink.TargetID, out.Key, err)

@@ -181,9 +181,6 @@ JOIN inbox_item i ON i.id = c.item_id
 WHERE c.profile_id = ? AND i.ignored_at IS NULL
 GROUP BY c.feed_id;
 
--- name: GetInboxEventByOccurrence :one
-SELECT * FROM inbox_event WHERE item_id = ? AND occurrence_key = ?;
-
 -- name: ListInboxEventsByItem :many
 SELECT * FROM inbox_event WHERE item_id = ? ORDER BY id DESC LIMIT ?;
 

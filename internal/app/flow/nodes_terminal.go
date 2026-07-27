@@ -21,34 +21,10 @@ const feedDescriptionMaxLen = 500
 type FeedConfig struct {
 	Icon        string `json:"icon,omitempty"        yaml:"icon,omitempty"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
-	// Notify turns this feed into one that interrupts: a present block means
-	// "tell me when something new lands here", and its absence means the feed
-	// is read at the user's leisure like any other. Presence is the switch so
-	// a quiet feed carries no notify keys at all — the same absent-means-
-	// default idiom Icon and Description use.
-	//
-	// A notify *node* (see NotifyConfig) is the general form: it notifies for
-	// whatever is routed to it and claims no feed membership. This is the
-	// common case of the same idea — the feed you point at "things that need
-	// my attention right now" — expressed on the feed itself rather than as a
-	// second terminal alongside it. Both deliver through the same executor.
-	Notify *NotifyConfig `json:"notify,omitempty" yaml:"notify,omitempty"`
 }
 
 func (c *FeedConfig) Inputs() int  { return 1 }
 func (c *FeedConfig) Outputs() int { return 0 }
-
-// NotifyDeclaration satisfies dispatch's notify-raiser capability: a feed
-// only raises a notify output when it carries a Notify block, and — unlike a
-// notify node — restricts delivery to genuinely new arrivals. A feed is a
-// place items live, so "notify me about this feed" means the arrivals, not
-// every later comment on something already sitting in it.
-func (c *FeedConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
-	if c.Notify == nil {
-		return nil, false, false
-	}
-	return c.Notify, true, true
-}
 
 func (c *FeedConfig) Validate(Refs) error {
 	if !icons.ValidFeed(c.Icon) {
@@ -56,11 +32,6 @@ func (c *FeedConfig) Validate(Refs) error {
 	}
 	if utf8.RuneCountInString(c.Description) > feedDescriptionMaxLen {
 		return fmt.Errorf("description: must be at most %d characters", feedDescriptionMaxLen)
-	}
-	if c.Notify != nil {
-		if err := c.Notify.Validate(nil); err != nil {
-			return fmt.Errorf("notify: %w", err)
-		}
 	}
 	return nil
 }
@@ -144,11 +115,10 @@ func (c *NotifyConfig) Inputs() int  { return 1 }
 func (c *NotifyConfig) Outputs() int { return 0 }
 
 // NotifyDeclaration satisfies dispatch's notify-raiser capability: a notify
-// node always has content to raise and never restricts delivery to new
-// arrivals — it notifies for whatever is routed to it, unconditionally,
-// which is the author's explicit choice in authoring the node at all.
-func (c *NotifyConfig) NotifyDeclaration() (cfg *NotifyConfig, onlyWhenNew, ok bool) {
-	return c, false, true
+// node always has content to raise — it notifies for whatever is routed to
+// it, which is the author's explicit choice in authoring the node at all.
+func (c *NotifyConfig) NotifyDeclaration() (cfg *NotifyConfig, ok bool) {
+	return c, true
 }
 
 // SeverityOrDefault resolves Severity, defaulting to NotifySeverityDefault
