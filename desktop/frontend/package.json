@@ -24,7 +24,7 @@
     "@iconify-json/lucide": "1.2.118",
     "@tailwindcss/vite": "4.3.2",
     "@types/markdown-it": "^14.1.2",
-    "@types/node": "22.20.1",
+    "@types/node": "24.13.3",
     "@vitejs/plugin-vue": "^6.0.0",
     "@vue/test-utils": "2.4.11",
     "happy-dom": "20.10.6",
