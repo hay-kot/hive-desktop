@@ -42,7 +42,7 @@ type behavior struct {
 // processor transforms one message into port-indexed outputs. A nil result
 // (or one whose ports are all empty) discards the message.
 type processor interface {
-	process(ctx context.Context, msg store.Msg) ([][]store.Msg, error)
+	process(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error)
 	// reset drops whatever state the processor accumulated for its node,
 	// so the next message starts clean. The engine calls it after a timeout —
 	// the "terminate, respawn" the browser gave a wedged worker.

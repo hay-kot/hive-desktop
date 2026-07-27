@@ -321,3 +321,71 @@ func TestCommitBatch_UnknownSinkKind_Errors(t *testing.T) {
 	require.NoError(t, offsetErr)
 	assert.Equal(t, int64(0), offset)
 }
+
+func TestCommitBatch_KVMutations_FlushInTheSameTransaction(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, database.NodeKVSet(ctx, "flow-1", "dedup", "stale", `1`, 0))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		KVMutations: []KVMutation{
+			{NodeID: "dedup", Key: "seen", Value: `true`, ExpiresAt: 9000},
+			{NodeID: "dedup", Key: "stale", Delete: true},
+		},
+	}))
+
+	value, found, err := database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 1000)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.Equal(t, `true`, value)
+
+	_, found, err = database.NodeKVGet(ctx, "flow-1", "dedup", "stale", 1000)
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	_, found, err = database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 9000)
+	require.NoError(t, err)
+	assert.False(t, found, "the flushed expiry is honored by reads")
+}
+
+func TestCommitBatch_KVMutations_RollBackWithOutputsAndOffset(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	err := database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		Outputs: []Output{
+			{Sink: Sink{Kind: SinkKindAction, TargetID: "action-a"}, OccurrenceKey: "item-1", Payload: []byte(`{}`)},
+			{Sink: Sink{Kind: "bogus"}},
+		},
+		KVMutations: []KVMutation{{NodeID: "dedup", Key: "seen", Value: `true`}},
+	})
+	require.Error(t, err)
+
+	var kvRows int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&kvRows))
+	assert.Zero(t, kvRows)
+	assert.Zero(t, countOutputCommands(t, database, ctx))
+	_, err = database.Queries().GetConsumerOffset(ctx, "flow-1")
+	require.Error(t, err, "the offset must not have advanced")
+}
+
+func TestCommitBatch_KVMutations_SkippedByTheIdempotencyGuard(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 2,
+		KVMutations: []KVMutation{{NodeID: "dedup", Key: "seen", Value: `"first"`}},
+	}))
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 2,
+		KVMutations: []KVMutation{{NodeID: "dedup", Key: "seen", Value: `"replayed"`}},
+	}))
+
+	value, found, err := database.NodeKVGet(ctx, "flow-1", "dedup", "seen", 1000)
+	require.NoError(t, err)
+	require.True(t, found)
+	assert.JSONEq(t, `"first"`, value)
+}

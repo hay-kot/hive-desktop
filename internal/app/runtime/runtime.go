@@ -8,11 +8,12 @@
 // and an MCP tool all reach the same execution rather than the desktop window
 // owning one of them.
 //
-// The engine deliberately does not read or write the database. Run takes the
-// messages it is given and returns what should be committed; who reads the log
-// and who applies the batch belong to the caller. That keeps a dry-run and a
-// live tick the same code path, differing only in whether the result is
-// committed.
+// The engine never writes the database and never opens its own connection.
+// Run takes the messages it is given, reads durable node KV only through the
+// KVReader port the caller supplies, and returns what should be committed —
+// including buffered KV writes — for the caller to apply. That keeps a
+// dry-run (no-op reader, discarded batch) and a live tick the same code
+// path, differing only in what the ports are wired to.
 package runtime
 
 import (
@@ -37,6 +38,9 @@ type Options struct {
 	// DefaultTimeout bounds a node whose own config declares none. Zero means
 	// flow.DefaultFunctionTimeout.
 	DefaultTimeout time.Duration
+	// KV is the durable node-KV read port; nil means every read misses
+	// (preview, dry-run, tests).
+	KV KVReader
 }
 
 // Runner executes one flow, repeatedly. It owns the per-node-instance state

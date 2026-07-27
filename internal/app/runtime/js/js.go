@@ -166,7 +166,7 @@ const interruptGrace = 250 * time.Millisecond
 // from stopping its flow. A goroutine that outlives its interrupt is
 // abandoned and keeps its pool slot, and the instance is marked wedged so the
 // engine's reset drops it.
-func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any) ([][]store.Msg, error) {
+func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, _ runtime.NodeKV) ([][]store.Msg, error) {
 	if i.wedged {
 		return nil, &runtime.ScriptError{Kind: runtime.ScriptErrorTimeout, Message: "script instance is still running a previous message"}
 	}
