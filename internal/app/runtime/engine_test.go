@@ -329,3 +329,29 @@ func TestEngineStopWithoutStart(t *testing.T) {
 	require.NotPanics(t, engine.Stop)
 	require.NotPanics(t, engine.Stop)
 }
+
+// Installing a flow reconciles node KV inside the activation transaction:
+// ids still present as function nodes keep their rows, everything else under
+// the flow is cleared.
+func TestEngineInstallReconcilesNodeKV(t *testing.T) {
+	db := openTestStore(t)
+	ctx := t.Context()
+
+	require.NoError(t, db.NodeKVSet(ctx, "triage", "fn", "seen", `1`, 0))
+	require.NoError(t, db.NodeKVSet(ctx, "triage", "ghost", "seen", `1`, 0))
+
+	f := triageFlow("triage", true)
+	f.Nodes = append(f.Nodes, flow.Node{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: "return msg"}})
+	f.Wires = append(f.Wires, flow.Wire{From: "src", To: "fn"})
+
+	flows := &flowSet{}
+	flows.set(f)
+	startEngine(t, db, flows, nil)
+
+	_, found, err := db.NodeKVGet(ctx, "triage", "fn", "seen", 1)
+	require.NoError(t, err)
+	require.True(t, found, "a live function node's KV survives install")
+	_, found, err = db.NodeKVGet(ctx, "triage", "ghost", "seen", 1)
+	require.NoError(t, err)
+	require.False(t, found, "a node id no longer in the flow loses its KV on install")
+}

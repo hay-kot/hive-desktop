@@ -74,9 +74,11 @@ func (db *DB) ListReplaySourceSnapshots(ctx context.Context, profileID string, t
 
 // ActivateReplay atomically installs a prepared synthetic replay: it advances
 // the consumer past stale action-bound events, replaces unarchived feed
-// memberships, and removes claims for deleted flow structure. A failed
-// activation leaves the last-known-good runtime's offset and claims intact.
-func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []FeedMembershipClaim, feedIDs, sourceIDs []string) error {
+// memberships, removes claims for deleted flow structure, and reconciles the
+// flow's node KV against kvNodeIDs — the ids still capable of owning KV. A
+// failed activation leaves the last-known-good runtime's offset, claims and
+// KV intact.
+func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, claims []FeedMembershipClaim, feedIDs, sourceIDs, kvNodeIDs []string) error {
 	if tail < 0 {
 		return fmt.Errorf("activating replay for %q: negative tail", profileID)
 	}
@@ -127,6 +129,14 @@ func (db *DB) ActivateReplay(ctx context.Context, profileID string, tail int64, 
 		if err := q.CommitConsumerOffset(ctx, CommitConsumerOffsetParams{Consumer: profileID, Offset: tail}); err != nil {
 			return fmt.Errorf("advancing replay consumer offset: %w", err)
 		}
+
+		if len(kvNodeIDs) == 0 {
+			if err := q.DeleteNodeKVByFlow(ctx, profileID); err != nil {
+				return fmt.Errorf("clearing flow node kv: %w", err)
+			}
+		} else if err := q.DeleteNodeKVForFlowExceptNodes(ctx, DeleteNodeKVForFlowExceptNodesParams{FlowID: profileID, NodeIds: kvNodeIDs}); err != nil {
+			return fmt.Errorf("removing obsolete node kv: %w", err)
+		}
 		return nil
 	})
 }
@@ -147,6 +157,9 @@ func (db *DB) PurgeProfile(ctx context.Context, profileID string) error {
 		}
 		if err := q.DeleteSourceHeadByTopicPrefix(ctx, prefix); err != nil {
 			return fmt.Errorf("purging source head: %w", err)
+		}
+		if err := q.DeleteNodeKVByFlow(ctx, profileID); err != nil {
+			return fmt.Errorf("purging node kv: %w", err)
 		}
 		return nil
 	})

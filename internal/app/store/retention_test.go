@@ -302,3 +302,57 @@ func inboxEventIDs(t *testing.T, ctx context.Context, database *DB, itemID int64
 	require.NoError(t, rows.Err())
 	return ids
 }
+
+func TestPrune_SweepsExpiredNodeKVAlways(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	past := time.Now().Add(-time.Minute).UnixMilli()
+	future := time.Now().Add(time.Hour).UnixMilli()
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "expired", `1`, past))
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "live", `1`, future))
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "forever", `1`, 0))
+
+	_, err := db.Prune(ctx, nil, DefaultRetentionPolicy())
+	require.NoError(t, err)
+
+	var rows int
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&rows))
+	assert.Equal(t, 2, rows, "only the expired row is swept; the default policy has no row-count cap")
+}
+
+func TestPrune_NodeKVPerNodeCapIsOffByDefault(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	assert.Zero(t, DefaultRetentionPolicy().NodeKVPerNodeLimit)
+
+	for i := range 4 {
+		require.NoError(t, db.Queries().UpsertNodeKV(ctx, UpsertNodeKVParams{
+			FlowID: "flow", NodeID: "fn", Scope: KVScopeNode,
+			Key: string(rune('a' + i)), Value: `1`, UpdatedAt: int64(100 + i),
+		}))
+	}
+
+	_, err := db.Prune(ctx, nil, DefaultRetentionPolicy())
+	require.NoError(t, err)
+	var rows int
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&rows))
+	assert.Equal(t, 4, rows, "no cap by default: pruning a seen-set would re-notify")
+
+	capped := DefaultRetentionPolicy()
+	capped.NodeKVPerNodeLimit = 2
+	_, err = db.Prune(ctx, nil, capped)
+	require.NoError(t, err)
+	keys, err := db.NodeKVKeys(ctx, "flow", "fn", "", 1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"c", "d"}, keys, "the opt-in cap keeps the newest N")
+}
+
+func TestPrune_RejectsNegativeNodeKVLimit(t *testing.T) {
+	db := openTestDB(t)
+	policy := DefaultRetentionPolicy()
+	policy.NodeKVPerNodeLimit = -1
+	_, err := db.Prune(t.Context(), nil, policy)
+	require.Error(t, err)
+}

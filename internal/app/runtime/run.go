@@ -38,12 +38,29 @@ type snapshotContext struct {
 // Run does not commit anything. A caller that wants the batch applied passes
 // it to store.CommitBatch; a caller previewing a flow simply reads it.
 func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+	return r.run(ctx, batch, false)
+}
+
+// RunReplay recomputes membership with a fully inert KV — durable and
+// overlay reads miss, staged writes are discarded — so replay stays a pure
+// function of (current snapshots, current graph) and never suppresses items
+// via dedup history.
+func (r *Runner) RunReplay(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
+	return r.run(ctx, batch, true)
+}
+
+func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.CommitBatch, error) {
+	now := time.Now().UnixMilli()
+	kv := newKVBuffer(r.opts.KV, r.flow.ID, now)
+	if inert {
+		kv = newInertKVBuffer(r.flow.ID, now)
+	}
 	state := &runState{
 		runner:       r,
 		pending:      map[string][]message{},
 		runs:         map[string]*nodeRunAcc{},
 		snapshotSeen: map[string]bool{},
-		kv:           newKVBuffer(r.opts.KV, r.flow.ID, time.Now().UnixMilli()),
+		kv:           kv,
 	}
 
 	state.route(batch)

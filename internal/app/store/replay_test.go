@@ -51,7 +51,7 @@ func activateReplay(t *testing.T, db *DB, profile string, claims []FeedMembershi
 	}
 	tail, err := db.EventLogTailOffset(t.Context())
 	require.NoError(t, err)
-	require.NoError(t, db.ActivateReplay(t.Context(), profile, tail, claims, feeds, sources))
+	require.NoError(t, db.ActivateReplay(t.Context(), profile, tail, claims, feeds, sources, nil))
 }
 
 func TestActivateReplay_OnlyWritesClaimsAndOffset(t *testing.T) {
@@ -74,7 +74,7 @@ func TestActivateReplay_RollsBackOffsetAndClaimsOnFailure(t *testing.T) {
 	_, err := db.Append(t.Context(), "source:flow/source", "item", []byte(`{}`))
 	require.NoError(t, err)
 
-	err = db.ActivateReplay(t.Context(), "flow", 1, []FeedMembershipClaim{{ProfileID: "other", FeedID: "flow/new", ItemID: item.ID, SourceID: "source:flow/new"}}, []string{"flow/new"}, []string{"source:flow/new"})
+	err = db.ActivateReplay(t.Context(), "flow", 1, []FeedMembershipClaim{{ProfileID: "other", FeedID: "flow/new", ItemID: item.ID, SourceID: "source:flow/new"}}, []string{"flow/new"}, []string{"source:flow/new"}, nil)
 	require.EqualError(t, err, `activating replay: claim profile "other" does not match "flow"`)
 
 	var feed string
@@ -94,7 +94,7 @@ func TestActivateReplay_ReplacesOnlyUnarchivedClaims(t *testing.T) {
 	_, err := db.Conn().ExecContext(t.Context(), `UPDATE inbox_item SET archived_at = 1, archived_actor = 'manual' WHERE id = ?`, archived.ID)
 	require.NoError(t, err)
 
-	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, []FeedMembershipClaim{{FeedID: "flow/new", ItemID: open.ID, SourceID: "source:flow/new"}}, []string{"flow/feed", "flow/new"}, []string{"source:flow/new"}))
+	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, []FeedMembershipClaim{{FeedID: "flow/new", ItemID: open.ID, SourceID: "source:flow/new"}}, []string{"flow/feed", "flow/new"}, []string{"source:flow/new"}, nil))
 	rows, err := db.Conn().QueryContext(t.Context(), `SELECT feed_id, item_id, source_id FROM feed_membership_claim ORDER BY item_id`)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, rows.Close()) }()
@@ -140,7 +140,7 @@ func TestActivateReplay_NoFeedsDeletesAllClaims(t *testing.T) {
 		require.NoError(t, db.Queries().UpsertFeedMembershipClaim(t.Context(), UpsertFeedMembershipClaimParams{ProfileID: "flow", FeedID: "flow/removed", ItemID: itemID, SourceID: "source:flow/removed"}))
 	}
 
-	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, nil, nil, []string{"source:flow/live"}))
+	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, nil, nil, []string{"source:flow/live"}, nil))
 	var claims int
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM feed_membership_claim WHERE profile_id = 'flow'`).Scan(&claims))
 	assert.Zero(t, claims)
@@ -162,12 +162,12 @@ func TestActivateReplay_UsesRetentionSafeHighWaterMark(t *testing.T) {
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM event_log`).Scan(&rows))
 	require.Zero(t, rows)
 
-	require.NoError(t, db.ActivateReplay(t.Context(), "flow", tail, nil, nil, nil))
+	require.NoError(t, db.ActivateReplay(t.Context(), "flow", tail, nil, nil, nil, nil))
 	offset, err := db.ConsumerOffset(t.Context(), "flow")
 	require.NoError(t, err)
 	assert.Equal(t, tail, offset)
 
-	err = db.ActivateReplay(t.Context(), "other-flow", tail+1, nil, nil, nil)
+	err = db.ActivateReplay(t.Context(), "other-flow", tail+1, nil, nil, nil, nil)
 	require.EqualError(t, err, `activating replay for "other-flow": supplied tail 3 exceeds current event log tail 2`)
 }
 
@@ -230,7 +230,7 @@ func TestActivateReplay_ProtectsArchivedClaims(t *testing.T) {
 	for _, id := range []int64{open.ID, archived.ID} {
 		require.NoError(t, db.Queries().UpsertFeedMembershipClaim(t.Context(), UpsertFeedMembershipClaimParams{ProfileID: "flow", FeedID: "flow/feed", ItemID: id, SourceID: "source:flow/removed"}))
 	}
-	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, nil, []string{"flow/feed"}, []string{"source:flow/live"}))
+	require.NoError(t, db.ActivateReplay(t.Context(), "flow", 0, nil, []string{"flow/feed"}, []string{"source:flow/live"}, nil))
 	var ids []int64
 	rows, err := db.Conn().QueryContext(t.Context(), `SELECT item_id FROM feed_membership_claim ORDER BY item_id`)
 	require.NoError(t, err)
@@ -268,4 +268,69 @@ func TestPurgeProfile_DeletesAllOwnedStateIdempotently(t *testing.T) {
 		require.NoError(t, db.Conn().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&n))
 		assert.Zero(t, n, table)
 	}
+}
+
+func TestActivateReplay_ReconcilesNodeKV(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "kept", "seen", `1`, 0))
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "removed", "seen", `1`, 0))
+	require.NoError(t, db.NodeKVSet(ctx, "other", "kept", "seen", `1`, 0))
+
+	// "kept" stays — this also models a rename and a same-id recreate, both of
+	// which preserve the id and therefore the KV.
+	require.NoError(t, db.ActivateReplay(ctx, "flow", 0, nil, nil, nil, []string{"kept"}))
+
+	_, found, err := db.NodeKVGet(ctx, "flow", "kept", "seen", 1)
+	require.NoError(t, err)
+	assert.True(t, found)
+	_, found, err = db.NodeKVGet(ctx, "flow", "removed", "seen", 1)
+	require.NoError(t, err)
+	assert.False(t, found)
+	_, found, err = db.NodeKVGet(ctx, "other", "kept", "seen", 1)
+	require.NoError(t, err)
+	assert.True(t, found, "another flow's rows are untouched")
+
+	// No KV-capable nodes left clears the whole flow's KV.
+	require.NoError(t, db.ActivateReplay(ctx, "flow", 0, nil, nil, nil, nil))
+	_, found, err = db.NodeKVGet(ctx, "flow", "kept", "seen", 1)
+	require.NoError(t, err)
+	assert.False(t, found)
+}
+
+func TestActivateReplay_FailureLeavesNodeKVIntact(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+	item := seedReplayItem(t, db, "flow", "item")
+
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "old", "seen", `1`, 0))
+
+	// The mismatched claim profile fails the transaction after the KV
+	// reconcile would have cleared "old".
+	err := db.ActivateReplay(ctx, "flow", 0,
+		[]FeedMembershipClaim{{ProfileID: "other", FeedID: "flow/f", ItemID: item.ID, SourceID: "source:flow/s"}},
+		nil, nil, []string{"survivor"})
+	require.Error(t, err)
+
+	_, found, err := db.NodeKVGet(ctx, "flow", "old", "seen", 1)
+	require.NoError(t, err)
+	assert.True(t, found, "a failed activation must leave last-known-good KV")
+}
+
+func TestPurgeProfile_DeletesNodeKV(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "seen", `1`, 0))
+	require.NoError(t, db.NodeKVSet(ctx, "other", "fn", "seen", `1`, 0))
+
+	require.NoError(t, db.PurgeProfile(ctx, "flow"))
+
+	_, found, err := db.NodeKVGet(ctx, "flow", "fn", "seen", 1)
+	require.NoError(t, err)
+	assert.False(t, found)
+	_, found, err = db.NodeKVGet(ctx, "other", "fn", "seen", 1)
+	require.NoError(t, err)
+	assert.True(t, found)
 }

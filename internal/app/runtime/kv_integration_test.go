@@ -117,3 +117,48 @@ func TestRun_DedupMemoryIsDurableAcrossRunners(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, notifyOutputs(second), "the seen-set survives a runner rebuild, unlike state")
 }
+
+func TestRunReplay_IsFullyInert(t *testing.T) {
+	db := openKVTestDB(t)
+	ctx := t.Context()
+
+	// Every item is already marked seen; a live run would suppress them all.
+	seenKey := `["github","notifications","item-1"]`
+	require.NoError(t, db.NodeKVSet(ctx, "f", "dedup", seenKey, `true`, 0))
+
+	registry := runtime.NewScriptRegistry()
+	registry.Register(js.New(runtime.NewScriptPool(0)))
+	runner, err := runtime.NewRunner(flow.Flow{
+		ID:      "f",
+		Enabled: true,
+		Nodes: []flow.Node{
+			{ID: "dedup", Type: "function", Config: &flow.FunctionConfig{OnMessage: dedupScript}},
+			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
+		},
+		Wires: []flow.Wire{{From: "dedup", To: "inbox"}},
+	}, runtime.Options{Scripts: registry, KV: db})
+	require.NoError(t, err)
+	t.Cleanup(runner.Close)
+
+	batch, err := runner.RunReplay(ctx, []store.Msg{kvMsg("1")})
+	require.NoError(t, err)
+
+	feedClaims := 0
+	for _, out := range batch.Outputs {
+		if out.Sink.Kind == store.SinkKindFeed {
+			feedClaims++
+		}
+	}
+	assert.Equal(t, 1, feedClaims, "replay recomputes full membership regardless of dedup history")
+	assert.Empty(t, batch.KVMutations, "replay never writes KV")
+
+	var rows int
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM node_kv`).Scan(&rows))
+	assert.Equal(t, 1, rows, "the durable seen-set is untouched")
+
+	live, err := runner.Run(ctx, []store.Msg{kvMsg("2")})
+	require.NoError(t, err)
+	for _, out := range live.Outputs {
+		require.NotEqual(t, store.SinkKindFeed, out.Sink.Kind, "the live run still honors the durable seen-set")
+	}
+}

@@ -32,6 +32,11 @@ type RetentionPolicy struct {
 	ArchivedItemRetention time.Duration
 	// EventPerItemLimit retains this many newest inbox events per item.
 	EventPerItemLimit int64
+	// NodeKVPerNodeLimit retains this many newest node_kv rows per
+	// (flow, node, scope). Zero — the default — disables the cap: a pruned
+	// "seen" key would make its item re-notify, so bounding relies on TTL and
+	// teardown, with this cap kept only as an operator safety valve.
+	NodeKVPerNodeLimit int64
 }
 
 // DefaultRetentionPolicy keeps enough recent history for the desktop's debug
@@ -85,6 +90,9 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 	if policy.EventPerItemLimit < 0 {
 		return RetentionResult{}, fmt.Errorf("event per-item retention limit must not be negative")
 	}
+	if policy.NodeKVPerNodeLimit < 0 {
+		return RetentionResult{}, fmt.Errorf("node kv per-node retention limit must not be negative")
+	}
 
 	result := RetentionResult{}
 	err := db.WithTx(ctx, func(q *Queries) error {
@@ -119,6 +127,14 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 		}
 		if err := q.TrimInboxItemEvents(ctx, policy.EventPerItemLimit); err != nil {
 			return fmt.Errorf("trimming inbox item events: %w", err)
+		}
+		if err := q.DeleteExpiredNodeKV(ctx, sql.NullInt64{Int64: time.Now().UnixMilli(), Valid: true}); err != nil {
+			return fmt.Errorf("sweeping expired node kv: %w", err)
+		}
+		if policy.NodeKVPerNodeLimit > 0 {
+			if err := q.PruneNodeKVOverLimitPerNode(ctx, policy.NodeKVPerNodeLimit); err != nil {
+				return fmt.Errorf("pruning node kv over per-node limit: %w", err)
+			}
 		}
 		return nil
 	})

@@ -305,3 +305,41 @@ func TestRun_LaterMessageSeesEarlierCommittedWrite(t *testing.T) {
 	assert.True(t, secondSawWrite, "message 2 must read message 1's merged write")
 	assert.Len(t, batch.KVMutations, 1)
 }
+
+func TestResetProcessorsDropsInstances(t *testing.T) {
+	instances := 0
+	rt := &fakeScriptRuntime{onMessage: func(context.Context, store.Msg, NodeKV) ([][]store.Msg, error) {
+		return nil, nil
+	}}
+	counting := &countingScriptRuntime{fakeScriptRuntime: rt, news: &instances}
+
+	registry := NewScriptRegistry()
+	registry.Register(counting)
+	runner, err := NewRunner(flow.Flow{
+		ID:      "f",
+		Enabled: true,
+		Nodes:   []flow.Node{{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: "unused"}}},
+	}, Options{Scripts: registry})
+	require.NoError(t, err)
+	defer runner.Close()
+
+	_, err = runner.Run(t.Context(), []store.Msg{{ID: "1", Key: "a", Payload: json.RawMessage(`{}`)}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, instances)
+
+	runner.resetProcessors()
+
+	_, err = runner.Run(t.Context(), []store.Msg{{ID: "2", Key: "b", Payload: json.RawMessage(`{}`)}})
+	require.NoError(t, err)
+	assert.Equal(t, 2, instances, "a reset drops the instance and its state; the next message builds fresh")
+}
+
+type countingScriptRuntime struct {
+	*fakeScriptRuntime
+	news *int
+}
+
+func (c *countingScriptRuntime) New(src string, outputs int) (ScriptInstance, error) {
+	*c.news++
+	return c.fakeScriptRuntime.New(src, outputs)
+}

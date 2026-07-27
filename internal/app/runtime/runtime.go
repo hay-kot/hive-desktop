@@ -115,6 +115,15 @@ func (r *Runner) Close() {
 	}
 }
 
+// resetProcessors drops each processor's accumulated in-memory state while
+// keeping the runner usable. installFlow calls it after replay so state
+// mutated during membership recompute never reaches the first live pump.
+func (r *Runner) resetProcessors() {
+	for _, proc := range r.procs {
+		proc.reset()
+	}
+}
+
 // nodeTimeout resolves a node's evaluation budget from its own config,
 // falling back to the Runner's default.
 func (r *Runner) nodeTimeout(cfg flow.NodeConfig) time.Duration {
