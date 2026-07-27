@@ -99,8 +99,12 @@ type NotifyExecutor struct {
 	logger   zerolog.Logger
 	now      func() time.Time
 
-	mu    sync.Mutex
-	fired map[string]time.Time
+	mu sync.Mutex
+	// quietUntil maps a (node, item) pair to the moment its cooldown window
+	// ends. Entries carry their own deadline because cooldowns are per-node:
+	// pruning by any single window would evict another node's still-live
+	// entry.
+	quietUntil map[string]time.Time
 }
 
 // NewNotifyExecutor builds a NotifyExecutor. A nil notifier leaves the
@@ -110,12 +114,12 @@ type NotifyExecutor struct {
 // raises the window.
 func NewNotifyExecutor(notifier SystemNotifier, gate NotificationGate, items InboxItemLocator, logger zerolog.Logger) *NotifyExecutor {
 	return &NotifyExecutor{
-		notifier: notifier,
-		gate:     gate,
-		items:    items,
-		logger:   logger,
-		now:      time.Now,
-		fired:    map[string]time.Time{},
+		notifier:   notifier,
+		gate:       gate,
+		items:      items,
+		logger:     logger,
+		now:        time.Now,
+		quietUntil: map[string]time.Time{},
 	}
 }
 
@@ -150,7 +154,7 @@ func (e *NotifyExecutor) Execute(ctx context.Context, action actions.Action, dat
 		e.logger.Debug().Str("action_id", action.ID).Msg("notify: suppressed by notification settings")
 		return ExecutionResult{}, nil
 	}
-	if cfg.Cooldown > 0 && e.withinCooldown(action.ID, cmd.ExternalID, cfg.Cooldown, now) {
+	if cfg.Cooldown > 0 && e.withinCooldown(action.ID, cmd.ExternalID, now) {
 		e.logger.Debug().Str("action_id", action.ID).Str("item", cmd.ExternalID).Msg("notify: suppressed within cooldown")
 		return ExecutionResult{}, nil
 	}
@@ -234,14 +238,14 @@ func (e *NotifyExecutor) clickData(ctx context.Context, cmd store.NotifyCommand)
 // interrupted, which is a property of this running session, not of the
 // durable queue (that is what the command's dedup key is for). A restart
 // starting everyone's window fresh is the right behavior.
-func (e *NotifyExecutor) withinCooldown(actionID, externalID string, cooldown time.Duration, now time.Time) bool {
+func (e *NotifyExecutor) withinCooldown(actionID, externalID string, now time.Time) bool {
 	if externalID == "" {
 		return false
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	last, ok := e.fired[cooldownKey(actionID, externalID)]
-	return ok && now.Sub(last) < cooldown
+	deadline, ok := e.quietUntil[cooldownKey(actionID, externalID)]
+	return ok && now.Before(deadline)
 }
 
 // recordFired starts this (node, item) pair's cooldown window.
@@ -252,14 +256,14 @@ func (e *NotifyExecutor) recordFired(actionID, externalID string, cooldown time.
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	// The map holds one entry per (node, item) pair, and an entry stops
-	// mattering once it ages out — drop those while we hold the lock rather
-	// than growing forever across a long-running session.
-	for k, at := range e.fired {
-		if now.Sub(at) >= cooldown {
-			delete(e.fired, k)
+	// mattering once its own deadline passes — drop those while we hold the
+	// lock rather than growing forever across a long-running session.
+	for k, deadline := range e.quietUntil {
+		if !now.Before(deadline) {
+			delete(e.quietUntil, k)
 		}
 	}
-	e.fired[cooldownKey(actionID, externalID)] = now
+	e.quietUntil[cooldownKey(actionID, externalID)] = now.Add(cooldown)
 }
 
 func cooldownKey(actionID, externalID string) string {

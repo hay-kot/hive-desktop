@@ -37,6 +37,10 @@ type behavior struct {
 	// the same flag to know what replay must recompute membership for and,
 	// on disable, must remove. It is meaningless on a behavior with no sinks.
 	snapshotReconciled bool
+	// kvCapable marks a node that owns durable node KV. The engine derives
+	// the ids ActivateReplay retains from this flag; a node type missing it
+	// has its rows reconciled away on the next activation.
+	kvCapable bool
 }
 
 // processor transforms one message into port-indexed outputs. A nil result
@@ -60,7 +64,7 @@ type processor interface {
 // a change to internal/app/sources alone.
 var behaviors = buildBehaviors(map[string]behavior{
 	"github-filter": {processor: newFilterNode},
-	"function":      {processor: newFunctionNode},
+	"function":      {processor: newFunctionNode, kvCapable: true},
 	"feed":          {sinks: feedSinks, snapshotReconciled: true},
 	"action":        {sinks: actionSinks},
 	"notify":        {sinks: notifySinks},

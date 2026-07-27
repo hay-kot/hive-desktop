@@ -226,7 +226,6 @@ func (e *Engine) installFlow(ctx context.Context, f flow.Flow) error {
 		runner.Close()
 		return err
 	}
-	runner.resetProcessors()
 
 	if previous := e.runners[f.ID]; previous != nil {
 		previous.Close()
@@ -299,7 +298,7 @@ func (e *Engine) replay(ctx context.Context, f flow.Flow, runner *Runner) error 
 	// One transaction installs the claims, removes the structure this flow no
 	// longer has, reconciles node KV, and moves the checkpoint. A failure here
 	// leaves the previous flow's claims, KV and offset exactly as they were.
-	if err := e.opts.Store.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs, flowFunctionNodeIDs(f)); err != nil {
+	if err := e.opts.Store.ActivateReplay(ctx, f.ID, tail, claims, feedIDs, sourceIDs, flowKVNodeIDs(f)); err != nil {
 		return fmt.Errorf("activating replay: %w", err)
 	}
 	return nil
@@ -367,14 +366,14 @@ func flowTargets(f flow.Flow) (feedIDs, sourceIDs []string) {
 	return feedIDs, sourceIDs
 }
 
-// flowFunctionNodeIDs lists the ids of the flow's KV-capable nodes —
-// function nodes only. Converting a function node to another type under the
-// same id drops it from this set, so its now-inaccessible KV is reconciled
-// away rather than retained forever.
-func flowFunctionNodeIDs(f flow.Flow) []string {
+// flowKVNodeIDs lists the ids of the flow's KV-capable nodes, from the same
+// declared behavior flags flowTargets reads. Converting a node to a type
+// without the capability under the same id drops it from this set, so its
+// now-inaccessible KV is reconciled away rather than retained forever.
+func flowKVNodeIDs(f flow.Flow) []string {
 	var ids []string
 	for i := range f.Nodes {
-		if f.Nodes[i].Type == "function" {
+		if behaviors[f.Nodes[i].Type].kvCapable {
 			ids = append(ids, f.Nodes[i].ID)
 		}
 	}

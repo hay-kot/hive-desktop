@@ -535,16 +535,3 @@ DELETE FROM node_kv WHERE flow_id = ?;
 -- to retain use DeleteNodeKVByFlow instead, mirroring the
 -- DeleteFeedMembershipClaimsForFeeds / *All pair.
 DELETE FROM node_kv WHERE flow_id = ? AND node_id NOT IN (sqlc.slice(node_ids));
-
--- name: PruneNodeKVOverLimitPerNode :exec
--- Per-node newest-N cap, modelled on DeleteEventsOverLimitPerTopic: delete a
--- row once at least `limit` newer rows share its (flow_id, node_id, scope).
--- rowid breaks same-updated_at ties so the cap is exact.
-DELETE FROM node_kv AS target
-WHERE (
-    SELECT COUNT(*) FROM node_kv AS newer
-    WHERE newer.flow_id = target.flow_id
-      AND newer.node_id = target.node_id
-      AND newer.scope   = target.scope
-      AND (newer.updated_at, newer.rowid) > (target.updated_at, target.rowid)
-) >= CAST(sqlc.arg(limit) AS INTEGER);

@@ -213,6 +213,33 @@ func TestNotifyExecutor_CooldownIsConfigurable(t *testing.T) {
 		require.NoError(t, err)
 		assert.Len(t, notifier.sent, 2)
 	})
+
+	t.Run("a shorter-cooldown node firing does not shorten another node's window", func(t *testing.T) {
+		notifier := &notifierTest{}
+		executor := NewNotifyExecutor(notifier, openGate(), itemLocatorTest{}, zerolog.Nop())
+		now := time.Now()
+		executor.now = func() time.Time { return now }
+
+		patient := withCooldown(time.Hour)
+		eager := withCooldown(30 * time.Second)
+		eager.ID = store.NotifyActionID("triage/also-tell-me")
+
+		_, err := executor.Execute(t.Context(), patient, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+
+		// The eager node fires in between; its record-time pruning must not
+		// evict the patient node's still-live entry.
+		now = now.Add(time.Minute)
+		_, err = executor.Execute(t.Context(), eager, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		require.Len(t, notifier.sent, 2)
+
+		now = now.Add(time.Minute)
+		result, err := executor.Execute(t.Context(), patient, notifyData(t, notifyCommand()), ActionInvocationInput{})
+		require.NoError(t, err)
+		assert.False(t, result.Attempted)
+		assert.Len(t, notifier.sent, 2, "the patient node is still inside its hour-long window")
+	})
 }
 
 // Two notify nodes fed by the same message are independent destinations, so

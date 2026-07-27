@@ -44,9 +44,12 @@ func (r *Runner) Run(ctx context.Context, batch []store.Msg) (store.CommitBatch,
 // RunReplay recomputes membership with a fully inert KV — durable and
 // overlay reads miss, staged writes are discarded — so replay stays a pure
 // function of (current snapshots, current graph) and never suppresses items
-// via dedup history.
+// via dedup history. It resets the processors on the way out, so state
+// mutated during the recompute never reaches the next live Run.
 func (r *Runner) RunReplay(ctx context.Context, batch []store.Msg) (store.CommitBatch, error) {
-	return r.run(ctx, batch, true)
+	result, err := r.run(ctx, batch, true)
+	r.resetProcessors()
+	return result, err
 }
 
 func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.CommitBatch, error) {

@@ -1945,25 +1945,6 @@ func (q *Queries) PruneArchivedInboxItems(ctx context.Context, archivedAt sql.Nu
 	return err
 }
 
-const pruneNodeKVOverLimitPerNode = `-- name: PruneNodeKVOverLimitPerNode :exec
-DELETE FROM node_kv AS target
-WHERE (
-    SELECT COUNT(*) FROM node_kv AS newer
-    WHERE newer.flow_id = target.flow_id
-      AND newer.node_id = target.node_id
-      AND newer.scope   = target.scope
-      AND (newer.updated_at, newer.rowid) > (target.updated_at, target.rowid)
-) >= CAST(?1 AS INTEGER)
-`
-
-// Per-node newest-N cap, modelled on DeleteEventsOverLimitPerTopic: delete a
-// row once at least `limit` newer rows share its (flow_id, node_id, scope).
-// rowid breaks same-updated_at ties so the cap is exact.
-func (q *Queries) PruneNodeKVOverLimitPerNode(ctx context.Context, limit int64) error {
-	_, err := q.db.ExecContext(ctx, pruneNodeKVOverLimitPerNode, limit)
-	return err
-}
-
 const pruneNodeRuns = `-- name: PruneNodeRuns :exec
 DELETE FROM node_run
 WHERE rowid IN (

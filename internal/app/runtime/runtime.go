@@ -116,8 +116,8 @@ func (r *Runner) Close() {
 }
 
 // resetProcessors drops each processor's accumulated in-memory state while
-// keeping the runner usable. installFlow calls it after replay so state
-// mutated during membership recompute never reaches the first live pump.
+// keeping the runner usable. RunReplay calls it after the recompute so
+// replay-mutated state never reaches the first live pump.
 func (r *Runner) resetProcessors() {
 	for _, proc := range r.procs {
 		proc.reset()

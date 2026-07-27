@@ -51,7 +51,11 @@ const (
 // maxKVKeyBytes and maxKVValueBytes cap what kv.set accepts: this is a
 // small-value dedup store, not a blob store. Over either cap the host func
 // throws so the script sees a catchable exception rather than silent
-// truncation.
+// truncation. The number of keys is deliberately uncapped: the only writer
+// is the user's own script against their own local database, growth per tick
+// is bounded by the batch's message count, and TTL plus flow/node teardown
+// reclaim rows — a count quota would turn a working dedup memory into
+// silent re-notification the moment it filled.
 const (
 	maxKVKeyBytes   = 512
 	maxKVValueBytes = 4096

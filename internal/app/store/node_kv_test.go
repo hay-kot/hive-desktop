@@ -25,10 +25,6 @@ func TestNodeKV_SetGetRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, found)
 	assert.JSONEq(t, `{"state":"merged"}`, value)
-
-	has, err := db.NodeKVHas(ctx, "flow-1", "dedup", "seen", 1000)
-	require.NoError(t, err)
-	assert.True(t, has)
 }
 
 func TestNodeKV_MissingKeyReadsAbsent(t *testing.T) {
@@ -39,10 +35,6 @@ func TestNodeKV_MissingKeyReadsAbsent(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, found)
 	assert.Empty(t, value)
-
-	has, err := db.NodeKVHas(ctx, "flow-1", "dedup", "missing", 1000)
-	require.NoError(t, err)
-	assert.False(t, has)
 }
 
 func TestNodeKV_Delete(t *testing.T) {
@@ -50,14 +42,14 @@ func TestNodeKV_Delete(t *testing.T) {
 	ctx := t.Context()
 
 	require.NoError(t, db.NodeKVSet(ctx, "flow-1", "dedup", "seen", `true`, 0))
-	require.NoError(t, db.NodeKVDelete(ctx, "flow-1", "dedup", "seen"))
+	require.NoError(t, db.Queries().DeleteNodeKV(ctx, DeleteNodeKVParams{FlowID: "flow-1", NodeID: "dedup", Scope: KVScopeNode, Key: "seen"}))
 
 	_, found, err := db.NodeKVGet(ctx, "flow-1", "dedup", "seen", 1000)
 	require.NoError(t, err)
 	assert.False(t, found)
 
 	// Deleting a key that never existed is a no-op, not an error.
-	require.NoError(t, db.NodeKVDelete(ctx, "flow-1", "dedup", "never"))
+	require.NoError(t, db.Queries().DeleteNodeKV(ctx, DeleteNodeKVParams{FlowID: "flow-1", NodeID: "dedup", Scope: KVScopeNode, Key: "never"}))
 }
 
 // Two nodes in one flow never see each other's keys: node_id is part of the
@@ -188,40 +180,10 @@ func TestNodeKV_DeleteByFlow(t *testing.T) {
 	require.NoError(t, db.NodeKVSet(ctx, "flow-1", "b", "k", `1`, 0))
 	require.NoError(t, db.NodeKVSet(ctx, "flow-2", "a", "k", `1`, 0))
 
-	require.NoError(t, db.DeleteNodeKVByFlow(ctx, "flow-1"))
+	require.NoError(t, db.Queries().DeleteNodeKVByFlow(ctx, "flow-1"))
 
 	assert.Equal(t, 0, countNodeKVRows(t, db, "flow-1"))
 	assert.Equal(t, 1, countNodeKVRows(t, db, "flow-2"), "another flow's rows are untouched")
-}
-
-// The optional per-node cap keeps the newest N rows per (flow, node, scope)
-// and never bleeds across nodes.
-func TestNodeKV_PruneOverLimitPerNode(t *testing.T) {
-	db := openTestDB(t)
-	ctx := t.Context()
-
-	// Distinct updated_at per row so "newest" is unambiguous; write via the
-	// generated upsert to control the timestamp directly.
-	seed := func(nodeID, key string, updatedAt int64) {
-		require.NoError(t, db.Queries().UpsertNodeKV(ctx, UpsertNodeKVParams{
-			FlowID: "flow-1", NodeID: nodeID, Scope: KVScopeNode, Key: key,
-			Value: `1`, UpdatedAt: updatedAt,
-		}))
-	}
-	for i, key := range []string{"k1", "k2", "k3", "k4"} {
-		seed("busy", key, int64(100+i))
-	}
-	seed("quiet", "only", 50)
-
-	require.NoError(t, db.Queries().PruneNodeKVOverLimitPerNode(ctx, 2))
-
-	keys, err := db.NodeKVKeys(ctx, "flow-1", "busy", "", 1000)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"k3", "k4"}, keys, "only the newest two survive")
-
-	other, err := db.NodeKVKeys(ctx, "flow-1", "quiet", "", 1000)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"only"}, other, "a node under the cap is untouched")
 }
 
 func countNodeKVRows(t *testing.T, db *DB, flowID string) int {

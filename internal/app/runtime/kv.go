@@ -5,6 +5,7 @@ import (
 	"maps"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
@@ -34,16 +35,24 @@ type kvOp struct {
 	expiresAt int64 // unix ms, 0 = no expiry
 }
 
-// kvBuffer is one Run's KV working set. Not safe for concurrent use. When
-// inert (replay), reads miss and writes are discarded in both the durable
-// and overlay directions, so replay never consults or produces dedup
-// history.
+// kvBuffer is one Run's KV working set, owned by the run loop. When inert
+// (replay), reads miss and writes are discarded in both the durable and
+// overlay directions, so replay never consults or produces dedup history.
 type kvBuffer struct {
 	reader KVReader
 	flowID string
 	now    int64
 	inert  bool
-	ops    map[string]map[string]kvOp // nodeID -> key -> merged op
+
+	// mu guards ops. The run loop is single-threaded, but a wedged script's
+	// abandoned goroutine can still hold a staging handle whose reads reach
+	// ops while the loop merges a later message's staging. The ctx guard on
+	// every staging method makes that window unreachable in any realistic
+	// schedule; the mutex removes the formal race outright. Each staging's
+	// own staged map needs no lock — only its evaluating goroutine touches
+	// it, and an errored (or wedged) message's staging is never merged.
+	mu  sync.Mutex
+	ops map[string]map[string]kvOp // nodeID -> key -> merged op
 }
 
 func newKVBuffer(r KVReader, flowID string, now int64) *kvBuffer {
@@ -66,6 +75,8 @@ func (b *kvBuffer) node(nodeID string) *nodeStaging {
 // mutations drains the merged writes, sorted by (nodeID, key) for
 // deterministic batches.
 func (b *kvBuffer) mutations() []store.KVMutation {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 	if b.inert || len(b.ops) == 0 {
 		return nil
 	}
@@ -111,6 +122,8 @@ func (s *nodeStaging) commit() {
 	if s.buf.inert || len(s.staged) == 0 {
 		return
 	}
+	s.buf.mu.Lock()
+	defer s.buf.mu.Unlock()
 	merged := s.buf.ops[s.nodeID]
 	if merged == nil {
 		merged = map[string]kvOp{}
@@ -129,7 +142,10 @@ func (s *nodeStaging) Get(ctx context.Context, key string) (string, bool, error)
 	if op, ok := s.staged[key]; ok {
 		return s.resolve(op)
 	}
-	if op, ok := s.buf.ops[s.nodeID][key]; ok {
+	s.buf.mu.Lock()
+	op, merged := s.buf.ops[s.nodeID][key]
+	s.buf.mu.Unlock()
+	if merged {
 		return s.resolve(op)
 	}
 	return s.buf.reader.NodeKVGet(ctx, s.buf.flowID, s.nodeID, key, s.buf.now)
@@ -195,7 +211,9 @@ func (s *nodeStaging) Keys(ctx context.Context, prefix string) ([]string, error)
 			}
 		}
 	}
+	s.buf.mu.Lock()
 	overlay(s.buf.ops[s.nodeID])
+	s.buf.mu.Unlock()
 	overlay(s.staged)
 
 	keys := make([]string, 0, len(seen))

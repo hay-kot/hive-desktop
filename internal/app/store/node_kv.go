@@ -30,12 +30,6 @@ func (db *DB) NodeKVGet(ctx context.Context, flowID, nodeID, key string, now int
 	return value, true, nil
 }
 
-// NodeKVHas reports whether an unexpired row exists for key at `now`.
-func (db *DB) NodeKVHas(ctx context.Context, flowID, nodeID, key string, now int64) (bool, error) {
-	_, found, err := db.NodeKVGet(ctx, flowID, nodeID, key, now)
-	return found, err
-}
-
 // NodeKVKeys lists the unexpired keys under one node that start with prefix,
 // sorted. The match is binary/case-sensitive (GLOB), agreeing exactly with
 // strings.HasPrefix so a durable read and the runtime's in-tick overlay can
@@ -60,20 +54,6 @@ func (db *DB) NodeKVSet(ctx context.Context, flowID, nodeID, key, value string, 
 		FlowID: flowID, NodeID: nodeID, Scope: KVScopeNode, Key: key,
 		Value: value, ExpiresAt: exp, UpdatedAt: time.Now().UnixMilli(),
 	}))
-}
-
-// NodeKVDelete removes one key; deleting a missing key is a no-op.
-func (db *DB) NodeKVDelete(ctx context.Context, flowID, nodeID, key string) error {
-	return wrap("deleting node kv", db.queries.DeleteNodeKV(ctx, DeleteNodeKVParams{
-		FlowID: flowID, NodeID: nodeID, Scope: KVScopeNode, Key: key,
-	}))
-}
-
-// DeleteNodeKVByFlow is the whole-flow purge: every node's KV under flowID,
-// all scopes. Flow deletion (PurgeProfile) and an activation retaining no
-// KV-capable nodes both land here.
-func (db *DB) DeleteNodeKVByFlow(ctx context.Context, flowID string) error {
-	return wrap("purging node kv for flow", db.queries.DeleteNodeKVByFlow(ctx, flowID))
 }
 
 // escapeGlob neutralizes GLOB metacharacters so a stored key's literal
