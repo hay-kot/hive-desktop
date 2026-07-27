@@ -56,10 +56,8 @@ type MountOptions struct {
 	Assets   embed.FS
 	AppIcon  []byte
 	TrayIcon []byte
-	// TrayIconLinux is the pre-coloured (white) tray mark Linux needs: its
-	// StatusNotifierItem backend pushes the bytes to the panel as a raw pixmap,
-	// with no template-icon tinting, so the black TrayIcon would be invisible on
-	// a dark panel.
+	// TrayIconLinux is the white-rendered tray mark: Linux panels take raw
+	// pixmaps, not tintable templates (see applyTrayIcon).
 	TrayIconLinux []byte
 	Build         Build
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.

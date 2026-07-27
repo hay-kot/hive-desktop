@@ -21,6 +21,15 @@ func stubExecutable(t *testing.T, dir string) {
 	t.Cleanup(func() { updaterExecutable = original })
 }
 
+// stubGOOS fixes currentGOOS for the test's lifetime so the Linux staging path
+// runs on any host.
+func stubGOOS(t *testing.T, goos string) {
+	t.Helper()
+	original := currentGOOS
+	currentGOOS = func() string { return goos }
+	t.Cleanup(func() { currentGOOS = original })
+}
+
 func TestPrepareUpdateStagingNonLinuxIsNoop(t *testing.T) {
 	// t.TempDir() itself honours TMPDIR, so allocate before overriding it.
 	dir := t.TempDir()
@@ -86,6 +95,21 @@ func TestPrepareUpdateStagingRejectsUnwritableInstall(t *testing.T) {
 	restore, err := prepareUpdateStaging("linux")
 	require.Nil(t, restore)
 	require.ErrorIs(t, err, errUpdateReadOnlyInstall)
+}
+
+func TestSweepStaleStagingBesideExecutable(t *testing.T) {
+	dir := t.TempDir()
+	stubExecutable(t, dir)
+	stale := filepath.Join(dir, "wails-update-old")
+	require.NoError(t, os.Mkdir(stale, 0o755))
+	old := time.Now().Add(-staleStagingAge - time.Hour)
+	require.NoError(t, os.Chtimes(stale, old, old))
+
+	sweepStaleStagingBesideExecutable("darwin")
+	require.DirExists(t, stale, "non-Linux platforms never redirect staging, so there is nothing to sweep")
+
+	sweepStaleStagingBesideExecutable("linux")
+	require.NoDirExists(t, stale)
 }
 
 func TestSweepStaleStaging(t *testing.T) {

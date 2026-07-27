@@ -199,9 +199,10 @@ func verifyLive(ctx context.Context, version releaseVersion) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
 	var platforms map[string]platformManifest
 	for _, channel := range version.affectedChannels() {
-		manifest, err := fetchManifest(ctx, client, manifestBaseURL()+"/"+channel+"/latest.json")
+		manifestURL := manifestBaseURL() + "/" + channel + "/latest.json"
+		manifest, err := fetchManifest(ctx, client, manifestURL)
 		if err != nil {
-			return err
+			return fmt.Errorf("verify %s manifest at %s: %w", channel, manifestURL, err)
 		}
 		if manifest.Channel != channel || manifest.Version != version.String() {
 			return fmt.Errorf("%s manifest reports channel=%q version=%q, want channel=%q version=%q", channel, manifest.Channel, manifest.Version, channel, version.String())

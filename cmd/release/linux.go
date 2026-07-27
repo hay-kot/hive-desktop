@@ -50,15 +50,19 @@ func (p *publisher) buildLinux(ctx context.Context, arch string) (releaseArtifac
 		return releaseArtifact{}, fmt.Errorf("build linux/%s did not produce %s: %w", arch, binary, err)
 	}
 
-	// A build that lost its version stamp reports "dev", which releaseChannel
-	// rejects — the app would ship with its updater permanently disabled, and
-	// nobody would find out until an update failed to arrive months later.
-	stamped, err := fileContains(binary, p.options.version.String())
+	// A build that lost its ldflags stamps reports version "dev", which
+	// releaseChannel rejects — the app would ship with its updater permanently
+	// disabled, and nobody would find out until an update failed to arrive
+	// months later. The commit SHA is the needle rather than the version: with
+	// -buildvcs=false it can only enter the binary through the same -X block,
+	// while a bare stable version like "0.2.0" false-matches the dependency
+	// versions Go embeds in build info.
+	stamped, err := fileContains(binary, p.commit)
 	if err != nil {
 		return releaseArtifact{}, err
 	}
 	if !stamped {
-		return releaseArtifact{}, fmt.Errorf("linux/%s binary does not carry version %s; the build's VERSION_LDFLAGS did not apply", arch, p.options.version)
+		return releaseArtifact{}, fmt.Errorf("linux/%s binary does not carry commit %s; the build's VERSION_LDFLAGS did not apply", arch, p.commit)
 	}
 
 	name := fmt.Sprintf("Hive-%s-linux-%s.tar.gz", p.options.version, arch)

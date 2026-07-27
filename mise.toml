@@ -224,7 +224,7 @@ dir = "desktop"
 run = "wails3 build"
 
 [tasks."desktop:build:linux:image"]
-description = "Pre-build the container image that compiles Linux binaries (ARCH=amd64|arm64; one-time per arch)"
+description = "Pre-build the container image that compiles Linux binaries (ARCH=amd64|arm64)"
 run = './scripts/build/build-linux-docker.sh --image-only ${ARCH:+--arch=$ARCH}'
 
 [tasks."desktop:build:linux"]
@@ -232,7 +232,8 @@ description = "Build the Linux desktop binary in a container (ARCH=amd64|arm64, 
 # Runs the same `wails3 task linux:build` the release pipeline runs, just inside
 # a container, so a Linux binary built here matches the published one. Output
 # lands in desktop/bin/hive-desktop, overwriting any native build there. Builds
-# the image on first use.
+# the image on first use and rebuilds it when the Dockerfile or wails3 pin
+# changes.
 run = './scripts/build/build-linux-docker.sh ${ARCH:+--arch=$ARCH}'
 
 [tasks."desktop:icons"]

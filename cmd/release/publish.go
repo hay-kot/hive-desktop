@@ -233,10 +233,8 @@ func (p *publisher) run(ctx context.Context) error {
 	}
 	artifacts := []releaseArtifact{macArtifact}
 
-	// A release covers every platform, so the manifest it writes is complete in
-	// one write. That is what keeps the strict manifest-advancement rule usable:
-	// a second, later publish topping up another platform would be rejected for
-	// not advancing the version it just set.
+	// Every platform ships in this one publish; a later top-up publish would
+	// fail the manifest-advancement rule (decision 0028).
 	for _, arch := range linuxArches {
 		artifact, err := p.buildLinux(ctx, arch)
 		if err != nil {

@@ -10,30 +10,6 @@ import (
 	"time"
 )
 
-// Linux self-update has to work around two properties of the wails updater that
-// macOS never exercises.
-//
-// First, the swap is a bare rename. The helper does RemoveAll(target) followed
-// by os.Rename(staged, target) (updater/helper_unix.go) with no cross-device
-// fallback, while the artifact is staged under os.MkdirTemp("", "wails-update-*")
-// — i.e. $TMPDIR, defaulting to /tmp. On every distro that mounts /tmp as tmpfs
-// (Fedora, Arch, openSUSE, RHEL 9+, Debian 13+) that rename fails with EXDEV,
-// the helper burns all 20 retries, restores its backup, and the user sees the
-// app relaunch on the old version. macOS is immune because $TMPDIR there is
-// /var/folders/..., on the same volume as /Applications.
-//
-// Second, a tarball install can land anywhere, including a root-owned prefix
-// like /usr/local/bin. The helper needs to create target+".bak" and rename into
-// the executable's directory, so an install the user cannot write is not
-// self-updatable at all and should say so before downloading anything.
-//
-// prepareUpdateStaging addresses both by pointing $TMPDIR at the executable's
-// own directory for the duration of the download, so the staging directory is
-// created on the filesystem the rename has to land on. It is deliberately
-// scoped to the download rather than set process-wide at startup: $TMPDIR is
-// inherited by the terminal and shell commands the output worker spawns, and
-// that should stay the user's real temp directory outside this window.
-
 // errUpdateReadOnlyInstall reports an install whose directory the running user
 // cannot write, so the in-place swap could never succeed. Surfaced to the
 // frontend by UpdaterService.InstallUpdate.
@@ -48,10 +24,20 @@ var updaterExecutable = os.Executable
 const staleStagingAge = 24 * time.Hour
 
 // prepareUpdateStaging arranges for the wails updater to stage its download on
-// the same filesystem as the binary it will replace, and returns a restore
-// function the caller must call once the download has been staged. On non-Linux
-// platforms it is a no-op: the default temp directory is already co-located
-// with the install.
+// the same filesystem as the binary it will replace, by pointing $TMPDIR at
+// the executable's directory, and returns a restore function the caller must
+// call once the download has been staged. On non-Linux platforms it is a
+// no-op: the default temp directory is already co-located with the install.
+//
+// The redirect exists because the updater stages under os.MkdirTemp("", ...)
+// — $TMPDIR, defaulting to /tmp — while its helper swaps with a bare rename
+// and no cross-device fallback (updater/helper_unix.go). On every distro that
+// mounts /tmp as tmpfs (Fedora, Arch, openSUSE, RHEL 9+, Debian 13+) that
+// rename fails with EXDEV and the user watches the app relaunch on the old
+// version. The override is scoped to the download rather than set at startup:
+// $TMPDIR is inherited by the terminal and shell commands the output worker
+// spawns, and those should keep the user's real temp directory outside this
+// window.
 //
 // It returns errUpdateReadOnlyInstall when the executable's directory is not
 // writable, so callers can fail before spending a download on a swap that
@@ -96,6 +82,21 @@ func prepareUpdateStaging(goos string) (restore func(), err error) {
 	}, nil
 }
 
+// sweepStaleStagingBesideExecutable sweeps the running binary's directory,
+// where prepareUpdateStaging redirects staging. Called at startup as well as
+// before each install, so an abandoned download does not sit beside the binary
+// until the user happens to update again.
+func sweepStaleStagingBesideExecutable(goos string) {
+	if goos != "linux" {
+		return
+	}
+	exe, err := updaterExecutable()
+	if err != nil {
+		return
+	}
+	sweepStaleStaging(filepath.Dir(exe))
+}
+
 // sweepStaleStaging removes staging directories a previous update abandoned.
 // The updater deletes its own on a failed download and the helper deletes it
 // after a successful swap, so anything left is the residue of a hard kill.
@@ -118,6 +119,6 @@ func sweepStaleStaging(dir string) {
 	}
 }
 
-// currentGOOS indirects runtime.GOOS so tests can drive the Linux path from any
-// host.
+// currentGOOS indirects runtime.GOOS so tests can drive InstallUpdate's Linux
+// staging path from any host.
 var currentGOOS = func() string { return runtime.GOOS }

@@ -27,10 +27,8 @@ var appIcon []byte
 //go:embed build/icons/tray-templateTemplate@2x.png
 var trayIcon []byte
 
-// Linux has no template-icon concept — the StatusNotifierItem backend hands the
-// bytes to the panel as a raw pixmap — so the pure-black macOS mark would be
-// invisible on GNOME's and Ubuntu's unconditionally dark panels. This is the
-// same mark rendered white (build/icons/generate.sh).
+// The same mark rendered white: Linux panels take raw pixmaps, not tintable
+// templates (see wailsui.applyTrayIcon).
 //
 //go:embed build/linux/tray-icon.png
 var trayIconLinux []byte

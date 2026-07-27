@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -109,5 +110,60 @@ func TestValidateManifestAcceptsLegacyAndMultiPlatform(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "linux-amd64") {
 		t.Fatalf("error %q does not name the offending platform", err)
+	}
+
+	err = validateManifest(base(map[string]platformManifest{"linux-amd64": good}))
+	if err == nil {
+		t.Fatal("expected a manifest without darwin-universal to be rejected")
+	}
+	if !strings.Contains(err.Error(), "darwin-universal") {
+		t.Fatalf("error %q does not name the missing platform", err)
+	}
+}
+
+// Every affected channel of one release must advertise the same platform set;
+// a channel missing a platform would break updates for those clients only.
+func TestVerifyLiveRejectsDivergentChannelManifests(t *testing.T) {
+	const digest = "0000000000000000000000000000000000000000000000000000000000000000"
+	manifest := func(channel string, platforms map[string]platformManifest) channelManifest {
+		return channelManifest{
+			Channel:   channel,
+			Version:   "1.2.3-beta.1",
+			PubDate:   "2026-07-24T00:00:00Z",
+			Platforms: platforms,
+		}
+	}
+	good := platformManifest{URL: "https://example.com/a", SHA256: digest, Size: 1}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/beta/latest.json":
+			_ = json.NewEncoder(w).Encode(manifest("beta", map[string]platformManifest{
+				"darwin-universal": good,
+				"linux-amd64":      good,
+				"linux-arm64":      good,
+			}))
+		case "/dev/latest.json":
+			_ = json.NewEncoder(w).Encode(manifest("dev", map[string]platformManifest{
+				"darwin-universal": good,
+				"linux-amd64":      good,
+			}))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("HIVE_DESKTOP_MANIFEST_BASE", server.URL)
+
+	version, err := parseVersion("1.2.3-beta.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = verifyLive(context.Background(), version)
+	if err == nil {
+		t.Fatal("expected divergent channel manifests to be rejected")
+	}
+	if !strings.Contains(err.Error(), "differ") {
+		t.Fatalf("error %q does not report the divergence", err)
 	}
 }

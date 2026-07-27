@@ -136,14 +136,14 @@ Publishing everything in one process is what keeps the manifest-advancement rule
 
 ### Building Linux from macOS
 
-The Linux binary is built in a container so a Mac can produce it: `desktop/build/docker/Dockerfile.linux` mirrors the ubuntu-24.04 runner (GTK 4.14, the repo's pinned Go, the pinned wails3) and runs the **same** `wails3 task linux:build` a native Linux host would, so a locally driven release cannot diverge from a native build. The image is tagged per architecture because it carries a native toolchain — an arm64 image cannot serve `--platform linux/amd64`.
+The Linux binary is built in a container so a Mac can produce it: `desktop/build/docker/Dockerfile.linux` mirrors ubuntu-24.04 (GTK 4.14, the repo's pinned Go, the pinned wails3, all base images digest-pinned) and runs the **same** `wails3 task linux:build` a native Linux host would, so a locally driven release cannot diverge from a native build. The image is tagged per architecture — it carries a native toolchain, so an arm64 image cannot serve `--platform linux/amd64` — plus a fingerprint of the Dockerfile and the wails3 pin, so a pin bump or Dockerfile edit rebuilds it instead of silently reusing a stale image.
 
 ```bash
-ARCH=arm64 mise run desktop:build:linux:image   # one-time per arch, ~5 min
+ARCH=arm64 mise run desktop:build:linux:image   # optional pre-build, ~5 min per arch
 mise run desktop:build:linux                    # binary only → desktop/bin/hive-desktop
 ```
 
-Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted from the host and `GOPROXY=off` is set, so the container never needs credentials for the private `colonyops/hive` module; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
+Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted **read-only** from the host and `GOPROXY=off` is set, so the container never needs credentials for the private `colonyops/hive` module and the third-party npm code it runs (with lifecycle scripts disabled) cannot poison the cache the host's own builds trust; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
 
 The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`npm ci && npm run deploy`) and verifies the worker is live and — when `HIVE_DESKTOP_REPORT_TOKEN` is set — that the release token is accepted (an authenticated non-gzip `POST /api/report` must return `415`, past the `401`/`503` gates, so it never writes a report). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
 

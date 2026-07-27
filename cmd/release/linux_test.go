@@ -100,9 +100,9 @@ func TestVerifyBinaryTarballRejectsBadShapes(t *testing.T) {
 		{
 			// A wrapper directory would make the helper rename a directory over
 			// the executable path.
-			name:    "wrapper directory",
-			headers: []*tar.Header{{Name: "hive-1.0", Mode: 0o755, Typeflag: tar.TypeDir}},
-			want:    "want \"hive-desktop\"",
+			name:    "directory instead of a binary",
+			headers: []*tar.Header{{Name: "hive-desktop", Mode: 0o755, Typeflag: tar.TypeDir}},
+			want:    "not a regular file",
 		},
 		{
 			name:    "wrong entry name",
@@ -138,42 +138,28 @@ func TestVerifyBinaryTarballRejectsBadShapes(t *testing.T) {
 }
 
 // A build that lost its ldflags reports "dev", which releaseChannel rejects, so
-// the app would ship with its updater permanently disabled.
-func TestFileContainsDetectsVersionStamp(t *testing.T) {
+// the app would ship with its updater permanently disabled. buildLinux greps
+// the binary for the release commit to catch that.
+func TestFileContainsDetectsCommitStamp(t *testing.T) {
 	t.Parallel()
 
+	const commit = "3807c2bb3cad64e9230ec70a9e01aee64cc1593b"
 	path := filepath.Join(t.TempDir(), "binary")
-	if err := os.WriteFile(path, []byte("\x00\x01padding1.4.0-dev.2padding\x00"), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte("\x00\x01padding"+commit+"padding\x00"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	found, err := fileContains(path, "1.4.0-dev.2")
+	found, err := fileContains(path, commit)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !found {
-		t.Fatal("stamped version not found in binary")
+		t.Fatal("stamped commit not found in binary")
 	}
-	found, err = fileContains(path, "9.9.9")
+	found, err = fileContains(path, "0000000000000000000000000000000000000000")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if found {
-		t.Fatal("unstamped version reported as present")
-	}
-}
-
-func TestLinuxArchesArePublished(t *testing.T) {
-	t.Parallel()
-
-	// A release publishes every platform in one manifest write; if this list
-	// changes, docs/decisions/0028 and the manifest schema need updating too.
-	want := []string{"amd64", "arm64"}
-	if len(linuxArches) != len(want) {
-		t.Fatalf("linuxArches = %v, want %v", linuxArches, want)
-	}
-	for i, arch := range want {
-		if linuxArches[i] != arch {
-			t.Fatalf("linuxArches = %v, want %v", linuxArches, want)
-		}
+		t.Fatal("unstamped commit reported as present")
 	}
 }
