@@ -271,6 +271,8 @@ internal/
     prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
       templates/                 #   .tmpl files the registry renders
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
+    pprofsrv/                     # dev-only pprof endpoint (development.pprof),
+                                  #   its own loopback listener (ADR 0023)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -549,10 +551,14 @@ context-taking `Stop` behind a `stopOnce` (the webhook listener is the
 template — ADR 0016), `App.Start` starts them in dependency order, and
 `App.Close` unwinds them in reverse. `main` holds none of it.
 
-`development.pprof` is already typed and validated with disabled, loopback,
-port-zero-safe defaults. Starting the endpoint is deliberately deferred until
-this plugs lifecycle exists; it must not add a bespoke teardown branch in
-`main`.
+`development.pprof` is typed and validated with disabled, loopback,
+port-zero-safe defaults, and the endpoint now runs through the App-owned
+lifecycle above: `internal/app/pprofsrv.Server` on its own loopback listener,
+an idempotent context-taking `Stop` behind a `stopOnce`, started in `App.Start`
+and unwound in `App.Close` — no teardown branch in `main`. It stays off by
+default and is deliberately **not** mounted on the always-on HTTP server (ADR
+0021): a disabled endpoint is then reachable from nowhere, and its host/port
+stay independent of the product API surface (ADR 0023).
 
 Other `appkit` packages with a clear home here: `httpclient` (context-first
 client with composable middleware, **adopted** — see below) and `mapx`.

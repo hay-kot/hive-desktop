@@ -36,8 +36,13 @@ func TestAppLifecycle(t *testing.T) {
 	settle(t)
 	before := runtime.NumGoroutine()
 
+	// Enabled so the pprof endpoint's Serve goroutine is part of what the
+	// goroutine assertion below proves Close unwinds.
+	cfg := settings.DefaultSettings()
+	cfg.Development.Pprof.Enabled = true
+
 	core, err := New(t.Context(), Config{
-		Settings: settings.DefaultSettings(),
+		Settings: cfg,
 		MockMode: settings.MockMode(),
 		Logger:   zerolog.Nop(),
 	})

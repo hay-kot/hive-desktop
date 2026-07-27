@@ -274,8 +274,9 @@ more expensive, which is the whole reason it is being done now.
   ```
 
   The loopback HTTP server (webhook listener + agent API) is on by default and
-  allocates directly through port `0`. Pprof config
-  is validated but endpoint startup waits for the plugs lifecycle. Dev uses
+  allocates directly through port `0`. Pprof is off by default and, when
+  enabled, runs on its own loopback listener through the App-owned lifecycle
+  (`internal/app/pprofsrv`, ADR 0023) — not on the shared HTTP server. Dev uses
   `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
   runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
   marker-guarded destructive operations that refuse while a configured dev
@@ -361,9 +362,9 @@ persisted by UI writes.
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Reserved pprof enable setting; runtime endpoint deferred |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST` | Reserved pprof loopback host |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT` | Reserved pprof port |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Enable the pprof debug endpoint (own loopback listener, ADR 0023); off by default |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_HOST` | Pprof loopback host |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_PORT` | Pprof port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |

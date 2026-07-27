@@ -21,6 +21,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
+	"github.com/hay-kot/hive-desktop/internal/app/pprofsrv"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -117,6 +118,7 @@ type App struct {
 	webhook     *webhook.Listener
 	webhookHost string
 	webhookPort int
+	pprof       *pprofsrv.Server
 
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
@@ -244,6 +246,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.sources = a.buildSources(cfg.Logger)
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
+	a.openPprof(cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs, a.launcher)
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, func() { a.PublishFlowsUpdated("save") })
@@ -302,6 +305,11 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 	}
+	if a.pprof != nil {
+		if err := a.pprof.Start(ctx); err != nil {
+			a.logger.Warn().Err(err).Int("port", a.settings.Development.Pprof.Port).Msg("pprof endpoint unavailable")
+		}
+	}
 	return nil
 }
 
@@ -343,6 +351,15 @@ func (a *App) HiveConn() *sql.DB {
 func (a *App) Close() error {
 	a.cancel()
 
+	if a.pprof != nil {
+		// Fresh un-cancelled context for the graceful drain — see the webhook
+		// block below for why.
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		if err := a.pprof.Stop(stopCtx); err != nil {
+			a.logger.Warn().Err(err).Msg("pprof endpoint shutdown")
+		}
+		cancel()
+	}
 	if a.webhook != nil {
 		// A fresh, un-cancelled context for the graceful drain: a.ctx may
 		// already be cancelled by the line above, and handing a Done context
@@ -644,6 +661,15 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 
 	a.webhook = webhook.NewListener(a.Store, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
 	a.webhook.SetRecorder(a.activityStore)
+}
+
+// openPprof constructs the pprof debug endpoint when development.pprof is
+// enabled; disabled, a.pprof stays nil and Start has nothing to run.
+func (a *App) openPprof(cfg Config) {
+	if !cfg.Settings.Development.Pprof.Enabled {
+		return
+	}
+	a.pprof = pprofsrv.New(cfg.Settings.Development.Pprof.Host, cfg.Settings.Development.Pprof.Port, cfg.Logger)
 }
 
 // openHiveRuntime opens the Hive dependencies desktop actions need. The
