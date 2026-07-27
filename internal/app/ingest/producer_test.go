@@ -196,6 +196,23 @@ func TestProducer_Tick_AppendsMonotonicOffsets(t *testing.T) {
 	}
 }
 
+func TestProducer_Tick_SummaryReportsSourcesAppendedFailed(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	ok := &fakeSource{batches: [][]Msg{{{Topic: "source:flow/s1", Key: "a", Payload: []byte(`{"v":1}`)}}}}
+	bad := &fakeSource{err: fmt.Errorf("fetch failed")}
+
+	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{
+		"flow/s1": ok, "flow/s2": bad,
+	}), time.Hour, func(int64) {}, zerolog.Nop())
+
+	summary := producer.Tick(t.Context())
+	assert.Equal(t, 2, summary.Sources)
+	assert.Equal(t, 1, summary.Failed, "a failing source is counted, not fatal")
+	assert.Positive(t, summary.Appended, "the healthy source still appended")
+}
+
 func TestProducer_Tick_EmptySnapshot_WakesConsumer(t *testing.T) {
 	t.Parallel()
 

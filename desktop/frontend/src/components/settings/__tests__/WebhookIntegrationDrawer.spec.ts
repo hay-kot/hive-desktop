@@ -114,7 +114,7 @@ describe('WebhookIntegrationDrawer', () => {
 
     expect(wrapper.get('[data-testid="webhook-settings-port-input"]').attributes('disabled')).toBeDefined()
     expect(wrapper.get('[data-testid="webhook-settings-port-generate"]').attributes('disabled')).toBeDefined()
-    expect(wrapper.get('[data-testid="webhook-settings-port-hint"]').text()).toContain('HIVE_DESKTOP_WEBHOOKS_PORT')
+    expect(wrapper.get('[data-testid="webhook-settings-port-hint"]').text()).toContain('HIVE_DESKTOP_HTTP_PORT')
   })
 
   it('keeps the drawer open and reports a rejected save', async () => {

@@ -251,7 +251,6 @@ func (o *options) run(ctx context.Context, _ *cli.Command) error {
 		Str("cache", cfg.Cache.Path).
 		Dur("ttl", cfg.Cache.TTL).
 		Int("overlays", len(cfg.Overlays)).
-		Int("scenarios", len(cfg.Scenarios)).
 		Int("targets", len(cfg.Webhooks.Targets)).
 		Msg("devserver started")
 	if len(cfg.Overlays) > 0 {

@@ -183,7 +183,7 @@ func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) 
 	// every other prompt is still correct, so fall back to reporting the
 	// listener as enabled and let the webhook settings pane surface the error.
 	if cfg, err := s.settings.Effective(); err == nil {
-		env.WebhookEnabled = cfg.Webhooks.Enabled
+		env.WebhookEnabled = cfg.HTTP.Enabled
 	} else {
 		env.WebhookEnabled = false
 	}

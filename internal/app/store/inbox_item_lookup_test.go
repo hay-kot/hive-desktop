@@ -42,6 +42,64 @@ func TestInboxItemID(t *testing.T) {
 	}
 }
 
+func TestFindInboxItemsByExternalID(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+	insert := func(profile, scope, ext string) {
+		_, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{
+			ProfileID: profile, SourceKind: "github", SourceScope: scope, ExternalID: ext,
+			Payload: []byte(`{"v":1}`), Lifecycle: "active",
+		})
+		require.NoError(t, err)
+	}
+	insert("p1", "s-a", "PR_1")
+	insert("p1", "s-b", "PR_1")
+	insert("p2", "s-a", "PR_1")
+	insert("p1", "s-a", "PR_2")
+
+	all, err := db.FindInboxItemsByExternalID(ctx, "", "PR_1")
+	require.NoError(t, err)
+	assert.Len(t, all, 3, "one external id spans profiles and source scopes")
+
+	scoped, err := db.FindInboxItemsByExternalID(ctx, "p1", "PR_1")
+	require.NoError(t, err)
+	assert.Len(t, scoped, 2)
+	for _, item := range scoped {
+		assert.Equal(t, "p1", item.ProfileID)
+	}
+
+	none, err := db.FindInboxItemsByExternalID(ctx, "", "missing")
+	require.NoError(t, err)
+	assert.Empty(t, none)
+}
+
+func TestListAllInboxItems(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+	insert := func(profile, ext string) {
+		_, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{
+			ProfileID: profile, SourceKind: "github", SourceScope: "s", ExternalID: ext,
+			Payload: []byte(`{"v":1}`), Lifecycle: "active",
+		})
+		require.NoError(t, err)
+	}
+	insert("p1", "a")
+	insert("p1", "b")
+	insert("p2", "c")
+
+	all, err := db.ListAllInboxItems(ctx, "", 10)
+	require.NoError(t, err)
+	assert.Len(t, all, 3)
+
+	scoped, err := db.ListAllInboxItems(ctx, "p1", 10)
+	require.NoError(t, err)
+	assert.Len(t, scoped, 2)
+
+	empty, err := db.ListAllInboxItems(ctx, "", 0)
+	require.NoError(t, err)
+	assert.Empty(t, empty, "a non-positive limit short-circuits")
+}
+
 func TestInboxItemFeedID(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()

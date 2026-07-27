@@ -37,7 +37,7 @@ A development-only binary, `cmd/devserver`, that sits between development instan
 
 7. **A dashboard** at the listen root drives both, over a JSON control API under `/_ctl/`. Assets are embedded and self-contained; the page is a plain 2s poll of one `/_ctl/state` read.
 
-8. **A checked-in development config**, `cmd/devserver/devserver.yaml`, and no other config location. It ships scenarios and webhook payloads but **declares no overlays**: a config that rewrote responses from the first request would mean a developer who never opened the dashboard could still be looking at fabricated data, and every subsequent bug would be suspect.
+8. **A checked-in development config**, `cmd/devserver/devserver.yaml`, and no other config location. It ships webhook payloads but **declares no overlays**: a config that rewrote responses from the first request would mean a developer who never opened the dashboard could still be looking at fabricated data, and every subsequent bug would be suspect. (It originally shipped named scenarios too; ADR 0020 moved scenarios to a runtime `POST /_ctl/scenario` and removed the config section.)
 
    There is deliberately no per-user file in a home directory. Development configuration is versioned alongside the code whose behaviour it simulates, is reviewed with it, and is identical for everyone; a `devserver.yaml` under `$XDG_CONFIG_HOME` would be invisible local state silently changing what a dev instance sees. It is also the source of truth for the listen address, which is what lets `cmd/devtools` point every worktree at the same proxy without a second copy of the port.
 

@@ -52,6 +52,14 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	assert.NotZero(t, vite)
 	assert.NotZero(t, wails)
 	assert.NotEqual(t, vite, wails)
+	// The loopback HTTP server (webhook listener + agent API) boots on a
+	// distinct allocated port (Item 3).
+	assert.Equal(t, "true", launch[settings.EnvHTTPEnabled])
+	httpPort, err := strconv.Atoi(launch[settings.EnvHTTPPort])
+	require.NoError(t, err)
+	assert.NotZero(t, httpPort)
+	assert.NotEqual(t, vite, httpPort)
+	assert.NotEqual(t, wails, httpPort)
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "data", "hive.db"))
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
 
@@ -189,6 +197,32 @@ func TestLockRejectsDifferentOwner(t *testing.T) {
 // imports both, so it is the one place the two spellings can be compared.
 func TestDevproxyEnvNameMatchesSettings(t *testing.T) {
 	assert.Equal(t, settings.EnvGitHubAPIBase, devproxy.EnvAPIBase)
+}
+
+// A launch.env from before these keys were added must not wedge prepare: it is
+// regenerated rather than reported as an error.
+func TestPrepareRegeneratesStaleLaunchEnv(t *testing.T) {
+	tools, _, _ := testDevtools(t)
+	require.NoError(t, tools.prepare(false))
+
+	stale := map[string]string{
+		settings.EnvDataDir:       filepath.Join(tools.instanceDir, "data"),
+		settings.EnvConfigDir:     filepath.Join(tools.instanceDir, "config"),
+		settings.EnvGitHubAPIBase: "http://127.0.0.1:7777",
+		"WAILS_VITE_HOST":         "127.0.0.1",
+		"WAILS_VITE_PORT":         "1",
+		"WAILS_SERVER_HOST":       "127.0.0.1",
+		"WAILS_SERVER_PORT":       "2",
+		launchMarkerEnv:           tools.launchPath,
+	}
+	require.NoError(t, writeDotenvAtomic(tools.launchPath, stale))
+	_, err := tools.readLaunchIfPresent()
+	require.ErrorIs(t, err, errLaunchEnvUnusable, "the stale file is detected as unusable")
+
+	require.NoError(t, tools.prepare(false), "prepare regenerates instead of failing")
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	assert.Equal(t, "true", launch[settings.EnvHTTPEnabled])
 }
 
 // Development is proxied by default (ADR 0017): prepare must write the API base

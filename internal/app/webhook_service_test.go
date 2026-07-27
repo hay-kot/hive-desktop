@@ -15,7 +15,7 @@ import (
 func isolateSettings(t *testing.T) {
 	t.Helper()
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	t.Setenv(settings.EnvWebhookPort, "")
+	t.Setenv(settings.EnvHTTPPort, "")
 }
 
 func testSettingsStore(t *testing.T) *settings.Store {
@@ -52,23 +52,23 @@ func TestWebhookServiceCapture(t *testing.T) {
 	assert.Equal(t, []string{"id", "kind", "repo", "title", "url"}, view.MissingFields)
 }
 
-func TestWebhookServiceSettingsDefaultDisabled(t *testing.T) {
+func TestWebhookServiceSettingsDefaultEnabled(t *testing.T) {
 	isolateSettings(t)
 	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 0)
 
 	view, err := service.State(t.Context())
 	require.NoError(t, err)
-	assert.False(t, view.Enabled)
+	assert.True(t, view.Enabled, "the loopback HTTP server is on by default")
 	assert.Equal(t, "127.0.0.1", view.Host)
 	assert.Zero(t, view.Port)
 	assert.False(t, view.PortOverridden)
-	assert.False(t, view.Running)
-	assert.False(t, view.RestartRequired)
+	assert.False(t, view.Running, "no listener was constructed for this test")
+	assert.True(t, view.RestartRequired, "enabled in config but not yet running")
 }
 
 func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 	isolateSettings(t)
-	t.Setenv(settings.EnvWebhookPort, "24499")
+	t.Setenv(settings.EnvHTTPPort, "24499")
 	service := newWebhookService(testSettingsStore(t), nil, nil, "127.0.0.1", 24499)
 
 	view, err := service.State(t.Context())

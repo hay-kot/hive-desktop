@@ -33,7 +33,7 @@ const parsedPort = computed(() => Number(port.value))
 const portValid = computed(() => Number.isInteger(parsedPort.value) && (parsedPort.value === 0 || (parsedPort.value >= 1024 && parsedPort.value <= 65535)))
 const overridden = computed(() => settings.value?.portOverridden === true)
 const portHint = computed(() => overridden.value
-  ? 'Fixed by HIVE_DESKTOP_WEBHOOKS_PORT for this session — edits here have no effect until the variable is unset.'
+  ? 'Fixed by HIVE_DESKTOP_HTTP_PORT for this session — edits here have no effect until the variable is unset.'
   : `Use 0 to allocate a port when the listener is enabled, or choose a stable port. Generated candidates come from ${settings.value?.portMin ?? 20000}–${settings.value?.portMax ?? 32767}.`)
 
 const baseUrl = computed(() => settings.value?.baseUrl ?? '')

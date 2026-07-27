@@ -128,36 +128,44 @@ func (pr *Producer) Stop() {
 	pr.stopOnce.Do(func() { close(pr.stop) })
 }
 
+// TickSummary reports what one tick did, so a caller that forced the tick (a
+// manual refresh) can tell "nothing changed" from "every source failed".
+type TickSummary struct {
+	Sources  int
+	Appended int
+	Failed   int
+}
+
 // Tick resolves the current sources and drains each one once, appending
 // every emitted Msg to the log. It is exported so tests can drive a
 // deterministic tick instead of waiting on the ticker. A source whose
 // Produce call fails is logged and skipped — one source's fetch failure
 // (e.g. an offline stretch) must not block the others.
-func (pr *Producer) Tick(ctx context.Context) {
+func (pr *Producer) Tick(ctx context.Context) TickSummary {
 	instances := pr.sources.PullInstances()
 
 	if err := pr.sources.Prefetch(ctx, instances); err != nil {
 		pr.logger.Debug().Err(err).Msg("pipeline producer: source prefetch failed")
 	}
 
-	var (
-		lastOffset int64
-		appended   int
-	)
+	summary := TickSummary{Sources: len(instances)}
+	var lastOffset int64
 	for _, instance := range instances {
 		rows, err := pr.drain(ctx, instance)
 		if err != nil {
+			summary.Failed++
 			continue
 		}
 		if rows.appended > 0 {
-			appended += rows.appended
+			summary.Appended += rows.appended
 			lastOffset = rows.lastOffset
 		}
 	}
 
-	if appended > 0 && pr.onAppended != nil {
+	if summary.Appended > 0 && pr.onAppended != nil {
 		pr.onAppended(lastOffset)
 	}
+	return summary
 }
 
 // drained is what one source's tick was worth: how many rows it appended and

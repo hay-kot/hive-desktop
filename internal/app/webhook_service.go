@@ -82,14 +82,14 @@ func (s *WebhookService) State(context.Context) (WebhookState, error) {
 		return WebhookState{}, Wrap(err, KindInternal, "reading settings")
 	}
 
-	enabled := cfg.Webhooks.Enabled
+	enabled := cfg.HTTP.Enabled
 	state := WebhookState{
 		Enabled:        enabled,
-		Host:           cfg.Webhooks.Host,
-		Port:           cfg.Webhooks.Port,
+		Host:           cfg.HTTP.Host,
+		Port:           cfg.HTTP.Port,
 		PortMin:        settings.WebhookPortMin,
 		PortMax:        settings.WebhookPortMax,
-		PortOverridden: cfg.EnvironmentOverridden(settings.EnvWebhookPort),
+		PortOverridden: cfg.EnvironmentOverridden(settings.EnvHTTPPort),
 	}
 	if s.listener != nil {
 		state.Running = s.listener.Running()
@@ -116,9 +116,9 @@ func (s *WebhookService) State(context.Context) (WebhookState, error) {
 // pending restart.
 func (s *WebhookService) SetState(_ context.Context, enabled bool, host string, port int) error {
 	_, err := s.settings.Update(func(current *settings.Settings) error {
-		current.Webhooks.Enabled = enabled
-		current.Webhooks.Host = host
-		current.Webhooks.Port = port
+		current.HTTP.Enabled = enabled
+		current.HTTP.Host = host
+		current.HTTP.Port = port
 		if err := current.Validate(); err != nil {
 			return Wrap(err, KindInvalid, "validating webhook settings")
 		}

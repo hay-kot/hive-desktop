@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"time"
 
@@ -290,9 +291,9 @@ func (a *App) Start(ctx context.Context) error {
 		if err := a.webhook.Start(ctx); err != nil {
 			a.Webhooks.setStartError(err)
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
-		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
-				persisted.Webhooks.Port = a.webhook.Port()
+				persisted.HTTP.Port = a.webhook.Port()
 				return nil
 			})
 			if err != nil {
@@ -476,6 +477,29 @@ func (a *App) PublishFlowsUpdated(reason string) {
 	a.Events.Publish(a.ctx, events.FlowsUpdated{Reason: reason})
 }
 
+// RefreshSources drops the fetch caches and drives one producer tick, returning
+// its summary. The engine commits on its own goroutine, so a caller reads back
+// with a short retry. Mock modes have no producer and report KindUnavailable.
+func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
+	if a.producer == nil {
+		return ingest.TickSummary{}, Errorf(KindUnavailable, "source refresh is unavailable in this mode")
+	}
+	if a.fetchers != nil {
+		a.fetchers.InvalidateAll()
+	}
+	return a.producer.Tick(ctx), nil
+}
+
+// MountAPI mounts h onto the loopback webhook listener at prefix so the HTTP API
+// shares its port. It reports false when no listener exists. Call before Start.
+func (a *App) MountAPI(prefix string, h http.Handler) bool {
+	if a.webhook == nil {
+		return false
+	}
+	a.webhook.MountAPI(prefix, h)
+	return true
+}
+
 // buildEngine wires the flow engine over the store and the live flow set. It
 // runs in every mode, including the mock ones: a fixture that seeds inbox
 // items also appends the source snapshot they came from, so the engine's
@@ -609,12 +633,12 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 // probe/rebind race. Mock instances only claim a listener through an explicit
 // port override, keeping parallel e2e lanes isolated.
 func (a *App) openWebhook(_ context.Context, cfg Config) {
-	a.webhookHost = cfg.Settings.Webhooks.Host
-	a.webhookPort = cfg.Settings.Webhooks.Port
-	if !cfg.Settings.Webhooks.Enabled {
+	a.webhookHost = cfg.Settings.HTTP.Host
+	a.webhookPort = cfg.Settings.HTTP.Port
+	if !cfg.Settings.HTTP.Enabled {
 		return
 	}
-	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvWebhookPort) {
+	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 		return
 	}
 

@@ -72,7 +72,7 @@ func TestControlRejectsUnknownAction(t *testing.T) {
 		`{"repo":"o/r","num":1,"action":"approve"}`)
 	// "approve" is deliberately absent: GitHub has no such notification
 	// reason, and inventing one would teach a wrong lesson about the app.
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "unknown action")
 }
 
@@ -84,7 +84,7 @@ func TestControlRejectsInvalidMatcher(t *testing.T) {
 		`{"repo":"","num":1,"action":"comment"}`,
 	} {
 		rec := ctl(t, handler, http.MethodPost, "/_ctl/action", body)
-		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, body)
 	}
 }
 
@@ -118,7 +118,7 @@ func TestControlOverlayRejectsInvalidState(t *testing.T) {
 	handler, _, _ := testControl(t, Config{})
 	rec := ctl(t, handler, http.MethodPost, "/_ctl/overlay",
 		`{"repo":"o/r","num":1,"set":{"state":"squashed"}}`)
-	assert.Equal(t, http.StatusBadRequest, rec.Code)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 	assert.Contains(t, rec.Body.String(), "not one of")
 }
 
@@ -131,13 +131,22 @@ func TestControlClearAll(t *testing.T) {
 	assert.Empty(t, store.Overlays())
 }
 
+// TestControlHealthStillSatisfiesTheProbe guards the standby race: enriching
+// health with readiness fields must not stop devproxy.Probe decoding the
+// Devserver marker, or a standby launch would treat the live server as foreign.
+func TestControlHealthStillSatisfiesTheProbe(t *testing.T) {
+	handler, _, _ := testControl(t, Config{})
+
+	rec := ctl(t, handler, http.MethodGet, devproxy.HealthPath, "")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var probe devproxy.Health
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &probe))
+	assert.True(t, probe.Devserver)
+}
+
 func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 	handler, store, _ := testControl(t, Config{
-		Scenarios: map[string]Scenario{
-			"pr-flow": {Description: "d", Steps: []ScenarioStep{{
-				Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")},
-			}}},
-		},
 		Webhooks: WebhookConfig{
 			Targets:  []WebhookTarget{{Name: "local", URL: "http://127.0.0.1:1/hooks/x", Secret: "s"}},
 			Payloads: map[string]map[string]any{"pr-opened": {"id": "1"}},
@@ -152,9 +161,7 @@ func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &view))
 	assert.Equal(t, DefaultUpstream, view.Upstream)
 	assert.Contains(t, view.Overlays, "o/r#1")
-	require.Len(t, view.Scenarios, 1)
-	assert.Equal(t, "pr-flow", view.Scenarios[0].Name)
-	assert.False(t, view.Scenarios[0].Running)
+	assert.Empty(t, view.Scenarios, "no scenario is running")
 	require.Len(t, view.Targets, 1)
 	assert.Equal(t, []string{"pr-opened"}, view.Payloads)
 	assert.NotEmpty(t, view.Actions, "the dashboard renders whatever the vocabulary contains")
@@ -166,9 +173,6 @@ func TestControlStateReportsEverythingTheDashboardNeeds(t *testing.T) {
 // target list first shipped rendering "undefined".
 func TestControlStateJSONKeysMatchDashboard(t *testing.T) {
 	handler, store, _ := testControl(t, Config{
-		Scenarios: map[string]Scenario{"flow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")}},
-		}}},
 		Webhooks: WebhookConfig{
 			Targets:  []WebhookTarget{{Name: "local", URL: "http://127.0.0.1:1/hooks/x"}},
 			Payloads: map[string]map[string]any{"p": {"id": "1"}},
@@ -200,12 +204,6 @@ func TestControlStateJSONKeysMatchDashboard(t *testing.T) {
 	assert.Equal(t, true, overlay["absent"])
 	assert.NotContains(t, overlay, "labels")
 
-	scenario, ok := raw["scenarios"].([]any)[0].(map[string]any)
-	require.True(t, ok)
-	for _, key := range []string{"name", "description", "steps", "running"} {
-		assert.Contains(t, scenario, key)
-	}
-
 	action, ok := raw["actions"].([]any)[0].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, action, "name")
@@ -222,16 +220,22 @@ func TestControlStateNeverLeaksWebhookSecrets(t *testing.T) {
 	assert.NotContains(t, rec.Body.String(), "super-secret")
 }
 
-func TestControlRunScenarioAppliesStepsInOrder(t *testing.T) {
-	handler, store, _ := testControl(t, Config{
-		Scenarios: map[string]Scenario{"flow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("review_requested")}},
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{State: new("merged"), Absent: new(true)}},
-		}}},
-	})
+func TestControlScenarioAppliesStepsInOrder(t *testing.T) {
+	handler, store, _ := testControl(t, Config{})
 
-	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenarios/flow/run", `{}`)
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario", `{"steps":[
+		{"repo":"o/r","num":1,"action":"review-requested"},
+		{"repo":"o/r","num":1,"set":{"state":"merged","absent":true}}
+	]}`)
 	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	var accepted struct {
+		Scenario string `json:"scenario"`
+		Steps    int    `json:"steps"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &accepted))
+	assert.Equal(t, "scenario-1", accepted.Scenario)
+	assert.Equal(t, 2, accepted.Steps)
 
 	require.Eventually(t, func() bool {
 		overlay, ok := store.Get("o/r#1")
@@ -243,23 +247,63 @@ func TestControlRunScenarioAppliesStepsInOrder(t *testing.T) {
 	assert.Equal(t, "review_requested", *overlay.Reason, "later steps must accumulate, not replace")
 }
 
-func TestControlRunScenarioRejectsUnknownName(t *testing.T) {
-	handler, _, _ := testControl(t, Config{})
-	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenarios/nope/run", `{}`)
-	assert.Equal(t, http.StatusNotFound, rec.Code)
+func TestControlScenarioSupportsActionAndSetSteps(t *testing.T) {
+	handler, store, _ := testControl(t, Config{})
+
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario",
+		`{"steps":[{"repo":"o/r","num":7,"set":{"labels":["ci-failed"]}}]}`)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	require.Eventually(t, func() bool {
+		overlay, ok := store.Get("o/r#7")
+		return ok && overlay.Labels != nil
+	}, 2*time.Second, 10*time.Millisecond)
+	overlay, _ := store.Get("o/r#7")
+	assert.Equal(t, []string{"ci-failed"}, *overlay.Labels)
 }
 
-func TestControlRunScenarioRejectsConcurrentRun(t *testing.T) {
-	handler, _, _ := testControl(t, Config{
-		Scenarios: map[string]Scenario{"slow": {Steps: []ScenarioStep{
-			{Match: Matcher{Repo: "o/r", Num: 1}, Set: Mutations{Reason: new("comment")}, Wait: time.Second},
-		}}},
-	})
+// TestControlScenarioReportsRunningInState pins that an in-flight scenario is
+// visible in /_ctl/state — the only way a caller learns its run is still going
+// — and disappears once done. The wait step keeps it in flight across the read.
+func TestControlScenarioReportsRunningInState(t *testing.T) {
+	handler, _, _ := testControl(t, Config{})
 
-	require.Equal(t, http.StatusAccepted, ctl(t, handler, http.MethodPost, "/_ctl/scenarios/slow/run", `{}`).Code)
-	second := ctl(t, handler, http.MethodPost, "/_ctl/scenarios/slow/run", `{}`)
-	assert.Equal(t, http.StatusConflict, second.Code,
-		"two overlapping runs of one scenario would interleave their steps")
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario",
+		`{"steps":[{"repo":"o/r","num":1,"action":"comment"},{"wait":"1s"}]}`)
+	require.Equal(t, http.StatusAccepted, rec.Code, rec.Body.String())
+
+	var view StateView
+	require.NoError(t, json.Unmarshal(ctl(t, handler, http.MethodGet, "/_ctl/state", "").Body.Bytes(), &view))
+	require.Len(t, view.Scenarios, 1, "a scenario mid-wait must show as running")
+	assert.Equal(t, "scenario-1", view.Scenarios[0].Name)
+	assert.Equal(t, 2, view.Scenarios[0].Steps)
+
+	require.Eventually(t, func() bool {
+		var v StateView
+		require.NoError(t, json.Unmarshal(ctl(t, handler, http.MethodGet, "/_ctl/state", "").Body.Bytes(), &v))
+		return len(v.Scenarios) == 0
+	}, 3*time.Second, 20*time.Millisecond)
+}
+
+func TestControlScenarioRejectsBadSteps(t *testing.T) {
+	handler, _, _ := testControl(t, Config{})
+	for name, body := range map[string]string{
+		"no steps":       `{"steps":[]}`,
+		"unknown action": `{"steps":[{"repo":"o/r","num":1,"action":"approve"}]}`,
+		"action and set": `{"steps":[{"repo":"o/r","num":1,"action":"comment","set":{"state":"open"}}]}`,
+		"bad matcher":    `{"steps":[{"repo":"noslash","num":1,"action":"comment"}]}`,
+		"no-op step":     `{"steps":[{"repo":"o/r","num":1}]}`,
+		"bad wait":       `{"steps":[{"wait":"soon"}]}`,
+		"bad mutation":   `{"steps":[{"repo":"o/r","num":1,"set":{"state":"squashed"}}]}`,
+	} {
+		rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario", body)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, name)
+	}
+
+	// A typo'd key is a body the decoder rejects, not a validation failure.
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/scenario",
+		`{"steps":[{"repo":"o/r","num":1,"action":"comment","typo":true}]}`)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
 }
 
 // ── Pusher ───────────────────────────────────────────────────────────────────
@@ -345,6 +389,53 @@ func TestPusherInlineBody(t *testing.T) {
 	assert.Equal(t, "Inline", body["title"])
 }
 
+// TestPushInlineTargetDelivers covers a target supplied by URL rather than by
+// name — the only way to reach a desktop instance, whose webhook port is random
+// per install so no target can be committed to config.
+func TestPushInlineTargetDelivers(t *testing.T) {
+	var (
+		mu     sync.Mutex
+		secret string
+		body   map[string]any
+	)
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		secret = r.Header.Get(secretHeader)
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer target.Close()
+
+	handler, _, _ := testControl(t, Config{})
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push",
+		`{"target":{"url":"`+target.URL+`","secret":"s3cret"},"body":{"id":"x","title":"Inline"}}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, "s3cret", secret)
+	assert.Equal(t, "Inline", body["title"])
+}
+
+func TestPushRejectsNonLoopbackInlineTarget(t *testing.T) {
+	handler, _, _ := testControl(t, Config{})
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push",
+		`{"target":{"url":"http://example.com/hooks/x"},"body":{"id":"x"}}`)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, rec.Body.String(), "loopback")
+}
+
+func TestPushRequiresExactlyOneTargetForm(t *testing.T) {
+	handler, _, _ := testControl(t, Config{Webhooks: WebhookConfig{
+		Payloads: map[string]map[string]any{"p": {"id": "1"}},
+	}})
+	// Neither a name nor a url.
+	rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push", `{"payload":"p"}`)
+	assert.Equal(t, http.StatusUnprocessableEntity, rec.Code)
+	assert.Contains(t, rec.Body.String(), "target")
+}
+
 func TestPusherRequiresExactlyOnePayloadSource(t *testing.T) {
 	handler, _, _ := testControl(t, Config{Webhooks: WebhookConfig{
 		Targets:  []WebhookTarget{{Name: "local", URL: "http://127.0.0.1:1/hooks/x"}},
@@ -356,7 +447,7 @@ func TestPusherRequiresExactlyOnePayloadSource(t *testing.T) {
 		`{"target":"local","payload":"p","body":{"id":"1"}}`,
 	} {
 		rec := ctl(t, handler, http.MethodPost, "/_ctl/webhooks/push", body)
-		assert.Equal(t, http.StatusBadRequest, rec.Code, body)
+		assert.Equal(t, http.StatusUnprocessableEntity, rec.Code, body)
 	}
 }
 
@@ -455,7 +546,6 @@ func TestRepoConfigIsValidAndInert(t *testing.T) {
 	require.NoError(t, err, "the shipped config must parse")
 
 	assert.Empty(t, cfg.Overlays, "the shipped config must not seed overlays")
-	assert.NotEmpty(t, cfg.Scenarios, "it should give the dashboard something to run")
 	assert.NotEmpty(t, cfg.Webhooks.Payloads, "it should give the pusher something to send")
 	// Targets cannot be shipped: the desktop's webhook port is random per
 	// install, so any committed URL would just fail.
@@ -473,6 +563,14 @@ func TestLoadConfigMissingFileYieldsWorkingDefaults(t *testing.T) {
 	assert.NotEmpty(t, cfg.Cache.Path)
 }
 
+func TestBuildStepsAllowsWaitOnly(t *testing.T) {
+	steps, err := buildSteps([]stepInput{{Wait: "1s"}})
+	require.NoError(t, err)
+	require.Len(t, steps, 1)
+	assert.Equal(t, time.Second, steps[0].Wait)
+	assert.True(t, steps[0].Set.Empty(), "a wait-only step carries no mutation")
+}
+
 func TestLoadConfigParsesFullFile(t *testing.T) {
 	cfg, err := LoadConfig(writeConfig(t, `
 listen: 127.0.0.1:9999
@@ -485,15 +583,6 @@ overlays:
       state: open
       reason: approval_requested
       labels: [needs-review]
-scenarios:
-  pr-flow:
-    description: approve then merge
-    steps:
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {reason: approval_requested}
-      - wait: 5s
-      - match: {repo: hay-kot/hive-desktop, num: 58}
-        set: {state: merged, absent: true}
 webhooks:
   targets:
     - name: local
@@ -515,11 +604,6 @@ webhooks:
 	assert.Equal(t, []string{"needs-review"}, *cfg.Overlays[0].Set.Labels)
 	assert.Equal(t, "hay-kot/hive-desktop#58", cfg.Overlays[0].Match.Key())
 
-	require.Len(t, cfg.Scenarios["pr-flow"].Steps, 3)
-	assert.Equal(t, 5*time.Second, cfg.Scenarios["pr-flow"].Steps[1].Wait)
-	require.NotNil(t, cfg.Scenarios["pr-flow"].Steps[2].Set.Absent)
-	assert.True(t, *cfg.Scenarios["pr-flow"].Steps[2].Set.Absent)
-
 	require.Len(t, cfg.Webhooks.Targets, 1)
 	assert.Equal(t, "dev", cfg.Webhooks.Targets[0].Secret)
 	assert.Equal(t, "pr-1", cfg.Webhooks.Payloads["pr-opened"]["id"])
@@ -530,9 +614,6 @@ func TestLoadConfigRejectsBadInput(t *testing.T) {
 		"bad overlay repo":    "overlays:\n  - match: {repo: nope, num: 1}\n    set: {state: open}\n",
 		"zero overlay num":    "overlays:\n  - match: {repo: o/r, num: 0}\n    set: {state: open}\n",
 		"unknown state":       "overlays:\n  - match: {repo: o/r, num: 1}\n    set: {state: squashed}\n",
-		"empty scenario":      "scenarios:\n  flow:\n    steps: []\n",
-		"no-op scenario step": "scenarios:\n  flow:\n    steps:\n      - match: {repo: o/r, num: 1}\n",
-		"scenario bad match":  "scenarios:\n  flow:\n    steps:\n      - match: {repo: nope, num: 1}\n        set: {state: open}\n",
 		"target missing name": "webhooks:\n  targets:\n    - url: http://127.0.0.1:1/x\n",
 		"target bad url":      "webhooks:\n  targets:\n    - {name: a, url: ftp://x}\n",
 		"duplicate target":    "webhooks:\n  targets:\n    - {name: a, url: 'http://127.0.0.1:1/x'}\n    - {name: a, url: 'http://127.0.0.1:2/x'}\n",
@@ -542,10 +623,4 @@ func TestLoadConfigRejectsBadInput(t *testing.T) {
 		_, err := LoadConfig(writeConfig(t, body))
 		assert.Error(t, err, name)
 	}
-}
-
-func TestLoadConfigAllowsWaitOnlyScenarioStep(t *testing.T) {
-	cfg, err := LoadConfig(writeConfig(t, "scenarios:\n  flow:\n    steps:\n      - wait: 1s\n"))
-	require.NoError(t, err)
-	assert.Equal(t, time.Second, cfg.Scenarios["flow"].Steps[0].Wait)
 }

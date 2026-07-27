@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -384,13 +383,4 @@ func classify(method, path string) route {
 		r.kind, r.label, r.cacheable = routeUser, "user", true
 	}
 	return r
-}
-
-// writeJSON is the shared JSON response helper for the control API.
-func writeJSON(w http.ResponseWriter, status int, payload any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	if err := json.NewEncoder(w).Encode(payload); err != nil {
-		return
-	}
 }

@@ -116,19 +116,6 @@ func (p *Pusher) Recent() []PushResult {
 	return out
 }
 
-// PushNamed delivers a configured payload, with optional per-call overrides
-// merged over it. Overrides are what make a named payload reusable: push
-// "pr-opened" once, then push it again with {"state":"resolved"} to drive the
-// same item to a terminal state.
-func (p *Pusher) PushNamed(ctx context.Context, targetName, payloadName string, overrides map[string]any) (PushResult, error) {
-	payload, ok := p.Payload(payloadName)
-	if !ok {
-		return PushResult{}, fmt.Errorf("no payload named %q", payloadName)
-	}
-	maps.Copy(payload, overrides)
-	return p.Push(ctx, targetName, payloadName, payload)
-}
-
 // Push delivers an arbitrary JSON object to a configured target. label names
 // the payload for the delivery log only.
 func (p *Pusher) Push(ctx context.Context, targetName, label string, payload map[string]any) (PushResult, error) {
@@ -136,6 +123,16 @@ func (p *Pusher) Push(ctx context.Context, targetName, label string, payload map
 	if !ok {
 		return PushResult{}, fmt.Errorf("no webhook target named %q", targetName)
 	}
+	return p.deliver(ctx, target, label, payload)
+}
+
+// PushInline delivers to a target given by URL rather than by name; the target
+// is not remembered.
+func (p *Pusher) PushInline(ctx context.Context, targetURL, secret, label string, payload map[string]any) (PushResult, error) {
+	return p.deliver(ctx, WebhookTarget{Name: "inline", URL: targetURL, Secret: secret}, label, payload)
+}
+
+func (p *Pusher) deliver(ctx context.Context, target WebhookTarget, label string, payload map[string]any) (PushResult, error) {
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return PushResult{}, fmt.Errorf("encode payload: %w", err)

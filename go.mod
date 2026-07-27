@@ -11,8 +11,10 @@ require (
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/google/uuid v1.6.0
+	github.com/gorilla/schema v1.4.1
 	github.com/hay-kot/appkit v0.0.0-20260423210245-a7c838e81887
 	github.com/hay-kot/criterio v1.0.0
+	github.com/hay-kot/httpkit v0.0.11
 	github.com/invopop/jsonschema v0.14.0
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/rs/zerolog v1.35.1

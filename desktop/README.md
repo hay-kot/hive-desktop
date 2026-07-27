@@ -183,8 +183,8 @@ development:
 ```
 
 Every scalar override mirrors its YAML path, for example
-`updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `webhooks.port` →
-`HIVE_DESKTOP_WEBHOOKS_PORT`. Paths and logging use
+`updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →
+`HIVE_DESKTOP_HTTP_PORT`. Paths and logging use
 `HIVE_DESKTOP_DATA_DIR`, `HIVE_DESKTOP_CONFIG_DIR`,
 `HIVE_DESKTOP_FLOWS_DIR`, `HIVE_DESKTOP_ACTIONS_PATH`, and
 `HIVE_DESKTOP_LOG_LEVEL`. Wails, credentials, build stamping, and release

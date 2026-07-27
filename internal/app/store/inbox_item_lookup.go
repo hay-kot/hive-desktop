@@ -30,6 +30,33 @@ func (db *DB) InboxItemID(ctx context.Context, profileID, sourceKind, sourceScop
 	return item.ID, nil
 }
 
+// FindInboxItemsByExternalID returns every item sharing an external id,
+// optionally scoped to one profile (empty profileID matches all). The same id
+// can exist across profiles and source scopes, so this returns a slice.
+func (db *DB) FindInboxItemsByExternalID(ctx context.Context, profileID, externalID string) ([]InboxItemView, error) {
+	rows, err := db.queries.FindInboxItemsByExternalID(ctx, FindInboxItemsByExternalIDParams{
+		ExternalID: externalID, ProfileID: profileID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("finding inbox items for external id %q: %w", externalID, err)
+	}
+	return inboxItemViews(rows), nil
+}
+
+// ListAllInboxItems returns every inbox item newest-first, optionally scoped to
+// one profile (empty profileID matches all). It is unfiltered by feed
+// membership or triage state — a debug/observation read, not a workspace view.
+func (db *DB) ListAllInboxItems(ctx context.Context, profileID string, limit int) ([]InboxItemView, error) {
+	if limit <= 0 {
+		return []InboxItemView{}, nil
+	}
+	rows, err := db.queries.ListAllInboxItems(ctx, ListAllInboxItemsParams{ProfileID: profileID, Lim: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("listing all inbox items: %w", err)
+	}
+	return inboxItemViews(rows), nil
+}
+
 const getFeedIDForItem = `
 SELECT feed_id FROM feed_membership_claim
 WHERE profile_id = ? AND item_id = ?

@@ -27,9 +27,9 @@ func TestDefaultSettingsAreSafe(t *testing.T) {
 	assert.True(t, cfg.Updates.Enabled)
 	assert.True(t, cfg.Notifications.Enabled)
 	assert.Equal(t, DeliveryAuto, cfg.Notifications.Delivery)
-	assert.False(t, cfg.Webhooks.Enabled)
-	assert.Equal(t, "127.0.0.1", cfg.Webhooks.Host)
-	assert.Zero(t, cfg.Webhooks.Port)
+	assert.True(t, cfg.HTTP.Enabled, "the loopback HTTP server is on by default")
+	assert.Equal(t, "127.0.0.1", cfg.HTTP.Host)
+	assert.Zero(t, cfg.HTTP.Port)
 	assert.Equal(t, MockLive, cfg.Development.Mocks.Mode)
 	assert.False(t, cfg.Development.Pprof.Enabled)
 }
@@ -45,7 +45,7 @@ notifications:
   enabled: true
   delivery: app
   sound: false
-webhooks:
+http:
   enabled: true
   host: 127.0.0.1
   port: 24001
@@ -66,7 +66,7 @@ development:
     pause_ingest: 0s
     pause_commit: 0s
 `), 0o600))
-	t.Setenv("HIVE_DESKTOP_WEBHOOKS_PORT", "25002")
+	t.Setenv("HIVE_DESKTOP_HTTP_PORT", "25002")
 	t.Setenv("HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE", "feed")
 	t.Setenv("HIVE_DESKTOP_DEVELOPMENT_VITE_PORT", "43123")
 
@@ -74,27 +74,27 @@ development:
 	require.NoError(t, err)
 	assert.Equal(t, 2*time.Minute, cfg.Polling.Interval.Duration())
 	assert.False(t, cfg.Updates.Enabled)
-	assert.Equal(t, 25002, cfg.Webhooks.Port)
+	assert.Equal(t, 25002, cfg.HTTP.Port)
 	assert.Equal(t, MockFeed, cfg.Development.Mocks.Mode)
 	assert.Equal(t, 43123, cfg.Development.Vite.Port)
-	assert.True(t, cfg.EnvironmentOverridden(EnvWebhookPort))
+	assert.True(t, cfg.EnvironmentOverridden(EnvHTTPPort))
 
 	persisted, err := LoadPersistedSettings()
 	require.NoError(t, err)
-	assert.Equal(t, 24001, persisted.Webhooks.Port)
+	assert.Equal(t, 24001, persisted.HTTP.Port)
 	assert.Equal(t, MockPipeline, persisted.Development.Mocks.Mode)
 }
 
 func TestLoadSettingsRejectsUnknownFields(t *testing.T) {
 	path := isolateSettings(t)
-	require.NoError(t, os.WriteFile(path, []byte("webhooks:\n  enabled: false\n  typo: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("http:\n  enabled: false\n  typo: true\n"), 0o600))
 	_, err := LoadSettings()
 	require.ErrorContains(t, err, "field typo not found")
 }
 
 func TestLoadSettingsRejectsInvalidEnvironment(t *testing.T) {
 	isolateSettings(t)
-	t.Setenv("HIVE_DESKTOP_WEBHOOKS_PORT", "not-a-port")
+	t.Setenv("HIVE_DESKTOP_HTTP_PORT", "not-a-port")
 	_, err := LoadSettings()
 	require.ErrorContains(t, err, "parse error on field \"Port\"")
 }
@@ -119,13 +119,13 @@ func TestLoadSettingsRejectsInvalidPersistedValueShadowedByEnvironment(t *testin
 func TestSaveSettingsDoesNotPersistEnvironmentOverride(t *testing.T) {
 	path := isolateSettings(t)
 	base := DefaultSettings()
-	base.Webhooks.Port = 24001
+	base.HTTP.Port = 24001
 	require.NoError(t, SaveSettings(base))
-	t.Setenv(EnvWebhookPort, "25002")
+	t.Setenv(EnvHTTPPort, "25002")
 
 	effective, err := LoadSettings()
 	require.NoError(t, err)
-	assert.Equal(t, 25002, effective.Webhooks.Port)
+	assert.Equal(t, 25002, effective.HTTP.Port)
 
 	persisted, err := LoadPersistedSettings()
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestSaveSettingsDoesNotPersistEnvironmentOverride(t *testing.T) {
 
 	reloaded, err := LoadPersistedSettings()
 	require.NoError(t, err)
-	assert.Equal(t, 24001, reloaded.Webhooks.Port)
+	assert.Equal(t, 24001, reloaded.HTTP.Port)
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "25002")
@@ -148,8 +148,8 @@ func TestSettingsValidation(t *testing.T) {
 		{"short poll", func(s *Settings) { s.Polling.Interval = Duration(time.Second) }},
 		{"update channel", func(s *Settings) { s.Updates.Channel = "nightly" }},
 		{"delivery", func(s *Settings) { s.Notifications.Delivery = "desktop" }},
-		{"webhook host", func(s *Settings) { s.Webhooks.Host = "0.0.0.0" }},
-		{"webhook port", func(s *Settings) { s.Webhooks.Port = 80 }},
+		{"http host", func(s *Settings) { s.HTTP.Host = "0.0.0.0" }},
+		{"http port", func(s *Settings) { s.HTTP.Port = 80 }},
 		{"mock", func(s *Settings) { s.Development.Mocks.Mode = "mystery" }},
 		{"vite host", func(s *Settings) { s.Development.Vite.Host = "127.0.0.2" }},
 		{"pprof host", func(s *Settings) { s.Development.Pprof.Host = "::" }},
@@ -268,7 +268,7 @@ func TestStoreSerializesConcurrentMutations(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		_, err := store.Update(func(cfg *Settings) error {
-			cfg.Webhooks.Port = 24567
+			cfg.HTTP.Port = 24567
 			return nil
 		})
 		assert.NoError(t, err)
@@ -278,5 +278,5 @@ func TestStoreSerializesConcurrentMutations(t *testing.T) {
 	persisted, err := store.Persisted()
 	require.NoError(t, err)
 	assert.Equal(t, "dark", persisted.Appearance.Theme)
-	assert.Equal(t, 24567, persisted.Webhooks.Port)
+	assert.Equal(t, 24567, persisted.HTTP.Port)
 }

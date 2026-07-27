@@ -95,6 +95,21 @@ func TestWebhookListenerIngestsDelivery(t *testing.T) {
 	assert.Positive(t, capture.ReceivedAt)
 }
 
+func TestMountAPIServesAlongsideHooks(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
+	listener.MountAPI("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusTeapot)
+	}))
+	handler := listener.Handler()
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/anything", nil))
+	assert.Equal(t, http.StatusTeapot, rec.Code, "the mounted handler serves /api/")
+
+	assert.Equal(t, http.StatusAccepted, postHook(t, handler, "/hooks/ci", `{"id":"x"}`, nil).Code,
+		"mounting the API does not disturb /hooks/")
+}
+
 func TestWebhookListenerDeduplicatesUnchangedBody(t *testing.T) {
 	listener, db, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
 	handler := listener.Handler()

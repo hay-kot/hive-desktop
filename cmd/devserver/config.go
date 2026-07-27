@@ -39,8 +39,6 @@ type Config struct {
 	// dashboard mutate that store; they never write back here, so a restart
 	// returns to exactly what this file declares.
 	Overlays []Overlay `yaml:"overlays,omitempty"`
-	// Scenarios are named, ordered mutation sequences the dashboard can run.
-	Scenarios map[string]Scenario `yaml:"scenarios,omitempty"`
 	// Webhooks configures the outbound pusher.
 	Webhooks WebhookConfig `yaml:"webhooks,omitempty"`
 }
@@ -68,8 +66,11 @@ func (m Matcher) Key() string { return fmt.Sprintf("%s#%d", m.Repo, m.Num) }
 
 // Valid reports whether the matcher identifies exactly one item.
 func (m Matcher) Valid() bool {
-	return strings.Count(m.Repo, "/") == 1 && !strings.HasPrefix(m.Repo, "/") &&
-		!strings.HasSuffix(m.Repo, "/") && m.Num > 0
+	return validRepo(m.Repo) && m.Num > 0
+}
+
+func validRepo(repo string) bool {
+	return strings.Count(repo, "/") == 1 && !strings.HasPrefix(repo, "/") && !strings.HasSuffix(repo, "/")
 }
 
 // Overlay is one declared mutation: which item, and what to change about it.
@@ -155,22 +156,6 @@ func (m Mutations) Merge(next Mutations) Mutations {
 // as the author-facing spelling and rendered per shape at apply time.
 var validStates = map[string]bool{"open": true, "closed": true, "merged": true}
 
-// Scenario is a named sequence of mutations with optional pauses, so a
-// multi-step workflow (review requested, approved, merged) runs from one
-// dashboard click instead of several.
-type Scenario struct {
-	Description string         `yaml:"description,omitempty"`
-	Steps       []ScenarioStep `yaml:"steps"`
-}
-
-// ScenarioStep is one scenario action: either a mutation, or a wait. A step
-// with both applies the mutation and then waits.
-type ScenarioStep struct {
-	Match Matcher       `yaml:"match,omitempty"`
-	Set   Mutations     `yaml:"set,omitempty"`
-	Wait  time.Duration `yaml:"wait,omitempty"`
-}
-
 // WebhookConfig configures the outbound pusher: where it can send, and the
 // named bodies it can send.
 //
@@ -243,8 +228,8 @@ func ResolveConfigPath(explicit string) (string, error) {
 }
 
 // normalize fills defaults and rejects configuration that cannot work. It is
-// strict about overlays and scenarios — a typo there produces a silently wrong
-// simulation, which is worse than a startup failure.
+// strict about overlays — a typo there produces a silently wrong simulation,
+// which is worse than a startup failure.
 func (c *Config) normalize() error {
 	if c.Listen == "" {
 		c.Listen = DefaultListen
@@ -266,29 +251,6 @@ func (c *Config) normalize() error {
 		}
 		if err := validateMutations(overlay.Set); err != nil {
 			return fmt.Errorf("overlays[%d]: %w", i, err)
-		}
-	}
-
-	for name, scenario := range c.Scenarios {
-		if len(scenario.Steps) == 0 {
-			return fmt.Errorf("scenarios.%s: needs at least one step", name)
-		}
-		for i, step := range scenario.Steps {
-			if step.Wait < 0 {
-				return fmt.Errorf("scenarios.%s.steps[%d]: wait cannot be negative", name, i)
-			}
-			if step.Set.Empty() {
-				if step.Wait == 0 {
-					return fmt.Errorf("scenarios.%s.steps[%d]: step does nothing (no set, no wait)", name, i)
-				}
-				continue
-			}
-			if !step.Match.Valid() {
-				return fmt.Errorf("scenarios.%s.steps[%d]: match needs repo \"owner/name\" and a positive num", name, i)
-			}
-			if err := validateMutations(step.Set); err != nil {
-				return fmt.Errorf("scenarios.%s.steps[%d]: %w", name, i, err)
-			}
 		}
 	}
 
