@@ -1,7 +1,5 @@
 package dispatch
 
-import "context"
-
 // ActionInvocationInput contains only user-supplied action inputs. It never
 // carries executable configuration or message attribution.
 type ActionInvocationInput struct {
@@ -22,12 +20,6 @@ type SessionLaunchOptions struct {
 	DefaultRepository string                    `json:"defaultRepository"`
 	Agents            []string                  `json:"agents"`
 	DefaultAgent      string                    `json:"defaultAgent"`
-}
-
-// SessionLaunchOptionsProvider supplies configured choices for interactive
-// launch-session actions.
-type SessionLaunchOptionsProvider interface {
-	SessionLaunchOptions(context.Context) (SessionLaunchOptions, error)
 }
 
 type SessionInvocationInput struct {

@@ -24,11 +24,10 @@ type InboxService struct {
 	db      *store.DB
 	actions *actions.ActionStore
 	worker  *dispatch.Worker
-	launch  dispatch.SessionLaunchOptionsProvider
 }
 
-func newInboxService(db *store.DB, catalog *actions.ActionStore, worker *dispatch.Worker, launch dispatch.SessionLaunchOptionsProvider) *InboxService {
-	return &InboxService{db: db, actions: catalog, worker: worker, launch: launch}
+func newInboxService(db *store.DB, catalog *actions.ActionStore, worker *dispatch.Worker) *InboxService {
+	return &InboxService{db: db, actions: catalog, worker: worker}
 }
 
 func (s *InboxService) ListInboxItemsByFeed(ctx context.Context, profileID, feedID string, limit int) ([]store.InboxItemView, error) {
@@ -150,15 +149,20 @@ func (s *InboxService) ActionViews(ctx context.Context, itemID int64) ([]actions
 	return views, nil
 }
 
-// SessionLaunchOptions supplies the configured repository and agent choices
-// for interactive launch-session actions. It intentionally exposes no local
-// checkout paths or executable action configuration.
-func (s *InboxService) SessionLaunchOptions(ctx context.Context) (dispatch.SessionLaunchOptions, error) {
-	if s.launch == nil {
-		return dispatch.SessionLaunchOptions{}, Errorf(KindUnavailable, "session launch options are unavailable")
+// NewSessionDraft projects an inbox item into a prefilled New Session form.
+func (s *InboxService) NewSessionDraft(ctx context.Context, itemID int64) (dispatch.SessionDraft, error) {
+	row, err := s.db.Queries().GetInboxItemByID(ctx, itemID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return dispatch.SessionDraft{}, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
+		}
+		return dispatch.SessionDraft{}, Wrap(err, KindInternal, "reading inbox item %d", itemID)
 	}
-	opts, err := s.launch.SessionLaunchOptions(ctx)
-	return opts, Wrap(err, KindInternal, "resolving session launch options")
+	draft, err := dispatch.RenderSessionDraft(row.Title, row.Url, row.Payload)
+	if err != nil {
+		return dispatch.SessionDraft{}, Wrap(err, KindInternal, "rendering session draft for item %d", itemID)
+	}
+	return draft, nil
 }
 
 // InvokeActionRequest is one explicit, user-confirmed action invocation.

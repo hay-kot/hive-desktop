@@ -68,6 +68,7 @@ type App struct {
 	// unexported domain stores further down, which is what they are built
 	// over.
 	Inbox    *InboxService
+	Sessions *SessionsService
 	Flows    *FlowsService
 	Actions  *ActionsService
 	Settings *SettingsService
@@ -255,7 +256,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Inbox = newInboxService(db, a.actionStore, a.outputs, a.launcher)
+	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
+	a.Sessions = newSessionsService(a.launcher)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {

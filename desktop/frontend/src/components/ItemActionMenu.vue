@@ -10,6 +10,7 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconEyeOff from '~icons/lucide/eye-off'
 import IconLink from '~icons/lucide/link'
 import IconMail from '~icons/lucide/mail'
+import IconSquarePlus from '~icons/lucide/square-plus'
 import type { ActionView } from '../types/action'
 import type { InboxItem } from '../types/feed'
 import type { MenuEntry } from '../types/menu'
@@ -35,6 +36,7 @@ const emit = defineEmits<{
   'open-browser': []
   'copy-link': []
   'copy-contents': []
+  'create-session': []
   'run-action': [actionId: string]
 }>()
 
@@ -69,6 +71,8 @@ const entries = computed<MenuEntry[]>(() => {
       { kind: 'action', id: 'copy-link', label: 'Copy link', icon: IconLink, testid: 'menu-copy-link' },
     ] satisfies MenuEntry[] : []),
     { kind: 'action', id: 'copy-contents', label: 'Copy contents', icon: IconCopy, testid: 'menu-copy-contents' },
+    { kind: 'separator' },
+    { kind: 'action', id: 'create-session', label: 'Create session…', icon: IconSquarePlus, testid: 'menu-create-session' },
   ]
   if (menuActions.value.length) {
     list.push({ kind: 'separator' }, { kind: 'label', text: 'Actions' })
@@ -87,6 +91,7 @@ function onSelect(id: string): void {
   else if (id === 'open-browser') emit('open-browser')
   else if (id === 'copy-link') emit('copy-link')
   else if (id === 'copy-contents') emit('copy-contents')
+  else if (id === 'create-session') emit('create-session')
   else if (id.startsWith('action:')) emit('run-action', id.slice('action:'.length))
   emit('close')
 }

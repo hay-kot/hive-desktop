@@ -71,6 +71,10 @@ export function MarkInboxItemsRead(profileID: string, feedID: string): $Cancella
     return $Call.ByID(974783704, profileID, feedID);
 }
 
+export function NewSessionDraft(itemID: number): $CancellablePromise<dispatch$0.SessionDraft> {
+    return $Call.ByID(2051065966, itemID);
+}
+
 export function NodeRuns(flowID: string, limit: number): $CancellablePromise<store$0.NodeRunRecord[] | null> {
     return $Call.ByID(3592664483, flowID, limit);
 }
@@ -82,10 +86,6 @@ export function NodeRuns(flowID: string, limit: number): $CancellablePromise<sto
  */
 export function RenderClipboardAction(actionID: string, itemID: number): $CancellablePromise<string> {
     return $Call.ByID(3812385739, actionID, itemID);
-}
-
-export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {
-    return $Call.ByID(446957222);
 }
 
 export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {

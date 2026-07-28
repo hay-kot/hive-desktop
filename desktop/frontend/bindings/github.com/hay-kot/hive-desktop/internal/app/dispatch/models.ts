@@ -31,6 +31,16 @@ export interface ClipboardExecutionOutcome {
 }
 
 /**
+ * CreateSessionRequest is a user-submitted New Session form.
+ */
+export interface CreateSessionRequest {
+    "repository": string;
+    "name": string;
+    "prompt": string;
+    "agent"?: string;
+}
+
+/**
  * ExecutionOutcome is a tagged-by-presence union. Exactly one branch is set
  * for successful side-effecting executors.
  */
@@ -43,6 +53,15 @@ export interface ExecutionOutcome {
 export interface MessageExecutionOutcome {
     "topic": string;
     "sender": string;
+}
+
+/**
+ * SessionDraft is a New Session form prefilled from an inbox item.
+ */
+export interface SessionDraft {
+    "repository": string;
+    "name": string;
+    "prompt": string;
 }
 
 export interface SessionExecutionOutcome {

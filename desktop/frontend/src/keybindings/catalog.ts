@@ -9,6 +9,7 @@ import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelRight from '~icons/lucide/panel-right'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconSquarePlus from '~icons/lucide/square-plus'
 
 // The single declarative source of truth for *bindable* commands — the stable
 // app actions a user can rebind from Settings ▸ Keybindings and that also seed
@@ -126,6 +127,15 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+k'],
     context: 'global',
     paletteHidden: true,
+  },
+  {
+    id: 'session.new',
+    title: 'New session…',
+    group: 'General',
+    keywords: ['session', 'create', 'hive', 'agent', 'launch', 'new'],
+    icon: IconSquarePlus,
+    defaultCombos: ['mod+shift+n'],
+    context: 'global',
   },
   {
     id: 'report.open',

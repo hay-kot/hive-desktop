@@ -19,6 +19,7 @@ const emit = defineEmits<{
   'open-browser': []
   'copy-link': []
   'copy-contents': []
+  'create-session': []
   'run-action': [actionId: string]
 }>()
 // The source label, badge mark, and (for webhook items) icon resolution are
@@ -86,6 +87,7 @@ function toggleMenu(): void {
           @open-browser="emit('open-browser')"
           @copy-link="emit('copy-link')"
           @copy-contents="emit('copy-contents')"
+          @create-session="emit('create-session')"
           @run-action="(actionId) => emit('run-action', actionId)"
         />
       </div>

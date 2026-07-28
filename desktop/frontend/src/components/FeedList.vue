@@ -50,6 +50,7 @@ const emit = defineEmits<{
   'item-open-browser': [item: InboxItem]
   'item-copy-link': [item: InboxItem]
   'item-copy-contents': [item: InboxItem]
+  'item-create-session': [item: InboxItem]
   'item-run-action': [item: InboxItem, actionId: string]
 }>()
 
@@ -184,6 +185,7 @@ watch(() => props.selectedId, async (id) => {
             @open-browser="emit('item-open-browser', item)"
             @copy-link="emit('item-copy-link', item)"
             @copy-contents="emit('item-copy-contents', item)"
+            @create-session="emit('item-create-session', item)"
             @run-action="(actionId) => emit('item-run-action', item, actionId)"
           />
         </template>
@@ -211,6 +213,7 @@ watch(() => props.selectedId, async (id) => {
               @open-browser="emit('item-open-browser', item)"
               @copy-link="emit('item-copy-link', item)"
               @copy-contents="emit('item-copy-contents', item)"
+              @create-session="emit('item-create-session', item)"
               @run-action="(actionId) => emit('item-run-action', item, actionId)"
             />
           </template>

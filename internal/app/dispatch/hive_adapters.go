@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
@@ -9,6 +10,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 )
+
+// ErrDuplicateSessionName is the seam-local translation of Hive's
+// session.ErrDuplicateName, so a core service can classify a name collision
+// without importing the vendored session package.
+var ErrDuplicateSessionName = errors.New("session name already exists")
 
 type SessionCreator interface {
 	CreateSession(context.Context, hive.CreateOptions) (*session.Session, error)
@@ -47,6 +53,9 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	}
 	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false})
 	if err != nil {
+		if errors.Is(err, session.ErrDuplicateName) {
+			return SessionExecutionOutcome{}, fmt.Errorf("%w: %w", ErrDuplicateSessionName, err)
+		}
 		return SessionExecutionOutcome{}, fmt.Errorf("create hive session: %w", err)
 	}
 	if l.recorder != nil {

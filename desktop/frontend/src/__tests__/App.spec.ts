@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   InboxItemEvents: vi.fn(),
   ActionRun: vi.fn(),
   SessionLaunchOptions: vi.fn(),
+  CreateSession: vi.fn(),
+  NewSessionDraft: vi.fn(),
   ActionViews: vi.fn(),
   InvokeAction: vi.fn(),
   NodeRuns: vi.fn(),
@@ -95,10 +97,14 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored,
   InboxItemEvents: mocks.InboxItemEvents,
   ActionRun: mocks.ActionRun,
-  SessionLaunchOptions: mocks.SessionLaunchOptions,
+  NewSessionDraft: mocks.NewSessionDraft,
   ActionViews: mocks.ActionViews,
   InvokeAction: mocks.InvokeAction,
   NodeRuns: mocks.NodeRuns,
+}))
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
+  SessionLaunchOptions: mocks.SessionLaunchOptions,
+  CreateSession: mocks.CreateSession,
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/githubservice', () => ({

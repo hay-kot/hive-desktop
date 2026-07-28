@@ -69,8 +69,8 @@ func (s *PipelineService) ActionViews(ctx context.Context, itemID int64) ([]acti
 	return s.inbox.ActionViews(ctx, itemID)
 }
 
-func (s *PipelineService) SessionLaunchOptions(ctx context.Context) (dispatch.SessionLaunchOptions, error) {
-	return s.inbox.SessionLaunchOptions(ctx)
+func (s *PipelineService) NewSessionDraft(ctx context.Context, itemID int64) (dispatch.SessionDraft, error) {
+	return s.inbox.NewSessionDraft(ctx, itemID)
 }
 
 func (s *PipelineService) InvokeAction(ctx context.Context, actionID string, itemID int64, input dispatch.ActionInvocationInput) (dispatch.ActionRunView, error) {
