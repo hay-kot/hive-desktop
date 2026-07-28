@@ -94,6 +94,7 @@ func TestConstructors(t *testing.T) {
 		{"action", ActionRun("Reproduce", "exit 0"), CategoryAction, SeveritySuccess},
 		{"action-failed", ActionFailed("Reproduce", "exit 1"), CategoryAction, SeverityError},
 		{"config", ConfigReloaded("actions.yml", 6), CategoryConfig, SeverityInfo},
+		{"config-migrated", ConfigMigrated("actions.yml", 1, 2), CategoryConfig, SeverityInfo},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
