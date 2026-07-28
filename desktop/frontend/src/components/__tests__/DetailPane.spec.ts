@@ -12,12 +12,11 @@ const actions: ActionView[] = [{ id: 'summarize', label: 'Summarize', type: 'lau
 const payload = (patch: Record<string, unknown>) => ({ ...(item.payload as Record<string, unknown>), ...patch })
 
 describe('DetailPane', () => {
-  it('renders source, GitHub context, action cards, and branch metadata from an inbox item', () => {
+  it('renders source, GitHub context, and action cards from an inbox item', () => {
     const wrapper = mount(DetailPane, { props: { item, actions } })
     expect(wrapper.get('[data-testid="source-badge"]').attributes('data-source')).toBe('github')
     expect(wrapper.text()).toContain('colonyops/hive #42')
     expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(1)
-    expect(wrapper.get('[data-testid="action-footer-branch"]').text()).toBe('feat/desktop-ui-shell')
   })
 
   it('renders GitHub-flavored markdown and routes body links through open-url', async () => {
@@ -59,11 +58,9 @@ describe('DetailPane', () => {
     expect(wrapper.findAll('[data-testid="action-card"]')).toHaveLength(2)
   })
 
-  it('does not render an empty body container and keeps long branch metadata in its label/value stack', () => {
-    const wrapper = mount(DetailPane, { props: { item: { ...item, payload: payload({ body: '', branch: 'feat/a-very-long-branch-name-that-must-wrap' }) }, actions } })
+  it('does not render an empty body container', () => {
+    const wrapper = mount(DetailPane, { props: { item: { ...item, payload: payload({ body: '' }) }, actions } })
     expect(wrapper.find('[data-testid="detail-body"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="action-footer-meta"]').text()).toContain('Runs headless (batch) on')
-    expect(wrapper.get('[data-testid="action-footer-branch"]').text()).toContain('a-very-long-branch')
   })
 
   it('offers triage, open/copy, and configured actions from the shared item menu', async () => {
@@ -127,13 +124,13 @@ describe('DetailPane', () => {
     expect(wrapper.find('[data-testid="menu-open-browser"]').exists()).toBe(true)
   })
 
-  it('renders the Observed activity timeline in supplied chronological order', () => {
+  it('renders the Activity timeline in supplied chronological order', () => {
     const wrapper = mount(DetailPane, { props: { item, actions, events: [
       { id: 1, itemId: 42, kind: 'created', transition: 'created', attention: 'activity', summary: 'first observation', createdAt: 1 },
       { id: 2, itemId: 42, kind: 'updated', transition: 'updated', attention: 'activity', summary: 'second observation', createdAt: 2 },
     ] } })
     const timeline = wrapper.get('[data-testid="observed-activity"]')
-    expect(timeline.text()).toContain('OBSERVED ACTIVITY')
+    expect(timeline.text()).toContain('ACTIVITY')
     expect(timeline.findAll('li')).toHaveLength(2)
     expect(timeline.findAll('li')[0]!.text()).toContain('first observation')
     expect(timeline.findAll('li')[1]!.text()).toContain('second observation')

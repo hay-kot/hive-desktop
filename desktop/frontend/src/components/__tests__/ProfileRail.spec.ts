@@ -7,7 +7,7 @@ const profiles = [{
   letter: 'P',
   name: 'Personal',
   enabled: true,
-  sourceSummary: 'GitHub · 2 sources',
+  sourceSummary: '2 sources',
   totalCount: 3,
   unreadCount: 1,
   feeds: [],

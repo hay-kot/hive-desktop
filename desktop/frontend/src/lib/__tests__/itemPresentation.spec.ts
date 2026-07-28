@@ -171,12 +171,6 @@ describe('presentationFor', () => {
     expect(presentationFor('github').markImage).toBeUndefined()
     expect(presentationFor('generic').markImage).toBeUndefined()
   })
-
-  it('returns the payload branch as the github actionContextLine, and an empty line for webhook/default', () => {
-    expect(presentationFor('github').actionContextLine(baseItem)).toBe('feat/desktop-ui-shell')
-    expect(presentationFor('webhook').actionContextLine(baseItem)).toBe('')
-    expect(presentationFor('generic').actionContextLine(baseItem)).toBe('')
-  })
 })
 
 describe('sourceKindForNodeType', () => {
@@ -192,13 +186,10 @@ describe('sourceKindForNodeType', () => {
 })
 
 describe('sourceSummary', () => {
-  it('summarizes a single-kind mix as "<Label> · N source(s)"', () => {
-    expect(sourceSummary(new Map([['github', 1]]))).toBe('GitHub · 1 source')
-    expect(sourceSummary(new Map([['github', 3]]))).toBe('GitHub · 3 sources')
-    expect(sourceSummary(new Map([['webhook', 2]]))).toBe('Webhook · 2 sources')
-  })
-
-  it('summarizes a mixed-kind flow as "<total> sources"', () => {
+  it('counts sources across kinds, provider-neutral', () => {
+    expect(sourceSummary(new Map([['github', 1]]))).toBe('1 source')
+    expect(sourceSummary(new Map([['github', 3]]))).toBe('3 sources')
+    expect(sourceSummary(new Map([['webhook', 2]]))).toBe('2 sources')
     expect(sourceSummary(new Map([['github', 2], ['webhook', 1]]))).toBe('3 sources')
   })
 

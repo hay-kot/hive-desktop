@@ -9,7 +9,6 @@ import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kind
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
 import IconEllipsis from '~icons/lucide/ellipsis'
-import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
@@ -52,7 +51,6 @@ const itemKindIcon = computed(() => (props.item ? kindIcon(props.item) : undefin
 const itemContainer = computed(() => (props.item ? container(props.item) : ''))
 const itemContainerLine = computed(() => (props.item ? containerLine(props.item) : ''))
 const itemByline = computed(() => (props.item ? byline(props.item) : ''))
-const actionContextLine = computed(() => (props.item ? presentation.value.actionContextLine(props.item) : ''))
 
 // Issue/PR bodies are GitHub-flavored markdown from untrusted authors;
 // renderGithubMarkdown parses the GFM and escapes raw HTML / unsafe links, so
@@ -148,14 +146,12 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
             <span class="flex-1" />
             <button class="edit-button" @click="emit('edit')"><IconSettings class="size-3" /> Edit</button>
           </div>
-          <div class="flex flex-col gap-[9px]">
+          <div class="action-list">
             <ActionCard v-for="action in actions" :key="action.id" :action="action" :pending="pendingAction === action.id" :run="actionRuns?.[action.id]" @run="emit('run-action', action.id)" />
           </div>
-          <div v-if="actionContextLine" class="action-footer-meta mt-3.5 font-mono text-[11px] text-text-3" data-testid="action-footer-meta"><IconInfo class="mt-0.5 size-3 shrink-0 text-accent" /><div class="min-w-0"><span class="block">Runs headless (batch) on</span><span class="block break-words text-text-2" data-testid="action-footer-branch">{{ actionContextLine }}</span></div></div>
-          <div class="mt-1.5 pl-[19px] font-mono text-[11px] text-text-4">Actions defined in desktop actions.yml</div>
         </template>
         <section v-if="(events ?? []).length" class="mt-6 border-t border-border pt-4" data-testid="observed-activity">
-          <h2 class="mb-3 font-mono text-[10.5px] tracking-[.12em] text-accent">OBSERVED ACTIVITY</h2>
+          <h2 class="mb-3 font-mono text-[10.5px] tracking-[.12em] text-accent">ACTIVITY</h2>
           <ol class="space-y-2"><li v-for="event in events ?? []" :key="event.id" class="text-xs text-text-3"><span class="text-text-2">{{ event.summary || event.kind }}</span><span v-if="event.summary && event.kind !== 'observed'" class="ml-1 font-mono text-[10px] text-text-4">{{ event.kind.replaceAll('_', ' ') }}</span><span class="ml-2 font-mono text-[10px]">{{ relativeAge(event.createdAt) }}</span></li></ol>
         </section>
       </div>
@@ -174,6 +170,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .edit-button { border-radius: 5px; padding: 3px 8px; font-family: var(--font-sans); }
 .more-button { height: 24px; padding: 0 5px; }
 .edit-button:hover, .more-button:hover, .more-button[aria-expanded="true"] { border-color: var(--color-strong); color: var(--color-text); }
+.action-list { overflow: hidden; border: 1px solid var(--color-card); border-radius: 9px; background: var(--color-raised); }
 .action-footer-meta { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 
 /* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline

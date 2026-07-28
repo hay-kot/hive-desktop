@@ -14,14 +14,27 @@ export interface ActivityFilter {
   label: string
 }
 
-// Mirrors the mockup's toolbar pills, in order.
+// The segmented filter control, in order. Labels stay short so the whole
+// control reads as one object (design 15a).
 export const ACTIVITY_FILTERS: ActivityFilter[] = [
   { id: 'all', label: 'All' },
   { id: 'session', label: 'Sessions' },
-  { id: 'auto_action', label: 'Auto actions' },
+  { id: 'auto_action', label: 'Auto' },
   { id: 'refresh', label: 'Refreshes' },
   { id: 'error', label: 'Errors' },
 ]
+
+// filterCounts is the per-filter badge shown in the segmented control: how many
+// of the currently-loaded events each filter would match (All = every event).
+export function filterCounts(events: ActivityEvent[]): Record<ActivityFilterId, number> {
+  const counts: Record<ActivityFilterId, number> = { all: 0, session: 0, auto_action: 0, refresh: 0, error: 0 }
+  for (const event of events) {
+    for (const filter of ACTIVITY_FILTERS) {
+      if (matchesFilter(event, filter.id)) counts[filter.id]++
+    }
+  }
+  return counts
+}
 
 // The style key resolves an event to one visual treatment. Severity=error wins
 // over category, so a failed refresh reads as an error, matching the design.
@@ -69,6 +82,11 @@ export function matchesSearch(event: ActivityEvent, query: string): boolean {
 export interface ActivityDayGroup {
   key: string
   label: string
+  // Short "MMM D" stamp shown beside a relative label; the ledger's day divider
+  // pairs "TODAY" with "JUL 28". Absolute labels already carry the date, so the
+  // view only renders this when `isRelative`.
+  dateLabel: string
+  isRelative: boolean
   events: ActivityEvent[]
 }
 
@@ -85,7 +103,14 @@ export function groupEventsByDay(events: ActivityEvent[], now: Date = new Date()
     const date = new Date(event.createdAt)
     const key = dayKey(date)
     if (!current || current.key !== key) {
-      current = { key, label: dayLabel(key, date, today, yesterday), events: [] }
+      const isRelative = key === today || key === yesterday
+      current = {
+        key,
+        label: dayLabel(key, date, today, yesterday),
+        dateLabel: date.toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        isRelative,
+        events: [],
+      }
       groups.push(current)
     }
     current.events.push(event)

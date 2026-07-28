@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Event as ActivityEvent } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/activity/models'
 import {
   eventStyleKey,
+  filterCounts,
   groupEventsByDay,
   matchesFilter,
   matchesSearch,
@@ -94,8 +95,35 @@ describe('groupEventsByDay', () => {
     expect(groups[2].events.map((e) => e.id)).toEqual([0])
   })
 
+  it('marks Today/Yesterday relative with a short date, absolute days not', () => {
+    const events = [
+      event({ id: 1, createdAt: ms(new Date(2026, 6, 20, 14, 0)) }),
+      event({ id: 0, createdAt: ms(new Date(2026, 6, 10, 8, 0)) }),
+    ]
+    const [today, older] = groupEventsByDay(events, now)
+    expect(today.isRelative).toBe(true)
+    expect(today.dateLabel).toContain('20')
+    expect(older.isRelative).toBe(false)
+  })
+
   it('returns no groups for an empty list', () => {
     expect(groupEventsByDay([], now)).toEqual([])
+  })
+})
+
+describe('filterCounts', () => {
+  it('counts each filter, with All as the total and errors by severity', () => {
+    const events = [
+      event({ id: 1, category: 'refresh', severity: 'info' }),
+      event({ id: 2, category: 'refresh', severity: 'error' }),
+      event({ id: 3, category: 'session', severity: 'success' }),
+      event({ id: 4, category: 'auto_action', severity: 'auto' }),
+    ]
+    expect(filterCounts(events)).toEqual({ all: 4, session: 1, auto_action: 1, refresh: 2, error: 1 })
+  })
+
+  it('is all-zero for an empty list', () => {
+    expect(filterCounts([])).toEqual({ all: 0, session: 0, auto_action: 0, refresh: 0, error: 0 })
   })
 })
 

@@ -10,29 +10,29 @@ const baseAction: ActionView = {
   showInDetail: true, requiresSessionInput: false,
 }
 
-function mountAction(overrides: Partial<ActionView> = {}) {
+function mountAction(props: { action?: Partial<ActionView>; pending?: boolean } = {}) {
   return mount(ActionCard, {
     props: {
-      action: { ...baseAction, ...overrides },
+      action: { ...baseAction, ...props.action },
+      pending: props.pending,
     },
   })
 }
 
 describe('ActionCard', () => {
-  it('derives presentation from the configured action type', () => {
-    const wrapper = mountAction({ type: 'shell' })
+  it('renders the action label as a condensed row and emits run when clicked', async () => {
+    const wrapper = mountAction({ action: { type: 'shell' } })
 
     expect(wrapper.text()).toContain('Summarize thread')
-    expect(wrapper.text()).toContain('Run shell command')
-    expect(wrapper.find('[data-testid="run-action"]').text()).toContain('Run')
+    await wrapper.get('[data-testid="action-card"]').trigger('click')
+    expect(wrapper.emitted('run')).toHaveLength(1)
   })
 
-  it('emits run when clicked', async () => {
-    const wrapper = mountAction()
+  it('shows a pending indicator and disables the row while running', () => {
+    const wrapper = mountAction({ pending: true })
 
-    await wrapper.find('button.action-card').trigger('click')
-
-    expect(wrapper.emitted('run')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="run-action"]').text()).toContain('Running')
+    expect(wrapper.get('[data-testid="action-card"]').attributes('disabled')).toBeDefined()
   })
 
   it('displays persisted failed command diagnostics', () => {
