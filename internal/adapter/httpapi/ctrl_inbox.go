@@ -30,8 +30,16 @@ func (q InboxQuery) Validate() error {
 	)
 }
 
+// inboxItemView is the store view plus the feed that claims the item, so a flat
+// listing can answer "which feed is this in?" — a store.InboxItemView carries no
+// feed id of its own (the sidebar groups by feed a different way).
+type inboxItemView struct {
+	store.InboxItemView
+	FeedID string `json:"feedId"`
+}
+
 type itemsResponse struct {
-	Items []store.InboxItemView `json:"items"`
+	Items []inboxItemView `json:"items"`
 }
 
 func (ctrl *Controller) InboxList(w http.ResponseWriter, r *http.Request) error {
@@ -57,7 +65,30 @@ func (ctrl *Controller) InboxList(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return server.JSON(w, http.StatusOK, itemsResponse{Items: items})
+
+	views, err := ctrl.itemsWithFeed(ctx, items)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, itemsResponse{Items: views})
+}
+
+// itemsWithFeed annotates each item with the feed that claims it (empty when
+// unrouted), resolved in one query so the listing avoids an N+1.
+func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []store.InboxItemView) ([]inboxItemView, error) {
+	ids := make([]int64, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	feeds, err := ctrl.core.Inbox.InboxItemFeeds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]inboxItemView, len(items))
+	for i, it := range items {
+		out[i] = inboxItemView{InboxItemView: it, FeedID: feeds[it.ID]}
+	}
+	return out, nil
 }
 
 type EventsQuery struct {

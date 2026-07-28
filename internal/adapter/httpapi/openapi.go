@@ -121,9 +121,13 @@ func responsesFor(op Op) (map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
+	errContent := map[string]any{"application/json": map[string]any{"schema": errSchema}}
+	for _, e := range op.Errors {
+		responses[strconv.Itoa(e.Status)] = map[string]any{"description": e.When, "content": errContent}
+	}
 	responses["default"] = map[string]any{
 		"description": "Error response.",
-		"content":     map[string]any{"application/json": map[string]any{"schema": errSchema}},
+		"content":     errContent,
 	}
 	return responses, nil
 }

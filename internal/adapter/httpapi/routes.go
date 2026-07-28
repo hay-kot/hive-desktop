@@ -31,8 +31,16 @@ type Op struct {
 	Query    any // struct whose `schema`-tagged fields become query parameters
 	Request  any
 	Response any
-	Status   int // success status; 0 means 200
+	Status   int       // success status; 0 means 200
+	Errors   []ErrResp // documented non-success statuses beyond the generic default
 	Handler  errchain.HandlerFunc
+}
+
+// ErrResp documents one non-success status an operation can return, and when.
+// The error body is always the shared {kind, message, fields?} shape.
+type ErrResp struct {
+	Status int
+	When   string
 }
 
 func (op Op) successStatus() int {
@@ -79,18 +87,26 @@ func (ctrl *Controller) operations() []Op {
 		{
 			Method: "GET", Path: "/api/feeds", Summary: "List a profile's feeds with unread and archived counts.",
 			Query: FeedsQuery{}, Response: feedsResponse{}, Handler: ctrl.Feeds,
+			Errors: []ErrResp{{Status: 422, When: "the query failed validation (profile is required)"}},
 		},
 		{
-			Method: "GET", Path: "/api/inbox", Summary: "List a profile's inbox items, optionally filtered by feed or external id.",
+			Method: "GET", Path: "/api/inbox", Summary: "List a profile's inbox items, optionally filtered by feed or external id; each item carries a feedId (the claiming feed, empty when unrouted) and a payload of the source's raw JSON.",
 			Query: InboxQuery{}, Response: itemsResponse{}, Handler: ctrl.InboxList,
+			Errors: []ErrResp{{Status: 422, When: "the query failed validation (profile is required when feed is set)"}},
 		},
 		{
-			Method: "GET", Path: "/api/inbox/events", Summary: "List one inbox item's lifecycle events, resolved by itemId or a unique externalId.",
+			Method: "GET", Path: "/api/inbox/events", Summary: "List one inbox item's lifecycle events, resolved by itemId or a unique externalId; each event's detail is source-specific raw JSON.",
 			Query: EventsQuery{}, Response: eventsResponse{}, Handler: ctrl.InboxItemEvents,
+			Errors: []ErrResp{
+				{Status: 422, When: "neither itemId nor externalId was given"},
+				{Status: 404, When: "no item matches the externalId"},
+				{Status: 409, When: "the externalId matches items in more than one profile; add profile to disambiguate"},
+			},
 		},
 		{
 			Method: "POST", Path: "/api/sources/refresh", Summary: "Force one producer tick across all sources, dropping fetch caches; returns aggregate totals, not a per-source breakdown.",
 			Response: refreshResponse{}, Handler: ctrl.SourcesRefresh,
+			Errors: []ErrResp{{Status: 503, When: "no producer is available (e.g. mock mode)"}},
 		},
 		{
 			Method: "GET", Path: "/api/profiles", Summary: "List every profile with its load status and whether it has an avatar.",
@@ -99,6 +115,7 @@ func (ctrl *Controller) operations() []Op {
 		{
 			Method: "POST", Path: "/api/profiles", Summary: "Create a profile, seeded with the starter graph when exactly one GitHub account is connected.",
 			Request: createProfileRequest{}, Response: profileView{}, Status: http.StatusCreated, Handler: ctrl.CreateProfile,
+			Errors: []ErrResp{{Status: 422, When: "name is missing or invalid"}},
 		},
 		{
 			Method: "DELETE", Path: "/api/profiles/{id}", Summary: "Delete a profile, its flow files, its avatar, and its inbox state.",
@@ -107,6 +124,7 @@ func (ctrl *Controller) operations() []Op {
 		{
 			Method: "GET", Path: "/api/profiles/{id}/image", Summary: "Return a profile's avatar as a 128x128 PNG, or 404 when it has none.",
 			Response: RawBinary{Media: []string{"image/png"}}, Handler: ctrl.GetProfileImage,
+			Errors: []ErrResp{{Status: 404, When: "the profile has no image, or no such profile"}},
 		},
 		{
 			Method: "PUT", Path: "/api/profiles/{id}/image", Summary: "Set a profile's avatar from the raw request body; the image is normalized to a 128x128 PNG.",
@@ -114,6 +132,10 @@ func (ctrl *Controller) operations() []Op {
 				Media: []string{"image/png", "image/jpeg", "image/gif", "image/webp"},
 				Note:  "Send the image as the raw request body (PNG, JPEG, GIF, or WebP) — not multipart/form-data.",
 			}, Response: profileView{}, Handler: ctrl.SetProfileImage,
+			Errors: []ErrResp{
+				{Status: 400, When: "the body was unreadable or not a supported image"},
+				{Status: 404, When: "no such profile"},
+			},
 		},
 		{
 			Method: "DELETE", Path: "/api/profiles/{id}/image", Summary: "Clear a profile's avatar so its rail reverts to the letter chip.",

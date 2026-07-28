@@ -23,9 +23,9 @@ type InboxItemView struct {
 	Revision       int64           `json:"revision"`
 	Unread         bool            `json:"unread"`
 	ArchivedAt     *int64          `json:"archivedAt,omitempty"`
-	ArchivedActor  string          `json:"archivedActor,omitempty"`
+	ArchivedActor  string          `json:"archivedActor,omitempty"  jsonschema:"enum=manual,enum=system,description=Who archived the item; present only when archived."`
 	ArchivedReason string          `json:"archivedReason,omitempty"`
-	Lifecycle      string          `json:"lifecycle"`
+	Lifecycle      string          `json:"lifecycle"                jsonschema:"enum=active,enum=terminal,enum=unknown,description=Whether the underlying item is still live (active) or resolved (terminal)."`
 	SourceState    string          `json:"sourceState,omitempty"`
 	FirstSeenAt    int64           `json:"firstSeenAt"`
 	LastEventAt    int64           `json:"lastEventAt"`
@@ -36,8 +36,8 @@ type InboxEventView struct {
 	ID         int64           `json:"id"`
 	ItemID     int64           `json:"itemId"`
 	Kind       string          `json:"kind"`
-	Transition string          `json:"transition"`
-	Attention  string          `json:"attention"`
+	Transition string          `json:"transition"        jsonschema:"enum=none,enum=entered-terminal,enum=left-terminal,description=Lifecycle transition this event marks."`
+	Attention  string          `json:"attention"         jsonschema:"enum=activity,enum=trivial,description=Whether the event is worth surfacing (activity) or routine (trivial)."`
 	Summary    string          `json:"summary,omitempty"`
 	Detail     json.RawMessage `json:"detail,omitempty"`
 	CreatedAt  int64           `json:"createdAt"`

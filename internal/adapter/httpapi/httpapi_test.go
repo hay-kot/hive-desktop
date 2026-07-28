@@ -420,6 +420,32 @@ func TestOpenAPIParametersAreDescribed(t *testing.T) {
 	assert.Equal(t, "hive", profile.Example)
 }
 
+// TestOpenAPIDocumentsInboxDetail covers the enrichments the agent evaluation
+// asked for: inbox items carry a feedId, the state fields are enumerated, and
+// the events endpoint documents its real error statuses, not just a default.
+func TestOpenAPIDocumentsInboxDetail(t *testing.T) {
+	_, handler := testServer(t)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/openapi.json").Body.Bytes(), &doc))
+
+	obj := func(v any) map[string]any {
+		m, ok := v.(map[string]any)
+		require.True(t, ok, "expected object, got %T", v)
+		return m
+	}
+	paths := obj(doc["paths"])
+
+	events := obj(obj(obj(paths["/api/inbox/events"])["get"])["responses"])
+	for _, code := range []string{"404", "409", "422", "default"} {
+		assert.Contains(t, events, code, "events documents its %s response", code)
+	}
+
+	schema := obj(obj(obj(obj(obj(obj(paths["/api/inbox"])["get"])["responses"])["200"])["content"])["application/json"])["schema"]
+	itemProps := obj(obj(obj(obj(schema)["properties"])["items"])["items"])["properties"]
+	assert.Contains(t, obj(itemProps), "feedId", "inbox items carry a feedId")
+	assert.Contains(t, obj(obj(itemProps)["lifecycle"])["enum"], "terminal", "lifecycle is enumerated")
+}
+
 // TestOpenAPISpecIsValid validates the generated document against the embedded
 // OpenAPI 3.2 schema, so a reflected struct that produces a malformed schema
 // fails here rather than in a downstream consumer.
