@@ -119,18 +119,15 @@ func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (We
 	}, nil
 }
 
-// MarkImageView is a stored feed-mark image: the content Hash the node config
-// records, plus the normalized PNG as a data URL so the editor previews it
-// without a second fetch.
+// MarkImageView is a stored feed-mark image: the content Hash a node records and
+// the normalized PNG as a data URL for preview.
 type MarkImageView struct {
 	Hash  string `json:"hash"`
 	Image string `json:"image"`
 }
 
-// SetMarkImage normalizes and stores an uploaded feed-mark image. The frontend
-// sends the picked file as base64 (a bare payload or a data: URL); the core
-// normalizes and stores it, and the returned view carries the hash the editor
-// writes into the node's `image` config plus the stored PNG to preview.
+// SetMarkImage stores an uploaded feed-mark image (base64, bare or a data: URL)
+// and returns its hash and stored PNG for preview.
 func (s *WebhookService) SetMarkImage(ctx context.Context, data string) (MarkImageView, error) {
 	raw, err := decodeImagePayload(data)
 	if err != nil {
@@ -143,10 +140,8 @@ func (s *WebhookService) SetMarkImage(ctx context.Context, data string) (MarkIma
 	return MarkImageView{Hash: hash, Image: s.markDataURL(ctx, hash)}, nil
 }
 
-// MarkImages resolves feed-mark hashes to PNG data URLs for the feed and the
-// editor preview: the frontend reads each webhook node's `image` hash from the
-// flow and asks for the bytes here. A hash with no stored file is omitted, so a
-// flow synced without its data dir simply falls back to the glyph.
+// MarkImages resolves feed-mark hashes to PNG data URLs. A hash with no stored
+// file is omitted, so the feed falls back to the glyph.
 func (s *WebhookService) MarkImages(ctx context.Context, hashes []string) (map[string]string, error) {
 	out := make(map[string]string, len(hashes))
 	for _, hash := range hashes {
@@ -160,9 +155,8 @@ func (s *WebhookService) MarkImages(ctx context.Context, hashes []string) (map[s
 	return out, nil
 }
 
-// markDataURL reads a stored mark PNG and encodes it as a data URL, or "" when
-// the hash resolves to no file — a missing reference reads as no mark, not an
-// error.
+// markDataURL reads a stored mark PNG as a data URL, or "" when the hash
+// resolves to no file.
 func (s *WebhookService) markDataURL(ctx context.Context, hash string) string {
 	data, ok, err := s.webhooks.MarkImage(ctx, hash)
 	if err != nil || !ok || len(data) == 0 {

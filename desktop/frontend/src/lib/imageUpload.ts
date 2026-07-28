@@ -1,23 +1,12 @@
-// Client-side guard rails for an image picker — shared by the profile-avatar
-// picker and the webhook source's feed-mark picker. The Go core does the
-// authoritative work (decode, normalize, re-encode), so this only rejects the
-// obvious before shipping bytes over the Wails bridge and hands the file over
-// as base64.
+// Client-side guards for the image picker, shared by the profile-avatar and
+// webhook feed-mark pickers. The Go core does the authoritative decode/normalize.
 
-/** Formats the picker accepts. The Go side decodes the same set. */
 export const imageUploadAccept = 'image/png,image/jpeg,image/gif,image/webp'
-
-/** Upper bound on a picked file, mirroring the core's MaxInputBytes. */
-export const imageMaxBytes = 8 * 1024 * 1024
+export const imageMaxBytes = 8 * 1024 * 1024 // mirrors the core's MaxInputBytes
 
 export class ImageUploadError extends Error {}
 
-/**
- * Reads a picked image file into the bare base64 string the backend setters
- * expect. Rejects an empty or oversized file with a message fit to show the
- * user; anything the format can't handle is left for the backend to reject with
- * its own message.
- */
+/** Reads a picked image file into the bare base64 string the backend expects. */
 export async function fileToImageBase64(file: File): Promise<string> {
   if (file.size === 0) throw new ImageUploadError('That file is empty.')
   if (file.size > imageMaxBytes) throw new ImageUploadError('That image is too large. Choose a file under 8 MB.')

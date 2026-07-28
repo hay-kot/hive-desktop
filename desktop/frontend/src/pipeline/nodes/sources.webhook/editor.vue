@@ -35,11 +35,9 @@ export interface WebhookCaptureView {
 export interface WebhookEditorClient {
   info(): Promise<WebhookInfoView>
   capture(flowId: string, nodeId: string): Promise<WebhookCaptureView>
-  /** Uploads a picked mark image (base64), returning its content hash and the
-   *  stored PNG as a data URL to preview. */
+  /** Uploads a picked mark image (base64); returns its hash and stored PNG. */
   setMarkImage(data: string): Promise<{ hash: string; image: string }>
-  /** Resolves a stored mark hash to its PNG data URL, or undefined when the
-   *  reference has no file (a flow synced without its data dir). */
+  /** Resolves a mark hash to its PNG data URL, or undefined when it has no file. */
   markImage(hash: string): Promise<string | undefined>
 }
 
@@ -99,10 +97,9 @@ function updateIcon(icon: string) {
   emit('update:config', { ...props.config, icon: icon || undefined })
 }
 
-// The mark image (when set) renders in feeds instead of the glyph; the preview
-// box otherwise shows the currently selected glyph, so it reflects what a row
-// would draw. `markPreview` is the data URL currently shown and `previewFor`
-// the hash it corresponds to, so a re-resolve after our own upload is skipped.
+// The preview shows the uploaded mark image when set, else the selected glyph.
+// previewFor tracks the hash markPreview was resolved for, to skip re-resolving
+// after our own upload.
 const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultWebhookSourceIcon))
 const markInput = ref<HTMLInputElement | null>(null)
 const markPreview = ref('')

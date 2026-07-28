@@ -78,9 +78,8 @@ export interface KeybindingSettings {
 }
 
 /**
- * MarkImageView is a stored feed-mark image: the content Hash the node config
- * records, plus the normalized PNG as a data URL so the editor previews it
- * without a second fetch.
+ * MarkImageView is a stored feed-mark image: the content Hash a node records and
+ * the normalized PNG as a data URL for preview.
  */
 export interface MarkImageView {
     "hash": string;

@@ -41,10 +41,8 @@ func TestSetNormalizesToSquarePNG(t *testing.T) {
 	assert.Equal(t, image.Rect(0, 0, markSide, markSide), img.Bounds())
 }
 
-// A wide logo is letterboxed, not cropped: the square has transparent margins
-// top and bottom, so the far corners of the fitted image are outside the
-// content band. Center pixels carry the image; the top-left corner stays
-// transparent.
+// A wide logo is letterboxed, not cropped: the corners are transparent margin
+// while the center carries the fitted image.
 func TestSetFitsWithoutCropping(t *testing.T) {
 	s := NewStore(t.TempDir())
 	hash, err := s.Set(encodePNG(t, 240, 60)) // 4:1 wide

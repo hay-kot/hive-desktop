@@ -69,8 +69,7 @@ export function useFeedState() {
   // pane look up an item's glyph by its sourceScope (the source node id).
   const sourceIcons = ref<Record<string, string>>({})
   // Per-source-node mark images for the active flow (node id → PNG data URL),
-  // resolved from sources.webhook `image` hashes in loadFeeds. When a node has
-  // one, its rows/detail show the image instead of the glyph.
+  // resolved from sources.webhook `image` hashes in loadFeeds.
   const sourceImages = ref<Record<string, string>>({})
   // The selected feed's archived section: collapsed by default, lazy-loaded
   // when expanded. Never populated for trash.
@@ -312,9 +311,7 @@ export function useFeedState() {
         if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }
       sourceIcons.value = icons
-      // Resolve mark hashes to data URLs. Only flows that actually use an image
-      // pay the round-trip; a stale resolve is dropped by the same feedsSeq
-      // guard the reads above use.
+      // Resolve mark hashes to data URLs; a stale resolve is dropped by feedsSeq.
       const hashes = [...new Set(Object.values(imageHashByNode))]
       if (hashes.length === 0) {
         sourceImages.value = {}

@@ -1,26 +1,6 @@
-// Package sourcemark stores a source node's custom feed mark — a service logo
-// or similar — as a normalized square PNG under the app data dir. It is the
-// webhook connector's image counterpart to the curated glyph set in
-// internal/app/icons: a webhook node may show an uploaded image instead of a
-// Lucide glyph.
-//
-// Unlike profileimg, which keys one avatar per flow id, marks are
-// content-addressed: Set returns the stored bytes' hash and writes <hash>.png,
-// and a node's config records that hash. The hash is written at upload time —
-// before the graph save that records it — so keying the file by content rather
-// than by node id lets the upload endpoint stay a pure bytes -> hash function
-// with no node identity to thread, and identical images share one file.
-//
-// A missing file is not an error: a hash referenced with no file on disk (a
-// flow synced to a machine without its data dir) reads as no mark, and the feed
-// falls back to the node's glyph — the same tolerance profileimg's letter-chip
-// fallback relies on. Orphaned blobs (a mark replaced or its node deleted) are
-// left in place; they are small and harmless, never a reason to fail an edit.
-//
-// Normalization — contain-fit onto a transparent square, canonical PNG
-// re-encode — lives here rather than in a caller so every setter produces the
-// same stored shape. It fits rather than center-crops (profileimg's choice) so
-// a wide logo is letterboxed intact instead of having its edges cut off.
+// Package sourcemark stores a source node's custom feed mark as a normalized
+// square PNG under the app data dir, content-addressed by hash. A node's config
+// records the hash; a missing file falls back to the node's glyph. See ADR 0031.
 package sourcemark
 
 import (
@@ -43,32 +23,20 @@ import (
 )
 
 const (
-	// MaxInputBytes caps a raw upload before decoding, so a hostile or huge
-	// file is rejected cheaply rather than decoded into memory.
+	// MaxInputBytes caps a raw upload before decoding.
 	MaxInputBytes = 8 << 20
-
-	// maxInputSide rejects an image whose decoded dimensions are implausibly
-	// large — a decode-bomb guard well above any real logo source.
+	// maxInputSide guards against a decode bomb.
 	maxInputSide = 12000
-
-	// markSide is the square edge of the stored PNG. The feed renders it at
-	// ~16px; 128 stays crisp on a HiDPI display while keeping the file tiny.
+	// markSide is the square edge of the stored PNG.
 	markSide = 128
-
-	// HashLen is the length of a mark reference: hex of the first 16 bytes of
-	// the stored PNG's SHA-256. It is exported so a connector config can
-	// validate a recorded reference's shape without decoding the store.
+	// HashLen is the character length of a mark reference: hex of the first 16
+	// bytes of the stored PNG's SHA-256.
 	HashLen = 32
 )
 
 var (
-	// ErrEmpty is returned when raw carries no bytes.
-	ErrEmpty = errors.New("sourcemark: image is empty")
-	// ErrTooLarge is returned when raw exceeds MaxInputBytes or decodes to
-	// implausible dimensions.
-	ErrTooLarge = errors.New("sourcemark: image is too large")
-	// ErrUnsupported is returned when raw cannot be decoded as a known image
-	// format (PNG, JPEG, GIF, WebP).
+	ErrEmpty       = errors.New("sourcemark: image is empty")
+	ErrTooLarge    = errors.New("sourcemark: image is too large")
 	ErrUnsupported = errors.New("sourcemark: unsupported image format")
 )
 
@@ -77,13 +45,11 @@ type Store struct {
 	dir string
 }
 
-// NewStore returns a store rooted at dir (typically
-// <StateDir>/assets/webhookmarks). The directory is created on first write.
+// NewStore returns a store rooted at dir. The directory is created on first write.
 func NewStore(dir string) *Store { return &Store{dir: dir} }
 
-// Set normalizes raw into a square PNG, writes it as <hash>.png, and returns
-// the stored bytes' content hash — the value a node's config records. Storing
-// the same image again is a harmless overwrite with the same hash.
+// Set normalizes raw into a square PNG, writes it as <hash>.png, and returns the
+// content hash a node's config records.
 func (s *Store) Set(raw []byte) (string, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return "", ErrEmpty
@@ -114,8 +80,7 @@ func (s *Store) Set(raw []byte) (string, error) {
 }
 
 // Get returns the stored PNG for hash, or ok=false when none is stored. A
-// malformed hash reads as absent rather than an error, so a hand-edited or
-// stale reference falls back to the glyph instead of failing the read.
+// malformed or missing hash reads as absent, not an error.
 func (s *Store) Get(hash string) (data []byte, ok bool, err error) {
 	if !ValidHash(hash) {
 		return nil, false, nil
@@ -134,9 +99,8 @@ func (s *Store) path(hash string) string {
 	return filepath.Join(s.dir, hash+".png")
 }
 
-// ValidHash reports whether s has the shape Set produces: lowercase hex of
-// length HashLen. It also guards Get against path traversal, since a mark
-// reference is user-supplied config.
+// ValidHash reports whether s is lowercase hex of length HashLen — the shape Set
+// produces. It also guards Get against path traversal.
 func ValidHash(s string) bool {
 	if len(s) != HashLen {
 		return false
@@ -150,9 +114,7 @@ func ValidHash(s string) bool {
 }
 
 // encodeSquarePNG scales src to fit within a markSide square, centers it on a
-// transparent canvas of that size, and returns canonical PNG bytes. Fitting
-// (not cropping) keeps a non-square logo intact; the transparent margin lets it
-// sit in the feed's mark slot like a glyph.
+// transparent canvas of that size, and returns canonical PNG bytes.
 func encodeSquarePNG(src image.Image) ([]byte, error) {
 	b := src.Bounds()
 	sw, sh := b.Dx(), b.Dy()

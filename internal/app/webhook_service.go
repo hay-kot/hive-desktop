@@ -170,11 +170,9 @@ func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (We
 	}, nil
 }
 
-// StoreMarkImage normalizes raw into a square PNG feed mark, stores it under
-// the data dir, and returns its content hash — the value a webhook node's
-// config records in its `image` field. It never touches the flow: the editor
-// puts the returned hash into the node config, and the ordinary graph save
-// records it, exactly as it does the glyph `icon`.
+// StoreMarkImage normalizes raw into a feed-mark PNG, stores it, and returns its
+// content hash — the value a webhook node records in its `image` config. It does
+// not touch the flow; the graph save records the hash.
 func (s *WebhookService) StoreMarkImage(_ context.Context, raw []byte) (string, error) {
 	hash, err := s.marks.Set(raw)
 	if err != nil {
@@ -184,8 +182,7 @@ func (s *WebhookService) StoreMarkImage(_ context.Context, raw []byte) (string, 
 }
 
 // MarkImage returns the stored PNG for a mark hash, or ok=false when none is
-// stored. A missing or malformed reference is not an error — the feed falls
-// back to the node's glyph — so a flow synced without its data dir still loads.
+// stored. A missing or malformed reference is not an error.
 func (s *WebhookService) MarkImage(_ context.Context, hash string) (data []byte, ok bool, err error) {
 	data, ok, err = s.marks.Get(hash)
 	if err != nil {
@@ -194,9 +191,7 @@ func (s *WebhookService) MarkImage(_ context.Context, hash string) (data []byte,
 	return data, ok, nil
 }
 
-// mapMarkImageError turns a normalization failure into a user-facing message:
-// the bad-input cases are KindInvalid so the node editor can show them verbatim,
-// while an I/O failure stays internal.
+// mapMarkImageError turns a normalization failure into a user-facing message.
 func mapMarkImageError(err error) error {
 	switch {
 	case errors.Is(err, sourcemark.ErrEmpty):

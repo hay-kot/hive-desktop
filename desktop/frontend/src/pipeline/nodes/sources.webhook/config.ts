@@ -32,11 +32,7 @@ export interface Config {
    * feed icon set. Empty means the default webhook glyph.
    */
   icon?: string
-  /**
-   * Optional content hash of an uploaded image shown as this source's feed
-   * mark instead of the glyph (see internal/app/sourcemark). Set through the
-   * editor's image picker; empty falls back to `icon`.
-   */
+  /** Content hash of an uploaded image shown as the feed mark instead of `icon`. */
   image?: string
 }
 
