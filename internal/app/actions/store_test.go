@@ -65,6 +65,25 @@ actions:
 	assert.Len(t, store.List(), 3)
 }
 
+func TestActionStore_Reload_RetainsLastGoodOnVersionReject(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "actions.yml")
+	require.NoError(t, os.WriteFile(path, []byte(multiActionYAML), 0o644))
+
+	store := NewActionStore(path)
+	require.Len(t, store.List(), 3)
+
+	// A file written by a newer build: forward-only migration cannot downgrade it.
+	require.NoError(t, os.WriteFile(path, []byte("version: 2\nactions: []\n"), 0o644))
+
+	err := store.Reload()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version")
+
+	// Last-good actions are still served.
+	assert.Len(t, store.List(), 3)
+}
+
 func TestActionStore_Reload_PicksUpValidEdit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "actions.yml")

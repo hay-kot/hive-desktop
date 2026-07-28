@@ -14,6 +14,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
@@ -64,6 +65,17 @@ func main() {
 	// snapshot only after settings and environment precedence are resolved.
 	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
 	settingsStore = settings.NewStore(paths.SettingsPath)
+	backupDir = filepath.Join(paths.StateDir, "migration-backups")
+
+	// Migrate flows/*.yaml and actions.yml in place before app.New constructs the
+	// stores and starts the watchers. Non-fatal: mirror each type's last-good
+	// semantics rather than failing startup.
+	if err := flow.MigrateDir(paths.FlowsDir, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("flow migration sweep failed")
+	}
+	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
+	}
 
 	// A redirected API base means every item this run shows may be stale or
 	// deliberately rewritten by cmd/devserver. That is invisible in the UI, so

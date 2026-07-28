@@ -9,6 +9,8 @@ import (
 	"slices"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 // actionsFile is the top-level on-disk shape of an actions.yml document.
@@ -23,18 +25,28 @@ type actionsFile struct {
 // An empty-but-present file is treated the same way. Any other read error,
 // or a schema/validation failure, returns a non-nil error and a nil slice.
 func LoadActions(path string) ([]Action, error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("read actions %q: %w", path, err)
 	}
+	data, _, err := configmigrate.ActionsSet.Apply(raw)
+	if err != nil {
+		return nil, err
+	}
+	if data == nil {
+		return nil, nil
+	}
 	return parseActions(data)
 }
 
-// parseActions strictly decodes the actions document, checks version == 1,
-// and runs validateActions.
+// parseActions strictly decodes the actions document, checks version ==
+// configmigrate.ActionsSet.Current, and runs validateActions. It is also
+// called on the store's own CRUD writes (store.go) to validate current-schema
+// output, so it must never route through configmigrate.ActionsSet.Apply —
+// only the read path (LoadActions) migrates.
 func parseActions(data []byte) ([]Action, error) {
 	if len(bytes.TrimSpace(data)) == 0 {
 		return nil, nil
@@ -47,8 +59,8 @@ func parseActions(data []byte) ([]Action, error) {
 		return nil, fmt.Errorf("actions: %w", err)
 	}
 
-	if file.Version != 1 {
-		return nil, fmt.Errorf("actions: version must be 1, got %d", file.Version)
+	if file.Version != configmigrate.ActionsSet.Current {
+		return nil, fmt.Errorf("actions: version must be %d, got %d", configmigrate.ActionsSet.Current, file.Version)
 	}
 
 	if err := validateActions(file.Actions); err != nil {
