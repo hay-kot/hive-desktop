@@ -354,15 +354,15 @@ func TestInboxService_NewSessionDraft(t *testing.T) {
 	service := newInboxService(db, configuredActionStore(t), nil)
 
 	itemID := insertActionItemSource(t, db, "github", "pr-1", "PR", "Fix the crash",
-		map[string]any{"repo": "acme/site", "body": "Steps to repro", "url": "https://example/1"})
+		map[string]any{"repo": "acme/site", "body": "Steps to repro", "url": "https://github.com/acme/site/issues/1"})
 
 	draft, err := service.NewSessionDraft(t.Context(), itemID)
 	require.NoError(t, err)
-	assert.Equal(t, "acme/site", draft.Repository)
+	assert.Equal(t, "https://github.com/acme/site.git", draft.Repository, "owner/name must become a cloneable remote, not a bare path")
 	assert.Equal(t, "fix-the-crash", draft.Name)
 	assert.Contains(t, draft.Prompt, "Fix the crash")
 	assert.Contains(t, draft.Prompt, "Steps to repro")
-	assert.Contains(t, draft.Prompt, "https://example/1")
+	assert.Contains(t, draft.Prompt, "https://github.com/acme/site/issues/1")
 
 	_, err = service.NewSessionDraft(t.Context(), 9999)
 	assert.Equal(t, KindNotFound, KindOf(err))

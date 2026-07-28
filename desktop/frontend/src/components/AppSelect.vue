@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
   placeholder?: string
   searchable?: boolean
   searchPlaceholder?: string
+  /** Combobox mode: the trigger is a text input, so modelValue may be a value not in options (e.g. a custom git URL). */
+  editable?: boolean
   disabled?: boolean
   size?: AppSelectSize
   testid?: string
@@ -48,12 +50,24 @@ const root = ref<HTMLElement | null>(null)
 const popover = ref<HTMLElement | null>(null)
 const list = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
+const editableInput = ref<HTMLInputElement | null>(null)
 const open = ref(false)
 const query = ref('')
+// Editable mode: `text` is the input's own value (kept in sync with modelValue),
+// and `touched` gates filtering to after a keystroke so opening shows the whole
+// list — a prefilled value never hides the other options.
+const text = ref(props.modelValue)
+const touched = ref(false)
 const active = ref(0)
+watch(() => props.modelValue, (value) => { text.value = value })
 
 const selected = computed(() => props.options.find((option) => option.value === props.modelValue) ?? null)
 const visible = computed(() => {
+  if (props.editable) {
+    const q = touched.value ? text.value.trim().toLowerCase() : ''
+    if (!q) return props.options
+    return props.options.filter((option) => option.label.toLowerCase().includes(q) || option.value.toLowerCase().includes(q))
+  }
   const q = props.searchable ? query.value.trim().toLowerCase() : ''
   if (!q) return props.options
   return props.options.filter((option) => option.label.toLowerCase().includes(q))
@@ -97,7 +111,8 @@ function firstEnabled(): number {
 function openList(): void {
   if (props.disabled) return
   open.value = true
-  query.value = ''
+  if (props.editable) touched.value = false
+  else query.value = ''
   const current = visible.value.findIndex((option) => option.value === props.modelValue)
   active.value = current === -1 ? firstEnabled() : current
   measure()
@@ -105,6 +120,7 @@ function openList(): void {
   void nextTick(() => {
     measure() // now that the list has rendered and its natural width is known
     if (props.searchable) searchInput.value?.focus()
+    else if (props.editable) { editableInput.value?.focus(); editableInput.value?.select() }
   })
 }
 
@@ -113,8 +129,24 @@ function toggle(): void { open.value ? close() : openList() }
 
 function choose(option: AppSelectOption): void {
   if (option.disabled) return
+  if (props.editable) { text.value = option.value; touched.value = false }
   if (option.value !== props.modelValue) emit('update:modelValue', option.value)
   close()
+}
+
+// Combobox trigger: focusing opens the full list (touched stays false) and
+// selects the text so the first keystroke replaces the prefilled value rather
+// than appending to it.
+function onEditableFocus(): void {
+  if (!open.value) openList()
+}
+function onEditableInput(event: Event): void {
+  text.value = (event.target as HTMLInputElement).value
+  touched.value = true
+  if (!open.value) open.value = true
+  active.value = 0
+  emit('update:modelValue', text.value)
+  measure()
 }
 
 /** Walk to the next enabled option, wrapping; a fully disabled list leaves `active` alone. */
@@ -140,16 +172,26 @@ function jump(edge: 'start' | 'end'): void {
 /** Shared by the trigger (closed list) and the search box (open list). */
 function onKeydown(event: KeyboardEvent): void {
   if (!open.value) {
+    if (props.editable) {
+      if (event.key === 'ArrowDown') { event.preventDefault(); openList() }
+      return // a closed combobox leaves Enter/Space to the form and the input
+    }
     if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openList() }
     return
   }
   if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close() }
   else if (event.key === 'ArrowDown') { event.preventDefault(); step(1) }
   else if (event.key === 'ArrowUp') { event.preventDefault(); step(-1) }
-  else if (event.key === 'Home') { event.preventDefault(); jump('start') }
-  else if (event.key === 'End') { event.preventDefault(); jump('end') }
-  else if (event.key === 'Enter' || (event.key === ' ' && !props.searchable)) {
-    // Space types a character in the search box, so only Enter commits there.
+  else if (event.key === 'Home' && !props.editable) { event.preventDefault(); jump('start') }
+  else if (event.key === 'End' && !props.editable) { event.preventDefault(); jump('end') }
+  else if (event.key === 'Enter') {
+    event.preventDefault()
+    const option = visible.value[active.value]
+    if (option) choose(option)
+    else if (props.editable) close() // accept the typed value
+  }
+  else if (event.key === ' ' && !props.searchable && !props.editable) {
+    // Space types a character in the search/combobox input, so only Enter commits there.
     event.preventDefault()
     const option = visible.value[active.value]
     if (option) choose(option)
@@ -217,7 +259,32 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
 
 <template>
   <div ref="root" class="relative" @keydown="onKeydown">
+    <template v-if="editable">
+      <input
+        ref="editableInput"
+        :value="text"
+        type="text"
+        class="w-full border bg-app pr-9 text-left text-text outline-none placeholder:text-text-4 disabled:cursor-not-allowed disabled:opacity-60"
+        :class="[trigger, open ? 'border-accent' : 'border-strong']"
+        :data-testid="testid"
+        :aria-label="ariaLabel"
+        :placeholder="placeholder ?? ''"
+        :disabled="disabled"
+        role="combobox"
+        aria-autocomplete="list"
+        :aria-expanded="open"
+        :aria-controls="open ? listboxId : undefined"
+        @focus="onEditableFocus"
+        @input="onEditableInput"
+        @click="open || openList()"
+        @blur="close"
+      >
+      <button type="button" tabindex="-1" aria-hidden="true" class="absolute inset-y-0 right-0 flex items-center px-2.5 text-text-3" :disabled="disabled" @mousedown.prevent="toggle">
+        <IconChevronDown class="size-4 transition-transform" :class="open ? 'rotate-180' : ''" />
+      </button>
+    </template>
     <button
+      v-else
       type="button"
       class="flex w-full items-center justify-between border bg-app text-left text-text outline-none disabled:cursor-not-allowed disabled:opacity-60"
       :class="[trigger, open ? 'border-accent' : 'border-strong']"
@@ -270,6 +337,7 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
               :class="optionClass(option, index)"
               :data-testid="testid ? `${testid}-option-${option.value}` : undefined"
               :disabled="option.disabled"
+              @mousedown.prevent
               @click="choose(option)"
               @mousemove="active = index"
             >

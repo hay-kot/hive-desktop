@@ -25,6 +25,7 @@ const agent = ref(props.options.defaultAgent)
 const validationError = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
 const canSubmit = computed(() => repository.value.trim() !== '' && name.value.trim() !== '')
+const repositoryOptions = computed(() => (props.options.repositories ?? []).map((repo) => ({ value: repo.repository, label: repo.name || repo.repository })))
 const agentOptions = computed(() => [{ value: '', label: 'Default agent' }, ...(props.options.agents ?? []).map((key) => ({ value: key, label: key }))])
 
 function submit() {
@@ -60,10 +61,17 @@ useAutofocus(nameInput)
     @close="emit('close')"
   >
     <form class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
-      <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
-        <input v-model="repository" list="new-session-repositories" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="https://github.com/owner/repository.git" data-testid="new-session-repository">
-        <datalist id="new-session-repositories"><option v-for="repo in options.repositories" :key="repo.repository" :value="repo.repository">{{ repo.name }}</option></datalist>
-      </label>
+      <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
+        <AppSelect
+          :model-value="repository"
+          :options="repositoryOptions"
+          editable
+          placeholder="https://github.com/owner/repository.git"
+          testid="new-session-repository"
+          aria-label="Repository"
+          @update:model-value="repository = $event"
+        />
+      </div>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
         <input ref="nameInput" v-model="name" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="new-session-name">
       </label>

@@ -3,6 +3,7 @@ package dispatch
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/colonyops/hive/pkg/tmpl"
@@ -61,10 +62,31 @@ func RenderSessionDraft(title, url string, payload []byte) (SessionDraft, error)
 	}
 
 	return SessionDraft{
-		Repository: data.Repo,
+		Repository: draftRepository(data.Repo, data.URL),
 		Name:       SlugifySessionName(data.Title),
 		Prompt:     strings.TrimSpace(prompt),
 	}, nil
+}
+
+// draftRepository turns an item's canonical repo (owner/name — never a clone
+// URL) into a cloneable remote using the item URL's host. Cloning owner/name
+// verbatim fails (git exit 128); the derived https URL also shares a
+// configured repo's identity, so submitting reuses that checkout when one
+// exists. A repo that is already a URL or scp remote passes through; anything
+// we cannot turn into a valid remote yields "" so the form defaults instead.
+func draftRepository(repo, itemURL string) string {
+	repo = strings.TrimSpace(repo)
+	if repo == "" || strings.Contains(repo, "://") || strings.Contains(repo, "@") {
+		return repo
+	}
+	if strings.Count(repo, "/") != 1 {
+		return ""
+	}
+	u, err := url.Parse(itemURL)
+	if err != nil || u.Hostname() == "" {
+		return ""
+	}
+	return "https://" + u.Hostname() + "/" + repo + ".git"
 }
 
 func sessionPromptData(title, url string, payload []byte) SessionPromptData {
