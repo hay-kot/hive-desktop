@@ -5,7 +5,6 @@ import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconFolder from '~icons/lucide/folder'
 import IconFolderPlus from '~icons/lucide/folder-plus'
-import IconGitBranch from '~icons/lucide/git-branch'
 import IconPencil from '~icons/lucide/pencil'
 import IconRss from '~icons/lucide/rss'
 import IconSettings from '~icons/lucide/settings'
@@ -231,10 +230,7 @@ function deleteFolder(folder: FeedFolder): void {
           @click="emit('open-settings')"
         ><IconSettings class="size-3.5" /></button>
       </div>
-      <div class="mt-1 flex items-center gap-1.5">
-        <span class="flex size-[15px] items-center justify-center rounded border border-strong bg-chip text-text-2"><IconGitBranch class="size-2.5" /></span>
-        <span class="text-xs text-text-3">{{ profile.sourceSummary }}</span>
-      </div>
+      <div class="mt-1 text-xs text-text-3">{{ profile.sourceSummary }}</div>
     </div>
 
     <section class="px-2.5 pb-1.5 pt-3" data-testid="sidebar-feeds">

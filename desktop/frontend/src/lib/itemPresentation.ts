@@ -185,31 +185,17 @@ export interface ItemPresentation {
   mark(item: InboxItem, ctx?: PresentationContext): Component
   /** Uploaded mark image data URL when the source has one; undefined otherwise. */
   markImage?(item: InboxItem, ctx?: PresentationContext): string | undefined
-  /** Detail ACTIONS-footer context line (github: payload branch); '' hides
-   *  it. */
-  actionContextLine(item: InboxItem): string
-}
-
-function githubActionContextLine(item: InboxItem): string {
-  // branch/prompt/reason are GitHub grab-bag fields, not part of the
-  // canonical contract — decoded privately here rather than in
-  // canonicalPayload. prompt/reason remain grab-bag, currently unrendered.
-  if (!item.payload || typeof item.payload !== 'object') return ''
-  const value = item.payload as Record<string, unknown>
-  return typeof value.branch === 'string' ? value.branch : ''
 }
 
 const githubPresentation: ItemPresentation = {
   sourceLabel: 'GitHub',
   mark: () => GithubMark,
-  actionContextLine: githubActionContextLine,
 }
 
 const webhookPresentation: ItemPresentation = {
   sourceLabel: 'Webhook',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultWebhookSourceIcon),
   markImage: (item, ctx) => ctx?.sourceImages?.[item.sourceScope],
-  actionContextLine: () => '',
 }
 
 /** Registry lookup; an unknown/absent sourceKind gets the default adapter —
@@ -219,7 +205,7 @@ const webhookPresentation: ItemPresentation = {
 export function presentationFor(sourceKind: string | undefined): ItemPresentation {
   if (sourceKind === 'github') return githubPresentation
   if (sourceKind === 'webhook') return webhookPresentation
-  return { sourceLabel: sourceKind ?? '', mark: () => IconInbox, actionContextLine: () => '' }
+  return { sourceLabel: sourceKind ?? '', mark: () => IconInbox }
 }
 
 // ── Single source-kind list ─────────────────────────────────────────────────
@@ -241,15 +227,11 @@ export function sourceKindForNodeType(nodeType: string): string | null {
 
 // ── Sidebar summary ─────────────────────────────────────────────────────────
 
-/** Sidebar source-mix summary for a profile's source nodes, grouped by
- *  sourceKind: one kind → "<Label> · N source(s)"; mixed kinds → "<total>
- *  sources"; none → "No sources". */
+/** Sidebar source-count summary for a profile's source nodes: the total number
+ *  of sources across every kind. Feeds mix providers, so the summary stays
+ *  provider-neutral — "<N> source(s)", or "No sources" when there are none. */
 export function sourceSummary(countByKind: ReadonlyMap<string, number>): string {
-  const kinds = [...countByKind.keys()].filter((key) => (countByKind.get(key) ?? 0) > 0)
-  if (kinds.length === 0) return 'No sources'
-  const total = kinds.reduce((sum, key) => sum + (countByKind.get(key) ?? 0), 0)
-  if (kinds.length > 1) return `${total} sources`
-  const onlyKind = kinds[0]!
-  const count = countByKind.get(onlyKind) ?? 0
-  return `${presentationFor(onlyKind).sourceLabel} · ${count} source${count === 1 ? '' : 's'}`
+  const total = [...countByKind.values()].reduce((sum, count) => sum + Math.max(count, 0), 0)
+  if (total === 0) return 'No sources'
+  return `${total} source${total === 1 ? '' : 's'}`
 }
