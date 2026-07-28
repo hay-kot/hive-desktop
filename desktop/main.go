@@ -8,10 +8,12 @@ import (
 	"context"
 	"embed"
 	"log"
+	"path/filepath"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
@@ -39,6 +41,20 @@ func main() {
 		log.Fatal(err)
 	}
 	paths := settings.ResolvePaths(bootstrap, "")
+	level, err := settings.ResolveLogLevel()
+	if err != nil {
+		log.Fatal(err)
+	}
+	logger, logCloser, logErr := settings.NewLogger(paths.LogFile, level)
+	if logErr != nil {
+		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
+	}
+
+	backupDir := filepath.Join(paths.StateDir, "migration-backups")
+	if _, _, err := configmigrate.MigrateFile(configmigrate.SettingsSet, paths.SettingsPath, backupDir, &logger); err != nil {
+		log.Fatal(err) // preserve settings' fail-startup semantics
+	}
+
 	settingsStore := settings.NewStore(paths.SettingsPath)
 	cfg, err := settingsStore.Effective()
 	if err != nil {
@@ -48,14 +64,6 @@ func main() {
 	// snapshot only after settings and environment precedence are resolved.
 	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
 	settingsStore = settings.NewStore(paths.SettingsPath)
-	level, err := settings.ResolveLogLevel()
-	if err != nil {
-		log.Fatal(err)
-	}
-	logger, logCloser, logErr := settings.NewLogger(paths.LogFile, level)
-	if logErr != nil {
-		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
-	}
 
 	// A redirected API base means every item this run shows may be stale or
 	// deliberately rewritten by cmd/devserver. That is invisible in the UI, so

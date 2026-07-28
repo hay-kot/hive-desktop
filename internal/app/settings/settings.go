@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 const settingsFileName = "settings.yaml"
@@ -145,6 +147,7 @@ type DevelopmentSettings struct {
 // Settings is the typed settings.yaml schema. Environment override provenance
 // is process-local and is never serialized.
 type Settings struct {
+	Version       int                  `yaml:"version"`
 	Polling       PollingSettings      `yaml:"polling"`
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
@@ -156,8 +159,16 @@ type Settings struct {
 	overrides map[string]bool
 }
 
+// SettingsSchemaVersion reports the settings.yaml schema version this build
+// reads and writes. It reads configmigrate.SettingsSet.Current at call time
+// rather than a frozen const, so a test injecting a higher Current is
+// reflected everywhere. A legacy file with no `version:` key is treated as
+// the Set's baseline (v1).
+func SettingsSchemaVersion() int { return configmigrate.SettingsSet.Current }
+
 func DefaultSettings() Settings {
 	return Settings{
+		Version:       configmigrate.SettingsSet.Current,
 		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
