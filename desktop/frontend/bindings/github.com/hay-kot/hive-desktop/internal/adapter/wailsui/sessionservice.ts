@@ -14,7 +14,11 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
-export function CreateSession(req: dispatch$0.CreateSessionRequest): $CancellablePromise<dispatch$0.SessionExecutionOutcome> {
+/**
+ * CreateSession validates the form and starts the session as a background job,
+ * returning the job id. Its outcome surfaces in the jobs UI.
+ */
+export function CreateSession(req: dispatch$0.CreateSessionRequest): $CancellablePromise<number> {
     return $Call.ByID(4281714313, req);
 }
 

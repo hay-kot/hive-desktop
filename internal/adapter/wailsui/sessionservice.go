@@ -20,6 +20,8 @@ func (s *SessionService) SessionLaunchOptions(ctx context.Context) (dispatch.Ses
 	return s.sessions.SessionLaunchOptions(ctx)
 }
 
-func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (dispatch.SessionExecutionOutcome, error) {
+// CreateSession validates the form and starts the session as a background job,
+// returning the job id. Its outcome surfaces in the jobs UI.
+func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {
 	return s.sessions.CreateSession(ctx, req)
 }

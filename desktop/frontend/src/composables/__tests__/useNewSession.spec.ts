@@ -35,8 +35,8 @@ describe('useNewSession', () => {
     expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' })
   })
 
-  it('creates the session and closes on submit', async () => {
-    mocks.CreateSession.mockResolvedValue({ id: 's1', name: 'fix-crash' })
+  it('starts the session job and closes on submit', async () => {
+    mocks.CreateSession.mockResolvedValue(7)
     const s = useNewSession()
     await s.openBlank()
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude' })
@@ -45,12 +45,12 @@ describe('useNewSession', () => {
     expect(useToasts().toasts.value.at(-1)?.message).toContain('fix-crash')
   })
 
-  it('surfaces a create error without closing', async () => {
-    mocks.CreateSession.mockRejectedValue(new Error('a session named "fix-crash" already exists'))
+  it('surfaces a validation error without closing', async () => {
+    mocks.CreateSession.mockRejectedValue(new Error('session name is required'))
     const s = useNewSession()
     await s.openBlank()
-    await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: '' })
+    await s.submit({ repository: 'acme/site', name: '', prompt: '' })
     expect(s.open.value).toBe(true)
-    expect(s.error.value).toContain('already exists')
+    expect(s.error.value).toContain('session name is required')
   })
 })

@@ -1,6 +1,8 @@
 package jobs
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -61,6 +63,44 @@ func TestStore_RecordsLifecycleLabelsAndEmits(t *testing.T) {
 	require.NotNil(t, rows[0].CommandID)
 	assert.Equal(t, int64(45), *rows[0].CommandID)
 	assert.Len(t, emitted, 6)
+}
+
+func TestStore_TrackRunsToCompletionUnlinkedToACommand(t *testing.T) {
+	database := openJobsTestDB(t)
+	jobStore := NewStore(database, Options{})
+
+	ran := make(chan struct{})
+	id := jobStore.Track(t.Context(), "Create session", "new-session", "sess-1", func(context.Context) error {
+		close(ran)
+		return nil
+	})
+	require.Positive(t, id)
+	<-ran
+
+	require.Eventually(t, func() bool {
+		rows, err := jobStore.List(t.Context(), 0, 10)
+		return err == nil && len(rows) == 1 && rows[0].Status == JobStatusDone
+	}, time.Second, 5*time.Millisecond)
+
+	rows, err := jobStore.List(t.Context(), 0, 10)
+	require.NoError(t, err)
+	assert.Nil(t, rows[0].CommandID, "a tracked background job has no output_command link")
+	assert.Equal(t, "sess-1", rows[0].Target)
+}
+
+func TestStore_TrackRecordsFailure(t *testing.T) {
+	database := openJobsTestDB(t)
+	jobStore := NewStore(database, Options{})
+
+	id := jobStore.Track(t.Context(), "Create session", "new-session", "sess-2", func(context.Context) error {
+		return errors.New("clone failed")
+	})
+	require.Positive(t, id)
+
+	require.Eventually(t, func() bool {
+		rows, err := jobStore.List(t.Context(), 0, 10)
+		return err == nil && len(rows) == 1 && rows[0].Status == JobStatusFailed && rows[0].Error == "clone failed"
+	}, time.Second, 5*time.Millisecond)
 }
 
 func TestStepFor(t *testing.T) {

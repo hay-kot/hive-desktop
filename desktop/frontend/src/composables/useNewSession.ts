@@ -71,12 +71,14 @@ export function useNewSession() {
     busy.value = true
     error.value = null
     try {
-      const outcome = await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '' })
-      showToast(`Created session ${outcome.name}`, { severity: 'success' })
+      // Creation (including any clone) runs as a background job; its outcome
+      // shows in the titlebar jobs chip. Only validation errors reject here.
+      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '' })
+      showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
     } catch (e) {
-      error.value = message(e, 'Could not create the session.')
+      error.value = message(e, 'Could not start the session.')
     } finally {
       busy.value = false
     }
