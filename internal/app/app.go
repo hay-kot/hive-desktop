@@ -664,7 +664,10 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 // desktop keeps its own database, while sessions and internal events
 // intentionally use Hive's shared state and event bus.
 func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
-	dataDir := cfg.Paths.DataDir
+	dataDir := cfg.Paths.HiveDataDir
+	if dataDir == "" {
+		dataDir = cfg.Paths.DataDir
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create hive data directory: %w", err)
 	}

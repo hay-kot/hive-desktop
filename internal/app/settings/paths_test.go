@@ -57,3 +57,23 @@ func TestFlowsDirOverrideWinsOverTheOnboardingMockMode(t *testing.T) {
 
 	assert.Equal(t, "/tmp/explicit-flows", FlowsDir())
 }
+
+func TestHiveDataDirDefaultsToDataDir(t *testing.T) {
+	data := t.TempDir()
+	t.Setenv(EnvDataDir, data)
+	unsetEnv(t, EnvHiveDataDir)
+
+	assert.Equal(t, data, ResolvePaths(Bootstrap{}, "").HiveDataDir)
+}
+
+func TestHiveDataDirOverrideKeepsDesktopStateIsolated(t *testing.T) {
+	data := t.TempDir()
+	hive := t.TempDir()
+	t.Setenv(EnvDataDir, data)
+	t.Setenv(EnvHiveDataDir, hive)
+
+	paths := ResolvePaths(Bootstrap{}, "")
+	assert.Equal(t, hive, paths.HiveDataDir, "hive.db follows the override")
+	assert.Equal(t, data, paths.DataDir)
+	assert.Equal(t, filepath.Join(data, "desktop"), paths.StateDir, "desktop state stays under the isolated data dir")
+}

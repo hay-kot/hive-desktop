@@ -97,3 +97,12 @@ Vite cannot accept an already-open listener.
 - Development data/config/ports are isolated; the OS keychain and fixed
   bootstrap pointer are not. Mock mode is the safe default for fully isolated
   development until credential namespaces become instance-aware.
+- **Update (2026-07-28):** `hive.db` resolves through a separate `HiveDataDir`
+  (defaulting to `DataDir`, so production and e2e are unchanged), and
+  `desktop:dev` points `HIVE_DESKTOP_HIVE_DATA_DIR` at the installed hive data
+  dir. Sessions created in dev therefore land in the real hive database — the
+  desktop shares `hive.db` with the CLI in dev as it already does in production
+  — while `desktop-pipeline.db` and feed state stay worktree-isolated. The
+  accepted cost is that dev runs the vendored hive SHA's migrations against the
+  real database; keep the vendored SHA in step with the installed CLI. Setting
+  the variable to the worktree data dir in `overrides.env` re-isolates it.
