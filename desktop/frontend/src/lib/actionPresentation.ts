@@ -15,6 +15,7 @@ const registry: Record<string, ActionTypeMeta> = {
   'launch-session': { icon: 'play', label: 'Launch session', color: '#34d399' },
   shell: { icon: 'terminal', label: 'Run shell command', color: '#60a5fa' },
   'publish-message': { icon: 'radio', label: 'Publish message', color: '#a78bfa' },
+  clipboard: { icon: 'clipboard', label: 'Copy to clipboard', color: '#f472b6' },
 }
 
 export function actionTypeMeta(type: string): ActionTypeMeta {

@@ -96,6 +96,12 @@ actions:
     type: shell
     show_in_detail: false
     command_template: "true"
+  - id: copy-checkout
+    label: Copy checkout command
+    type: clipboard
+    show_in_detail: true
+    applies_to: [pr]
+    text_template: "gh pr checkout {{ .Payload.num }} -R {{ .Payload.repo }}"
 `), 0o644))
 	actionStore := actions.NewActionStore(path)
 	require.NoError(t, actionStore.Reload())
@@ -141,6 +147,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 		{ID: "review-pr", Label: "Review PR", Type: "launch-session", ShowInDetail: true},
 		{ID: "launch-interactive", Label: "Launch", Type: "launch-session", ShowInDetail: true, RequiresSessionInput: true},
 		{ID: "triage-any", Label: "Triage", Type: "shell", ShowInDetail: true},
+		{ID: "copy-checkout", Label: "Copy checkout command", Type: "clipboard", ShowInDetail: true},
 	}, views)
 
 	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
@@ -166,6 +173,45 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "does-not-exist", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
 	require.Error(t, err)
 	assert.Equal(t, KindNotFound, KindOf(err), "an unknown action id is not found, not invalid")
+}
+
+// TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable pins the
+// clipboard action's non-durable path: RenderClipboardAction renders the text
+// with no output_command row, so copying the same item again just renders
+// again with no rerun prompt, and InvokeAction refuses a clipboard action so it
+// can never enqueue a durable command.
+func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testing.T) {
+	actionStore := configuredActionStore(t)
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	// A dispatcher with no clipboard executor: the render path must never route
+	// a clipboard action through the worker.
+	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{}), 0, zerolog.Nop())
+	service := newInboxService(db, actionStore, worker, nil)
+	prID := insertActionItemSource(t, db, "github", "pr-9", "PR", "Title", map[string]any{"num": 9, "repo": "acme/app"})
+
+	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID)
+	require.NoError(t, err)
+	assert.Equal(t, "gh pr checkout 9 -R acme/app", text)
+
+	// Repeatable: no durable command to confirm, so a second copy renders the
+	// same text with no error or rerun prompt.
+	again, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID)
+	require.NoError(t, err)
+	assert.Equal(t, text, again)
+
+	// InvokeAction refuses a clipboard action rather than enqueueing it.
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "copy-checkout", ItemID: prID})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	require.ErrorContains(t, err, "clipboard action")
+
+	// The render path refuses a non-clipboard action.
+	_, err = service.RenderClipboardAction(t.Context(), "review-pr", prID)
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
 // TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated

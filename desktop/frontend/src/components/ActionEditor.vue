@@ -21,12 +21,18 @@ const typeOptions = [
   { value: 'launch-session', label: 'Launch session' },
   { value: 'shell', label: 'Shell' },
   { value: 'publish-message', label: 'Publish message' },
+  { value: 'clipboard', label: 'Copy to clipboard' },
 ]
 function setType(value: string): void {
   props.action.type = value
-  if (value === 'launch-session') { props.action.launch = { promptTemplate: '', repoTemplate: '' }; props.action.shell = undefined; props.action.message = undefined }
-  else if (value === 'shell') { props.action.launch = undefined; props.action.shell = { commandTemplate: '' }; props.action.message = undefined }
-  else { props.action.launch = undefined; props.action.shell = undefined; props.action.message = { topic: '', messageTemplate: '' } }
+  props.action.launch = undefined
+  props.action.shell = undefined
+  props.action.message = undefined
+  props.action.clipboard = undefined
+  if (value === 'launch-session') props.action.launch = { promptTemplate: '', repoTemplate: '' }
+  else if (value === 'shell') props.action.shell = { commandTemplate: '' }
+  else if (value === 'publish-message') props.action.message = { topic: '', messageTemplate: '' }
+  else if (value === 'clipboard') props.action.clipboard = { textTemplate: '' }
 }
 function envText(): string { return Object.entries(props.action.shell?.env ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => `${key}=${value ?? ''}`).join('\n') }
 function setEnv(text: string): void { if (!props.action.shell) return; const env: Record<string, string> = {}; for (const line of text.split('\n')) { const [key, ...value] = line.split('='); if (key.trim()) env[key.trim()] = value.join('=') }; props.action.shell.env = env }
@@ -76,6 +82,9 @@ onUnmounted(() => {
       <template v-if="action.message">
         <TextareaField v-model="action.message.messageTemplate" label="Message template" monospace testid="action-message-template" />
         <TextField v-model="action.message.topic" label="Topic" testid="action-message-topic" />
+      </template>
+      <template v-if="action.clipboard">
+        <TextareaField v-model="action.clipboard.textTemplate" label="Text template" monospace testid="action-clipboard-template" />
       </template>
       <p v-if="validationError || error" class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="action-editor-error">{{ validationError || error }}</p>
     </div>

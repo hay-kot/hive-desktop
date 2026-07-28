@@ -11,9 +11,9 @@ const defaultActionsYAML = `version: 1
 
 # This is your action catalog: the buttons on an item's detail pane and the
 # targets a flow action node can fire. Every action has a type —
-# launch-session, shell, or publish-message — and its templates are rendered
-# over the triggering item with Go text/template. This starter set demonstrates
-# all three; edit or delete anything here to fit your workflow.
+# launch-session, shell, publish-message, or clipboard — and its templates are
+# rendered over the triggering item with Go text/template. This starter set
+# demonstrates each; edit or delete anything here to fit your workflow.
 #
 # GitHub items expose {{ .Payload.repo }}, {{ .Payload.num }},
 # {{ .Payload.title }}, {{ .Payload.author }}, {{ .Payload.url }},
@@ -88,15 +88,24 @@ actions:
 
       Then implement the change, add or update tests, and run the project's tests
       and linters before summarizing what you did.
-  # shell runs any local command, rendered over the item. Pipe interpolated
-  # values through shq so a repo or title with spaces or quotes cannot break
-  # the command. This one puts a gh checkout command on the clipboard.
+  # clipboard renders a template over the item and puts the result on the
+  # clipboard — a ready-to-paste command, with no shell and no pbcopy. It is a
+  # detail-pane affordance only, and re-copying the same item never prompts.
   - id: copy-checkout
     label: Copy checkout command
-    type: shell
+    type: clipboard
     show_in_detail: true
     applies_to: [pr]
-    command_template: "printf 'gh pr checkout %s -R %s' {{ .Payload.num }} {{ .Payload.repo | shq }} | pbcopy"
+    text_template: "gh pr checkout {{ .Payload.num }} -R {{ .Payload.repo }}"
+  # shell runs any local command, rendered over the item. Pipe interpolated
+  # values through shq so a repo or title with spaces or quotes cannot break
+  # the command. This one opens the item on GitHub with the gh CLI.
+  - id: open-on-github
+    label: Open on GitHub
+    type: shell
+    show_in_detail: true
+    applies_to: [pr, issue]
+    command_template: "gh browse {{ .Payload.num }} -R {{ .Payload.repo | shq }}"
   # publish-message publishes a durable message to a fixed topic another hive
   # agent or session can subscribe to. The topic is a constant chosen here, not
   # computed from the item.

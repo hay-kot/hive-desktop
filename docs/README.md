@@ -36,6 +36,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0026](decisions/0026-install-script.md) | One-line install script served behind an obscure path |
 | [0027](decisions/0027-self-describing-agent-api.md) | Self-describing agent API: one operations table backs the mux, a GET /api index, and a generated OpenAPI document |
 | [0028](decisions/0028-linux-tarball-distribution.md) | Linux ships as a tarball, not a package |
+| [0029](decisions/0029-clipboard-action-type.md) | Clipboard action type with a render-only, non-durable invocation path |
 
 ## References
 

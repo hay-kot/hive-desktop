@@ -75,6 +75,15 @@ export function NodeRuns(flowID: string, limit: number): $CancellablePromise<sto
     return $Call.ByID(3592664483, flowID, limit);
 }
 
+/**
+ * RenderClipboardAction returns the text a clipboard action renders for an
+ * item. The frontend writes it to the clipboard through the native Wails
+ * clipboard; the core produces the text and never touches the clipboard.
+ */
+export function RenderClipboardAction(actionID: string, itemID: number): $CancellablePromise<string> {
+    return $Call.ByID(3812385739, actionID, itemID);
+}
+
 export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {
     return $Call.ByID(446957222);
 }

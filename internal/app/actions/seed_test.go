@@ -68,6 +68,8 @@ func TestDefaultActionsYAMLParsesValidatesAndRenders(t *testing.T) {
 			render(t, a.ID+".command_template", c.CommandTemplate)
 		case *PublishMessageConfig:
 			render(t, a.ID+".message_template", c.MessageTemplate)
+		case *ClipboardConfig:
+			render(t, a.ID+".text_template", c.TextTemplate)
 		default:
 			t.Fatalf("action %q: unexpected config type %T", a.ID, c)
 		}

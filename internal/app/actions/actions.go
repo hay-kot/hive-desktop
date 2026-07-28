@@ -43,8 +43,8 @@ type Action struct {
 	// Label is the human-readable name shown wherever the action is offered
 	// (a flow node, a detail-pane button).
 	Label string
-	// Type is the action kind discriminator: "launch-session", "shell", or
-	// "publish-message".
+	// Type is the action kind discriminator: "launch-session", "shell",
+	// "publish-message", or "clipboard".
 	Type string
 	// AppliesTo restricts which feed item kinds this action is offered for in
 	// the detail pane; empty means "any kind". It plays no role in flow
@@ -55,7 +55,7 @@ type Action struct {
 	// Flow action nodes remain eligible regardless of this presentation flag.
 	ShowInDetail bool
 	// Config is the per-type configuration: *LaunchSessionConfig,
-	// *ShellConfig, or *PublishMessageConfig.
+	// *ShellConfig, *PublishMessageConfig, or *ClipboardConfig.
 	Config ActionConfig
 }
 
@@ -83,6 +83,7 @@ var registry = map[string]actionFactory{
 	"launch-session":  func() ActionConfig { return &LaunchSessionConfig{} },
 	"shell":           func() ActionConfig { return &ShellConfig{} },
 	"publish-message": func() ActionConfig { return &PublishMessageConfig{} },
+	"clipboard":       func() ActionConfig { return &ClipboardConfig{} },
 }
 
 // actionHeader is the small set of fields common to every action, decoded
@@ -187,8 +188,16 @@ func nodeKindName(kind yaml.Kind) string {
 
 // HeadlessCapable reports whether a flow worker can execute this action without interactive input.
 func (a Action) HeadlessCapable() bool {
-	c, ok := a.Config.(*LaunchSessionConfig)
-	return !ok || strings.TrimSpace(c.RepoTemplate) != ""
+	switch c := a.Config.(type) {
+	case *LaunchSessionConfig:
+		return strings.TrimSpace(c.RepoTemplate) != ""
+	case *ClipboardConfig:
+		// A clipboard action has no clipboard target from a headless flow, so
+		// it is a detail-pane affordance only and never a flow terminal.
+		return false
+	default:
+		return true
+	}
 }
 
 func (a Action) RequiresSessionInput() bool {

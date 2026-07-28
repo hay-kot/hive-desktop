@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { Component } from 'vue'
+import IconClipboard from '~icons/lucide/clipboard'
 import IconDiamond from '~icons/lucide/diamond'
 import IconList from '~icons/lucide/list'
 import IconPlay from '~icons/lucide/play'
@@ -16,6 +17,7 @@ defineProps<{ name: string }>()
 // resolves imports at build time, so every name the backend can send must be
 // registered here.
 const registry: Record<string, Component> = {
+  clipboard: IconClipboard,
   diamond: IconDiamond,
   list: IconList,
   play: IconPlay,

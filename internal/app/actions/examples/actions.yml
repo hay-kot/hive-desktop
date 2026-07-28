@@ -38,3 +38,9 @@ actions:
     show_in_detail: false
     topic: oncall.alerts
     message_template: "{{ .Payload.title }} — {{ .Payload.url }}"
+  - id: copy-checkout
+    label: Copy checkout command
+    type: clipboard
+    show_in_detail: true
+    applies_to: [pr]
+    text_template: "gh pr checkout {{ .Payload.num }} -R {{ .Payload.repo }}"
