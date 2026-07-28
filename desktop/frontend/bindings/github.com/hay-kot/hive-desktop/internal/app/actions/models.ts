@@ -15,6 +15,7 @@ export interface EditableAction {
     "launch"?: EditableLaunchConfig | null;
     "shell"?: EditableShellConfig | null;
     "message"?: EditableMessageConfig | null;
+    "clipboard"?: EditableClipboardConfig | null;
 }
 
 /**
@@ -25,6 +26,10 @@ export interface EditableAction {
 export interface EditableCatalog {
     "actions": EditableAction[] | null;
     "error": string;
+}
+
+export interface EditableClipboardConfig {
+    "textTemplate": string;
 }
 
 export interface EditableLaunchConfig {

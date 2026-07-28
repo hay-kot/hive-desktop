@@ -34,6 +34,7 @@ func outputExecutors(
 		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(launcher),
 		"shell":                          dispatch.NewShellExecutor(logger),
 		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
+		"clipboard":                      dispatch.NewClipboardExecutor(),
 		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(notifier, gate, items, logger),
 	}
 }

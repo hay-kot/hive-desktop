@@ -10,14 +10,15 @@ import (
 // desktop clients. Exactly one config branch must be set and it must match
 // Type; callers cannot send an untyped executable blob.
 type EditableAction struct {
-	ID           string                 `json:"id"`
-	Label        string                 `json:"label"`
-	Type         string                 `json:"type"`
-	ShowInDetail bool                   `json:"showInDetail"`
-	AppliesTo    []string               `json:"appliesTo"`
-	Launch       *EditableLaunchConfig  `json:"launch,omitempty"`
-	Shell        *EditableShellConfig   `json:"shell,omitempty"`
-	Message      *EditableMessageConfig `json:"message,omitempty"`
+	ID           string                   `json:"id"`
+	Label        string                   `json:"label"`
+	Type         string                   `json:"type"`
+	ShowInDetail bool                     `json:"showInDetail"`
+	AppliesTo    []string                 `json:"appliesTo"`
+	Launch       *EditableLaunchConfig    `json:"launch,omitempty"`
+	Shell        *EditableShellConfig     `json:"shell,omitempty"`
+	Message      *EditableMessageConfig   `json:"message,omitempty"`
+	Clipboard    *EditableClipboardConfig `json:"clipboard,omitempty"`
 }
 
 // EditableCatalog returns the effective last-good catalog and any error from
@@ -46,6 +47,10 @@ type EditableMessageConfig struct {
 	Topic           string `json:"topic"`
 }
 
+type EditableClipboardConfig struct {
+	TextTemplate string `json:"textTemplate"`
+}
+
 func editableFromAction(a Action) (EditableAction, error) {
 	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, AppliesTo: append([]string(nil), a.AppliesTo...)}
 	switch c := a.Config.(type) {
@@ -59,6 +64,8 @@ func editableFromAction(a Action) (EditableAction, error) {
 		out.Shell = &EditableShellConfig{CommandTemplate: c.CommandTemplate, Cwd: c.Cwd, Timeout: timeout, Env: cloneEnv(c.Env)}
 	case *PublishMessageConfig:
 		out.Message = &EditableMessageConfig{MessageTemplate: c.MessageTemplate, Topic: c.Topic}
+	case *ClipboardConfig:
+		out.Clipboard = &EditableClipboardConfig{TextTemplate: c.TextTemplate}
 	default:
 		// A registered type with no case here would otherwise return an
 		// EditableAction with every config branch left nil — the frontend
@@ -78,6 +85,9 @@ func actionFromEditable(e EditableAction) (Action, error) {
 		branches++
 	}
 	if e.Message != nil {
+		branches++
+	}
+	if e.Clipboard != nil {
 		branches++
 	}
 	if branches != 1 {
@@ -108,6 +118,11 @@ func actionFromEditable(e EditableAction) (Action, error) {
 			return Action{}, fmt.Errorf("action %q: message config is required for publish-message", e.ID)
 		}
 		a.Config = &PublishMessageConfig{MessageTemplate: e.Message.MessageTemplate, Topic: e.Message.Topic}
+	case "clipboard":
+		if e.Clipboard == nil {
+			return Action{}, fmt.Errorf("action %q: clipboard config is required for clipboard", e.ID)
+		}
+		a.Config = &ClipboardConfig{TextTemplate: e.Clipboard.TextTemplate}
 	default:
 		return Action{}, fmt.Errorf("action %q: unknown type %q", e.ID, e.Type)
 	}

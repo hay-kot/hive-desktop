@@ -4,6 +4,7 @@
 export type {
     EditableAction,
     EditableCatalog,
+    EditableClipboardConfig,
     EditableLaunchConfig,
     EditableMessageConfig,
     EditableShellConfig,

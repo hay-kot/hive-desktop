@@ -2,7 +2,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
 import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
-import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, RenderClipboardAction, SessionLaunchOptions, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { appErrorKind, appErrorMessage } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
@@ -853,6 +853,11 @@ export function useFeedState() {
   // remain headless and use the same direct execution path as other actions.
   async function invokeAction(actionID: string) {
     const action = actions.value.find((candidate) => candidate.id === actionID)
+    if (action?.type === 'clipboard') {
+      const item = selectedItem.value
+      if (item) await copyActionToClipboard(actionID, item)
+      return
+    }
     if (!action?.requiresSessionInput) {
       await runAction(actionID)
       return
@@ -941,6 +946,28 @@ export function useFeedState() {
   }
 
   const copyItemContents = (item: InboxItem) => copyToClipboard(clipboardText(item), 'Contents copied')
+
+  // A clipboard action is copied, not run: the Go service renders its
+  // text_template over the item and returns the text (no durable command), and
+  // this writes it through the native Wails clipboard. Re-copying just renders
+  // again, so there is no rerun prompt.
+  async function copyActionToClipboard(actionID: string, item: InboxItem): Promise<void> {
+    const key = actionKey(item.id, actionID)
+    if (pendingActionKeys.value[key]) return
+    pendingActionKeys.value = { ...pendingActionKeys.value, [key]: true }
+    actionError.value = null
+    try {
+      const text = await RenderClipboardAction(actionID, item.id)
+      await copyToClipboard(text, 'Copied')
+    } catch (error) {
+      console.warn('Unable to copy action to clipboard', error)
+      const message = error instanceof Error && error.message ? error.message : 'Could not copy to the clipboard.'
+      actionError.value = message
+      showToast(message, { severity: 'error' })
+    } finally {
+      const next = { ...pendingActionKeys.value }; delete next[key]; pendingActionKeys.value = next
+    }
+  }
 
   // Row-level entry point for a configured action: actions load per selected
   // item (labels, requiresSessionInput, run cards all key off the selection),

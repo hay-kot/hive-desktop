@@ -51,11 +51,20 @@ type MessageExecutionOutcome struct {
 	Sender string `json:"sender"`
 }
 
+// ClipboardExecutionOutcome carries the text a clipboard action rendered. The
+// clipboard write itself is the desktop adapter's: the core produces the text
+// and the frontend copies it (see the detail-pane render path), so this is the
+// executor's whole result.
+type ClipboardExecutionOutcome struct {
+	Text string `json:"text"`
+}
+
 // ExecutionOutcome is a tagged-by-presence union. Exactly one branch is set
 // for successful side-effecting executors.
 type ExecutionOutcome struct {
-	Session *SessionExecutionOutcome `json:"session,omitempty"`
-	Message *MessageExecutionOutcome `json:"message,omitempty"`
+	Session   *SessionExecutionOutcome   `json:"session,omitempty"`
+	Message   *MessageExecutionOutcome   `json:"message,omitempty"`
+	Clipboard *ClipboardExecutionOutcome `json:"clipboard,omitempty"`
 }
 
 type ExecutionResult struct {

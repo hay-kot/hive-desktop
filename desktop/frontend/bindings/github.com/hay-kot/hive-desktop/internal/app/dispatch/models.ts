@@ -21,12 +21,23 @@ export interface ActionRunView {
 }
 
 /**
+ * ClipboardExecutionOutcome carries the text a clipboard action rendered. The
+ * clipboard write itself is the desktop adapter's: the core produces the text
+ * and the frontend copies it (see the detail-pane render path), so this is the
+ * executor's whole result.
+ */
+export interface ClipboardExecutionOutcome {
+    "text": string;
+}
+
+/**
  * ExecutionOutcome is a tagged-by-presence union. Exactly one branch is set
  * for successful side-effecting executors.
  */
 export interface ExecutionOutcome {
     "session"?: SessionExecutionOutcome | null;
     "message"?: MessageExecutionOutcome | null;
+    "clipboard"?: ClipboardExecutionOutcome | null;
 }
 
 export interface MessageExecutionOutcome {

@@ -465,6 +465,8 @@ func actionNode(a Action) (*yaml.Node, error) {
 	case *PublishMessageConfig:
 		add("message_template", c.MessageTemplate)
 		add("topic", c.Topic)
+	case *ClipboardConfig:
+		add("text_template", c.TextTemplate)
 	default:
 		// A registered type (registry, actions.go) with no case here would
 		// otherwise serialize with only the envelope fields above, silently

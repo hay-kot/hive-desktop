@@ -4,6 +4,7 @@
 export type {
     ActionInvocationInput,
     ActionRunView,
+    ClipboardExecutionOutcome,
     ExecutionOutcome,
     MessageExecutionOutcome,
     SessionExecutionOutcome,

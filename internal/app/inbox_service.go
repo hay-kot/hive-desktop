@@ -186,6 +186,12 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 	if !action.ShowInDetail {
 		return dispatch.ActionRunView{}, Errorf(KindInvalid, "action %q is not available in the detail pane", req.ActionID)
 	}
+	if _, isClipboard := action.Config.(*actions.ClipboardConfig); isClipboard {
+		// A clipboard action produces text, not a durable command. It must not
+		// enqueue an output_command (RenderClipboardAction is its path), so the
+		// worker never sees it and re-copying never prompts for a rerun.
+		return dispatch.ActionRunView{}, Errorf(KindInvalid, "action %q is a clipboard action; copy it from the detail pane instead", req.ActionID)
+	}
 	if applicable, reason := dispatch.ActionApplicability(action, item); !applicable {
 		return dispatch.ActionRunView{}, Errorf(KindInvalid, "action %q does not apply to item %d: %s", req.ActionID, req.ItemID, reason)
 	}
@@ -200,6 +206,44 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 		return dispatch.ActionRunView{}, s.confirmError(err, req.ActionID)
 	}
 	return view, nil
+}
+
+// RenderClipboardAction resolves a clipboard action against an item and
+// returns the rendered text for the desktop adapter to place on the clipboard.
+//
+// It is the render-only sibling of InvokeAction: a clipboard action produces
+// text, not a durable side effect, so it never enqueues an output_command and
+// re-copying the same item just renders again — there is no rerun to confirm.
+// The authorization chain matches InvokeAction (the item must decode, the
+// action must exist, be a clipboard action shown in the detail pane, apply to
+// the item's kind, and the item must have an id); executable configuration is
+// always re-resolved from the catalog rather than taken from the caller.
+func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID string, itemID int64) (string, error) {
+	item, err := s.decodeItem(ctx, itemID)
+	if err != nil {
+		return "", err
+	}
+	action, ok := s.actions.Get(actionID)
+	if !ok {
+		return "", Errorf(KindNotFound, "unknown action %q", actionID)
+	}
+	if _, isClipboard := action.Config.(*actions.ClipboardConfig); !isClipboard {
+		return "", Errorf(KindInvalid, "action %q is not a clipboard action", actionID)
+	}
+	if !action.ShowInDetail {
+		return "", Errorf(KindInvalid, "action %q is not available in the detail pane", actionID)
+	}
+	if applicable, reason := dispatch.ActionApplicability(action, item); !applicable {
+		return "", Errorf(KindInvalid, "action %q does not apply to item %d: %s", actionID, itemID, reason)
+	}
+	if item.ID == "" {
+		return "", Errorf(KindInvalid, "action %q: item id is required", actionID)
+	}
+	text, err := dispatch.RenderClipboardText(action, item.ID, item.Payload)
+	if err != nil {
+		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
+	}
+	return text, nil
 }
 
 // confirmError classifies a refused confirmation. A rerun with no completed

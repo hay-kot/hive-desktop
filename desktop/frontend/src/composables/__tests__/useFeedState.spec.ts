@@ -8,16 +8,16 @@ import type { InboxItem } from '../../types/feed'
 const mocks = vi.hoisted(() => ({
   ListFlows: vi.fn(), GetFlow: vi.fn(), CreateFlow: vi.fn(), SeedStarterFlow: vi.fn(), RenameFlow: vi.fn(), SetFlowEnabled: vi.fn(), DeleteFlow: vi.fn(), GetSidebar: vi.fn(), SaveSidebar: vi.fn(),
   ListInboxItemsByFeed: vi.fn(), ListArchivedInboxItemsByFeed: vi.fn(), ListInboxItemsTrash: vi.fn(), FeedCounts: vi.fn(), MarkInboxItemUnread: vi.fn(), MarkInboxItemsRead: vi.fn(), ToggleInboxItemArchived: vi.fn(), ToggleInboxItemIgnored: vi.fn(), InboxItemEvents: vi.fn(),
-  ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(),
+  ActionViews: vi.fn(), ActionRun: vi.fn(), InvokeAction: vi.fn(), RenderClipboardAction: vi.fn(), SessionLaunchOptions: vi.fn(), On: vi.fn(), Hide: vi.fn(), OpenURL: vi.fn(), SetText: vi.fn(),
   notify: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({ ListFlows: mocks.ListFlows, GetFlow: mocks.GetFlow, CreateFlow: mocks.CreateFlow, SeedStarterFlow: mocks.SeedStarterFlow, RenameFlow: mocks.RenameFlow, SetFlowEnabled: mocks.SetFlowEnabled, DeleteFlow: mocks.DeleteFlow, GetSidebar: mocks.GetSidebar, SaveSidebar: mocks.SaveSidebar }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
   ListInboxItemsByFeed: mocks.ListInboxItemsByFeed, ListArchivedInboxItemsByFeed: mocks.ListArchivedInboxItemsByFeed, ListInboxItemsTrash: mocks.ListInboxItemsTrash, FeedCounts: mocks.FeedCounts,
   MarkInboxItemUnread: mocks.MarkInboxItemUnread, MarkInboxItemsRead: mocks.MarkInboxItemsRead, ToggleInboxItemArchived: mocks.ToggleInboxItemArchived, ToggleInboxItemIgnored: mocks.ToggleInboxItemIgnored, InboxItemEvents: mocks.InboxItemEvents,
-  ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, SessionLaunchOptions: mocks.SessionLaunchOptions,
+  ActionViews: mocks.ActionViews, ActionRun: mocks.ActionRun, InvokeAction: mocks.InvokeAction, RenderClipboardAction: mocks.RenderClipboardAction, SessionLaunchOptions: mocks.SessionLaunchOptions,
 }))
-vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Call: { ByID: vi.fn() } }))
+vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On }, Window: { Hide: mocks.Hide }, Browser: { OpenURL: mocks.OpenURL }, Clipboard: { SetText: mocks.SetText }, Call: { ByID: vi.fn() } }))
 vi.mock('../useNotify', () => ({ useNotify: () => ({ notify: mocks.notify }) }))
 
 const flow = { id: 'triage', name: 'Frontend Triage', enabled: true, nodes: [{ id: 'source', type: 'sources.github' }, { id: 'my-prs', type: 'feed', name: 'My PRs' }], wires: [] }
@@ -28,7 +28,7 @@ function mountState() { let state!: ReturnType<typeof useFeedState>; mount({ set
 
 beforeEach(() => {
   vi.clearAllMocks(); localStorage.clear(); resetToastsForTests()
-  mocks.notify.mockResolvedValue(undefined)
+  mocks.notify.mockResolvedValue(undefined); mocks.SetText.mockResolvedValue(undefined)
   mocks.ListFlows.mockResolvedValue([{ id: 'triage', name: 'Frontend Triage', enabled: true, valid: true }])
   mocks.GetFlow.mockResolvedValue(flow); mocks.GetSidebar.mockResolvedValue({ items: [] }); mocks.SaveSidebar.mockResolvedValue(undefined)
   mocks.FeedCounts.mockResolvedValue([{ feedId: 'triage/my-prs', total: 3, unread: 2, archived: 1 }])
@@ -46,7 +46,7 @@ describe('useFeedState', () => {
   it('keeps durable outcomes on notify and reserves showToast for ephemeral feedback', () => {
     const source = readFileSync('src/composables/useFeedState.ts', 'utf8')
     expect(source).not.toContain('recordActivity')
-    expect(source.match(/showToast\(/g)).toHaveLength(9)
+    expect(source.match(/showToast\(/g)).toHaveLength(10)
     for (const title of ['Sidebar layout save failed', 'Profile renamed', 'Profile enabled', 'Profile disabled', "Couldn't delete profile", 'Profile deleted']) {
       expect(source).toContain(title)
     }
@@ -331,6 +331,19 @@ describe('useFeedState', () => {
     await get().invokeAction('review')
     expect(get().actionRuns.value.review).toMatchObject({ commandId: 18, status: 'failed', stderr: 'bad input' })
     expect(mocks.notify).toHaveBeenCalledWith({ title: 'command exited 1', severity: 'error', category: 'action' })
+  })
+
+  it('copies a clipboard action through the native clipboard with no durable run', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ActionViews.mockResolvedValue([{ id: 'copy-checkout', label: 'Copy checkout command', type: 'clipboard', showInDetail: true, requiresSessionInput: false }])
+    mocks.RenderClipboardAction.mockResolvedValue('gh pr checkout 7 -R acme/app')
+    const get = mountState(); await flushPromises()
+    await get().invokeAction('copy-checkout')
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', 7)
+    expect(mocks.SetText).toHaveBeenCalledWith('gh pr checkout 7 -R acme/app')
+    // A clipboard action never enqueues a durable command or records a run.
+    expect(mocks.InvokeAction).not.toHaveBeenCalled()
+    expect(get().actionRuns.value['copy-checkout']).toBeUndefined()
   })
 
   it('asks for confirmation before rerunning an action and preserves the first run', async () => {
