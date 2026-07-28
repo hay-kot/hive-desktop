@@ -19,11 +19,11 @@ vi.mock('@wailsio/runtime', () => ({
 
 function integration(overrides: Partial<Integration> = {}): Integration {
   return {
-    type: 'sources.github',
+    key: 'github',
     title: 'GitHub source',
     stability: 'stable',
-    mode: 'pull',
     provider: 'github',
+    types: ['sources.github'],
     accounts: [],
     envOverride: false,
     ...overrides,
@@ -143,7 +143,7 @@ describe('isConnected', () => {
 
 describe('takesCredential', () => {
   it('is false for a connector with no provider', () => {
-    expect(takesCredential(integration({ type: 'sources.webhook', provider: '' }))).toBe(false)
+    expect(takesCredential(integration({ key: 'sources.webhook', provider: '' }))).toBe(false)
   })
 
   it('is true for one with a provider', () => {

@@ -38,6 +38,19 @@ type QueryResult struct {
 	Result     json.RawMessage `json:"result"`
 }
 
+// Alert is one firing Grafana-managed alert instance from the Alertmanager v2
+// API. Fingerprint is the stable per-instance identity the connector keys an
+// inbox item on; a still-firing alert re-reports the same fingerprint.
+type Alert struct {
+	Fingerprint string            `json:"fingerprint"`
+	Labels      map[string]string `json:"labels"`
+	Annotations map[string]string `json:"annotations"`
+	StartsAt    string            `json:"startsAt"`
+	Status      struct {
+		State string `json:"state"`
+	} `json:"status"`
+}
+
 // Client talks to one Grafana stack as one token.
 type Client struct {
 	api  *httpclient.Client
@@ -133,4 +146,24 @@ func (c *Client) Query(ctx context.Context, dsUID, promql string) (QueryResult, 
 		return QueryResult{}, c.errs.Errorf("query failed: %s", msg)
 	}
 	return envelope.Data, nil
+}
+
+// Alerts lists the stack's currently firing Grafana-managed alerts through the
+// Alertmanager v2 API. The response is the complete active set, which is what
+// lets the connector treat an alert's absence as authoritatively resolved.
+func (c *Client) Alerts(ctx context.Context) ([]Alert, error) {
+	resp, err := c.api.Get(ctx, "/api/alertmanager/grafana/api/v2/alerts")
+	if err != nil {
+		return nil, c.errs.Unreachable(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // read-only body close
+
+	if err := c.errs.Status(resp); err != nil {
+		return nil, err
+	}
+	var alerts []Alert
+	if err := json.NewDecoder(resp.Body).Decode(&alerts); err != nil {
+		return nil, c.errs.Errorf("decode alerts: %w", err)
+	}
+	return alerts, nil
 }

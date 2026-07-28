@@ -49,15 +49,22 @@ func (c *MetricsConfig) Validate() error {
 // rejected here rather than at fetch time: "github/octocat" on a Grafana source
 // is a config mistake, and failing it at load says so.
 func (c *MetricsConfig) CredentialRef() (credentials.Ref, error) {
-	if strings.TrimSpace(c.Credential) == "" {
+	return parseGrafanaRef(c.Credential)
+}
+
+// parseGrafanaRef parses a "grafana/<account>" credential ref, rejecting a
+// missing ref or one that names another provider. Shared by every Grafana
+// connector's config so the provider check is written once.
+func parseGrafanaRef(credential string) (credentials.Ref, error) {
+	if strings.TrimSpace(credential) == "" {
 		return credentials.Ref{}, fmt.Errorf("grafana source: credential is required (e.g. %q)", Provider+"/grafana.example.com-1")
 	}
-	ref, err := credentials.ParseRef(c.Credential)
+	ref, err := credentials.ParseRef(credential)
 	if err != nil {
 		return credentials.Ref{}, fmt.Errorf("grafana source: %w", err)
 	}
 	if ref.Provider != Provider {
-		return credentials.Ref{}, fmt.Errorf("grafana source: credential %q is not a %s credential", c.Credential, Provider)
+		return credentials.Ref{}, fmt.Errorf("grafana source: credential %q is not a %s credential", credential, Provider)
 	}
 	return ref, nil
 }

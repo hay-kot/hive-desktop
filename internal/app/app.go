@@ -593,7 +593,8 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 	// Grafana's fetcher registry needs no fetch template, so it is always wired
 	// in a real build; the nil guard is only for the bijection test's mock call.
 	if grafanaFetchers != nil {
-		factories[grafana.Descriptor.Type] = grafana.NewFactory(grafanaFetchers)
+		factories[grafana.MetricsDescriptor.Type] = grafana.NewMetricsFactory(grafanaFetchers)
+		factories[grafana.AlertsDescriptor.Type] = grafana.NewAlertsFactory(grafanaFetchers)
 	}
 	return factories
 }

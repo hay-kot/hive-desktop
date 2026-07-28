@@ -132,6 +132,8 @@ func seedValidConfig(config connector.Config) error {
 	case *grafana.MetricsConfig:
 		c.Credential = grafana.Provider + "/grafana.example.com-1"
 		c.DatasourceUID, c.Expr = "prometheus-uid", "up"
+	case *grafana.AlertsConfig:
+		c.Credential = grafana.Provider + "/grafana.example.com-1"
 	default:
 		return fmt.Errorf("no valid config seed for %T; add one alongside the connector", config)
 	}

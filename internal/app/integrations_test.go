@@ -9,6 +9,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	grafana "github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 )
 
 func integrationsFor(t *testing.T, creds credentials.Store) map[string]Integration {
@@ -16,44 +17,61 @@ func integrationsFor(t *testing.T, creds credentials.Store) map[string]Integrati
 	list, err := newIntegrationsService(creds).List(t.Context())
 	require.NoError(t, err)
 
-	byType := make(map[string]Integration, len(list))
+	byKey := make(map[string]Integration, len(list))
 	for _, integration := range list {
-		byType[integration.Type] = integration
+		byKey[integration.Key] = integration
 	}
-	return byType
+	return byKey
 }
 
 // The screen is a projection of the registry, not a second list beside it. It
 // used to be a hardcoded array, which is a list that drifts silently: a
-// connector added to the registry simply never got a card.
-func TestIntegrationsListsEveryRegisteredConnector(t *testing.T) {
+// connector added to the registry simply never got a card. Cards are grouped
+// by provider, so the projection covers every descriptor without one card per
+// node type.
+func TestIntegrationsCoverEveryRegisteredConnector(t *testing.T) {
 	t.Parallel()
 
 	list, err := newIntegrationsService(credentials.NewMemoryStore()).List(t.Context())
 	require.NoError(t, err)
-	require.Len(t, list, len(sources.All()))
 
+	covered := map[string]bool{}
 	for _, integration := range list {
-		descriptor, ok := sources.Lookup(integration.Type)
-		require.Truef(t, ok, "listed %q, which is not registered", integration.Type)
-		assert.Equal(t, descriptor.Title, integration.Title)
-		assert.Equal(t, descriptor.Provider, integration.Provider)
-		assert.NotEqual(t, "unknown", integration.Mode, "connector %q", integration.Type)
-		assert.NotEqual(t, "unknown", integration.Stability, "connector %q", integration.Type)
+		require.NotEmpty(t, integration.Types, "card %q covers no node types", integration.Key)
+		for _, nodeType := range integration.Types {
+			descriptor, ok := sources.Lookup(nodeType)
+			require.Truef(t, ok, "card %q lists %q, which is not registered", integration.Key, nodeType)
+			assert.Equal(t, descriptor.Provider, integration.Provider)
+			assert.NotEqual(t, "unknown", integration.Stability, "card %q", integration.Key)
+			covered[nodeType] = true
+		}
 	}
+	assert.Len(t, covered, len(sources.All()), "every descriptor appears on exactly one card")
 }
 
-// Go map iteration is randomized, so an unsorted projection would reshuffle
-// the cards on every read — and the screen re-reads on every connection
-// change.
-func TestIntegrationsAreSortedByType(t *testing.T) {
+// A provider that ships several connector types shows once, titled by the
+// shared prefix of its descriptors rather than once per node type — the
+// grouping F12 called for so alerts does not add a second Grafana card.
+func TestIntegrationsGroupAProviderIntoOneCard(t *testing.T) {
+	t.Parallel()
+
+	grafanaCard, ok := integrationsFor(t, credentials.NewMemoryStore())[grafana.Provider]
+	require.Truef(t, ok, "grafana is not grouped under one card keyed by its provider")
+	assert.Equal(t, "Grafana", grafanaCard.Title, "the card title is the shared prefix, not one node type's title")
+	assert.Contains(t, grafanaCard.Types, grafana.MetricsDescriptor.Type)
+	assert.Contains(t, grafanaCard.Types, grafana.AlertsDescriptor.Type)
+}
+
+// Go map iteration is randomized, so an unsorted projection would reshuffle the
+// cards on every read — and the screen re-reads on every connection change.
+func TestIntegrationsAreSortedByKey(t *testing.T) {
 	t.Parallel()
 
 	list, err := newIntegrationsService(credentials.NewMemoryStore()).List(t.Context())
 	require.NoError(t, err)
 
 	for i := 1; i < len(list); i++ {
-		assert.Lessf(t, list[i-1].Type, list[i].Type, "entry %d is out of order", i)
+		assert.Lessf(t, list[i-1].Key, list[i].Key, "entry %d is out of order", i)
 	}
 }
 
@@ -64,26 +82,26 @@ func TestIntegrationsReportConnectedAccounts(t *testing.T) {
 	require.NoError(t, creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: "octocat"}, "tok1"))
 	require.NoError(t, creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: "hubot"}, "tok2"))
 
-	github := integrationsFor(t, creds)[ghsource.Descriptor.Type]
+	github := integrationsFor(t, creds)[ghsource.Provider]
 	assert.Equal(t, []string{"hubot", "octocat"}, github.Accounts)
 	assert.True(t, github.Connected())
 }
 
 // A connector with nothing to authenticate as is not "not connected" — the
-// webhook listener is local ingress. Its card must not offer a Connect
-// action, which is what an empty Provider tells the frontend.
+// webhook listener is local ingress. Its card must not offer a Connect action,
+// which is what an empty Provider tells the frontend.
 func TestIntegrationWithoutAProviderReportsNoAccounts(t *testing.T) {
 	t.Parallel()
 
 	creds := credentials.NewMemoryStore()
 	require.NoError(t, creds.Set(credentials.Ref{Provider: ghsource.Provider, Account: "octocat"}, "tok1"))
 
-	for connectorType, integration := range integrationsFor(t, creds) {
+	for key, integration := range integrationsFor(t, creds) {
 		if integration.Provider != "" {
 			continue
 		}
-		assert.Emptyf(t, integration.Accounts, "connector %q has no provider but reports accounts", connectorType)
-		assert.Falsef(t, integration.EnvOverride, "connector %q has no provider but reports an override", connectorType)
+		assert.Emptyf(t, integration.Accounts, "card %q has no provider but reports accounts", key)
+		assert.Falsef(t, integration.EnvOverride, "card %q has no provider but reports an override", key)
 	}
 }
 
@@ -92,8 +110,8 @@ func TestIntegrationWithoutAProviderReportsNoAccounts(t *testing.T) {
 func TestIntegrationAccountsAreNeverNil(t *testing.T) {
 	t.Parallel()
 
-	for connectorType, integration := range integrationsFor(t, credentials.NewMemoryStore()) {
-		assert.NotNilf(t, integration.Accounts, "connector %q has nil accounts", connectorType)
+	for key, integration := range integrationsFor(t, credentials.NewMemoryStore()) {
+		assert.NotNilf(t, integration.Accounts, "card %q has nil accounts", key)
 	}
 }
 
@@ -104,7 +122,7 @@ func TestIntegrationAccountsAreNeverNil(t *testing.T) {
 func TestIntegrationEnvOverrideCountsAsConnectedWithoutAStoredAccount(t *testing.T) {
 	t.Setenv(credentials.EnvOverrideName(ghsource.Provider), "env-token")
 
-	github := integrationsFor(t, credentials.NewMemoryStore())[ghsource.Descriptor.Type]
+	github := integrationsFor(t, credentials.NewMemoryStore())[ghsource.Provider]
 	assert.Empty(t, github.Accounts)
 	assert.True(t, github.EnvOverride)
 	assert.True(t, github.Connected())
@@ -113,7 +131,7 @@ func TestIntegrationEnvOverrideCountsAsConnectedWithoutAStoredAccount(t *testing
 func TestIntegrationWithNoCredentialIsNotConnected(t *testing.T) {
 	t.Parallel()
 
-	github := integrationsFor(t, credentials.NewMemoryStore())[ghsource.Descriptor.Type]
+	github := integrationsFor(t, credentials.NewMemoryStore())[ghsource.Provider]
 	assert.Empty(t, github.Accounts)
 	assert.False(t, github.Connected())
 }

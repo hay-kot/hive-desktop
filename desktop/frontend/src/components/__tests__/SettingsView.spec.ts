@@ -47,8 +47,8 @@ beforeEach(() => {
   setTheme('dark')
   resetWebhookSettingsForTests()
   listIntegrations.mockResolvedValue([
-    { type: 'sources.github', title: 'GitHub source', stability: 'stable', mode: 'pull', provider: 'github', accounts: ['octocat'], envOverride: false },
-    { type: 'sources.webhook', title: 'Webhook source', stability: 'stable', mode: 'push', provider: '', accounts: [], envOverride: false },
+    { key: 'github', title: 'GitHub source', stability: 'stable', provider: 'github', types: ['sources.github'], accounts: ['octocat'], envOverride: false },
+    { key: 'sources.webhook', title: 'Webhook source', stability: 'stable', provider: '', types: ['sources.webhook'], accounts: [], envOverride: false },
   ])
   webhookSettings.mockResolvedValue({
     enabled: true,
@@ -130,23 +130,23 @@ describe('SettingsView', () => {
   // not silently disappear from Settings.
   it('renders a card for a connector type its presentation maps do not know', async () => {
     listIntegrations.mockResolvedValue([
-      { type: 'sources.grafana', title: 'Grafana source', stability: 'experimental', mode: 'pull', provider: 'grafana', accounts: [], envOverride: false },
+      { key: 'posthog', title: 'PostHog', stability: 'experimental', provider: 'posthog', types: ['sources.posthog'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()
 
-    const card = wrapper.find('[data-testid="integration-grafana"]')
+    const card = wrapper.find('[data-testid="integration-posthog"]')
     expect(card.exists()).toBe(true)
-    expect(card.text()).toContain('Grafana source')
+    expect(card.text()).toContain('PostHog')
     // No presentation entry means no blurb, not a crash or a missing card.
-    expect(wrapper.find('[data-testid="integration-grafana-status"]').text()).toBe('Not connected')
+    expect(wrapper.find('[data-testid="integration-posthog-status"]').text()).toBe('Not connected')
     // No drawer entry means no configure gear, rather than a dead button.
-    expect(wrapper.find('[data-testid="integration-grafana-configure"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="integration-posthog-configure"]').exists()).toBe(false)
   })
 
   it('reports a connector connected by an environment override', async () => {
     listIntegrations.mockResolvedValue([
-      { type: 'sources.github', title: 'GitHub source', stability: 'stable', mode: 'pull', provider: 'github', accounts: [], envOverride: true },
+      { key: 'github', title: 'GitHub source', stability: 'stable', provider: 'github', types: ['sources.github'], accounts: [], envOverride: true },
     ])
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()
@@ -157,7 +157,7 @@ describe('SettingsView', () => {
 
   it('reports a connector with no credential as not connected', async () => {
     listIntegrations.mockResolvedValue([
-      { type: 'sources.github', title: 'GitHub source', stability: 'stable', mode: 'pull', provider: 'github', accounts: [], envOverride: false },
+      { key: 'github', title: 'GitHub source', stability: 'stable', provider: 'github', types: ['sources.github'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()
@@ -179,7 +179,7 @@ describe('SettingsView', () => {
 
   it('opens Grafana integration settings from the cog', async () => {
     listIntegrations.mockResolvedValue([
-      { type: 'sources.grafana_metrics', title: 'Grafana metrics source', stability: 'experimental', mode: 'pull', provider: 'grafana', accounts: [], envOverride: false },
+      { key: 'grafana', title: 'Grafana', stability: 'experimental', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, {
       props: { activeCategory: 'integrations' },
@@ -187,8 +187,8 @@ describe('SettingsView', () => {
     })
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="integration-grafana_metrics-configure"]').exists()).toBe(true)
-    await wrapper.find('[data-testid="integration-grafana_metrics-configure"]').trigger('click')
+    expect(wrapper.find('[data-testid="integration-grafana-configure"]').exists()).toBe(true)
+    await wrapper.find('[data-testid="integration-grafana-configure"]').trigger('click')
     expect(wrapper.find('[data-testid="grafana-integration-drawer"]').exists()).toBe(true)
   })
 

@@ -31,9 +31,10 @@ import (
 // Never init() self-registration: gochecknoinits is enabled, and an explicit
 // map is the only form where the set of connectors can be read off one file.
 var descriptors = map[string]connector.Descriptor{
-	github.Descriptor.Type:  github.Descriptor,
-	grafana.Descriptor.Type: grafana.Descriptor,
-	webhook.Descriptor.Type: webhook.Descriptor,
+	github.Descriptor.Type:         github.Descriptor,
+	grafana.MetricsDescriptor.Type: grafana.MetricsDescriptor,
+	grafana.AlertsDescriptor.Type:  grafana.AlertsDescriptor,
+	webhook.Descriptor.Type:        webhook.Descriptor,
 }
 
 // Types returns every registered connector type in sorted order. Sorting

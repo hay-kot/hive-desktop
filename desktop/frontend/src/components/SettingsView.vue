@@ -86,29 +86,31 @@ watch(() => props.activeCategory, (category) => {
 // than being silently dropped.
 const { integrations, loaded: integrationsLoaded } = useIntegrations()
 
+// Keyed by the card's key: a credentialed connector's provider, or a
+// provider-less connector's type (webhook).
 const presentation: Record<string, { description: string }> = {
-  'sources.github': { description: 'Issues, pull requests, and notifications' },
-  'sources.grafana_metrics': { description: 'PromQL metrics from a Grafana stack' },
+  'github': { description: 'Issues, pull requests, and notifications' },
+  'grafana': { description: 'Metrics and alerts from a Grafana stack' },
   'sources.webhook': { description: 'Receive JSON from anything that can POST' },
 }
 
 // The drawer each card's gear opens. A connector with no drawer yet gets no
 // gear rather than a button that does nothing.
 const drawers: Record<string, () => void> = {
-  'sources.github': () => { githubSettingsOpen.value = true },
-  'sources.grafana_metrics': () => { grafanaSettingsOpen.value = true },
+  'github': () => { githubSettingsOpen.value = true },
+  'grafana': () => { grafanaSettingsOpen.value = true },
   'sources.webhook': () => { webhookSettingsOpen.value = true },
 }
 
 function subtitleFor(integration: Integration): string {
   // The webhook listener's own state is richer than "connected" and is what
   // its card has always shown; it has no credential to describe.
-  if (integration.type === 'sources.webhook') return webhookDescription.value
+  if (integration.key === 'sources.webhook') return webhookDescription.value
   if (integration.envOverride && integration.accounts.length === 0) {
     return `Connected via ${envOverrideName(integration.provider)}`
   }
   if (integration.accounts.length > 0) return `Connected as ${integration.accounts.join(', ')}`
-  return presentation[integration.type]?.description ?? ''
+  return presentation[integration.key]?.description ?? ''
 }
 
 // Mirrors credentials.EnvOverrideName in Go. Shown so a headless or CI run
@@ -126,7 +128,7 @@ function cardId(type: string): string {
 }
 
 function statusFor(integration: Integration): { label: string; tone: 'success' | 'neutral' | 'danger' } {
-  if (integration.type === 'sources.webhook') return webhookStatus.value
+  if (integration.key === 'sources.webhook') return webhookStatus.value
   if (!takesCredential(integration)) return { label: 'Local', tone: 'neutral' }
   return isConnected(integration)
     ? { label: 'Connected', tone: 'success' }
@@ -191,15 +193,15 @@ function onThemeChange(value: string): void {
         <div v-else class="flex flex-col gap-3">
           <BaseCard
             v-for="integration in integrations"
-            :key="integration.type"
+            :key="integration.key"
             class="flex-wrap items-start rounded-lg border border-border bg-raised @[600px]/pane:flex-nowrap @[600px]/pane:items-center"
-            :data-testid="`integration-${cardId(integration.type)}`"
+            :data-testid="`integration-${cardId(integration.key)}`"
           >
             <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.type === 'sources.github' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
-                <img v-if="integration.type === 'sources.github'" :src="githubIcon" alt="" class="size-full" />
-                <IconWebhook v-else-if="integration.type === 'sources.webhook'" class="size-full" />
-                <IconActivity v-else-if="integration.type === 'sources.grafana_metrics'" class="size-full" />
+              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
+                <img v-if="integration.key === 'github'" :src="githubIcon" alt="" class="size-full" />
+                <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
+                <IconActivity v-else-if="integration.key === 'grafana'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
             </template>
@@ -214,21 +216,21 @@ function onThemeChange(value: string): void {
                   tone="neutral"
                   variant="pill"
                   class="px-2 py-1 text-[10.5px] font-semibold uppercase"
-                  :data-testid="`integration-${cardId(integration.type)}-stability`"
+                  :data-testid="`integration-${cardId(integration.key)}-stability`"
                 >{{ integration.stability }}</BaseBadge>
                 <BaseBadge
                   :tone="statusFor(integration).tone"
                   variant="pill"
                   class="px-2.5 py-1 text-[11px] font-semibold"
-                  :data-testid="`integration-${cardId(integration.type)}-status`"
+                  :data-testid="`integration-${cardId(integration.key)}-status`"
                 >{{ statusFor(integration).label }}</BaseBadge>
                 <button
-                  v-if="drawers[integration.type]"
+                  v-if="drawers[integration.key]"
                   type="button"
                   class="flex size-7 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
                   :aria-label="`Configure ${integration.title}`"
-                  :data-testid="`integration-${cardId(integration.type)}-configure`"
-                  @click="drawers[integration.type]()"
+                  :data-testid="`integration-${cardId(integration.key)}-configure`"
+                  @click="drawers[integration.key]()"
                 ><IconSettings class="size-3.5" /></button>
               </div>
             </template>

@@ -95,33 +95,64 @@ type fetcher struct {
 // PromQL query. A rate-limit response arms the cooldown so the next tick skips
 // the fetch until the server's reset time.
 func (fx *fetcher) Query(ctx context.Context, dsUID, promql string) (client.QueryResult, error) {
-	if until, cooling := fx.inCooldown(); cooling {
-		return client.QueryResult{}, fmt.Errorf("grafana %s: %w until %s", fx.ref, sourcehttp.ErrRateLimited, until.Format(time.RFC3339))
-	}
-	base, err := fx.stacks.URL(fx.ref)
+	c, err := fx.prepare()
 	if err != nil {
-		return client.QueryResult{}, fmt.Errorf("grafana %s: reading stack URL: %w", fx.ref, err)
+		return client.QueryResult{}, err
 	}
-	if base == "" {
-		return client.QueryResult{}, fmt.Errorf("grafana %s: stack is not connected", fx.ref)
-	}
-	token, err := fx.resolve()
+	result, err := c.Query(ctx, dsUID, promql)
 	if err != nil {
-		return client.QueryResult{}, fmt.Errorf("grafana %s: resolving token: %w", fx.ref, err)
-	}
-	if token == "" {
-		return client.QueryResult{}, fmt.Errorf("grafana %s: %w", fx.ref, sourcehttp.ErrUnauthorized)
-	}
-
-	result, err := fx.newClient(base, token).Query(ctx, dsUID, promql)
-	if err != nil {
-		var rateLimit *sourcehttp.RateLimitError
-		if errors.As(err, &rateLimit) {
-			fx.enterCooldown(rateLimit.ResetAt)
-		}
+		fx.noteError(err)
 		return client.QueryResult{}, err
 	}
 	return result, nil
+}
+
+// Alerts resolves the stack's URL and token and lists its currently firing
+// alerts, under the same cooldown Query uses.
+func (fx *fetcher) Alerts(ctx context.Context) ([]client.Alert, error) {
+	c, err := fx.prepare()
+	if err != nil {
+		return nil, err
+	}
+	alerts, err := c.Alerts(ctx)
+	if err != nil {
+		fx.noteError(err)
+		return nil, err
+	}
+	return alerts, nil
+}
+
+// prepare returns a client for this stack, or an error when the stack is in
+// cooldown, not connected, or has no resolvable token — the three states in
+// which a poll must not reach the network.
+func (fx *fetcher) prepare() (*client.Client, error) {
+	if until, cooling := fx.inCooldown(); cooling {
+		return nil, fmt.Errorf("grafana %s: %w until %s", fx.ref, sourcehttp.ErrRateLimited, until.Format(time.RFC3339))
+	}
+	base, err := fx.stacks.URL(fx.ref)
+	if err != nil {
+		return nil, fmt.Errorf("grafana %s: reading stack URL: %w", fx.ref, err)
+	}
+	if base == "" {
+		return nil, fmt.Errorf("grafana %s: stack is not connected", fx.ref)
+	}
+	token, err := fx.resolve()
+	if err != nil {
+		return nil, fmt.Errorf("grafana %s: resolving token: %w", fx.ref, err)
+	}
+	if token == "" {
+		return nil, fmt.Errorf("grafana %s: %w", fx.ref, sourcehttp.ErrUnauthorized)
+	}
+	return fx.newClient(base, token), nil
+}
+
+// noteError arms the cooldown when the failure was a rate limit, so the next
+// tick waits out the server's reset instead of hammering it.
+func (fx *fetcher) noteError(err error) {
+	var rateLimit *sourcehttp.RateLimitError
+	if errors.As(err, &rateLimit) {
+		fx.enterCooldown(rateLimit.ResetAt)
+	}
 }
 
 func (fx *fetcher) inCooldown() (time.Time, bool) {

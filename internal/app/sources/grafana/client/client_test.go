@@ -75,6 +75,23 @@ func TestQueryReportsPrometheusError(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse error")
 }
 
+func TestAlertsListsFiringAlerts(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/alertmanager/grafana/api/v2/alerts", r.URL.Path)
+		_, _ = w.Write([]byte(`[{"fingerprint":"abc123","labels":{"alertname":"HighLatency"},"annotations":{"summary":"p99 over 1s"},"startsAt":"2026-07-28T10:00:00Z","status":{"state":"active"}}]`))
+	}))
+	defer server.Close()
+
+	alerts, err := NewClient(server.URL, "t").Alerts(t.Context())
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, "abc123", alerts[0].Fingerprint)
+	assert.Equal(t, "HighLatency", alerts[0].Labels["alertname"])
+	assert.Equal(t, "p99 over 1s", alerts[0].Annotations["summary"])
+}
+
 func TestQueryRateLimited(t *testing.T) {
 	t.Parallel()
 
