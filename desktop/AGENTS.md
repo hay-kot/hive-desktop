@@ -282,8 +282,12 @@ more expensive, which is the whole reason it is being done now.
   marker-guarded destructive operations that refuse while a configured dev
   server is active. `prepare` writes non-secret `launch.env`; the `desktop:dev`
   mise task loads it followed by optional gitignored `overrides.env`, then
-  starts Wails directly. Data/config/ports are isolated, but the OS keychain
-  and fixed bootstrap pointer are shared.
+  starts Wails directly. Data/config/ports are isolated, but the OS keychain,
+  the fixed bootstrap pointer, and `hive.db` are shared: dev sets
+  `HIVE_DESKTOP_HIVE_DATA_DIR` to the installed hive data dir so sessions created
+  in dev land in the real hive database (desktop-pipeline.db and feed state stay
+  worktree-isolated). Set it to the worktree data dir in `overrides.env` to
+  re-isolate. e2e leaves it unset, so its hive.db stays isolated.
 - **Flows/actions are code, hot-reloaded and last-good.** Flow parsing is strict
   and validated by Go on save/deploy (unique node ids, known types, source
   limits within GitHub caps, action refs that exist, valid wires). `FlowsWatcher`
@@ -341,6 +345,7 @@ persisted by UI writes.
 | Var | Purpose |
 | --- | --- |
 | `HIVE_DESKTOP_DATA_DIR` | Desktop data root |
+| `HIVE_DESKTOP_HIVE_DATA_DIR` | Override only the hive.db data dir (defaults to the data root). `desktop:dev` points it at the installed hive data dir so dev sessions land in the real hive database; desktop state stays worktree-isolated |
 | `HIVE_DESKTOP_CONFIG_DIR` | Desktop config root |
 | `HIVE_DESKTOP_FLOWS_DIR` | Override only `flows/` |
 | `HIVE_DESKTOP_ACTIONS_PATH` | Override only `actions.yml` |

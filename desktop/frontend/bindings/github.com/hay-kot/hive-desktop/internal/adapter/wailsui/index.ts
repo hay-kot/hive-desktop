@@ -11,6 +11,7 @@ import * as NotificationService from "./notificationservice.js";
 import * as PipelineService from "./pipelineservice.js";
 import * as PromptsService from "./promptsservice.js";
 import * as ReportService from "./reportservice.js";
+import * as SessionService from "./sessionservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SystemService from "./systemservice.js";
 import * as UpdaterService from "./updaterservice.js";
@@ -27,6 +28,7 @@ export {
     PipelineService,
     PromptsService,
     ReportService,
+    SessionService,
     SettingsService,
     SystemService,
     UpdaterService,

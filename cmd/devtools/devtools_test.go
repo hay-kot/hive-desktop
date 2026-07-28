@@ -37,6 +37,7 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	tools, sourceData, sourceConfig := testDevtools(t)
 	require.NoError(t, os.MkdirAll(filepath.Join(sourceData, "desktop"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "hive.db"), []byte("db"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "desktop", "desktop-pipeline.db"), []byte("db"), 0o600))
 	require.NoError(t, os.MkdirAll(filepath.Join(sourceConfig, "flows"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(sourceConfig, "actions.yml"), []byte("actions"), 0o600))
 
@@ -60,7 +61,10 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	assert.NotZero(t, httpPort)
 	assert.NotEqual(t, vite, httpPort)
 	assert.NotEqual(t, wails, httpPort)
-	assert.FileExists(t, filepath.Join(tools.instanceDir, "data", "hive.db"))
+	// hive.db is not seeded; dev points at the installed hive data dir instead.
+	assert.NoFileExists(t, filepath.Join(tools.instanceDir, "data", "hive.db"))
+	assert.Equal(t, sourceData, launch[settings.EnvHiveDataDir])
+	assert.FileExists(t, filepath.Join(tools.instanceDir, "data", "desktop", "desktop-pipeline.db"))
 	assert.FileExists(t, filepath.Join(tools.instanceDir, "config", "actions.yml"))
 
 	sentinel := filepath.Join(tools.instanceDir, "data", "keep")
@@ -72,11 +76,11 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	// Developer overrides are loaded only by the desktop:dev mise task.
 	t.Setenv(settings.EnvDataDir, launch[settings.EnvDataDir])
 	t.Setenv(settings.EnvConfigDir, launch[settings.EnvConfigDir])
-	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "hive.db"), []byte("new-db"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "desktop", "desktop-pipeline.db"), []byte("new-db"), 0o600))
 	require.NoError(t, tools.withLock(func() error { return tools.prepare(true) }))
 	assert.NoFileExists(t, sentinel)
 	assert.FileExists(t, tools.launchPath)
-	copiedDB, err := os.ReadFile(filepath.Join(tools.instanceDir, "data", "hive.db"))
+	copiedDB, err := os.ReadFile(filepath.Join(tools.instanceDir, "data", "desktop", "desktop-pipeline.db"))
 	require.NoError(t, err)
 	assert.Equal(t, "new-db", string(copiedDB))
 

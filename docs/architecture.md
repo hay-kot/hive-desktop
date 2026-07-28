@@ -548,7 +548,11 @@ credential isolation matters.
 
 Two databases remain separate on purpose: `hive.db` is shared with the
 external `hive` CLI, and `desktop-pipeline.db` isolates desktop write traffic
-from it. ADR 0014 records the configuration decision.
+from it. Their locations resolve independently: `desktop-pipeline.db` follows
+`DataDir`, while `hive.db` follows `HiveDataDir` (defaulting to `DataDir`, so
+production is unchanged). Development sets `HIVE_DESKTOP_HIVE_DATA_DIR` to the
+installed hive data dir, so `hive.db` is shared in dev too while the desktop's
+own state stays worktree-isolated. ADR 0014 records the configuration decision.
 
 ### Background lifecycle
 

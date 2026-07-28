@@ -141,6 +141,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewGitHubService(core.GitHub)),
 		application.NewService(NewIntegrationsService(core.Integrations)),
 		application.NewService(NewPipelineService(core.Inbox)),
+		application.NewService(NewSessionService(core.Sessions)),
 		application.NewService(NewFlowsService(core.Flows)),
 		application.NewService(NewActionsService(core.Actions)),
 		application.NewService(NewActivityService(core.Activity)),

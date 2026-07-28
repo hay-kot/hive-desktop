@@ -15,6 +15,7 @@ import SideBar from './components/SideBar.vue'
 import FeedList from './components/FeedList.vue'
 import DetailPane from './components/DetailPane.vue'
 import CreateSessionDialog from './components/CreateSessionDialog.vue'
+import NewSessionDialog from './components/NewSessionDialog.vue'
 import ConfirmationDialog from './components/ConfirmationDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ReportProblemDialog from './components/ReportProblemDialog.vue'
@@ -34,6 +35,7 @@ import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useReportDialog } from './composables/useReportDialog'
+import { useNewSession } from './composables/useNewSession'
 import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
 import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
@@ -674,6 +676,10 @@ async function toggleMaximise(): Promise<void> {
 
 const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
 const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
+const {
+  open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
+  openBlank: openNewSession, openFromItem: openNewSessionFromItem, cancel: cancelNewSession, submit: submitNewSession,
+} = useNewSession()
 const kb = useKeybindings()
 
 // One handler per bindable command id. Both the keydown dispatcher and the
@@ -692,6 +698,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
+  'session.new': openNewSession,
   'window.hide': hideWindow,
 }
 const catalogById = new Map(commandCatalog.map((command) => [command.id, command]))
@@ -704,7 +711,7 @@ const feedNavActive = computed(() =>
 
 // While an overlay owns the screen, only the palette toggle stays live.
 const anyOverlayOpen = computed(() =>
-  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
+  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
 )
 
 // Seed commands — reactive getter so they update when profiles/flows load
@@ -1033,9 +1040,10 @@ onUnmounted(() => {
               @item-open-browser="openItemInBrowser"
               @item-copy-link="copyItemLink"
               @item-copy-contents="copyItemContents"
+              @item-create-session="openNewSessionFromItem"
               @item-run-action="runItemAction"
             />
-            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @edit="requestOpenActionsSettings" />
+            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @edit="requestOpenActionsSettings" />
           </section>
           <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 font-mono text-xs text-text-4">
             <template v-if="profilesError">
@@ -1056,6 +1064,15 @@ onUnmounted(() => {
       :error="sessionLaunchError"
       @close="cancelSessionLaunch"
       @submit="submitSessionLaunch"
+    />
+    <NewSessionDialog
+      v-if="newSessionOpen && newSessionOptions"
+      :options="newSessionOptions"
+      :initial="newSessionInitial"
+      :busy="newSessionBusy"
+      :error="newSessionError"
+      @close="cancelNewSession"
+      @submit="submitNewSession"
     />
     <ConfirmationDialog
       v-if="updateConfirmOpen"

@@ -108,6 +108,26 @@ func (s *Store) Resume(ctx context.Context, commandID int64) int64 {
 	return rec.ID
 }
 
+// Track runs fn as a live background job — begin queued, mark running, then
+// record done or failed by fn's result — and returns the job id. fn runs on a
+// context detached from the caller's, so the work survives the request that
+// started it (an RPC handler returns immediately). The job is not linked to an
+// output_command, so it shows in the jobs UI without a deep-link. Persistence
+// failures never derail fn.
+func (s *Store) Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64 {
+	id := s.Begin(ctx, label, actionID, target)
+	bg := context.WithoutCancel(ctx)
+	go func() {
+		s.setStatus(bg, id, JobStatusRunning, "")
+		if err := fn(bg); err != nil {
+			s.Fail(bg, id, err.Error())
+			return
+		}
+		s.Done(bg, id)
+	}()
+	return id
+}
+
 // Done advances a job to done. A zero job id is a safe no-op.
 func (s *Store) Done(ctx context.Context, id int64) {
 	s.setStatus(ctx, id, JobStatusDone, "")

@@ -25,6 +25,7 @@ const emit = defineEmits<{
   'toggle-ignored': []
   'copy-link': []
   'copy-contents': []
+  'create-session': []
   edit: []
 }>()
 
@@ -120,6 +121,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
               @open-browser="emit('open-browser')"
               @copy-link="emit('copy-link')"
               @copy-contents="emit('copy-contents')"
+              @create-session="emit('create-session')"
               @run-action="(actionId) => emit('run-action', actionId)"
             />
           </div>

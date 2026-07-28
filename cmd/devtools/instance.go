@@ -202,6 +202,7 @@ func (d *devtools) prepare(fresh bool) error {
 
 	env := map[string]string{
 		settings.EnvDataDir:       dataDir,
+		settings.EnvHiveDataDir:   sourcePaths.DataDir,
 		settings.EnvConfigDir:     configDir,
 		settings.EnvGitHubAPIBase: devproxy.BaseURL(proxyListen),
 		settings.EnvLogLevel:      "debug",
@@ -454,9 +455,8 @@ func (d *devtools) seedData(source, destination string) error {
 	if err := os.MkdirAll(filepath.Join(destination, "desktop"), 0o755); err != nil {
 		return err
 	}
-	if err := d.copyDatabase(filepath.Join(source, "hive.db"), filepath.Join(destination, "hive.db")); err != nil {
-		return err
-	}
+	// hive.db is not seeded: dev points HIVE_DESKTOP_HIVE_DATA_DIR at the
+	// installed hive data dir, so the isolated copy would never be opened.
 	if err := d.copyDatabase(filepath.Join(source, "desktop", "desktop-pipeline.db"), filepath.Join(destination, "desktop", "desktop-pipeline.db")); err != nil {
 		return err
 	}

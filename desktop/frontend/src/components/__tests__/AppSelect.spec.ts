@@ -256,4 +256,59 @@ describe('AppSelect', () => {
       wrapper.unmount()
     })
   })
+
+  describe('editable (combobox)', () => {
+    function mountEditable(props: Record<string, unknown> = {}) {
+      return mount(AppSelect, { props: { modelValue: '', options, testid: 'repo', editable: true, ...props } })
+    }
+
+    it('renders a text input showing the model value', () => {
+      const wrapper = mountEditable({ modelValue: 'https://example.com/x.git' })
+      const input = wrapper.get('[data-testid="repo"]')
+      expect(input.element.tagName).toBe('INPUT')
+      expect((input.element as HTMLInputElement).value).toBe('https://example.com/x.git')
+      wrapper.unmount()
+    })
+
+    it('shows the whole list on focus even when a value is prefilled', async () => {
+      const wrapper = mountEditable({ modelValue: 'launch-session' })
+      await wrapper.get('[data-testid="repo"]').trigger('focus')
+      const popover = document.querySelector('[data-testid="repo-popover"]')!
+      expect(popover.querySelectorAll('[role="option"]').length).toBe(options.length)
+      wrapper.unmount()
+    })
+
+    it('filters by label or value as you type and emits the raw text', async () => {
+      const wrapper = mountEditable()
+      const input = wrapper.get('[data-testid="repo"]')
+      await input.trigger('focus')
+      await input.setValue('she')
+      expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['she'])
+      const popover = document.querySelector('[data-testid="repo-popover"]')!
+      expect(Array.from(popover.querySelectorAll('[role="option"]')).map((o) => o.textContent?.trim())).toEqual(['Shell'])
+      wrapper.unmount()
+    })
+
+    it('selects an option without needing to clear the input', async () => {
+      const wrapper = mountEditable({ modelValue: 'launch-session' })
+      await wrapper.get('[data-testid="repo"]').trigger('focus')
+      const option = document.querySelector<HTMLElement>('[data-testid="repo-option-shell"]')!
+      option.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      await wrapper.vm.$nextTick()
+      expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['shell'])
+      expect(document.querySelector('[data-testid="repo-popover"]')).toBeNull()
+      wrapper.unmount()
+    })
+
+    it('accepts a free-form value that is not one of the options', async () => {
+      const wrapper = mountEditable()
+      const input = wrapper.get('[data-testid="repo"]')
+      await input.trigger('focus')
+      await input.setValue('git@github.com:acme/site.git')
+      expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual(['git@github.com:acme/site.git'])
+      const popover = document.querySelector('[data-testid="repo-popover"]')!
+      expect(popover.querySelector('[data-testid="repo-empty"]')).not.toBeNull()
+      wrapper.unmount()
+    })
+  })
 })

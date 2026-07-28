@@ -11,6 +11,7 @@ import (
 
 const (
 	EnvDataDir     = "HIVE_DESKTOP_DATA_DIR"
+	EnvHiveDataDir = "HIVE_DESKTOP_HIVE_DATA_DIR"
 	EnvConfigDir   = "HIVE_DESKTOP_CONFIG_DIR"
 	EnvFlowsDir    = "HIVE_DESKTOP_FLOWS_DIR"
 	EnvActionsPath = "HIVE_DESKTOP_ACTIONS_PATH"
@@ -26,7 +27,11 @@ const (
 // Runtime code receives this value instead of resolving process environment
 // repeatedly.
 type Paths struct {
-	DataDir              string
+	DataDir string
+	// HiveDataDir holds hive.db, shared with the external hive CLI. It defaults
+	// to DataDir; dev overrides it to the installed hive data dir so sessions
+	// created in dev land in the real database while desktop state stays isolated.
+	HiveDataDir          string
 	StateDir             string
 	ConfigDir            string
 	ConfigPath           string
@@ -70,6 +75,11 @@ func ResolvePaths(b Bootstrap, mockMode string) Paths {
 		}
 	}
 
+	hiveDataDir, hiveEnv := os.LookupEnv(EnvHiveDataDir)
+	if !hiveEnv || hiveDataDir == "" {
+		hiveDataDir = dataDir
+	}
+
 	stateDir := filepath.Join(dataDir, "desktop")
 	flowsDir := os.Getenv(EnvFlowsDir)
 	if flowsDir == "" {
@@ -86,6 +96,7 @@ func ResolvePaths(b Bootstrap, mockMode string) Paths {
 	}
 	return Paths{
 		DataDir:              dataDir,
+		HiveDataDir:          hiveDataDir,
 		StateDir:             stateDir,
 		ConfigDir:            configDir,
 		ConfigPath:           filepath.Join(configDir, "profiles.yaml"),

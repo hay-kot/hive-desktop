@@ -29,12 +29,6 @@ func (e *recordingActionExecutor) Execute(_ context.Context, _ actions.Action, d
 	return dispatch.ExecutionResult{}, nil
 }
 
-type recordingLaunchOptions struct{ options dispatch.SessionLaunchOptions }
-
-func (r recordingLaunchOptions) SessionLaunchOptions(context.Context) (dispatch.SessionLaunchOptions, error) {
-	return r.options, nil
-}
-
 type recordingSessionLauncher struct {
 	calls []dispatch.LaunchSessionRequest
 }
@@ -108,18 +102,6 @@ actions:
 	return actionStore
 }
 
-func TestPipelineService_SessionLaunchOptionsUsesNarrowDTO(t *testing.T) {
-	actionStore := configuredActionStore(t)
-	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	expected := dispatch.SessionLaunchOptions{Repositories: []dispatch.SessionLaunchRepository{{Name: "hive", Repository: "https://github.com/colonyops/hive.git"}}, DefaultRepository: "https://github.com/colonyops/hive.git", Agents: []string{"claude"}, DefaultAgent: "claude"}
-	service := newInboxService(db, actionStore, nil, recordingLaunchOptions{options: expected})
-	got, err := service.SessionLaunchOptions(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, expected, got)
-}
-
 func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	actionStore := configuredActionStore(t)
 	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
@@ -130,7 +112,7 @@ func TestPipelineService_ActionViewsAndInvocationUseActionStore(t *testing.T) {
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := newInboxService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 	issueID := insertActionItem(t, db, "issue-1", "Issue", "")
 	hiddenID := insertActionItem(t, db, "pr-2", "PR", "")
@@ -189,7 +171,7 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 	// A dispatcher with no clipboard executor: the render path must never route
 	// a clipboard action through the worker.
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{}), 0, zerolog.Nop())
-	service := newInboxService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker)
 	prID := insertActionItemSource(t, db, "github", "pr-9", "PR", "Title", map[string]any{"num": 9, "repo": "acme/app"})
 
 	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID)
@@ -233,7 +215,7 @@ func TestPipelineService_ActionViewsAndInvokeAreCapabilityGatedNotSourceGated(t 
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": executor,
 	}), 0, zerolog.Nop())
-	service := newInboxService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker)
 
 	t.Run("webhook item with a matching repo_template action gets and runs it", func(t *testing.T) {
 		itemID := insertActionItemSource(t, db, "webhook", "hook-1", "deploy", "Deploy prod", map[string]any{"repo": "acme/site"})
@@ -299,7 +281,7 @@ func TestPipelineService_AttemptedFailureReturnsPersistedActionRun(t *testing.T)
 	// Use a dispatcher executor that records a dispatched side effect failure.
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
-	service := newInboxService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
 	view, err := service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
@@ -328,14 +310,14 @@ func TestPipelineService_ActionRunSurvivesDatabaseReopen(t *testing.T) {
 	failed := &attemptedFailureExecutor{}
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"launch-session": failed}), 0, zerolog.Nop())
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
-	view, err := newInboxService(db, actionStore, worker, nil).InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID})
+	view, err := newInboxService(db, actionStore, worker).InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID})
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	reopened, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
-	afterRestart, err := newInboxService(reopened, actionStore, nil, nil).ActionRun(t.Context(), view.CommandID)
+	afterRestart, err := newInboxService(reopened, actionStore, nil).ActionRun(t.Context(), view.CommandID)
 	require.NoError(t, err)
 	assert.Equal(t, view, afterRestart)
 }
@@ -350,7 +332,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{
 		"launch-session": dispatch.NewLaunchSessionExecutor(launcher),
 	}), 0, zerolog.Nop())
-	service := newInboxService(db, actionStore, worker, nil)
+	service := newInboxService(db, actionStore, worker)
 	prID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
 
 	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "review-pr", ItemID: prID, Input: dispatch.ActionInvocationInput{}})
@@ -363,4 +345,25 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	require.NoError(t, db.Conn().QueryRowContext(t.Context(),
 		`SELECT status FROM output_command WHERE action_id = ? AND key = ?`, "review-pr", "pr-1").Scan(&status))
 	assert.Equal(t, "done", status)
+}
+
+func TestInboxService_NewSessionDraft(t *testing.T) {
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := newInboxService(db, configuredActionStore(t), nil)
+
+	itemID := insertActionItemSource(t, db, "github", "pr-1", "PR", "Fix the crash",
+		map[string]any{"repo": "acme/site", "body": "Steps to repro", "url": "https://github.com/acme/site/issues/1"})
+
+	draft, err := service.NewSessionDraft(t.Context(), itemID)
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/acme/site.git", draft.Repository, "owner/name must become a cloneable remote, not a bare path")
+	assert.Equal(t, "fix-the-crash", draft.Name)
+	assert.Contains(t, draft.Prompt, "Fix the crash")
+	assert.Contains(t, draft.Prompt, "Steps to repro")
+	assert.Contains(t, draft.Prompt, "https://github.com/acme/site/issues/1")
+
+	_, err = service.NewSessionDraft(t.Context(), 9999)
+	assert.Equal(t, KindNotFound, KindOf(err))
 }

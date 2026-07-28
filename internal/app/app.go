@@ -68,6 +68,7 @@ type App struct {
 	// unexported domain stores further down, which is what they are built
 	// over.
 	Inbox    *InboxService
+	Sessions *SessionsService
 	Flows    *FlowsService
 	Actions  *ActionsService
 	Settings *SettingsService
@@ -255,7 +256,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.producer = a.buildProducer(cfg.Logger)
 	a.openWebhook(runCtx, cfg)
 
-	a.Inbox = newInboxService(db, a.actionStore, a.outputs, a.launcher)
+	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
+	a.Sessions = newSessionsService(a.launcher, a.jobStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {
@@ -662,7 +664,10 @@ func (a *App) openWebhook(_ context.Context, cfg Config) {
 // desktop keeps its own database, while sessions and internal events
 // intentionally use Hive's shared state and event bus.
 func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
-	dataDir := cfg.Paths.DataDir
+	dataDir := cfg.Paths.HiveDataDir
+	if dataDir == "" {
+		dataDir = cfg.Paths.DataDir
+	}
 	if err := os.MkdirAll(dataDir, 0o755); err != nil {
 		return fmt.Errorf("create hive data directory: %w", err)
 	}
