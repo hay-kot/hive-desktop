@@ -7,27 +7,23 @@ order: 0
 
 ## In-app reporting
 
-The app has a built-in reporter: open **Settings ▸ System** and click
-**Report a problem**. It bundles build and system info, a trimmed log tail, and
-a **secret-scrubbed** config snapshot, then uploads it — you choose what to
-attach.
-
-> **During the beta**, in-app reporting only works if your build had a report
-> token configured at release time. If the button is disabled, use the manual
-> fallback below.
+The app has a built-in reporter, and it's the best way to send a bug: open
+**Settings ▸ System** and click **Report a problem**. It bundles build and
+system info, a trimmed log tail, and a **secret-scrubbed** config snapshot, then
+uploads it — you choose what to attach.
 
 ## Grab the log by hand
 
-The **Diagnostics** section of that same **System** page has **Open** and
-**Reveal** buttons for the log file. Or find it directly — on macOS and Linux
-alike:
+Want to look yourself, or attach the log to a message? The **Diagnostics**
+section of that same **System** page has **Open** and **Reveal** buttons for the
+log file — or find it directly, on macOS and Linux alike:
 
 ```
 ~/.local/share/hive/desktop/desktop.log
 ```
 
-Attach that to your bug report. If the bug looks data-related, the pipeline
-database (deliberately excluded from automated reports) sits next to it:
+If the bug looks data-related, the pipeline database (not included in automated
+reports) sits next to it:
 
 ```
 ~/.local/share/hive/desktop/desktop-pipeline.db
