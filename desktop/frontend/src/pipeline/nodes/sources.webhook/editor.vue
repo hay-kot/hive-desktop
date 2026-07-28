@@ -6,11 +6,13 @@
 // LLM prompt for authoring a downstream function-node transform. Backend
 // access goes through the `client` prop (defaulting to the generated Wails
 // bindings) so tests inject fakes instead of mocking module imports.
-import { computed, onMounted, ref } from 'vue'
-import { Capture, Info } from '../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice'
+import { computed, onMounted, ref, watch } from 'vue'
+import { Capture, Info, MarkImages, SetMarkImage } from '../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice'
 import BaseButton from '../../../components/BaseButton.vue'
 import { useClipboard } from '../../../composables/useClipboard'
-import { defaultWebhookSourceIcon, feedIconOptions } from '../../../lib/feedIcons'
+import { appErrorMessage } from '../../../lib/appError'
+import { defaultWebhookSourceIcon, feedIconComponent, feedIconOptions } from '../../../lib/feedIcons'
+import { fileToImageBase64, ImageUploadError, imageUploadAccept } from '../../../lib/imageUpload'
 import { SelectField, TextField } from '../../fields'
 import IconRefresh from '~icons/lucide/refresh-cw'
 import { randomPath, randomSecret } from './config'
@@ -33,6 +35,10 @@ export interface WebhookCaptureView {
 export interface WebhookEditorClient {
   info(): Promise<WebhookInfoView>
   capture(flowId: string, nodeId: string): Promise<WebhookCaptureView>
+  /** Uploads a picked mark image (base64); returns its hash and stored PNG. */
+  setMarkImage(data: string): Promise<{ hash: string; image: string }>
+  /** Resolves a mark hash to its PNG data URL, or undefined when it has no file. */
+  markImage(hash: string): Promise<string | undefined>
 }
 
 const props = defineProps<{
@@ -49,6 +55,8 @@ const emit = defineEmits<{ 'update:config': [config: Config] }>()
 const client: WebhookEditorClient = props.client ?? {
   async info() { return await Info() },
   async capture(flowId, nodeId) { return await Capture(flowId, nodeId) },
+  async setMarkImage(data) { return await SetMarkImage(data) },
+  async markImage(hash) { return (await MarkImages([hash]))?.[hash] },
 }
 
 const info = ref<WebhookInfoView | null>(null)
@@ -87,6 +95,63 @@ const iconOptions = feedIconOptions.map((o) => ({ value: o.value, label: o.label
 
 function updateIcon(icon: string) {
   emit('update:config', { ...props.config, icon: icon || undefined })
+}
+
+// The preview shows the uploaded mark image when set, else the selected glyph.
+// previewFor tracks the hash markPreview was resolved for, to skip re-resolving
+// after our own upload.
+const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultWebhookSourceIcon))
+const markInput = ref<HTMLInputElement | null>(null)
+const markPreview = ref('')
+const previewFor = ref('')
+const uploadingMark = ref(false)
+const markError = ref<string | null>(null)
+
+async function resolveMarkPreview(hash?: string): Promise<void> {
+  const h = hash ?? ''
+  if (!h) { markPreview.value = ''; previewFor.value = ''; return }
+  if (previewFor.value === h && markPreview.value) return
+  try {
+    const url = await client.markImage(h)
+    if (props.config.image === h) { markPreview.value = url ?? ''; previewFor.value = h }
+  } catch {
+    if (props.config.image === h) { markPreview.value = ''; previewFor.value = h }
+  }
+}
+
+watch(() => props.config.image, (hash) => { void resolveMarkPreview(hash) }, { immediate: true })
+
+function pickMark(): void {
+  if (uploadingMark.value) return
+  markInput.value?.click()
+}
+
+async function onMarkChange(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = '' // let the same file be re-picked after an error
+  if (!file) return
+  markError.value = null
+  uploadingMark.value = true
+  try {
+    const view = await client.setMarkImage(await fileToImageBase64(file))
+    markPreview.value = view.image
+    previewFor.value = view.hash
+    emit('update:config', { ...props.config, image: view.hash })
+  } catch (error) {
+    markError.value = error instanceof ImageUploadError
+      ? error.message
+      : appErrorMessage(error) || (error instanceof Error && error.message) || 'That image could not be read.'
+  } finally {
+    uploadingMark.value = false
+  }
+}
+
+function removeMark(): void {
+  markError.value = null
+  markPreview.value = ''
+  previewFor.value = ''
+  emit('update:config', { ...props.config, image: undefined })
 }
 
 const endpointUrl = computed(() => {
@@ -174,10 +239,43 @@ async function onCopyPrompt(): Promise<void> {
       :options="iconOptions"
       searchable
       search-placeholder="Search icons…"
-      hint="Shown on this source's items in feeds."
+      hint="Shown on this source's items when no image is set."
       testid="sources.webhook-editor-icon"
       @update:model-value="updateIcon"
     />
+
+    <div>
+      <div class="mb-1.5 text-[12px] text-text-2">Item image</div>
+      <div class="flex items-center gap-3">
+        <div
+          class="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-card bg-app"
+          data-testid="sources.webhook-editor-mark-preview"
+        >
+          <img v-if="markPreview" :src="markPreview" alt="" class="size-full object-contain">
+          <component :is="iconGlyph" v-else class="size-4 text-text-3" />
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <input ref="markInput" type="file" :accept="imageUploadAccept" class="hidden" data-testid="sources.webhook-editor-mark-input" @change="onMarkChange">
+          <BaseButton
+            variant="secondary"
+            size="sm"
+            :busy="uploadingMark"
+            data-testid="sources.webhook-editor-mark-upload"
+            @click="pickMark"
+          >{{ config.image ? 'Replace image' : 'Upload image' }}</BaseButton>
+          <BaseButton
+            v-if="config.image"
+            variant="ghost"
+            size="sm"
+            :disabled="uploadingMark"
+            data-testid="sources.webhook-editor-mark-remove"
+            @click="removeMark"
+          >Remove</BaseButton>
+        </div>
+      </div>
+      <p class="mt-1.5 text-[11.5px] text-text-4">Shown on this source's items instead of the icon. PNG, JPEG, GIF, or WebP.</p>
+      <p v-if="markError" class="mt-1.5 text-[11.5px] text-severity-error" data-testid="sources.webhook-editor-mark-error">{{ markError }}</p>
+    </div>
 
     <div v-if="endpointUrl">
       <div class="mb-1.5 text-[12px] text-text-2">Endpoint</div>

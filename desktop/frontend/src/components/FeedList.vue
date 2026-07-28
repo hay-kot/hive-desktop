@@ -32,6 +32,7 @@ const props = defineProps<{
   sort: FeedSort
   loadError: string | null
   sourceIcons?: Record<string, string>
+  sourceImages?: Record<string, string>
 }>()
 const emit = defineEmits<{
   select: [id: number]
@@ -178,6 +179,7 @@ watch(() => props.selectedId, async (id) => {
             :trash="trash"
             :selected="item.id === selectedId"
             :source-icons="sourceIcons"
+            :source-images="sourceImages"
             @select="emit('select', item.id)"
             @set-unread="(unread) => emit('item-set-unread', item, unread)"
             @toggle-archive="emit('item-toggle-archive', item)"
@@ -206,6 +208,7 @@ watch(() => props.selectedId, async (id) => {
               archived
               :selected="item.id === selectedId"
               :source-icons="sourceIcons"
+              :source-images="sourceImages"
               @select="emit('select', item.id)"
               @set-unread="(unread) => emit('item-set-unread', item, unread)"
               @toggle-archive="emit('item-toggle-archive', item)"

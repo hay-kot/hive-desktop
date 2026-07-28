@@ -27,6 +27,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
@@ -259,13 +260,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
 	a.Sessions = newSessionsService(a.launcher, a.jobStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
-	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, func() { a.PublishFlowsUpdated("save") })
+	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
+	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Integrations = newIntegrationsService(a.credentials)
 	a.Activity = newActivityService(a.activityStore)

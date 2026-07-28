@@ -169,6 +169,9 @@ export function clipboardText(item: InboxItem): string {
 export interface PresentationContext {
   /** sources.webhook node id → configured icon key (useFeedState.sourceIcons). */
   sourceIcons?: Record<string, string>
+  /** sources.webhook node id → uploaded mark image data URL. Takes precedence
+   *  over the glyph when set. */
+  sourceImages?: Record<string, string>
 }
 
 /** The ONLY provider-variant surface — everything else is a canonical
@@ -177,8 +180,11 @@ export interface ItemPresentation {
   /** Human source label: "GitHub", "Webhook"; the default adapter echoes
    *  the raw sourceKind. */
   sourceLabel: string
-  /** Resolved mark component for the source badge (row + detail). */
+  /** Resolved glyph component for the source badge; also the fallback when
+   *  markImage is set but its image fails to load. */
   mark(item: InboxItem, ctx?: PresentationContext): Component
+  /** Uploaded mark image data URL when the source has one; undefined otherwise. */
+  markImage?(item: InboxItem, ctx?: PresentationContext): string | undefined
   /** Detail ACTIONS-footer context line (github: payload branch); '' hides
    *  it. */
   actionContextLine(item: InboxItem): string
@@ -202,6 +208,7 @@ const githubPresentation: ItemPresentation = {
 const webhookPresentation: ItemPresentation = {
   sourceLabel: 'Webhook',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultWebhookSourceIcon),
+  markImage: (item, ctx) => ctx?.sourceImages?.[item.sourceScope],
   actionContextLine: () => '',
 }
 

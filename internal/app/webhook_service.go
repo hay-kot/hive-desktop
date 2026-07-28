@@ -7,18 +7,21 @@ import (
 	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// WebhookService owns the local webhook listener's configuration and the
-// per-node capture the editor shows. The listener is nil when webhooks are
-// disabled, or in mock modes without an explicit port claim; the configured
-// port still describes the endpoint a live run would serve.
+// WebhookService owns the local webhook listener's configuration, the per-node
+// capture the editor shows, and the uploaded feed-mark images a webhook node
+// may show instead of a glyph. The listener is nil when webhooks are disabled,
+// or in mock modes without an explicit port claim; the configured port still
+// describes the endpoint a live run would serve.
 type WebhookService struct {
 	settings *settings.Store
 	db       *store.DB
 	listener *webhook.Listener
+	marks    *sourcemark.Store
 	host     string
 	port     int
 
@@ -26,8 +29,8 @@ type WebhookService struct {
 	startErr error
 }
 
-func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, host string, port int) *WebhookService {
-	return &WebhookService{settings: settingsStore, db: db, listener: listener, host: host, port: port}
+func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, marks *sourcemark.Store, host string, port int) *WebhookService {
+	return &WebhookService{settings: settingsStore, db: db, listener: listener, marks: marks, host: host, port: port}
 }
 
 func (s *WebhookService) setStartError(err error) {
@@ -165,4 +168,39 @@ func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (We
 		FeedShaped:    len(missing) == 0,
 		MissingFields: missing,
 	}, nil
+}
+
+// StoreMarkImage normalizes raw into a feed-mark PNG, stores it, and returns its
+// content hash — the value a webhook node records in its `image` config. It does
+// not touch the flow; the graph save records the hash.
+func (s *WebhookService) StoreMarkImage(_ context.Context, raw []byte) (string, error) {
+	hash, err := s.marks.Set(raw)
+	if err != nil {
+		return "", mapMarkImageError(err)
+	}
+	return hash, nil
+}
+
+// MarkImage returns the stored PNG for a mark hash, or ok=false when none is
+// stored. A missing or malformed reference is not an error.
+func (s *WebhookService) MarkImage(_ context.Context, hash string) (data []byte, ok bool, err error) {
+	data, ok, err = s.marks.Get(hash)
+	if err != nil {
+		return nil, false, Wrap(err, KindInternal, "reading mark image %q", hash)
+	}
+	return data, ok, nil
+}
+
+// mapMarkImageError turns a normalization failure into a user-facing message.
+func mapMarkImageError(err error) error {
+	switch {
+	case errors.Is(err, sourcemark.ErrEmpty):
+		return Errorf(KindInvalid, "No image was provided.")
+	case errors.Is(err, sourcemark.ErrUnsupported):
+		return Errorf(KindInvalid, "That file isn't a supported image. Use PNG, JPEG, GIF, or WebP.")
+	case errors.Is(err, sourcemark.ErrTooLarge):
+		return Errorf(KindInvalid, "That image is too large. Choose a smaller file.")
+	default:
+		return Wrap(err, KindInternal, "processing image")
+	}
 }

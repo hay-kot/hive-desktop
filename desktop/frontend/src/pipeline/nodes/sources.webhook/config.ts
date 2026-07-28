@@ -32,6 +32,8 @@ export interface Config {
    * feed icon set. Empty means the default webhook glyph.
    */
   icon?: string
+  /** Content hash of an uploaded image shown as the feed mark instead of `icon`. */
+  image?: string
 }
 
 // ── App-registry metadata ───────────────────────────────────────────────────
@@ -97,5 +99,6 @@ export function validate(config: Config): string[] {
   if (secret.length > 128) errors.push('secret caps at 128 characters')
   else if (secret && !/^[!-~]+$/.test(secret)) errors.push('secret must be printable ASCII without spaces')
   if (config.icon && !isFeedIcon(config.icon)) errors.push(`"${config.icon}" is not a supported feed icon`)
+  if (config.image && !/^[0-9a-f]{32}$/.test(config.image)) errors.push('image is not a valid mark reference')
   return errors
 }

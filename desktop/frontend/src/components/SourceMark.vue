@@ -1,14 +1,16 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import type { Component } from 'vue'
 
-// Pure renderer for an inbox item's source badge. The sourceKind-keyed
-// adapter registry (lib/itemPresentation.ts `presentationFor`) resolves
-// which component to show — GitHub's brand mark, a webhook item's
-// configured feed icon, or the default adapter's neutral glyph — so this
-// component only renders whatever it's handed.
-defineProps<{ icon: Component }>()
+// Renders an inbox item's source badge: the `image` data URL when set, else the
+// `icon` glyph (also the fallback when the image fails to load).
+const props = defineProps<{ icon: Component; image?: string }>()
+
+const failed = ref(false)
+watch(() => props.image, () => { failed.value = false })
 </script>
 
 <template>
-  <component :is="icon" aria-hidden="true" />
+  <img v-if="image && !failed" :src="image" alt="" class="size-full object-contain" @error="failed = true">
+  <component :is="icon" v-else aria-hidden="true" />
 </template>

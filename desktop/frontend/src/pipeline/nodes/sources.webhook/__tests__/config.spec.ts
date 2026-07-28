@@ -70,4 +70,10 @@ describe('sources.webhook validate', () => {
     ok({ path: 'ci', icon: 'webhook' })
     bad({ path: 'ci', icon: 'no-such-icon' }, 'not a supported feed icon')
   })
+
+  it('accepts a well-formed image hash and rejects a malformed one', () => {
+    ok({ path: 'ci', image: '0123456789abcdef0123456789abcdef' })
+    bad({ path: 'ci', image: '0123456789ABCDEF0123456789abcdef' }, 'not a valid mark reference')
+    bad({ path: 'ci', image: 'not-a-hash' }, 'not a valid mark reference')
+  })
 })

@@ -78,6 +78,15 @@ export interface KeybindingSettings {
 }
 
 /**
+ * MarkImageView is a stored feed-mark image: the content Hash a node records and
+ * the normalized PNG as a data URL for preview.
+ */
+export interface MarkImageView {
+    "hash": string;
+    "image": string;
+}
+
+/**
  * NotificationActivation is the notification:activated payload: which
  * workspace and inbox item a clicked notification came from. ItemID is 0 when
  * the notification had no item behind it (an app-level notification, or one

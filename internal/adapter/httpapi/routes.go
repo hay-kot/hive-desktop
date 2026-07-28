@@ -141,6 +141,27 @@ func (ctrl *Controller) operations() []Op {
 			Method: "DELETE", Path: "/api/profiles/{id}/image", Summary: "Clear a profile's avatar so its rail reverts to the letter chip.",
 			Response: profileView{}, Handler: ctrl.ClearProfileImage,
 		},
+		{
+			Method: "GET", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Return a webhook source node's feed-mark image as a 128x128 PNG, or 404 when it has none.",
+			Response: RawBinary{Media: []string{"image/png"}}, Handler: ctrl.GetNodeImage,
+			Errors: []ErrResp{{Status: 404, When: "the node has no image, or no such flow or node"}},
+		},
+		{
+			Method: "PUT", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Set a webhook source node's feed-mark image from the raw request body; it is normalized to a 128x128 PNG and shown on the source's items instead of its icon.",
+			Request: RawBinary{
+				Media: []string{"image/png", "image/jpeg", "image/gif", "image/webp"},
+				Note:  "Send the image as the raw request body (PNG, JPEG, GIF, or WebP) — not multipart/form-data.",
+			}, Response: nodeImageView{}, Handler: ctrl.SetNodeImage,
+			Errors: []ErrResp{
+				{Status: 400, When: "the body was unreadable or not a supported image, or the node is not a webhook source"},
+				{Status: 404, When: "no such flow or node"},
+			},
+		},
+		{
+			Method: "DELETE", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Clear a webhook source node's feed-mark image so it reverts to its icon.",
+			Response: nodeImageView{}, Handler: ctrl.ClearNodeImage,
+			Errors: []ErrResp{{Status: 404, When: "no such flow or node"}},
+		},
 	}
 }
 

@@ -8,6 +8,8 @@ The port is picked at random the first time Hive starts and then kept, so it dif
 
 - `path` — the endpoint under `/hooks/`: slug segments separated by `/`, e.g. `ci-alerts` or `ci/deploys`. Several nodes (even across flows) may share a path — each enabled one receives every request.
 - `secret` — optional shared secret. When set, requests must carry the same value in the `X-Hive-Secret` header or they are rejected with 401.
+- `icon` — optional glyph, from the curated feed icon set, shown on this source's items. Empty uses the default webhook glyph.
+- `image` — optional uploaded image (a service logo) shown as this source's mark instead of the glyph. It is a content hash of a normalized PNG kept in the app data dir, set through the editor's image picker; it is presentation only and never affects ingest. Empty falls back to `icon`.
 
 ## Delivery contract
 

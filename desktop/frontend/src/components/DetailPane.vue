@@ -15,7 +15,7 @@ import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
 import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
-const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string> }>()
+const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
 const emit = defineEmits<{
   'run-action': [actionId: string]
   'open-browser': []
@@ -40,7 +40,9 @@ const presentation = computed(() => presentationFor(props.item?.sourceKind))
 // The github/default adapters never dereference `item`; SourceMark only
 // renders inside the `v-if="item"` branch below, so a null item here is
 // never actually resolved to the webhook adapter (which does).
-const sourceMark = computed(() => presentation.value.mark(props.item!, { sourceIcons: props.sourceIcons }))
+const markContext = computed(() => ({ sourceIcons: props.sourceIcons, sourceImages: props.sourceImages }))
+const sourceMark = computed(() => presentation.value.mark(props.item!, markContext.value))
+const sourceMarkImage = computed(() => presentation.value.markImage?.(props.item!, markContext.value))
 // The kind pill mirrors the feed row's type pill: PR and Issue keep their
 // GitHub styling, anything else (webhook items, custom kinds) is neutral.
 const itemKind = computed(() => (props.item ? kind(props.item) : ''))
@@ -99,7 +101,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
     <template v-if="item">
       <div class="relative border-b border-border px-5 pb-4 pt-[18px]">
         <div class="mb-[11px] flex items-center gap-[9px]">
-          <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" class="size-[15px]" /></span>
+          <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" :image="sourceMarkImage" class="size-[15px]" /></span>
           <span class="kind-pill shrink-0 whitespace-nowrap" :class="'kind-pill-' + itemKindStyle" data-testid="kind-pill">
             <component :is="itemKindIcon" v-if="itemKindIcon" class="size-[13px]" />
             {{ itemKindLabel }}

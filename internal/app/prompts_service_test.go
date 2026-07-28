@@ -26,7 +26,7 @@ func newTestPromptsService(t *testing.T, port int) *PromptsService {
 	require.NoError(t, err)
 	paths := settings.ResolvePaths(b, "")
 	store := settings.NewStore(paths.SettingsPath)
-	return newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", port))
+	return newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", port))
 }
 
 func testCatalogInput() prompts.Input {
@@ -71,7 +71,7 @@ func TestCatalogUsesConfiguredWebhookHost(t *testing.T) {
 	isolateConfig(t)
 	paths := settings.ResolvePaths(settings.Bootstrap{}, "")
 	store := settings.NewStore(paths.SettingsPath)
-	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "::1", 24917))
+	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "::1", 24917))
 
 	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
 	require.NoError(t, err)

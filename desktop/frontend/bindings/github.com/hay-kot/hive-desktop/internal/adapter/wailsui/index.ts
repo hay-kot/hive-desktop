@@ -42,6 +42,7 @@ export type {
     FlowSummary,
     GithubSettings,
     KeybindingSettings,
+    MarkImageView,
     NotificationActivation,
     NotificationSettings,
     NotificationToast,

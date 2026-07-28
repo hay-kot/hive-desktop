@@ -5,6 +5,7 @@ import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlo
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, RenderClipboardAction, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import { MarkImages } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/webhookservice'
 import { appErrorKind, appErrorMessage } from '../lib/appError'
 import { clipboardText, searchText, sourceKindForNodeType, sourceSummary } from '../lib/itemPresentation'
 import { useClipboard } from './useClipboard'
@@ -67,6 +68,9 @@ export function useFeedState() {
   // read from sources.webhook configs in loadFeeds. Feed rows and the detail
   // pane look up an item's glyph by its sourceScope (the source node id).
   const sourceIcons = ref<Record<string, string>>({})
+  // Per-source-node mark images for the active flow (node id → PNG data URL),
+  // resolved from sources.webhook `image` hashes in loadFeeds.
+  const sourceImages = ref<Record<string, string>>({})
   // The selected feed's archived section: collapsed by default, lazy-loaded
   // when expanded. Never populated for trash.
   const archivedItems = ref<InboxItem[]>([])
@@ -289,7 +293,7 @@ export function useFeedState() {
       // a feed node's config fields (icon/description) sit at the top level of
       // the node object alongside id/type/name, not under a `config` key.
       if (seq !== feedsSeq) return null
-      const nodes = (flow.nodes ?? []) as Array<{ id: string; type: string; name?: string; icon?: string; description?: string }>
+      const nodes = (flow.nodes ?? []) as Array<{ id: string; type: string; name?: string; icon?: string; image?: string; description?: string }>
       const feeds: FeedSummary[] = nodes
         .filter((n) => n.type === 'feed')
         .map((n) => {
@@ -298,13 +302,34 @@ export function useFeedState() {
           return { id: feedId, name: n.name || n.id, count: c?.total ?? 0, newCount: c?.unread ?? 0, archivedCount: c?.archived ?? 0, icon: n.icon, description: n.description }
         })
       const icons: Record<string, string> = {}
+      const imageHashByNode: Record<string, string> = {}
       const countByKind = new Map<string, number>()
       for (const n of nodes) {
         if (n.type === 'sources.webhook' && n.icon) icons[n.id] = n.icon
+        if (n.type === 'sources.webhook' && n.image) imageHashByNode[n.id] = n.image
         const nodeSourceKind = sourceKindForNodeType(n.type)
         if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }
       sourceIcons.value = icons
+      // Resolve mark hashes to data URLs; a stale resolve is dropped by feedsSeq.
+      const hashes = [...new Set(Object.values(imageHashByNode))]
+      if (hashes.length === 0) {
+        sourceImages.value = {}
+      } else {
+        let resolved: Record<string, string | undefined> = {}
+        try {
+          resolved = (await MarkImages(hashes)) ?? {}
+        } catch (error) {
+          console.warn('Unable to load webhook mark images', error)
+        }
+        if (seq !== feedsSeq) return null
+        const images: Record<string, string> = {}
+        for (const [nodeId, hash] of Object.entries(imageHashByNode)) {
+          const url = resolved[hash]
+          if (url) images[nodeId] = url
+        }
+        sourceImages.value = images
+      }
       const profile = profiles.value.find((p) => p.id === flowId)
       if (profile) {
         profile.feeds = feeds
@@ -1010,6 +1035,7 @@ export function useFeedState() {
     selection,
     items,
     sourceIcons,
+    sourceImages,
     visibleItems,
     visibleArchivedItems,
     archivedExpanded,
