@@ -10,7 +10,7 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
 import type { InboxItem } from '../types/feed'
 
-const props = defineProps<{ item: InboxItem; archived?: boolean; trash?: boolean; selected: boolean; sourceIcons?: Record<string, string> }>()
+const props = defineProps<{ item: InboxItem; archived?: boolean; trash?: boolean; selected: boolean; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
 const emit = defineEmits<{
   select: []
   'set-unread': [unread: boolean]
@@ -25,7 +25,9 @@ const emit = defineEmits<{
 // The source label, badge mark, and (for webhook items) icon resolution are
 // all provider-variant — delegated to the sourceKind-keyed adapter registry.
 const presentation = computed(() => presentationFor(props.item.sourceKind))
-const sourceMark = computed(() => presentation.value.mark(props.item, { sourceIcons: props.sourceIcons }))
+const markContext = computed(() => ({ sourceIcons: props.sourceIcons, sourceImages: props.sourceImages }))
+const sourceMark = computed(() => presentation.value.mark(props.item, markContext.value))
+const sourceMarkImage = computed(() => presentation.value.markImage?.(props.item, markContext.value))
 const itemKind = computed(() => kind(props.item))
 const itemKindLabel = computed(() => kindLabel(props.item))
 const itemKindStyle = computed(() => kindStyle(props.item))
@@ -59,7 +61,7 @@ function toggleMenu(): void {
        select like the button did (`.self` so pill keystrokes don't select). -->
   <div ref="root" class="feed-item" :class="{ selected, 'menu-open': menuOpen }" role="button" tabindex="0" :data-id="item.externalId" :data-inbox-id="item.id" data-testid="feed-item" @click="emit('select')" @keydown.enter.self.prevent="emit('select')" @keydown.space.self.prevent="emit('select')" @contextmenu.prevent="openMenu()">
     <div class="relative flex items-start gap-3">
-      <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" class="size-4" /></span>
+      <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" :image="sourceMarkImage" class="size-4" /></span>
       <div class="min-w-0 flex-1">
         <div class="flex items-baseline gap-2.5"><div class="min-w-0 flex-1 truncate text-left text-[13.5px] leading-[1.35]" :class="item.unread ? 'font-semibold text-text' : 'font-normal text-text-2'">{{ item.title }}</div><div class="meta-right flex shrink-0 items-center gap-2"><span v-if="item.unread" data-testid="unread-dot" class="unread-dot" /><span class="font-mono text-[11px] text-text-4">{{ relativeAge(item.lastEventAt) }}</span></div></div>
         <div class="mt-[5px] flex min-w-0 items-center gap-2"><span v-if="archived && item.archivedReason" class="type-pill type-pill-neutral" data-testid="archive-reason">{{ item.archivedReason }}</span><span v-if="trash && item.ignoredAt != null" class="type-pill type-pill-neutral" data-testid="ignored-pill">ignored</span><span class="type-pill" :class="'type-pill-' + itemKindStyle" data-testid="type-pill" :data-kind="itemKind">{{ itemKindLabel }}</span><span class="min-w-0 truncate font-mono text-[11px] text-text-3">{{ presentation.sourceLabel }}<template v-if="itemContainer"> · {{ itemContainerLine }}</template></span></div>

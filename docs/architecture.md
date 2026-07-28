@@ -508,6 +508,15 @@ editor: `FlowStore.Save` preserves whatever the loaded flow declares, since the
 editor round-trips only `{id, name, enabled, nodes, wires}` and would otherwise
 drop the key.
 
+A webhook source's image mark (ADR 0031) is the same asset shape with the
+reference in a different place. Its normalized PNG is app-local state
+(`internal/app/sourcemark`), keyed by **content hash** rather than by id because
+it is uploaded before the graph save that records it; the webhook node's
+`image:` config carries that hash and round-trips through the editor like any
+other node field, so — unlike the profile avatar — it needs no preserve-on-save
+seam. A missing file falls back to the node's glyph, the same tolerance, and
+orphaned blobs are left in place rather than reference-counted.
+
 `settings.yaml` is a nested typed document with `polling`, `updates`,
 `notifications`, `appearance`, `webhooks`, `keybindings`, and `development`
 sections. Resolution is deterministic: safe compiled defaults, one strictly

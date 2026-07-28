@@ -6,7 +6,7 @@ import AppSwitch from './AppSwitch.vue'
 import BaseButton from './BaseButton.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
-import { fileToBase64, ProfileImageError, profileImageAccept } from '../lib/profileImage'
+import { fileToImageBase64, ImageUploadError, imageUploadAccept } from '../lib/imageUpload'
 import type { Profile } from '../types/feed'
 import type { ProfileSettingsSection } from '../router'
 
@@ -71,9 +71,9 @@ async function onImageChange(event: Event): Promise<void> {
   if (!file) return
   localImageError.value = null
   try {
-    emit('set-image', await fileToBase64(file))
+    emit('set-image', await fileToImageBase64(file))
   } catch (error) {
-    localImageError.value = error instanceof ProfileImageError ? error.message : 'That image could not be read.'
+    localImageError.value = error instanceof ImageUploadError ? error.message : 'That image could not be read.'
   }
 }
 </script>
@@ -117,7 +117,7 @@ async function onImageChange(event: Event): Promise<void> {
                 <template v-else>{{ props.profile.letter }}</template>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <input ref="fileInput" type="file" :accept="profileImageAccept" class="hidden" data-testid="profile-settings-image-input" @change="onImageChange">
+                <input ref="fileInput" type="file" :accept="imageUploadAccept" class="hidden" data-testid="profile-settings-image-input" @change="onImageChange">
                 <BaseButton
                   variant="secondary"
                   size="sm"

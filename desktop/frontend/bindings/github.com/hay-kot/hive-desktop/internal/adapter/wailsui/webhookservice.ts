@@ -41,6 +41,26 @@ export function Info(): $CancellablePromise<$models.WebhookInfo> {
 }
 
 /**
+ * MarkImages resolves feed-mark hashes to PNG data URLs for the feed and the
+ * editor preview: the frontend reads each webhook node's `image` hash from the
+ * flow and asks for the bytes here. A hash with no stored file is omitted, so a
+ * flow synced without its data dir simply falls back to the glyph.
+ */
+export function MarkImages(hashes: string[] | null): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(3349445501, hashes);
+}
+
+/**
+ * SetMarkImage normalizes and stores an uploaded feed-mark image. The frontend
+ * sends the picked file as base64 (a bare payload or a data: URL); the core
+ * normalizes and stores it, and the returned view carries the hash the editor
+ * writes into the node's `image` config plus the stored PNG to preview.
+ */
+export function SetMarkImage(data: string): $CancellablePromise<$models.MarkImageView> {
+    return $Call.ByID(913816676, data);
+}
+
+/**
  * SetSettings persists the enable toggle and port.
  */
 export function SetSettings(next: $models.WebhookSettings): $CancellablePromise<void> {

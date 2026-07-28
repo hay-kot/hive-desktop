@@ -27,6 +27,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
@@ -265,7 +266,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
+	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Integrations = newIntegrationsService(a.credentials)
 	a.Activity = newActivityService(a.activityStore)

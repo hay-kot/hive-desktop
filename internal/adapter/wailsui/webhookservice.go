@@ -2,6 +2,7 @@ package wailsui
 
 import (
 	"context"
+	"encoding/base64"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
@@ -116,4 +117,56 @@ func (s *WebhookService) Capture(ctx context.Context, flowID, nodeID string) (We
 		FeedShaped:    capture.FeedShaped,
 		MissingFields: capture.MissingFields,
 	}, nil
+}
+
+// MarkImageView is a stored feed-mark image: the content Hash the node config
+// records, plus the normalized PNG as a data URL so the editor previews it
+// without a second fetch.
+type MarkImageView struct {
+	Hash  string `json:"hash"`
+	Image string `json:"image"`
+}
+
+// SetMarkImage normalizes and stores an uploaded feed-mark image. The frontend
+// sends the picked file as base64 (a bare payload or a data: URL); the core
+// normalizes and stores it, and the returned view carries the hash the editor
+// writes into the node's `image` config plus the stored PNG to preview.
+func (s *WebhookService) SetMarkImage(ctx context.Context, data string) (MarkImageView, error) {
+	raw, err := decodeImagePayload(data)
+	if err != nil {
+		return MarkImageView{}, err
+	}
+	hash, err := s.webhooks.StoreMarkImage(ctx, raw)
+	if err != nil {
+		return MarkImageView{}, err
+	}
+	return MarkImageView{Hash: hash, Image: s.markDataURL(ctx, hash)}, nil
+}
+
+// MarkImages resolves feed-mark hashes to PNG data URLs for the feed and the
+// editor preview: the frontend reads each webhook node's `image` hash from the
+// flow and asks for the bytes here. A hash with no stored file is omitted, so a
+// flow synced without its data dir simply falls back to the glyph.
+func (s *WebhookService) MarkImages(ctx context.Context, hashes []string) (map[string]string, error) {
+	out := make(map[string]string, len(hashes))
+	for _, hash := range hashes {
+		if _, done := out[hash]; done {
+			continue
+		}
+		if url := s.markDataURL(ctx, hash); url != "" {
+			out[hash] = url
+		}
+	}
+	return out, nil
+}
+
+// markDataURL reads a stored mark PNG and encodes it as a data URL, or "" when
+// the hash resolves to no file — a missing reference reads as no mark, not an
+// error.
+func (s *WebhookService) markDataURL(ctx context.Context, hash string) string {
+	data, ok, err := s.webhooks.MarkImage(ctx, hash)
+	if err != nil || !ok || len(data) == 0 {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
 }

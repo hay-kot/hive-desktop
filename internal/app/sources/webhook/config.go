@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/icons"
+	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
@@ -60,6 +61,12 @@ type Config struct {
 	// Icon is the glyph feed rows render for this node's items, from the
 	// shared feed icon set. Purely cosmetic; empty means the default.
 	Icon string `json:"icon,omitempty" yaml:"icon,omitempty" jsonschema:"title=Icon,description=The glyph feed rows render for this node's items. Empty uses the default webhook glyph."`
+	// Image, when set, is the content hash of an uploaded image (a service
+	// logo, say) that feed rows show instead of the glyph — its bytes live in
+	// the app data dir (see internal/app/sourcemark). Empty means fall back to
+	// Icon. A reference whose file is missing (a flow synced without its data
+	// dir) also falls back, so this is purely cosmetic like Icon.
+	Image string `json:"image,omitempty" yaml:"image,omitempty" jsonschema:"title=Image,description=Content hash of an uploaded image shown as this source's feed mark instead of the icon. Set through the node editor's image picker; empty falls back to the icon."`
 }
 
 // Validate checks the path is slug-shaped, the secret is a usable header
@@ -86,6 +93,9 @@ func (c *Config) Validate() error {
 	}
 	if !icons.ValidFeed(c.Icon) {
 		return fmt.Errorf("webhook source: icon %q is not a supported feed icon", c.Icon)
+	}
+	if c.Image != "" && !sourcemark.ValidHash(c.Image) {
+		return fmt.Errorf("webhook source: image %q is not a valid mark reference", c.Image)
 	}
 	return nil
 }
