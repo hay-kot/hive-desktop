@@ -289,7 +289,8 @@ internal/
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route.
                                   #   Built: an agent-facing control surface
-                                  #   (read, reload, mutate — e.g. profile avatars)
+                                  #   (read, reload, mutate — e.g. profile
+                                  #   avatars, webhook node feed-mark images)
                                   #   on the shared loopback http server that also
                                   #   hosts the webhook listener (ADR 0021), in
                                   #   the errchain shape (ADR 0022): routes.go +

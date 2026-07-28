@@ -23,7 +23,9 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -271,6 +273,69 @@ func TestProfileImageRejectsBadRequests(t *testing.T) {
 
 	missing := do(t, handler, http.MethodPut, "/api/profiles/does-not-exist/image", testPNG(t))
 	assert.Equal(t, http.StatusNotFound, missing.Code, "an unknown profile is a 404")
+}
+
+// webhookHTTPFlow is a minimal flow with one webhook source wired to a feed, so
+// the node-image endpoints have a real sources.webhook node to target.
+func webhookHTTPFlow() flow.Flow {
+	return flow.Flow{
+		ID: "hooks", Name: "Hooks", Enabled: true,
+		Nodes: []flow.Node{
+			{ID: "hook", Type: "sources.webhook", Config: flow.NewSourceConfig(webhook.Descriptor.Type, &webhook.Config{Path: "ci"})},
+			{ID: "inbox", Type: "feed", Name: "Inbox", Config: &flow.FeedConfig{}},
+		},
+		Wires: []flow.Wire{{From: "hook", To: "inbox"}},
+	}
+}
+
+func TestNodeImageLifecycleOverHTTP(t *testing.T) {
+	core, handler := testServer(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookHTTPFlow()))
+
+	base := "/api/flows/hooks/nodes/hook/image"
+
+	// PUT stores the bytes and records the hash on the node in one call.
+	put := do(t, handler, http.MethodPut, base, testPNG(t))
+	require.Equal(t, http.StatusOK, put.Code, put.Body.String())
+	var view struct {
+		FlowID   string `json:"flowId"`
+		NodeID   string `json:"nodeId"`
+		HasImage bool   `json:"hasImage"`
+	}
+	require.NoError(t, json.Unmarshal(put.Body.Bytes(), &view))
+	assert.Equal(t, "hooks", view.FlowID)
+	assert.Equal(t, "hook", view.NodeID)
+	assert.True(t, view.HasImage)
+
+	// GET returns a 128px-square PNG.
+	img := get(t, handler, base)
+	require.Equal(t, http.StatusOK, img.Code)
+	assert.Equal(t, "image/png", img.Header().Get("Content-Type"))
+	decoded, err := png.Decode(bytes.NewReader(img.Body.Bytes()))
+	require.NoError(t, err)
+	assert.Equal(t, image.Rect(0, 0, 128, 128), decoded.Bounds())
+
+	// DELETE clears it; the image then reads as absent.
+	del := do(t, handler, http.MethodDelete, base, nil)
+	require.Equal(t, http.StatusOK, del.Code)
+	assert.Equal(t, http.StatusNotFound, get(t, handler, base).Code)
+}
+
+func TestNodeImageRejectsBadRequests(t *testing.T) {
+	core, handler := testServer(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookHTTPFlow()))
+
+	bad := do(t, handler, http.MethodPut, "/api/flows/hooks/nodes/hook/image", []byte("not an image"))
+	assert.Equal(t, http.StatusBadRequest, bad.Code, "an undecodable body is a 400")
+
+	missingFlow := do(t, handler, http.MethodPut, "/api/flows/none/nodes/hook/image", testPNG(t))
+	assert.Equal(t, http.StatusNotFound, missingFlow.Code, "an unknown flow is a 404")
+
+	missingNode := do(t, handler, http.MethodPut, "/api/flows/hooks/nodes/ghost/image", testPNG(t))
+	assert.Equal(t, http.StatusNotFound, missingNode.Code, "an unknown node is a 404")
+
+	notWebhook := do(t, handler, http.MethodPut, "/api/flows/hooks/nodes/inbox/image", testPNG(t))
+	assert.Equal(t, http.StatusBadRequest, notWebhook.Code, "a non-webhook node is a 400")
 }
 
 // TestAPIIndexListsEveryRoute covers the GET /api discovery index: it names the

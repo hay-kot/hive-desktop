@@ -61,13 +61,16 @@ type Config struct {
 	// Icon is the glyph feed rows render for this node's items, from the
 	// shared feed icon set. Purely cosmetic; empty means the default.
 	Icon string `json:"icon,omitempty" yaml:"icon,omitempty" jsonschema:"title=Icon,description=The glyph feed rows render for this node's items. Empty uses the default webhook glyph."`
-	// Image, when set, is the content hash of an uploaded image (a service
-	// logo, say) that feed rows show instead of the glyph — its bytes live in
-	// the app data dir (see internal/app/sourcemark). Empty means fall back to
-	// Icon. A reference whose file is missing (a flow synced without its data
-	// dir) also falls back, so this is purely cosmetic like Icon.
+	// Image, when set, is the content hash of an uploaded image shown as this
+	// node's feed mark instead of Icon (see internal/app/sourcemark). Empty or a
+	// missing file falls back to Icon.
 	Image string `json:"image,omitempty" yaml:"image,omitempty" jsonschema:"title=Image,description=Content hash of an uploaded image shown as this source's feed mark instead of the icon. Set through the node editor's image picker; empty falls back to the icon."`
 }
+
+// MarkImage and SetMarkImage read and record the feed-mark image hash, satisfying
+// the flow store's image-mark interface.
+func (c *Config) MarkImage() string        { return c.Image }
+func (c *Config) SetMarkImage(hash string) { c.Image = hash }
 
 // Validate checks the path is slug-shaped, the secret is a usable header
 // value, and the icon is one the feed renders.

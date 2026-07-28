@@ -52,13 +52,29 @@ and the store keyed by content rather than by id.**
   well-formed hash (or empty); a reference whose file is missing reads as no
   mark, exactly as `icon`'s empty value does.
 
-- **Serving is a data URL, not a route.** `WebhookService.SetMarkImage`
-  normalizes an upload and returns the hash plus the stored PNG as a data URL
-  for immediate preview; `WebhookService.MarkImages` resolves a set of hashes to
-  data URLs. The feed builds a node-id → data-URL map for the active flow the
-  same way it builds `sourceIcons`, and `SourceMark` renders an `<img>` — with
-  an `@error` fallback to the glyph — instead of the Lucide component when a
-  node has an image.
+- **Serving to the desktop feed is a data URL, not a route.**
+  `WebhookService.SetMarkImage` normalizes an upload and returns the hash plus
+  the stored PNG as a data URL for immediate preview; `WebhookService.MarkImages`
+  resolves a set of hashes to data URLs. The feed builds a node-id → data-URL
+  map for the active flow the same way it builds `sourceIcons`, and `SourceMark`
+  renders an `<img>` — with an `@error` fallback to the glyph — instead of the
+  Lucide component when a node has an image.
+
+- **The agent HTTP API mirrors the profile avatar.** The desktop editor sets a
+  mark in two steps (store, then a graph save that carries the hash), because it
+  owns the unsaved graph. An agent has no such graph, so the agent API
+  (`internal/adapter/httpapi`) exposes a **one-call, node-scoped** endpoint that
+  does both: `PUT /api/flows/{flowId}/nodes/{nodeId}/image` takes the raw image
+  bytes, normalizes and stores them, sets the node's `image`, and saves the flow
+  — the direct parallel to `PUT /api/profiles/{id}/image`. `GET` returns the
+  128×128 PNG (404 when unset) and `DELETE` clears it. It is backed by
+  `FlowsService.SetNodeImage`/`ClearNodeImage`/`NodeImage`, which mutate one
+  node's image through a connector-neutral `FlowStore.SetSourceImage` (the flow
+  package recognises the image-mark capability structurally, so it never names
+  the webhook connector). A node that is not a webhook source is a 400. The same
+  core methods become an MCP tool later. Node ids are discovered by the means
+  that already exist (reading the flow); the API does not yet enumerate a flow's
+  graph.
 
 The remote-URL avatar model and a `data:` URI stored inline in the flow YAML
 were both weighed and declined: the former phones home from the webview and has

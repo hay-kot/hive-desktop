@@ -7,6 +7,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
+	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
@@ -19,11 +20,12 @@ type FlowsService struct {
 	db        *store.DB
 	creds     credentials.Store
 	images    *profileimg.Store
+	marks     *sourcemark.Store
 	onUpdated func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, creds: creds, images: images, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, onUpdated: onUpdated}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -221,6 +223,64 @@ func (s *FlowsService) ProfileImage(_ context.Context, id string) ([]byte, error
 		return nil, nil
 	}
 	return data, nil
+}
+
+// SetNodeImage normalizes raw into a feed-mark PNG, stores it, records its hash
+// on source node nodeID in flow flowID, saves the flow, and returns the hash.
+func (s *FlowsService) SetNodeImage(_ context.Context, flowID, nodeID string, raw []byte) (string, error) {
+	hash, err := s.marks.Set(raw)
+	if err != nil {
+		return "", mapMarkImageError(err)
+	}
+	if _, err := s.flows.SetSourceImage(flowID, nodeID, hash); err != nil {
+		return "", mapNodeImageError(err, flowID, nodeID)
+	}
+	s.notifyUpdated()
+	return hash, nil
+}
+
+// ClearNodeImage clears a source node's feed-mark image. The stored blob is left
+// in place; it is content-addressed and may be shared.
+func (s *FlowsService) ClearNodeImage(_ context.Context, flowID, nodeID string) error {
+	if _, err := s.flows.SetSourceImage(flowID, nodeID, ""); err != nil {
+		return mapNodeImageError(err, flowID, nodeID)
+	}
+	s.notifyUpdated()
+	return nil
+}
+
+// NodeImage returns a source node's stored feed-mark PNG, or nil when it has
+// none or its hash resolves to no file.
+func (s *FlowsService) NodeImage(_ context.Context, flowID, nodeID string) ([]byte, error) {
+	hash, err := s.flows.SourceImageRef(flowID, nodeID)
+	if err != nil {
+		return nil, mapNodeImageError(err, flowID, nodeID)
+	}
+	if hash == "" {
+		return nil, nil
+	}
+	data, ok, err := s.marks.Get(hash)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "reading mark image for node %q", nodeID)
+	}
+	if !ok {
+		return nil, nil
+	}
+	return data, nil
+}
+
+// mapNodeImageError maps the flow store's node-image sentinels onto app kinds.
+func mapNodeImageError(err error, flowID, nodeID string) error {
+	switch {
+	case errors.Is(err, flow.ErrFlowNotFound):
+		return Errorf(KindNotFound, "flow %q not found", flowID)
+	case errors.Is(err, flow.ErrNodeNotFound):
+		return Errorf(KindNotFound, "node %q not found in flow %q", nodeID, flowID)
+	case errors.Is(err, flow.ErrNodeNotImageMarkable):
+		return Errorf(KindInvalid, "node %q does not support an image mark (only webhook sources do)", nodeID)
+	default:
+		return Wrap(err, KindInvalid, "setting image for node %q in flow %q", nodeID, flowID)
+	}
 }
 
 // mapImageError turns a normalization failure into a user-facing message: the
