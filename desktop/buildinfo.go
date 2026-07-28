@@ -4,10 +4,10 @@ import "runtime/debug"
 
 // Build information for the desktop app. Populated at build time via
 // -ldflags "-X main.version=... -X main.commit=... -X main.date=...". The
-// production build in desktop/build/darwin/Taskfile.yml and the release
-// pipeline (cmd/release, wrapped by the
-// desktop-publish workflow) stamp the release version, commit SHA, and build
-// date here so the running app can report exactly what it is.
+// production builds in desktop/build/darwin/Taskfile.yml and
+// desktop/build/linux/Taskfile.yml, driven by the release pipeline
+// (cmd/release), stamp the release version, commit SHA, and build date here so
+// the running app can report exactly what it is.
 //
 // A plain source build reports "dev".
 var (

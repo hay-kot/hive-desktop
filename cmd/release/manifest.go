@@ -8,10 +8,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -96,17 +98,31 @@ func validateManifest(manifest channelManifest) error {
 	if _, err := time.Parse(time.RFC3339, manifest.PubDate); err != nil {
 		return fmt.Errorf("invalid pub_date: %w", err)
 	}
-	platform, ok := manifest.Platforms["darwin-universal"]
-	if !ok || platform.URL == "" || platform.SHA256 == "" || platform.Size < 1 {
+	// darwin-universal is required rather than the full platform set: manifests
+	// published before Linux shipped carry only that key, and they still have to
+	// parse for advancement checks against the live channels.
+	if _, ok := manifest.Platforms["darwin-universal"]; !ok {
 		return errors.New("missing darwin-universal artifact metadata")
+	}
+	for key, platform := range manifest.Platforms {
+		if err := validatePlatformManifest(key, platform); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validatePlatformManifest(key string, platform platformManifest) error {
+	if platform.URL == "" || platform.SHA256 == "" || platform.Size < 1 {
+		return fmt.Errorf("missing %s artifact metadata", key)
 	}
 	artifactURL, err := url.Parse(platform.URL)
 	if err != nil || artifactURL.Host == "" || (artifactURL.Scheme != "http" && artifactURL.Scheme != "https") {
-		return errors.New("invalid darwin-universal artifact URL")
+		return fmt.Errorf("invalid %s artifact URL", key)
 	}
 	checksum, err := hex.DecodeString(platform.SHA256)
 	if err != nil || len(checksum) != sha256.Size {
-		return errors.New("invalid darwin-universal SHA-256")
+		return fmt.Errorf("invalid %s SHA-256", key)
 	}
 	return nil
 }
@@ -181,53 +197,66 @@ func releaseVersions(ctx context.Context) ([]releaseVersion, map[string]channelM
 
 func verifyLive(ctx context.Context, version releaseVersion) error {
 	client := &http.Client{Timeout: 5 * time.Minute}
-	var artifact platformManifest
+	var platforms map[string]platformManifest
 	for _, channel := range version.affectedChannels() {
-		manifest, err := fetchManifest(ctx, client, manifestBaseURL()+"/"+channel+"/latest.json")
+		manifestURL := manifestBaseURL() + "/" + channel + "/latest.json"
+		manifest, err := fetchManifest(ctx, client, manifestURL)
 		if err != nil {
-			return err
+			return fmt.Errorf("verify %s manifest at %s: %w", channel, manifestURL, err)
 		}
 		if manifest.Channel != channel || manifest.Version != version.String() {
 			return fmt.Errorf("%s manifest reports channel=%q version=%q, want channel=%q version=%q", channel, manifest.Channel, manifest.Version, channel, version.String())
 		}
-		platform, ok := manifest.Platforms["darwin-universal"]
-		if !ok || platform.URL == "" || platform.SHA256 == "" || platform.Size < 1 {
-			return fmt.Errorf("%s manifest has malformed darwin-universal platform", channel)
+		// Every affected channel points at one release, so they must agree on
+		// the whole platform set — not just on any single platform.
+		if platforms != nil && !maps.Equal(platforms, manifest.Platforms) {
+			return fmt.Errorf("%s manifest artifacts differ from the other affected manifests", channel)
 		}
-		if artifact.URL != "" && platform != artifact {
-			return fmt.Errorf("%s manifest artifact differs from the other affected manifests", channel)
-		}
-		artifact = platform
-		fmt.Printf("manifest: %s -> %s\n", channel, manifest.Version)
+		platforms = manifest.Platforms
+		fmt.Printf("manifest: %s -> %s (%d platforms)\n", channel, manifest.Version, len(manifest.Platforms))
 	}
 
+	// Sorted so output and failures are deterministic across runs.
+	for _, key := range slices.Sorted(maps.Keys(platforms)) {
+		if err := verifyLiveArtifact(ctx, client, key, platforms[key]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// verifyLiveArtifact downloads one published artifact and checks it against the
+// size and checksum the manifest advertises — the same values the in-app updater
+// will verify against, so a mismatch here is a broken update for that platform.
+func verifyLiveArtifact(ctx context.Context, client *http.Client, key string, artifact platformManifest) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
 	if err != nil {
-		return fmt.Errorf("create artifact request: %w", err)
+		return fmt.Errorf("create %s artifact request: %w", key, err)
 	}
 	req.Header.Set("User-Agent", "hive-desktop-release/1")
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download artifact: %w", err)
+		return fmt.Errorf("download %s artifact: %w", key, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download artifact: HTTP %d", resp.StatusCode)
+		return fmt.Errorf("download %s artifact: HTTP %d", key, resp.StatusCode)
 	}
 	hash := sha256.New()
 	n, err := io.Copy(hash, resp.Body)
 	if err != nil {
-		return fmt.Errorf("hash artifact: %w", err)
+		return fmt.Errorf("hash %s artifact: %w", key, err)
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if actual != artifact.SHA256 {
-		return fmt.Errorf("artifact checksum %s does not match manifest %s", actual, artifact.SHA256)
+		return fmt.Errorf("%s artifact checksum %s does not match manifest %s", key, actual, artifact.SHA256)
 	}
 	if n != artifact.Size {
-		return fmt.Errorf("artifact size %d does not match manifest %d", n, artifact.Size)
+		return fmt.Errorf("%s artifact size %d does not match manifest %d", key, n, artifact.Size)
 	}
 	fmt.Printf("artifact: %s\n", artifact.URL)
-	fmt.Printf("size: %d\n", n)
-	fmt.Printf("sha256: %s\n", actual)
+	fmt.Printf("  platform: %s\n", key)
+	fmt.Printf("  size: %d\n", n)
+	fmt.Printf("  sha256: %s\n", actual)
 	return nil
 }

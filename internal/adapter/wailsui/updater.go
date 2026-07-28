@@ -56,6 +56,10 @@ type UpdaterService struct {
 	available *UpdateInfo
 	cancel    context.CancelFunc
 	wg        sync.WaitGroup
+
+	// installMu serializes InstallUpdate: the TMPDIR save/restore pair in
+	// prepareUpdateStaging is process-global and must not interleave.
+	installMu sync.Mutex
 }
 
 // NewUpdaterService constructs the service. engine is attached later via
@@ -86,6 +90,10 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 //
 //wails:ignore
 func (s *UpdaterService) Attach(engine updaterEngine) {
+	// A hard-killed update leaves its staging directory beside the binary;
+	// sweep at startup too, not only before the next install, so it does not
+	// sit there indefinitely when the user never updates again.
+	sweepStaleStagingBesideExecutable(currentGOOS())
 	s.mu.Lock()
 	s.engine = engine
 	start := s.enabled && s.engine != nil
@@ -150,11 +158,28 @@ func (s *UpdaterService) InstallUpdate(ctx context.Context) error {
 		latestVersion = available.LatestVersion
 	}
 	log := s.logger.With().Str("current_version", s.currentVersion).Str("latest_version", latestVersion).Logger()
+	if !s.installMu.TryLock() {
+		log.Info().Msg("update install already in progress; ignoring duplicate request")
+		return nil
+	}
+	defer s.installMu.Unlock()
 	log.Info().Msg("update install started")
 
-	if err := engine.DownloadAndInstall(ctx); err != nil {
-		log.Error().Err(err).Str("stage", "download_install").Msg("update install failed")
+	// Stage the download on the binary's own filesystem and reject read-only
+	// installs before downloading; no-op off Linux (see prepareUpdateStaging).
+	restoreStaging, err := prepareUpdateStaging(currentGOOS())
+	if err != nil {
+		log.Error().Err(err).Str("stage", "prepare_staging").Msg("update install failed")
 		return err
+	}
+
+	installErr := engine.DownloadAndInstall(ctx)
+	// The staged artifact stays on disk for Restart to hand to the helper; only
+	// the environment override is scoped to the download.
+	restoreStaging()
+	if installErr != nil {
+		log.Error().Err(installErr).Str("stage", "download_install").Msg("update install failed")
+		return installErr
 	}
 	log.Info().Msg("update downloaded and verified; requesting restart")
 

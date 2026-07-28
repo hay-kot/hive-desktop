@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -227,4 +229,85 @@ func TestUpdaterServiceInstallUpdateDevNoop(t *testing.T) {
 	silenceEmits(t)
 	s := NewUpdaterService("dev", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
 	require.NoError(t, s.InstallUpdate(t.Context()))
+}
+
+// A read-only install can never be swapped in place, and the user should learn
+// that before the download runs, not after.
+func TestUpdaterServiceInstallUpdateRejectsReadOnlyInstallBeforeDownload(t *testing.T) {
+	silenceEmits(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions, so the probe cannot fail")
+	}
+	dir := t.TempDir()
+	stubExecutable(t, dir)
+	stubGOOS(t, "linux")
+	require.NoError(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	engine := &fakeEngine{}
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
+	s.Attach(engine)
+
+	err := s.InstallUpdate(t.Context())
+	require.ErrorIs(t, err, errUpdateReadOnlyInstall)
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	require.Equal(t, 0, engine.installs, "the download must not start for an install that cannot be swapped")
+}
+
+func TestUpdaterServiceInstallUpdateRestoresTMPDIROnFailure(t *testing.T) {
+	silenceEmits(t)
+	dir := t.TempDir()
+	t.Setenv("TMPDIR", "/sentinel")
+	stubExecutable(t, dir)
+	stubGOOS(t, "linux")
+
+	engine := &fakeEngine{installErr: errors.New("boom")}
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
+	s.Attach(engine)
+
+	require.ErrorContains(t, s.InstallUpdate(t.Context()), "boom")
+	require.Equal(t, "/sentinel", os.Getenv("TMPDIR"), "a failed download must still restore TMPDIR")
+	engine.mu.Lock()
+	defer engine.mu.Unlock()
+	require.Equal(t, 0, engine.restarts)
+}
+
+// blockingEngine parks DownloadAndInstall until released, to hold InstallUpdate
+// mid-flight while a second call arrives.
+type blockingEngine struct {
+	installs  atomic.Int32
+	started   chan struct{}
+	release   chan struct{}
+	startOnce sync.Once
+}
+
+func (b *blockingEngine) Check(context.Context) (*updater.Release, error) { return nil, nil }
+
+func (b *blockingEngine) DownloadAndInstall(context.Context) error {
+	b.installs.Add(1)
+	b.startOnce.Do(func() { close(b.started) })
+	<-b.release
+	return nil
+}
+
+func (b *blockingEngine) Restart(context.Context) error { return nil }
+
+// The TMPDIR save/restore pair in prepareUpdateStaging is process-global, so a
+// second InstallUpdate must not interleave with one already running.
+func TestUpdaterServiceInstallUpdateIgnoresConcurrentRequests(t *testing.T) {
+	silenceEmits(t)
+	engine := &blockingEngine{started: make(chan struct{}), release: make(chan struct{})}
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
+	s.Attach(engine)
+
+	done := make(chan error, 1)
+	go func() { done <- s.InstallUpdate(context.Background()) }()
+	<-engine.started
+
+	require.NoError(t, s.InstallUpdate(t.Context()), "a duplicate request is ignored, not an error")
+	require.Equal(t, int32(1), engine.installs.Load())
+
+	close(engine.release)
+	require.NoError(t, <-done)
 }
