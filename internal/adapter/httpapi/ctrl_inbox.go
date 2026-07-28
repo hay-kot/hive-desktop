@@ -14,11 +14,11 @@ import (
 )
 
 type InboxQuery struct {
-	Profile    string `schema:"profile"`
-	ExternalID string `schema:"externalId"`
-	Feed       string `schema:"feed"`
-	Archived   bool   `schema:"archived"`
-	Limit      int    `schema:"limit"`
+	Profile    string `schema:"profile"    desc:"Profile id to scope to (from GET /api/profiles). Required when 'feed' is set."           example:"hive"`
+	ExternalID string `schema:"externalId" desc:"A source's own id (e.g. a GitHub node id); returns every matching item across profiles."`
+	Feed       string `schema:"feed"       desc:"Feed id from GET /api/feeds (e.g. 'hive/desktop-prs') to return only that feed's items." example:"hive/desktop-prs"`
+	Archived   bool   `schema:"archived"   desc:"When true, list archived items instead of active ones."`
+	Limit      int    `schema:"limit"      desc:"Maximum items to return; defaults to 200."`
 }
 
 func (q InboxQuery) Validate() error {
@@ -30,8 +30,16 @@ func (q InboxQuery) Validate() error {
 	)
 }
 
+// inboxItemView is the store view plus the feed that claims the item, so a flat
+// listing can answer "which feed is this in?" — a store.InboxItemView carries no
+// feed id of its own (the sidebar groups by feed a different way).
+type inboxItemView struct {
+	store.InboxItemView
+	FeedID string `json:"feedId"`
+}
+
 type itemsResponse struct {
-	Items []store.InboxItemView `json:"items"`
+	Items []inboxItemView `json:"items"`
 }
 
 func (ctrl *Controller) InboxList(w http.ResponseWriter, r *http.Request) error {
@@ -57,14 +65,37 @@ func (ctrl *Controller) InboxList(w http.ResponseWriter, r *http.Request) error 
 	if err != nil {
 		return err
 	}
-	return server.JSON(w, http.StatusOK, itemsResponse{Items: items})
+
+	views, err := ctrl.itemsWithFeed(ctx, items)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, itemsResponse{Items: views})
+}
+
+// itemsWithFeed annotates each item with the feed that claims it (empty when
+// unrouted), resolved in one query so the listing avoids an N+1.
+func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []store.InboxItemView) ([]inboxItemView, error) {
+	ids := make([]int64, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	feeds, err := ctrl.core.Inbox.InboxItemFeeds(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]inboxItemView, len(items))
+	for i, it := range items {
+		out[i] = inboxItemView{InboxItemView: it, FeedID: feeds[it.ID]}
+	}
+	return out, nil
 }
 
 type EventsQuery struct {
-	ItemID     int64  `schema:"itemId"`
-	ExternalID string `schema:"externalId"`
-	Profile    string `schema:"profile"`
-	Limit      int    `schema:"limit"`
+	ItemID     int64  `schema:"itemId"     desc:"Inbox item id. Provide this or externalId."`
+	ExternalID string `schema:"externalId" desc:"External id resolving to one item; provide this or itemId. If it matches items in more than one profile, add 'profile' to disambiguate, else the response is 409."`
+	Profile    string `schema:"profile"    desc:"Profile id used to disambiguate an externalId that matches multiple profiles."`
+	Limit      int    `schema:"limit"      desc:"Maximum events to return; defaults to 50."`
 }
 
 func (q EventsQuery) Validate() error {

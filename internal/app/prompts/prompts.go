@@ -58,6 +58,12 @@ type Env struct {
 	WebhookBaseURL string
 	// WebhookEnabled reports whether the listener is configured on.
 	WebhookEnabled bool
+	// APIBaseURL is the agent HTTP API's base URL — the same loopback server as
+	// the webhook listener, under the /api prefix. Empty when no port is resolved.
+	APIBaseURL string
+	// APIEnabled reports whether the loopback HTTP server is on. It is the same
+	// http.enabled flag as the webhook listener (one server, ADR 0021).
+	APIEnabled bool
 }
 
 // Command is one bindable command from the frontend's keybinding catalog.
@@ -142,6 +148,14 @@ var definitions = []definition{
 		target:      func(env Env) string { return env.WebhookBaseURL },
 		listed:      true,
 		data:        webhookSourcesData,
+	},
+	{
+		id:          "http-api",
+		title:       "Agent HTTP API",
+		description: "Point a coding agent at this install's live loopback HTTP API — the route index and OpenAPI document it reads to drive the app directly, without editing config files.",
+		target:      func(env Env) string { return env.APIBaseURL },
+		listed:      true,
+		data:        httpAPIData,
 	},
 	{
 		id:          "keybindings",
@@ -325,6 +339,12 @@ func keybindingsData(_ Env, in Input) (map[string]any, error) {
 }
 
 func settingsData(Env, Input) (map[string]any, error) {
+	return map[string]any{}, nil
+}
+
+// httpAPIData needs nothing beyond Env — the prompt points at the live,
+// self-describing endpoints rather than restating the routes.
+func httpAPIData(Env, Input) (map[string]any, error) {
 	return map[string]any{}, nil
 }
 

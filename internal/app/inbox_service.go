@@ -57,6 +57,13 @@ func (s *InboxService) InboxItemFeed(ctx context.Context, profileID string, item
 	return feedID, Wrap(err, KindInternal, "resolving the feed for item %d", itemID)
 }
 
+// InboxItemFeeds resolves the claiming feed of each item in one query, for
+// callers that list items flat (the agent API) and need each item's feed.
+func (s *InboxService) InboxItemFeeds(ctx context.Context, itemIDs []int64) (map[int64]string, error) {
+	feeds, err := s.db.InboxItemFeedIDs(ctx, itemIDs)
+	return feeds, Wrap(err, KindInternal, "resolving feeds for %d items", len(itemIDs))
+}
+
 func (s *InboxService) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]store.InboxEventView, error) {
 	views, err := s.db.InboxItemEvents(ctx, itemID, limit)
 	return views, Wrap(err, KindInternal, "listing events for item %d", itemID)

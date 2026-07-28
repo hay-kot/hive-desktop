@@ -19,6 +19,8 @@ func testEnv() Env {
 		SettingsPath:   "/home/u/.config/hive/desktop/settings.yaml",
 		WebhookBaseURL: "http://127.0.0.1:24917/hooks",
 		WebhookEnabled: true,
+		APIBaseURL:     "http://127.0.0.1:24917/api",
+		APIEnabled:     true,
 	}
 }
 
@@ -121,6 +123,7 @@ func TestPromptsCarryInstallPaths(t *testing.T) {
 		"keybindings":     env.SettingsPath,
 		"settings":        env.SettingsPath,
 		"webhook-sources": env.WebhookBaseURL,
+		"http-api":        env.APIBaseURL,
 	} {
 		prompt, err := svc.Render(id, testInput())
 		require.NoErrorf(t, err, "prompt %q", id)
@@ -179,6 +182,25 @@ func TestWebhookTransformPromptUsesCapturedSample(t *testing.T) {
 
 	_, err = svc.Render("webhook-transform", Input{})
 	require.Error(t, err, "a node-scoped prompt with no node is a caller bug")
+}
+
+// TestHTTPAPIPromptPointsAtLiveSpec — the prompt's job is to send the agent to
+// the self-describing endpoints, and to flag a disabled server rather than
+// pointing at a dead port.
+func TestHTTPAPIPromptPointsAtLiveSpec(t *testing.T) {
+	prompt, err := newTestService(t).Render("http-api", testInput())
+	require.NoError(t, err)
+	assert.Contains(t, prompt.Text, testEnv().APIBaseURL+"/openapi.json")
+	assert.Contains(t, prompt.Text, "OpenAPI")
+	assert.NotContains(t, prompt.Text, "**disabled**")
+
+	env := testEnv()
+	env.APIEnabled = false
+	svc, err := New(env)
+	require.NoError(t, err)
+	disabled, err := svc.Render("http-api", testInput())
+	require.NoError(t, err)
+	assert.Contains(t, disabled.Text, "**disabled**")
 }
 
 // TestCatalogListsOnlyContextFreePrompts — the settings page renders whatever

@@ -12,9 +12,9 @@ import (
 // ErrorBody is the error wire shape: {kind, message}, with per-field detail
 // on validation failures.
 type ErrorBody struct {
-	Kind    string            `json:"kind"`
+	Kind    string            `json:"kind"             jsonschema:"enum=invalid,enum=not_found,enum=conflict,enum=unauthenticated,enum=unavailable,enum=internal,description=Stable machine-readable error category."`
 	Message string            `json:"message"`
-	Fields  map[string]string `json:"fields,omitempty"`
+	Fields  map[string]string `json:"fields,omitempty" jsonschema:"description=Per-field validation messages keyed by field name; present on validation failures."`
 }
 
 // BadRequestError marks a body the transport could not read (400), as

@@ -12,8 +12,11 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/pb33f/libopenapi"
+	validator "github.com/pb33f/libopenapi-validator"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -115,6 +118,18 @@ func TestServedOverWebhookListener(t *testing.T) {
 	require.NoError(t, err)
 	defer resp.Body.Close() //nolint:errcheck // test
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "the API is reachable over the webhook port")
+
+	// The route index sits at the mount root. Through the listener a request for
+	// /api is redirected to /api/, so it must be served there — the in-process
+	// handler test cannot catch this because it has no mount prefix in front.
+	for _, target := range []string{base + "/api/", base + "/api"} {
+		idxResp, err := http.Get(target) //nolint:noctx // loopback test
+		require.NoError(t, err)
+		body, _ := io.ReadAll(idxResp.Body)
+		idxResp.Body.Close() //nolint:errcheck // test
+		require.Equalf(t, http.StatusOK, idxResp.StatusCode, "the route index is reachable at %s", target)
+		assert.Containsf(t, string(body), `"routes"`, "%s returns the index", target)
+	}
 
 	var listed struct {
 		Items []store.InboxItemView `json:"items"`
@@ -256,6 +271,200 @@ func TestProfileImageRejectsBadRequests(t *testing.T) {
 
 	missing := do(t, handler, http.MethodPut, "/api/profiles/does-not-exist/image", testPNG(t))
 	assert.Equal(t, http.StatusNotFound, missing.Code, "an unknown profile is a 404")
+}
+
+// TestAPIIndexListsEveryRoute covers the GET /api discovery index: it names the
+// service, points at the OpenAPI document, and describes every route — including
+// that the avatar upload takes a raw body, not multipart (issue #97).
+func TestAPIIndexListsEveryRoute(t *testing.T) {
+	_, handler := testServer(t)
+
+	rec := get(t, handler, "/api/")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var idx struct {
+		Service string `json:"service"`
+		OpenAPI string `json:"openapi"`
+		Routes  []struct {
+			Method  string `json:"method"`
+			Path    string `json:"path"`
+			Summary string `json:"summary"`
+			Request string `json:"request"`
+		} `json:"routes"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &idx))
+	assert.Equal(t, "hive.desktop.api", idx.Service)
+	assert.Equal(t, "/api/openapi.json", idx.OpenAPI)
+
+	notes := make(map[string]string, len(idx.Routes))
+	for _, r := range idx.Routes {
+		assert.NotEmpty(t, r.Summary, "%s %s has a summary", r.Method, r.Path)
+		assert.True(t, strings.HasPrefix(r.Path, "/api"), "%s is under /api", r.Path)
+		notes[r.Method+" "+r.Path] = r.Request
+	}
+	assert.Contains(t, notes, "GET /api/", "the index lists itself")
+	assert.Contains(t, notes, "GET /api/openapi.json", "the index lists the spec")
+	require.Contains(t, notes, "PUT /api/profiles/{id}/image")
+	assert.Contains(t, notes["PUT /api/profiles/{id}/image"], "not multipart",
+		"the raw-body requirement is documented inline")
+}
+
+// TestOpenAPIDocumentAgreesWithIndex asserts the spec and the index are built
+// from one table (every advertised route has an operation) and that the shapes
+// the issue stumbled on are documented: the raw image body and the inbox query.
+func TestOpenAPIDocumentAgreesWithIndex(t *testing.T) {
+	_, handler := testServer(t)
+
+	var idx struct {
+		Routes []struct {
+			Method string `json:"method"`
+			Path   string `json:"path"`
+		} `json:"routes"`
+	}
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/").Body.Bytes(), &idx))
+
+	rec := get(t, handler, "/api/openapi.json")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var doc struct {
+		OpenAPI string `json:"openapi"`
+		Info    struct {
+			Title   string `json:"title"`
+			Version string `json:"version"`
+		} `json:"info"`
+		Servers []struct {
+			URL string `json:"url"`
+		} `json:"servers"`
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &doc))
+	assert.Equal(t, "3.2.0", doc.OpenAPI)
+	assert.NotEmpty(t, doc.Info.Title)
+	assert.NotEmpty(t, doc.Info.Version)
+	require.NotEmpty(t, doc.Servers)
+	assert.True(t, strings.HasPrefix(doc.Servers[0].URL, "http://"))
+
+	for _, r := range idx.Routes {
+		methods, ok := doc.Paths[r.Path]
+		require.True(t, ok, "spec describes path %s", r.Path)
+		_, ok = methods[strings.ToLower(r.Method)]
+		assert.True(t, ok, "spec describes %s %s", r.Method, r.Path)
+	}
+
+	var put struct {
+		Parameters []struct {
+			Name string `json:"name"`
+			In   string `json:"in"`
+		} `json:"parameters"`
+		RequestBody struct {
+			Content map[string]json.RawMessage `json:"content"`
+		} `json:"requestBody"`
+		Responses map[string]json.RawMessage `json:"responses"`
+	}
+	require.NoError(t, json.Unmarshal(doc.Paths["/api/profiles/{id}/image"]["put"], &put))
+	assert.Contains(t, put.RequestBody.Content, "image/png")
+	assert.NotContains(t, put.RequestBody.Content, "multipart/form-data")
+	assert.Contains(t, put.Responses, "default", "the error shape is documented")
+	hasID := false
+	for _, p := range put.Parameters {
+		if p.Name == "id" && p.In == "path" {
+			hasID = true
+		}
+	}
+	assert.True(t, hasID, "id is a path parameter")
+
+	var inbox struct {
+		Parameters []struct {
+			Name string `json:"name"`
+			In   string `json:"in"`
+		} `json:"parameters"`
+	}
+	require.NoError(t, json.Unmarshal(doc.Paths["/api/inbox"]["get"], &inbox))
+	query := make(map[string]string, len(inbox.Parameters))
+	for _, p := range inbox.Parameters {
+		query[p.Name] = p.In
+	}
+	assert.Equal(t, "query", query["feed"])
+	assert.Equal(t, "query", query["profile"])
+}
+
+// TestOpenAPIParametersAreDescribed guards the fixes the agent evaluation drove:
+// a genuinely-required query param is marked required (the spec must not
+// contradict the server), and params carry descriptions/examples.
+func TestOpenAPIParametersAreDescribed(t *testing.T) {
+	_, handler := testServer(t)
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Parameters []struct {
+				Name        string `json:"name"`
+				Required    bool   `json:"required"`
+				Description string `json:"description"`
+				Example     string `json:"example"`
+			} `json:"parameters"`
+		} `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/openapi.json").Body.Bytes(), &doc))
+
+	var profile struct {
+		Required    bool
+		Description string
+		Example     string
+	}
+	for _, p := range doc.Paths["/api/feeds"]["get"].Parameters {
+		if p.Name == "profile" {
+			profile.Required, profile.Description, profile.Example = p.Required, p.Description, p.Example
+		}
+	}
+	assert.True(t, profile.Required, "feeds.profile is required in the spec, matching the server")
+	assert.NotEmpty(t, profile.Description, "feeds.profile carries a description")
+	assert.Equal(t, "hive", profile.Example)
+}
+
+// TestOpenAPIDocumentsInboxDetail covers the enrichments the agent evaluation
+// asked for: inbox items carry a feedId, the state fields are enumerated, and
+// the events endpoint documents its real error statuses, not just a default.
+func TestOpenAPIDocumentsInboxDetail(t *testing.T) {
+	_, handler := testServer(t)
+	var doc map[string]any
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/openapi.json").Body.Bytes(), &doc))
+
+	obj := func(v any) map[string]any {
+		m, ok := v.(map[string]any)
+		require.True(t, ok, "expected object, got %T", v)
+		return m
+	}
+	paths := obj(doc["paths"])
+
+	events := obj(obj(obj(paths["/api/inbox/events"])["get"])["responses"])
+	for _, code := range []string{"404", "409", "422", "default"} {
+		assert.Contains(t, events, code, "events documents its %s response", code)
+	}
+
+	schema := obj(obj(obj(obj(obj(obj(paths["/api/inbox"])["get"])["responses"])["200"])["content"])["application/json"])["schema"]
+	itemProps := obj(obj(obj(obj(schema)["properties"])["items"])["items"])["properties"]
+	assert.Contains(t, obj(itemProps), "feedId", "inbox items carry a feedId")
+	assert.Contains(t, obj(obj(itemProps)["lifecycle"])["enum"], "terminal", "lifecycle is enumerated")
+}
+
+// TestOpenAPISpecIsValid validates the generated document against the embedded
+// OpenAPI 3.2 schema, so a reflected struct that produces a malformed schema
+// fails here rather than in a downstream consumer.
+func TestOpenAPISpecIsValid(t *testing.T) {
+	_, handler := testServer(t)
+	rec := get(t, handler, "/api/openapi.json")
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	doc, err := libopenapi.NewDocument(rec.Body.Bytes())
+	require.NoError(t, err)
+
+	v, verrs := validator.NewValidator(doc)
+	require.Empty(t, verrs, "the validator builds from the document")
+
+	valid, valErrs := v.ValidateDocument()
+	for _, e := range valErrs {
+		t.Errorf("openapi: %s (%s)", e.Message, e.Reason)
+	}
+	assert.True(t, valid)
 }
 
 func TestRefreshUnavailableInMockMode(t *testing.T) {

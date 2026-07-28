@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // InboxItemID resolves the durable inbox row behind a source identity. It is
@@ -63,6 +64,40 @@ WHERE profile_id = ? AND item_id = ?
 ORDER BY feed_id
 LIMIT 1
 `
+
+// InboxItemFeedIDs resolves the claiming feed of each item in one query, using
+// the same lowest-feed-id rule as InboxItemFeedID. Keyed by item id (a global
+// primary key, so the profile is implied); an item with no claim is absent from
+// the map, meaning its feed is "". Built for callers that list items flat and
+// need each item's feed without an N+1 of InboxItemFeedID.
+func (db *DB) InboxItemFeedIDs(ctx context.Context, itemIDs []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(itemIDs))
+	if len(itemIDs) == 0 {
+		return out, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(itemIDs)), ",")
+	query := "SELECT item_id, MIN(feed_id) FROM feed_membership_claim WHERE item_id IN (" + placeholders + ") GROUP BY item_id"
+	args := make([]any, len(itemIDs))
+	for i, id := range itemIDs {
+		args[i] = id
+	}
+	rows, err := db.querier().QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("resolving feeds for %d inbox items: %w", len(itemIDs), err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var (
+			id   int64
+			feed string
+		)
+		if err := rows.Scan(&id, &feed); err != nil {
+			return nil, fmt.Errorf("scanning inbox item feed: %w", err)
+		}
+		out[id] = feed
+	}
+	return out, rows.Err()
+}
 
 // InboxItemFeedID returns the feed that claims an item, or "" when nothing
 // does (an unrouted item, which the UI shows in Trash). An item claimed by
