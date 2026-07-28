@@ -17,7 +17,7 @@ jobs:
   go:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The pinned wails alpha defaults to the GTK4/WebKitGTK 6.0 stack on
       # Linux (GTK3 is opt-in via -tags gtk3, which nothing here passes).
@@ -25,13 +25,13 @@ jobs:
         run: sudo apt-get update -q && sudo apt-get install -y -q libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: Set up Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
         with:
           go-version-file: 'go.mod'
           cache: true
 
       - name: Set up mise
-        uses: jdx/mise-action@v4
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
 
       # Both checks are also local git hooks (see lefthook.yml); the mise task
       # is the single definition so the two can never drift.
@@ -48,7 +48,7 @@ jobs:
         run: mise run check:vendor
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
           args: --timeout=6m
@@ -75,10 +75,10 @@ jobs:
   desktop-frontend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 22
           cache: npm
