@@ -17,6 +17,13 @@ type RetentionPolicy struct {
 	// EventLogPerTopicLimit retains this many newest events per topic. Zero
 	// disables the count bound.
 	EventLogPerTopicLimit int64
+	// EventLogSnapshotsPerTopicLimit retains this many newest source snapshots
+	// per topic. A full-source snapshot dwarfs an item event and older
+	// snapshots are fully superseded by the newest, so this — not the
+	// per-topic row bound, which counts item events too — is what caps
+	// event_log's size. Zero disables the bound; any positive value keeps the
+	// single latest snapshot the age/count bounds also preserve.
+	EventLogSnapshotsPerTopicLimit int64
 	// NodeRunLimit is the total number of newest node_run rows to retain.
 	NodeRunLimit int64
 	// TerminalOutputCommandLimit is the number of newest done/failed
@@ -38,12 +45,13 @@ type RetentionPolicy struct {
 // views while bounding SQLite growth from long-running pipelines.
 func DefaultRetentionPolicy() RetentionPolicy {
 	return RetentionPolicy{
-		NodeRunLimit:               10_000,
-		TerminalOutputCommandLimit: 2_000,
-		ActivityEventLimit:         5_000,
-		JobLimit:                   2_000,
-		ArchivedItemRetention:      90 * 24 * time.Hour,
-		EventPerItemLimit:          500,
+		NodeRunLimit:                   10_000,
+		TerminalOutputCommandLimit:     2_000,
+		ActivityEventLimit:             5_000,
+		JobLimit:                       2_000,
+		ArchivedItemRetention:          90 * 24 * time.Hour,
+		EventPerItemLimit:              500,
+		EventLogSnapshotsPerTopicLimit: 3,
 	}
 }
 
@@ -66,6 +74,9 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 	}
 	if policy.EventLogPerTopicLimit < 0 {
 		return RetentionResult{}, fmt.Errorf("event log per-topic limit must not be negative")
+	}
+	if policy.EventLogSnapshotsPerTopicLimit < 0 {
+		return RetentionResult{}, fmt.Errorf("event log snapshots per-topic limit must not be negative")
 	}
 	if policy.NodeRunLimit < 0 {
 		return RetentionResult{}, fmt.Errorf("node run retention limit must not be negative")
@@ -96,6 +107,11 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 		if policy.EventLogPerTopicLimit > 0 {
 			if err := q.DeleteEventsOverLimitPerTopic(ctx, policy.EventLogPerTopicLimit); err != nil {
 				return fmt.Errorf("pruning excess event log rows: %w", err)
+			}
+		}
+		if policy.EventLogSnapshotsPerTopicLimit > 0 {
+			if err := q.DeleteSnapshotsOverLimitPerTopic(ctx, policy.EventLogSnapshotsPerTopicLimit); err != nil {
+				return fmt.Errorf("pruning superseded source snapshots: %w", err)
 			}
 		}
 

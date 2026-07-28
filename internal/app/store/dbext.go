@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/migrate"
 
 	_ "modernc.org/sqlite"
@@ -33,11 +35,12 @@ func migrationsSub() (fs.FS, error) {
 
 // OpenOptions configures database connection settings.
 type OpenOptions struct {
-	MaxOpenConns int           // max open connections (default: 2)
-	MaxIdleConns int           // max idle connections (default: 2)
-	BusyTimeout  int           // busy timeout in milliseconds (default: 5000)
-	PauseIngest  time.Duration // development-only crash-window widening
-	PauseCommit  time.Duration // development-only crash-window widening
+	MaxOpenConns int            // max open connections (default: 2)
+	MaxIdleConns int            // max idle connections (default: 2)
+	BusyTimeout  int            // busy timeout in milliseconds (default: 5000)
+	PauseIngest  time.Duration  // development-only crash-window widening
+	PauseCommit  time.Duration  // development-only crash-window widening
+	Logger       zerolog.Logger // where the store reports recoverable anomalies; zero value discards
 }
 
 // DefaultOpenOptions returns the recommended defaults for SQLite.
@@ -61,6 +64,7 @@ type DB struct {
 	queries     *Queries
 	pauseIngest time.Duration
 	pauseCommit time.Duration
+	logger      zerolog.Logger
 }
 
 // querier is what hand-written SQL in this package must run against: the
@@ -139,6 +143,7 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 		queries:     New(conn),
 		pauseIngest: opts.PauseIngest,
 		pauseCommit: opts.PauseCommit,
+		logger:      opts.Logger,
 	}
 
 	// Verify connectivity - fail fast for SQLite.

@@ -164,9 +164,22 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 		for _, out := range b.Outputs {
 			switch out.Sink.Kind {
 			case SinkKindFeed:
-				item, err := q.GetInboxItemByExternalID(ctx, GetInboxItemByExternalIDParams{
-					ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope, ExternalID: out.Key,
-				})
+				item, err := resolveInboxItemScoped(ctx, q, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				if errors.Is(err, sql.ErrNoRows) {
+					// One unresolvable item must not wedge the whole consumer:
+					// fail the batch and the offset never advances, so it
+					// retries this same page forever and event_log grows
+					// without bound (issue #95). Skip it — the next
+					// authoritative snapshot re-attempts the claim once the row
+					// exists — and let the offset move on.
+					db.logger.Warn().
+						Str("consumer", b.Consumer).
+						Str("sourceKind", out.SourceKind).
+						Str("sourceScope", out.SourceScope).
+						Str("externalId", out.Key).
+						Msg("commit: no inbox item for feed output; skipping so the offset can advance")
+					continue
+				}
 				if err != nil {
 					return fmt.Errorf("resolving inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 				}
@@ -209,7 +222,13 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				if out.Sink.Kind != SinkKindFeed || out.Sink.TargetID != snapshot.FeedID || out.SourceTopic != snapshot.SourceTopic || out.SnapshotID != snapshot.SnapshotID {
 					continue
 				}
-				item, err := q.GetInboxItemByExternalID(ctx, GetInboxItemByExternalIDParams{ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope, ExternalID: out.Key})
+				item, err := resolveInboxItemScoped(ctx, q, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
+				if errors.Is(err, sql.ErrNoRows) {
+					// Consistent with the outputs pass above (already logged
+					// there): an item with no row claims no membership, so it
+					// contributes nothing to reconcile against.
+					continue
+				}
 				if err != nil {
 					return fmt.Errorf("resolving snapshot inbox item %s: %w", out.Key, err)
 				}

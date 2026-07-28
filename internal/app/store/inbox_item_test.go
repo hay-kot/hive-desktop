@@ -44,6 +44,33 @@ func TestIngestObservation_DuplicatePayloadWritesNothing(t *testing.T) {
 	assert.Equal(t, 1, events)
 }
 
+// A changed pre-#63 item (empty source_scope) must be rewritten onto the
+// account scope in place, not forked into a scoped duplicate beside the
+// original — which would strand the row that carries the user's triage
+// decisions. See issue #95.
+func TestIngestObservation_HealsChangedLegacyEmptyScopeItemInPlace(t *testing.T) {
+	db := openTestDB(t)
+	ctx := t.Context()
+	legacy, err := db.Queries().InsertInboxItem(ctx, InsertInboxItemParams{
+		ProfileID: "p", SourceKind: "github", SourceScope: "", ExternalID: "acme/repo#1",
+		Payload: []byte(`{"v":1}`), Lifecycle: "active", Unread: 1,
+	})
+	require.NoError(t, err)
+
+	current := Observation{ExternalID: "acme/repo#1", Title: "one", SourceKind: "github", SourceScope: "acct", ObservedAt: 100, Payload: []byte(`{"v":2}`)}
+	result, err := db.IngestObservation(ctx, activityClassifier("one"), IngestObservationParams{ProfileID: "p", Topic: "source:p/a", Current: current})
+	require.NoError(t, err)
+	require.True(t, result.Wrote)
+	assert.Equal(t, legacy.ID, result.ItemID, "the changed item heals the existing row rather than inserting a new one")
+
+	var rows int
+	var scope string
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item WHERE external_id = ?`, "acme/repo#1").Scan(&rows))
+	require.NoError(t, db.Conn().QueryRowContext(ctx, `SELECT source_scope FROM inbox_item WHERE id = ?`, legacy.ID).Scan(&scope))
+	assert.Equal(t, 1, rows, "no scoped duplicate is created")
+	assert.Equal(t, "acct", scope)
+}
+
 func TestIngestObservation_TrivialChangeUpdatesItemWithoutEvent(t *testing.T) {
 	db := openTestDB(t)
 	ctx := t.Context()
