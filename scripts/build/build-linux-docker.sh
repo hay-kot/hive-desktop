@@ -89,6 +89,12 @@ trap restore_lockfile EXIT
 
 emulated_note
 echo "==> building linux/$ARCH binary"
+OUTPUT="desktop/bin/hive-desktop"
+if [[ -e "$OUTPUT" && ! -f "$OUTPUT" ]]; then
+  echo "$OUTPUT exists and is not a file" >&2
+  exit 1
+fi
+rm -f "$OUTPUT"
 # The module cache is mounted read-only and npm lifecycle scripts are disabled:
 # the container runs third-party npm code as root, and nothing it executes may
 # be allowed to poison the cache the host's own builds — including the signed
