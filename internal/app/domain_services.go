@@ -11,10 +11,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
-// The four services in this file are thin. They exist so App is the single
+// The services in this file are thin. They exist so App is the single
 // entry point rather than a partial one: an adapter that has to reach past
 // the facade for a job list will reach past it for something else next.
 
@@ -151,6 +152,26 @@ func (s *GitHubService) SetToken(ctx context.Context, token string) (ghsource.Co
 
 func (s *GitHubService) Disconnect(context.Context) error {
 	return Wrap(s.conn.Disconnect(), KindInternal, "disconnecting GitHub")
+}
+
+// GrafanaService wraps the Grafana connector's stack auth with context
+// threading. It is leaner than GitHubService because acquisition is: a stack is
+// connected by pasting its URL and a service-account token, validated once, with
+// no device flow and no polled status — Integrations reports connected accounts
+// generically.
+type GrafanaService struct{ auth *grafana.Authenticator }
+
+func newGrafanaService(auth *grafana.Authenticator) *GrafanaService {
+	return &GrafanaService{auth: auth}
+}
+
+func (s *GrafanaService) Connect(ctx context.Context, url, token string) (grafana.Stack, error) {
+	stack, err := s.auth.Connect(ctx, url, token)
+	return stack, Wrap(err, KindUnauthenticated, "connecting to Grafana")
+}
+
+func (s *GrafanaService) Disconnect(ctx context.Context, account string) error {
+	return Wrap(s.auth.Disconnect(ctx, account), KindInternal, "disconnecting Grafana")
 }
 
 // PromptsService owns the paste-ready LLM prompts. Prompt text lives in

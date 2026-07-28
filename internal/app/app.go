@@ -31,6 +31,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
@@ -76,8 +77,10 @@ type App struct {
 	System   *SystemService
 	Webhooks *WebhookService
 	GitHub   *GitHubService
+	Grafana  *GrafanaService
 	// Integrations lists the connector registry with each entry's connection
-	// state. Generic; GitHub above is the provider-specific acquisition half.
+	// state. Generic; GitHub and Grafana above are the provider-specific
+	// acquisition halves.
 	Integrations *IntegrationsService
 	Activity     *ActivityService
 	Jobs         *JobService
@@ -111,6 +114,12 @@ type App struct {
 	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
 	gitHubConnection ghsource.Connection
+
+	// grafanaFetchers hands out one per-stack fetcher; grafanaAuth connects and
+	// disconnects stacks. Like GitHub's, they are one connector's — a pasted
+	// URL and token, no state machine — and nothing is gated on them.
+	grafanaFetchers *grafana.Fetchers
+	grafanaAuth     *grafana.Authenticator
 
 	// sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -250,6 +259,21 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: ghsource.Provider})
 	})
 
+	// Grafana has no fetch template to gate on a mock mode: its client is built
+	// per tick from a stack URL and token, so the fetcher registry and its stack
+	// store are always wired. A stack is connected by pasting a URL and a
+	// service-account token; the non-secret URL lives in grafana-stacks.json and
+	// the token in the keychain.
+	grafanaStacks := grafana.NewStackStore(filepath.Join(cfg.Paths.StateDir, "grafana-stacks.json"))
+	a.grafanaFetchers = grafana.NewFetchers(grafanaStacks, a.credentials, cfg.Logger)
+	a.grafanaAuth = grafana.NewAuthenticator(a.credentials, grafanaStacks, cfg.Logger, func(credentials.Ref) {
+		// A connect or disconnect drops every stack's cooldown so a freshly
+		// connected account is not held back by its predecessor's rate limit,
+		// then announces the change so Integrations re-reads.
+		a.grafanaFetchers.InvalidateAll()
+		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: grafana.Provider})
+	})
+
 	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, a.flowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.engine = a.buildEngine(cfg.Logger)
@@ -269,6 +293,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.System = newSystemService(cfg.Paths)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
+	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
 	a.Activity = newActivityService(a.activityStore)
 	a.Jobs = newJobService(a.jobStore)
@@ -549,13 +574,13 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetchers *ghsource.Fetchers) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
 		webhook.Descriptor.Type: webhook.NewFactory(),
 	}
@@ -564,6 +589,11 @@ func sourceFactories(fetchers *ghsource.Fetchers) map[string]connector.Factory {
 	// and skips rather than dereferencing nil.
 	if fetchers != nil {
 		factories[ghsource.Descriptor.Type] = ghsource.NewFactory(fetchers)
+	}
+	// Grafana's fetcher registry needs no fetch template, so it is always wired
+	// in a real build; the nil guard is only for the bijection test's mock call.
+	if grafanaFetchers != nil {
+		factories[grafana.Descriptor.Type] = grafana.NewFactory(grafanaFetchers)
 	}
 	return factories
 }

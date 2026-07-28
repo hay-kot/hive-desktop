@@ -2,6 +2,7 @@ package app
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -13,6 +14,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -21,6 +23,14 @@ import (
 // it, they do not fetch through it.
 func testFetchers() *ghsource.Fetchers {
 	return ghsource.NewFetchers(ghclient.NewClient(), credentials.NewMemoryStore(), zerolog.Nop())
+}
+
+// testGrafanaFetchers is the same for the Grafana connector: a real registry
+// over an empty stack store and memory credentials, never fetched through here.
+func testGrafanaFetchers(t *testing.T) *grafana.Fetchers {
+	t.Helper()
+	stacks := grafana.NewStackStore(filepath.Join(t.TempDir(), "grafana-stacks.json"))
+	return grafana.NewFetchers(stacks, credentials.NewMemoryStore(), zerolog.Nop())
 }
 
 // A connector's declaration is in two halves: the descriptor says what it is
@@ -32,7 +42,7 @@ func testFetchers() *ghsource.Fetchers {
 func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers())
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t))
 
 	for _, connectorType := range sources.Types() {
 		factory, ok := factories[connectorType]
@@ -54,7 +64,7 @@ func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers())
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t))
 
 	for _, connectorType := range sources.Types() {
 		descriptor, _ := sources.Lookup(connectorType)
@@ -99,7 +109,7 @@ func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(nil)
+	factories := sourceFactories(nil, nil)
 
 	_, ok := factories[ghsource.Descriptor.Type]
 	assert.False(t, ok, "the GitHub connector is wired without a fetcher to construct it over")
@@ -119,6 +129,9 @@ func seedValidConfig(config connector.Config) error {
 		c.Kind, c.Query = ghsource.KindSearch, "is:open is:pr"
 	case *webhook.Config:
 		c.Path = "ci-alerts"
+	case *grafana.MetricsConfig:
+		c.Credential = grafana.Provider + "/grafana.example.com-1"
+		c.DatasourceUID, c.Expr = "prometheus-uid", "up"
 	default:
 		return fmt.Errorf("no valid config seed for %T; add one alongside the connector", config)
 	}
