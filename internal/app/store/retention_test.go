@@ -100,6 +100,50 @@ func TestPrune_PreservesLatestSourceSnapshotForReplay(t *testing.T) {
 	assert.Equal(t, []string{fmt.Sprint(latest), fmt.Sprint(newest)}, []string{rows[0].ID, rows[1].ID})
 }
 
+func TestPrune_KeepsNewestSnapshotsPerTopicAndSparesItemEvents(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	var snapshots []int64
+	for i := range 5 {
+		off, err := database.AppendSnapshot(ctx, "source:flow/a", "github", "acct", []SnapshotItem{{Key: fmt.Sprintf("s%d", i), Payload: []byte(`{}`)}})
+		require.NoError(t, err)
+		snapshots = append(snapshots, off)
+	}
+	item, err := database.Append(ctx, "source:flow/a", "item", []byte(`{}`))
+	require.NoError(t, err)
+	// A second topic's lone snapshot must be untouched: the bound is per topic.
+	otherSnap, err := database.AppendSnapshot(ctx, "source:flow/b", "github", "acct", []SnapshotItem{{Key: "b", Payload: []byte(`{}`)}})
+	require.NoError(t, err)
+
+	_, err = database.Prune(ctx, nil, RetentionPolicy{EventLogSnapshotsPerTopicLimit: 2})
+	require.NoError(t, err)
+
+	var kept []int64
+	rows, err := database.Conn().QueryContext(ctx, `SELECT "offset" FROM event_log WHERE snapshot = 1 AND topic = 'source:flow/a' ORDER BY "offset"`)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, rows.Close()) }()
+	for rows.Next() {
+		var off int64
+		require.NoError(t, rows.Scan(&off))
+		kept = append(kept, off)
+	}
+	require.NoError(t, rows.Err())
+	assert.Equal(t, []int64{snapshots[3], snapshots[4]}, kept, "only the two newest snapshots for the topic survive")
+
+	var itemEvents, otherSnaps int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE "offset" = ? AND snapshot = 0`, item).Scan(&itemEvents))
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM event_log WHERE "offset" = ?`, otherSnap).Scan(&otherSnaps))
+	assert.Equal(t, 1, itemEvents, "item events are not touched by the snapshot bound")
+	assert.Equal(t, 1, otherSnaps, "a different topic's snapshots are bounded independently")
+}
+
+func TestPrune_RejectsNegativeSnapshotsPerTopicLimit(t *testing.T) {
+	database := openTestDB(t)
+	_, err := database.Prune(t.Context(), nil, RetentionPolicy{EventLogSnapshotsPerTopicLimit: -1})
+	require.EqualError(t, err, "event log snapshots per-topic limit must not be negative")
+}
+
 func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()

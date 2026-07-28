@@ -67,7 +67,7 @@ services in `internal/app/`.
 | `inbox_item` | Canonical per-profile observation identity, latest payload, revision, lifecycle, unread state, and archive metadata. Its unique key is profile, source kind, source scope, and external id. | Archived rows are removed 90 days after `archived_at`. Deleting a row cascades to its events and membership claims. |
 | `inbox_event` | Significant observation history for an inbox item: classification, transition, summary, detail, and occurrence key. Trivial payload refreshes do not add a row. | The newest 500 rows per item are retained. Older rows are removed first. |
 | `feed_membership_claim` | A flow engine assertion that an item belongs in a profile feed for a source node. | Removed when its item is deleted. Unarchived claims are replaced during synthetic replay; archived claims remain frozen. |
-| `event_log` | Append-only transport log used by enabled flow runtimes; their durable offsets are stored separately in `consumer_offset`. | Optional age and per-topic limits are applied by maintenance, while each source topic's newest authoritative snapshot is retained for membership replay. |
+| `event_log` | Append-only transport log used by enabled flow runtimes; their durable offsets are stored separately in `consumer_offset`. | Optional age and per-topic-row limits are applied by maintenance; the newest snapshots per topic are retained by their own bound (default 3) since older full-source snapshots are superseded, and each topic's newest authoritative snapshot is always kept for membership replay. |
 | `consumer_offset` | Last ordinary log offset fully committed by a flow. | A monotonic upsert prevents replay from moving a cursor backward. |
 | `source_head` | Latest source payload for change detection across producer restarts. | Deleted with a profile purge. |
 | `webhook_capture` | Most recent request body per webhook source topic, for the node editor's preview/prompt affordances. | One row per topic, replaced on every delivery. |
@@ -78,7 +78,8 @@ services in `internal/app/`.
 transaction prunes the configured log and diagnostic history, deletes expired
 archived items, and trims each item’s event history. The default policy keeps
 10,000 node runs, 2,000 terminal output commands, 5,000 activity events,
-2,000 terminal jobs, archived items for 90 days, and 500 events per item.
+2,000 terminal jobs, archived items for 90 days, 500 events per item, and the
+newest 3 source snapshots per topic.
 
 ## Observation ingestion
 
@@ -207,7 +208,10 @@ when the flow set changes, and drains on every append. Nothing about execution
 depends on a window being open. Normal processing reads after the flow’s durable offset. A committed
 batch atomically writes feed membership claims, enqueues action commands,
 records node metrics, and advances its offset; replaying an already committed
-offset is a no-op. `Discard` values are accounting input rather than persisted
+offset is a no-op. A feed output whose inbox row is written under the empty
+pre-#63 scope is healed onto its account scope during the commit; one that
+resolves to no row at all is skipped and logged rather than failing the batch,
+so a single unresolvable item cannot wedge the consumer at one offset. `Discard` values are accounting input rather than persisted
 rows: their aggregate is reflected in each node run’s drop count. Action
 commands are deduplicated by action id and source occurrence key.
 

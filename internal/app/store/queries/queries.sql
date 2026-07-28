@@ -66,6 +66,23 @@ WHERE (
       )
   );
 
+-- name: DeleteSnapshotsOverLimitPerTopic :exec
+-- Superseded source snapshots are dead weight: replay and every snapshot read
+-- take only the newest snapshot per topic, so older ones reconcile nothing.
+-- Keep the newest N snapshots per topic and delete the rest. This is the bound
+-- that actually caps event_log size, because a full-source snapshot dwarfs an
+-- ordinary item event; the per-topic row bound above counts item events too
+-- and so cannot target the snapshots that dominate. N is >= 1, so the single
+-- latest snapshot the age/count bounds preserve is preserved here as well.
+DELETE FROM event_log AS target
+WHERE target.snapshot = 1
+  AND (
+      SELECT COUNT(*) FROM event_log AS newer
+      WHERE newer.topic = target.topic
+        AND newer.snapshot = 1
+        AND newer."offset" > target."offset"
+  ) >= CAST(sqlc.arg(limit) AS INTEGER);
+
 -- name: CommitConsumerOffset :exec
 -- Monotonic upsert: on conflict, only advance the stored offset when the
 -- incoming one is greater. If it isn't, the WHERE clause makes the DO UPDATE
@@ -108,6 +125,14 @@ RETURNING *;
 -- name: GetInboxItemByExternalID :one
 SELECT * FROM inbox_item
 WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?;
+
+-- name: RescopeInboxItem :exec
+-- Move a row to a new source_scope. Used to heal pre-#63 rows written with an
+-- empty scope onto the account-scoped identity every post-#63 read keys on
+-- (issue #95); the caller only rescopes when the target identity is free, so
+-- this never collides with the UNIQUE (profile_id, source_kind, source_scope,
+-- external_id) index.
+UPDATE inbox_item SET source_scope = sqlc.arg(source_scope) WHERE id = sqlc.arg(id);
 
 -- name: FindInboxItemsByExternalID :many
 SELECT * FROM inbox_item

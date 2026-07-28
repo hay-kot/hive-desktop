@@ -328,9 +328,7 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 		}
 
 		var previous *Observation
-		prevRow, getErr := q.GetInboxItemByExternalID(ctx, GetInboxItemByExternalIDParams{
-			ProfileID: p.ProfileID, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, ExternalID: p.Current.ExternalID,
-		})
+		prevRow, getErr := resolveInboxItemScoped(ctx, q, p.ProfileID, p.Current.SourceKind, p.Current.SourceScope, p.Current.ExternalID)
 		if getErr == nil {
 			previous = &Observation{ExternalID: prevRow.ExternalID, Title: prevRow.Title, URL: prevRow.Url, SourceKind: prevRow.SourceKind, SourceScope: prevRow.SourceScope, ObservedAt: prevRow.LastEventAt, Payload: prevRow.Payload}
 		} else if !errors.Is(getErr, sql.ErrNoRows) {

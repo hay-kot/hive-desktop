@@ -204,6 +204,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	dbOptions := store.DefaultOpenOptions()
 	dbOptions.PauseIngest = cfg.Settings.Development.Debug.PauseIngest.Duration()
 	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
+	dbOptions.Logger = cfg.Logger
 	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
 	if err != nil {
 		cancel()

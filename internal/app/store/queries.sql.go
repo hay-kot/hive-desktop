@@ -470,6 +470,29 @@ func (q *Queries) DeleteOrphanedSourceHeads(ctx context.Context) error {
 	return err
 }
 
+const deleteSnapshotsOverLimitPerTopic = `-- name: DeleteSnapshotsOverLimitPerTopic :exec
+DELETE FROM event_log AS target
+WHERE target.snapshot = 1
+  AND (
+      SELECT COUNT(*) FROM event_log AS newer
+      WHERE newer.topic = target.topic
+        AND newer.snapshot = 1
+        AND newer."offset" > target."offset"
+  ) >= CAST(?1 AS INTEGER)
+`
+
+// Superseded source snapshots are dead weight: replay and every snapshot read
+// take only the newest snapshot per topic, so older ones reconcile nothing.
+// Keep the newest N snapshots per topic and delete the rest. This is the bound
+// that actually caps event_log size, because a full-source snapshot dwarfs an
+// ordinary item event; the per-topic row bound above counts item events too
+// and so cannot target the snapshots that dominate. N is >= 1, so the single
+// latest snapshot the age/count bounds preserve is preserved here as well.
+func (q *Queries) DeleteSnapshotsOverLimitPerTopic(ctx context.Context, limit int64) error {
+	_, err := q.db.ExecContext(ctx, deleteSnapshotsOverLimitPerTopic, limit)
+	return err
+}
+
 const deleteSourceHead = `-- name: DeleteSourceHead :exec
 DELETE FROM source_head WHERE topic = ? AND key = ?
 `
@@ -2087,6 +2110,25 @@ func (q *Queries) RerunOutputCommand(ctx context.Context, arg RerunOutputCommand
 		&i.IsRerun,
 	)
 	return i, err
+}
+
+const rescopeInboxItem = `-- name: RescopeInboxItem :exec
+UPDATE inbox_item SET source_scope = ?1 WHERE id = ?2
+`
+
+type RescopeInboxItemParams struct {
+	SourceScope string `json:"source_scope"`
+	ID          int64  `json:"id"`
+}
+
+// Move a row to a new source_scope. Used to heal pre-#63 rows written with an
+// empty scope onto the account-scoped identity every post-#63 read keys on
+// (issue #95); the caller only rescopes when the target identity is free, so
+// this never collides with the UNIQUE (profile_id, source_kind, source_scope,
+// external_id) index.
+func (q *Queries) RescopeInboxItem(ctx context.Context, arg RescopeInboxItemParams) error {
+	_, err := q.db.ExecContext(ctx, rescopeInboxItem, arg.SourceScope, arg.ID)
+	return err
 }
 
 const retryOutputCommand = `-- name: RetryOutputCommand :exec

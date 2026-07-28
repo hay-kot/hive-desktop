@@ -31,6 +31,63 @@ func TestCommitBatch_FeedOutput_ClaimsResolvedInboxItem(t *testing.T) {
 	assert.Equal(t, 1, claims)
 }
 
+// A pre-#63 row carries an empty source_scope. A post-#63 feed output keys on the
+// account scope, so the direct lookup misses; the commit must heal the row
+// onto that scope, claim membership, and leave exactly one row — not wedge and
+// not fork a duplicate. See issue #95.
+func TestCommitBatch_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+	legacy, err := database.Queries().InsertInboxItem(ctx, InsertInboxItemParams{
+		ProfileID: "flow-1", SourceKind: "github", SourceScope: "", ExternalID: "colonyops/hive#199",
+		Payload: []byte(`{"v":1}`), Lifecycle: "active", Unread: 1,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		Outputs: []Output{{
+			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "colonyops/hive#199",
+			SourceKind: "github", SourceScope: "hay-kot", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	var scope string
+	var rows int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT source_scope FROM inbox_item WHERE id = ?`, legacy.ID).Scan(&scope))
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item WHERE external_id = ?`, "colonyops/hive#199").Scan(&rows))
+	assert.Equal(t, "hay-kot", scope, "the legacy row is rewritten to the current scope")
+	assert.Equal(t, 1, rows, "healing rewrites the row rather than forking a duplicate")
+
+	var claims int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim WHERE item_id = ?`, legacy.ID).Scan(&claims))
+	assert.Equal(t, 1, claims)
+}
+
+// A feed output whose item exists under no scope at all must not fail the whole
+// batch: the offset has to advance so the consumer cannot be wedged at one
+// unresolvable item forever (issue #95).
+func TestCommitBatch_FeedOutput_SkipsUnresolvableItem(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 7,
+		Outputs: []Output{{
+			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "ghost#1",
+			SourceKind: "github", SourceScope: "hay-kot", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	offset, err := database.ConsumerOffset(ctx, "flow-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), offset, "an unresolvable item is skipped, not fatal — the offset still advances")
+
+	var claims int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
+	assert.Zero(t, claims)
+}
+
 func TestCommitBatch_ActionOutput_EnqueuesOnce(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()
