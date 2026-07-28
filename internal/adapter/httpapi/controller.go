@@ -5,15 +5,22 @@
 // mutations like setting a profile's avatar — the same core methods a future
 // MCP adapter will expose as tools. It mounts onto the webhook listener's
 // loopback server, which also hosts the optional pprof handler (ADR 0023).
+//
+// The surface is self-describing (ADR 0027): one operations table
+// (Controller.operations) is the single source the mux, the GET /api route
+// index, and the GET /api/openapi.json document are all built from, so an agent
+// discovers the API in one call rather than reverse-engineering the binary.
 package httpapi
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/hay-kot/criterio"
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/web"
 )
 
 // PathPrefix is where App mounts this handler on the webhook listener.
@@ -25,12 +32,13 @@ const (
 )
 
 type Controller struct {
-	core *app.App
-	log  zerolog.Logger
+	core    *app.App
+	log     zerolog.Logger
+	version http.HandlerFunc
 }
 
 func New(core *app.App, log zerolog.Logger) *Controller {
-	return &Controller{core: core, log: log}
+	return &Controller{core: core, log: log, version: web.VersionHandler("hive.desktop.api")}
 }
 
 func requiredWith[T comparable](other string) criterio.Validator[T] {

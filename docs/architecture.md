@@ -60,9 +60,12 @@ individual choices; this document describes the shape everything fits into.
 > `internal/adapter/httpapi` is an agent-facing control surface over `app.App`
 > (read, reload, and mutations like setting a profile avatar), mounted onto a
 > single loopback `http` server (on by default) that also hosts the webhook
-> listener, rather than owning one (ADR 0021). It grows toward full agentic
-> control, with the same core methods later exposed as MCP tools. The full
-> REST + SSE product surface and the MCP adapter are still absent.
+> listener, rather than owning one (ADR 0021). It is self-describing: one
+> operations table registers the routes and serves a `GET /api` index plus a
+> generated, schema-validated `GET /api/openapi.json` (ADR 0027). It grows toward
+> full agentic control, with the same core methods and reflected schemas later
+> exposed as MCP tools. The full REST + SSE product surface and the MCP adapter
+> are still absent.
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
 > see [Background lifecycle](#background-lifecycle)) and the MCP adapter — see
@@ -290,7 +293,9 @@ internal/
                                   #   on the shared loopback http server that also
                                   #   hosts the webhook listener (ADR 0021), in
                                   #   the errchain shape (ADR 0022): routes.go +
-                                  #   ctrl_*.go per resource
+                                  #   ctrl_*.go per resource. One operations table
+                                  #   backs the mux, GET /api, and a generated,
+                                  #   validated GET /api/openapi.json (ADR 0027)
     mcpsrv/                       # tools over App; in-memory transport for the agent
 
   web/                            # HTTP plumbing shared with cmd/devserver
@@ -804,7 +809,9 @@ These are deliberately unresolved; revisit when the relevant work starts.
 - **Command placement** — per-domain service methods with request structs
   (current plan, matching `hivecore/hive/app.go`) versus a flat
   `app/command` + `app/query` package that gives MCP and CLI generation one
-  place to enumerate.
+  place to enumerate. The httpapi operations table (ADR 0027) is an
+  adapter-local precedent for the enumeration side, not a resolution of where
+  the commands live.
 - **`adapter/` as a grouping directory** versus flat `internal/wailsui`,
   `internal/httpapi`, `internal/mcpsrv`.
 - **Schema-driven editor forms** — a connector's config schema is reflected

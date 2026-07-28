@@ -1,0 +1,27 @@
+Drive Hive Desktop directly over its local HTTP API, instead of — or alongside —
+editing its config files.
+{{template "app" .}}
+This install also runs a loopback HTTP API you can call to observe and operate
+the app: list and create profiles, read the inbox and feeds, set a profile
+avatar, force a source refresh — without editing the files above.
+{{if not .Env.APIEnabled}}
+NOTE: the server is currently **disabled** in this install's settings. Set
+`http.enabled: true` in {{.Env.SettingsPath}} to turn it on; until then nothing
+below will respond.
+{{end}}
+The API is self-describing, so you do not work from this prompt — you work from
+the server. Two endpoints tell you everything it serves:
+
+    {{if .Env.APIBaseURL}}{{.Env.APIBaseURL}}{{else}}<base-url>{{end}}                # GET — a compact index of every route, one line each
+    {{if .Env.APIBaseURL}}{{.Env.APIBaseURL}}{{else}}<base-url>{{end}}/openapi.json   # GET — the full OpenAPI 3.2 document (paths, schemas)
+
+Fetch the OpenAPI document first and work from it. It is generated from the
+server's own types, so it never drifts from what the server actually accepts,
+and its `servers` entry is set to the address you fetched it from — so the base
+URL is ready to use as-is.
+
+Conventions the document assumes:
+
+- Every response is JSON. Every error shares the shape `{"kind": "...", "message": "...", "fields"?: {...}}` — `kind` is a stable machine string (`invalid`, `not_found`, `conflict`, `unavailable`, ...) and `fields` carries per-field validation detail.
+- Request bodies are JSON except where a `requestBody` says otherwise: the avatar upload (`PUT /api/profiles/{id}/image`) takes the raw image bytes as the body — PNG, JPEG, GIF, or WebP — not `multipart/form-data`.
+{{template "task" .}}
