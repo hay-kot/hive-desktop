@@ -1,0 +1,599 @@
+/* Docs section styles. Loaded only by the Docs layout, so every selector is
+   namespaced under a docs-scoped class and never reaches the marketing pages. */
+
+/* Header ---------------------------------------------------------------- */
+
+.docshead {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  backdrop-filter: blur(10px);
+  background: rgba(15, 17, 22, 0.8);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.docshead__inner {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 14px var(--gutter);
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.docshead__brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--amber);
+}
+
+.docshead__brand span:first-of-type {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.docshead__tag {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--amber);
+  background: var(--amber-tint);
+  border: 1px solid var(--amber-edge);
+  border-radius: 20px;
+  padding: 2px 9px;
+}
+
+.docshead__links {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-size: 14px;
+}
+
+.docshead__links a {
+  color: var(--text-muted);
+}
+
+.docshead__links a:hover {
+  color: var(--text);
+}
+
+.docshead__actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.docshead__cta {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--amber);
+  border-radius: 8px;
+  padding: 8px 15px;
+  white-space: nowrap;
+  transition: background 0.2s;
+}
+
+.docshead__cta:hover {
+  background: var(--amber-hi);
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .docshead__links {
+    display: none;
+  }
+  .docshead__actions {
+    margin-left: auto;
+  }
+}
+
+/* Layout ---------------------------------------------------------------- */
+
+.docs {
+  max-width: 1320px;
+  margin: 0 auto;
+  padding: 40px var(--gutter) 88px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 36px;
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .docs {
+    grid-template-columns: 240px minmax(0, 1fr);
+    gap: 52px;
+  }
+}
+
+@media (min-width: 1240px) {
+  .docs {
+    grid-template-columns: 240px minmax(0, 1fr) 190px;
+  }
+}
+
+/* Sidebar --------------------------------------------------------------- */
+
+.docs__sidebar {
+  min-width: 0;
+}
+
+@media (min-width: 1024px) {
+  .docs__sidebar {
+    position: sticky;
+    top: 82px;
+    align-self: start;
+    max-height: calc(100vh - 102px);
+    overflow-y: auto;
+  }
+}
+
+.docsnav {
+  border: 1px solid var(--line-3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.docsnav__summary {
+  display: none;
+}
+
+.docsnav__body {
+  padding: 6px 4px;
+}
+
+.docsnav__group + .docsnav__group {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line-4);
+}
+
+.docsnav__title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 8px 12px 4px;
+}
+
+.docsnav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.docsnav__link {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  border-radius: 7px;
+}
+
+.docsnav__link:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.docsnav__link.is-active {
+  color: var(--amber);
+  background: var(--amber-tint);
+  font-weight: 500;
+}
+
+/* On narrow screens the sidebar collapses into a native disclosure. */
+@media (max-width: 1023px) {
+  .docsnav__summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    list-style: none;
+    cursor: pointer;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--text);
+    padding: 12px 16px;
+  }
+  .docsnav__summary::-webkit-details-marker {
+    display: none;
+  }
+  .docsnav__summary::after {
+    content: "";
+    width: 7px;
+    height: 7px;
+    margin-left: auto;
+    border-right: 2px solid var(--text-dim);
+    border-bottom: 2px solid var(--text-dim);
+    transform: rotate(45deg);
+    transition: transform 0.2s;
+  }
+  .docsnav[open] .docsnav__summary::after {
+    transform: rotate(-135deg);
+  }
+}
+
+/* Desktop: force the disclosure open and drop the summary toggle. */
+@media (min-width: 1024px) {
+  .docsnav__body {
+    display: block !important;
+  }
+}
+
+/* Content --------------------------------------------------------------- */
+
+.docs__main {
+  min-width: 0;
+}
+
+.docs__eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 14px;
+}
+
+.docs__lede {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text-soft);
+  margin: 12px 0 8px;
+}
+
+.docs__pager {
+  display: flex;
+  gap: 16px;
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--line-3);
+}
+
+.docs__pager a {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--line-3);
+  border-radius: 10px;
+  padding: 14px 18px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.02);
+  transition: border-color 0.2s, background 0.2s;
+}
+
+.docs__pager a:hover {
+  border-color: var(--amber-edge);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.docs__pager a.is-next {
+  text-align: right;
+}
+
+.docs__pager .docs__pager-dir {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+
+.docs__pager .docs__pager-title {
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* On this page ---------------------------------------------------------- */
+
+.docs__toc {
+  display: none;
+}
+
+@media (min-width: 1240px) {
+  .docs__toc {
+    display: block;
+    position: sticky;
+    top: 82px;
+    align-self: start;
+  }
+}
+
+.docs__toc-title {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 12px;
+}
+
+.docs__toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-left: 1px solid var(--line-3);
+}
+
+.docs__toc a {
+  display: block;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--text-muted);
+  padding: 5px 0 5px 14px;
+  margin-left: -1px;
+  border-left: 1px solid transparent;
+}
+
+.docs__toc a:hover {
+  color: var(--text);
+}
+
+.docs__toc a.lvl-3 {
+  padding-left: 26px;
+}
+
+/* Prose ----------------------------------------------------------------- */
+
+.prose {
+  font-size: 15.5px;
+  line-height: 1.7;
+  color: var(--text-soft);
+}
+
+.prose h1 {
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: var(--text-bright);
+  margin: 4px 0 0;
+}
+
+.prose h2 {
+  font-size: 22px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  margin: 44px 0 14px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line-4);
+}
+
+.prose h3 {
+  font-size: 17px;
+  color: var(--text);
+  margin: 30px 0 10px;
+}
+
+.prose :where(h1, h2, h3, h4) {
+  scroll-margin-top: 84px;
+}
+
+.prose p {
+  margin: 14px 0;
+}
+
+.prose a {
+  color: var(--amber);
+  text-decoration: underline;
+  text-decoration-color: var(--amber-edge);
+  text-underline-offset: 3px;
+}
+
+.prose a:hover {
+  color: var(--amber-hi);
+  text-decoration-color: var(--amber-hi);
+}
+
+.prose strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.prose ul,
+.prose ol {
+  margin: 14px 0;
+  padding-left: 22px;
+}
+
+.prose li {
+  margin: 7px 0;
+}
+
+.prose li::marker {
+  color: var(--text-dim);
+}
+
+.prose :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  color: var(--amber-hi);
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid var(--amber-edge);
+  border-radius: 5px;
+  padding: 1px 5px;
+}
+
+.prose pre {
+  background: var(--diagram-bg) !important;
+  border: 1px solid var(--line-3);
+  border-radius: 10px;
+  padding: 15px 18px;
+  overflow-x: auto;
+  margin: 18px 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.prose pre code {
+  font-family: var(--font-mono);
+}
+
+.prose blockquote {
+  margin: 18px 0;
+  padding: 4px 18px;
+  border-left: 3px solid var(--amber-edge);
+  background: var(--amber-tint);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-soft);
+}
+
+.prose blockquote p {
+  margin: 10px 0;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid var(--line-3);
+  margin: 36px 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
+}
+
+.prose th,
+.prose td {
+  text-align: left;
+  padding: 9px 14px;
+  border: 1px solid var(--line-3);
+}
+
+.prose th {
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.prose img {
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid var(--line-3);
+}
+
+.prose kbd {
+  font-family: var(--font-mono);
+  font-size: 0.8em;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* Search ---------------------------------------------------------------- */
+
+.docsearch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line-3);
+  border-radius: 8px;
+  padding: 7px 11px;
+  cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+}
+
+.docsearch-btn:hover {
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.docsearch-btn kbd {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--line-2);
+  border-radius: 4px;
+  padding: 0 5px;
+}
+
+@media (max-width: 520px) {
+  .docsearch-btn span {
+    display: none;
+  }
+  .docsearch-btn kbd {
+    display: none;
+  }
+}
+
+.docsearch {
+  width: min(640px, 92vw);
+  max-height: 76vh;
+  margin-top: 12vh;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.docsearch::backdrop {
+  background: rgba(6, 7, 10, 0.62);
+  backdrop-filter: blur(2px);
+}
+
+.docsearch__panel {
+  padding: 16px;
+}
+
+.docsearch__err {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  padding: 8px 4px;
+}
+
+.docsearch__err code {
+  font-family: var(--font-mono);
+  color: var(--amber-hi);
+}
+
+/* Pagefind UI is injected at runtime, so it is themed with the variables it
+   exposes rather than scoped selectors. */
+#docsearch-ui {
+  --pagefind-ui-primary: var(--amber);
+  --pagefind-ui-text: var(--text);
+  --pagefind-ui-background: var(--surface);
+  --pagefind-ui-border: var(--line-3);
+  --pagefind-ui-tag: var(--surface-2);
+  --pagefind-ui-border-width: 1px;
+  --pagefind-ui-border-radius: 9px;
+  --pagefind-ui-font: var(--font-sans);
+}
+
+#docsearch-ui .pagefind-ui__result-title a {
+  color: var(--text);
+}
+
+#docsearch-ui .pagefind-ui__result-title a:hover {
+  color: var(--amber);
+}
+
+#docsearch-ui mark {
+  color: var(--amber-hi);
+  background: transparent;
+  font-weight: 600;
+}
