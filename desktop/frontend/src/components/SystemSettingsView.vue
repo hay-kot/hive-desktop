@@ -173,12 +173,12 @@ onMounted(() => {
               >Up to date</span>
             </div>
           </div>
-          <div class="h-[26px] w-px bg-row" />
+          <div class="hidden h-[26px] w-px bg-row @[520px]/pane:block" />
           <div class="flex flex-col gap-1">
             <span class="text-[11px] text-text-3">Commit</span>
             <span class="font-mono text-[13px] text-text" data-testid="system-build-commit">{{ build.commit }}</span>
           </div>
-          <div class="h-[26px] w-px bg-row" />
+          <div class="hidden h-[26px] w-px bg-row @[520px]/pane:block" />
           <div class="flex flex-col gap-1">
             <span class="text-[11px] text-text-3">Built</span>
             <span class="font-mono text-[13px] text-text" data-testid="system-build-date">{{ build.date }}</span>
@@ -202,20 +202,22 @@ onMounted(() => {
             ><IconExternalLink class="size-3.5" />Release</button>
           </div>
         </div>
-        <div class="flex items-center gap-3.5 border-t border-row px-4 py-3.5">
-          <AppSwitch
-            :model-value="autoUpdate"
-            aria-label="Automatic updates"
-            testid="system-auto-update"
-            @update:model-value="setAutoUpdate"
-          />
-          <div class="min-w-0 flex-1">
-            <div class="text-[13.5px] font-semibold text-text">Automatic updates</div>
-            <div class="mt-0.5 text-[11.5px] text-text-3">Check for and install new versions from GitHub in the background.</div>
+        <div class="flex flex-col gap-3 border-t border-row px-4 py-3.5 @[600px]/pane:flex-row @[600px]/pane:items-center @[600px]/pane:gap-3.5">
+          <div class="flex min-w-0 flex-1 items-center gap-3.5">
+            <AppSwitch
+              :model-value="autoUpdate"
+              aria-label="Automatic updates"
+              testid="system-auto-update"
+              @update:model-value="setAutoUpdate"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="text-[13.5px] font-semibold text-text">Automatic updates</div>
+              <div class="mt-0.5 text-[11.5px] text-text-3">Check for and install new versions from GitHub in the background.</div>
+            </div>
           </div>
           <button
             type="button"
-            class="flex shrink-0 cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+            class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50 @[600px]/pane:self-auto"
             :disabled="checkingUpdate"
             data-testid="system-check-update"
             @click="checkForUpdates"
