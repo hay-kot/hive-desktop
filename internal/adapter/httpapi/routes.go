@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/hay-kot/httpkit/errchain"
 
@@ -41,10 +42,23 @@ func (op Op) successStatus() int {
 	return op.Status
 }
 
+// pattern is the ServeMux pattern this op registers under. A path ending in "/"
+// is anchored with {$} so it matches only that exact path: the index lives at
+// the mount root /api/ (a request for /api is redirected there by the listener
+// that mounts this handler), and without the anchor it would become a subtree
+// that swallows every otherwise-unmatched /api/… request instead of 404ing.
+func (op Op) pattern() string {
+	path := op.Path
+	if strings.HasSuffix(path, "/") {
+		path += "{$}"
+	}
+	return op.Method + " " + path
+}
+
 func (ctrl *Controller) operations() []Op {
 	return []Op{
 		{
-			Method: "GET", Path: "/api", Summary: "List every route this API serves, with a link to the OpenAPI document.",
+			Method: "GET", Path: "/api/", Summary: "List every route this API serves, with a link to the OpenAPI document.",
 			Response: apiIndex{}, Handler: ctrl.APIIndex,
 		},
 		{
@@ -75,7 +89,7 @@ func (ctrl *Controller) operations() []Op {
 			Query: EventsQuery{}, Response: eventsResponse{}, Handler: ctrl.InboxItemEvents,
 		},
 		{
-			Method: "POST", Path: "/api/sources/refresh", Summary: "Force one producer tick, dropping fetch caches, and report what each source appended.",
+			Method: "POST", Path: "/api/sources/refresh", Summary: "Force one producer tick across all sources, dropping fetch caches; returns aggregate totals, not a per-source breakdown.",
 			Response: refreshResponse{}, Handler: ctrl.SourcesRefresh,
 		},
 		{
@@ -113,7 +127,7 @@ func (ctrl *Controller) Handler() http.Handler {
 
 	mux := http.NewServeMux()
 	for _, op := range ctrl.operations() {
-		mux.HandleFunc(op.Method+" "+op.Path, chain.ToHandlerFunc(op.Handler))
+		mux.HandleFunc(op.pattern(), chain.ToHandlerFunc(op.Handler))
 	}
 	return mid.Logger(ctrl.log, "/api/status", "/api/version")(mux)
 }

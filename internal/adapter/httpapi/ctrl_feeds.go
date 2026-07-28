@@ -11,7 +11,7 @@ import (
 )
 
 type FeedsQuery struct {
-	Profile string `schema:"profile"`
+	Profile string `schema:"profile" desc:"Profile id to list feeds for; ids come from GET /api/profiles." example:"hive" required:"true"`
 }
 
 func (q FeedsQuery) Validate() error {

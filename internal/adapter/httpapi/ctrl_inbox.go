@@ -14,11 +14,11 @@ import (
 )
 
 type InboxQuery struct {
-	Profile    string `schema:"profile"`
-	ExternalID string `schema:"externalId"`
-	Feed       string `schema:"feed"`
-	Archived   bool   `schema:"archived"`
-	Limit      int    `schema:"limit"`
+	Profile    string `schema:"profile"    desc:"Profile id to scope to (from GET /api/profiles). Required when 'feed' is set."           example:"hive"`
+	ExternalID string `schema:"externalId" desc:"A source's own id (e.g. a GitHub node id); returns every matching item across profiles."`
+	Feed       string `schema:"feed"       desc:"Feed id from GET /api/feeds (e.g. 'hive/desktop-prs') to return only that feed's items." example:"hive/desktop-prs"`
+	Archived   bool   `schema:"archived"   desc:"When true, list archived items instead of active ones."`
+	Limit      int    `schema:"limit"      desc:"Maximum items to return; defaults to 200."`
 }
 
 func (q InboxQuery) Validate() error {
@@ -61,10 +61,10 @@ func (ctrl *Controller) InboxList(w http.ResponseWriter, r *http.Request) error 
 }
 
 type EventsQuery struct {
-	ItemID     int64  `schema:"itemId"`
-	ExternalID string `schema:"externalId"`
-	Profile    string `schema:"profile"`
-	Limit      int    `schema:"limit"`
+	ItemID     int64  `schema:"itemId"     desc:"Inbox item id. Provide this or externalId."`
+	ExternalID string `schema:"externalId" desc:"External id resolving to one item; provide this or itemId. If it matches items in more than one profile, add 'profile' to disambiguate, else the response is 409."`
+	Profile    string `schema:"profile"    desc:"Profile id used to disambiguate an externalId that matches multiple profiles."`
+	Limit      int    `schema:"limit"      desc:"Maximum events to return; defaults to 50."`
 }
 
 func (q EventsQuery) Validate() error {

@@ -12,7 +12,7 @@ below will respond.
 The API is self-describing, so you do not work from this prompt — you work from
 the server. Two endpoints tell you everything it serves:
 
-    {{if .Env.APIBaseURL}}{{.Env.APIBaseURL}}{{else}}<base-url>{{end}}                # GET — a compact index of every route, one line each
+    {{if .Env.APIBaseURL}}{{.Env.APIBaseURL}}{{else}}<base-url>{{end}}/                # GET — a compact index of every route, one line each
     {{if .Env.APIBaseURL}}{{.Env.APIBaseURL}}{{else}}<base-url>{{end}}/openapi.json   # GET — the full OpenAPI 3.2 document (paths, schemas)
 
 Fetch the OpenAPI document first and work from it. It is generated from the

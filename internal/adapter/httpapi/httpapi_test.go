@@ -119,6 +119,18 @@ func TestServedOverWebhookListener(t *testing.T) {
 	defer resp.Body.Close() //nolint:errcheck // test
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "the API is reachable over the webhook port")
 
+	// The route index sits at the mount root. Through the listener a request for
+	// /api is redirected to /api/, so it must be served there — the in-process
+	// handler test cannot catch this because it has no mount prefix in front.
+	for _, target := range []string{base + "/api/", base + "/api"} {
+		idxResp, err := http.Get(target) //nolint:noctx // loopback test
+		require.NoError(t, err)
+		body, _ := io.ReadAll(idxResp.Body)
+		idxResp.Body.Close() //nolint:errcheck // test
+		require.Equalf(t, http.StatusOK, idxResp.StatusCode, "the route index is reachable at %s", target)
+		assert.Containsf(t, string(body), `"routes"`, "%s returns the index", target)
+	}
+
 	var listed struct {
 		Items []store.InboxItemView `json:"items"`
 	}
@@ -267,7 +279,7 @@ func TestProfileImageRejectsBadRequests(t *testing.T) {
 func TestAPIIndexListsEveryRoute(t *testing.T) {
 	_, handler := testServer(t)
 
-	rec := get(t, handler, "/api")
+	rec := get(t, handler, "/api/")
 	require.Equal(t, http.StatusOK, rec.Code)
 
 	var idx struct {
@@ -290,7 +302,7 @@ func TestAPIIndexListsEveryRoute(t *testing.T) {
 		assert.True(t, strings.HasPrefix(r.Path, "/api"), "%s is under /api", r.Path)
 		notes[r.Method+" "+r.Path] = r.Request
 	}
-	assert.Contains(t, notes, "GET /api", "the index lists itself")
+	assert.Contains(t, notes, "GET /api/", "the index lists itself")
 	assert.Contains(t, notes, "GET /api/openapi.json", "the index lists the spec")
 	require.Contains(t, notes, "PUT /api/profiles/{id}/image")
 	assert.Contains(t, notes["PUT /api/profiles/{id}/image"], "not multipart",
@@ -309,7 +321,7 @@ func TestOpenAPIDocumentAgreesWithIndex(t *testing.T) {
 			Path   string `json:"path"`
 		} `json:"routes"`
 	}
-	require.NoError(t, json.Unmarshal(get(t, handler, "/api").Body.Bytes(), &idx))
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/").Body.Bytes(), &idx))
 
 	rec := get(t, handler, "/api/openapi.json")
 	require.Equal(t, http.StatusOK, rec.Code)
@@ -374,6 +386,38 @@ func TestOpenAPIDocumentAgreesWithIndex(t *testing.T) {
 	}
 	assert.Equal(t, "query", query["feed"])
 	assert.Equal(t, "query", query["profile"])
+}
+
+// TestOpenAPIParametersAreDescribed guards the fixes the agent evaluation drove:
+// a genuinely-required query param is marked required (the spec must not
+// contradict the server), and params carry descriptions/examples.
+func TestOpenAPIParametersAreDescribed(t *testing.T) {
+	_, handler := testServer(t)
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Parameters []struct {
+				Name        string `json:"name"`
+				Required    bool   `json:"required"`
+				Description string `json:"description"`
+				Example     string `json:"example"`
+			} `json:"parameters"`
+		} `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/openapi.json").Body.Bytes(), &doc))
+
+	var profile struct {
+		Required    bool
+		Description string
+		Example     string
+	}
+	for _, p := range doc.Paths["/api/feeds"]["get"].Parameters {
+		if p.Name == "profile" {
+			profile.Required, profile.Description, profile.Example = p.Required, p.Description, p.Example
+		}
+	}
+	assert.True(t, profile.Required, "feeds.profile is required in the spec, matching the server")
+	assert.NotEmpty(t, profile.Description, "feeds.profile carries a description")
+	assert.Equal(t, "hive", profile.Example)
 }
 
 // TestOpenAPISpecIsValid validates the generated document against the embedded

@@ -182,10 +182,22 @@ func queryParameters(v any) ([]any, error) {
 		if name == "" || name == "-" {
 			continue
 		}
-		out = append(out, map[string]any{
-			"name": name, "in": "query", "required": false,
-			"schema": map[string]any{"type": openAPIScalar(f.Type.Kind())},
-		})
+		// Required-ness and prose live on struct tags because the actual rules
+		// are imperative criterio in each Validate(); a conditional requirement
+		// (profile is required only when feed is set) stays required:false and is
+		// spelled out in the field's desc instead.
+		param := map[string]any{
+			"name": name, "in": "query",
+			"required": f.Tag.Get("required") == "true",
+			"schema":   map[string]any{"type": openAPIScalar(f.Type.Kind())},
+		}
+		if d := f.Tag.Get("desc"); d != "" {
+			param["description"] = d
+		}
+		if ex := f.Tag.Get("example"); ex != "" {
+			param["example"] = ex
+		}
+		out = append(out, param)
 	}
 	return out, nil
 }
