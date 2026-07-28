@@ -21,12 +21,14 @@ import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
+import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
+import IconActivity from '~icons/lucide/activity'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
@@ -56,6 +58,7 @@ const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 const { theme } = useTheme()
 const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
 const githubSettingsOpen = ref(false)
+const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
 
 // The webhook card's badge reflects the same state the drawer edits, so a save
@@ -85,6 +88,7 @@ const { integrations, loaded: integrationsLoaded } = useIntegrations()
 
 const presentation: Record<string, { description: string }> = {
   'sources.github': { description: 'Issues, pull requests, and notifications' },
+  'sources.grafana_metrics': { description: 'PromQL metrics from a Grafana stack' },
   'sources.webhook': { description: 'Receive JSON from anything that can POST' },
 }
 
@@ -92,6 +96,7 @@ const presentation: Record<string, { description: string }> = {
 // gear rather than a button that does nothing.
 const drawers: Record<string, () => void> = {
   'sources.github': () => { githubSettingsOpen.value = true },
+  'sources.grafana_metrics': () => { grafanaSettingsOpen.value = true },
   'sources.webhook': () => { webhookSettingsOpen.value = true },
 }
 
@@ -194,6 +199,7 @@ function onThemeChange(value: string): void {
               <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.type === 'sources.github' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
                 <img v-if="integration.type === 'sources.github'" :src="githubIcon" alt="" class="size-full" />
                 <IconWebhook v-else-if="integration.type === 'sources.webhook'" class="size-full" />
+                <IconActivity v-else-if="integration.type === 'sources.grafana_metrics'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
             </template>
@@ -229,6 +235,7 @@ function onThemeChange(value: string): void {
           </BaseCard>
         </div>
         <GithubIntegrationDrawer v-if="githubSettingsOpen" @close="githubSettingsOpen = false" />
+        <GrafanaIntegrationDrawer v-if="grafanaSettingsOpen" @close="grafanaSettingsOpen = false" />
         <WebhookIntegrationDrawer v-if="webhookSettingsOpen" @close="webhookSettingsOpen = false" />
       </div>
     </div>

@@ -26,6 +26,10 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   SetToken: vi.fn(),
   Disconnect: vi.fn(),
 }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/grafanaservice', () => ({
+  Connect: vi.fn(),
+  Disconnect: vi.fn(),
+}))
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: vi.fn().mockReturnValue(() => {}) },
   Browser: { OpenURL: vi.fn() },
@@ -171,6 +175,21 @@ describe('SettingsView', () => {
     expect(wrapper.find('[data-testid="integration-github-configure"]').exists()).toBe(true)
     await wrapper.find('[data-testid="integration-github-configure"]').trigger('click')
     expect(wrapper.find('[data-testid="github-integration-drawer"]').exists()).toBe(true)
+  })
+
+  it('opens Grafana integration settings from the cog', async () => {
+    listIntegrations.mockResolvedValue([
+      { type: 'sources.grafana_metrics', title: 'Grafana metrics source', stability: 'experimental', mode: 'pull', provider: 'grafana', accounts: [], envOverride: false },
+    ])
+    const wrapper = mount(SettingsView, {
+      props: { activeCategory: 'integrations' },
+      global: { stubs: { Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="integration-grafana_metrics-configure"]').exists()).toBe(true)
+    await wrapper.find('[data-testid="integration-grafana_metrics-configure"]').trigger('click')
+    expect(wrapper.find('[data-testid="grafana-integration-drawer"]').exists()).toBe(true)
   })
 
   it('shows the local webhook listener alongside the other integrations', async () => {
