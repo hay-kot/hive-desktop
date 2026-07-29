@@ -12,6 +12,7 @@ import {
   type WindowState,
 } from '../lib/terminalClient'
 import { xtermTheme } from '../lib/terminalTheme'
+import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
 /**
@@ -86,11 +87,19 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // announces it, so the intent to focus it is parked until then.
   let pendingActivate = ''
 
+  const { px: fontSizePx } = useTerminalFont()
+
   scope.run(() => {
     const { theme } = useTheme()
     watch(theme, () => {
       const palette = xtermTheme()
       for (const tab of tabs.value) tab.term.options.theme = palette
+    })
+    // New cell metrics change how many cells fit the same box, so the vote
+    // must re-run; the grid itself stays at tmux's size until tmux answers.
+    watch(fontSizePx, (px) => {
+      for (const tab of tabs.value) tab.term.options.fontSize = px
+      scheduleVote()
     })
   })
 
@@ -101,7 +110,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function createTab(state: WindowState): TerminalWindowTab {
     const term = markRaw(new Terminal({
       fontFamily: "'JetBrainsMono Nerd Font', 'IBM Plex Mono', ui-monospace, monospace",
-      fontSize: 12,
+      fontSize: fontSizePx.value,
       scrollback: 5000,
       theme: xtermTheme(),
     }))
@@ -288,7 +297,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     try {
       // xterm measures cell metrics when a terminal opens; without this the
       // grid is sized from the fallback font until something forces a refresh.
-      await document.fonts?.load("12px 'JetBrainsMono Nerd Font'").catch(() => {})
+      await document.fonts?.load(`${fontSizePx.value}px 'JetBrainsMono Nerd Font'`).catch(() => {})
       const { windows } = await client.attach(slug, vote.cols, vote.rows)
       if (disposed) return
       tabs.value = windows.map(createTab)

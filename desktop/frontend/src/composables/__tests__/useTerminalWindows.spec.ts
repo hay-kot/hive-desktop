@@ -1,6 +1,7 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTerminalWindows } from '../useTerminalWindows'
+import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
 import type { TerminalClient } from '../../lib/terminalClient'
 
 const xterm = vi.hoisted(() => {
@@ -299,6 +300,36 @@ describe('useTerminalWindows', () => {
     for (const term of xterm.FakeTerminal.instances) {
       expect(term.resize).toHaveBeenLastCalledWith(213, 55)
     }
+  })
+
+  // A size preset changes cell metrics, not the host box, so the observer never
+  // fires: the composable itself must re-vote. The grid still belongs to tmux.
+  it('applies a font size preset to every open terminal and re-votes', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', document.createElement('div'))
+    await vi.advanceTimersByTimeAsync(100)
+    client.resize.mockClear()
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
+
+    setTerminalFontSize('xl')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(100)
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontSize).toBe(terminalFontSizePx.xl)
+    }
+    expect(client.resize).toHaveBeenCalledWith('hive-abc', 100, 30)
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.resize).toHaveBeenLastCalledWith(213, 55)
+    }
+
+    // currentSize is a module singleton; put the default back for later tests.
+    setTerminalFontSize('medium')
+    await flushPromises()
   })
 
   it('votes nothing when the pane cannot be measured', async () => {

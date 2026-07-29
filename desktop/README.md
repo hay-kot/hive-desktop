@@ -157,6 +157,7 @@ notifications:
   sound: true
 appearance:
   theme: ""
+  terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR 0021)
   host: 127.0.0.1

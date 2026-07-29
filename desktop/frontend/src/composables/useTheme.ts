@@ -2,7 +2,7 @@ import { useStorage } from '@vueuse/core'
 import type { Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
-  SetAppearanceSettings,
+  SetTheme as PersistThemeSetting,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
 export const themes = ['dark', 'light', 'midnight', 'gruvbox'] as const
@@ -57,7 +57,7 @@ function applyTheme(theme: Theme): void {
 function persistTheme(theme: Theme): void {
   persistChain = persistChain
     .then(async () => {
-      await SetAppearanceSettings({ theme })
+      await PersistThemeSetting(theme)
     })
     .catch((error: unknown) => {
       // The theme is applied and cached regardless; losing the durable write is

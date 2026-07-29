@@ -32,10 +32,6 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
-export function SetAppearanceSettings($in: $models.AppearanceSettings): $CancellablePromise<void> {
-    return $Call.ByID(215032261, $in);
-}
-
 /**
  * SetGithubSettings converts the wire's seconds to a duration and hands it to
  * the core, which owns the floor and the live apply. A negative or absurd
@@ -51,4 +47,16 @@ export function SetKeybindingSettings($in: $models.KeybindingSettings): $Cancell
 
 export function SetNotificationSettings($in: $models.NotificationSettings): $CancellablePromise<void> {
     return $Call.ByID(460333036, $in);
+}
+
+export function SetTerminalFontSize(size: string): $CancellablePromise<void> {
+    return $Call.ByID(736291786, size);
+}
+
+/**
+ * The appearance setters are per-field so the theme picker and the terminal
+ * font picker cannot clobber each other's persisted value.
+ */
+export function SetTheme(theme: string): $CancellablePromise<void> {
+    return $Call.ByID(2875194419, theme);
 }

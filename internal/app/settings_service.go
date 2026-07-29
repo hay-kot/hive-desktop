@@ -65,20 +65,36 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// Theme returns the persisted theme, or "" when nothing has been recorded.
-// The value is opaque here: the frontend owns the valid set and heals unknown
-// values.
-func (s *SettingsService) Theme(context.Context) (string, error) {
+// AppearanceSettings is the persisted presentation configuration. Values are
+// opaque here: the frontend owns each valid set and heals unknown values, so
+// "" means "nothing persisted" rather than an error.
+type AppearanceSettings struct {
+	Theme            string
+	TerminalFontSize string
+}
+
+func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
 	cfg, err := s.store.Effective()
 	if err != nil {
-		return "", Wrap(err, KindInternal, "reading settings")
+		return AppearanceSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
-	return cfg.Appearance.Theme, nil
+	return AppearanceSettings{
+		Theme:            cfg.Appearance.Theme,
+		TerminalFontSize: cfg.Appearance.TerminalFontSize,
+	}, nil
 }
 
 func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.Theme = theme
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalFontSize = size
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

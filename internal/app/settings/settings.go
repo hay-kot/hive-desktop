@@ -82,7 +82,8 @@ type NotificationSettings struct {
 }
 
 type Appearance struct {
-	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME"`
+	Theme            string `yaml:"theme,omitempty"              env:"HIVE_DESKTOP_APPEARANCE_THEME"`
+	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
 }
 
 // ExperimentalSettings opts into features that ship dark. Each flag defaults

@@ -36,11 +36,14 @@ type NotificationSettings struct {
 	NotificationSound bool   `json:"notificationSound"`
 }
 
-// AppearanceSettings is the frontend's presentation configuration. Theme is
-// carried verbatim: the frontend owns the valid set and heals unknown values,
-// so an empty Theme means "nothing persisted yet" rather than an error.
+// AppearanceSettings is the frontend's presentation configuration. Values are
+// carried verbatim: the frontend owns each valid set and heals unknown values,
+// so an empty field means "nothing persisted yet" rather than an error.
 type AppearanceSettings struct {
 	Theme string `json:"theme"`
+	// TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
+	// pixel count — the frontend owns the mapping.
+	TerminalFontSize string `json:"terminalFontSize"`
 }
 
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
@@ -66,15 +69,24 @@ func (s *SettingsService) SetKeybindingSettings(ctx context.Context, in Keybindi
 }
 
 func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSettings, error) {
-	theme, err := s.settings.Theme(ctx)
+	current, err := s.settings.Appearance(ctx)
 	if err != nil {
 		return AppearanceSettings{}, err
 	}
-	return AppearanceSettings{Theme: theme}, nil
+	return AppearanceSettings{
+		Theme:            current.Theme,
+		TerminalFontSize: current.TerminalFontSize,
+	}, nil
 }
 
-func (s *SettingsService) SetAppearanceSettings(ctx context.Context, in AppearanceSettings) error {
-	return s.settings.SetTheme(ctx, in.Theme)
+// The appearance setters are per-field so the theme picker and the terminal
+// font picker cannot clobber each other's persisted value.
+func (s *SettingsService) SetTheme(ctx context.Context, theme string) error {
+	return s.settings.SetTheme(ctx, theme)
+}
+
+func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {
+	return s.settings.SetTerminalFontSize(ctx, size)
 }
 
 func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {
