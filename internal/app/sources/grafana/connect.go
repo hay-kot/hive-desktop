@@ -15,8 +15,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
-// Stack is the resolved identity of a connected stack, returned to the UI so it
-// can show which account a pasted URL and token resolved to.
 type Stack struct {
 	Account string `json:"account"`
 	URL     string `json:"url"`
@@ -24,15 +22,12 @@ type Stack struct {
 	OrgName string `json:"orgName"`
 }
 
-// clientFactory builds the client Connect validates through. A field, not a
-// direct call, so a test can point it at a stub without reaching the network.
+// clientFactory is a field, not a direct call, so a test can stub the client without the network.
 type clientFactory func(base, token string) *client.Client
 
-// Authenticator connects and disconnects Grafana stacks. Unlike GitHub it runs
-// no state machine: a stack is connected by pasting its URL and a
-// service-account token, validated once via GET /api/org/. There is no device
-// flow and no polled status — Settings ▸ Integrations reads connected accounts
-// generically from the credential store.
+// Authenticator connects and disconnects Grafana stacks. Unlike the GitHub
+// connector there is no device flow or polled status: a stack is connected by
+// validating a pasted URL and service-account token once.
 type Authenticator struct {
 	creds     credentials.Store
 	stacks    *StackStore
@@ -41,9 +36,6 @@ type Authenticator struct {
 	logger    zerolog.Logger
 }
 
-// NewAuthenticator builds the connector's acquisition half. onChange fires
-// after a connect or disconnect so the app can drop fetch cooldowns and
-// announce the change.
 func NewAuthenticator(creds credentials.Store, stacks *StackStore, logger zerolog.Logger, onChange func(credentials.Ref)) *Authenticator {
 	return &Authenticator{
 		creds:  creds,
@@ -56,10 +48,8 @@ func NewAuthenticator(creds credentials.Store, stacks *StackStore, logger zerolo
 	}
 }
 
-// Connect validates a stack URL and token, then stores the token in the
-// keychain and the non-secret URL in the stacks store under the derived account
-// (host + org id). Validation happens before anything is persisted, so a
-// rejected paste leaves nothing behind.
+// Connect validates the URL and token before persisting either, so a rejected
+// paste leaves nothing behind.
 func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Stack, error) {
 	base, host, err := normalizeStackURL(rawURL)
 	if err != nil {
@@ -96,8 +86,7 @@ func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Stac
 	return Stack{Account: ref.Account, URL: base, OrgID: org.ID, OrgName: org.Name}, nil
 }
 
-// Disconnect removes a stack's token and stored URL. It is idempotent: an
-// account with nothing stored disconnects cleanly.
+// Disconnect is idempotent: an account with nothing stored disconnects cleanly.
 func (a *Authenticator) Disconnect(ctx context.Context, account string) error {
 	ref := credentials.Ref{Provider: Provider, Account: strings.TrimSpace(account)}
 	if err := ref.Validate(); err != nil {
@@ -136,10 +125,9 @@ func (a *Authenticator) notify(ref credentials.Ref) {
 	}
 }
 
-// normalizeStackURL validates a pasted stack URL and returns the base URL to
-// store and the host that identifies the stack. HTTPS is required except for an
-// explicit loopback host, and userinfo is rejected: a token must never be sent
-// to a host chosen with credentials baked into the URL.
+// normalizeStackURL returns the base URL to store and the host identifying the
+// stack. HTTPS is required except for loopback, and userinfo is rejected: a
+// token must never be sent to a host with credentials baked into the URL.
 func normalizeStackURL(raw string) (base, host string, err error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

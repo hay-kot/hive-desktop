@@ -1,7 +1,5 @@
-// Package grafana is the Grafana source connector: the configs its source nodes
-// carry (metrics and alerts), the descriptors declaring what each supports, the
-// instances the producer drains on a tick, and the stack auth that connects a
-// stack in the first place.
+// Package grafana is the Grafana source connector: the metrics and alerts source
+// nodes and the stack auth that connects a stack.
 package grafana
 
 import (
@@ -11,20 +9,14 @@ import (
 )
 
 // Provider is the credentials provider every Grafana credential is filed under.
-// A ref is "grafana/<host>-<orgID>": the account half is the stack host and the
-// org the token authenticates against, so several stacks — and several orgs on
-// one stack — stay isolated.
+// A ref is "grafana/<host>-<orgID>", so several orgs on one stack stay isolated.
 const Provider = "grafana"
 
-// SourceKind is the inbox source_kind Grafana observations carry.
 const SourceKind = "grafana"
 
 // MetricsDescriptor declares the metrics connector. It carries no capabilities:
 // a metrics poll emits one keyed message per tick and leans on the generic
-// observed/updated classifier, so there is no source-side classification,
-// absence confirmation, or batched prefetch to wire. It is Experimental because
-// each poll appends an ordinary event whose retention is not yet bounded per
-// topic — the documented pure-function requirement is the interim guard.
+// classifier. Experimental because per-topic retention is not yet bounded.
 var MetricsDescriptor = connector.Descriptor{
 	Type:          "sources.grafana_metrics",
 	Title:         "Grafana metrics source",
@@ -36,9 +28,8 @@ var MetricsDescriptor = connector.Descriptor{
 }
 
 // NewMetricsFactory builds the instance half over the per-stack fetcher
-// registry. The node's credential is parsed here; the stack URL and token are
-// resolved lazily at poll time, so a node naming a not-yet-connected account
-// constructs cleanly and simply fetches nothing until it is connected.
+// registry. The credential is resolved lazily at poll time, so a node naming a
+// not-yet-connected account still constructs cleanly.
 func NewMetricsFactory(fetchers *Fetchers) connector.Factory {
 	return connector.Factory{
 		New: func(node connector.Node, cfg connector.Config) (connector.Instance, error) {
@@ -54,10 +45,8 @@ func NewMetricsFactory(fetchers *Fetchers) connector.Factory {
 				Type: MetricsDescriptor.Type,
 				Node: node,
 				Metadata: connector.Metadata{
-					ProfileID:  node.FlowID,
-					SourceKind: SourceKind,
-					// The account distinguishes several Grafana sources within
-					// one flow, which is what SourceScope is for.
+					ProfileID:   node.FlowID,
+					SourceKind:  SourceKind,
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},

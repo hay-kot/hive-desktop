@@ -1,32 +1,23 @@
-// sources.grafana_alerts is a source node (0 in / 1 out): it emits one item per
-// firing Grafana-managed alert on a connected stack. The source runs on the
-// backend (internal/app/sources/grafana) — the frontend never executes it, only
-// consumes the msgs it appends per poll — so there is no runtime.ts here
-// (role: 'source' means "backend-run").
+// Runs on the backend (internal/app/sources/grafana); role 'source' means no runtime.ts here.
 
 import IconBell from '~icons/lucide/bell'
 
 export const type = 'sources.grafana_alerts'
 export const role = 'source' as const
-// The inbox item sourceKind this node's items carry — shared with
-// sources.grafana_metrics, since both fetch as the same provider.
 export const sourceKind = 'grafana'
 
 export interface Config {
   /**
-   * The connected stack this source fetches as, as "grafana/<account>". A ref
-   * and never a token. Alerts are not scoped to a datasource, so this is the
-   * only field.
+   * A ref and never a token: flows/ is dotfiles-managed, so an embedded token
+   * would be a token in a git repo.
    */
   credential: string
 }
 
-// ── App-registry metadata ───────────────────────────────────────────────────
-
 export const label = 'Grafana alerts source'
 export const category = 'Sources' as const
 export const glyph = IconBell
-// Blue — source nodes share the sources.github cap color.
+// Source nodes share the sources.github cap color.
 export const accentToken = 'var(--color-node-blue)'
 export const tint = 'var(--color-node-blue-tint)'
 

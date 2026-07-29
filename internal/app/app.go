@@ -118,8 +118,7 @@ type App struct {
 	gitHubConnection ghsource.Connection
 
 	// grafanaFetchers hands out one per-stack fetcher; grafanaAuth connects and
-	// disconnects stacks. Like GitHub's, they are one connector's — a pasted
-	// URL and token, no state machine — and nothing is gated on them.
+	// disconnects stacks. Like GitHub, nothing is gated on them.
 	grafanaFetchers *grafana.Fetchers
 	grafanaAuth     *grafana.Authenticator
 
@@ -261,17 +260,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: ghsource.Provider})
 	})
 
-	// Grafana has no fetch template to gate on a mock mode: its client is built
-	// per tick from a stack URL and token, so the fetcher registry and its stack
-	// store are always wired. A stack is connected by pasting a URL and a
-	// service-account token; the non-secret URL lives in grafana-stacks.json and
-	// the token in the keychain.
+	// Grafana's client is built per tick from a stack URL and token, so unlike
+	// GitHub there is no mock-mode fetch template to gate on — the fetcher
+	// registry and its stack store are always wired.
 	grafanaStacks := grafana.NewStackStore(filepath.Join(cfg.Paths.StateDir, "grafana-stacks.json"))
 	a.grafanaFetchers = grafana.NewFetchers(grafanaStacks, a.credentials, cfg.Logger)
 	a.grafanaAuth = grafana.NewAuthenticator(a.credentials, grafanaStacks, cfg.Logger, func(credentials.Ref) {
-		// A connect or disconnect drops every stack's cooldown so a freshly
-		// connected account is not held back by its predecessor's rate limit,
-		// then announces the change so Integrations re-reads.
+		// Drop every stack's cooldown so a freshly connected account isn't held
+		// back by its predecessor's rate limit, then announce so Integrations re-reads.
 		a.grafanaFetchers.InvalidateAll()
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: grafana.Provider})
 	})
@@ -619,8 +615,7 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 	if fetchers != nil {
 		factories[ghsource.Descriptor.Type] = ghsource.NewFactory(fetchers)
 	}
-	// Grafana's fetcher registry needs no fetch template, so it is always wired
-	// in a real build; the nil guard is only for the bijection test's mock call.
+	// Always wired in a real build; the nil guard is only for the bijection test.
 	if grafanaFetchers != nil {
 		factories[grafana.MetricsDescriptor.Type] = grafana.NewMetricsFactory(grafanaFetchers)
 		factories[grafana.AlertsDescriptor.Type] = grafana.NewAlertsFactory(grafanaFetchers)

@@ -1,11 +1,7 @@
-// Package client is the desktop's Grafana HTTP client: token validation via
-// GET /api/org/ and a PromQL query through the datasource proxy. It owns no
-// source semantics — cooling off after a rate limit, resolving credentials, and
-// caching all live in the connector — and no persistence: a client is built per
-// tick from a base URL and a freshly resolved token.
-//
-// HTTP plumbing — the failure taxonomy, status and rate-limit mapping, request
-// logging — comes from sources/sourcehttp.
+// Package client is the desktop's Grafana HTTP client: token validation, a
+// PromQL query through the datasource proxy, and the firing-alerts list. HTTP
+// plumbing (failure taxonomy, rate-limit mapping, logging) comes from
+// sources/sourcehttp.
 package client
 
 import (
@@ -23,24 +19,22 @@ import (
 const sourceName = "grafana"
 
 // Org is the organization a token authenticates against, from GET /api/org/.
-// The id is half of a stack's account identity (host + org id), because one
-// stack can host several orgs and a token belongs to exactly one.
+// Its id is half of a stack's account identity: one stack can host several
+// orgs and a token belongs to exactly one.
 type Org struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
 
-// QueryResult is the data object of a Prometheus query response, carried
-// verbatim so a function node can inspect resultType and result without the
-// connector modelling Prometheus' value shapes.
+// QueryResult is a Prometheus query response, carried verbatim so a function
+// node can read it without the connector modelling Prometheus' value shapes.
 type QueryResult struct {
 	ResultType string          `json:"resultType"`
 	Result     json.RawMessage `json:"result"`
 }
 
-// Alert is one firing Grafana-managed alert instance from the Alertmanager v2
-// API. Fingerprint is the stable per-instance identity the connector keys an
-// inbox item on; a still-firing alert re-reports the same fingerprint.
+// Alert is one firing alert from the Alertmanager v2 API. Fingerprint is the
+// stable per-instance identity an inbox item is keyed on.
 type Alert struct {
 	Fingerprint string            `json:"fingerprint"`
 	Labels      map[string]string `json:"labels"`
@@ -51,7 +45,6 @@ type Alert struct {
 	} `json:"status"`
 }
 
-// Client talks to one Grafana stack as one token.
 type Client struct {
 	api  *httpclient.Client
 	errs sourcehttp.Errors
@@ -61,18 +54,14 @@ type options struct {
 	logger zerolog.Logger
 }
 
-// Option configures a Client.
 type Option func(*options)
 
-// WithLogger enables request logging at debug level.
 func WithLogger(logger zerolog.Logger) Option {
 	return func(o *options) { o.logger = logger }
 }
 
-// NewClient builds a client for one stack, authenticated with one token. It is
-// constructed per tick from a freshly resolved token rather than held across
-// ticks, so a rotated or disconnected credential is never fetched with a stale
-// copy.
+// NewClient builds a client for one stack and token. Callers build it per tick
+// from a freshly resolved token, so a rotated credential is never used stale.
 func NewClient(base, token string, opts ...Option) *Client {
 	o := options{}
 	for _, opt := range opts {
@@ -89,9 +78,8 @@ func NewClient(base, token string, opts ...Option) *Client {
 	}
 }
 
-// ValidateToken reads the token's current organization. It doubles as token
-// validation: ErrUnauthorized means the token is missing, revoked, or scoped to
-// no organization.
+// ValidateToken reads the token's org, doubling as validation: ErrUnauthorized
+// means the token is missing, revoked, or scoped to no org.
 func (c *Client) ValidateToken(ctx context.Context) (Org, error) {
 	resp, err := c.api.Get(ctx, "/api/org/")
 	if err != nil {
@@ -109,11 +97,8 @@ func (c *Client) ValidateToken(ctx context.Context) (Org, error) {
 	return org, nil
 }
 
-// Query runs a PromQL instant query through the datasource proxy against the
-// datasource identified by uid. The proxy forwards to the datasource's
-// Prometheus-compatible /api/v1/query, so the response is the standard
-// Prometheus envelope; a non-success status in the body is an error even when
-// the HTTP status was 200.
+// Query runs a PromQL instant query through the datasource proxy. A non-success
+// status in the response body is an error even when the HTTP status was 200.
 func (c *Client) Query(ctx context.Context, dsUID, promql string) (QueryResult, error) {
 	path := "/api/datasources/proxy/uid/" + url.PathEscape(dsUID) + "/api/v1/query"
 	form := url.Values{"query": {promql}}.Encode()
@@ -148,9 +133,9 @@ func (c *Client) Query(ctx context.Context, dsUID, promql string) (QueryResult, 
 	return envelope.Data, nil
 }
 
-// Alerts lists the stack's currently firing Grafana-managed alerts through the
-// Alertmanager v2 API. The response is the complete active set, which is what
-// lets the connector treat an alert's absence as authoritatively resolved.
+// Alerts lists the stack's currently firing alerts. The response is the
+// complete active set, which is what lets the connector treat an absent alert
+// as authoritatively resolved.
 func (c *Client) Alerts(ctx context.Context) ([]Alert, error) {
 	resp, err := c.api.Get(ctx, "/api/alertmanager/grafana/api/v2/alerts")
 	if err != nil {

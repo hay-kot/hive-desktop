@@ -198,9 +198,8 @@ const githubPresentation: ItemPresentation = {
 
 const grafanaPresentation: ItemPresentation = {
   sourceLabel: 'Grafana',
-  // The Grafana logo is a gradient, so it renders as an image rather than a
-  // currentColor glyph — a colored mark stays distinct in a feed that mixes
-  // providers. IconActivity is only the fallback if the bundled asset fails.
+  // The logo is a gradient, so it renders as an image, not a currentColor glyph;
+  // IconActivity is only the fallback if the bundled asset fails to load.
   mark: () => IconActivity,
   markImage: () => grafanaLogo,
 }

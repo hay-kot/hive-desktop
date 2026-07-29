@@ -11,19 +11,15 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 )
 
-// StackStore persists the non-secret base URL of each connected Grafana stack,
-// keyed by credential ref. The keychain holds only the token; binding the URL
-// to the account here — rather than letting a node choose a host — is what stops
-// a node from pairing an account's token with an arbitrary host and disclosing
-// it. It is a small JSON file under the state dir, written atomically, kept
-// separate from the generic credential index so that store stays token-only.
+// StackStore persists each connected stack's non-secret base URL, keyed by
+// credential ref. Binding the URL to the account here — rather than letting a
+// node choose a host — is what stops a node from pairing an account's token with
+// an arbitrary host.
 type StackStore struct {
 	path string
 	mu   sync.Mutex
 }
 
-// NewStackStore opens the stack store at path. The file is created on first
-// write; a missing file reads as no connected stacks.
 func NewStackStore(path string) *StackStore {
 	return &StackStore{path: path}
 }
@@ -44,7 +40,6 @@ func (s *StackStore) URL(ref credentials.Ref) (string, error) {
 	return entries[ref.String()].URL, nil
 }
 
-// Set records a stack's base URL under its account ref.
 func (s *StackStore) Set(ref credentials.Ref, url string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -56,7 +51,6 @@ func (s *StackStore) Set(ref credentials.Ref, url string) error {
 	return s.write(entries)
 }
 
-// Delete removes a stack's URL. Deleting what is already gone is not an error.
 func (s *StackStore) Delete(ref credentials.Ref) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

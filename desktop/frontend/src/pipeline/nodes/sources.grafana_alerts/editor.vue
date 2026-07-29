@@ -1,7 +1,4 @@
 <script setup lang="ts">
-// sources.grafana_alerts has no runtime.ts (the source runs in Go). The editor
-// is just the stack picker — alerts are not scoped to a datasource — matching
-// the backend grafana.AlertsConfig it round-trips to.
 import { computed } from 'vue'
 import { SelectField, TextField, type SelectOption } from '../../fields'
 import { useIntegrations } from '../../../composables/useIntegrations'
