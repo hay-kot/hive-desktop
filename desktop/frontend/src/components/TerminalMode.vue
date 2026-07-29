@@ -40,14 +40,14 @@ function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
 }
 
-// "owner/name · session" for the tab bar's context label.
-const activeContext = computed(() => {
-  for (const group of sessionGroups.value) {
-    const row = group.sessions.find((s) => s.slug === activeSlug.value)
-    if (row) return `${group.name} · ${row.name}`
-  }
-  return ''
-})
+// Groups separate by a small gap — except after the attached session's window
+// well, whose recessed edge is already a hard boundary.
+function gapAbove(index: number): boolean {
+  const prev = sessionGroups.value[index - 1]
+  if (!prev) return false
+  if (collapsedRepos.value.includes(prev.key)) return true
+  return prev.sessions[prev.sessions.length - 1]?.slug !== activeSlug.value
+}
 
 // Expand/collapse is transient view state, not configuration — localStorage,
 // same as the hub sidebar's folder collapse.
@@ -171,8 +171,8 @@ onBeforeUnmount(() => session.value?.dispose())
         data-testid="terminal-session-sidebar"
       >
         <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-          <span class="text-[13.5px] font-semibold">Sessions</span>
-          <span v-if="sessionRows.length" class="font-mono text-[11.5px] text-text-3">{{ sessionRows.length }} · {{ liveCount }} live</span>
+          <span class="text-[15px] font-semibold">Sessions</span>
+          <span v-if="sessionRows.length" class="font-mono text-[12px] text-text-3">{{ sessionRows.length }} · {{ liveCount }} live</span>
           <span class="flex-1" />
           <button
             type="button"
@@ -190,31 +190,31 @@ onBeforeUnmount(() => session.value?.dispose())
             @click="openNewSession"
           ><IconPlus class="size-3.5" /></button>
         </div>
-        <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-3">
-          <p v-if="sessionsError" class="px-1 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
-          <p v-else-if="sessionsLoading && !sessionRows.length" class="px-1 py-2 font-mono text-xs text-text-4">Loading…</p>
-          <p v-else-if="!sessionRows.length" class="px-1 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
+        <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pt-3 pb-4">
+          <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
+          <p v-else-if="sessionsLoading && !sessionRows.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
+          <p v-else-if="!sessionRows.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
             No active sessions. Start one from the hub and it will appear here.
           </p>
-          <template v-for="group in sessionGroups" :key="group.key">
+          <div v-for="(group, index) in sessionGroups" :key="group.key" :class="gapAbove(index) && 'mt-1.5'">
             <button
               type="button"
-              class="flex h-[30px] w-full cursor-pointer items-center gap-1 rounded-md px-1.5 text-left hover:bg-chip"
+              class="flex h-7 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
               data-testid="terminal-repo-group"
               :data-repo="group.key"
               :aria-expanded="!collapsedRepos.includes(group.key)"
               @click="toggleGroup(group.key)"
             >
               <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
-              <span class="min-w-0 truncate font-mono text-[11.5px] uppercase tracking-[.07em]" :class="groupAttached(group) ? 'text-text' : 'text-text-2'">{{ group.name }}</span>
-              <span class="ml-auto shrink-0 font-mono text-[11px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-3'">{{ group.sessions.length }}</span>
+              <span class="min-w-0 truncate font-mono text-[12.5px] tracking-[.06em]" :class="groupAttached(group) ? 'text-text-2' : 'text-text-3'">{{ group.name }}</span>
+              <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
             </button>
             <template v-if="!collapsedRepos.includes(group.key)">
               <div v-for="row in group.sessions" :key="row.id">
                 <button
                   type="button"
-                  class="flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-md pl-5 pr-2 text-left"
-                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent' : 'text-text-2 hover:bg-chip hover:text-text'"
+                  class="flex h-[34px] w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
+                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent shadow-[inset_3px_0_0_var(--color-accent)]' : 'text-text hover:bg-chip'"
                   data-testid="terminal-session-row"
                   :data-slug="row.slug"
                   :data-attached="row.slug === activeSlug"
@@ -228,28 +228,34 @@ onBeforeUnmount(() => session.value?.dispose())
                     class="size-1.5 shrink-0 rounded-full"
                     :class="row.slug === activeSlug ? 'bg-accent [animation:hivePulse_2.4s_ease-in-out_infinite]' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
                   />
-                  <span class="min-w-0 truncate text-[13.5px]">{{ row.name }}</span>
-                  <span v-if="row.slug === activeSlug && tabs.length" class="ml-auto shrink-0 font-mono text-[10.5px] font-normal">{{ tabs.length }}</span>
+                  <span class="min-w-0 truncate text-[15px]">{{ row.name }}</span>
                 </button>
-                <template v-if="row.slug === activeSlug && session">
+                <!-- The well sits on bg-app — the surface xtermTheme() renders
+                     on — so the windows read as part of the terminal they
+                     belong to rather than as sidebar chrome. -->
+                <div
+                  v-if="row.slug === activeSlug && session && tabs.length"
+                  class="flex flex-col gap-px bg-app py-2 pl-[13px] pr-1"
+                >
                   <button
                     v-for="tab in tabs"
                     :key="tab.uid"
                     type="button"
-                    class="flex h-7 w-full cursor-pointer items-center gap-2 rounded-md pl-9 pr-2 text-left"
-                    :class="tab.windowId === activeWindowId ? 'bg-chip text-text' : 'text-text-2 hover:bg-chip hover:text-text'"
+                    class="flex h-7 w-full cursor-pointer items-center gap-2 px-2 text-left"
+                    :class="tab.windowId === activeWindowId ? 'bg-pane' : 'hover:bg-pane'"
                     data-testid="terminal-window-row"
                     :data-window-id="tab.windowId"
                     :data-active="tab.windowId === activeWindowId"
                     @click="session?.select(tab.windowId)"
                   >
-                    <span class="shrink-0 font-mono text-[11px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
-                    <span class="min-w-0 truncate font-mono text-[12.5px]">{{ tab.name || tab.windowId }}</span>
+                    <span class="shrink-0 font-mono text-[11.5px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
+                    <span class="min-w-0 flex-1 truncate font-mono text-[13.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
+                    <span v-if="tab.windowId === activeWindowId" class="size-[5px] shrink-0 rounded-full bg-severity-success" />
                   </button>
-                </template>
+                </div>
               </div>
             </template>
-          </template>
+          </div>
         </div>
         <PanelResizeHandle edge="right" name="terminal-sidebar" :start="startResize" :step="step" />
       </aside>
@@ -314,10 +320,6 @@ onBeforeUnmount(() => session.value?.dispose())
                 title="New window"
                 @click="session?.newWindow()"
               ><IconPlus class="size-3.5" /></button>
-            </div>
-            <div class="min-w-0 flex-1" />
-            <div v-if="activeContext" class="flex shrink-0 items-center px-3">
-              <span class="truncate font-mono text-[11.5px] tracking-[.06em] text-text-4">{{ activeContext }}</span>
             </div>
           </div>
 
