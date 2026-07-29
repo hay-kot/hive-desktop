@@ -40,7 +40,7 @@
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "fn/hi" },
-        "key": "big", "sourceKind": "webhook", "sourceScope": "hook",
+        "key": "big", "payload": { "n": 2 }, "sourceKind": "webhook", "sourceScope": "hook",
         "sourceTopic": "source:fn/src"
       },
       {

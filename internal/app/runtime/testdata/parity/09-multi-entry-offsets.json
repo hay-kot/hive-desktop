@@ -34,7 +34,7 @@
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "multi/inbox" },
-        "key": "mine", "sourceKind": "github", "sourceScope": "notifications",
+        "key": "mine", "payload": { "v": 1 }, "sourceKind": "github", "sourceScope": "notifications",
         "sourceTopic": "source:multi/src"
       },
       {

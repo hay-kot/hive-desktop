@@ -44,17 +44,17 @@
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "snap/inbox" },
-        "key": "a", "sourceKind": "github", "sourceScope": "search",
+        "key": "a", "payload": { "n": 1 }, "sourceKind": "github", "sourceScope": "search",
         "sourceTopic": "source:snap/gh", "snapshotId": "20"
       },
       {
         "sink": { "kind": "feed", "targetId": "snap/inbox" },
-        "key": "b", "sourceKind": "github", "sourceScope": "search",
+        "key": "b", "payload": { "n": 2 }, "sourceKind": "github", "sourceScope": "search",
         "sourceTopic": "source:snap/gh", "snapshotId": "20"
       },
       {
         "sink": { "kind": "feed", "targetId": "snap/inbox" },
-        "key": "c", "sourceKind": "github", "sourceScope": "search",
+        "key": "c", "payload": { "n": 3 }, "sourceKind": "github", "sourceScope": "search",
         "sourceTopic": "source:snap/gh"
       },
       {

@@ -209,9 +209,12 @@ depends on a window being open. Normal processing reads after the flow’s durab
 batch atomically writes feed membership claims, enqueues action commands,
 records node metrics, and advances its offset; replaying an already committed
 offset is a no-op. A feed output whose inbox row is written under the empty
-pre-#63 scope is healed onto its account scope during the commit; one that
-resolves to no row at all is skipped and logged rather than failing the batch,
-so a single unresolvable item cannot wedge the consumer at one offset. `Discard` values are accounting input rather than persisted
+pre-#63 scope is healed onto its account scope during the commit; one whose key
+resolves to no row at all is minted from the payload it carried — the row behind
+a per-entity item a `function` node split out under a key that never went
+through ingest (ADR 0035). A key-less output has no identity to mint under and
+is skipped and logged rather than failing the batch, so no unresolvable item can
+wedge the consumer at one offset. `Discard` values are accounting input rather than persisted
 rows: their aggregate is reflected in each node run’s drop count. Action
 commands are deduplicated by action id and source occurrence key.
 

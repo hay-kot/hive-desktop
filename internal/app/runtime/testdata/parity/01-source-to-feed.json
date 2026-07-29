@@ -41,6 +41,7 @@
       {
         "sink": { "kind": "feed", "targetId": "triage/inbox" },
         "key": "acme/app#1",
+        "payload": { "repo": "acme/app", "title": "one" },
         "sourceKind": "github",
         "sourceScope": "notifications",
         "sourceTopic": "source:triage/gh"

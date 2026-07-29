@@ -54,6 +54,39 @@ msg.Payload.tag = "reviewed";
 return msg;
 ```
 
+## Splitting one message into many feed items
+
+Return several messages, each with a `Key` you mint, to turn one source message
+into one durable feed item per entity — the way to fan a metrics query with N
+series into N items, each with its own payload, triage state, and actions:
+
+```
+return msg.Payload.result.map(function (s) {
+  return {
+    ...msg,                                  // keep Topic, SourceKind, SourceScope
+    Key: [s.cluster, s.namespace, s.kind, s.name].join("/"),
+    Payload: { title: s.kind + "/" + s.name, cluster: s.cluster, namespace: s.namespace },
+  };
+});
+```
+
+Two rules make this work:
+
+- **Mint `Key`, never `Topic`.** The key is the item's identity — set it to
+  whatever makes each entity distinct. `Topic` is what scopes feed membership to
+  its source; rewriting it detaches the item and breaks the lifecycle below.
+- **Put what the item renders and acts on in `Payload`.** `title` and `url` are
+  read from it; the rest is yours (an `applies_to` action reads `.Payload`). A
+  key the source never emitted has no inbox row yet, so the feed mints one on
+  first appearance from this payload.
+
+Lifecycle is presence-based and automatic: each poll restates the whole set, so
+an entity that stops appearing drops from the feed on the next poll (it moves to
+Trash, and returns if the entity does — its read/unread state is kept). This
+mirrors how a feed reconciles any source snapshot. One caveat: one item per
+entity means an unbounded-cardinality query is an unbounded feed — key on a
+bounded identity, not on an open-ended label.
+
 ## Behavior
 
 Each node instance gets its own JavaScript VM, so a timeout only affects this node, never a sibling. `state` survives across messages for the lifetime of one Deploy, but is not durable across app restarts, and a node that times out is respawned with a fresh `state`.

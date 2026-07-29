@@ -62,7 +62,7 @@ func TestTerminalSinks(t *testing.T) {
 		require.Equal(t, "feed", outputs[0].Sink.Kind)
 		require.Equal(t, "f/inbox", outputs[0].Sink.TargetID)
 		require.Equal(t, "k", outputs[0].Key)
-		require.Empty(t, outputs[0].Payload, "a membership claim carries identity, not content")
+		require.JSONEq(t, `{"title":"hi"}`, string(outputs[0].Payload), "the payload rides along so the commit can mint an inbox row for a key the producer never ingested")
 	})
 
 	t.Run("an action names its catalog id and carries no source identity", func(t *testing.T) {

@@ -166,21 +166,31 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 			case SinkKindFeed:
 				item, err := resolveInboxItemScoped(ctx, q, b.Consumer, out.SourceKind, out.SourceScope, out.Key)
 				if errors.Is(err, sql.ErrNoRows) {
-					// One unresolvable item must not wedge the whole consumer:
-					// fail the batch and the offset never advances, so it
-					// retries this same page forever and event_log grows
-					// without bound (issue #95). Skip it — the next
-					// authoritative snapshot re-attempts the claim once the row
-					// exists — and let the offset move on.
-					db.logger.Warn().
-						Str("consumer", b.Consumer).
-						Str("sourceKind", out.SourceKind).
-						Str("sourceScope", out.SourceScope).
-						Str("externalId", out.Key).
-						Msg("commit: no inbox item for feed output; skipping so the offset can advance")
-					continue
-				}
-				if err != nil {
+					// A feed output whose key has no inbox row is one a function
+					// node synthesized: it split a source message into per-entity
+					// items under keys the producer never ingested, so no row was
+					// minted at the boundary. Mint one here from the payload it
+					// carried. A key the producer did ingest resolves above, so
+					// its classifier-owned row is left untouched.
+					//
+					// A key-less output (the omitempty snapshot-boundary row of
+					// issue #95) still has no identity to mint under and is
+					// skipped — logged, and the offset advances rather than
+					// wedging on it. Minting never errors, so the synthesized
+					// path keeps the same anti-wedge property the skip gave.
+					if out.Key == "" {
+						db.logger.Warn().
+							Str("consumer", b.Consumer).
+							Str("sourceKind", out.SourceKind).
+							Str("sourceScope", out.SourceScope).
+							Msg("commit: feed output has no key; skipping so the offset can advance")
+						continue
+					}
+					item, err = mintFeedInboxItem(ctx, q, b.Consumer, out, now)
+					if err != nil {
+						return fmt.Errorf("minting inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
+					}
+				} else if err != nil {
 					return fmt.Errorf("resolving inbox item %s/%s/%s: %w", out.SourceKind, out.SourceScope, out.Key, err)
 				}
 				if err := q.UpsertFeedMembershipClaim(ctx, UpsertFeedMembershipClaimParams{
@@ -310,6 +320,47 @@ func notifyDedupKey(out Output) string {
 	}
 	sum := sha256.Sum256(out.Payload)
 	return out.Key + "@" + hex.EncodeToString(sum[:8])
+}
+
+// mintFeedInboxItem creates the durable row behind a feed output whose key
+// never went through ingest — a function node minted it while splitting one
+// source message into per-entity items. Presentation comes from the payload
+// (title/url), the same fields the producer reads at the ingest boundary; the
+// lifecycle is active because the item is present in the snapshot that carried
+// it, and its absence from a later snapshot drops the membership claim rather
+// than archiving the row. A subsequent ingest under the same identity upserts
+// this row in place, so a genuine source item briefly missing at commit
+// self-heals rather than forking a duplicate.
+func mintFeedInboxItem(ctx context.Context, q *Queries, profileID string, out Output, now int64) (InboxItem, error) {
+	title, url := feedItemPresentation(out.Key, out.Payload)
+	return q.InsertInboxItem(ctx, InsertInboxItemParams{
+		ProfileID:   profileID,
+		SourceKind:  out.SourceKind,
+		SourceScope: out.SourceScope,
+		ExternalID:  out.Key,
+		Title:       title,
+		Url:         url,
+		Payload:     out.Payload,
+		Unread:      1,
+		Lifecycle:   LifecycleActive.String(),
+		FirstSeenAt: now,
+		LastEventAt: now,
+	})
+}
+
+// feedItemPresentation reads the title and url a synthesized feed item renders
+// with from its payload, mirroring the ingest boundary's convention. A payload
+// with no title falls back to the key, so an item is never blank.
+func feedItemPresentation(key string, payload []byte) (title, url string) {
+	var wire struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+	}
+	_ = json.Unmarshal(payload, &wire)
+	if title = wire.Title; title == "" {
+		title = key
+	}
+	return title, wire.URL
 }
 
 func boolToInt64(b bool) int64 {

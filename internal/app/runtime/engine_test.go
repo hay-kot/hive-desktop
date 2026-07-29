@@ -106,6 +106,34 @@ func snapshotSource(t *testing.T, db *store.DB, flowID string, obs ...observatio
 	require.NoError(t, err)
 }
 
+// splitFlow is a source → function → feed, where the function splits one
+// source message into per-entity feed items under keys it mints. It is the
+// shape that turns a single grafana metrics result into one durable item per
+// series (issue #117).
+func splitFlow(id, script string) flow.Flow {
+	return flow.Flow{
+		ID:      id,
+		Name:    id,
+		Enabled: true,
+		Nodes: []flow.Node{
+			{ID: "src", Type: ghsource.Descriptor.Type, Config: flow.NewSourceConfig(ghsource.Descriptor.Type, &ghsource.Config{Credential: "github/octocat", Kind: "search", Query: "is:open"})},
+			{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: script}},
+			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
+		},
+		Wires: []flow.Wire{{From: "src", To: "fn"}, {From: "fn", To: "inbox"}},
+	}
+}
+
+// snapshotOne appends a single-item snapshot — the shape a grafana metrics
+// source emits, where one node maps to one message whose payload carries the
+// whole query result for a downstream function node to split.
+func snapshotOne(t *testing.T, db *store.DB, flowID, key, payload string) {
+	t.Helper()
+	_, err := db.AppendSnapshot(t.Context(), "source:"+flowID+"/src", "github", "search",
+		[]store.SnapshotItem{{Key: key, Payload: json.RawMessage(payload)}})
+	require.NoError(t, err)
+}
+
 type passthroughClassifier struct{}
 
 func (passthroughClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
@@ -316,6 +344,52 @@ func TestEngineKeepsTheLastGoodRunnerWhenAReloadFails(t *testing.T) {
 		return err == nil && len(items) == 2
 	}, 5*time.Second, 20*time.Millisecond, "the previous runner must keep routing")
 	require.Contains(t, failures, "triage", "and the failure must be reported, or the app silently runs an older graph")
+}
+
+// A function node splitting one source message into per-entity feed items is
+// the first-party answer to issue #117: the metrics source stays one message
+// per node, and the split — the keys and payloads — lives in author JavaScript.
+// Each series becomes its own durable item, and a series leaving the query
+// drops that item alone, because the split messages inherit the source
+// snapshot's reconciliation scope.
+func TestEngineSplitsOneMessageIntoPerEntityFeedItemsWithLifecycle(t *testing.T) {
+	t.Parallel()
+
+	db := openTestStore(t)
+	flows := &flowSet{}
+	// The source payload carries a list of "series"; the function mints one item
+	// per series, keyed by name, preserving Topic so the feed reconciles them
+	// under the source's snapshot.
+	flows.set(splitFlow("ignores", `
+return msg.Payload.result.map(function (s) {
+  return { ...msg, Key: s.name, Payload: { title: s.name + " ignored", cluster: s.cluster } };
+});
+`))
+
+	engine := startEngine(t, db, flows, nil)
+
+	snapshotOne(t, db, "ignores", "metrics-node",
+		`{"result":[{"name":"apps","cluster":"prod"},{"name":"infra","cluster":"prod"}]}`)
+	engine.Wake()
+
+	require.Eventually(t, func() bool {
+		items, err := db.ListInboxItemsByFeed(t.Context(), "ignores", "ignores/inbox", 10)
+		return err == nil && len(items) == 2
+	}, 5*time.Second, 20*time.Millisecond, "each series becomes its own feed item")
+
+	// One series leaves the query. The next snapshot restates the current set, so
+	// the departed item's membership claim is reconciled away — presence-based
+	// lifecycle, without an absence confirmer.
+	snapshotOne(t, db, "ignores", "metrics-node", `{"result":[{"name":"apps","cluster":"prod"}]}`)
+	engine.Wake()
+
+	require.Eventually(t, func() bool {
+		items, err := db.ListInboxItemsByFeed(t.Context(), "ignores", "ignores/inbox", 10)
+		if err != nil || len(items) != 1 {
+			return false
+		}
+		return items[0].ExternalID == "apps"
+	}, 5*time.Second, 20*time.Millisecond, "the departed series drops from the feed; the surviving one stays")
 }
 
 // Stop is the single teardown path and has to survive being called on an
