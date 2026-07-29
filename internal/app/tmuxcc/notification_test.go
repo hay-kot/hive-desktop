@@ -44,6 +44,9 @@ func TestParseNotification(t *testing.T) {
 		{"%output %12 ", OutputNotification{Pane: "%12", Data: []byte{}}},
 		{"%window-add @3", WindowAddNotification{Window: "@3"}},
 		{"%window-close @3", WindowCloseNotification{Window: "@3"}},
+		// What tmux actually sends for kill-window: the notification is deferred
+		// past the point where the window is still linked into the session.
+		{"%unlinked-window-close @3", WindowCloseNotification{Window: "@3"}},
 		{"%window-renamed @3 my window", WindowRenamedNotification{Window: "@3", Name: "my window"}},
 		{"%window-pane-changed @3 %9", WindowPaneChanged{Window: "@3", Pane: "%9"}},
 		{"%session-changed $1 hive-demo", SessionChanged{Session: "$1", Name: "hive-demo"}},

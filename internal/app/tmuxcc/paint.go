@@ -68,6 +68,11 @@ func (g *paintGate) mark(pane string) {
 func (g *paintGate) release(pane string, painted []byte) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
+	if !g.held[pane] {
+		// discard ran while the snapshot was in flight: the window closed and
+		// there is nothing left to paint onto.
+		return
+	}
 	now := time.Now()
 	if len(painted) > 0 {
 		g.emit(pane, painted, now)
@@ -79,6 +84,18 @@ func (g *paintGate) release(pane string, painted []byte) {
 	delete(g.marks, pane)
 	delete(g.held, pane)
 	g.live[pane] = true
+}
+
+// discard forgets a pane entirely, dropping whatever it was holding. A closed
+// window has no tab to render onto, and tmux never reuses a pane id, so
+// remembering it would only grow the gate for the life of the client.
+func (g *paintGate) discard(pane string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.buf, pane)
+	delete(g.marks, pane)
+	delete(g.held, pane)
+	delete(g.live, pane)
 }
 
 func (g *paintGate) openAll() {

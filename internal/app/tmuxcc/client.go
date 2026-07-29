@@ -381,10 +381,15 @@ func (c *Client) runReconcile(ctx context.Context) {
 	for _, ev := range c.ctrl.reconcile(windows) {
 		c.publish(ev)
 	}
-	for _, pane := range unpainted {
+	for i, pane := range unpainted {
 		if err := c.firstPaint(ctx, pane); err != nil {
 			if ctx.Err() == nil {
 				c.log.Warn().Err(err).Str("pane", pane).Msg("first paint failed")
+			}
+			// hold took the gate for the whole batch; a pane this loop never
+			// reaches would buffer its output for the life of the client.
+			for _, unreached := range unpainted[i+1:] {
+				c.paint.discard(unreached)
 			}
 			return
 		}
@@ -427,6 +432,12 @@ func (c *Client) onNotification(n Notification) {
 		return
 	case SessionChanged:
 		c.handshakeOnce.Do(func() { close(c.handshake) })
+	case WindowCloseNotification:
+		// Ahead of the controller forgetting the window, which is what still
+		// resolves the pane here.
+		if w, ok := c.ctrl.byID(v.Window); ok && w.ActivePane != "" {
+			c.paint.discard(w.ActivePane)
+		}
 	case ExitNotification:
 		c.noteExit(v.Reason)
 		// tmux closes the stream right after %exit; the kill is insurance

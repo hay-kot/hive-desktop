@@ -382,9 +382,11 @@ func TestTmuxInactivePaneIsDrainedNotForwarded(t *testing.T) {
 }
 
 // Overflow is fatal by design: a terminal stream cannot drop-oldest, so the
-// client is torn down and the frontend re-attaches for a clean resync. The
-// reader below is deliberately slower than tmux produces, which is the only way
-// to fill an 8 MiB buffer.
+// client is torn down and the frontend re-attaches for a clean resync. Reading
+// nothing at all is what fills the 8 MiB buffer — a reader that merely dawdles
+// does not, because the kernel's socket buffers absorb megabytes before the
+// broker's backlog grows at all, and every one of those bytes is then queued
+// ahead of the exit frame.
 func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 	tmux := startTmux(t, "hive-overflow")
 	h := newTerminalHarness(t)
@@ -395,6 +397,14 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 
 	tmux.tmux("send-keys", "-t", tmux.slug,
 		"yes 0123456789abcdef0123456789abcdef0123456789abcdef | head -n 400000", "Enter")
+
+	awaitClientTornDown(t, h, tmux.slug)
+
+	// Still not reading. The broker has published the exit reason and is offering
+	// it to a write pump parked inside a congested socket write; staying away a
+	// while longer is what pins that offer outliving a subscriber that is behind
+	// — which, after an overflow, it is by definition.
+	time.Sleep(500 * time.Millisecond)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
 	defer cancel()
@@ -411,9 +421,6 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 			assert.Equal(t, "overflow", payload.Message, "the exit reason reaches the frontend")
 			sawOverflow = true
 		}
-		// Slower than tmux produces, so the broker's backlog grows; fast enough
-		// that the server's per-frame write deadline is never approached.
-		time.Sleep(20 * time.Millisecond)
 	}
 	require.True(t, sawOverflow, "an EXITED(overflow) frame arrived before the socket closed")
 
@@ -421,6 +428,24 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 	resize := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": tmux.slug, "cols": 80, "rows": 24})
 	_ = resize.Body.Close()
 	assert.Equal(t, http.StatusNotFound, resize.StatusCode)
+}
+
+// awaitClientTornDown blocks — without reading the socket, which is the point —
+// until the control plane stops knowing slug. That 404 is the observable trailing
+// edge of teardown: the manager drops the slug only after the broker has
+// published the exit reason and closed.
+func awaitClientTornDown(t *testing.T, h *terminalHarness, slug string) {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		resp := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": slug, "cols": 80, "rows": 24})
+		_ = resp.Body.Close()
+		if resp.StatusCode == http.StatusNotFound {
+			return
+		}
+		require.True(t, time.Now().Before(deadline), "the flood never overflowed the broker")
+		time.Sleep(50 * time.Millisecond)
+	}
 }
 
 // Shutdown rides the subscription channel: App.Close stops the manager, which

@@ -14,11 +14,14 @@ const defaultBufferBytes = 8 << 20
 // path — must never hand the emulator a stream with a hole in it.
 const subscriberQueue = 0
 
-// finalDelivery bounds how long a closing broker waits for the subscriber to
-// take the last lifecycle event. A draining subscriber takes it at once; a
-// stalled one must not hold the pump past client teardown, and the transport's
-// own socket close is the fallback signal.
-const finalDelivery = 250 * time.Millisecond
+// finalDelivery bounds how long a closing broker offers the last lifecycle
+// event. It is a backstop, not the working bound: a transport that gives up
+// unsubscribes, which releases the pump at once. What it has to cover is a
+// subscriber that is alive but parked inside one congested socket write, which
+// is precisely the subscriber overflow produces — 250ms was shorter than such a
+// write, so the stream that most needed to say why it ended was the one that
+// could not.
+const finalDelivery = 2 * time.Second
 
 type subscription struct {
 	gen  uint64

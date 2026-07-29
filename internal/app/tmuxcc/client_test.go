@@ -183,6 +183,45 @@ func TestReconcileFirstPaintsANewWindow(t *testing.T) {
 	}
 }
 
+// A window can die while the snapshot that would give it its first paint is
+// still in flight. The tab's closure has to reach the subscriber regardless, and
+// the bytes held for a pane with no tab left have nowhere to go.
+func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 claude")
+	client := attachFake(t, f, Options{})
+
+	f.setCapture("%2", "$ prompt")
+	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setOnCommand(func(cmd string) {
+		if strings.HasPrefix(cmd, "capture-pane -pe -J -t %2") {
+			f.emit(`%output %2 HELD`)
+			f.emit("%window-close @2")
+		}
+	})
+	f.emit("%window-add @2")
+
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		wc, ok := ev.(WindowChanged)
+		return ok && wc.Kind == WindowClosed && wc.Window.ID == "@2"
+	})
+	defer unsubscribe()
+
+	for _, ev := range events {
+		out, ok := ev.(Output)
+		require.False(t, ok && out.WindowID == "@2", "a closed window renders nothing: %#v", ev)
+	}
+	require.NotContains(t, client.Windows(), Window{ID: "@2", Name: "shell", ActivePane: "%2"})
+
+	client.paint.mu.Lock()
+	defer client.paint.mu.Unlock()
+	require.NotContains(t, client.paint.buf, "%2", "the gate still holds bytes for a dead pane")
+	require.NotContains(t, client.paint.held, "%2", "the gate is still holding a dead pane")
+	require.NotContains(t, client.paint.live, "%2")
+}
+
 // The server blocks mid-reply once the client's reader is gone. Teardown has to
 // be able to kill it anyway — the harness used to hold its lock across that
 // write, so Kill deadlocked and this test could not be written.

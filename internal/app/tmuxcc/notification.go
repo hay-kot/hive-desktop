@@ -67,7 +67,12 @@ func parseNotification(line []byte) (Notification, error) {
 		}
 		return WindowAddNotification{Window: string(rest)}, nil
 
-	case "%window-close":
+	// tmux picks between the two by whether the window is still linked into the
+	// client's session when the *deferred* notification fires — and for
+	// kill-window it no longer is, so a window we track dies as
+	// %unlinked-window-close. Both mean the same thing to us; a window we never
+	// tracked produces no event either way.
+	case "%window-close", "%unlinked-window-close":
 		if !isWindowID(rest) {
 			return nil, fmt.Errorf("%w: %%window-close", errMalformed)
 		}
