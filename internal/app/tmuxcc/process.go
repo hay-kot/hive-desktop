@@ -37,7 +37,16 @@ func newExecProcess(opts Options) process {
 // request that spawned it, so it is killed explicitly on teardown rather than
 // bound to a context (see the lifetimes decision in the v1 addendum).
 func (p *execProcess) Start(context.Context) (io.Writer, io.Reader, error) {
-	cmd := exec.Command("tmux", "-C", "attach", "-t", p.slug) //nolint:noctx // lifetime is teardown-managed, see above
+	// Hive's session-creating commands run with $TMUX intact, so when this
+	// process is itself inside tmux the sessions live on the server $TMUX
+	// names — which outranks TMUX_TMPDIR for those commands but not for our
+	// scrubbed client. Passing that socket explicitly keeps attach and create
+	// pointed at the same server; outside tmux both resolve identically.
+	args := []string{"-C", "attach", "-t", p.slug}
+	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
+		args = append([]string{"-S", socket}, args...)
+	}
+	cmd := exec.Command("tmux", args...) //nolint:noctx // lifetime is teardown-managed, see above
 	cmd.Env = detachedEnv()
 	cmd.Stderr = p.stderr
 
@@ -87,6 +96,16 @@ func (p *execProcess) Kill() error {
 		return nil
 	}
 	return cmd.Process.Kill()
+}
+
+// socketFromTMUX extracts the server socket path from a $TMUX value
+// ("<socket>,<pid>,<session>"). Empty when unset or malformed.
+func socketFromTMUX(v string) string {
+	socket, _, found := strings.Cut(v, ",")
+	if !found {
+		return ""
+	}
+	return socket
 }
 
 // detachedEnv drops the inherited tmux client variables so the control client

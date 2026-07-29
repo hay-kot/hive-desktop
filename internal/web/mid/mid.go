@@ -45,6 +45,9 @@ func Errors(log zerolog.Logger, mappers ...Mapper) errchain.ErrorHandler {
 			default:
 				for _, m := range mappers {
 					if status, body, ok := m(err); ok {
+						if status >= http.StatusInternalServerError {
+							log.Error().Err(err).Str("path", r.URL.Path).Msg("internal error response")
+						}
 						_ = server.JSON(w, status, body)
 						return
 					}

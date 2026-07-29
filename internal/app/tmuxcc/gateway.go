@@ -75,11 +75,12 @@ type Gateway struct {
 
 	writeMu sync.Mutex
 
-	mu       sync.Mutex
-	queue    []*pendingCommand
-	open     *block
-	closed   bool
-	closeErr error
+	mu        sync.Mutex
+	queue     []*pendingCommand
+	open      *block
+	closed    bool
+	closeErr  error
+	serverErr string
 }
 
 // NewGateway wires a gateway over the control client's stdin. notify runs on
@@ -148,6 +149,14 @@ func (g *Gateway) Feed(line []byte) error {
 		g.dispatch(line)
 		return nil
 	}
+}
+
+// ServerError reports the content of the last server-originated %error block,
+// if any — the text tmux prints when it rejects the attach outright.
+func (g *Gateway) ServerError() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.serverErr
 }
 
 // Send writes cmd and blocks until its %end (reply lines) or %error
@@ -221,6 +230,12 @@ func (g *Gateway) abort(msg string) error {
 }
 
 func (g *Gateway) resolveLocked(b *block, failed bool) {
+	// A server-originated block that fails is tmux refusing the attach itself
+	// ("no server running", "can't find session"): the process exits right
+	// after, with nothing on stderr, so this text is the only diagnosis.
+	if b.discard && failed && len(b.lines) > 0 {
+		g.serverErr = strings.Join(b.lines, "; ")
+	}
 	if b.cmd == nil || b.cmd.canceled {
 		return
 	}

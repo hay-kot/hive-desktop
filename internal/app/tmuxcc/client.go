@@ -267,6 +267,9 @@ func (c *Client) awaitHandshake(ctx context.Context) error {
 	case <-c.handshake:
 		return nil
 	case <-c.readerDone:
+		if serverErr := c.gw.ServerError(); serverErr != "" {
+			return fmt.Errorf("tmuxcc: control stream ended before attach: %w (tmux: %s)", c.procWaitError(), serverErr)
+		}
 		return fmt.Errorf("tmuxcc: control stream ended before attach: %w", c.procWaitError())
 	case <-ctx.Done():
 		return fmt.Errorf("tmuxcc: attach handshake: %w", ctx.Err())

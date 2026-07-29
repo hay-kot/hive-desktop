@@ -355,3 +355,21 @@ func TestTrimEOLStripsCarriageReturn(t *testing.T) {
 	require.Equal(t, []byte("%noop"), trimEOL([]byte("%noop\n")))
 	require.Equal(t, []byte("%noop"), trimEOL([]byte("%noop")))
 }
+
+func TestGatewayCapturesTheAttachPreambleError(t *testing.T) {
+	t.Parallel()
+	gw := NewGateway(io.Discard, func(Notification) {}, testLogger())
+
+	require.NoError(t, gw.Feed([]byte("%begin 100 0 0")))
+	require.NoError(t, gw.Feed([]byte("no server running on /private/tmp/tmux-501/default")))
+	require.NoError(t, gw.Feed([]byte("%error 100 0 0")))
+
+	require.Equal(t, "no server running on /private/tmp/tmux-501/default", gw.ServerError())
+}
+
+func TestSocketFromTMUX(t *testing.T) {
+	t.Parallel()
+	require.Equal(t, "/private/tmp/tmux-501/default", socketFromTMUX("/private/tmp/tmux-501/default,24757,4"))
+	require.Empty(t, socketFromTMUX(""))
+	require.Empty(t, socketFromTMUX("no-commas-here"))
+}
