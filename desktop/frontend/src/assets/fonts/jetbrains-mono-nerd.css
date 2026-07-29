@@ -1,0 +1,38 @@
+/*
+ * JetBrainsMono Nerd Font v3.4.0 — JetBrains Mono (OFL-1.1, (c) 2020 JetBrains)
+ * patched with Nerd Fonts glyphs (https://github.com/ryanoasis/nerd-fonts,
+ * OFL-1.1). Vendored for the terminal surface: agent TUIs render powerline and
+ * devicon glyphs that no system font covers.
+ */
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./JetBrainsMonoNerdFont-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./JetBrainsMonoNerdFont-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./JetBrainsMonoNerdFont-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'JetBrainsMono Nerd Font';
+  src: url('./JetBrainsMonoNerdFont-BoldItalic.ttf') format('truetype');
+  font-weight: 700;
+  font-style: italic;
+  font-display: block;
+}

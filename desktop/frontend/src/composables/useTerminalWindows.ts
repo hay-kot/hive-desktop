@@ -1,6 +1,9 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
 import { FitAddon } from '@xterm/addon-fit'
 import { Terminal, type IDisposable } from '@xterm/xterm'
+// Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
+// until they open Terminal mode.
+import '../assets/fonts/jetbrains-mono-nerd.css'
 import { decodeFrame, encodeInputFrames, type TerminalClient, type WindowState } from '../lib/terminalClient'
 import { xtermTheme } from '../lib/terminalTheme'
 import { useTheme } from './useTheme'
@@ -87,7 +90,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   function createTab(state: WindowState): TerminalWindowTab {
     const term = markRaw(new Terminal({
-      fontFamily: "'IBM Plex Mono', ui-monospace, monospace",
+      fontFamily: "'JetBrainsMono Nerd Font', 'IBM Plex Mono', ui-monospace, monospace",
       fontSize: 12,
       scrollback: 5000,
       theme: xtermTheme(),
@@ -255,6 +258,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     error.value = null
     actionError.value = null
     try {
+      // xterm measures cell metrics when a terminal opens; without this the
+      // grid is sized from the fallback font until something forces a refresh.
+      await document.fonts?.load("12px 'JetBrainsMono Nerd Font'").catch(() => {})
       const { windows } = await client.attach(slug, size.cols, size.rows)
       if (disposed) return
       tabs.value = windows.map(createTab)
