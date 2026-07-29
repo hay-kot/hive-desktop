@@ -48,14 +48,13 @@ var (
 
 // Options configures one attach.
 type Options struct {
-	Slug            string // tmux session name == Hive session slug
-	Cols            int
-	Rows            int
-	ScrollbackLines int // first-paint depth (capture-pane -S -N); 0 == visible screen
-	BufferBytes     int // broker bound; 0 == defaultBufferBytes
-	Metrics         MetricsSink
-	Logger          zerolog.Logger
-	OnExit          func(slug, reason string)
+	Slug        string // tmux session name == Hive session slug
+	Cols        int
+	Rows        int
+	BufferBytes int // broker bound; 0 == defaultBufferBytes
+	Metrics     MetricsSink
+	Logger      zerolog.Logger
+	OnExit      func(slug, reason string)
 
 	newProcess func(Options) process
 }
@@ -78,11 +77,10 @@ func (o *Options) normalize() error {
 
 // Client is one control-mode connection to one Hive session.
 type Client struct {
-	slug       string
-	log        zerolog.Logger
-	metrics    MetricsSink
-	onExit     func(slug, reason string)
-	scrollback int
+	slug    string
+	log     zerolog.Logger
+	metrics MetricsSink
+	onExit  func(slug, reason string)
 
 	proc   process
 	gw     *Gateway
@@ -126,7 +124,6 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		log:          opts.Logger.With().Str("session", opts.Slug).Logger(),
 		metrics:      opts.Metrics,
 		onExit:       opts.OnExit,
-		scrollback:   opts.ScrollbackLines,
 		ctrl:         newController(),
 		readerDone:   make(chan struct{}),
 		workerDone:   make(chan struct{}),
@@ -305,7 +302,7 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 // buffers its output forever.
 func (c *Client) firstPaint(ctx context.Context, pane string) error {
 	c.paint.mark(pane)
-	lines, err := c.gw.Send(ctx, c.captureCommand(pane))
+	lines, err := c.gw.Send(ctx, "capture-pane -pe -J -t "+pane)
 	if err != nil {
 		var cmdErr *CommandError
 		if !errors.As(err, &cmdErr) {
@@ -317,13 +314,6 @@ func (c *Client) firstPaint(ctx context.Context, pane string) error {
 	}
 	c.paint.release(pane, screenBytes(lines))
 	return nil
-}
-
-func (c *Client) captureCommand(pane string) string {
-	if c.scrollback > 0 {
-		return fmt.Sprintf("capture-pane -pe -J -t %s -S -%d", pane, c.scrollback)
-	}
-	return "capture-pane -pe -J -t " + pane
 }
 
 func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
@@ -469,7 +459,7 @@ func (c *Client) emitOutput(pane string, data []byte, at time.Time) {
 	if w.ActivePane != pane {
 		return
 	}
-	c.events.publish(Output{At: at, WindowID: w.ID, PaneID: pane, Data: data, Render: true})
+	c.events.publish(Output{At: at, WindowID: w.ID, PaneID: pane, Data: data})
 	c.metrics.StreamBufferDepth(c.slug, w.ID, c.events.depth())
 }
 

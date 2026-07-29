@@ -34,16 +34,15 @@ type WindowChanged struct {
 	Window Window
 }
 
-// Output is one window's decoded bytes. PaneID rides along so the deferred
-// panes phase is additive. Render is false for a drained non-active pane —
-// the client consumes it so tmux never stalls, but does not forward it. At is
-// the decode timestamp the WebSocket adapter measures send latency against.
+// Output is one window's decoded bytes, always from the window's active pane —
+// non-active-pane output is drained and dropped before it reaches the stream.
+// PaneID rides along so the deferred panes phase is additive. At is the decode
+// timestamp the WebSocket adapter measures send latency against.
 type Output struct {
 	At       time.Time
 	WindowID string
 	PaneID   string
 	Data     []byte
-	Render   bool
 }
 
 // LifecycleChanged reports attach/pause/resume/exit/error. WindowID is set for

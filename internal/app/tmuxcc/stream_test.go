@@ -41,7 +41,6 @@ func TestRecordedAttachStream(t *testing.T) {
 					WindowID: w.ID,
 					PaneID:   v.Pane,
 					Data:     v.Data,
-					Render:   w.ActivePane == v.Pane,
 				})
 			}
 		case ExitNotification:

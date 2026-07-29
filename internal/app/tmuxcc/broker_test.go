@@ -11,7 +11,7 @@ import (
 )
 
 func outputEvent(window, data string) Output {
-	return Output{At: time.Now(), WindowID: window, PaneID: "%1", Data: []byte(data), Render: true}
+	return Output{At: time.Now(), WindowID: window, PaneID: "%1", Data: []byte(data)}
 }
 
 func requireOutput(t *testing.T, ev Event) Output {
@@ -275,7 +275,7 @@ func TestBrokerPublishNeverBlocks(t *testing.T) {
 
 	done := make(chan struct{})
 	go func() {
-		for range subscriberQueue * 4 {
+		for range 256 {
 			b.publish(outputEvent("@1", "x"))
 		}
 		close(done)
