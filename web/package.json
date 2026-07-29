@@ -4,10 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "astro build && pagefind --site dist --glob \"docs/**/*.html\"",
     "preview": "wrangler dev",
     "check": "astro check",
-    "deploy": "astro build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy"
   },
   "dependencies": {
     "astro": "^7.1.0"
@@ -15,6 +15,7 @@
   "devDependencies": {
     "@fontsource/ibm-plex-mono": "^5.2.5",
     "@fontsource/ibm-plex-sans": "^5.2.5",
+    "pagefind": "^1.5.2",
     "wrangler": "^4.111.0"
   }
 }

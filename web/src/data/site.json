@@ -9,12 +9,12 @@
   "nav": [
     { "label": "Features", "href": "#features" },
     { "label": "How it works", "href": "#flow" },
-    { "label": "Docs", "href": null, "external": true },
+    { "label": "Docs", "href": "/docs" },
     { "label": "Pricing", "href": "#pricing" }
   ],
   "navCta": { "label": "Request access", "href": "#beta" },
   "footerLinks": [
-    { "label": "Docs", "href": null },
+    { "label": "Docs", "href": "/docs" },
     { "label": "GitHub", "href": null },
     { "label": "Changelog", "href": null },
     { "label": "Join beta", "href": "#beta" },

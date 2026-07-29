@@ -2,6 +2,8 @@
 
 Private product monorepo for the Hive desktop application and its supporting services.
 
+> **Testing the alpha?** The getting-started guide lives on the site: [hivedesktop.com/docs](https://hivedesktop.com/docs) — GitHub sign-in, first items, and how to report a bug. (Your beta invite has the install link.) Source: [`web/src/content/docs/`](web/src/content/docs/).
+
 | Component                                     | Path                             | Status                                                                                       |
 | --------------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------- |
 | Desktop app (Wails v3, Vue 3)                 | `desktop/` + `internal/app/` + `internal/adapter/` | Imported from `colonyops/hive` — see `desktop/README.md`                                     |

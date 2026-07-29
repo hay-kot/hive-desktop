@@ -1,0 +1,89 @@
+---
+import { getCollection, type CollectionEntry } from "astro:content";
+
+import Footer from "../components/Footer.astro";
+import DocsHeader from "../components/docs/DocsHeader.astro";
+import DocsSidebar from "../components/docs/DocsSidebar.astro";
+import { buildDocsTree, docHref } from "../lib/docs";
+import { site } from "../data";
+import Base from "./Base.astro";
+import "../styles/docs.css";
+
+interface Props {
+  entry: CollectionEntry<"docs">;
+  headings: { depth: number; slug: string; text: string }[];
+}
+
+const { entry, headings } = Astro.props;
+
+const all = await getCollection("docs", ({ data }) => !data.draft);
+const tree = buildDocsTree(all);
+const flat = tree.flatMap((group) => group.entries);
+const index = flat.findIndex((item) => item.id === entry.id);
+const prev = index > 0 ? flat[index - 1] : null;
+const next = index >= 0 && index < flat.length - 1 ? flat[index + 1] : null;
+
+const toc = headings.filter((h) => h.depth === 2 || h.depth === 3);
+const title = `${entry.data.title} · ${site.brand.name} docs`;
+---
+
+<Base title={title} description={entry.data.description} backdrop={false}>
+  <DocsHeader />
+
+  <div class="docs">
+    <aside class="docs__sidebar">
+      <DocsSidebar tree={tree} currentId={entry.id} />
+    </aside>
+
+    <article class="docs__main" data-pagefind-body>
+      <div class="prose">
+        <p class="docs__eyebrow" data-pagefind-ignore>{entry.data.group}</p>
+        <h1>{entry.data.title}</h1>
+        <p class="docs__lede">{entry.data.description}</p>
+        <slot />
+      </div>
+
+      {
+        (prev || next) && (
+          <nav class="docs__pager" aria-label="Pagination" data-pagefind-ignore>
+            {prev ? (
+              <a class="is-prev" href={docHref(prev)}>
+                <span class="docs__pager-dir">← Previous</span>
+                <span class="docs__pager-title">{prev.data.title}</span>
+              </a>
+            ) : (
+              <span style="flex:1" />
+            )}
+            {next ? (
+              <a class="is-next" href={docHref(next)}>
+                <span class="docs__pager-dir">Next →</span>
+                <span class="docs__pager-title">{next.data.title}</span>
+              </a>
+            ) : (
+              <span style="flex:1" />
+            )}
+          </nav>
+        )
+      }
+    </article>
+
+    {
+      toc.length > 0 && (
+        <aside class="docs__toc" data-pagefind-ignore>
+          <p class="docs__toc-title">On this page</p>
+          <ul>
+            {toc.map((h) => (
+              <li>
+                <a href={`#${h.slug}`} class={`lvl-${h.depth}`}>
+                  {h.text}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </aside>
+      )
+    }
+  </div>
+
+  <Footer />
+</Base>
