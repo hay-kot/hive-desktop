@@ -40,6 +40,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0030](decisions/0030-commit-resilience-and-scope-backfill.md) | Commit resilience, pre-#63 scope backfill by self-healing lookup, and superseded-snapshot retention |
 | [0031](decisions/0031-webhook-source-image-marks.md) | Webhook source image marks: content-addressed PNG in the data dir, hash in the flow |
 | [0032](decisions/0032-yaml-config-migration.md) | Forward-only in-place YAML config migration |
+| [0033](decisions/0033-skill-installer.md) | Skill installer: install the paste-ready prompts as agent skills, kept in sync by content hash |
 
 ## References
 

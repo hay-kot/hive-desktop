@@ -16,7 +16,7 @@ import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
-import PromptSettingsView from './PromptSettingsView.vue'
+import SkillsSettingsView from './SkillsSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
@@ -48,7 +48,7 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
-  prompts: { label: 'LLM prompts', title: 'LLM prompts', icon: IconSparkles },
+  skills: { label: 'Skills', title: 'Skills', icon: IconSparkles },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
 }
@@ -176,7 +176,7 @@ function onThemeChange(value: string): void {
 
       <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
 
-      <PromptSettingsView v-else-if="props.activeCategory === 'prompts'" />
+      <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
 
       <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
 

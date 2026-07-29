@@ -287,11 +287,11 @@ describe('SettingsView', () => {
     expect(wrapper.find('[data-testid="settings-keybindings"]').exists()).toBe(true)
   })
 
-  it('exposes an LLM prompts section that renders the prompt catalog', () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'prompts' } })
+  it('exposes a skills section that renders the skill installer', () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'skills' } })
 
-    expect(wrapper.find('[data-testid="settings-category-prompts"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="prompt-settings"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-category-skills"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="skill-settings"]').exists()).toBe(true)
   })
 
   it('closes from the header action and Escape', async () => {
