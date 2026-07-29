@@ -140,18 +140,6 @@ func ConfigReloaded(file string, actions int) Event {
 	}
 }
 
-// ConfigMigrated records that a config file was upgraded in place from one
-// schema version to another at load.
-func ConfigMigrated(file string, from, to int) Event {
-	return Event{
-		Category: CategoryConfig,
-		Severity: SeverityInfo,
-		Title:    fmt.Sprintf("Migrated %s", file),
-		Body:     fmt.Sprintf("schema v%d → v%d", from, to),
-		Source:   file,
-	}
-}
-
 // RecordInput is the frontend-facing shape for recording an event over the
 // Wails boundary. Category and severity are plain strings resolved (case
 // -insensitively) by [RecordInput.Event]; empty values default to system/info.

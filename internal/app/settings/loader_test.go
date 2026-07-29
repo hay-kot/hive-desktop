@@ -6,16 +6,20 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 func TestLoadSettingsMigratesUnversionedFileAndRoundTrips(t *testing.T) {
 	path := isolateSettings(t)
 	require.NoError(t, os.WriteFile(path, []byte("polling:\n  interval: 2m\n"), 0o600))
 
+	current := configmigrate.SettingsSet.Current
+
 	cfg, err := LoadSettings()
 	require.NoError(t, err)
-	assert.Equal(t, SettingsSchemaVersion(), cfg.Version)
-	assert.Equal(t, DefaultSettings().Version, SettingsSchemaVersion())
+	assert.Equal(t, current, cfg.Version)
+	assert.Equal(t, current, DefaultSettings().Version)
 
 	store := NewStore(path)
 	saved, err := store.Update(func(cfg *Settings) error {
@@ -23,11 +27,11 @@ func TestLoadSettingsMigratesUnversionedFileAndRoundTrips(t *testing.T) {
 		return nil
 	})
 	require.NoError(t, err)
-	assert.Equal(t, SettingsSchemaVersion(), saved.Version)
+	assert.Equal(t, current, saved.Version)
 
 	reloaded, err := store.Effective()
 	require.NoError(t, err)
-	assert.Equal(t, SettingsSchemaVersion(), reloaded.Version)
+	assert.Equal(t, current, reloaded.Version)
 }
 
 func TestLoadSettingsRejectsNewerVersionAndLeavesFileUntouched(t *testing.T) {

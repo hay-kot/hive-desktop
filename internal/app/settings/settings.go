@@ -159,13 +159,6 @@ type Settings struct {
 	overrides map[string]bool
 }
 
-// SettingsSchemaVersion reports the settings.yaml schema version this build
-// reads and writes. It reads configmigrate.SettingsSet.Current at call time
-// rather than a frozen const, so a test injecting a higher Current is
-// reflected everywhere. A legacy file with no `version:` key is treated as
-// the Set's baseline (v1).
-func SettingsSchemaVersion() int { return configmigrate.SettingsSet.Current }
-
 func DefaultSettings() Settings {
 	return Settings{
 		Version:       configmigrate.SettingsSet.Current,
