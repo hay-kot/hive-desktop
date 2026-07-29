@@ -45,8 +45,9 @@ func NewMetricsFactory(fetchers *Fetchers) connector.Factory {
 				Type: MetricsDescriptor.Type,
 				Node: node,
 				Metadata: connector.Metadata{
-					ProfileID:   node.FlowID,
-					SourceKind:  SourceKind,
+					ProfileID:  node.FlowID,
+					SourceKind: SourceKind,
+					// Scope by account so multiple Grafana stacks in one flow stay distinct.
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},
