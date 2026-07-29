@@ -67,7 +67,7 @@ func (o *Options) normalize() error {
 		return err
 	}
 	if o.Metrics == nil {
-		o.Metrics = noopMetrics{}
+		o.Metrics = NopMetrics
 	}
 	if o.newProcess == nil {
 		o.newProcess = newExecProcess

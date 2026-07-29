@@ -114,9 +114,7 @@ func (s *TerminalsService) Detach(ctx context.Context, slug string) error {
 // the moment a transport put it on the wire. Only the transport knows when the
 // send happened, so it measures and reports it here.
 func (s *TerminalsService) ObserveFrameLatency(slug, windowID string, latency time.Duration) {
-	if s.metrics != nil {
-		s.metrics.FrameLatency(slug, windowID, latency)
-	}
+	s.metrics.FrameLatency(slug, windowID, latency)
 }
 
 func (s *TerminalsService) client(slug string) (*tmuxcc.Client, error) {

@@ -13,6 +13,10 @@ type MetricsSink interface {
 	StreamBufferDepth(session, window string, depth int)
 }
 
+// NopMetrics discards all telemetry. Passing it instead of nil keeps every
+// holder of a MetricsSink free of nil-checks.
+var NopMetrics MetricsSink = noopMetrics{}
+
 type noopMetrics struct{}
 
 func (noopMetrics) BytesStreamed(string, string, int)          {}

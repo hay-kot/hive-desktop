@@ -76,7 +76,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 		clients:     map[string]*managedClient{},
 	}
 	if m.metrics == nil {
-		m.metrics = noopMetrics{}
+		m.metrics = NopMetrics
 	}
 	if m.probe == nil {
 		m.probe = tmuxVersion
