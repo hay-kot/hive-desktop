@@ -42,15 +42,15 @@ func TestAttachRunsTheHandshakeSequence(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	f.setCapture("%1", "claude> ready")
 	f.setCapture("%2", "$ ")
 
 	client := attachFake(t, f, Options{Cols: 120, Rows: 40})
 
 	require.Equal(t, []Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
-		{ID: "@2", Name: "shell", ActivePane: "%2"},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 	}, client.Windows())
 
 	commands := f.sentCommands()
@@ -70,7 +70,7 @@ func TestAttachFirstPaintsEachWindow(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	f.setCapture("%1", "claude> ready", "second row")
 	f.setCapture("%2", "$ ")
 
@@ -83,13 +83,37 @@ func TestAttachFirstPaintsEachWindow(t *testing.T) {
 	require.Equal(t, LifecycleAttached, lastLifecycle(t, events).Kind)
 }
 
+// capture-pane returns the whole visible screen. Left as-is, a window whose
+// shell has printed one line paints its prompt at the bottom of a screenful of
+// blanks — which is exactly what a window created from the UI looks like.
+func TestFirstPaintTrimsTrailingBlankRows(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	f.setCapture("%1",
+		"$ echo hi",
+		"hi",
+		"$ ",
+		"",
+		strings.Repeat(" ", 120),
+		"\x1b[38;5;240m"+strings.Repeat(" ", 120)+"\x1b[0m",
+	)
+
+	client := attachFake(t, f, Options{})
+	events, unsubscribe := subscribeAndCollect(t, client, lifecycleIs(LifecycleAttached))
+	defer unsubscribe()
+
+	require.Equal(t, "$ echo hi\r\nhi\r\n$ ", outputData(events, "@1"))
+}
+
 // The pane keeps writing throughout the attach: the snapshot must land first
 // and the live stream must stay contiguous behind it.
 func TestAttachReplaysLiveOutputBehindSnapshot(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	f.setCapture("%1", "SNAPSHOT")
 
 	stop, writerDone := make(chan struct{}), make(chan struct{})
@@ -127,10 +151,10 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	f.emit("%window-add @2")
 
 	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
@@ -142,8 +166,8 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 
 	f.awaitCommands(t, "list-windows", 2)
 	require.Equal(t, []Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
-		{ID: "@2", Name: "shell", ActivePane: "%2"},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 	}, client.Windows())
 }
 
@@ -154,11 +178,11 @@ func TestReconcileFirstPaintsANewWindow(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
 	f.setCapture("%2", "$ echo hi", "hi")
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	f.emit(`%output %2 unroutable\015\012`)
 	f.emit("%window-add @2")
 
@@ -190,11 +214,11 @@ func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
 	f.setCapture("%2", "$ prompt")
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	f.setOnCommand(func(cmd string) {
 		if strings.HasPrefix(cmd, "capture-pane -pe -J -t %2") {
 			f.emit(`%output %2 HELD`)
@@ -213,7 +237,7 @@ func TestWindowClosedDuringItsFirstPaint(t *testing.T) {
 		out, ok := ev.(Output)
 		require.False(t, ok && out.WindowID == "@2", "a closed window renders nothing: %#v", ev)
 	}
-	require.NotContains(t, client.Windows(), Window{ID: "@2", Name: "shell", ActivePane: "%2"})
+	require.NotContains(t, client.Windows(), Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40})
 
 	client.paint.mu.Lock()
 	defer client.paint.mu.Unlock()
@@ -229,14 +253,14 @@ func TestTeardownWhileTheServerIsMidReply(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 	ch, unsubscribe := client.Subscribe()
 	defer unsubscribe()
 
 	rows := make([]string, 0, 64)
 	for i := range 64 {
-		rows = append(rows, fmt.Sprintf("@%d 0 %%%d shell", 100+i, 100+i))
+		rows = append(rows, fmt.Sprintf("@%d 0 %%%d 120 40 shell", 100+i, 100+i))
 	}
 	f.setWindows(rows...)
 	f.setOnCommand(func(cmd string) {
@@ -254,10 +278,10 @@ func TestReconcileIsCoalesced(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	for range 5 {
 		f.emit("%window-add @2")
 		f.emit("%layout-change @2 b25d,80x24,0,0,1")
@@ -276,7 +300,7 @@ func TestSessionWindowChangedEmitsActiveChanged(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
 	client := attachFake(t, f, Options{})
 
 	f.emit("%session-window-changed $1 @2")
@@ -293,11 +317,36 @@ func TestSessionWindowChangedEmitsActiveChanged(t *testing.T) {
 	require.True(t, changed.Window.Active)
 }
 
+// tmux sizes a window to the smallest attached client, so a second client
+// attaching elsewhere resizes it under us. %layout-change is how that reaches
+// the renderer in time to draw the repaint that follows at the right width.
+func TestLayoutChangeEmitsResizedWithTheWindowSize(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	client := attachFake(t, f, Options{})
+
+	f.emit("%layout-change @1 b25d,80x24,0,0,1 b25d,80x24,0,0,1 *")
+
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		wc, ok := ev.(WindowChanged)
+		return ok && wc.Kind == WindowResized
+	})
+	defer unsubscribe()
+
+	resized, ok := events[len(events)-1].(WindowChanged)
+	require.True(t, ok)
+	require.Equal(t, "@1", resized.Window.ID)
+	require.Equal(t, 80, resized.Window.Width)
+	require.Equal(t, 24, resized.Window.Height)
+}
+
 func TestExtendedOutputIsRoutedLikeOutput(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
 	f.emit(`%extended-output %1 4212 : caught\040up\015\012`)
@@ -311,7 +360,7 @@ func TestOversizedOutputReachesTheSubscriber(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	client := attachFake(t, f, Options{})
 
 	payload := strings.Repeat("z", 70_000)
@@ -328,7 +377,7 @@ func TestOutputFromANonActivePaneIsDrainedNotForwarded(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	metrics := &fakeMetrics{}
 	client := attachFake(t, f, Options{Metrics: metrics})
 
@@ -498,7 +547,7 @@ func TestMetricsSinkReceivesTelemetry(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	f.setCapture("%1", "ready")
 	metrics := &fakeMetrics{}
 	client := attachFake(t, f, Options{Metrics: metrics})

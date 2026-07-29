@@ -59,8 +59,18 @@ describe('terminal frame codec', () => {
   })
 
   it('decodes window events with their stable string kinds', () => {
-    expect(decodeFrame(jsonFrame(0x01, { kind: 'renamed', windowId: '@2', name: 'shell', active: false })))
-      .toEqual({ type: 'window', kind: 'renamed', windowId: '@2', name: 'shell', active: false })
+    expect(decodeFrame(jsonFrame(0x01, { kind: 'renamed', windowId: '@2', name: 'shell', active: false, width: 213, height: 55 })))
+      .toEqual({ type: 'window', kind: 'renamed', state: { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 } })
+  })
+
+  it('decodes a resize as tmux reporting the size the window must render at', () => {
+    expect(decodeFrame(jsonFrame(0x01, { kind: 'resized', windowId: '@2', name: 'shell', active: true, width: 80, height: 24 })))
+      .toEqual({ type: 'window', kind: 'resized', state: { windowId: '@2', name: 'shell', active: true, width: 80, height: 24 } })
+  })
+
+  it('reads an unreported size as 0 rather than inventing one', () => {
+    expect(decodeFrame(jsonFrame(0x01, { kind: 'added', windowId: '@3' })))
+      .toEqual({ type: 'window', kind: 'added', state: { windowId: '@3', name: '', active: false, width: 0, height: 0 } })
   })
 
   it('decodes lifecycle events', () => {
@@ -109,13 +119,14 @@ describe('createTerminalClient', () => {
 
   it('attaches with the bearer token and returns the window set', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, {
-      windows: [{ windowId: '@1', name: 'agent', active: true }],
+      windows: [{ windowId: '@1', name: 'agent', active: true, width: 213, height: 55 }],
       streamPath: '/api/terminal/stream',
     }))
 
     const result = await createTerminalClient(endpoint).attach('hive-abc', 120, 40)
 
-    expect(result.windows).toEqual([{ windowId: '@1', name: 'agent', active: true }])
+    // The cols/rows posted are a vote; the sizes that come back are tmux's.
+    expect(result.windows).toEqual([{ windowId: '@1', name: 'agent', active: true, width: 213, height: 55 }])
     const [url, init] = fetchMock.mock.calls[0]
     expect(url).toBe('http://127.0.0.1:58006/api/terminal/attach')
     expect(init.headers.Authorization).toBe('Bearer tok-123')

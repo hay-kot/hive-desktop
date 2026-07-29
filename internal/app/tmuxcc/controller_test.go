@@ -9,8 +9,8 @@ import (
 func seededController() *controller {
 	c := newController()
 	c.set([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
-		{ID: "@2", Name: "shell", ActivePane: "%2"},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 	})
 	return c
 }
@@ -33,7 +33,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowCloseNotification{Window: "@2"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowClosed,
-			Window: Window{ID: "@2", Name: "shell", ActivePane: "%2"},
+			Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
 		}}, events)
 
 		_, ok := c.windowForPane("%2")
@@ -46,7 +46,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowRenamedNotification{Window: "@2", Name: "logs"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowRenamed,
-			Window: Window{ID: "@2", Name: "logs", ActivePane: "%2"},
+			Window: Window{ID: "@2", Name: "logs", ActivePane: "%2", Width: 120, Height: 40},
 		}}, events)
 	})
 
@@ -56,7 +56,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(WindowPaneChanged{Window: "@2", Pane: "%7"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowActiveChanged,
-			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7"},
+			Window: Window{ID: "@2", Name: "shell", ActivePane: "%7", Width: 120, Height: 40},
 		}}, events)
 
 		w, ok := c.windowForPane("%7")
@@ -74,7 +74,7 @@ func TestControllerNotifications(t *testing.T) {
 		events := c.apply(SessionWindowChanged{Session: "$1", Window: "@2"})
 		require.Equal(t, []Event{WindowChanged{
 			Kind:   WindowActiveChanged,
-			Window: Window{ID: "@2", Name: "shell", Active: true, ActivePane: "%2"},
+			Window: Window{ID: "@2", Name: "shell", Active: true, ActivePane: "%2", Width: 120, Height: 40},
 		}}, events)
 
 		windows := c.Windows()
@@ -93,12 +93,27 @@ func TestControllerNotifications(t *testing.T) {
 			c.apply(ContinueNotification{Pane: "%1"}))
 	})
 
+	t.Run("layout change carries the window's new size", func(t *testing.T) {
+		t.Parallel()
+		c := seededController()
+		require.Equal(t, []Event{WindowChanged{
+			Kind:   WindowResized,
+			Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24},
+		}}, c.apply(LayoutChanged{Window: "@1", Width: 80, Height: 24}))
+
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1", Width: 80, Height: 24}),
+			"a layout change that moves no boundary is not a resize")
+		require.Nil(t, c.apply(LayoutChanged{Window: "@1"}),
+			"an unreadable layout leaves the size alone; the reconcile it triggers carries it")
+	})
+
 	t.Run("notifications for unknown windows are inert", func(t *testing.T) {
 		t.Parallel()
 		c := seededController()
 		require.Nil(t, c.apply(WindowCloseNotification{Window: "@99"}))
 		require.Nil(t, c.apply(WindowRenamedNotification{Window: "@99", Name: "x"}))
 		require.Nil(t, c.apply(SessionWindowChanged{Session: "$1", Window: "@99"}))
+		require.Nil(t, c.apply(LayoutChanged{Window: "@99", Width: 80, Height: 24}))
 		require.Len(t, c.Windows(), 2)
 	})
 }
@@ -108,13 +123,14 @@ func TestControllerReconcileDiffs(t *testing.T) {
 
 	c := seededController()
 	events := c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
-		{ID: "@3", Name: "logs", ActivePane: "%3"},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24},
+		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24},
 	})
 
 	require.Equal(t, []Event{
-		WindowChanged{Kind: WindowAdded, Window: Window{ID: "@3", Name: "logs", ActivePane: "%3"}},
-		WindowChanged{Kind: WindowClosed, Window: Window{ID: "@2", Name: "shell", ActivePane: "%2"}},
+		WindowChanged{Kind: WindowResized, Window: Window{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 80, Height: 24}},
+		WindowChanged{Kind: WindowAdded, Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 80, Height: 24}},
+		WindowChanged{Kind: WindowClosed, Window: Window{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40}},
 	}, events)
 
 	require.Equal(t, []string{"@1", "@3"}, windowIDs(c.Windows()))
@@ -129,14 +145,14 @@ func TestControllerReconcileFillsPlaceholder(t *testing.T) {
 	c.apply(WindowAddNotification{Window: "@3"})
 
 	events := c.reconcile([]Window{
-		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
-		{ID: "@2", Name: "shell", ActivePane: "%2"},
-		{ID: "@3", Name: "logs", ActivePane: "%3"},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40},
 	})
 
 	require.Equal(t, []Event{WindowChanged{
 		Kind:   WindowRenamed,
-		Window: Window{ID: "@3", Name: "logs", ActivePane: "%3"},
+		Window: Window{ID: "@3", Name: "logs", ActivePane: "%3", Width: 120, Height: 40},
 	}}, events)
 
 	w, ok := c.windowForPane("%3")
@@ -147,16 +163,18 @@ func TestControllerReconcileFillsPlaceholder(t *testing.T) {
 func TestParseWindowLine(t *testing.T) {
 	t.Parallel()
 
-	w, ok := parseWindowLine("@275 1 %512 claude session")
+	w, ok := parseWindowLine("@275 1 %512 213 55 claude session")
 	require.True(t, ok)
-	require.Equal(t, Window{ID: "@275", Name: "claude session", Active: true, ActivePane: "%512"}, w)
+	require.Equal(t, Window{ID: "@275", Name: "claude session", Active: true, ActivePane: "%512", Width: 213, Height: 55}, w)
 
-	w, ok = parseWindowLine("@276 0 %513")
+	w, ok = parseWindowLine("@276 0 %513 80 24")
 	require.True(t, ok)
-	require.Equal(t, Window{ID: "@276", ActivePane: "%513"}, w)
+	require.Equal(t, Window{ID: "@276", ActivePane: "%513", Width: 80, Height: 24}, w)
 
 	_, ok = parseWindowLine("nonsense")
 	require.False(t, ok)
+	_, ok = parseWindowLine("@277 0 %514 shell")
+	require.False(t, ok, "a row without dimensions is not this format")
 }
 
 func windowIDs(windows []Window) []string {

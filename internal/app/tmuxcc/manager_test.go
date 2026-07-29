@@ -101,7 +101,7 @@ func TestManagerAttachIsOneClientPerSlug(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	m := newTestManager(t, f, ManagerOptions{})
 
 	first, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -144,7 +144,7 @@ func TestManagerBrokerOverflowTearsDownTheClient(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	m := newTestManager(t, f, ManagerOptions{BufferBytes: 4 << 10})
 
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -176,7 +176,7 @@ func TestManagerDropsAClientThatDiedDuringAttach(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	f.setCapture("%1", "ready")
 
 	gate := &gatedMetrics{blocked: make(chan struct{}), release: make(chan struct{})}
@@ -233,7 +233,7 @@ func TestManagerStopReleasesAStalledSubscriber(t *testing.T) {
 	before := clientGoroutines()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 claude")
+	f.setWindows("@1 1 %1 120 40 claude")
 	m := newTestManager(t, f, ManagerOptions{})
 
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)

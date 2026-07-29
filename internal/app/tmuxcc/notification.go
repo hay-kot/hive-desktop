@@ -21,10 +21,15 @@ type (
 	WindowPaneChanged         struct{ Window, Pane string }
 	SessionChanged            struct{ Session, Name string }
 	SessionWindowChanged      struct{ Session, Window string }
-	LayoutChanged             struct{ Window string }
-	PauseNotification         struct{ Pane string }
-	ContinueNotification      struct{ Pane string }
-	ExitNotification          struct{ Reason string }
+	// LayoutChanged carries the window's new size; Width/Height are 0 when the
+	// layout string could not be read.
+	LayoutChanged struct {
+		Window        string
+		Width, Height int
+	}
+	PauseNotification    struct{ Pane string }
+	ContinueNotification struct{ Pane string }
+	ExitNotification     struct{ Reason string }
 )
 
 func (OutputNotification) isNotification()        {}
@@ -107,11 +112,12 @@ func parseNotification(line []byte) (Notification, error) {
 		return SessionWindowChanged{Session: string(sess), Window: string(win)}, nil
 
 	case "%layout-change":
-		win, _, _ := bytes.Cut(rest, []byte(" "))
+		win, layout, _ := bytes.Cut(rest, []byte(" "))
 		if !isWindowID(win) {
 			return nil, fmt.Errorf("%w: %%layout-change", errMalformed)
 		}
-		return LayoutChanged{Window: string(win)}, nil
+		width, height := parseLayoutSize(layout)
+		return LayoutChanged{Window: string(win), Width: width, Height: height}, nil
 
 	case "%pause":
 		if !isPaneID(rest) {
@@ -155,6 +161,36 @@ func parseExtendedOutput(rest []byte) (Notification, error) {
 		return nil, fmt.Errorf("%w: %%extended-output separator", errMalformed)
 	}
 	return OutputNotification{Pane: string(pane), Data: decodeOutput(payload)}, nil
+}
+
+// parseLayoutSize reads the size a tmux layout string leads with:
+// `<checksum>,<width>x<height>,<x>,<y>[,...]`. The pane tree behind it is the
+// deferred panes phase's business — only the window's own dimensions are read,
+// and an unreadable layout yields 0,0 rather than an error, because the
+// reconcile the same notification triggers carries the size authoritatively.
+func parseLayoutSize(layout []byte) (width, height int) {
+	first, _, _ := bytes.Cut(layout, []byte(" "))
+	_, tail, ok := bytes.Cut(first, []byte(","))
+	if !ok {
+		return 0, 0
+	}
+	dims, _, _ := bytes.Cut(tail, []byte(","))
+	w, h, ok := bytes.Cut(dims, []byte("x"))
+	if !ok {
+		return 0, 0
+	}
+	return atoi(w), atoi(h)
+}
+
+func atoi(b []byte) int {
+	if !isDigits(b) || len(b) > 6 {
+		return 0
+	}
+	n := 0
+	for _, c := range b {
+		n = n*10 + int(c-'0')
+	}
+	return n
 }
 
 // decodeOutput folds tmux's octal escapes back into raw bytes. tmux escapes

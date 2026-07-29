@@ -40,10 +40,14 @@ func MintTerminalToken() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(raw), nil
 }
 
+// terminalWindow carries tmux's size for the window, which is the size the
+// frontend must render it at — the cols/rows it asked for are only a vote.
 type terminalWindow struct {
 	WindowID string `json:"windowId"`
 	Name     string `json:"name"`
 	Active   bool   `json:"active"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
 }
 
 type terminalSlugRequest struct {
@@ -116,7 +120,13 @@ func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) e
 	}
 	out := make([]terminalWindow, 0, len(windows))
 	for _, win := range windows {
-		out = append(out, terminalWindow{WindowID: win.ID, Name: win.Name, Active: win.Active})
+		out = append(out, terminalWindow{
+			WindowID: win.ID,
+			Name:     win.Name,
+			Active:   win.Active,
+			Width:    win.Width,
+			Height:   win.Height,
+		})
 	}
 	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: out, StreamPath: TerminalStreamPath})
 }

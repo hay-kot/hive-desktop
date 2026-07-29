@@ -4,7 +4,13 @@ import { Terminal, type IDisposable } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
 import '../assets/fonts/jetbrains-mono-nerd.css'
-import { decodeFrame, encodeInputFrames, type TerminalClient, type WindowState } from '../lib/terminalClient'
+import {
+  decodeFrame,
+  encodeInputFrames,
+  type TerminalClient,
+  type WindowEventKind,
+  type WindowState,
+} from '../lib/terminalClient'
 import { xtermTheme } from '../lib/terminalTheme'
 import { useTheme } from './useTheme'
 
@@ -47,6 +53,8 @@ export interface UseTerminalWindows {
   dispose: () => void
 }
 
+// The size a window renders at until tmux reports its own. Every path that
+// learns tmux's size overrides it.
 const DEFAULT_SIZE = { cols: 80, rows: 24 }
 const RESIZE_DEBOUNCE_MS = 80
 
@@ -70,7 +78,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const scope = effectScope(true)
   let socket: WebSocket | null = null
   let disposed = false
-  let size = { ...DEFAULT_SIZE }
+  // The last size this client voted for. tmux sizes a window to the *smallest*
+  // attached client, so this is a request, never the size anything renders at.
+  let vote = { ...DEFAULT_SIZE }
   let resizeTimer: ReturnType<typeof setTimeout> | undefined
   // A window created from the toolbar is only knowable by id once tmux
   // announces it, so the intent to focus it is parked until then.
@@ -97,11 +107,22 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
-    term.resize(size.cols, size.rows)
+    // Before any output reaches it: xterm re-wraps its buffer on resize, so a
+    // grid sized after the first paint mangles the snapshot it just drew.
+    term.resize(state.width || DEFAULT_SIZE.cols, state.height || DEFAULT_SIZE.rows)
     runtime.set(state.windowId, {
       disposers: [term.onData((data: string) => sendInput(state.windowId, data))],
     })
     return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, term, fit }
+  }
+
+  // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
+  // not reported one — a %window-add placeholder, say — and the reconcile behind
+  // it carries the real size a moment later.
+  function applySize(tab: TerminalWindowTab, width: number, height: number): void {
+    if (!width || !height) return
+    if (tab.term.cols === width && tab.term.rows === height) return
+    tab.term.resize(width, height)
   }
 
   function sendInput(windowId: string, data: string): void {
@@ -120,31 +141,30 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!tab || !state || state.host) return
     state.host = host
     tab.term.open(host)
-    const observer = new ResizeObserver(() => scheduleFit())
+    const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
     if (tab.windowId === activeWindowId.value) tab.term.focus()
-    scheduleFit()
+    scheduleVote()
   }
 
-  function scheduleFit(): void {
+  function scheduleVote(): void {
     clearTimeout(resizeTimer)
-    resizeTimer = setTimeout(fitActive, RESIZE_DEBOUNCE_MS)
+    resizeTimer = setTimeout(voteSize, RESIZE_DEBOUNCE_MS)
   }
 
-  // tmux sizes the control client, not the window, so the visible pane decides
-  // the size and every terminal is held to it.
-  function fitActive(): void {
+  // The measurement is a vote, not a resize: it says how big a grid this pane
+  // could show, and tmux answers with the size it actually gave the window
+  // (%layout-change -> a window event). proposeDimensions rather than fit()
+  // because fit() would resize the Terminal itself, which is tmux's call.
+  function voteSize(): void {
     const tab = findTab(activeWindowId.value)
     if (!tab || !runtime.get(tab.windowId)?.host) return
-    tab.fit.fit()
-    const { cols, rows } = tab.term
-    if (!cols || !rows || (cols === size.cols && rows === size.rows)) return
-    size = { cols, rows }
-    for (const other of tabs.value) {
-      if (other !== tab) other.term.resize(cols, rows)
-    }
-    void client.resize(slug, cols, rows).catch((e: unknown) => {
+    const proposed = tab.fit.proposeDimensions()
+    if (!proposed?.cols || !proposed.rows) return
+    if (proposed.cols === vote.cols && proposed.rows === vote.rows) return
+    vote = { cols: proposed.cols, rows: proposed.rows }
+    void client.resize(slug, vote.cols, vote.rows).catch((e: unknown) => {
       actionError.value = message(e, 'Could not resize the terminal.')
     })
   }
@@ -159,7 +179,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         findTab(frame.windowId)?.term.write(frame.data)
         break
       case 'window':
-        applyWindowEvent(frame.kind, frame.windowId, frame.name, frame.active)
+        applyWindowEvent(frame.kind, frame.state)
         break
       case 'lifecycle':
         if (frame.kind === 'exited') end('exited', frame.message || 'The tmux session ended.')
@@ -168,30 +188,38 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
-  function applyWindowEvent(kind: string, windowId: string, name: string, active: boolean): void {
+  // Every window event carries the whole window, so the size is taken from all
+  // of them rather than from 'resized' alone — a reconcile reports one change
+  // per window and its kind may be any of these.
+  function applyWindowEvent(kind: WindowEventKind, state: WindowState): void {
+    const { windowId } = state
     switch (kind) {
       case 'added': {
         if (findTab(windowId)) return
-        tabs.value = [...tabs.value, createTab({ windowId, name, active })]
-        if (active || tabs.value.length === 1 || pendingActivate === windowId) {
+        tabs.value = [...tabs.value, createTab(state)]
+        if (state.active || tabs.value.length === 1 || pendingActivate === windowId) {
           pendingActivate = ''
           setActive(windowId)
-          void nextTick(() => scheduleFit())
+          void nextTick(() => scheduleVote())
         }
-        break
+        return
       }
       case 'closed':
         disposeTab(windowId)
-        break
+        return
       case 'renamed': {
         const tab = findTab(windowId)
-        if (tab) tab.name = name
+        if (tab) tab.name = state.name
         break
       }
       case 'active-changed':
         if (findTab(windowId)) setActive(windowId)
         break
+      case 'resized':
+        break
     }
+    const tab = findTab(windowId)
+    if (tab) applySize(tab, state.width, state.height)
   }
 
   function openSocket(): void {
@@ -261,7 +289,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // xterm measures cell metrics when a terminal opens; without this the
       // grid is sized from the fallback font until something forces a refresh.
       await document.fonts?.load("12px 'JetBrainsMono Nerd Font'").catch(() => {})
-      const { windows } = await client.attach(slug, size.cols, size.rows)
+      const { windows } = await client.attach(slug, vote.cols, vote.rows)
       if (disposed) return
       tabs.value = windows.map(createTab)
       setActive(windows.find((window) => window.active)?.windowId ?? windows[0]?.windowId ?? '')
@@ -285,7 +313,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     setActive(windowId)
     await nextTick()
     findTab(windowId)?.term.focus()
-    scheduleFit()
+    scheduleVote()
     await control(() => client.selectWindow(slug, windowId), 'Could not select that window.')
   }
 

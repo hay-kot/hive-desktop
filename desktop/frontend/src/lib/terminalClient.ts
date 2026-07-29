@@ -4,7 +4,7 @@
 //
 //   server -> client
 //     0x00 Output      [0x00][winLen u8][windowId][paneLen u8][paneId][raw bytes]
-//     0x01 WindowEvent [0x01][JSON {kind, windowId, name, active}]
+//     0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, width, height}]
 //     0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //   client -> server
 //     0x10 Input       [0x10][winLen u8][windowId][raw bytes]
@@ -25,18 +25,26 @@ const FRAME_WINDOW_EVENT = 0x01
 const FRAME_LIFECYCLE = 0x02
 const FRAME_INPUT = 0x10
 
-export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed'
+export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' | 'resized'
 export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error'
 
+/**
+ * One tmux window. `width`/`height` are tmux's own size for it — the smallest
+ * attached client's, which may be another terminal entirely — and 0 when tmux
+ * has not reported one. Rendering at any other size mangles the pane's
+ * cursor-addressed output.
+ */
 export interface WindowState {
   windowId: string
   name: string
   active: boolean
+  width: number
+  height: number
 }
 
 export type TerminalFrame =
   | { type: 'output'; windowId: string; paneId: string; data: Uint8Array }
-  | { type: 'window'; kind: WindowEventKind; windowId: string; name: string; active: boolean }
+  | { type: 'window'; kind: WindowEventKind; state: WindowState }
   | { type: 'lifecycle'; kind: LifecycleKind; windowId: string; message: string }
 
 export interface TerminalClient {
@@ -72,8 +80,15 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
 
   return {
     async attach(slug, cols, rows) {
-      const body = await post<{ windows: WindowState[] | null; streamPath: string }>('/api/terminal/attach', { slug, cols, rows })
-      return { windows: body?.windows ?? [], streamPath: body?.streamPath ?? endpoint.streamPath }
+      const body = await post<{ windows: Partial<WindowState>[] | null; streamPath: string }>('/api/terminal/attach', { slug, cols, rows })
+      const windows = (body?.windows ?? []).map((window) => ({
+        windowId: window.windowId ?? '',
+        name: window.name ?? '',
+        active: !!window.active,
+        width: window.width ?? 0,
+        height: window.height ?? 0,
+      }))
+      return { windows, streamPath: body?.streamPath ?? endpoint.streamPath }
     },
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
     async newWindow(slug) {
@@ -144,9 +159,19 @@ export function decodeFrame(payload: ArrayBuffer | Uint8Array): TerminalFrame | 
       return { type: 'output', windowId: window.id, paneId: pane.id, data: bytes.subarray(pane.next) }
     }
     case FRAME_WINDOW_EVENT: {
-      const payload = readJSON<{ kind: WindowEventKind; windowId: string; name: string; active: boolean }>(bytes)
+      const payload = readJSON<WindowState & { kind: WindowEventKind }>(bytes)
       if (!payload?.kind) return null
-      return { type: 'window', kind: payload.kind, windowId: payload.windowId ?? '', name: payload.name ?? '', active: !!payload.active }
+      return {
+        type: 'window',
+        kind: payload.kind,
+        state: {
+          windowId: payload.windowId ?? '',
+          name: payload.name ?? '',
+          active: !!payload.active,
+          width: payload.width ?? 0,
+          height: payload.height ?? 0,
+        },
+      }
     }
     case FRAME_LIFECYCLE: {
       const payload = readJSON<{ kind: LifecycleKind; windowId: string; message: string }>(bytes)

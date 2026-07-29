@@ -14,6 +14,7 @@ const (
 	WindowClosed        WindowEventKind = "closed"
 	WindowRenamed       WindowEventKind = "renamed"
 	WindowActiveChanged WindowEventKind = "active-changed"
+	WindowResized       WindowEventKind = "resized"
 )
 
 // LifecycleKind is the connection-state vocabulary, wire strings likewise.

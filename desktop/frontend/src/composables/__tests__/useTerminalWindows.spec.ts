@@ -32,7 +32,8 @@ const xterm = vi.hoisted(() => {
   }
 
   class FakeFitAddon {
-    fit = vi.fn()
+    proposed: { cols: number; rows: number } | undefined = { cols: 80, rows: 24 }
+    proposeDimensions = vi.fn(() => this.proposed)
     dispose = vi.fn()
     constructor() { FakeFitAddon.instances.push(this) }
     static instances: FakeFitAddon[] = []
@@ -81,8 +82,8 @@ function fakeClient(): MockedClient {
   return {
     attach: vi.fn().mockResolvedValue({
       windows: [
-        { windowId: '@1', name: 'agent', active: true },
-        { windowId: '@2', name: 'shell', active: false },
+        { windowId: '@1', name: 'agent', active: true, width: 213, height: 55 },
+        { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 },
       ],
       streamPath: '/api/terminal/stream',
     }),
@@ -124,6 +125,23 @@ function jsonFrame(kind: number, payload: unknown): ArrayBuffer {
   bytes[0] = kind
   bytes.set(body, 1)
   return bytes.buffer
+}
+
+// Window events carry the whole window; the attach fixture's windows are 213x55,
+// so that is what an event leaves a size at unless it says otherwise.
+function windowFrame(
+  kind: string,
+  windowId: string,
+  window: { name?: string; active?: boolean; width?: number; height?: number } = {},
+): ArrayBuffer {
+  return jsonFrame(0x01, {
+    kind,
+    windowId,
+    name: window.name ?? '',
+    active: window.active ?? false,
+    width: window.width ?? 213,
+    height: window.height ?? 55,
+  })
 }
 
 async function attached() {
@@ -170,18 +188,58 @@ describe('useTerminalWindows', () => {
   it('maps window events onto the tab list', async () => {
     const { session, socket } = await attached()
 
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'added', windowId: '@3', name: 'logs', active: false }) })
+    socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs' }) })
     expect(session.tabs.value.map((tab) => tab.name)).toEqual(['agent', 'shell', 'logs'])
 
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'renamed', windowId: '@3', name: 'tail', active: false }) })
+    socket.onmessage?.({ data: windowFrame('renamed', '@3', { name: 'tail' }) })
     expect(session.tabs.value[2].name).toBe('tail')
 
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'active-changed', windowId: '@2', name: 'shell', active: true }) })
+    socket.onmessage?.({ data: windowFrame('active-changed', '@2', { name: 'shell', active: true }) })
     expect(session.activeWindowId.value).toBe('@2')
     expect(session.tabs.value.map((tab) => tab.active)).toEqual([false, true, false])
 
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'closed', windowId: '@3', name: 'tail', active: false }) })
+    socket.onmessage?.({ data: windowFrame('closed', '@3', { name: 'tail' }) })
     expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
+  })
+
+  // tmux sizes a window to the smallest attached client, so the size a tab
+  // renders at is whatever tmux reports — never what this pane measured.
+  it('opens every terminal at the size tmux reported, before any output lands', async () => {
+    const { session, socket } = await attached()
+
+    for (const tab of session.tabs.value) {
+      expect(tab.term.resize).toHaveBeenCalledWith(213, 55)
+      expect(tab.term.cols).toBe(213)
+      expect(tab.term.rows).toBe(55)
+    }
+
+    // A resize re-wraps the buffer, so one after the first paint would mangle
+    // the snapshot tmux just drew.
+    const term = xterm.FakeTerminal.instances[1]
+    socket.onmessage?.({ data: outputFrame('@2', '%9', 'from the shell') })
+    expect(term.resize.mock.invocationCallOrder[0]).toBeLessThan(term.write.mock.invocationCallOrder[0])
+  })
+
+  it('follows tmux on a resized event', async () => {
+    const { session, socket } = await attached()
+
+    socket.onmessage?.({ data: windowFrame('resized', '@2', { name: 'shell', width: 80, height: 24 }) })
+
+    expect(session.tabs.value[1].term.resize).toHaveBeenLastCalledWith(80, 24)
+    expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(213, 55)
+  })
+
+  it('takes the size off any window event, not just the resized one', async () => {
+    const { session, socket } = await attached()
+
+    socket.onmessage?.({ data: windowFrame('renamed', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+    expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(100, 30)
+
+    // A %window-add placeholder has no size yet; the reconcile behind it does.
+    socket.onmessage?.({ data: windowFrame('added', '@3', { name: '', width: 0, height: 0 }) })
+    expect(xterm.FakeTerminal.instances[2].resize).toHaveBeenLastCalledWith(80, 24)
+    socket.onmessage?.({ data: windowFrame('renamed', '@3', { name: 'logs', width: 213, height: 55 }) })
+    expect(xterm.FakeTerminal.instances[2].resize).toHaveBeenLastCalledWith(213, 55)
   })
 
   it('disposes exactly the closed tab: its terminal, addon and resize observer', async () => {
@@ -189,7 +247,7 @@ describe('useTerminalWindows', () => {
     session.attachTab('@1', document.createElement('div'))
     session.attachTab('@2', document.createElement('div'))
 
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'closed', windowId: '@2', name: 'shell', active: false }) })
+    socket.onmessage?.({ data: windowFrame('closed', '@2', { name: 'shell' }) })
 
     expect(xterm.FakeTerminal.instances[1].dispose).toHaveBeenCalledTimes(1)
     expect(xterm.FakeFitAddon.instances[1].dispose).toHaveBeenCalledTimes(1)
@@ -222,7 +280,9 @@ describe('useTerminalWindows', () => {
     expect(total).toBe(5000)
   })
 
-  it('fits on a resize observation and pushes the new size to the control plane', async () => {
+  // The measurement is a vote sent to tmux, which may or may not honour it: it
+  // must not touch the grid any terminal renders at.
+  it('votes the measured size on a resize observation without resizing anything', async () => {
     vi.useFakeTimers()
     const client = fakeClient()
     const session = open(client)
@@ -230,15 +290,30 @@ describe('useTerminalWindows', () => {
     await flushPromises()
 
     session.attachTab('@1', document.createElement('div'))
-    xterm.FakeTerminal.instances[0].cols = 120
-    xterm.FakeTerminal.instances[0].rows = 40
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
-    expect(xterm.FakeFitAddon.instances[0].fit).toHaveBeenCalled()
+    expect(xterm.FakeFitAddon.instances[0].proposeDimensions).toHaveBeenCalled()
     expect(client.resize).toHaveBeenCalledWith('hive-abc', 120, 40)
-    // tmux sizes the client, not the window, so the hidden tab follows along.
-    expect(xterm.FakeTerminal.instances[1].resize).toHaveBeenLastCalledWith(120, 40)
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.resize).toHaveBeenLastCalledWith(213, 55)
+    }
+  })
+
+  it('votes nothing when the pane cannot be measured', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = undefined
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).not.toHaveBeenCalled()
   })
 
   it('ends on a lifecycle exit with the reason tmux gave', async () => {
@@ -321,7 +396,7 @@ describe('useTerminalWindows', () => {
     const { session, socket } = await attached()
 
     await session.newWindow()
-    socket.onmessage?.({ data: jsonFrame(0x01, { kind: 'added', windowId: '@3', name: 'logs', active: false }) })
+    socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs' }) })
 
     expect(session.activeWindowId.value).toBe('@3')
   })

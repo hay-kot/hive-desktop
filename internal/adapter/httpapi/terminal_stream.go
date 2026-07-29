@@ -22,7 +22,7 @@ import (
 //
 //	server -> client
 //	  0x00 Output      [0x00][winLen u8][windowId][paneLen u8][paneId][raw bytes]
-//	  0x01 WindowEvent [0x01][JSON {kind, windowId, name, active}]
+//	  0x01 WindowEvent [0x01][JSON {kind, windowId, name, active, width, height}]
 //	  0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //	client -> server
 //	  0x10 Input       [0x10][winLen u8][windowId][raw bytes]
@@ -185,11 +185,16 @@ func streamToken(r *http.Request) (token string, fromSubprotocol bool) {
 	return "", false
 }
 
+// windowEventPayload carries tmux's own window size on every kind, not just
+// "resized": the renderer must draw at that size or cursor-addressed output
+// lands wrong, and 0 means tmux has not told us yet.
 type windowEventPayload struct {
 	Kind     string `json:"kind"`
 	WindowID string `json:"windowId"`
 	Name     string `json:"name"`
 	Active   bool   `json:"active"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
 }
 
 type lifecyclePayload struct {
@@ -208,6 +213,8 @@ func encodeEvent(ev tmuxcc.Event) ([]byte, bool) {
 			WindowID: v.Window.ID,
 			Name:     v.Window.Name,
 			Active:   v.Window.Active,
+			Width:    v.Window.Width,
+			Height:   v.Window.Height,
 		})
 	case tmuxcc.LifecycleChanged:
 		return encodeJSONFrame(frameLifecycle, lifecyclePayload{

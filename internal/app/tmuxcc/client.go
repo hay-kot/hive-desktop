@@ -28,7 +28,8 @@ const (
 	// length limit once each byte is expanded to hex.
 	sendKeysChunk = 64
 
-	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_name}"
+	// The window name goes last: it is the only field that can contain spaces.
+	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_name}"
 )
 
 var (
@@ -591,24 +592,81 @@ func platformSupported() bool {
 }
 
 func parseWindowLine(line string) (Window, bool) {
-	fields := strings.SplitN(line, " ", 4)
-	if len(fields) < 3 || !validWindowID(fields[0]) {
+	fields := strings.SplitN(line, " ", 6)
+	if len(fields) < 5 || !validWindowID(fields[0]) {
 		return Window{}, false
 	}
-	w := Window{ID: fields[0], Active: fields[1] == "1", ActivePane: fields[2]}
-	if len(fields) == 4 {
-		w.Name = fields[3]
+	w := Window{
+		ID:         fields[0],
+		Active:     fields[1] == "1",
+		ActivePane: fields[2],
+		Width:      atoi([]byte(fields[3])),
+		Height:     atoi([]byte(fields[4])),
+	}
+	if len(fields) == 6 {
+		w.Name = fields[5]
 	}
 	return w, true
 }
 
 // screenBytes turns a capture-pane reply into what an emulator expects: CRLF
 // between rows, no trailing newline.
+//
+// The capture is the whole visible screen, blank rows included, so a fresh
+// window's prompt would land on the last row under a screenful of blanks. They
+// are trimmed instead and the cursor ends after the last written row (iTerm2
+// trims the same way).
 func screenBytes(lines []string) []byte {
+	for len(lines) > 0 && isBlankRow(lines[len(lines)-1]) {
+		lines = lines[:len(lines)-1]
+	}
 	if len(lines) == 0 {
 		return nil
 	}
 	return []byte(strings.Join(lines, "\r\n"))
+}
+
+// isBlankRow reports whether a captured row renders as nothing. capture-pane -J
+// keeps trailing spaces and -e writes the attributes as escape sequences, so a
+// visually empty row is rarely an empty string.
+func isBlankRow(line string) bool {
+	for i := 0; i < len(line); i++ {
+		switch c := line[i]; {
+		case c == 0x1b:
+			i += escapeLen(line[i:]) - 1
+		case c != ' ' && c != '\t':
+			return false
+		}
+	}
+	return true
+}
+
+// escapeLen measures one escape sequence from its ESC: a CSI runs to its final
+// byte in @-~, an OSC to BEL or ST, and anything else is two bytes.
+func escapeLen(s string) int {
+	if len(s) < 2 {
+		return len(s)
+	}
+	switch s[1] {
+	case '[':
+		for i := 2; i < len(s); i++ {
+			if s[i] >= '@' && s[i] <= '~' {
+				return i + 1
+			}
+		}
+	case ']':
+		for i := 2; i < len(s); i++ {
+			if s[i] == 0x07 {
+				return i + 1
+			}
+			if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
+				return i + 2
+			}
+		}
+	default:
+		return 2
+	}
+	return len(s)
 }
 
 // quoteArgument single-quotes a tmux command argument. A newline would break

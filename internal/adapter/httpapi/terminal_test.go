@@ -217,12 +217,27 @@ func TestTerminalControlFramesCarryStringKinds(t *testing.T) {
 
 	frame, ok = encodeEvent(tmuxcc.WindowChanged{
 		Kind:   tmuxcc.WindowRenamed,
-		Window: tmuxcc.Window{ID: "@3", Name: "shell", Active: true},
+		Window: tmuxcc.Window{ID: "@3", Name: "shell", Active: true, Width: 213, Height: 55},
 	})
 	require.True(t, ok)
 	require.Equal(t, frameWindowEvent, frame[0])
 
 	var window windowEventPayload
 	require.NoError(t, json.Unmarshal(frame[1:], &window))
-	assert.Equal(t, windowEventPayload{Kind: "renamed", WindowID: "@3", Name: "shell", Active: true}, window)
+	assert.Equal(t,
+		windowEventPayload{Kind: "renamed", WindowID: "@3", Name: "shell", Active: true, Width: 213, Height: 55},
+		window,
+		"every window event carries tmux's size, not only the resized one")
+
+	// The size the renderer must draw at is tmux's, so it rides the frame the
+	// frontend already resizes on.
+	frame, ok = encodeEvent(tmuxcc.WindowChanged{
+		Kind:   tmuxcc.WindowResized,
+		Window: tmuxcc.Window{ID: "@3", Name: "shell", Width: 80, Height: 24},
+	})
+	require.True(t, ok)
+	require.NoError(t, json.Unmarshal(frame[1:], &window))
+	assert.Equal(t, "resized", window.Kind)
+	assert.Equal(t, 80, window.Width)
+	assert.Equal(t, 24, window.Height)
 }

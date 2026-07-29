@@ -126,6 +126,8 @@ type attachResult struct {
 		WindowID string `json:"windowId"`
 		Name     string `json:"name"`
 		Active   bool   `json:"active"`
+		Width    int    `json:"width"`
+		Height   int    `json:"height"`
 	} `json:"windows"`
 	StreamPath string `json:"streamPath"`
 }
@@ -211,6 +213,13 @@ func TestTmuxAttachReturnsWindowsAndStreamsEvents(t *testing.T) {
 	names := []string{attached.Windows[0].Name, attached.Windows[1].Name}
 	assert.ElementsMatch(t, []string{"claude", "shell"}, names)
 
+	// The frontend renders at tmux's size, not the one it voted for, so attach
+	// has to hand it that size up front.
+	for _, window := range attached.Windows {
+		assert.Positive(t, window.Width, "attach reports tmux's own window width")
+		assert.Positive(t, window.Height, "attach reports tmux's own window height")
+	}
+
 	conn := h.dial(t, tmux.slug)
 	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
 
@@ -294,6 +303,14 @@ func TestTmuxResizeAndDetachLeaveTheSessionRunning(t *testing.T) {
 	resize := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": tmux.slug, "cols": 100, "rows": 30})
 	_ = resize.Body.Close()
 	assert.Equal(t, http.StatusNoContent, resize.StatusCode)
+
+	// The vote is not the answer: tmux decides the window size and says so with
+	// %layout-change, and that is what the renderer follows.
+	frame := readUntil(t, conn, "a resized window event", func(f []byte) bool { return isWindowEvent(f, "resized", "") })
+	var resized windowEventPayload
+	require.NoError(t, json.Unmarshal(frame[1:], &resized))
+	assert.Equal(t, 100, resized.Width, "tmux honoured the only attached client's size")
+	assert.Positive(t, resized.Height)
 
 	detach := h.post(t, "/api/terminal/detach", testToken, map[string]any{"slug": tmux.slug})
 	_ = detach.Body.Close()

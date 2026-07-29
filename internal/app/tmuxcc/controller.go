@@ -8,6 +8,11 @@ type Window struct {
 	Name       string
 	Active     bool
 	ActivePane string // tmux pane id, e.g. "%512"
+	// Width and Height are tmux's own size for this window — the smallest
+	// attached client's, not ours. A renderer that draws at any other size
+	// mangles the pane's cursor-addressed output. 0 means not known yet.
+	Width  int
+	Height int
 }
 
 // controller holds the window set of one attached session and derives events
@@ -76,6 +81,15 @@ func (c *controller) apply(n Notification) []Event {
 		c.setActiveLocked(v.Window)
 		return []Event{WindowChanged{Kind: WindowActiveChanged, Window: c.windows[v.Window]}}
 
+	case LayoutChanged:
+		w, ok := c.windows[v.Window]
+		if !ok || v.Width == 0 || v.Height == 0 || (w.Width == v.Width && w.Height == v.Height) {
+			return nil
+		}
+		w.Width, w.Height = v.Width, v.Height
+		c.windows[v.Window] = w
+		return []Event{WindowChanged{Kind: WindowResized, Window: w}}
+
 	case PauseNotification:
 		return []Event{LifecycleChanged{Kind: LifecyclePaused, WindowID: c.panes[v.Pane]}}
 
@@ -88,7 +102,9 @@ func (c *controller) apply(n Notification) []Event {
 }
 
 // reconcile replaces the window set with the authoritative list-windows
-// snapshot and reports what changed.
+// snapshot and reports what changed. One window yields at most one event: every
+// window event carries the whole window, so a consumer reads the current size
+// off whichever kind it gets.
 func (c *controller) reconcile(next []Window) []Event {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -106,6 +122,8 @@ func (c *controller) reconcile(next []Window) []Event {
 			events = append(events, WindowChanged{Kind: WindowRenamed, Window: w})
 		case prev.Active != w.Active || prev.ActivePane != w.ActivePane:
 			events = append(events, WindowChanged{Kind: WindowActiveChanged, Window: w})
+		case prev.Width != w.Width || prev.Height != w.Height:
+			events = append(events, WindowChanged{Kind: WindowResized, Window: w})
 		}
 	}
 	for _, id := range append([]string(nil), c.order...) {

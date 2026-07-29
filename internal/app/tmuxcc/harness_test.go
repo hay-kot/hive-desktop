@@ -259,7 +259,7 @@ func argAfter(cmd, flag string) string {
 func attachFake(t *testing.T, f *fakeTmux, opts Options) *Client {
 	t.Helper()
 	if len(f.windows) == 0 {
-		f.setWindows("@1 1 %1 claude")
+		f.setWindows("@1 1 %1 120 40 claude")
 	}
 	opts.Slug = f.slug
 	if opts.Cols == 0 {
