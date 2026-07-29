@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, shallowRef } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -28,6 +29,20 @@ const session = shallowRef<UseTerminalWindows | null>(null)
 const activeSlug = ref('')
 const renamingId = ref('')
 const renameDraft = ref('')
+
+const route = useRoute()
+const router = useRouter()
+
+// The URL is the attach state: /terminal/:slug is the attached session,
+// ?window its active window. Sidebar clicks push (history traverses session
+// switches); window changes replace (tab flips must not pile up entries).
+const routeSlug = computed(() => (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
+const routeWindow = computed(() => (typeof route.query.window === 'string' ? route.query.window : ''))
+
+// The resume snapshot: entering bare /terminal re-attaches this instead of
+// landing on the picker. Cleared when the session is closed on purpose or no
+// longer exists.
+const restore = useStorage('hive.terminal.restore', { slug: '', window: '' })
 
 const {
   sessions: sessionRows, loading: sessionsLoading, error: sessionsError, reload: reloadSessions,
@@ -85,6 +100,7 @@ async function probe(): Promise<void> {
     if (!availability.available) return
     client.value = createTerminalClient(await getTerminalEndpoint())
     await reloadSessions()
+    restoreLastSession()
   } catch (e) {
     available.value = false
     reason.value = appErrorMessage(e) || (e instanceof Error && e.message) || 'The terminal is unavailable.'
@@ -93,25 +109,82 @@ async function probe(): Promise<void> {
   }
 }
 
+// A remembered session that no longer exists is forgotten rather than
+// attached blind — the picker shows, same as a first visit.
+function restoreLastSession(): void {
+  if (routeSlug.value || !restore.value.slug) return
+  if (!sessionRows.value.some((row) => row.slug === restore.value.slug)) {
+    restore.value = { slug: '', window: '' }
+    return
+  }
+  void router.replace({
+    name: 'terminal',
+    params: { slug: restore.value.slug },
+    query: restore.value.window ? { window: restore.value.window } : {},
+  })
+}
+
+// The route is what attaches: rows and restores only navigate, and this
+// watcher is the single path into openSession, so back/forward re-attach
+// exactly like a click.
+watch([client, routeSlug], ([ready, slug]) => {
+  if (!ready) return
+  if (slug) openSession(slug)
+  else detachSession()
+})
+
+// Mirror the attached window into the URL and the resume snapshot. Guarded to
+// the live route so a navigation away cannot claw the history entry back.
+watch([activeSlug, () => session.value?.activeWindowId.value ?? ''], ([slug, windowId]) => {
+  if (!slug || route.name !== 'terminal' || route.params.slug !== slug) return
+  restore.value = { slug, window: windowId }
+  if (windowId && routeWindow.value !== windowId) {
+    void router.replace({ name: 'terminal', params: { slug }, query: { window: windowId } })
+  }
+})
+
+function selectSession(slug: string): void {
+  if (slug === activeSlug.value) {
+    // Same URL, so the route watcher stays silent — but after the session
+    // ended the row is as valid a way back in as the overlay's Reconnect.
+    if (session.value?.status.value === 'ended') openSession(slug)
+    return
+  }
+  void router.push({ name: 'terminal', params: { slug } })
+}
+
 function openSession(slug: string): void {
   if (!client.value) return
-  // Re-clicking the attached row is a no-op — unless the session ended, where
-  // the row is as valid a way back in as the overlay's Reconnect.
   if (slug === activeSlug.value && session.value && session.value.status.value !== 'ended') return
   session.value?.dispose()
   activeSlug.value = slug
   renamingId.value = ''
   const opened = useTerminalWindows(slug, client.value)
   session.value = opened
-  void opened.start()
+  // Captured before attach: the mirror watcher rewrites ?window to tmux's
+  // active the moment windows land, and the wanted one must survive that.
+  const wanted = routeWindow.value
+  void opened.start().then(() => {
+    if (session.value !== opened || !wanted) return
+    // A window that no longer exists falls through to tmux's own active.
+    if (opened.tabs.value.some((tab) => tab.windowId === wanted)) void opened.select(wanted)
+  })
 }
 
-function closeSession(): void {
+function detachSession(): void {
   session.value?.dispose()
   session.value = null
   activeSlug.value = ''
   renamingId.value = ''
+}
+
+function closeSession(): void {
+  detachSession()
+  restore.value = { slug: '', window: '' }
   void reloadSessions()
+  // Replace, not push: the closed session's entry points at a session that is
+  // gone, so Back must not walk into it.
+  if (routeSlug.value) void router.replace({ name: 'terminal' })
 }
 
 function onTabMount(windowId: string, host: HTMLElement): void {
@@ -219,7 +292,7 @@ onBeforeUnmount(() => session.value?.dispose())
                   :data-slug="row.slug"
                   :data-attached="row.slug === activeSlug"
                   :title="row.slug"
-                  @click="openSession(row.slug)"
+                  @click="selectSession(row.slug)"
                 >
                   <!-- The wire only carries hive's session state today; agent
                        activity (the TUI's [●]/[>] pair) needs terminal.Status

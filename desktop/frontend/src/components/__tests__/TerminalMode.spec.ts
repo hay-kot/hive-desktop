@@ -1,7 +1,9 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
+import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
+import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
@@ -55,11 +57,25 @@ function fakeSession() {
   }
 }
 
+// TerminalMode only renders under the terminal route in App.vue, so every
+// mount starts there; tests deep-link by passing the session in the path.
+async function mountAt(path = '/terminal') {
+  const router = createAppRouter(createMemoryHistory())
+  await router.push(path)
+  await router.isReady()
+  const wrapper = mount(TerminalMode, { global: { plugins: [router] } })
+  await flushPromises()
+  return { wrapper, router }
+}
+
 async function mountAvailable(session = fakeSession()) {
   mocks.useTerminalWindows.mockReturnValue(session)
-  const wrapper = mount(TerminalMode)
-  await flushPromises()
-  return { wrapper, session }
+  const { wrapper, router } = await mountAt()
+  return { wrapper, router, session }
+}
+
+function storedRestore() {
+  return JSON.parse(localStorage.getItem('hive.terminal.restore') ?? 'null')
 }
 
 describe('TerminalMode', () => {
@@ -78,8 +94,7 @@ describe('TerminalMode', () => {
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
     mocks.Available.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
 
-    const wrapper = mount(TerminalMode)
-    await flushPromises()
+    const { wrapper } = await mountAt()
 
     const panel = wrapper.find('[data-testid="terminal-unavailable"]')
     expect(panel.exists()).toBe(true)
@@ -92,8 +107,7 @@ describe('TerminalMode', () => {
       cause: { kind: 'unavailable', message: 'The local HTTP server is not running.' },
     }))
 
-    const wrapper = mount(TerminalMode)
-    await flushPromises()
+    const { wrapper } = await mountAt()
     expect(wrapper.get('[data-testid="terminal-unavailable-reason"]').text()).toBe('The local HTTP server is not running.')
 
     mocks.useTerminalWindows.mockReturnValue(fakeSession())
@@ -106,8 +120,7 @@ describe('TerminalMode', () => {
   it('groups sessions by repo in the sidebar and attaches to the one picked', async () => {
     const session = fakeSession()
     mocks.useTerminalWindows.mockReturnValue(session)
-    const wrapper = mount(TerminalMode)
-    await flushPromises()
+    const { wrapper, router } = await mountAt()
 
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
     const groups = wrapper.findAll('[data-testid="terminal-repo-group"]')
@@ -122,6 +135,8 @@ describe('TerminalMode', () => {
     await rows[1].trigger('click')
     await flushPromises()
 
+    // The row navigates; the route is what attaches.
+    expect(router.currentRoute.value.params.slug).toBe('hive-fix-parser')
     expect(mocks.useTerminalWindows).toHaveBeenCalledWith('hive-fix-parser', expect.anything())
     expect(session.start).toHaveBeenCalled()
     // The sidebar stays; the picked row is marked attached.
@@ -172,6 +187,7 @@ describe('TerminalMode', () => {
 
     // Re-clicking the attached row must not re-attach.
     await wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').trigger('click')
+    await flushPromises()
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
 
     await wrapper.find('[data-testid="terminal-session-row"][data-attached="false"]').trigger('click')
@@ -182,10 +198,62 @@ describe('TerminalMode', () => {
 
   it('says when there are no sessions to attach to', async () => {
     mocks.ListSessions.mockResolvedValue([])
-    const wrapper = mount(TerminalMode)
-    await flushPromises()
+    const { wrapper } = await mountAt()
 
     expect(wrapper.find('[data-testid="terminal-sessions-empty"]').exists()).toBe(true)
+  })
+
+  it('resumes the last attached session and window when entering bare', async () => {
+    localStorage.setItem('hive.terminal.restore', JSON.stringify({ slug: 'hive-bump-deps', window: '@2' }))
+    const { wrapper, router, session } = await mountAvailable()
+    await flushPromises()
+
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(mocks.useTerminalWindows).toHaveBeenCalledWith('hive-bump-deps', expect.anything())
+    expect(session.select).toHaveBeenCalledWith('@2')
+    expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(false)
+  })
+
+  it('forgets a remembered session that no longer exists and offers the picker', async () => {
+    localStorage.setItem('hive.terminal.restore', JSON.stringify({ slug: 'hive-long-gone', window: '@1' }))
+    const { wrapper, router } = await mountAt()
+
+    expect(mocks.useTerminalWindows).not.toHaveBeenCalled()
+    expect(router.currentRoute.value.params.slug ?? '').toBe('')
+    expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
+    expect(storedRestore()).toEqual({ slug: '', window: '' })
+  })
+
+  it('attaches straight from a session deep link', async () => {
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    await mountAt('/terminal/hive-fix-parser')
+
+    expect(mocks.useTerminalWindows).toHaveBeenCalledWith('hive-fix-parser', expect.anything())
+    expect(session.start).toHaveBeenCalled()
+  })
+
+  it('falls back to tmux’s active window when the deep-linked one is gone', async () => {
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    await mountAt('/terminal/hive-fix-parser?window=@9')
+
+    expect(session.select).not.toHaveBeenCalled()
+  })
+
+  it('mirrors the active window into the URL and the resume snapshot', async () => {
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { router } = await mountAt('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.window).toBe('@1')
+
+    session.activeWindowId.value = '@2'
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.window).toBe('@2')
+    expect(storedRestore()).toEqual({ slug: 'hive-fix-parser', window: '@2' })
   })
 
   it('offers reconnect when the stream drops, and again when tmux exits', async () => {
@@ -261,16 +329,21 @@ describe('TerminalMode', () => {
   })
 
   it('detaches when the ended overlay closes the session and on unmount', async () => {
-    const { wrapper, session } = await mountAvailable()
+    const { wrapper, router, session } = await mountAvailable()
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
     await flushPromises()
 
     session.status.value = 'ended'
     await flushPromises()
     await wrapper.get('[data-testid="terminal-close-session"]').trigger('click')
+    await flushPromises()
     expect(session.dispose).toHaveBeenCalledTimes(1)
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+    // Closing on purpose forgets the session: the route drops the slug and
+    // the next bare entry must not re-attach it.
+    expect(router.currentRoute.value.params.slug ?? '').toBe('')
+    expect(storedRestore()).toEqual({ slug: '', window: '' })
 
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
     await flushPromises()

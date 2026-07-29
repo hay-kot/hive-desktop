@@ -646,10 +646,20 @@ watch(githubConnected, async (connected) => {
 
 // ── App mode ─────────────────────────────────────────────────────────────────
 // Hub is the feed/flows/settings app; Terminal takes the whole frame under the
-// title bar. Deliberately not persisted — entering it attaches a live tmux
-// control client, which is not something a relaunch should do unprompted.
-const mode = ref<'hub' | 'terminal'>('hub')
+// title bar. Terminal is a route (/terminal/:slug?), so the title-bar controls
+// stay live inside it — Activity, back/forward — and history traversal
+// restores the attached session. A relaunch still lands on the hub (the
+// webview loads with no hash), so no relaunch attaches a tmux control client
+// unprompted; re-entering the mode is what resumes the last session.
+const mode = computed<'hub' | 'terminal'>(() => (route.name === 'terminal' ? 'terminal' : 'hub'))
 const terminalActive = computed(() => mode.value === 'terminal' && !onboardingActive.value)
+
+// Where the Hub button lands: the last hub route, so toggling into the
+// terminal and back is not a trip to the default feed.
+let lastHubPath = ''
+watch(() => route.fullPath, (path) => {
+  if (route.name && route.name !== 'terminal') lastHubPath = path
+}, { immediate: true })
 
 // Terminal mode ships dark (experimental.terminal, ADR 0035): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
@@ -662,7 +672,9 @@ onMounted(() => {
 })
 
 function setMode(next: 'hub' | 'terminal'): void {
-  mode.value = next
+  if (next === mode.value) return
+  if (next === 'terminal') void router.push({ name: 'terminal' })
+  else void router.push(lastHubPath || { name: 'feed' })
 }
 
 // ── Layout chrome ─────────────────────────────────────────────────────────────

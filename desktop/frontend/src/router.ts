@@ -7,7 +7,7 @@ import {
   type RouterHistory,
 } from 'vue-router'
 
-export type AppRouteName = 'feed' | 'flows' | 'activity' | 'application-settings' | 'profile-settings' | 'dev'
+export type AppRouteName = 'feed' | 'flows' | 'activity' | 'terminal' | 'application-settings' | 'profile-settings' | 'dev'
 
 // The one list of application settings sections. It builds the route's own
 // section matcher below and backs isApplicationSettingsSection, which App.vue
@@ -58,6 +58,15 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
       // takes no profileId param.
       path: '/activity',
       name: 'activity',
+      component: ShellPage,
+    },
+    {
+      // Terminal mode is app-global too — sessions belong to repos, not
+      // profiles. :slug is the attached tmux session; ?window pins its active
+      // window. Both live in the URL so history traversal and mode re-entry
+      // restore the exact surface the user left.
+      path: '/terminal/:slug?',
+      name: 'terminal',
       component: ShellPage,
     },
     {
