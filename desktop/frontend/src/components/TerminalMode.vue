@@ -49,7 +49,6 @@ const {
 } = useTerminalSessions()
 const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
 const sessionGroups = computed(() => groupTerminalSessions(sessionRows.value))
-const liveCount = computed(() => sessionRows.value.filter((row) => row.state === 'active').length)
 
 function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
@@ -245,7 +244,7 @@ onBeforeUnmount(() => session.value?.dispose())
       >
         <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
           <span class="text-[15px] font-semibold">Sessions</span>
-          <span v-if="sessionRows.length" class="font-mono text-[12px] text-text-3">{{ sessionRows.length }} · {{ liveCount }} live</span>
+          <span v-if="sessionRows.length" class="font-mono text-[12px] text-text-3">{{ sessionRows.length }}</span>
           <span class="flex-1" />
           <button
             type="button"

@@ -81,14 +81,7 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
   return {
     async attach(slug, cols, rows) {
       const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/attach', { slug, cols, rows })
-      const windows = (body?.windows ?? []).map((window) => ({
-        windowId: window.windowId ?? '',
-        name: window.name ?? '',
-        active: !!window.active,
-        width: window.width ?? 0,
-        height: window.height ?? 0,
-      }))
-      return { windows }
+      return { windows: (body?.windows ?? []).map(toWindowState) }
     },
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
     async newWindow(slug) {
@@ -160,17 +153,7 @@ export function decodeFrame(payload: ArrayBuffer | Uint8Array): TerminalFrame | 
     case FRAME_WINDOW_EVENT: {
       const payload = readJSON<WindowState & { kind: WindowEventKind }>(bytes)
       if (!payload?.kind) return null
-      return {
-        type: 'window',
-        kind: payload.kind,
-        state: {
-          windowId: payload.windowId ?? '',
-          name: payload.name ?? '',
-          active: !!payload.active,
-          width: payload.width ?? 0,
-          height: payload.height ?? 0,
-        },
-      }
+      return { type: 'window', kind: payload.kind, state: toWindowState(payload) }
     }
     case FRAME_LIFECYCLE: {
       const payload = readJSON<{ kind: LifecycleKind; windowId: string; message: string }>(bytes)
@@ -179,6 +162,16 @@ export function decodeFrame(payload: ArrayBuffer | Uint8Array): TerminalFrame | 
     }
     default:
       return null
+  }
+}
+
+function toWindowState(window: Partial<WindowState>): WindowState {
+  return {
+    windowId: window.windowId ?? '',
+    name: window.name ?? '',
+    active: !!window.active,
+    width: window.width ?? 0,
+    height: window.height ?? 0,
   }
 }
 
