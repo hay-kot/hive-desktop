@@ -265,7 +265,15 @@ func (c corsPolicy) stamp(w http.ResponseWriter, origin string) bool {
 // originAllowed matches an Origin header against the allowlist composed in
 // main.go. An absent Origin is not this function's call: a non-browser client
 // sends none, and the bearer token is what authenticates it either way.
+//
+// The wails:// scheme is accepted structurally rather than by list: only this
+// app's own webview can produce it (a web page's origin is always a web
+// scheme), and macOS appends the dev server's freshly-picked port to it every
+// dev run, so no static list can name it.
 func originAllowed(allowed []string, origin string) bool {
+	if origin == "wails://localhost" || strings.HasPrefix(origin, "wails://localhost:") {
+		return true
+	}
 	for _, candidate := range allowed {
 		if strings.EqualFold(candidate, origin) {
 			return true

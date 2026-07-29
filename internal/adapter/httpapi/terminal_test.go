@@ -130,6 +130,13 @@ func TestTerminalControlPlaneAnswersPreflight(t *testing.T) {
 	assert.Contains(t, allowed.Header.Get("Access-Control-Allow-Methods"), "POST")
 	assert.Contains(t, allowed.Header.Get("Access-Control-Allow-Headers"), "Authorization")
 
+	// macOS appends the dev server's per-run port to the webview origin, so the
+	// wails scheme matches structurally, not against the list.
+	ported := preflight(t, "wails://localhost:53579")
+	_ = ported.Body.Close()
+	assert.Equal(t, http.StatusNoContent, ported.StatusCode)
+	assert.Equal(t, "wails://localhost:53579", ported.Header.Get("Access-Control-Allow-Origin"))
+
 	denied := preflight(t, "https://evil.example")
 	_ = denied.Body.Close()
 	assert.Equal(t, http.StatusForbidden, denied.StatusCode)
