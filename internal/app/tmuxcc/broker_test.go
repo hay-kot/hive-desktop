@@ -133,6 +133,34 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 		requireLifecycle(t, receive(t, ch)))
 }
 
+// Overflow closes the broker with the subscriber queue full — by definition,
+// since a full queue is what let the backlog grow. The exit reason still has to
+// arrive, or the frontend sees a bare socket close with nothing to report.
+func TestBrokerCloseDeliversLifecycleBehindAFullQueue(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(0, nil)
+	ch, unsubscribe := b.subscribe()
+	defer unsubscribe()
+
+	for range subscriberQueue * 2 {
+		b.publish(outputEvent("@1", "x"))
+	}
+	b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "overflow"})
+	b.close()
+
+	for {
+		ev, ok := <-ch
+		if !ok {
+			t.Fatal("the channel closed before the exit reason arrived")
+		}
+		if lc, isLifecycle := ev.(LifecycleChanged); isLifecycle {
+			require.Equal(t, LifecycleChanged{Kind: LifecycleExited, Message: "overflow"}, lc)
+			return
+		}
+	}
+}
+
 func TestBrokerCloseDrainsThenClosesChannel(t *testing.T) {
 	t.Parallel()
 

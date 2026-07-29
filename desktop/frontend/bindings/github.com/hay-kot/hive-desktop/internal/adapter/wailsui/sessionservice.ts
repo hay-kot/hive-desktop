@@ -22,6 +22,14 @@ export function CreateSession(req: dispatch$0.CreateSessionRequest): $Cancellabl
     return $Call.ByID(4281714313, req);
 }
 
+/**
+ * ListSessions returns the active sessions the terminal picker offers; Slug is
+ * the tmux target an attach uses.
+ */
+export function ListSessions(): $CancellablePromise<dispatch$0.SessionSummary[] | null> {
+    return $Call.ByID(220196846);
+}
+
 export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {
     return $Call.ByID(715924228);
 }

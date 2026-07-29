@@ -140,9 +140,13 @@ func (b *broker) pump(sub *subscription) {
 		closed := b.closed
 		b.mu.Unlock()
 
-		if closed {
+		if closed && eventBytes(ev) > 0 {
 			// A closing broker must not outlive a subscriber that stopped
-			// reading, so delivery becomes best-effort here.
+			// reading, and undelivered output is output the re-attach's first
+			// paint redraws anyway. The lifecycle event that says *why* the
+			// stream ended has no such replacement — overflow is exactly the
+			// case where the queue is full — so it falls through to the
+			// blocking send, which unsubscribe still releases.
 			select {
 			case sub.ch <- ev:
 			default:

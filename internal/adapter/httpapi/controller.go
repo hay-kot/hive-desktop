@@ -35,10 +35,24 @@ type Controller struct {
 	core    *app.App
 	log     zerolog.Logger
 	version http.HandlerFunc
+
+	// terminalToken and cors apply to the terminal operations alone. Both are
+	// composed in main.go — the core carries no transport credential (ADR 0032).
+	terminalToken string
+	cors          corsPolicy
 }
 
-func New(core *app.App, log zerolog.Logger) *Controller {
-	return &Controller{core: core, log: log, version: web.VersionHandler("hive.desktop.api")}
+// New builds the controller. terminalToken and origins govern the terminal
+// control plane only: every other operation here is deliberately
+// unauthenticated behind the loopback bind (ADR 0021).
+func New(core *app.App, log zerolog.Logger, terminalToken string, origins []string) *Controller {
+	return &Controller{
+		core:          core,
+		log:           log,
+		version:       web.VersionHandler("hive.desktop.api"),
+		terminalToken: terminalToken,
+		cors:          corsPolicy{origins: origins},
+	}
 }
 
 func requiredWith[T comparable](other string) criterio.Validator[T] {

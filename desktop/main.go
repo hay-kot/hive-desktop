@@ -8,6 +8,7 @@ import (
 	"context"
 	"embed"
 	"log"
+	"os"
 	"path/filepath"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
@@ -120,10 +121,24 @@ func main() {
 	}
 	ui.SeedMock(core)
 
+	// The terminal surface is the one part of the API that authenticates, so its
+	// token and CORS allowlist are minted here and handed to the two adapters
+	// that need them — the core carries neither (ADR 0032).
+	terminalToken, err := httpapi.MintTerminalToken()
+	if err != nil {
+		log.Fatal(err)
+	}
+	origins := webviewOrigins()
+
 	// The agent HTTP API shares the loopback HTTP server with the webhook
 	// listener (ADR 0021); mount it before Start whenever that server is up.
-	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger).Handler()) {
-		logger.Info().Msg("agent HTTP API mounted at /api/")
+	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, terminalToken, origins).Handler()) {
+		logger.Info().Msg("agent HTTP API mounted at /api/ (incl. the terminal control plane)")
+	}
+	terminal := wailsui.TerminalTransport{}
+	if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+		terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
+		logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 	}
 	// pprof shares the same server when enabled (ADR 0023).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
@@ -136,6 +151,7 @@ func main() {
 		TrayIcon:      trayIcon,
 		TrayIconLinux: trayIconLinux,
 		Build:         wailsui.Build{Version: version, Commit: commit, Date: date},
+		Terminal:      terminal,
 		AutoUpdate:    cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {
 			if cfg.Updates.Channel == "" {
@@ -165,4 +181,14 @@ func main() {
 		log.Fatal(err)
 	}
 	shutdown()
+}
+
+// webviewOrigins is the CORS allowlist for the terminal surface: the packaged
+// webview's own origin, plus the Vite dev server when one is running.
+func webviewOrigins() []string {
+	origins := []string{"wails://localhost"}
+	if port := os.Getenv("WAILS_VITE_PORT"); port != "" {
+		origins = append(origins, "http://localhost:"+port)
+	}
+	return origins
 }

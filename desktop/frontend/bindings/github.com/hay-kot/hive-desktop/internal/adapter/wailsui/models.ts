@@ -190,6 +190,27 @@ export interface SystemInfo {
 }
 
 /**
+ * TerminalAvailability is the frontend's only gate on terminal mode. Reason is
+ * user-facing prose: no tmux, tmux too old, a server build, or no loopback
+ * server to carry the transport.
+ */
+export interface TerminalAvailability {
+    "available": boolean;
+    "reason": string;
+}
+
+/**
+ * TerminalEndpoint bootstraps the webview: control actions go to HTTPBaseURL
+ * with the bearer token, the data plane opens WSURL.
+ */
+export interface TerminalEndpoint {
+    "httpBaseURL": string;
+    "wsURL": string;
+    "token": string;
+    "streamPath": string;
+}
+
+/**
  * UpdateInfo is the frontend-facing view of the last check result plus the
  * current auto-update toggle state, so a single Status() call seeds both the
  * title-bar chip and the settings switch.

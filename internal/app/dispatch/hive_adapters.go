@@ -25,6 +25,20 @@ type sessionLaunchOptionsSource interface {
 	ResolveSessionLaunchRepository(context.Context, string) (hive.SessionLaunchRepository, error)
 }
 
+type sessionListSource interface {
+	ListSessions(context.Context) ([]session.Session, error)
+}
+
+// SessionSummary is one live session as the desktop sees it. Slug is the tmux
+// session name, which is what a terminal attach targets.
+type SessionSummary struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Slug  string `json:"slug"`
+	Repo  string `json:"repo"`
+	State string `json:"state"`
+}
+
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
 type HiveSessionLauncher struct {
 	sessions SessionCreator
@@ -88,6 +102,33 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 		view.Repositories = append(view.Repositories, SessionLaunchRepository{Name: repo.Name, Repository: repo.Remote})
 	}
 	return view, nil
+}
+
+// ListSessions returns only session.StateActive rows: a recycled or corrupted
+// session has no live tmux session behind it, so nothing can attach to one.
+func (l *HiveSessionLauncher) ListSessions(ctx context.Context) ([]SessionSummary, error) {
+	source, ok := l.sessions.(sessionListSource)
+	if !ok {
+		return nil, fmt.Errorf("session listing is unavailable")
+	}
+	sessions, err := source.ListSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list hive sessions: %w", err)
+	}
+	out := make([]SessionSummary, 0, len(sessions))
+	for _, s := range sessions {
+		if s.State != session.StateActive {
+			continue
+		}
+		out = append(out, SessionSummary{
+			ID:    s.ID,
+			Name:  s.Name,
+			Slug:  s.Slug,
+			Repo:  s.Remote,
+			State: string(s.State),
+		})
+	}
+	return out, nil
 }
 
 // SlugifySessionName converts a display name to the slug Hive uses for

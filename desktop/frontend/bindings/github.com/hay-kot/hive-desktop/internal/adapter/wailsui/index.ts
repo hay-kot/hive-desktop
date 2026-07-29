@@ -16,6 +16,7 @@ import * as SessionService from "./sessionservice.js";
 import * as SettingsService from "./settingsservice.js";
 import * as SkillsService from "./skillsservice.js";
 import * as SystemService from "./systemservice.js";
+import * as TerminalService from "./terminalservice.js";
 import * as UpdaterService from "./updaterservice.js";
 import * as WebhookService from "./webhookservice.js";
 import * as WindowService from "./windowservice.js";
@@ -35,6 +36,7 @@ export {
     SettingsService,
     SkillsService,
     SystemService,
+    TerminalService,
     UpdaterService,
     WebhookService,
     WindowService
@@ -56,6 +58,8 @@ export type {
     ReportPreview,
     ReportResult,
     SystemInfo,
+    TerminalAvailability,
+    TerminalEndpoint,
     UpdateInfo,
     WebhookCaptureView,
     WebhookInfo,

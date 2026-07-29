@@ -35,6 +35,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
@@ -88,6 +89,7 @@ type App struct {
 	Prompts      *PromptsService
 	Skills       *SkillsService
 	Report       *ReportService
+	Terminals    *TerminalsService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -143,6 +145,10 @@ type App struct {
 	// state and event bus, while this app keeps its own database.
 	launcher *dispatch.HiveSessionLauncher
 	hiveDB   *coredb.DB
+
+	// terminals owns one tmux control-mode client per attached session slug.
+	// Its context is the app's lifetime, not a request's (ADR 0032).
+	terminals *tmuxcc.Manager
 
 	// pollInterval is the validated, clamped interval the producer polls on.
 	pollInterval time.Duration
@@ -242,6 +248,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		cancel()
 		return nil, err
 	}
+	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
@@ -302,6 +309,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
+	a.Terminals = newTerminalsService(a.terminals, nil)
 
 	return a, nil
 }
@@ -408,6 +416,16 @@ func (a *App) HiveConn() *sql.DB {
 // tolerates it or a plugs release makes signal registration optional.
 func (a *App) Close() error {
 	a.cancel()
+
+	// Before the webhook listener: a terminal WebSocket has hijacked its
+	// connection, which http.Server.Shutdown neither tracks nor closes, so the
+	// socket has to be brought down by closing the streams behind it first
+	// (ADR 0032). The context is a fresh one for the same reason Shutdown's is.
+	if a.terminals != nil {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		_ = a.terminals.Stop(stopCtx)
+		cancel()
+	}
 
 	if a.webhook != nil {
 		// A fresh, un-cancelled context for the graceful drain: a.ctx may

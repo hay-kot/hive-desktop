@@ -11,9 +11,10 @@ import (
 )
 
 type fakeSessionLauncher struct {
-	opts  dispatch.SessionLaunchOptions
-	calls []dispatch.LaunchSessionRequest
-	err   error
+	opts     dispatch.SessionLaunchOptions
+	sessions []dispatch.SessionSummary
+	calls    []dispatch.LaunchSessionRequest
+	err      error
 }
 
 func (f *fakeSessionLauncher) LaunchSession(_ context.Context, req dispatch.LaunchSessionRequest) (dispatch.SessionExecutionOutcome, error) {
@@ -26,6 +27,10 @@ func (f *fakeSessionLauncher) LaunchSession(_ context.Context, req dispatch.Laun
 
 func (f *fakeSessionLauncher) SessionLaunchOptions(context.Context) (dispatch.SessionLaunchOptions, error) {
 	return f.opts, nil
+}
+
+func (f *fakeSessionLauncher) ListSessions(context.Context) ([]dispatch.SessionSummary, error) {
+	return f.sessions, f.err
 }
 
 // fakeJobRunner runs the tracked function synchronously so tests can observe
@@ -109,10 +114,22 @@ func TestSessionsService_CreateSessionSurfacesDuplicateNameOnTheJob(t *testing.T
 	assert.Contains(t, runner.err.Error(), "already exists")
 }
 
+func TestSessionsService_ListSessions(t *testing.T) {
+	active := []dispatch.SessionSummary{
+		{ID: "s1", Name: "review 81", Slug: "review-81", Repo: "acme/site", State: "active"},
+	}
+	svc := newSessionsService(&fakeSessionLauncher{sessions: active}, &fakeJobRunner{})
+	got, err := svc.ListSessions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, active, got)
+}
+
 func TestSessionsService_UnavailableWithoutDependencies(t *testing.T) {
 	svc := newSessionsService(nil, &fakeJobRunner{})
 	_, err := svc.SessionLaunchOptions(t.Context())
 	assert.Equal(t, KindUnavailable, KindOf(err))
 	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "n"})
+	assert.Equal(t, KindUnavailable, KindOf(err))
+	_, err = svc.ListSessions(t.Context())
 	assert.Equal(t, KindUnavailable, KindOf(err))
 }
