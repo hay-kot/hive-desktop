@@ -79,13 +79,17 @@ func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Stac
 	}
 
 	ref := credentials.Ref{Provider: Provider, Account: accountID(host, org.ID)}
+	previousToken, hadPrevious, err := a.previousToken(ref)
+	if err != nil {
+		return Stack{}, err
+	}
 	if err := a.creds.Set(ref, token); err != nil {
 		return Stack{}, err
 	}
 	if err := a.stacks.Set(ref, base); err != nil {
-		// A stored token with no URL would fetch nowhere, so undo the token
-		// rather than leave a half-written connection.
-		_ = a.creds.Delete(ref)
+		if rollbackErr := a.rollbackToken(ref, previousToken, hadPrevious); rollbackErr != nil {
+			return Stack{}, errors.Join(err, fmt.Errorf("rollback grafana token: %w", rollbackErr))
+		}
 		return Stack{}, err
 	}
 	a.notify(ref)
@@ -106,6 +110,24 @@ func (a *Authenticator) Disconnect(ctx context.Context, account string) error {
 		return credErr
 	}
 	return stackErr
+}
+
+func (a *Authenticator) previousToken(ref credentials.Ref) (token string, ok bool, err error) {
+	token, err = a.creds.Get(ref)
+	if err == nil {
+		return token, true, nil
+	}
+	if errors.Is(err, credentials.ErrNotFound) {
+		return "", false, nil
+	}
+	return "", false, fmt.Errorf("read existing grafana token: %w", err)
+}
+
+func (a *Authenticator) rollbackToken(ref credentials.Ref, previousToken string, hadPrevious bool) error {
+	if hadPrevious {
+		return a.creds.Set(ref, previousToken)
+	}
+	return a.creds.Delete(ref)
 }
 
 func (a *Authenticator) notify(ref credentials.Ref) {

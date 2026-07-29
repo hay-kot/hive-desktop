@@ -143,12 +143,7 @@ func TestConnectRollsBackTokenWhenURLWriteFails(t *testing.T) {
 	server := orgServer(t, 1, "Main Org.")
 	defer server.Close()
 
-	// A stacks path whose parent is a regular file: MkdirAll in StackStore.write
-	// fails, so the URL cannot be persisted after the token is stored.
-	blocker := filepath.Join(t.TempDir(), "blocker")
-	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
-	creds := credentials.NewMemoryStore()
-	stacks := NewStackStore(filepath.Join(blocker, "grafana-stacks.json"))
+	creds, stacks := storesWithUnwritableStackPath(t)
 	auth := NewAuthenticator(creds, stacks, zerolog.Nop(), func(credentials.Ref) {})
 
 	_, err := auth.Connect(t.Context(), server.URL, "good")
@@ -157,6 +152,25 @@ func TestConnectRollsBackTokenWhenURLWriteFails(t *testing.T) {
 	ref := credentials.Ref{Provider: Provider, Account: accountID(hostOf(t, server.URL), 1)}
 	_, err = creds.Get(ref)
 	require.ErrorIs(t, err, credentials.ErrNotFound, "the token is rolled back when the URL cannot be stored")
+}
+
+func TestConnectRestoresPreviousTokenWhenURLWriteFails(t *testing.T) {
+	t.Parallel()
+
+	server := orgServer(t, 1, "Main Org.")
+	defer server.Close()
+
+	creds, stacks := storesWithUnwritableStackPath(t)
+	ref := credentials.Ref{Provider: Provider, Account: accountID(hostOf(t, server.URL), 1)}
+	require.NoError(t, creds.Set(ref, "old"))
+	auth := NewAuthenticator(creds, stacks, zerolog.Nop(), func(credentials.Ref) {})
+
+	_, err := auth.Connect(t.Context(), server.URL, "good")
+	require.Error(t, err, "a failed URL write fails the connect")
+
+	token, err := creds.Get(ref)
+	require.NoError(t, err)
+	assert.Equal(t, "old", token, "the previous token is restored when a reconnect cannot store the URL")
 }
 
 func TestConnectRejectsRemoteHTTP(t *testing.T) {
@@ -189,6 +203,13 @@ func TestDisconnectIsIdempotent(t *testing.T) {
 	t.Parallel()
 	env := newTestAuth(t)
 	assert.NoError(t, env.auth.Disconnect(t.Context(), "never.connected-1"))
+}
+
+func storesWithUnwritableStackPath(t *testing.T) (credentials.Store, *StackStore) {
+	t.Helper()
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	return credentials.NewMemoryStore(), NewStackStore(filepath.Join(blocker, "grafana-stacks.json"))
 }
 
 // hostOf returns the lowercased host of a URL, matching normalizeStackURL.
