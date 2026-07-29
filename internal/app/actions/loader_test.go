@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 func writeActionsFile(t *testing.T, dir, name, content string) string {
@@ -182,6 +184,53 @@ actions:
 	_, err := LoadActions(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prompt_template")
+}
+
+// TestLoadActions_InjectedSetMigratesThroughRealLoader proves migrate-before-
+// strict-decode composes through the real loader: a version:1 fixture is
+// driven through LoadActions -> configmigrate.ActionsSet.Apply -> parseActions
+// with a temporarily raised Current, and must come out as a valid catalog.
+func TestLoadActions_InjectedSetMigratesThroughRealLoader(t *testing.T) {
+	original := configmigrate.ActionsSet
+	configmigrate.ActionsSet = configmigrate.Set{
+		Name:     "actions",
+		Baseline: 1,
+		Current:  2,
+		Migrations: []configmigrate.Migration{
+			{To: 2, Migrate: func(doc map[string]any) error { return nil }},
+		},
+	}
+	t.Cleanup(func() { configmigrate.ActionsSet = original })
+
+	dir := t.TempDir()
+	path := writeActionsFile(t, dir, "actions.yml", multiActionYAML)
+
+	got, err := LoadActions(path)
+	require.NoError(t, err)
+	require.Len(t, got, 3)
+}
+
+func TestLoadActions_CorruptFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeActionsFile(t, dir, "actions.yml", "not: [unterminated")
+	_, err := LoadActions(path)
+	require.Error(t, err)
+}
+
+// TestLoadActions_CurrentFileIsNotRewritten proves the read path is pure
+// Apply: loading an already-current actions.yml must never write to disk.
+func TestLoadActions_CurrentFileIsNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	path := writeActionsFile(t, dir, "actions.yml", multiActionYAML)
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	_, err = LoadActions(path)
+	require.NoError(t, err)
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "load path is pure Apply and must never write")
 }
 
 func TestLoadActions_BadDuration_IsError(t *testing.T) {

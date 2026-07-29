@@ -8,10 +8,13 @@ import (
 	"context"
 	"embed"
 	"log"
+	"path/filepath"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
@@ -39,15 +42,6 @@ func main() {
 		log.Fatal(err)
 	}
 	paths := settings.ResolvePaths(bootstrap, "")
-	settingsStore := settings.NewStore(paths.SettingsPath)
-	cfg, err := settingsStore.Effective()
-	if err != nil {
-		log.Fatal(err)
-	}
-	// Mock mode can select an isolated flows directory, so finalize the path
-	// snapshot only after settings and environment precedence are resolved.
-	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
-	settingsStore = settings.NewStore(paths.SettingsPath)
 	level, err := settings.ResolveLogLevel()
 	if err != nil {
 		log.Fatal(err)
@@ -55,6 +49,40 @@ func main() {
 	logger, logCloser, logErr := settings.NewLogger(paths.LogFile, level)
 	if logErr != nil {
 		logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
+	}
+
+	backupDir := filepath.Join(paths.StateDir, "migration-backups")
+	if _, _, err := configmigrate.MigrateFile(configmigrate.SettingsSet, paths.SettingsPath, backupDir, &logger); err != nil {
+		log.Fatal(err) // preserve settings' fail-startup semantics
+	}
+
+	settingsStore := settings.NewStore(paths.SettingsPath)
+	cfg, err := settingsStore.Effective()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// Mock mode can select an isolated flows directory, so finalize the path
+	// snapshot only after settings and environment precedence are resolved.
+	initialLogPath := paths.LogFile
+	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	if paths.LogFile != initialLogPath {
+		logCloser()
+		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level)
+		if logErr != nil {
+			logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
+		}
+	}
+	settingsStore = settings.NewStore(paths.SettingsPath)
+	backupDir = filepath.Join(paths.StateDir, "migration-backups")
+
+	// Migrate flows/*.yaml and actions.yml in place before app.New constructs the
+	// stores and starts the watchers. Non-fatal: mirror each type's last-good
+	// semantics rather than failing startup.
+	if err := flow.MigrateDir(paths.FlowsDir, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("flow migration sweep failed")
+	}
+	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
 	}
 
 	// A redirected API base means every item this run shows may be stale or

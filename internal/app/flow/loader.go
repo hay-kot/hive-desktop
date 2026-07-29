@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 // LoadFlow parses and validates a single flows/*.yaml file. The flow's id is
@@ -18,11 +20,15 @@ import (
 // On success it returns the Flow plus any soft warnings; a hard validation
 // or parse failure returns a non-nil error and a zero Flow.
 func LoadFlow(path string, refs Refs) (Flow, []string, error) {
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return Flow{}, nil, fmt.Errorf("read flow %q: %w", path, err)
 	}
 	id := flowIDFromFilename(filepath.Base(path))
+	data, _, err := configmigrate.FlowSet.Apply(raw)
+	if err != nil {
+		return Flow{}, nil, fmt.Errorf("flow %q: %w", id, err)
+	}
 	return parseFlow(id, data, refs)
 }
 
@@ -48,13 +54,7 @@ func LoadFlows(dir string, refs Refs) (flows []Flow, perFileErrors map[string]er
 			continue
 		}
 		name := entry.Name()
-		if strings.HasSuffix(name, ".ui.yaml") || strings.HasSuffix(name, ".ui.yml") {
-			continue
-		}
-		if strings.HasSuffix(name, ".sidebar.yaml") || strings.HasSuffix(name, ".sidebar.yml") {
-			continue
-		}
-		if ext := filepath.Ext(name); ext != ".yaml" && ext != ".yml" {
+		if !isFlowDefinition(name) {
 			continue
 		}
 		names = append(names, name)
@@ -76,6 +76,21 @@ func LoadFlows(dir string, refs Refs) (flows []Flow, perFileErrors map[string]er
 	return flows, perFileErrors, warnings
 }
 
+// isFlowDefinition reports whether name is a flow definition file (not a
+// .ui.yaml / .sidebar.yaml sibling), factored from LoadFlows. Deliberately NOT
+// unified with the watcher's isFlowFile (watcher.go), which keeps .ui.yaml on
+// purpose.
+func isFlowDefinition(name string) bool {
+	if strings.HasSuffix(name, ".ui.yaml") || strings.HasSuffix(name, ".ui.yml") {
+		return false
+	}
+	if strings.HasSuffix(name, ".sidebar.yaml") || strings.HasSuffix(name, ".sidebar.yml") {
+		return false
+	}
+	ext := filepath.Ext(name)
+	return ext == ".yaml" || ext == ".yml"
+}
+
 // flowIDFromFilename strips a .yaml/.yml extension from a base filename to
 // derive the flow id. A file with any other (or no) extension keeps its
 // full name as the id.
@@ -88,7 +103,7 @@ func flowIDFromFilename(name string) string {
 }
 
 // parseFlow strictly decodes the flow document, defaults Enabled, checks
-// version == 1, and runs validateFlow.
+// version == configmigrate.FlowSet.Current, and runs validateFlow.
 func parseFlow(id string, data []byte, refs Refs) (Flow, []string, error) {
 	var file flowFile
 	dec := yaml.NewDecoder(bytes.NewReader(data))
@@ -97,8 +112,8 @@ func parseFlow(id string, data []byte, refs Refs) (Flow, []string, error) {
 		return Flow{}, nil, fmt.Errorf("flow %q: %w", id, err)
 	}
 
-	if file.Version != 1 {
-		return Flow{}, nil, fmt.Errorf("flow %q: version must be 1, got %d", id, file.Version)
+	if file.Version != configmigrate.FlowSet.Current {
+		return Flow{}, nil, fmt.Errorf("flow %q: version must be %d, got %d", id, configmigrate.FlowSet.Current, file.Version)
 	}
 
 	enabled := true

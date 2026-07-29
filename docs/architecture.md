@@ -162,6 +162,7 @@ column is the section that specifies it.
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
+| A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR 0032 |
 
 If what you are building is not on this list, it is probably a service method
 on `App` — see [Placement rules](#placement-rules).
@@ -528,6 +529,12 @@ are disabled, listener hosts are loopback, automatic ports are `0`, mock mode
 is live, and debug pauses are zero. Environment overrides affect the effective
 value but are never written into YAML by an unrelated settings edit.
 
+`settings.yaml`, `flows/*.yaml`, and `actions.yml` each carry a top-level
+`version:` and are migrated forward in place at startup by
+`internal/app/configmigrate` (ADR 0032) — a per-file, integer-versioned runner
+distinct from the SQLite schema migrations (`internal/hivecore/data/migrate`)
+that track applied versions in a table.
+
 Paths resolve before settings because the config root determines where
 `settings.yaml` lives. The fixed XDG `bootstrap.yaml` stores only `data_dir`
 and `config_dir`; explicit `HIVE_DESKTOP_DATA_DIR` and
@@ -800,8 +807,12 @@ The target is reached in this order; each step is independently shippable.
 
 ### Data that must survive
 
-Breaking changes to schema and config format are acceptable. Three things are
-not rebuildable and must be carried across any migration:
+Breaking changes to DB schema are acceptable and carried forward by the
+table-tracked SQLite migration runner. Breaking changes to config **format**
+(`settings.yaml`, `flows/*.yaml`, `actions.yml`) are carried forward the same
+way, but by the separate per-file migration runner (ADR 0032) rather than by
+breaking. Three things are not rebuildable and must be carried across any
+migration:
 
 - `inbox_item.unread` / `archived_at` / `archived_actor` / `archived_reason` —
   triage decisions, not derivable from any source.

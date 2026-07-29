@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 type testRefs struct {
@@ -142,4 +144,87 @@ func TestLoadFlows_MissingDir(t *testing.T) {
 	flows, perFileErrors, _ := LoadFlows(filepath.Join(t.TempDir(), "does-not-exist"), minimalRefs())
 	assert.Empty(t, flows)
 	assert.NotEmpty(t, perFileErrors)
+}
+
+// TestLoadFlow_InjectedSetMigratesThroughRealLoader proves migrate-before-
+// strict-decode composes through the real loader: a version:1 fixture is
+// driven through LoadFlow -> configmigrate.FlowSet.Apply -> parseFlow with a
+// temporarily raised Current, and must come out as a valid current flow.
+func TestLoadFlow_InjectedSetMigratesThroughRealLoader(t *testing.T) {
+	original := configmigrate.FlowSet
+	configmigrate.FlowSet = configmigrate.Set{
+		Name:     "flow",
+		Baseline: 1,
+		Current:  2,
+		Migrations: []configmigrate.Migration{
+			{To: 2, Migrate: func(doc map[string]any) error { return nil }},
+		},
+	}
+	t.Cleanup(func() { configmigrate.FlowSet = original })
+
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "triage.yaml", minimalValidFlowYAML())
+
+	f, _, err := LoadFlow(path, minimalRefs())
+	require.NoError(t, err)
+	assert.Equal(t, "triage", f.ID)
+	require.Len(t, f.Nodes, 2)
+}
+
+func TestLoadFlow_RejectsVersionNewerThanCurrent(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "triage.yaml", `version: 2
+nodes:
+  - { id: sink, type: feed }
+`)
+	_, _, err := LoadFlow(path, minimalRefs())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version")
+}
+
+func TestLoadFlows_RejectNewerVersionIsIsolatedNotFatal(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "good.yaml", minimalValidFlowYAML())
+	writeFlow(t, dir, "newer.yaml", `version: 2
+nodes:
+  - { id: sink, type: feed }
+`)
+
+	flows, perFileErrors, _ := LoadFlows(dir, minimalRefs())
+	require.Len(t, flows, 1)
+	assert.Equal(t, "good", flows[0].ID)
+	assert.Contains(t, perFileErrors, "newer.yaml")
+}
+
+func TestLoadFlow_CorruptFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "broken.yaml", "not: [unterminated")
+	_, _, err := LoadFlow(path, minimalRefs())
+	require.Error(t, err)
+}
+
+func TestLoadFlows_CorruptFileIsIsolatedNotFatal(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "good.yaml", minimalValidFlowYAML())
+	writeFlow(t, dir, "broken.yaml", "not: [unterminated")
+
+	flows, perFileErrors, _ := LoadFlows(dir, minimalRefs())
+	require.Len(t, flows, 1)
+	assert.Contains(t, perFileErrors, "broken.yaml")
+}
+
+// TestLoadFlow_CurrentFileIsNotRewritten proves the read path is pure Apply:
+// loading an already-current flow must never write to disk.
+func TestLoadFlow_CurrentFileIsNotRewritten(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "triage.yaml", minimalValidFlowYAML())
+	before, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	_, _, err = LoadFlow(path, minimalRefs())
+	require.NoError(t, err)
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "load path is pure Apply and must never write")
 }

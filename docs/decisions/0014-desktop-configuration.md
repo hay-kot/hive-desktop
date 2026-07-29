@@ -89,6 +89,11 @@ Vite cannot accept an already-open listener.
 - The settings schema and desktop-owned environment names change without a
   migration. Before alpha, clarity is preferred over retaining the ad hoc
   surface.
+  **Update (2026-07-28):** amended in part by ADR 0032 — config **files**
+  (`settings.yaml`, `flows/*.yaml`, `actions.yml`) are now migrated forward in
+  place on a breaking schema change instead of hard-failing. The
+  no-compatibility-alias stance for **environment variable names** is
+  unchanged.
 - Wails/Vite port selection still has a small preflight race because those
   frameworks cannot receive an already-open listener; app-owned listeners do
   not have that race.

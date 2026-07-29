@@ -11,6 +11,8 @@ import (
 
 	env "github.com/caarlos0/env/v11"
 	"gopkg.in/yaml.v3"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 // Store serializes access to one settings.yaml and keeps environment overrides
@@ -58,11 +60,15 @@ func (s *Store) Update(mutate func(*Settings) error) (Settings, error) {
 
 func loadSettingsAt(path string, withEnvironment bool) (Settings, error) {
 	cfg := DefaultSettings()
-	data, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return Settings{}, fmt.Errorf("read desktop settings: %w", err)
 	}
-	if err == nil && len(bytes.TrimSpace(data)) > 0 {
+	data, _, err := configmigrate.SettingsSet.Apply(raw)
+	if err != nil {
+		return Settings{}, fmt.Errorf("migrate desktop settings: %w", err)
+	}
+	if len(bytes.TrimSpace(data)) > 0 {
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
 		if err := decoder.Decode(&cfg); err != nil {

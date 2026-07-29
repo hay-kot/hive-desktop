@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 const settingsFileName = "settings.yaml"
@@ -145,6 +147,7 @@ type DevelopmentSettings struct {
 // Settings is the typed settings.yaml schema. Environment override provenance
 // is process-local and is never serialized.
 type Settings struct {
+	Version       int                  `yaml:"version"`
 	Polling       PollingSettings      `yaml:"polling"`
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
@@ -158,6 +161,7 @@ type Settings struct {
 
 func DefaultSettings() Settings {
 	return Settings{
+		Version:       configmigrate.SettingsSet.Current,
 		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
