@@ -48,7 +48,7 @@ const (
 
 // TerminalStreamHandler returns the mount prefix and the raw handler for the
 // data plane. It is mounted by its own App.MountAPI call rather than joining
-// the operations table: the errchain cannot frame a hijacked socket (ADR 0032).
+// the operations table: the errchain cannot frame a hijacked socket (ADR 0034).
 func TerminalStreamHandler(core *app.App, token string, origins []string, log zerolog.Logger) (string, http.Handler) {
 	return TerminalStreamPath, &terminalStream{core: core, token: token, origins: origins, log: log}
 }

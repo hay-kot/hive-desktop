@@ -37,7 +37,7 @@ type Controller struct {
 	version http.HandlerFunc
 
 	// terminalToken and cors apply to the terminal operations alone. Both are
-	// composed in main.go — the core carries no transport credential (ADR 0032).
+	// composed in main.go — the core carries no transport credential (ADR 0034).
 	terminalToken string
 	cors          corsPolicy
 }
@@ -46,7 +46,7 @@ type Controller struct {
 // control plane only: every other operation here is deliberately
 // unauthenticated behind the loopback bind (ADR 0021). An empty terminalToken
 // means terminal mode is off for this run — its operations are not registered
-// at all (ADR 0033).
+// at all (ADR 0035).
 func New(core *app.App, log zerolog.Logger, terminalToken string, origins []string) *Controller {
 	return &Controller{
 		core:          core,

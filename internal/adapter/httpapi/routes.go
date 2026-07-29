@@ -66,7 +66,7 @@ func (op Op) pattern() string {
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
 	// No token means terminal mode is off for this run (experimental.terminal,
-	// ADR 0033): the routes are absent rather than answering 503, so the route
+	// ADR 0035): the routes are absent rather than answering 503, so the route
 	// index and OpenAPI document never advertise a surface that cannot work.
 	if ctrl.terminalToken != "" {
 		ops = append(ops, ctrl.terminalOperations()...)

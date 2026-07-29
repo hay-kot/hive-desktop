@@ -651,7 +651,7 @@ watch(githubConnected, async (connected) => {
 const mode = ref<'hub' | 'terminal'>('hub')
 const terminalActive = computed(() => mode.value === 'terminal' && !onboardingActive.value)
 
-// Terminal mode ships dark (experimental.terminal, ADR 0033): until the probe
+// Terminal mode ships dark (experimental.terminal, ADR 0035): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
 // separate axis — D10 governs only the enabled-but-unavailable case.
 const terminalEnabled = ref(false)

@@ -165,7 +165,7 @@ wait_ready() {
   exit 1
 }
 
-# Terminal mode ships dark (experimental.terminal, ADR 0033). The harness opts
+# Terminal mode ships dark (experimental.terminal, ADR 0035). The harness opts
 # every server in so terminal-unavailable.spec.ts keeps exercising the
 # enabled-but-unavailable path (D10) that the `-tags server` build produces.
 export HIVE_DESKTOP_EXPERIMENTAL_TERMINAL=true

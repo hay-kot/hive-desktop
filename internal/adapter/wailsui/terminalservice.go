@@ -11,7 +11,7 @@ import (
 
 // TerminalTransport is what the terminal needs that the core does not hold: the
 // per-run bearer token and the path its WebSocket is mounted at. Both are
-// composed in main.go and handed here (ADR 0032).
+// composed in main.go and handed here (ADR 0034).
 type TerminalTransport struct {
 	Token      string
 	StreamPath string
@@ -47,7 +47,7 @@ func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookSe
 	return &TerminalService{terminals: terminals, webhooks: webhooks, transport: transport, enabled: enabled}
 }
 
-// Enabled reports the experimental.terminal opt-in (ADR 0033). The frontend
+// Enabled reports the experimental.terminal opt-in (ADR 0035). The frontend
 // renders the way into terminal mode only when it is on; availability stays a
 // separate axis, because D10 governs only the enabled-but-unavailable case.
 func (s *TerminalService) Enabled(ctx context.Context) bool { return s.enabled }
