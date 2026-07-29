@@ -307,13 +307,13 @@ onBeforeUnmount(() => session.value?.dispose())
                      belong to rather than as sidebar chrome. -->
                 <div
                   v-if="row.slug === activeSlug && session && tabs.length"
-                  class="flex flex-col gap-px bg-app py-2 pl-[13px] pr-1"
+                  class="flex flex-col bg-app"
                 >
                   <button
                     v-for="tab in tabs"
                     :key="tab.uid"
                     type="button"
-                    class="flex h-7 w-full cursor-pointer items-center gap-2 px-2 text-left"
+                    class="flex h-8 w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
                     :class="tab.windowId === activeWindowId ? 'bg-pane' : 'hover:bg-pane'"
                     data-testid="terminal-window-row"
                     :data-window-id="tab.windowId"
@@ -322,7 +322,6 @@ onBeforeUnmount(() => session.value?.dispose())
                   >
                     <span class="shrink-0 font-mono text-[11.5px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
                     <span class="min-w-0 flex-1 truncate font-mono text-[13.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
-                    <span v-if="tab.windowId === activeWindowId" class="size-[5px] shrink-0 rounded-full bg-severity-success" />
                   </button>
                 </div>
               </div>

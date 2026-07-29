@@ -26,7 +26,8 @@ export function Available(): $CancellablePromise<$models.TerminalAvailability> {
 /**
  * Enabled reports the experimental.terminal opt-in (ADR 0035). The frontend
  * renders the way into terminal mode only when it is on; availability stays a
- * separate axis, because D10 governs only the enabled-but-unavailable case.
+ * separate axis, because an enabled-but-unavailable terminal explains itself
+ * inside the mode instead of hiding the way in.
  */
 export function Enabled(): $CancellablePromise<boolean> {
     return $Call.ByID(1465995536);
