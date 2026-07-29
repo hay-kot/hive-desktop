@@ -46,6 +46,14 @@ type AppearanceSettings struct {
 	TerminalFontSize string `json:"terminalFontSize"`
 }
 
+// ExperimentalSettings carries the ships-dark opt-ins (ADR 0035). Terminal is
+// the effective persisted value, not the running one: the flag is read at
+// startup, so the frontend compares it against TerminalService.Enabled to
+// know whether a relaunch is pending.
+type ExperimentalSettings struct {
+	Terminal bool `json:"terminal"`
+}
+
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
 // Like AppearanceSettings the values are opaque to Go: the frontend owns the
 // command vocabulary and the combo grammar.
@@ -87,6 +95,22 @@ func (s *SettingsService) SetTheme(ctx context.Context, theme string) error {
 
 func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {
 	return s.settings.SetTerminalFontSize(ctx, size)
+}
+
+func (s *SettingsService) ExperimentalSettings(ctx context.Context) (ExperimentalSettings, error) {
+	current, err := s.settings.Experimental(ctx)
+	if err != nil {
+		return ExperimentalSettings{}, err
+	}
+	return ExperimentalSettings{Terminal: current.Terminal}, nil
+}
+
+func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
+	effective, err := s.settings.SetExperimentalTerminal(ctx, enabled)
+	if err != nil {
+		return ExperimentalSettings{}, err
+	}
+	return ExperimentalSettings{Terminal: effective}, nil
 }
 
 func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {

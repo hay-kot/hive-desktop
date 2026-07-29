@@ -26,6 +26,9 @@ const {
   update,
   checkingUpdate,
   checkedOnce,
+  experimentalTerminal,
+  terminalRestartPending,
+  setExperimentalTerminal,
   setAutoUpdate,
   checkForUpdates,
   refresh,
@@ -147,6 +150,32 @@ onMounted(() => {
           @open="openPath(info.database.path)"
           @reveal="revealPath(info.database.path)"
         />
+      </div>
+    </section>
+
+    <section class="flex flex-col gap-2.5" data-testid="system-experimental">
+      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+        <h2 class="text-xs font-semibold uppercase tracking-[.1em] text-text-2">Experimental</h2>
+        <p class="text-xs text-text-3">Early features that ship off by default. Changes apply after restarting Hive.</p>
+      </div>
+      <div class="overflow-hidden rounded-[11px] border border-card bg-raised">
+        <div class="flex items-center gap-3.5 px-4 py-3.5">
+          <AppSwitch
+            :model-value="experimentalTerminal"
+            aria-label="Terminal mode"
+            testid="system-experimental-terminal"
+            @update:model-value="setExperimentalTerminal"
+          />
+          <div class="min-w-0 flex-1">
+            <div class="text-[13.5px] font-semibold text-text">Terminal mode</div>
+            <div class="mt-0.5 text-[11.5px] text-text-3">Attach to Hive tmux sessions in a terminal built into the app, via the Hub | Terminal switch in the title bar.</div>
+          </div>
+          <span
+            v-if="terminalRestartPending"
+            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
+            data-testid="system-terminal-restart"
+          >Restart to apply</span>
+        </div>
       </div>
     </section>
 

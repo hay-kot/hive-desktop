@@ -20,6 +20,10 @@ export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSett
     return $Call.ByID(2122138421);
 }
 
+export function ExperimentalSettings(): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(1419259869);
+}
+
 export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
     return $Call.ByID(1295591268);
 }
@@ -30,6 +34,10 @@ export function KeybindingSettings(): $CancellablePromise<$models.KeybindingSett
 
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
     return $Call.ByID(256290300);
+}
+
+export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(1793440840, enabled);
 }
 
 /**

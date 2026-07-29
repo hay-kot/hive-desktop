@@ -45,6 +45,7 @@ export {
 export type {
     AppearanceSettings,
     BuildInfo,
+    ExperimentalSettings,
     FlowSummary,
     GithubSettings,
     KeybindingSettings,

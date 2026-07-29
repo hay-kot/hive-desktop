@@ -1,4 +1,4 @@
-# 0033 — Terminal mode ships dark behind an experimental settings opt-in
+# 0035 — Terminal mode ships dark behind an experimental settings opt-in
 
 - **Status:** accepted
 - **Date:** 2026-07-29
@@ -43,5 +43,10 @@ surface, and the terminal's transport is already composed per run in
 - The `experimental` section is a place for future ships-dark flags; each is a
   startup read, not a live toggle. Graduating a feature means deleting its
   flag, not defaulting it on.
-- A settings UI toggle for experiments is deliberately not built — the
-  audience for a dark feature edits YAML.
+- Settings ▸ System ▸ Experimental exposes the flag as a switch. It only
+  persists the value — the gate stays a startup read — so the UI compares the
+  persisted value against what the running process mounted
+  (`TerminalService.Enabled`) and shows a restart-pending hint while they
+  differ. An earlier revision of this ADR skipped the UI toggle entirely;
+  that was revised once the mode had a sidebar and appearance controls worth
+  reaching without a YAML edit.

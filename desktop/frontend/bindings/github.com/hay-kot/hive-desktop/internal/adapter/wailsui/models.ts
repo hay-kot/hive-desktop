@@ -43,6 +43,16 @@ export interface BuildInfo {
 }
 
 /**
+ * ExperimentalSettings carries the ships-dark opt-ins (ADR 0035). Terminal is
+ * the effective persisted value, not the running one: the flag is read at
+ * startup, so the frontend compares it against TerminalService.Enabled to
+ * know whether a relaunch is pending.
+ */
+export interface ExperimentalSettings {
+    "terminal": boolean;
+}
+
+/**
  * FlowSummary is one flow file's listing row: identity plus load status, so a
  * broken flow file shows up with its error instead of silently vanishing.
  */
