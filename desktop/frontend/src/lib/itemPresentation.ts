@@ -7,9 +7,13 @@
 // actions-footer context line) lives in the sourceKind-keyed registry below.
 import type { Component } from 'vue'
 import GithubMark from '../components/marks/GithubMark.vue'
+import grafanaLogo from '../assets/integrations/grafana.svg'
 import { defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
 import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
+import * as grafanaMetricsSourceNode from '../pipeline/nodes/sources.grafana_metrics/config'
+import * as grafanaAlertsSourceNode from '../pipeline/nodes/sources.grafana_alerts/config'
 import * as webhookSourceNode from '../pipeline/nodes/sources.webhook/config'
+import IconActivity from '~icons/lucide/activity'
 import IconCircleDot from '~icons/lucide/circle-dot'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconInbox from '~icons/lucide/inbox'
@@ -192,6 +196,15 @@ const githubPresentation: ItemPresentation = {
   mark: () => GithubMark,
 }
 
+const grafanaPresentation: ItemPresentation = {
+  sourceLabel: 'Grafana',
+  // The Grafana logo is a gradient, so it renders as an image rather than a
+  // currentColor glyph — a colored mark stays distinct in a feed that mixes
+  // providers. IconActivity is only the fallback if the bundled asset fails.
+  mark: () => IconActivity,
+  markImage: () => grafanaLogo,
+}
+
 const webhookPresentation: ItemPresentation = {
   sourceLabel: 'Webhook',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultWebhookSourceIcon),
@@ -204,6 +217,7 @@ const webhookPresentation: ItemPresentation = {
  *  exist yet (e.g. `generic` test observations in Trash). */
 export function presentationFor(sourceKind: string | undefined): ItemPresentation {
   if (sourceKind === 'github') return githubPresentation
+  if (sourceKind === 'grafana') return grafanaPresentation
   if (sourceKind === 'webhook') return webhookPresentation
   return { sourceLabel: sourceKind ?? '', mark: () => IconInbox }
 }
@@ -217,6 +231,8 @@ export function presentationFor(sourceKind: string | undefined): ItemPresentatio
 
 const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [githubSourceNode.type]: githubSourceNode.sourceKind,
+  [grafanaMetricsSourceNode.type]: grafanaMetricsSourceNode.sourceKind,
+  [grafanaAlertsSourceNode.type]: grafanaAlertsSourceNode.sourceKind,
   [webhookSourceNode.type]: webhookSourceNode.sourceKind,
 }
 

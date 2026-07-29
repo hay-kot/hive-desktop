@@ -20,6 +20,7 @@ import PromptSettingsView from './PromptSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
+import grafanaIcon from '../assets/integrations/grafana.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
 import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
@@ -28,7 +29,6 @@ import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
-import IconActivity from '~icons/lucide/activity'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
@@ -198,10 +198,10 @@ function onThemeChange(value: string): void {
             :data-testid="`integration-${cardId(integration.key)}`"
           >
             <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
+              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' || integration.key === 'grafana' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
                 <img v-if="integration.key === 'github'" :src="githubIcon" alt="" class="size-full" />
+                <img v-else-if="integration.key === 'grafana'" :src="grafanaIcon" alt="" class="size-full object-contain" />
                 <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
-                <IconActivity v-else-if="integration.key === 'grafana'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
             </template>
