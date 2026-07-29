@@ -14,9 +14,11 @@ platform (macOS plus both Linux architectures) is built on one machine, so the
 release needs macOS and a running Docker together (decision 0028). There is no
 CI publishing workflow.
 
-The release tag is created locally after publishing. Pushing it is safe and has
-no side effects — there is no workflow watching for it — but the convention is
-to tag locally and not push.
+Publishing records the release on GitHub as its final step: it pushes the
+`desktop-v<version>` tag and creates a GitHub Release with generated notes (dev
+and beta marked prerelease). Downloads still come from R2 (decision 0003); the
+release attaches no artifacts. That step is idempotent — `go run ./cmd/release
+github <version>` re-records a release whose GitHub step failed after the upload.
 
 ## Arguments
 
@@ -90,16 +92,17 @@ Reject missing or unknown channels instead of guessing.
    live manifest and downloads the public artifact to check its size and SHA-256
    before it succeeds. Stop on failure. Do not rerun with `--force`, overwrite
    artifacts, or invent a replacement version without explicit user approval.
-9. After successful publishing and verification, create the lightweight release
-   tag locally:
+9. Publishing finishes by recording the release on GitHub itself — pushing the
+   `desktop-v<version>` tag and creating its GitHub Release. Do not tag or push
+   by hand. If only that final step fails (e.g. a `gh` outage), the R2 release is
+   already live and verified; re-run just the idempotent GitHub step:
 
     ```bash
-    git tag "desktop-v<version>" HEAD
+    go run ./cmd/release github <version>
     ```
 
-    Pushing the tag is safe and has no side effects — there is no publishing
-    workflow. Report the version, local tag, affected channel manifests, and
-    artifact URL prefix
+    Report the version, pushed tag and its GitHub Release URL, affected channel
+    manifests, and artifact URL prefix
     (`https://dl.hivedesktop.com/desktop/releases/<version>/`).
 
 ## Version selection rules

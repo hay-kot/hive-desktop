@@ -85,6 +85,27 @@ func newReleaseCommand() *cli.Command {
 				}),
 			},
 			{
+				Name:      "github",
+				Usage:     "push the release tag and create the GitHub release",
+				ArgsUsage: "<version>",
+				Description: "Records a published version on GitHub: pushes the lightweight desktop-v<version> tag and creates a GitHub Release whose notes " +
+					"capture the commits since the previous desktop release tag (dev and beta are marked prerelease). Downloads still come from R2 (decision 0003); " +
+					"this attaches no artifacts. Idempotent — safe to re-run to record a release whose GitHub step failed after the R2 upload. Requires an authenticated gh.",
+				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+					if cmd.NArg() != 1 {
+						return cli.Exit("expected exactly one version", 2)
+					}
+					version, err := parsePublishVersion(cmd.Args().First())
+					if err != nil {
+						return fmt.Errorf("invalid version %q: %w", cmd.Args().First(), err)
+					}
+					if err := validatePublishSource(ctx, version); err != nil {
+						return err
+					}
+					return publishGitHubRelease(ctx, version)
+				}),
+			},
+			{
 				Name:      "verify",
 				Usage:     "verify live manifests and the public artifact",
 				ArgsUsage: "<version>",

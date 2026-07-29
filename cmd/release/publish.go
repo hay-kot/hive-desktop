@@ -88,7 +88,13 @@ func publish(ctx context.Context, args []string) error {
 	if options.skipUpload {
 		return nil
 	}
-	return verifyLive(ctx, options.version)
+	if err := verifyLive(ctx, options.version); err != nil {
+		return err
+	}
+	// Source-side record, after the artifacts are live and verified. It runs last
+	// because a failure here (e.g. gh outage) leaves a fully published release that
+	// `release github <version>` re-records without re-uploading.
+	return publishGitHubRelease(ctx, options.version)
 }
 
 func parsePublishOptions(args []string) (publishOptions, error) {
@@ -289,7 +295,9 @@ func (p *publisher) preflight(ctx context.Context) error {
 		tools = append(tools, "xcrun")
 	}
 	if !p.options.skipUpload {
-		tools = append(tools, "curl")
+		// gh records the release on GitHub after upload; check it here so a missing
+		// or unauthenticated gh aborts before any build or the irreversible upload.
+		tools = append(tools, "curl", "gh")
 	}
 	if p.webEnabled() {
 		tools = append(tools, "node", "npm")
@@ -306,6 +314,9 @@ func (p *publisher) preflight(ctx context.Context) error {
 		}
 		if !strings.Contains(output, "--aws-sigv4") {
 			return errors.New("curl with --aws-sigv4 support is required (curl >= 7.86)")
+		}
+		if err := quietCommand(ctx, "gh", "auth", "status"); err != nil {
+			return fmt.Errorf("gh must be authenticated to record the GitHub release: %w", err)
 		}
 	}
 	return nil
