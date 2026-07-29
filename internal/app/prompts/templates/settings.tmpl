@@ -31,6 +31,11 @@ webhooks:
 keybindings:               # sparse overrides keyed by command id
   feed.next: [j, arrowdown]
 
+skills:                    # the agent-skill installer (Settings ▸ Skills)
+  auto_update: true        # keep installed skills current on startup
+  targets:                 # per-agent directory override; omit for the default
+    claude: {dir: ~/.claude/skills}
+
 development:
   mocks:
     mode: live             # live, feed, pipeline, onboarding, action-smoke

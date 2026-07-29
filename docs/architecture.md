@@ -123,7 +123,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | --- | --- | --- |
 | **Strategy** (GoF) | action executors, event delivery, script runtimes | One implementation per variant behind one interface, selected by a registry lookup — never a `switch` that grows a case per type. For event delivery the strategy is *constructed*, not an enum: `events.Coalesce()` / `events.Buffer(n)`, so "coalesce with a queue size" is unrepresentable rather than merely wrong. |
 | **Command** (GoF) | action dispatch | An `output_command` row is a durable, replayable command carrying everything its executor needs. Its `UNIQUE (action_id, key)` index is the only thing preventing an already-run action from re-firing — treat it as load-bearing. |
-| **Registry** | the four [extension points](#extension-points) | An explicit map keyed by a type string, declared in one file, with per-type config carrying its own `Validate`. Never `init()` self-registration — `gochecknoinits` is enabled. A registry used for enumeration (MCP tool listing, CLI generation) carries *metadata only*, never dispatch. |
+| **Registry** | the [extension points](#extension-points) | An explicit map keyed by a type string, declared in one file, with per-type config carrying its own `Validate`. Never `init()` self-registration — `gochecknoinits` is enabled. A registry used for enumeration (MCP tool listing, CLI generation) carries *metadata only*, never dispatch. |
 | **Factory Method** (GoF) | node config decoding, connector instances | The registry stores a constructor, not an instance. `func() NodeConfig` must return a **distinct** value per call because the decoder mutates it in place. For connectors, a `Descriptor` (schema, capabilities, stability) is what gets registered; instances are constructed per-use from parsed config. |
 | **Observer** (GoF) — typed and payload-carrying | core → adapters | Core events carry payloads and each subscriber declares a delivery policy. The Wails adapter degrades them to wake-up signals; **the core never does**, because an MCP client cannot cheaply "re-read the service" and a streaming consumer needs the delta. |
 | **Declared capabilities** | connectors, any pluggable type | A type states what it supports. Never `if s, ok := x.(Backfiller)` — sniffing hides capability from the editor, the docs, and an LLM, all of which need to know before calling. |
@@ -278,6 +278,10 @@ internal/
       docs/                       # per-action-type markdown
     prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
       templates/                 #   .tmpl files the registry renders
+    skills/                       # install prompts as agent SKILL.md files; a
+                                  #   per-target registry (Go path+body templates),
+                                  #   a state-dir install index, hash-based drift
+                                  #   sync that never clobbers a user edit (ADR 0033)
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
@@ -323,8 +327,9 @@ every user-facing surface is an adapter inside the desktop binary.
 
 ## Extension points
 
-Four registries, all the same shape: an explicit map keyed by a type string,
-declared in one file, with per-type config carrying its own `Validate`.
+Five registries, all the same shape: an explicit map keyed by a type string,
+declared in one file, with per-type config carrying its own `Validate` when it
+has per-type config.
 
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
@@ -332,6 +337,7 @@ declared in one file, with per-type config carrying its own `Validate`.
 | **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
+| **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
 
 ### Documentation is part of the declaration
 
@@ -520,8 +526,8 @@ seam. A missing file falls back to the node's glyph, the same tolerance, and
 orphaned blobs are left in place rather than reference-counted.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `webhooks`, `keybindings`, and `development`
-sections. Resolution is deterministic: safe compiled defaults, one strictly
+`notifications`, `appearance`, `webhooks`, `keybindings`, `skills`, and
+`development` sections. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof

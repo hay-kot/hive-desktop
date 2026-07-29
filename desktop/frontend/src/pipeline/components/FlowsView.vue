@@ -126,8 +126,8 @@ const previewFeedId = computed(() => {
 })
 
 // ── Copy prompt — the flows authoring prompt, rendered by the Go prompts
-// service (the same text Settings ▸ LLM prompts lists; this is the in-place
-// shortcut to it). This view has no reachable toast queue (ToastStack is
+// service (the same text the Flows skill in Settings ▸ Skills installs; this is
+// the in-place shortcut to it). This view has no reachable toast queue (ToastStack is
 // driven by useFeedState, mounted as App.vue's sibling — see FlowsView's own
 // module docs above on staying out of that path), so success/failure surfaces
 // as a small self-clearing inline label instead of a toast. ───────────────

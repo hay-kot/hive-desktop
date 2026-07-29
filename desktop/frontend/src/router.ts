@@ -19,7 +19,7 @@ export const applicationSettingsSections = [
   'keybindings',
   'integrations',
   'actions',
-  'prompts',
+  'skills',
   'system',
   'notifications',
 ] as const

@@ -14,6 +14,7 @@ import * as PromptsService from "./promptsservice.js";
 import * as ReportService from "./reportservice.js";
 import * as SessionService from "./sessionservice.js";
 import * as SettingsService from "./settingsservice.js";
+import * as SkillsService from "./skillsservice.js";
 import * as SystemService from "./systemservice.js";
 import * as UpdaterService from "./updaterservice.js";
 import * as WebhookService from "./webhookservice.js";
@@ -32,6 +33,7 @@ export {
     ReportService,
     SessionService,
     SettingsService,
+    SkillsService,
     SystemService,
     UpdaterService,
     WebhookService,

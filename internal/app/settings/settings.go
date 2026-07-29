@@ -94,6 +94,24 @@ type HTTPSettings struct {
 	Port    int    `yaml:"port"    env:"HIVE_DESKTOP_HTTP_PORT"`
 }
 
+// SkillTargetSettings is one target agent's install configuration. Dir overrides
+// the built-in install directory; empty means the default. Whether an agent is
+// "on" is not stored here — it is derived from whether any skills are actually
+// installed for it.
+type SkillTargetSettings struct {
+	Dir string `yaml:"dir,omitempty"`
+}
+
+// SkillsSettings configures the agent-skill installer. Targets maps a target
+// agent id (claude, codex, pi, agents) to its per-target configuration; an absent
+// entry means the built-in default directory. AutoUpdate keeps already-installed
+// skills current on startup so a moved config path or a new node type re-renders
+// itself without the user re-installing.
+type SkillsSettings struct {
+	AutoUpdate bool                           `yaml:"auto_update"       env:"HIVE_DESKTOP_SKILLS_AUTO_UPDATE"`
+	Targets    map[string]SkillTargetSettings `yaml:"targets,omitempty"`
+}
+
 type MockSettings struct {
 	Mode string `yaml:"mode" env:"HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE"`
 }
@@ -154,6 +172,7 @@ type Settings struct {
 	Appearance    Appearance           `yaml:"appearance,omitempty"`
 	HTTP          HTTPSettings         `yaml:"http"`
 	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
+	Skills        SkillsSettings       `yaml:"skills"`
 	Development   DevelopmentSettings  `yaml:"development"`
 
 	overrides map[string]bool
@@ -166,6 +185,7 @@ func DefaultSettings() Settings {
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
 		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
+		Skills:        SkillsSettings{AutoUpdate: true},
 		Development: DevelopmentSettings{
 			Mocks: MockSettings{Mode: MockLive},
 			Vite:  ServerSettings{Host: "127.0.0.1", Port: 0},

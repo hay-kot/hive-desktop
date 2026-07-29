@@ -51,3 +51,102 @@ export interface Integration {
      */
     "envOverride": boolean;
 }
+
+/**
+ * SkillEntry is one installable skill, shown as an informational list entry with
+ * its preview text. The install state is per agent, not per skill, so it lives on
+ * SkillTarget rather than here.
+ */
+export interface SkillEntry {
+    "id": string;
+    "name": string;
+    "title": string;
+    "description": string;
+
+    /**
+     * Target names the surface the underlying prompt configures (a path or URL),
+     * shown for orientation.
+     */
+    "target": string;
+
+    /**
+     * rendered body, for preview and copy
+     */
+    "text": string;
+}
+
+/**
+ * SkillTarget is one agent destination with its resolved directory and install
+ * state. Installed is how many skills are on this agent (0 means "off"); NeedsSync
+ * is set when an on agent has a skill missing or drifted that Sync would fix.
+ */
+export interface SkillTarget {
+    "id": string;
+    "label": string;
+
+    /**
+     * configured directory (override or default), as entered
+     */
+    "dir": string;
+
+    /**
+     * true when using the built-in default
+     */
+    "default": boolean;
+    "installed": number;
+    "needsSync": boolean;
+}
+
+/**
+ * SkillsCatalog is the whole Skills settings surface in one value, so the
+ * frontend renders and every mutation returns the same shape.
+ */
+export interface SkillsCatalog {
+    "skills": SkillEntry[] | null;
+    "targets": SkillTarget[] | null;
+    "autoUpdate": boolean;
+}
+
+/**
+ * SkillsSyncResult is what a provisioning sync did, so the UI can report it.
+ */
+export interface SkillsSyncResult {
+    "catalog": SkillsCatalog;
+
+    /**
+     * newly written
+     */
+    "installed": number;
+
+    /**
+     * app-changed, rewritten
+     */
+    "updated": number;
+
+    /**
+     * missing file recreated
+     */
+    "restored": number;
+
+    /**
+     * user-edited, left untouched
+     */
+    "skipped": number;
+}
+
+/**
+ * SkillsTargetResult is what turning one agent on or off did.
+ */
+export interface SkillsTargetResult {
+    "catalog": SkillsCatalog;
+
+    /**
+     * skills installed or removed
+     */
+    "count": number;
+
+    /**
+     * user-edited files left in place (uninstall only)
+     */
+    "kept": number;
+}
