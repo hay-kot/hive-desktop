@@ -63,7 +63,15 @@ func main() {
 	}
 	// Mock mode can select an isolated flows directory, so finalize the path
 	// snapshot only after settings and environment precedence are resolved.
+	initialLogPath := paths.LogFile
 	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	if paths.LogFile != initialLogPath {
+		logCloser()
+		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level)
+		if logErr != nil {
+			logger.Warn().Err(logErr).Msg("desktop log file unavailable; logging to stderr only")
+		}
+	}
 	settingsStore = settings.NewStore(paths.SettingsPath)
 	backupDir = filepath.Join(paths.StateDir, "migration-backups")
 

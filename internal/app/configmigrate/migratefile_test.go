@@ -132,9 +132,10 @@ func TestMigrateFile_StepErrorLeavesNoBackupOrRewrite(t *testing.T) {
 
 	boom := errors.New("boom")
 	s := Set{
-		Name:     "broken",
-		Baseline: 1,
-		Current:  2,
+		Name:                "broken",
+		Baseline:            1,
+		Current:             2,
+		AllowMissingVersion: true,
 		Migrations: []Migration{
 			{To: 2, Migrate: func(doc map[string]any) error { return boom }},
 		},
@@ -150,6 +151,23 @@ func TestMigrateFile_StepErrorLeavesNoBackupOrRewrite(t *testing.T) {
 	assert.Equal(t, original, string(onDisk), "step error must leave the source untouched")
 
 	assert.Empty(t, globBackups(t, backupDir), "step error must leave no backup artifact")
+}
+
+func TestMigrateFile_MultipleDocumentsLeavesNoBackupOrRewrite(t *testing.T) {
+	srcDir, backupDir := tempDirs(t)
+	original := "old_name: hello\n---\nother: value\n"
+	path := writeFixture(t, srcDir, "widget.yaml", original)
+
+	data, changed, err := MigrateFile(renameStep(), path, backupDir, nopLogger())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple YAML documents")
+	assert.False(t, changed)
+	assert.Nil(t, data)
+
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(onDisk), "multi-document input must leave the source untouched")
+	assert.Empty(t, globBackups(t, backupDir), "multi-document input must not create a backup")
 }
 
 func TestMigrateFile_BackupWriteFailureAbortsRewrite(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 
 	"gopkg.in/yaml.v3"
@@ -29,10 +30,11 @@ type Migration struct {
 
 // Set is one file type's forward-only migration chain.
 type Set struct {
-	Name       string      // "settings" | "flow" | "actions" — for logs/backups
-	Baseline   int         // version assumed when the document has no `version:` key
-	Current    int         // the version this build reads and writes
-	Migrations []Migration // exactly Baseline+1 .. Current, ascending, no gaps/dupes
+	Name                string      // "settings" | "flow" | "actions" — for logs/backups
+	Baseline            int         // lowest version this build can migrate
+	Current             int         // the version this build reads and writes
+	AllowMissingVersion bool        // when true, a missing `version:` is treated as Baseline
+	Migrations          []Migration // exactly Baseline+1 .. Current, ascending, no gaps/dupes
 }
 
 // ErrVersionTooNew is returned (errors.Is-able) when a document's version
@@ -59,12 +61,9 @@ func (s Set) Apply(raw []byte) (migrated []byte, changed bool, err error) {
 		return nil, false, nil
 	}
 
-	var doc map[string]any
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	doc, err := decodeOneDocument(raw)
+	if err != nil {
 		return nil, false, fmt.Errorf("decode %s config: %w", s.Name, err)
-	}
-	if doc == nil {
-		doc = map[string]any{}
 	}
 
 	version, err := s.version(doc)
@@ -102,12 +101,33 @@ func (s Set) Apply(raw []byte) (migrated []byte, changed bool, err error) {
 	return out, true, nil
 }
 
-// version reads the top-level `version:` from a lax-decoded document, defaulting
-// to s.Baseline when the key is absent. A present value below Baseline is
-// rejected as too old to migrate.
+func decodeOneDocument(raw []byte) (map[string]any, error) {
+	var doc map[string]any
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	if err := decoder.Decode(&doc); err != nil {
+		return nil, err
+	}
+	if doc == nil {
+		doc = map[string]any{}
+	}
+	var extra any
+	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return nil, fmt.Errorf("multiple YAML documents are not allowed")
+		}
+		return nil, err
+	}
+	return doc, nil
+}
+
+// version reads the top-level `version:` from a lax-decoded document. A present
+// value below Baseline is rejected as too old to migrate.
 func (s Set) version(doc map[string]any) (int, error) {
 	raw, ok := doc["version"]
 	if !ok || raw == nil {
+		if !s.AllowMissingVersion {
+			return 0, fmt.Errorf("%s config: version field is required", s.Name)
+		}
 		return s.Baseline, nil
 	}
 

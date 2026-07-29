@@ -14,9 +14,10 @@ import (
 // document rather than just bumping the version stamp.
 func renameStep() Set {
 	return Set{
-		Name:     "widget",
-		Baseline: 1,
-		Current:  2,
+		Name:                "widget",
+		Baseline:            1,
+		Current:             2,
+		AllowMissingVersion: true,
 		Migrations: []Migration{
 			{To: 2, Migrate: func(doc map[string]any) error {
 				if v, ok := doc["old_name"]; ok {
@@ -158,7 +159,7 @@ func TestApply_AbsentVersionDefaultsToBaseline(t *testing.T) {
 	// Baseline == Current: an absent version defaults to Baseline, which is
 	// already current, so this is a no-op (the Current == Baseline no-op
 	// invariant every registered Set relies on before its first real step).
-	s := Set{Name: "flat", Baseline: 1, Current: 1}
+	s := Set{Name: "flat", Baseline: 1, Current: 1, AllowMissingVersion: true}
 	raw := []byte("some_key: value\n")
 	migrated, changed, err := s.Apply(raw)
 	require.NoError(t, err)
@@ -166,14 +167,42 @@ func TestApply_AbsentVersionDefaultsToBaseline(t *testing.T) {
 	assert.Equal(t, raw, migrated)
 }
 
+func TestApply_AbsentVersionRejectedWhenRequired(t *testing.T) {
+	t.Parallel()
+
+	migrated, changed, err := renameStep().Apply([]byte("old_name: hello\n"))
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.NotNil(t, migrated)
+
+	required := renameStep()
+	required.AllowMissingVersion = false
+	migrated, changed, err = required.Apply([]byte("old_name: hello\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "version field is required")
+	assert.False(t, changed)
+	assert.Nil(t, migrated)
+}
+
+func TestApply_MultipleDocumentsRejected(t *testing.T) {
+	t.Parallel()
+
+	migrated, changed, err := renameStep().Apply([]byte("old_name: hello\n---\nother: value\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "multiple YAML documents")
+	assert.False(t, changed)
+	assert.Nil(t, migrated)
+}
+
 func TestApply_StepErrorAbortsWithNoBytes(t *testing.T) {
 	t.Parallel()
 
 	boom := errors.New("boom")
 	s := Set{
-		Name:     "broken",
-		Baseline: 1,
-		Current:  2,
+		Name:                "broken",
+		Baseline:            1,
+		Current:             2,
+		AllowMissingVersion: true,
 		Migrations: []Migration{
 			{To: 2, Migrate: func(doc map[string]any) error { return boom }},
 		},

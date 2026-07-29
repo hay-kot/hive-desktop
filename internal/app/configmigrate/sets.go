@@ -10,7 +10,7 @@ package configmigrate
 // a step to exercise the whole loader path at Current == Baseline (restore with
 // t.Cleanup).
 var (
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 1}
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 1, AllowMissingVersion: true}
 	FlowSet     = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet  = Set{Name: "actions", Baseline: 1, Current: 1}
 )
