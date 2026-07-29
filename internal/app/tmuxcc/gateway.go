@@ -32,9 +32,10 @@ func (e *CommandError) Error() string {
 	return "tmuxcc: command failed: " + e.Command + ": " + e.Message
 }
 
-// protocolError is an unrecoverable framing desync. Guard lines are never
-// dropped-and-logged: once the begin/end pairing is lost, every later reply is
-// attributed to the wrong command, so the client tears down instead.
+// protocolError is an unrecoverable framing desync — a guard line outside any
+// block that cannot be paired. Such a line is never dropped-and-logged: once
+// the begin/end pairing is lost, every later reply is attributed to the wrong
+// command, so the client tears down instead.
 type protocolError struct{ msg string }
 
 func (e *protocolError) Error() string { return "tmuxcc: protocol desync: " + e.msg }
@@ -91,16 +92,33 @@ func NewGateway(stdin io.Writer, notify func(Notification), log zerolog.Logger) 
 // Feed advances the state machine by one control-mode line (CR already
 // stripped). line must not be retained. It returns a non-nil error only for a
 // fatal desync, which also fails every pending command.
+//
+// Inside an open block only the guard that closes it is a guard: capture-pane
+// replies carry screen contents verbatim, and a line of pane output can look
+// like any of them. Anything else — a mismatched %end, a well-formed %begin —
+// is reply content (iTerm2 reads the protocol the same way). A block that never
+// closes therefore surfaces as the caller's Send timing out rather than as a
+// desync, which is bounded and does not kill a session over a screenful of
+// text.
 func (g *Gateway) Feed(line []byte) error {
 	kind, ts, num, flags, wellFormed := classifyGuard(line)
 
 	g.mu.Lock()
 	switch {
-	case kind == guardBegin:
-		if g.open != nil {
+	case g.open != nil:
+		closes := (kind == guardEnd || kind == guardError) && wellFormed && ts == g.open.ts && num == g.open.num
+		if !closes {
+			g.open.lines = append(g.open.lines, string(line))
 			g.mu.Unlock()
-			return g.abort("nested %begin")
+			return nil
 		}
+		b := g.open
+		g.open = nil
+		g.resolveLocked(b, kind == guardError)
+		g.mu.Unlock()
+		return nil
+
+	case kind == guardBegin:
 		if !wellFormed {
 			g.mu.Unlock()
 			return g.abort("malformed %begin")
@@ -118,22 +136,6 @@ func (g *Gateway) Feed(line []byte) error {
 		}
 		g.open = &block{ts: ts, num: num, cmd: g.queue[0]}
 		g.queue = g.queue[1:]
-		g.mu.Unlock()
-		return nil
-
-	case g.open != nil && (kind == guardEnd || kind == guardError):
-		if !wellFormed || ts != g.open.ts || num != g.open.num {
-			g.mu.Unlock()
-			return g.abort("guard tuple mismatch")
-		}
-		b := g.open
-		g.open = nil
-		g.resolveLocked(b, kind == guardError)
-		g.mu.Unlock()
-		return nil
-
-	case g.open != nil:
-		g.open.lines = append(g.open.lines, string(line))
 		g.mu.Unlock()
 		return nil
 

@@ -28,8 +28,14 @@ type fakeTmux struct {
 
 	closeOnce sync.Once
 
+	// writeMu keeps a reply block contiguous without holding mu across the
+	// pipe write, which blocks whenever the client is not reading — including
+	// while it tears down, where Kill needs mu.
+	writeMu sync.Mutex
+
 	mu        sync.Mutex
 	num       int
+	kills     int
 	commands  []string
 	windows   []string
 	captures  map[string][]string
@@ -72,8 +78,20 @@ func (f *fakeTmux) Wait() error {
 }
 
 func (f *fakeTmux) Kill() error {
+	f.mu.Lock()
+	f.kills++
+	f.mu.Unlock()
 	f.closeStreams()
 	return nil
+}
+
+// killed reports how many times the client killed the process. Teardown marks
+// the client dead before it kills, so a non-zero count means the exit is
+// already visible to anyone inspecting the client.
+func (f *fakeTmux) killed() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.kills
 }
 
 func (f *fakeTmux) closeStreams() {
@@ -89,11 +107,7 @@ func (f *fakeTmux) closeStreams() {
 func (f *fakeTmux) serve() {
 	defer close(f.done)
 
-	f.mu.Lock()
-	f.writeLocked("%begin 100 0 0")
-	f.writeLocked("%end 100 0 0")
-	f.writeLocked("%session-changed $1 " + f.slug)
-	f.mu.Unlock()
+	f.write("%begin 100 0 0", "%end 100 0 0", "%session-changed $1 "+f.slug)
 
 	scanner := bufio.NewScanner(f.stdinR)
 	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
@@ -145,32 +159,42 @@ func (f *fakeTmux) respond(cmd string) {
 
 func (f *fakeTmux) reply(lines []string, failed bool) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.num++
 	ts, num := 1000+f.num, f.num
-	f.writeLocked(fmt.Sprintf("%%begin %d %d 1", ts, num))
-	for _, line := range lines {
-		f.writeLocked(line)
-	}
+	f.mu.Unlock()
+
 	guard := "%end"
 	if failed {
 		guard = "%error"
 	}
-	f.writeLocked(fmt.Sprintf("%s %d %d 1", guard, ts, num))
+	block := make([]string, 0, len(lines)+2)
+	block = append(block, fmt.Sprintf("%%begin %d %d 1", ts, num))
+	block = append(block, lines...)
+	block = append(block, fmt.Sprintf("%s %d %d 1", guard, ts, num))
+	f.write(block...)
 }
 
-func (f *fakeTmux) emit(line string) {
+func (f *fakeTmux) emit(line string) { f.write(line) }
+
+// write puts whole lines on stdout without holding mu: an io.Pipe write parks
+// until the client reads, and a client that is tearing down never will.
+func (f *fakeTmux) write(lines ...string) {
+	f.writeMu.Lock()
+	defer f.writeMu.Unlock()
+
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.writeLocked(line)
-}
-
-func (f *fakeTmux) writeLocked(line string) {
-	if f.closed {
+	closed := f.closed
+	f.mu.Unlock()
+	if closed {
 		return
 	}
-	if _, err := io.WriteString(f.stdoutW, line+"\n"); err != nil {
-		f.closed = true
+	for _, line := range lines {
+		if _, err := io.WriteString(f.stdoutW, line+"\n"); err != nil {
+			f.mu.Lock()
+			f.closed = true
+			f.mu.Unlock()
+			return
+		}
 	}
 }
 
@@ -178,6 +202,12 @@ func (f *fakeTmux) setWindows(lines ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.windows = lines
+}
+
+func (f *fakeTmux) setOnCommand(hook func(cmd string)) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.onCommand = hook
 }
 
 func (f *fakeTmux) setCapture(pane string, lines ...string) {

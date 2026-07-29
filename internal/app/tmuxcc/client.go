@@ -99,6 +99,7 @@ type Client struct {
 
 	mu         sync.Mutex
 	exitReason string
+	tornDown   bool
 
 	closeOnce    sync.Once
 	teardownOnce sync.Once
@@ -287,22 +288,30 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 		if w.ActivePane == "" {
 			continue
 		}
-		// Marking before the command is sent is what makes the replay correct:
-		// output tmux had already emitted is inside the snapshot, output that
-		// arrives after it is replayed behind the snapshot.
-		c.paint.mark(w.ActivePane)
-		lines, err := c.gw.Send(ctx, c.captureCommand(w.ActivePane))
-		if err != nil {
-			var cmdErr *CommandError
-			if !errors.As(err, &cmdErr) {
-				return err
-			}
-			c.log.Warn().Err(err).Str("pane", w.ActivePane).Msg("first paint skipped")
-			lines = nil
+		if err := c.firstPaint(ctx, w.ActivePane); err != nil {
+			return err
 		}
-		c.paint.release(w.ActivePane, screenBytes(lines))
 	}
 	c.paint.openAll()
+	return nil
+}
+
+// firstPaint snapshots a pane and replays the live output that arrived while
+// the snapshot was in flight. Every path releases the pane: one left held
+// buffers its output forever.
+func (c *Client) firstPaint(ctx context.Context, pane string) error {
+	c.paint.mark(pane)
+	lines, err := c.gw.Send(ctx, c.captureCommand(pane))
+	if err != nil {
+		var cmdErr *CommandError
+		if !errors.As(err, &cmdErr) {
+			c.paint.release(pane, nil)
+			return err
+		}
+		c.log.Warn().Err(err).Str("pane", pane).Msg("first paint skipped")
+		lines = nil
+	}
+	c.paint.release(pane, screenBytes(lines))
 	return nil
 }
 
@@ -350,6 +359,10 @@ func (c *Client) worker(ctx context.Context) {
 	}
 }
 
+// runReconcile refreshes the window set and first-paints whatever it just
+// discovered. A window created after attach reaches us as %window-add, which
+// carries no pane: its output is unroutable until this runs, so the snapshot is
+// the only thing that puts the new tab's prompt on screen.
 func (c *Client) runReconcile(ctx context.Context) {
 	windows, err := c.listWindows(ctx)
 	if err != nil {
@@ -358,8 +371,23 @@ func (c *Client) runReconcile(ctx context.Context) {
 		}
 		return
 	}
+
+	var unpainted []string
+	for _, w := range windows {
+		if w.ActivePane != "" && c.paint.hold(w.ActivePane) {
+			unpainted = append(unpainted, w.ActivePane)
+		}
+	}
 	for _, ev := range c.ctrl.reconcile(windows) {
 		c.publish(ev)
+	}
+	for _, pane := range unpainted {
+		if err := c.firstPaint(ctx, pane); err != nil {
+			if ctx.Err() == nil {
+				c.log.Warn().Err(err).Str("pane", pane).Msg("first paint failed")
+			}
+			return
+		}
 	}
 }
 
@@ -450,6 +478,9 @@ func (c *Client) terminate() { _ = c.proc.Kill() }
 // that follows them.
 func (c *Client) teardown(reason string) {
 	c.teardownOnce.Do(func() {
+		// Set before anything else: the manager reads it to decide whether the
+		// client it is about to register is already dead.
+		c.markTornDown(reason)
 		c.cancel()
 		_ = c.proc.Kill()
 		<-c.readerDone
@@ -477,6 +508,23 @@ func (c *Client) noteExit(reason string) {
 	if c.exitReason == "" {
 		c.exitReason = reason
 	}
+}
+
+func (c *Client) markTornDown(reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.tornDown = true
+	if c.exitReason == "" {
+		c.exitReason = reason
+	}
+}
+
+// exited reports the exit reason once teardown has begun. It is how the manager
+// avoids registering — or handing back — a client that is already gone.
+func (c *Client) exited() (string, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.exitReason, c.tornDown
 }
 
 func (c *Client) exitReasonOr(fallback string) string {

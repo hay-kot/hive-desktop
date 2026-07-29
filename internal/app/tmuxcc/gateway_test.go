@@ -115,8 +115,7 @@ func TestGuardDesyncIsFatal(t *testing.T) {
 		lines []string
 	}{
 		{"end without begin", []string{"%end 100 1 1"}},
-		{"nested begin", []string{"%begin 100 1 1", "%begin 101 2 1"}},
-		{"tuple mismatch", []string{"%begin 100 1 1", "%end 999 7 1"}},
+		{"error without begin", []string{"%error 100 1 1"}},
 		{"malformed begin", []string{"%begin nope 1 1"}},
 	}
 
@@ -143,6 +142,41 @@ func TestGuardDesyncIsFatal(t *testing.T) {
 			require.ErrorAs(t, later.err, &pe, "the gateway stays closed")
 		})
 	}
+}
+
+func TestBeginWithNoCommandOutstandingIsFatal(t *testing.T) {
+	t.Parallel()
+
+	g, _ := newTestGateway(nil)
+
+	var pe *protocolError
+	require.ErrorAs(t, g.Feed([]byte("%begin 100 1 1")), &pe)
+}
+
+// capture-pane hands us the pane's screen verbatim, so a line of terminal
+// output can be shaped exactly like a guard. Inside an open block only the
+// guard that closes it counts; everything else is content, or a session dies
+// over a screenful of text.
+func TestGuardShapedLinesInsideABlockAreContent(t *testing.T) {
+	t.Parallel()
+
+	g, w := newTestGateway(nil)
+	done := sendAsync(t.Context(), g, "capture-pane -pe -J -t %1")
+	w.await(t, 1)
+
+	screen := []string{"%end 100 0 1", "%begin 100 0 1", "%error 12 34"}
+	feedAll(t, g, append(append([]string{"%begin 1000 1 1"}, screen...), "%end 1000 1 1")...)
+
+	got := <-done
+	require.NoError(t, got.err)
+	require.Equal(t, screen, got.lines)
+
+	next := sendAsync(t.Context(), g, "list-windows")
+	w.await(t, 2)
+	feedAll(t, g, "%begin 1001 2 1", "@1 1 %1 claude", "%end 1001 2 1")
+	later := <-next
+	require.NoError(t, later.err, "the block still paired with its own command")
+	require.Equal(t, []string{"@1 1 %1 claude"}, later.lines)
 }
 
 // A canceled Send still owns its FIFO slot: tmux will answer it, and that

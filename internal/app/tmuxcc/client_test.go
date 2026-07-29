@@ -3,6 +3,7 @@
 package tmuxcc
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"sync"
@@ -144,6 +145,70 @@ func TestWindowAddTriggersReconcile(t *testing.T) {
 		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1"},
 		{ID: "@2", Name: "shell", ActivePane: "%2"},
 	}, client.Windows())
+}
+
+// %window-add carries no pane, so %output for the new window is unroutable
+// until the reconcile lands and would otherwise be lost — along with the new
+// tab's prompt. The snapshot the reconcile takes is what puts both on screen.
+func TestReconcileFirstPaintsANewWindow(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 claude")
+	client := attachFake(t, f, Options{})
+
+	f.setCapture("%2", "$ echo hi", "hi")
+	f.setWindows("@1 1 %1 claude", "@2 0 %2 shell")
+	f.emit(`%output %2 unroutable\015\012`)
+	f.emit("%window-add @2")
+
+	f.awaitCommands(t, "capture-pane -pe -J -t %2", 1)
+	f.emit(`%output %2 SENTINEL`)
+
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@2", "SENTINEL"))
+	defer unsubscribe()
+
+	require.Equal(t, "$ echo hi\r\nhiSENTINEL", outputData(events, "@2"),
+		"the snapshot paints first and live output replays behind it")
+
+	var added bool
+	for _, ev := range events {
+		if wc, ok := ev.(WindowChanged); ok && wc.Window.ID == "@2" {
+			added = true
+			continue
+		}
+		if out, ok := ev.(Output); ok && out.WindowID == "@2" {
+			require.True(t, added, "the tab exists before its first byte")
+		}
+	}
+}
+
+// The server blocks mid-reply once the client's reader is gone. Teardown has to
+// be able to kill it anyway — the harness used to hold its lock across that
+// write, so Kill deadlocked and this test could not be written.
+func TestTeardownWhileTheServerIsMidReply(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 claude")
+	client := attachFake(t, f, Options{})
+	ch, unsubscribe := client.Subscribe()
+	defer unsubscribe()
+
+	rows := make([]string, 0, 64)
+	for i := range 64 {
+		rows = append(rows, fmt.Sprintf("@%d 0 %%%d shell", 100+i, 100+i))
+	}
+	f.setWindows(rows...)
+	f.setOnCommand(func(cmd string) {
+		if strings.HasPrefix(cmd, "list-windows") {
+			f.emit("%end 1 1 1")
+		}
+	})
+	f.emit("%window-add @2")
+
+	events := collect(t, ch, lifecycleIs(LifecycleExited))
+	require.Equal(t, "protocol error", lastLifecycle(t, events).Message)
 }
 
 func TestReconcileIsCoalesced(t *testing.T) {

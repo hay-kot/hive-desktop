@@ -1,11 +1,24 @@
 package tmuxcc
 
-import "sync"
+import (
+	"sync"
+	"time"
+)
 
 // defaultBufferBytes bounds the per-session backlog of undelivered output.
 const defaultBufferBytes = 8 << 20
 
-const subscriberQueue = 64
+// subscriberQueue is zero deliberately: an event leaves the accounted backlog
+// only once a subscriber has taken it, so replacing a subscriber cannot strand
+// events in the channel it is closing. A re-Subscribe — the WebSocket reconnect
+// path — must never hand the emulator a stream with a hole in it.
+const subscriberQueue = 0
+
+// finalDelivery bounds how long a closing broker waits for the subscriber to
+// take the last lifecycle event. A draining subscriber takes it at once; a
+// stalled one must not hold the pump past client teardown, and the transport's
+// own socket close is the fallback signal.
+const finalDelivery = 250 * time.Millisecond
 
 type subscription struct {
 	gen  uint64
@@ -33,6 +46,10 @@ type broker struct {
 	closed   bool
 	overflow bool
 
+	// done releases a pump parked on a subscriber that stopped reading:
+	// sync.Cond cannot wake a goroutine blocked on a channel send.
+	done chan struct{}
+
 	onOverflow   func()
 	overflowOnce sync.Once
 }
@@ -41,7 +58,7 @@ func newBroker(maxBytes int, onOverflow func()) *broker {
 	if maxBytes <= 0 {
 		maxBytes = defaultBufferBytes
 	}
-	b := &broker{max: maxBytes, onOverflow: onOverflow}
+	b := &broker{max: maxBytes, onOverflow: onOverflow, done: make(chan struct{})}
 	b.cond = sync.NewCond(&b.mu)
 	return b
 }
@@ -117,11 +134,18 @@ func (b *broker) unsubscribe(gen uint64) {
 // This is how a WebSocket write pump learns the client is gone.
 func (b *broker) close() {
 	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
 	b.closed = true
+	close(b.done)
 	b.mu.Unlock()
 	b.cond.Broadcast()
 }
 
+// pump delivers the head of the backlog and only then removes it, so an event
+// the subscriber never took stays accounted and replays to its replacement.
 func (b *broker) pump(sub *subscription) {
 	defer close(sub.ch)
 	for {
@@ -134,30 +158,65 @@ func (b *broker) pump(sub *subscription) {
 			return
 		}
 		ev := b.buf[0]
-		b.buf[0] = nil
-		b.buf = b.buf[1:]
-		b.bytes -= eventBytes(ev)
-		closed := b.closed
+		closing := b.closed
 		b.mu.Unlock()
 
-		if closed && eventBytes(ev) > 0 {
-			// A closing broker must not outlive a subscriber that stopped
-			// reading, and undelivered output is output the re-attach's first
-			// paint redraws anyway. The lifecycle event that says *why* the
-			// stream ended has no such replacement — overflow is exactly the
-			// case where the queue is full — so it falls through to the
-			// blocking send, which unsubscribe still releases.
+		switch {
+		case closing && eventBytes(ev) > 0:
+			// Undelivered output is output the re-attach's first paint redraws
+			// anyway, so a closing broker never parks on it.
 			select {
 			case sub.ch <- ev:
 			default:
 			}
-			continue
+		case closing:
+			// The lifecycle event that says *why* the stream ended has no such
+			// replacement — overflow is exactly the case where the subscriber
+			// is behind — so it waits, bounded.
+			if !b.sendFinal(sub, ev) {
+				return
+			}
+		default:
+			select {
+			case sub.ch <- ev:
+			case <-sub.stop:
+				return
+			case <-b.done:
+				// Left in the backlog on purpose: the next pass re-reads it
+				// under the closing rules above.
+				continue
+			}
 		}
-		select {
-		case sub.ch <- ev:
-		case <-sub.stop:
+		if !b.advance(sub.gen, ev) {
 			return
 		}
+	}
+}
+
+// advance drops the delivered head. A generation change means a replacement
+// pump owns the backlog now, and this one must not consume from it.
+func (b *broker) advance(gen uint64, ev Event) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.gen != gen || len(b.buf) == 0 {
+		return false
+	}
+	b.buf[0] = nil
+	b.buf = b.buf[1:]
+	b.bytes -= eventBytes(ev)
+	return true
+}
+
+func (b *broker) sendFinal(sub *subscription, ev Event) bool {
+	timer := time.NewTimer(finalDelivery)
+	defer timer.Stop()
+	select {
+	case sub.ch <- ev:
+		return true
+	case <-sub.stop:
+		return false
+	case <-timer.C:
+		return false
 	}
 }
 

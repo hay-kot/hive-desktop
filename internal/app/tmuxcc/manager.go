@@ -28,7 +28,10 @@ type ManagerOptions struct {
 	newProcess   func(Options) process
 }
 
+// managedClient carries the generation its registration was made under, so a
+// teardown that fires late cannot evict the client that replaced it.
 type managedClient struct {
+	gen    uint64
 	client *Client
 	cancel context.CancelFunc
 }
@@ -50,6 +53,7 @@ type Manager struct {
 
 	mu      sync.Mutex
 	clients map[string]*managedClient
+	gen     uint64
 	stopped bool
 	probed  bool
 
@@ -126,11 +130,17 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 	m.attachMu.Lock()
 	defer m.attachMu.Unlock()
 
-	if c, ok := m.Client(slug); ok {
-		return c.Windows(), nil
+	if mc, ok := m.managed(slug); ok {
+		if _, dead := mc.client.exited(); !dead {
+			return mc.client.Windows(), nil
+		}
+		m.remove(slug, mc.gen)
 	}
+
 	m.mu.Lock()
 	stopped := m.stopped
+	m.gen++
+	gen := m.gen
 	m.mu.Unlock()
 	if stopped {
 		return nil, ErrUnavailable
@@ -144,7 +154,7 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 		BufferBytes: m.bufferBytes,
 		Metrics:     m.metrics,
 		Logger:      m.log,
-		OnExit:      func(slug, _ string) { m.remove(slug) },
+		OnExit:      func(slug, _ string) { m.remove(slug, gen) },
 		newProcess:  m.newProcess,
 	})
 	if err != nil {
@@ -159,20 +169,34 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 		cancel()
 		return nil, ErrUnavailable
 	}
-	m.clients[slug] = &managedClient{client: client, cancel: cancel}
+	// Teardown can fire before Attach returns, and its OnExit then has nothing
+	// to remove. Reading the flag under the lock the entry is stored under
+	// leaves no gap: either it is already set and we never register, or OnExit
+	// is still waiting on this lock and evicts what we just stored.
+	if reason, dead := client.exited(); dead {
+		m.mu.Unlock()
+		cancel()
+		return nil, fmt.Errorf("%w: %s exited during attach: %s", ErrNotAttached, slug, reason)
+	}
+	m.clients[slug] = &managedClient{gen: gen, client: client, cancel: cancel}
 	m.mu.Unlock()
 
 	return client.Windows(), nil
 }
 
 func (m *Manager) Client(slug string) (*Client, bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	mc, ok := m.clients[slug]
+	mc, ok := m.managed(slug)
 	if !ok {
 		return nil, false
 	}
 	return mc.client, true
+}
+
+func (m *Manager) managed(slug string) (*managedClient, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	mc, ok := m.clients[slug]
+	return mc, ok
 }
 
 // Subscribe returns slug's event channel and unsubscribe func. There is one
@@ -189,12 +213,12 @@ func (m *Manager) Subscribe(slug string) (<-chan Event, func(), error) {
 
 // Detach closes slug's client. Unknown slugs are a no-op.
 func (m *Manager) Detach(ctx context.Context, slug string) error {
-	c, ok := m.Client(slug)
+	mc, ok := m.managed(slug)
 	if !ok {
 		return nil
 	}
-	err := c.Close(ctx)
-	m.remove(slug)
+	err := mc.client.Close(ctx)
+	m.remove(slug, mc.gen)
 	return err
 }
 
@@ -220,14 +244,19 @@ func (m *Manager) Stop(ctx context.Context) error {
 	return nil
 }
 
-func (m *Manager) remove(slug string) {
+// remove evicts slug only if it still holds the registration gen identifies. A
+// client that exits after its slug was re-attached must not take the new client
+// with it.
+func (m *Manager) remove(slug string, gen uint64) {
 	m.mu.Lock()
 	mc, ok := m.clients[slug]
+	if !ok || mc.gen != gen {
+		m.mu.Unlock()
+		return
+	}
 	delete(m.clients, slug)
 	m.mu.Unlock()
-	if ok {
-		mc.cancel()
-	}
+	mc.cancel()
 }
 
 func tmuxVersion(ctx context.Context) (string, error) {

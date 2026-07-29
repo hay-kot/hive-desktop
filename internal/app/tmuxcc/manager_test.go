@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -165,6 +166,106 @@ func TestManagerBrokerOverflowTearsDownTheClient(t *testing.T) {
 		_, ok := m.Client("hive-demo")
 		return !ok
 	}, 2*time.Second, 5*time.Millisecond, "the slug is freed for a fresh attach")
+}
+
+// Teardown can beat registration: a control stream that ends as the last
+// capture-pane is answered runs OnExit while Attach is still returning. The
+// manager used to store the corpse afterwards, and the slug stayed poisoned
+// until an explicit detach.
+func TestManagerDropsAClientThatDiedDuringAttach(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 claude")
+	f.setCapture("%1", "ready")
+
+	gate := &gatedMetrics{blocked: make(chan struct{}), release: make(chan struct{})}
+	m := newTestManager(t, f, ManagerOptions{Metrics: gate})
+
+	type attachResult struct {
+		windows []Window
+		err     error
+	}
+	done := make(chan attachResult, 1)
+	go func() {
+		windows, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+		done <- attachResult{windows, err}
+	}()
+
+	// The attach goroutine is parked inside the first paint, so the whole
+	// teardown — OnExit included — runs before Attach returns.
+	<-gate.blocked
+	f.closeStreams()
+	require.Eventually(t, func() bool { return f.killed() > 0 }, 2*time.Second, time.Millisecond)
+	close(gate.release)
+
+	got := <-done
+	require.ErrorIs(t, got.err, ErrNotAttached)
+	require.Nil(t, got.windows)
+
+	_, ok := m.Client("hive-demo")
+	require.False(t, ok, "a dead client never owns the slug")
+}
+
+// A client that exits after its slug was re-attached must not take the client
+// that replaced it down with it.
+func TestManagerStaleExitDoesNotEvictItsReplacement(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	m := newTestManager(t, f, ManagerOptions{})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	mc, ok := m.managed("hive-demo")
+	require.True(t, ok)
+	m.remove("hive-demo", mc.gen-1)
+
+	_, ok = m.Client("hive-demo")
+	require.True(t, ok, "an exit from an earlier generation is inert")
+}
+
+// A WebSocket peer that stopped draining parks the pump on a channel send,
+// where Cond.Broadcast cannot reach it. Nothing may outlive Stop.
+func TestManagerStopReleasesAStalledSubscriber(t *testing.T) {
+	// Deliberately not parallel: it counts this package's live goroutines.
+	before := clientGoroutines()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 claude")
+	m := newTestManager(t, f, ManagerOptions{})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	_, _, err = m.Subscribe("hive-demo")
+	require.NoError(t, err)
+	for range 8 {
+		f.emit(`%output %1 x\015\012`)
+	}
+
+	require.NoError(t, m.Stop(t.Context()))
+	require.Eventually(t, func() bool { return clientGoroutines() <= before }, 5*time.Second, 5*time.Millisecond,
+		"the pump, the reader and the command worker must all exit")
+}
+
+// gatedMetrics parks the first output it is told about, which is the attach
+// sequence's first paint. It is how a test gets inside the window between a
+// client finishing its attach and the manager registering it.
+type gatedMetrics struct {
+	fakeMetrics
+	once    sync.Once
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func (m *gatedMetrics) BytesStreamed(session, window string, n int) {
+	m.once.Do(func() {
+		close(m.blocked)
+		<-m.release
+	})
+	m.fakeMetrics.BytesStreamed(session, window, n)
 }
 
 func TestManagerStopClosesEveryClient(t *testing.T) {
