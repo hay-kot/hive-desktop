@@ -176,6 +176,7 @@ function onTerminalFontSizeChange(value: string): void {
           :model-value="theme"
           label="Theme"
           :options="themeOptions"
+          :columns="3"
           hint="Applies immediately across the whole app."
           testid="settings-theme-toggle"
           @update:model-value="onThemeChange"

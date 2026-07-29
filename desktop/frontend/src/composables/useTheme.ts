@@ -5,7 +5,22 @@ import {
   SetTheme as PersistThemeSetting,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
-export const themes = ['dark', 'light', 'midnight', 'gruvbox'] as const
+export const themes = [
+  'dark',
+  'light',
+  'midnight',
+  'gruvbox',
+  'slate',
+  'slate-light',
+  'one-dark',
+  'one-light',
+  'tokyo-night',
+  'tokyo-night-day',
+  'catppuccin-mocha',
+  'catppuccin-latte',
+  'nord',
+  'nord-light',
+] as const
 export type Theme = (typeof themes)[number]
 
 export const themeLabels: Record<Theme, string> = {
@@ -13,6 +28,16 @@ export const themeLabels: Record<Theme, string> = {
   light: 'Light',
   midnight: 'Midnight',
   gruvbox: 'Gruvbox',
+  slate: 'Slate',
+  'slate-light': 'Slate Light',
+  'one-dark': 'One Dark',
+  'one-light': 'One Light',
+  'tokyo-night': 'Tokyo Night',
+  'tokyo-night-day': 'Tokyo Night Day',
+  'catppuccin-mocha': 'Catppuccin Mocha',
+  'catppuccin-latte': 'Catppuccin Latte',
+  nord: 'Nord',
+  'nord-light': 'Nord Light',
 }
 
 function isTheme(value: string | null): value is Theme {

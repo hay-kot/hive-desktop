@@ -240,7 +240,7 @@ func (u *UI) buildWindow() {
 		Title:            "Hive",
 		Width:            1360,
 		Height:           864,
-		BackgroundColour: application.NewRGB(24, 26, 31),
+		BackgroundColour: application.NewRGB(16, 19, 24),
 		URL:              "/",
 		Mac: application.MacWindow{
 			// HiddenInset with an explicit compact toolbar style: the default
