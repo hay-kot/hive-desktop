@@ -67,6 +67,7 @@ func (h *terminalStream) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if origin := r.Header.Get("Origin"); origin != "" && !originAllowed(h.origins, origin) {
+		h.log.Debug().Str("origin", origin).Strs("allowed", h.origins).Msg("terminal stream origin rejected")
 		http.Error(w, "origin is not allowed", http.StatusForbidden)
 		return
 	}

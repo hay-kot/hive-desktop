@@ -10,6 +10,7 @@ import (
 
 	"github.com/hay-kot/criterio"
 	"github.com/hay-kot/httpkit/server"
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/web/extractors"
@@ -229,6 +230,7 @@ func requireTerminalToken(r *http.Request, token string) error {
 // to be credentialed.
 type corsPolicy struct {
 	origins []string
+	log     zerolog.Logger
 }
 
 func (c corsPolicy) wrap(next http.HandlerFunc) http.HandlerFunc {
@@ -249,6 +251,9 @@ func (c corsPolicy) preflight(w http.ResponseWriter, r *http.Request) {
 func (c corsPolicy) stamp(w http.ResponseWriter, origin string) bool {
 	w.Header().Add("Vary", "Origin")
 	if origin == "" || !originAllowed(c.origins, origin) {
+		if origin != "" {
+			c.log.Debug().Str("origin", origin).Strs("allowed", c.origins).Msg("terminal origin rejected")
+		}
 		return false
 	}
 	w.Header().Set("Access-Control-Allow-Origin", origin)

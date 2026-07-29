@@ -51,7 +51,7 @@ func New(core *app.App, log zerolog.Logger, terminalToken string, origins []stri
 		log:           log,
 		version:       web.VersionHandler("hive.desktop.api"),
 		terminalToken: terminalToken,
-		cors:          corsPolicy{origins: origins},
+		cors:          corsPolicy{origins: origins, log: log},
 	}
 }
 

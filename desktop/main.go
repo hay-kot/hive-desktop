@@ -184,11 +184,21 @@ func main() {
 }
 
 // webviewOrigins is the CORS allowlist for the terminal surface: the packaged
-// webview's own origin, plus the Vite dev server when one is running.
+// webview's own origin, plus the dev servers when they are running. In dev the
+// webview may load from the Vite server or from the Wails dev server that
+// proxies it, and Wails builds its URLs with localhost while the servers bind
+// 127.0.0.1 — so both hosts are listed for both ports. All are loopback; the
+// bearer token is the actual gate.
 func webviewOrigins() []string {
 	origins := []string{"wails://localhost"}
-	if port := os.Getenv("WAILS_VITE_PORT"); port != "" {
-		origins = append(origins, "http://localhost:"+port)
+	for _, portKey := range []string{"WAILS_VITE_PORT", "WAILS_SERVER_PORT"} {
+		port := os.Getenv(portKey)
+		if port == "" {
+			continue
+		}
+		for _, host := range []string{"localhost", "127.0.0.1"} {
+			origins = append(origins, "http://"+host+":"+port)
+		}
 	}
 	return origins
 }
