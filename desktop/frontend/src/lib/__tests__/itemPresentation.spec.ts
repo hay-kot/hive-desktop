@@ -142,9 +142,18 @@ describe('clipboardText', () => {
 })
 
 describe('presentationFor', () => {
-  it('resolves github and webhook adapters', () => {
+  it('resolves github, grafana, and webhook adapters', () => {
     expect(presentationFor('github').sourceLabel).toBe('GitHub')
+    expect(presentationFor('grafana').sourceLabel).toBe('Grafana')
     expect(presentationFor('webhook').sourceLabel).toBe('Webhook')
+  })
+
+  it('resolves the colored grafana logo image, with a glyph fallback', () => {
+    // A colored image (the gradient logo) rather than a currentColor glyph, so
+    // grafana items stay distinct in a feed that mixes providers.
+    expect(presentationFor('grafana').markImage?.(baseItem)).toBeTruthy()
+    // The fallback glyph still resolves for when the bundled image fails.
+    expect(presentationFor('grafana').mark(baseItem)).toBeDefined()
   })
 
   it('falls back to the default adapter for an unknown or absent sourceKind, echoing the raw kind', () => {
@@ -176,6 +185,8 @@ describe('presentationFor', () => {
 describe('sourceKindForNodeType', () => {
   it('maps known source node types to their sourceKind', () => {
     expect(sourceKindForNodeType('sources.github')).toBe('github')
+    expect(sourceKindForNodeType('sources.grafana_metrics')).toBe('grafana')
+    expect(sourceKindForNodeType('sources.grafana_alerts')).toBe('grafana')
     expect(sourceKindForNodeType('sources.webhook')).toBe('webhook')
   })
 

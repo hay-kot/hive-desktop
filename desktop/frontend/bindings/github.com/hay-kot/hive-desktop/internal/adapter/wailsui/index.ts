@@ -5,6 +5,7 @@ import * as ActionsService from "./actionsservice.js";
 import * as ActivityService from "./activityservice.js";
 import * as FlowsService from "./flowsservice.js";
 import * as GitHubService from "./githubservice.js";
+import * as GrafanaService from "./grafanaservice.js";
 import * as IntegrationsService from "./integrationsservice.js";
 import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
@@ -22,6 +23,7 @@ export {
     ActivityService,
     FlowsService,
     GitHubService,
+    GrafanaService,
     IntegrationsService,
     JobService,
     NotificationService,
