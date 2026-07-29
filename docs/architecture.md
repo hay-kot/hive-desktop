@@ -544,8 +544,10 @@ seam. A missing file falls back to the node's glyph, the same tolerance, and
 orphaned blobs are left in place rather than reference-counted.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `webhooks`, `keybindings`, `skills`, and
-`development` sections. Resolution is deterministic: safe compiled defaults, one strictly
+`notifications`, `appearance`, `http`, `keybindings`, `skills`,
+`experimental`, and
+`development` sections. `experimental` holds ships-dark feature opt-ins
+(ADR 0033), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof
@@ -688,13 +690,18 @@ them is the constraint (ADR 0032):
   (`POST /api/terminal/…`) in the operations table, and the data plane as a raw
   WebSocket handler at its own prefix. See
   [Data-plane mount](#named-patterns).
-- **`adapter/wailsui.TerminalService`** — `Available` and `Endpoint`, the
-  frontend's only gate and bootstrap. `Available` must answer while the loopback
+- **`adapter/wailsui.TerminalService`** — `Enabled`, `Available` and `Endpoint`,
+  the frontend's only gate and bootstrap. `Enabled` reports the
+  `experimental.terminal` opt-in (ADR 0033) — off means the Hub|Terminal toggle
+  never renders. `Available` must answer while the loopback
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
-The bearer token is minted per run in `desktop/main.go` and passed to the two
+The whole surface ships dark behind `experimental.terminal` (ADR 0033): when
+off, `main.go` mints no token and neither the control-plane routes nor the
+stream mount exist. The bearer token is minted per run in `desktop/main.go` and
+passed to the two
 adapters that need it, so no core type carries a transport credential. Terminal
 availability is gated on `http.enabled` — no loopback server, no terminal — and
 that, a missing tmux, tmux `< 3.2`, and the `-tags server` build all surface

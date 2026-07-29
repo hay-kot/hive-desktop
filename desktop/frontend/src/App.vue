@@ -42,6 +42,7 @@ import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
+import { Enabled as TerminalModeEnabled } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
@@ -650,6 +651,16 @@ watch(githubConnected, async (connected) => {
 const mode = ref<'hub' | 'terminal'>('hub')
 const terminalActive = computed(() => mode.value === 'terminal' && !onboardingActive.value)
 
+// Terminal mode ships dark (experimental.terminal, ADR 0033): until the probe
+// answers true, the toggle into it does not render at all. Availability is a
+// separate axis — D10 governs only the enabled-but-unavailable case.
+const terminalEnabled = ref(false)
+onMounted(() => {
+  void TerminalModeEnabled().then((enabled) => { terminalEnabled.value = enabled }).catch((error) => {
+    console.debug('Terminal enablement unavailable', error)
+  })
+})
+
 function setMode(next: 'hub' | 'terminal'): void {
   mode.value = next
 }
@@ -900,6 +911,7 @@ onUnmounted(() => {
       <TitleBar
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
+        :terminal-enabled="terminalEnabled"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"

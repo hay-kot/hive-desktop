@@ -165,6 +165,11 @@ wait_ready() {
   exit 1
 }
 
+# Terminal mode ships dark (experimental.terminal, ADR 0033). The harness opts
+# every server in so terminal-unavailable.spec.ts keeps exercising the
+# enabled-but-unavailable path (D10) that the `-tags server` build produces.
+export HIVE_DESKTOP_EXPERIMENTAL_TERMINAL=true
+
 for port in 8931 8932 8933 8934 8935 8936 8937; do check_port_free "${port}"; done
 start_server onboarding 8932 onboarding-chromium
 start_server onboarding 8933 onboarding-webkit

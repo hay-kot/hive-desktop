@@ -63,6 +63,7 @@ const mocks = vi.hoisted(() => ({
   // terminalservice
   TerminalAvailable: vi.fn(),
   TerminalEndpoint: vi.fn(),
+  TerminalModeEnabled: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -149,6 +150,7 @@ vi.mock('@wailsio/runtime', () => ({
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.TerminalAvailable,
   Endpoint: mocks.TerminalEndpoint,
+  Enabled: mocks.TerminalModeEnabled,
 }))
 
 const flow = {
@@ -220,6 +222,7 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
+    mocks.TerminalModeEnabled.mockResolvedValue(true)
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -1057,6 +1060,16 @@ describe('App', () => {
 
     const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1]
     expect(logHandler).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('never renders the Hub|Terminal toggle while experimental.terminal is off', async () => {
+    mocks.TerminalModeEnabled.mockResolvedValue(false)
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(false)
 
     wrapper.unmount()
   })

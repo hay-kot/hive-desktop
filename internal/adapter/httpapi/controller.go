@@ -44,7 +44,9 @@ type Controller struct {
 
 // New builds the controller. terminalToken and origins govern the terminal
 // control plane only: every other operation here is deliberately
-// unauthenticated behind the loopback bind (ADR 0021).
+// unauthenticated behind the loopback bind (ADR 0021). An empty terminalToken
+// means terminal mode is off for this run — its operations are not registered
+// at all (ADR 0033).
 func New(core *app.App, log zerolog.Logger, terminalToken string, origins []string) *Controller {
 	return &Controller{
 		core:          core,

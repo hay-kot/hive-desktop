@@ -123,22 +123,31 @@ func main() {
 
 	// The terminal surface is the one part of the API that authenticates, so its
 	// token and CORS allowlist are minted here and handed to the two adapters
-	// that need them — the core carries neither (ADR 0032).
-	terminalToken, err := httpapi.MintTerminalToken()
-	if err != nil {
-		log.Fatal(err)
+	// that need them — the core carries neither (ADR 0032). Terminal mode ships
+	// dark behind experimental.terminal (ADR 0033): when off, no token is minted
+	// and neither terminal surface — the control-plane routes or the stream
+	// mount — exists on the loopback server.
+	terminalToken := ""
+	var origins []string
+	if cfg.Experimental.Terminal {
+		terminalToken, err = httpapi.MintTerminalToken()
+		if err != nil {
+			log.Fatal(err)
+		}
+		origins = webviewOrigins()
 	}
-	origins := webviewOrigins()
 
 	// The agent HTTP API shares the loopback HTTP server with the webhook
 	// listener (ADR 0021); mount it before Start whenever that server is up.
 	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, terminalToken, origins).Handler()) {
-		logger.Info().Msg("agent HTTP API mounted at /api/ (incl. the terminal control plane)")
+		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}
 	terminal := wailsui.TerminalTransport{}
-	if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
-		terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
-		logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
+	if terminalToken != "" {
+		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
+			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
+		}
 	}
 	// pprof shares the same server when enabled (ADR 0023).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
@@ -146,13 +155,14 @@ func main() {
 	}
 
 	ui.Mount(ctx, core, wailsui.MountOptions{
-		Assets:        assets,
-		AppIcon:       appIcon,
-		TrayIcon:      trayIcon,
-		TrayIconLinux: trayIconLinux,
-		Build:         wailsui.Build{Version: version, Commit: commit, Date: date},
-		Terminal:      terminal,
-		AutoUpdate:    cfg.Updates.Enabled,
+		Assets:          assets,
+		AppIcon:         appIcon,
+		TrayIcon:        trayIcon,
+		TrayIconLinux:   trayIconLinux,
+		Build:           wailsui.Build{Version: version, Commit: commit, Date: date},
+		Terminal:        terminal,
+		TerminalEnabled: cfg.Experimental.Terminal,
+		AutoUpdate:      cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {
 			if cfg.Updates.Channel == "" {
 				return buildChannel

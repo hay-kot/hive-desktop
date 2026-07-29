@@ -31,8 +31,10 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
-// mode is the app-level Hub|Terminal switch; it is never disabled, because an
-// unavailable terminal explains itself inside Terminal mode (decision D10).
+// mode is the app-level Hub|Terminal switch. It renders only while
+// terminalEnabled — the experimental.terminal opt-in (ADR 0033) — and once
+// rendered it is never disabled, because an unavailable terminal explains
+// itself inside Terminal mode (decision D10).
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
@@ -45,6 +47,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 const props = defineProps<{
   profileName?: string
   mode?: 'hub' | 'terminal'
+  terminalEnabled?: boolean
   activityActive?: boolean
   errorCount?: number
   unseenActivity?: number
@@ -134,9 +137,9 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @click="emit('forward')"
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
-      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
+      <span v-if="profileName && terminalEnabled" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
       <div
-        v-if="profileName"
+        v-if="profileName && terminalEnabled"
         class="flex shrink-0 items-center gap-0.5"
         style="--wails-draggable: no-drag"
         role="group"

@@ -64,6 +64,17 @@ func (op Op) pattern() string {
 }
 
 func (ctrl *Controller) operations() []Op {
+	ops := ctrl.baseOperations()
+	// No token means terminal mode is off for this run (experimental.terminal,
+	// ADR 0033): the routes are absent rather than answering 503, so the route
+	// index and OpenAPI document never advertise a surface that cannot work.
+	if ctrl.terminalToken != "" {
+		ops = append(ops, ctrl.terminalOperations()...)
+	}
+	return ops
+}
+
+func (ctrl *Controller) baseOperations() []Op {
 	return []Op{
 		{
 			Method: "GET", Path: "/api/", Summary: "List every route this API serves, with a link to the OpenAPI document.",
@@ -162,6 +173,11 @@ func (ctrl *Controller) operations() []Op {
 			Response: nodeImageView{}, Handler: ctrl.ClearNodeImage,
 			Errors: []ErrResp{{Status: 404, When: "no such flow or node"}},
 		},
+	}
+}
+
+func (ctrl *Controller) terminalOperations() []Op {
+	return []Op{
 		{
 			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows plus the WebSocket path the data plane is served on.",
 			Request: terminalSizeRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,

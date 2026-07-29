@@ -44,6 +44,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0034](decisions/0034-github-tags-and-releases.md) | Publish GitHub tags and Releases as the source-side record of a desktop release |
 | [0035](decisions/0035-function-node-per-entity-feed-items.md) | Per-entity feed items by function-node fan-out: mint the inbox row at commit for a synthesized feed key |
 | [0032](decisions/0032-terminal-transport.md) | Terminal transport: REST control plane on httpapi, one binary WebSocket per session |
+| [0033](decisions/0033-terminal-experimental-gate.md) | Terminal mode ships dark behind an experimental settings opt-in |
 
 ## References
 

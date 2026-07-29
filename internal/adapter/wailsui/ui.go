@@ -63,6 +63,9 @@ type MountOptions struct {
 	// Terminal carries the per-run bearer token and WebSocket path the terminal
 	// bootstrap hands the webview. Zero when no terminal transport was mounted.
 	Terminal TerminalTransport
+	// TerminalEnabled is the experimental.terminal opt-in (ADR 0033). Off means
+	// the frontend never renders the way into terminal mode.
+	TerminalEnabled bool
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.
 	AutoUpdate bool
 	// UpdateChannel is the resolved release channel to follow.
@@ -156,7 +159,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewPromptsService(core.Prompts)),
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
-		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal)),
+		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

@@ -10,6 +10,10 @@ import { expect, test } from './fixtures.js'
 // leaving a dead button in the title bar. A regression that gates the toggle
 // on availability, or that lets the unavailable probe throw instead of
 // rendering, fails here.
+//
+// D10 governs only the enabled-but-unavailable case: serve.sh opts the harness
+// into experimental.terminal (ADR 0033), because with the flag off the toggle
+// does not render at all.
 
 const feedItemCount = 6
 
