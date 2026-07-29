@@ -5,7 +5,7 @@ const mocks = vi.hoisted(() => ({ SessionLaunchOptions: vi.fn(), CreateSession: 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({ SessionLaunchOptions: mocks.SessionLaunchOptions, CreateSession: mocks.CreateSession }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({ NewSessionDraft: mocks.NewSessionDraft }))
 
-import { useNewSession } from '../useNewSession'
+import { resetNewSessionForTests, useNewSession } from '../useNewSession'
 import { resetToastsForTests, useToasts } from '../useToasts'
 
 const options = { repositories: [], defaultRepository: 'https://github.com/hay-kot/hive-desktop.git', agents: ['claude'], defaultAgent: 'claude' }
@@ -14,7 +14,7 @@ const item = { id: 7 } as InboxItem
 beforeEach(() => {
   vi.clearAllMocks()
   resetToastsForTests()
-  useNewSession().cancel()
+  resetNewSessionForTests()
   mocks.SessionLaunchOptions.mockResolvedValue(options)
 })
 
@@ -33,6 +33,21 @@ describe('useNewSession', () => {
     expect(mocks.NewSessionDraft).toHaveBeenCalledWith(7)
     expect(s.open.value).toBe(true)
     expect(s.initial.value).toEqual({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' })
+  })
+
+  it('reopens instantly from the cached options while the refresh is pending', async () => {
+    const s = useNewSession()
+    await s.openBlank()
+    s.cancel()
+
+    let release!: (opts: typeof options) => void
+    mocks.SessionLaunchOptions.mockReturnValue(new Promise((resolve) => { release = resolve }))
+    await s.openBlank()
+    expect(s.open.value).toBe(true)
+    expect(s.options.value).toEqual(options)
+
+    release({ ...options, agents: ['claude', 'codex'] })
+    await vi.waitFor(() => expect(s.options.value?.agents).toContain('codex'))
   })
 
   it('starts the session job and closes on submit', async () => {
