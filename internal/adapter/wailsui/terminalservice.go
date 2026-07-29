@@ -31,7 +31,6 @@ type TerminalEndpoint struct {
 	HTTPBaseURL string `json:"httpBaseURL"`
 	WSURL       string `json:"wsURL"`
 	Token       string `json:"token"`
-	StreamPath  string `json:"streamPath"`
 }
 
 // TerminalService gates terminal mode and hands the webview its transport. The
@@ -82,7 +81,6 @@ func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error
 		HTTPBaseURL: "http://" + authority,
 		WSURL:       "ws://" + authority + s.transport.StreamPath,
 		Token:       s.transport.Token,
-		StreamPath:  s.transport.StreamPath,
 	}, nil
 }
 

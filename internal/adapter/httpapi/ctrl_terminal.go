@@ -99,8 +99,7 @@ func (b terminalRenameRequest) Validate() error {
 }
 
 type terminalAttachResponse struct {
-	Windows    []terminalWindow `json:"windows"`
-	StreamPath string           `json:"streamPath"`
+	Windows []terminalWindow `json:"windows"`
 }
 
 type terminalNewWindowResponse struct {
@@ -108,7 +107,7 @@ type terminalNewWindowResponse struct {
 }
 
 // TerminalAttach opens the control client for a session slug and returns its
-// windows plus the path the data-plane WebSocket is served on.
+// windows.
 func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[terminalSizeRequest](ctrl, w, r)
 	if err != nil {
@@ -128,7 +127,7 @@ func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) e
 			Height:   win.Height,
 		})
 	}
-	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: out, StreamPath: TerminalStreamPath})
+	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: out})
 }
 
 // TerminalResize renegotiates the control client's size.

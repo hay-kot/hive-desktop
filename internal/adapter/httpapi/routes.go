@@ -179,7 +179,7 @@ func (ctrl *Controller) baseOperations() []Op {
 func (ctrl *Controller) terminalOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows plus the WebSocket path the data plane is served on.",
+			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
 			Request: terminalSizeRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,
 			Errors: terminalErrors("the slug names no reachable tmux session"),
 		},

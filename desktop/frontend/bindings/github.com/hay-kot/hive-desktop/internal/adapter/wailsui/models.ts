@@ -223,7 +223,6 @@ export interface TerminalEndpoint {
     "httpBaseURL": string;
     "wsURL": string;
     "token": string;
-    "streamPath": string;
 }
 
 /**

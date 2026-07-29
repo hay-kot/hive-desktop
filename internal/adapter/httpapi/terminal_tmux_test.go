@@ -129,7 +129,6 @@ type attachResult struct {
 		Width    int    `json:"width"`
 		Height   int    `json:"height"`
 	} `json:"windows"`
-	StreamPath string `json:"streamPath"`
 }
 
 func (h *terminalHarness) attach(t *testing.T, slug string) attachResult {
@@ -208,7 +207,6 @@ func TestTmuxAttachReturnsWindowsAndStreamsEvents(t *testing.T) {
 	h := newTerminalHarness(t)
 
 	attached := h.attach(t, tmux.slug)
-	assert.Equal(t, TerminalStreamPath, attached.StreamPath)
 	require.Len(t, attached.Windows, 2, "both of the session's windows are reported")
 	names := []string{attached.Windows[0].Name, attached.Windows[1].Name}
 	assert.ElementsMatch(t, []string{"claude", "shell"}, names)

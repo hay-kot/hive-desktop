@@ -86,7 +86,6 @@ function fakeClient(): MockedClient {
         { windowId: '@1', name: 'agent', active: true, width: 213, height: 55 },
         { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 },
       ],
-      streamPath: '/api/terminal/stream',
     }),
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),

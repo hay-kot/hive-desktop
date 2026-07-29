@@ -83,7 +83,7 @@ describe('TerminalMode', () => {
     vi.clearAllMocks()
     localStorage.clear()
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
-    mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't', streamPath: '/s' })
+    mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     mocks.createTerminalClient.mockReturnValue({})
     mocks.ListSessions.mockResolvedValue([
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },

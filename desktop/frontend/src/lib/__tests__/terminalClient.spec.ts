@@ -4,7 +4,6 @@ import {
   createTerminalClient,
   decodeFrame,
   encodeInputFrames,
-  streamURL,
 } from '../terminalClient'
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -16,7 +15,6 @@ const endpoint = {
   httpBaseURL: 'http://127.0.0.1:58006',
   wsURL: 'ws://127.0.0.1:58006/api/terminal/stream',
   token: 'tok-123',
-  streamPath: '/api/terminal/stream',
 }
 
 // Mirrors encodeOutputFrame in internal/adapter/httpapi/terminal_stream.go.
@@ -120,7 +118,6 @@ describe('createTerminalClient', () => {
   it('attaches with the bearer token and returns the window set', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, {
       windows: [{ windowId: '@1', name: 'agent', active: true, width: 213, height: 55 }],
-      streamPath: '/api/terminal/stream',
     }))
 
     const result = await createTerminalClient(endpoint).attach('hive-abc', 120, 40)
@@ -161,10 +158,5 @@ describe('createTerminalClient', () => {
 
     expect(socket.binaryType).toBe('arraybuffer')
     expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/stream?slug=hive-abc&token=tok-123&v=1')
-  })
-
-  it('appends the stream path when the endpoint only carries a base', () => {
-    expect(streamURL({ ...endpoint, wsURL: 'ws://127.0.0.1:58006' }, 's'))
-      .toBe('ws://127.0.0.1:58006/api/terminal/stream?slug=s&token=tok-123&v=1')
   })
 })

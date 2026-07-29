@@ -48,7 +48,7 @@ export type TerminalFrame =
   | { type: 'lifecycle'; kind: LifecycleKind; windowId: string; message: string }
 
 export interface TerminalClient {
-  attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[]; streamPath: string }>
+  attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[] }>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
@@ -80,7 +80,7 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
 
   return {
     async attach(slug, cols, rows) {
-      const body = await post<{ windows: Partial<WindowState>[] | null; streamPath: string }>('/api/terminal/attach', { slug, cols, rows })
+      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/attach', { slug, cols, rows })
       const windows = (body?.windows ?? []).map((window) => ({
         windowId: window.windowId ?? '',
         name: window.name ?? '',
@@ -88,7 +88,7 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
         width: window.width ?? 0,
         height: window.height ?? 0,
       }))
-      return { windows, streamPath: body?.streamPath ?? endpoint.streamPath }
+      return { windows }
     },
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
     async newWindow(slug) {
@@ -111,9 +111,8 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
  * Builds the data-plane URL. The bearer token cannot ride a header on a browser
  * handshake, so it goes in the query string the server also accepts.
  */
-export function streamURL(endpoint: TerminalEndpoint, slug: string): string {
+function streamURL(endpoint: TerminalEndpoint, slug: string): string {
   const url = new URL(endpoint.wsURL)
-  if (endpoint.streamPath && !url.pathname.endsWith(endpoint.streamPath)) url.pathname = endpoint.streamPath
   url.searchParams.set('slug', slug)
   url.searchParams.set('token', endpoint.token)
   url.searchParams.set('v', TERMINAL_WIRE_VERSION)
