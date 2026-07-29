@@ -42,8 +42,9 @@ type Set struct {
 var ErrVersionTooNew = errors.New("config version is newer than this build supports")
 
 // Apply reads raw, migrates it forward to Current, and returns the re-marshalled
-// bytes. changed reports whether any transform ran (version < Current); when
-// false, migrated is byte-equal-enough that the caller writes nothing.
+// bytes. changed is true only when a transform ran (version < Current). When
+// false, migrated is either the original bytes or nil (empty input); the caller
+// decodes it but writes nothing.
 //
 //   - Empty input returns (nil, false, nil).
 //   - Non-empty bytes that fail the lax map[string]any decode return a wrapped

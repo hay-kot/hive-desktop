@@ -123,6 +123,24 @@ func TestApply_VersionBelowBaselineRejected(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func TestApply_NonIntegerVersionRejected(t *testing.T) {
+	t.Parallel()
+
+	for name, raw := range map[string][]byte{
+		"string": []byte("version: \"two\"\n"),
+		"float":  []byte("version: 1.5\n"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			migrated, changed, err := renameStep().Apply(raw)
+			require.Error(t, err)
+			require.NotErrorIs(t, err, ErrVersionTooNew)
+			assert.False(t, changed)
+			assert.Nil(t, migrated)
+		})
+	}
+}
+
 func TestApply_VersionEqualCurrentIsNoOp(t *testing.T) {
 	t.Parallel()
 

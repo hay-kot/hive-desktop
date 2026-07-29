@@ -34,12 +34,9 @@ const migratedFileHeader = "# rewritten by a config migration; original comments
 //     the error. Backup-before-rewrite means a step error also leaves no
 //     half-written artifact and no backup.
 //
-// MigrateFile is only ever called from the up-front startup pass, which is
-// single-threaded and runs before any watcher exists, so no two calls race on
-// the same file. backupDir is caller-supplied and MUST be outside any watched
-// flows/actions directory (callers pass <StateDir>/migration-backups). log is
-// always a real logger — MigrateFile is never called without one; pass
-// zerolog.Nop() only if a caller genuinely wants silence.
+// backupDir is caller-supplied and MUST be outside any watched flows/actions
+// directory (callers pass <StateDir>/migration-backups) — see ADR 0032 for why
+// the startup pass is the sole writer.
 func MigrateFile(set Set, path, backupDir string, log *zerolog.Logger) (data []byte, changed bool, err error) {
 	l := safeLog(log)
 

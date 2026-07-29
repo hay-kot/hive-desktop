@@ -53,6 +53,40 @@ func TestMigrateDir_RewritesFlowDefinitionsAndSkipsUISiblings(t *testing.T) {
 	assert.Equal(t, uiBefore, uiAfter, "a .ui.yaml sibling must be left untouched")
 }
 
+// TestMigrateDir_IsolatesPerFileErrors proves the promised per-file isolation:
+// a flow MigrateFile cannot migrate (version newer than this build) is logged
+// and skipped, and its neighbours still migrate. main.go's non-fatal flow
+// sweep relies on this.
+func TestMigrateDir_IsolatesPerFileErrors(t *testing.T) {
+	original := configmigrate.FlowSet
+	configmigrate.FlowSet = configmigrate.Set{
+		Name:     "flow",
+		Baseline: 1,
+		Current:  2,
+		Migrations: []configmigrate.Migration{
+			{To: 2, Migrate: func(doc map[string]any) error { return nil }},
+		},
+	}
+	t.Cleanup(func() { configmigrate.FlowSet = original })
+
+	dir := t.TempDir()
+	backupDir := filepath.Join(t.TempDir(), "migration-backups")
+
+	goodPath := writeFlow(t, dir, "good.yaml", minimalValidFlowYAML())
+	const newer = "version: 3\nnodes: []\n"
+	newerPath := writeFlow(t, dir, "newer.yaml", newer)
+
+	require.NoError(t, MigrateDir(dir, backupDir, nopLogger()))
+
+	migratedGood, err := os.ReadFile(goodPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(migratedGood), "version: 2", "a good flow must still migrate past a failing neighbour")
+
+	newerAfter, err := os.ReadFile(newerPath)
+	require.NoError(t, err)
+	assert.Equal(t, newer, string(newerAfter), "a version-too-new flow must be left byte-unchanged")
+}
+
 func TestMigrateDir_MissingDirIsNoOp(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "does-not-exist")
 	backupDir := filepath.Join(t.TempDir(), "migration-backups")

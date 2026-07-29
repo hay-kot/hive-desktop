@@ -175,6 +175,36 @@ func TestMigrateFile_BackupWriteFailureAbortsRewrite(t *testing.T) {
 	assert.Equal(t, original, string(onDisk), "backup failure must abort the rewrite; source stays byte-unchanged")
 }
 
+// TestMigrateFile_RewriteFailureAfterBackupLeavesSourceIntact exercises the
+// half-state the backup-first ordering is designed for: the backup lands, then
+// the source rewrite fails. The atomic rename means the source stays byte-for-
+// byte the pre-migration file, with the backup left as recoverable state.
+func TestMigrateFile_RewriteFailureAfterBackupLeavesSourceIntact(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root: chmod 0o500 does not block writes")
+	}
+
+	srcDir, backupDir := tempDirs(t)
+	original := "old_name: hello\n"
+	path := writeFixture(t, srcDir, "widget.yaml", original)
+
+	// backupDir stays writable so the backup lands; srcDir goes read-only so
+	// writeAtomic's temp-file creation for the source rewrite fails afterward.
+	require.NoError(t, os.Chmod(srcDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(srcDir, 0o755) })
+
+	data, changed, err := MigrateFile(renameStep(), path, backupDir, nopLogger())
+	require.Error(t, err)
+	assert.False(t, changed)
+	assert.Nil(t, data)
+
+	onDisk, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(onDisk), "rewrite failure must leave the source byte-unchanged")
+
+	assert.Len(t, globBackups(t, backupDir), 1, "the backup is written before the rewrite, so it survives the failure")
+}
+
 func TestMigrateFile_IsIdempotent(t *testing.T) {
 	srcDir, backupDir := tempDirs(t)
 	path := writeFixture(t, srcDir, "widget.yaml", "old_name: hello\n")
