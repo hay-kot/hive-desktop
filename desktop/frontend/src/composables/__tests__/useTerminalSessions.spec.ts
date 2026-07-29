@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { useTerminalSessions } from '../useTerminalSessions'
+import { groupTerminalSessions, useTerminalSessions, type TerminalSessionRow } from '../useTerminalSessions'
 
 const mocks = vi.hoisted(() => ({ ListSessions: vi.fn() }))
 
@@ -39,5 +39,28 @@ describe('useTerminalSessions', () => {
 
     expect(error.value).toBe('hive.db is locked')
     expect(sessions.value).toEqual([])
+  })
+})
+
+describe('groupTerminalSessions', () => {
+  function row(name: string, repo: string): TerminalSessionRow {
+    return { id: name, name, slug: `slug-${name}`, repo, state: 'active' }
+  }
+
+  it('groups by remote with readable names, both levels alphabetical', () => {
+    const groups = groupTerminalSessions([
+      row('zeta', 'https://github.com/hay-kot/hive-desktop.git'),
+      row('alpha', 'https://github.com/hay-kot/hive-desktop.git'),
+      row('solo', 'git@github.com:colonyops/hive.git'),
+    ])
+
+    expect(groups.map((group) => group.name)).toEqual(['colonyops/hive', 'hay-kot/hive-desktop'])
+    expect(groups[1].sessions.map((s) => s.name)).toEqual(['alpha', 'zeta'])
+  })
+
+  it('collects sessions without a remote under one label', () => {
+    const groups = groupTerminalSessions([row('scratch', ''), row('local', '/Users/x/repos/scratchpad')])
+
+    expect(groups.map((group) => group.name)).toEqual(['(no remote)', 'repos/scratchpad'])
   })
 })

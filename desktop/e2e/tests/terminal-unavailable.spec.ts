@@ -50,7 +50,7 @@ test('terminal mode explains its own unavailability and hands the frame back', a
   const reason = page.getByTestId('terminal-unavailable-reason')
   await expect(reason).not.toBeEmpty()
   await expect(reason).not.toHaveText(frontendFallbackReason)
-  await expect(page.getByTestId('terminal-session-picker')).toHaveCount(0)
+  await expect(page.getByTestId('terminal-session-sidebar')).toHaveCount(0)
 
   // Retry re-probes rather than wedging the panel; the server build answers
   // unavailable again.
