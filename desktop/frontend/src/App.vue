@@ -663,7 +663,8 @@ watch(() => route.fullPath, (path) => {
 
 // Terminal mode ships dark (experimental.terminal, ADR 0035): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
-// separate axis — D10 governs only the enabled-but-unavailable case.
+// separate axis — an enabled-but-unavailable terminal explains itself inside
+// the mode.
 const terminalEnabled = ref(false)
 onMounted(() => {
   void TerminalModeEnabled().then((enabled) => { terminalEnabled.value = enabled }).catch((error) => {

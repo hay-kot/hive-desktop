@@ -48,7 +48,8 @@ func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookSe
 
 // Enabled reports the experimental.terminal opt-in (ADR 0035). The frontend
 // renders the way into terminal mode only when it is on; availability stays a
-// separate axis, because D10 governs only the enabled-but-unavailable case.
+// separate axis, because an enabled-but-unavailable terminal explains itself
+// inside the mode instead of hiding the way in.
 func (s *TerminalService) Enabled(ctx context.Context) bool { return s.enabled }
 
 // Available answers even when the loopback server is down, which is why it

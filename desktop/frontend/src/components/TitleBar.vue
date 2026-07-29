@@ -34,7 +34,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // mode is the app-level Hub|Terminal switch. It renders only while
 // terminalEnabled — the experimental.terminal opt-in (ADR 0035) — and once
 // rendered it is never disabled, because an unavailable terminal explains
-// itself inside Terminal mode (decision D10).
+// itself inside Terminal mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,

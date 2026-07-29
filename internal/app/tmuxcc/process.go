@@ -35,7 +35,7 @@ func newExecProcess(opts Options) process {
 
 // Start ignores ctx deliberately: the control client outlives the attach
 // request that spawned it, so it is killed explicitly on teardown rather than
-// bound to a context (see the lifetimes decision in the v1 addendum).
+// bound to a context.
 func (p *execProcess) Start(context.Context) (io.Writer, io.Reader, error) {
 	// Hive's session-creating commands run with $TMUX intact, so when this
 	// process is itself inside tmux the sessions live on the server $TMUX

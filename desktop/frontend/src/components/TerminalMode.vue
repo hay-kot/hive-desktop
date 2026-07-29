@@ -88,8 +88,8 @@ const endReason = computed(() => session.value?.endReason.value ?? null)
 const sessionError = computed(() => session.value?.error.value ?? '')
 const actionError = computed(() => session.value?.actionError.value ?? '')
 
-// The toggle into this mode is always live (decision D10), so the gate is a
-// panel here rather than a disabled button in the title bar.
+// The toggle into this mode is always live, so the gate is a panel here
+// rather than a disabled button in the title bar.
 async function probe(): Promise<void> {
   checking.value = true
   try {

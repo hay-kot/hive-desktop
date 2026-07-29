@@ -28,7 +28,7 @@ surface, and the terminal's transport is already composed per run in
 
 3. **The frontend gate is `wailsui.TerminalService.Enabled`, a separate axis
    from `Available`.** When off, the Hub|Terminal toggle is not rendered at
-   all. Decision D10 (the toggle is never disabled) is scoped, not revised: it
+   all. The rule that the toggle is never disabled is scoped, not revised: it
    governs only the enabled-but-unavailable case, which still explains itself
    inside the mode. `Available` also answers unavailable-with-a-reason when
    off, so a stray entry into the mode degrades the same way as a missing
@@ -38,8 +38,8 @@ surface, and the terminal's transport is already composed per run in
 ## Consequences
 
 - The feature merges and releases without exposure; enabling it is an explicit
-  settings edit. The e2e harness opts in (`serve.sh`) so the D10 spec keeps
-  exercising the enabled-but-unavailable path.
+  settings edit. The e2e harness opts in (`serve.sh`) so the unavailable-state
+  spec keeps exercising the enabled-but-unavailable path.
 - The `experimental` section is a place for future ships-dark flags; each is a
   startup read, not a live toggle. Graduating a feature means deleting its
   flag, not defaulting it on.
