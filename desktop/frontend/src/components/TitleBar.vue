@@ -140,27 +140,27 @@ function onTitlebarDblclick(event: MouseEvent): void {
       <span v-if="profileName && terminalEnabled" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
       <div
         v-if="profileName && terminalEnabled"
-        class="flex shrink-0 items-center gap-0.5"
+        class="flex h-7 shrink-0 items-center rounded-[7px] border border-card bg-app p-[2px]"
         style="--wails-draggable: no-drag"
         role="group"
         aria-label="App mode"
       >
         <button
           type="button"
-          class="flex h-7 cursor-pointer items-center rounded-[7px] px-2 text-[11.5px] font-medium"
-          :class="mode === 'terminal' ? 'text-text-3 hover:bg-chip hover:text-text' : 'bg-accent-tint text-accent'"
+          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px]"
+          :class="mode === 'terminal' ? 'font-medium text-text-3 hover:text-text' : 'bg-accent font-semibold text-accent-contrast'"
           :aria-pressed="mode !== 'terminal'"
           data-testid="titlebar-mode-hub"
           @click="emit('set-mode', 'hub')"
-        >Hub</button>
+        ><span class="font-mono text-[12px] leading-none">◈</span>Hub</button>
         <button
           type="button"
-          class="flex h-7 cursor-pointer items-center rounded-[7px] px-2 text-[11.5px] font-medium"
-          :class="mode === 'terminal' ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
+          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px]"
+          :class="mode === 'terminal' ? 'bg-accent font-semibold text-accent-contrast' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'terminal'"
           data-testid="titlebar-mode-terminal"
           @click="emit('set-mode', 'terminal')"
-        >Terminal</button>
+        ><span class="font-mono text-[12px] leading-none">&gt;_</span>Terminal</button>
       </div>
     </div>
 

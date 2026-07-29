@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getTerminalEndpoint: vi.fn(),
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
+  openBlank: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -23,6 +24,9 @@ vi.mock('../../lib/terminalClient', () => ({
 }))
 vi.mock('../../composables/useTerminalWindows', () => ({
   useTerminalWindows: mocks.useTerminalWindows,
+}))
+vi.mock('../../composables/useNewSession', () => ({
+  useNewSession: () => ({ openBlank: mocks.openBlank, prefetch: vi.fn() }),
 }))
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: vi.fn().mockReturnValue(() => {}) },
@@ -126,6 +130,12 @@ describe('TerminalMode', () => {
     expect(rows[1].attributes('data-attached')).toBe('true')
     expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
+  })
+
+  it('opens the new-session dialog from the sidebar header', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-testid="terminal-new-session"]').trigger('click')
+    expect(mocks.openBlank).toHaveBeenCalledOnce()
   })
 
   it('collapses a repo group without losing the attached session', async () => {

@@ -10,8 +10,9 @@ import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import TerminalTab from './TerminalTab.vue'
-import { groupTerminalSessions, useTerminalSessions } from '../composables/useTerminalSessions'
+import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup } from '../composables/useTerminalSessions'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
+import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type TerminalClient } from '../lib/terminalClient'
@@ -31,7 +32,22 @@ const renameDraft = ref('')
 const {
   sessions: sessionRows, loading: sessionsLoading, error: sessionsError, reload: reloadSessions,
 } = useTerminalSessions()
+const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
 const sessionGroups = computed(() => groupTerminalSessions(sessionRows.value))
+const liveCount = computed(() => sessionRows.value.filter((row) => row.state === 'active').length)
+
+function groupAttached(group: TerminalSessionGroup): boolean {
+  return group.sessions.some((row) => row.slug === activeSlug.value)
+}
+
+// "owner/name · session" for the tab bar's context label.
+const activeContext = computed(() => {
+  for (const group of sessionGroups.value) {
+    const row = group.sessions.find((s) => s.slug === activeSlug.value)
+    if (row) return `${group.name} · ${row.name}`
+  }
+  return ''
+})
 
 // Expand/collapse is transient view state, not configuration — localStorage,
 // same as the hub sidebar's folder collapse.
@@ -43,7 +59,7 @@ function toggleGroup(key: string): void {
 }
 
 const { size: sidebarWidth, startResize, step } = useResizablePanel({
-  storageKey: 'hive.panel.terminal.sidebar', defaultSize: 230, min: 180, max: 400, edge: 'right',
+  storageKey: 'hive.panel.terminal.sidebar', defaultSize: 250, min: 180, max: 400, edge: 'right',
 })
 
 // A launched session lands in the sidebar without a manual refresh: session
@@ -115,7 +131,10 @@ function commitRename(): void {
   if (name) void session.value?.rename(windowId, name)
 }
 
-onMounted(() => { void probe() })
+onMounted(() => {
+  void probe()
+  prefetchNewSession()
+})
 onBeforeUnmount(() => session.value?.dispose())
 </script>
 
@@ -151,8 +170,9 @@ onBeforeUnmount(() => session.value?.dispose())
         :style="{ width: sidebarWidth + 'px' }"
         data-testid="terminal-session-sidebar"
       >
-        <div class="flex shrink-0 items-center gap-2 px-3 py-2.5">
-          <span class="text-[12.5px] font-semibold">Sessions</span>
+        <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
+          <span class="text-[13.5px] font-semibold">Sessions</span>
+          <span v-if="sessionRows.length" class="font-mono text-[11.5px] text-text-3">{{ sessionRows.length }} · {{ liveCount }} live</span>
           <span class="flex-1" />
           <button
             type="button"
@@ -161,6 +181,14 @@ onBeforeUnmount(() => session.value?.dispose())
             aria-label="Reload sessions"
             @click="reloadSessions"
           ><IconRotateCw class="size-3.5" /></button>
+          <button
+            type="button"
+            class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+            data-testid="terminal-new-session"
+            aria-label="New session"
+            title="New session"
+            @click="openNewSession"
+          ><IconPlus class="size-3.5" /></button>
         </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-2 pb-3">
           <p v-if="sessionsError" class="px-1 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
@@ -171,22 +199,22 @@ onBeforeUnmount(() => session.value?.dispose())
           <template v-for="group in sessionGroups" :key="group.key">
             <button
               type="button"
-              class="flex w-full cursor-pointer items-center gap-1 rounded-md px-1.5 py-1.5 text-left hover:bg-chip"
+              class="flex h-[30px] w-full cursor-pointer items-center gap-1 rounded-md px-1.5 text-left hover:bg-chip"
               data-testid="terminal-repo-group"
               :data-repo="group.key"
               :aria-expanded="!collapsedRepos.includes(group.key)"
               @click="toggleGroup(group.key)"
             >
               <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
-              <span class="min-w-0 truncate font-mono text-[10.5px] uppercase tracking-[.08em] text-text-3">{{ group.name }}</span>
-              <span class="ml-auto shrink-0 font-mono text-[10.5px] text-text-4">{{ group.sessions.length }}</span>
+              <span class="min-w-0 truncate font-mono text-[11.5px] uppercase tracking-[.07em]" :class="groupAttached(group) ? 'text-text' : 'text-text-2'">{{ group.name }}</span>
+              <span class="ml-auto shrink-0 font-mono text-[11px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-3'">{{ group.sessions.length }}</span>
             </button>
             <template v-if="!collapsedRepos.includes(group.key)">
               <div v-for="row in group.sessions" :key="row.id">
                 <button
                   type="button"
-                  class="flex w-full cursor-pointer items-center gap-2 rounded-md py-1.5 pl-5 pr-2 text-left"
-                  :class="row.slug === activeSlug ? 'bg-accent-tint text-accent' : 'text-text-2 hover:bg-chip hover:text-text'"
+                  class="flex h-[30px] w-full cursor-pointer items-center gap-2 rounded-md pl-5 pr-2 text-left"
+                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent' : 'text-text-2 hover:bg-chip hover:text-text'"
                   data-testid="terminal-session-row"
                   :data-slug="row.slug"
                   :data-attached="row.slug === activeSlug"
@@ -196,23 +224,27 @@ onBeforeUnmount(() => session.value?.dispose())
                   <!-- The wire only carries hive's session state today; agent
                        activity (the TUI's [●]/[>] pair) needs terminal.Status
                        plumbed through SessionSummary first. -->
-                  <span class="size-1.5 shrink-0 rounded-full" :class="row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'" />
-                  <span class="min-w-0 truncate text-[12px]">{{ row.name }}</span>
+                  <span
+                    class="size-1.5 shrink-0 rounded-full"
+                    :class="row.slug === activeSlug ? 'bg-accent [animation:hivePulse_2.4s_ease-in-out_infinite]' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
+                  />
+                  <span class="min-w-0 truncate text-[13.5px]">{{ row.name }}</span>
+                  <span v-if="row.slug === activeSlug && tabs.length" class="ml-auto shrink-0 font-mono text-[10.5px] font-normal">{{ tabs.length }}</span>
                 </button>
                 <template v-if="row.slug === activeSlug && session">
                   <button
                     v-for="tab in tabs"
                     :key="tab.uid"
                     type="button"
-                    class="flex w-full cursor-pointer items-center gap-1.5 rounded-md py-1 pl-9 pr-2 text-left"
-                    :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-3 hover:bg-chip hover:text-text-2'"
+                    class="flex h-7 w-full cursor-pointer items-center gap-2 rounded-md pl-9 pr-2 text-left"
+                    :class="tab.windowId === activeWindowId ? 'bg-chip text-text' : 'text-text-2 hover:bg-chip hover:text-text'"
                     data-testid="terminal-window-row"
                     :data-window-id="tab.windowId"
                     :data-active="tab.windowId === activeWindowId"
                     @click="session?.select(tab.windowId)"
                   >
-                    <IconTerminal class="size-3 shrink-0 text-text-4" />
-                    <span class="min-w-0 truncate text-[11.5px]">{{ tab.name || tab.windowId }}</span>
+                    <span class="shrink-0 font-mono text-[11px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
+                    <span class="min-w-0 truncate font-mono text-[12.5px]">{{ tab.name || tab.windowId }}</span>
                   </button>
                 </template>
               </div>
@@ -233,21 +265,25 @@ onBeforeUnmount(() => session.value?.dispose())
         </div>
 
         <template v-else>
-          <div class="flex shrink-0 items-center gap-1 border-b border-border bg-raised px-2 py-1.5">
-            <div class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          <div class="flex h-9 shrink-0 items-stretch border-b border-border bg-raised">
+            <div class="hive-scroll flex min-w-0 items-stretch overflow-x-auto">
               <div
                 v-for="tab in tabs"
                 :key="tab.uid"
-                class="flex shrink-0 items-center gap-1 rounded-[7px] pl-2 pr-1"
-                :class="tab.windowId === activeWindowId ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
+                class="flex w-[180px] shrink-0 items-center gap-2 border-r border-border px-3"
+                :class="tab.windowId === activeWindowId ? 'bg-app shadow-[inset_0_1px_0_var(--color-accent)]' : 'hover:bg-chip'"
                 data-testid="terminal-tab"
                 :data-window-id="tab.windowId"
                 :data-active="tab.windowId === activeWindowId"
               >
+                <span
+                  class="size-1.5 shrink-0 rounded-full"
+                  :class="tab.windowId === activeWindowId ? 'bg-severity-success [animation:hivePulse_2.4s_ease-in-out_infinite]' : 'bg-hover'"
+                />
                 <input
                   v-if="renamingId === tab.windowId"
                   v-model="renameDraft"
-                  class="w-24 bg-transparent py-1 text-[11.5px] outline-none"
+                  class="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text outline-none"
                   data-testid="terminal-rename-input"
                   autofocus
                   @keydown.enter="commitRename"
@@ -257,27 +293,32 @@ onBeforeUnmount(() => session.value?.dispose())
                 <button
                   v-else
                   type="button"
-                  class="cursor-pointer py-1 text-[11.5px]"
+                  class="min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-[12.5px]"
+                  :class="tab.windowId === activeWindowId ? 'font-medium text-text' : 'text-text-2'"
                   @click="session?.select(tab.windowId)"
                   @dblclick="startRename(tab)"
                 >{{ tab.name || tab.windowId }}</button>
                 <button
                   type="button"
-                  class="flex size-4 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                  class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
                   data-testid="terminal-close-window"
                   :aria-label="`Close ${tab.name || tab.windowId}`"
                   @click="session?.closeWindow(tab.windowId)"
                 ><IconX class="size-3" /></button>
               </div>
+              <button
+                type="button"
+                class="flex w-9 shrink-0 cursor-pointer items-center justify-center border-r border-border text-text-3 hover:bg-chip hover:text-text"
+                data-testid="terminal-new-window"
+                aria-label="New window"
+                title="New window"
+                @click="session?.newWindow()"
+              ><IconPlus class="size-3.5" /></button>
             </div>
-            <button
-              type="button"
-              class="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-              data-testid="terminal-new-window"
-              aria-label="New window"
-              title="New window"
-              @click="session?.newWindow()"
-            ><IconPlus class="size-3.5" /></button>
+            <div class="min-w-0 flex-1" />
+            <div v-if="activeContext" class="flex shrink-0 items-center px-3">
+              <span class="truncate font-mono text-[11.5px] tracking-[.06em] text-text-4">{{ activeContext }}</span>
+            </div>
           </div>
 
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
