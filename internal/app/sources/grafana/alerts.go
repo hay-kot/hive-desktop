@@ -13,31 +13,22 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-// AlertsConfig is a Grafana alerts source node's configuration. Alerts are not
-// scoped to a datasource — they are Grafana-managed — so the only field is the
-// stack to fetch as; the source emits one item per firing alert.
 type AlertsConfig struct {
-	// Credential names the stack this source fetches as, "grafana/<account>".
 	Credential string `json:"credential" yaml:"credential" jsonschema:"title=Credential,description=The connected Grafana stack to fetch as, as 'grafana/<account>'."`
 }
 
-// Validate rejects a config a poll could not run: a missing or wrong-provider
-// credential.
 func (c *AlertsConfig) Validate() error {
 	_, err := c.CredentialRef()
 	return err
 }
 
-// CredentialRef is the parsed credential ref, rejecting another provider's ref
-// at load rather than at fetch time.
 func (c *AlertsConfig) CredentialRef() (credentials.Ref, error) {
 	return parseGrafanaRef(c.Credential)
 }
 
 // AlertsDescriptor declares the alerts connector. Unlike metrics it classifies
-// and confirms absence: an alert is discrete (one firing alert = one item), and
-// the Alertmanager response is the complete firing set, so an alert that leaves
-// it is authoritatively resolved rather than merely unseen.
+// and confirms absence: the Alertmanager response is the complete firing set, so
+// an alert that leaves it is authoritatively resolved, not merely unseen.
 var AlertsDescriptor = connector.Descriptor{
 	Type:          "sources.grafana_alerts",
 	Title:         "Grafana alerts source",
@@ -49,9 +40,6 @@ var AlertsDescriptor = connector.Descriptor{
 	NewConfig:     func() connector.Config { return &AlertsConfig{} },
 }
 
-// NewAlertsFactory builds the instance half over the per-stack fetcher
-// registry, wiring the classifier and absence confirmer the descriptor
-// declares.
 func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 	return connector.Factory{
 		New: func(node connector.Node, cfg connector.Config) (connector.Instance, error) {
@@ -81,10 +69,8 @@ func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 	}
 }
 
-// alertsSource polls one node's firing alerts. It emits one message per firing
-// alert, keyed by fingerprint, so each alert maps to its own durable item; a
-// still-firing alert re-emits the same key and payload and is deduplicated by
-// the source-head comparison.
+// alertsSource polls one node's firing alerts, emitting one message per alert
+// keyed by fingerprint so each alert maps to its own durable item.
 type alertsSource struct {
 	fetcher *fetcher
 	topic   string
@@ -93,8 +79,8 @@ type alertsSource struct {
 var _ connector.PullSource = (*alertsSource)(nil)
 
 // alertPayload is what a firing alert emits. title and state are canonical
-// fields the ingest boundary and the classifier read; the raw labels and
-// annotations ride along for a function node to route on.
+// fields the ingest boundary and classifier read; labels and annotations ride
+// along for a function node to route on.
 type alertPayload struct {
 	Title       string            `json:"title"`
 	State       string            `json:"state"`
@@ -145,9 +131,8 @@ const (
 	stateResolved = "resolved"
 )
 
-// alertsClassifier maps an alert's canonical state to lifecycle: firing is
-// active, resolved is terminal. The first observation of an alert is "firing";
-// entering resolved archives it with "resolved" as the reason.
+// alertsClassifier maps an alert's state to lifecycle: firing is active,
+// resolved is terminal.
 type alertsClassifier struct{}
 
 var _ store.Classifier = alertsClassifier{}
@@ -182,9 +167,8 @@ func (alertsClassifier) Classify(previous *store.Observation, current store.Obse
 }
 
 // alertsAbsence marks every alert that left the firing set as resolved. The
-// Alertmanager response is the complete current firing set, so an absent alert
-// is authoritatively resolved — not merely unseen — which is why every verdict
-// is terminal.
+// Alertmanager response is the complete firing set, so an absent alert is
+// authoritatively resolved, not merely unseen — every verdict is terminal.
 type alertsAbsence struct{}
 
 var _ store.AbsenceConfirmer = alertsAbsence{}
@@ -199,15 +183,13 @@ func (alertsAbsence) ConfirmAbsence(_ context.Context, previous []store.Observat
 	return verdicts, nil
 }
 
-// alertState reads the canonical top-level state from an alert payload.
 func alertState(payload []byte) string {
 	_, _, state := store.CanonicalFields(payload)
 	return strings.ToLower(strings.TrimSpace(state))
 }
 
-// withResolvedState rewrites an alert payload's state to resolved, preserving
-// every other field so the archived item keeps its title, labels and
-// annotations.
+// withResolvedState rewrites a payload's state to resolved, preserving every
+// other field so the archived item keeps its title, labels and annotations.
 func withResolvedState(payload []byte) []byte {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(payload, &fields); err != nil {

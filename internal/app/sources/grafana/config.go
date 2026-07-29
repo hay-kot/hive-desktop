@@ -7,17 +7,12 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 )
 
-// MetricsConfig is a Grafana metrics source node's configuration. The framework
-// decodes it strictly and calls Validate for the cross-field rules a schema
-// cannot state.
-//
-// credential is a direct field, not one promoted from an embedded base: the
-// provider-enforcement test scans a config's own tagged fields for it, and an
-// embedded field would be invisible there. There is deliberately no url field —
-// the stack URL is bound to the account at connect time, so a node cannot pair
-// an account's token with an arbitrary host.
+// MetricsConfig is a Grafana metrics source node's configuration. credential is
+// a direct field, not promoted from an embedded base, because the
+// provider-enforcement test scans a config's own tagged fields for it. There is
+// deliberately no url field — the stack URL is bound to the account at connect
+// time, so a node cannot pair a token with an arbitrary host.
 type MetricsConfig struct {
-	// Credential names the stack this source fetches as, "grafana/<account>".
 	// A ref and never a token: flows/ is dotfiles-managed, so an embedded token
 	// would be a token in a git repo.
 	Credential    string `json:"credential"      yaml:"credential"      jsonschema:"title=Credential,description=The connected Grafana stack to fetch as, as 'grafana/<account>'."`
@@ -26,8 +21,6 @@ type MetricsConfig struct {
 	Title         string `json:"title,omitempty" yaml:"title,omitempty" jsonschema:"title=Title,description=The feed item's title. Defaults to the query when empty."`
 }
 
-// Validate rejects a config a metrics poll could not run: a missing or
-// wrong-provider credential, no datasource, or no query.
 func (c *MetricsConfig) Validate() error {
 	if _, err := c.CredentialRef(); err != nil {
 		return err
@@ -41,16 +34,13 @@ func (c *MetricsConfig) Validate() error {
 	return nil
 }
 
-// CredentialRef is the parsed credential ref. A ref naming another provider is
-// rejected here rather than at fetch time: "github/octocat" on a Grafana source
-// is a config mistake, and failing it at load says so.
 func (c *MetricsConfig) CredentialRef() (credentials.Ref, error) {
 	return parseGrafanaRef(c.Credential)
 }
 
-// parseGrafanaRef parses a "grafana/<account>" credential ref, rejecting a
-// missing ref or one that names another provider. Shared by every Grafana
-// connector's config so the provider check is written once.
+// parseGrafanaRef parses a "grafana/<account>" ref, rejecting a missing ref or
+// one naming another provider at load rather than at fetch time. Shared by every
+// Grafana config so the provider check is written once.
 func parseGrafanaRef(credential string) (credentials.Ref, error) {
 	if strings.TrimSpace(credential) == "" {
 		return credentials.Ref{}, fmt.Errorf("grafana source: credential is required (e.g. %q)", Provider+"/grafana.example.com-1")

@@ -3,19 +3,13 @@ import { Connect, Disconnect } from '../../bindings/github.com/hay-kot/hive-desk
 import type { Stack } from '../types/grafana'
 
 /**
- * The Grafana connector's acquisition, as the settings drawer drives it.
- *
- * Unlike GitHub there is no device flow and no polled status: a stack is
- * connected by pasting its URL and a service-account token, validated once. The
- * connected-accounts list the drawer shows comes from useIntegrations, which
- * re-reads on the connection:updated signal a connect or disconnect publishes —
- * so this composable owns only the in-flight connect/disconnect state.
+ * Unlike GitHub there is no device flow or polled status; the connected-accounts
+ * list comes from useIntegrations, so this owns only in-flight connect/disconnect
+ * state.
  */
 export function useGrafanaConnection() {
   const busy = ref(false)
   const error = ref<string | null>(null)
-  // The stack the last successful connect resolved to, so the drawer can
-  // confirm which account a paste landed as.
   const lastConnected = ref<Stack | null>(null)
 
   async function connect(url: string, token: string): Promise<boolean> {

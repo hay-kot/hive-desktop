@@ -14,18 +14,13 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
-// defaultCooldown is how long polling pauses after a rate-limit response that
-// carried no explicit reset time.
+// defaultCooldown applies when a rate-limit response carried no reset time.
 const defaultCooldown = time.Minute
 
-// Fetchers hands out one fetcher per stack, constructing them on first use. A
-// fetcher owns that stack's rate-limit cooldown — sourcehttp classifies a 429
-// but does not pause polling, so the provider must — and resolves the stack's
-// URL and token freshly on every poll, so connecting, rotating, or
-// disconnecting takes effect on the next tick.
-//
-// Fetchers are never evicted: the set is bounded by the number of connected
-// stacks, and a disconnected stack's fetcher holds only a cleared cooldown.
+// Fetchers hands out one fetcher per stack, created on first use. A fetcher owns
+// that stack's cooldown — sourcehttp classifies a 429 but does not pause
+// polling, so the provider must — and resolves URL and token freshly each poll,
+// so connect, rotate, and disconnect take effect on the next tick.
 type Fetchers struct {
 	stacks    *StackStore
 	creds     credentials.Store
@@ -36,8 +31,6 @@ type Fetchers struct {
 	byRef map[credentials.Ref]*fetcher
 }
 
-// NewFetchers builds the per-stack fetcher registry over the stack store and
-// credential store.
 func NewFetchers(stacks *StackStore, creds credentials.Store, logger zerolog.Logger) *Fetchers {
 	return &Fetchers{
 		stacks: stacks,
@@ -50,9 +43,7 @@ func NewFetchers(stacks *StackStore, creds credentials.Store, logger zerolog.Log
 	}
 }
 
-// For returns the fetcher for one stack, creating it on first use. It never
-// fails: a node naming a not-yet-connected account gets a fetcher that resolves
-// nothing until the account is connected.
+// For never fails: a fetcher for a not-yet-connected account resolves nothing until it connects.
 func (f *Fetchers) For(ref credentials.Ref) *fetcher {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -69,9 +60,8 @@ func (f *Fetchers) For(ref credentials.Ref) *fetcher {
 	return fx
 }
 
-// InvalidateAll clears every stack's cooldown. A connect or disconnect calls
-// it, so a freshly connected account is not left waiting out a cooldown its
-// predecessor incurred.
+// InvalidateAll clears every stack's cooldown so a freshly connected account is
+// not left waiting out a cooldown its predecessor incurred.
 func (f *Fetchers) InvalidateAll() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -91,9 +81,6 @@ type fetcher struct {
 	cooldownUntil time.Time
 }
 
-// Query resolves the stack's URL and token, builds a client, and runs one
-// PromQL query. A rate-limit response arms the cooldown so the next tick skips
-// the fetch until the server's reset time.
 func (fx *fetcher) Query(ctx context.Context, dsUID, promql string) (client.QueryResult, error) {
 	c, err := fx.prepare()
 	if err != nil {
@@ -107,8 +94,6 @@ func (fx *fetcher) Query(ctx context.Context, dsUID, promql string) (client.Quer
 	return result, nil
 }
 
-// Alerts resolves the stack's URL and token and lists its currently firing
-// alerts, under the same cooldown Query uses.
 func (fx *fetcher) Alerts(ctx context.Context) ([]client.Alert, error) {
 	c, err := fx.prepare()
 	if err != nil {
@@ -122,9 +107,9 @@ func (fx *fetcher) Alerts(ctx context.Context) ([]client.Alert, error) {
 	return alerts, nil
 }
 
-// prepare returns a client for this stack, or an error when the stack is in
-// cooldown, not connected, or has no resolvable token — the three states in
-// which a poll must not reach the network.
+// prepare returns a client, or an error when the stack is in cooldown, not
+// connected, or has no resolvable token — the states a poll must not reach the
+// network in.
 func (fx *fetcher) prepare() (*client.Client, error) {
 	if until, cooling := fx.inCooldown(); cooling {
 		return nil, fmt.Errorf("grafana %s: %w until %s", fx.ref, sourcehttp.ErrRateLimited, until.Format(time.RFC3339))

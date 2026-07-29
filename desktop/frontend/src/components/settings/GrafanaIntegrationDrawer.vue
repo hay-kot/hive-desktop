@@ -10,14 +10,10 @@ import { useIntegrations } from '../../composables/useIntegrations'
 
 const emit = defineEmits<{ close: [] }>()
 
-// Read-only is all the connector needs — a Viewer service account can query
-// metrics and read alerts — so the guidance points at the least-privilege token.
+// Read-only (Viewer) is all the connector needs, so guidance points at the
+// least-privilege token.
 const SERVICE_ACCOUNT_DOCS = 'https://grafana.com/docs/grafana/latest/administration/service-accounts/'
 
-// Acquisition is provider-specific, so it lives here rather than on the generic
-// Integrations card. The connected accounts come from the same registry
-// projection the card reads, which re-reads on the connection:updated signal a
-// connect or disconnect publishes.
 const { busy, error, connect, disconnect } = useGrafanaConnection()
 const { accountsFor } = useIntegrations()
 const connectedAccounts = computed(() => accountsFor('grafana'))
@@ -28,8 +24,8 @@ const disconnecting = ref<string | null>(null)
 
 const canConnect = computed(() => urlInput.value.trim() !== '' && tokenInput.value.trim() !== '')
 
-// The stack's own service-accounts page, once a URL is entered, so creating the
-// token is one click away rather than a hunt through the Grafana menus.
+// The entered stack's own service-accounts page, so creating the token is one
+// click away.
 const stackServiceAccountsUrl = computed(() => {
   const base = urlInput.value.trim().replace(/\/+$/, '')
   if (!/^https?:\/\//i.test(base)) return ''

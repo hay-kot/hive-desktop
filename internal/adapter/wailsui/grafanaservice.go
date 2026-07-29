@@ -7,13 +7,9 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 )
 
-// GrafanaService exposes the Grafana connector's stack auth to the frontend:
-// connecting a stack by pasting its URL and a service-account token, and
-// disconnecting one. State changes are pushed via the connection:updated
-// signal; the frontend re-reads the Integrations list on receipt.
-//
-// It is one connector's service, not the app's login. Nothing in the app is
-// gated on a stack being connected.
+// GrafanaService exposes the Grafana stack auth to the frontend. It is one
+// connector's service, not the app's login: nothing in the app is gated on a
+// stack being connected.
 type GrafanaService struct {
 	grafana *app.GrafanaService
 }

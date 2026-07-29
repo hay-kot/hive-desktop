@@ -154,11 +154,8 @@ func (s *GitHubService) Disconnect(context.Context) error {
 	return Wrap(s.conn.Disconnect(), KindInternal, "disconnecting GitHub")
 }
 
-// GrafanaService wraps the Grafana connector's stack auth with context
-// threading. It is leaner than GitHubService because acquisition is: a stack is
-// connected by pasting its URL and a service-account token, validated once, with
-// no device flow and no polled status — Integrations reports connected accounts
-// generically.
+// GrafanaService wraps the Grafana stack auth with context threading and error
+// mapping. Leaner than GitHubService: no device flow, no polled status.
 type GrafanaService struct{ auth *grafana.Authenticator }
 
 func newGrafanaService(auth *grafana.Authenticator) *GrafanaService {
