@@ -173,4 +173,23 @@ describe('TitleBar', () => {
     await chip.trigger('click')
     expect(wrapper.emitted('open-error-node')).toHaveLength(1)
   })
+
+  it('keeps the Hub|Terminal toggle live in both modes and reports the pressed one', async () => {
+    const wrapper = mount(TitleBar, { props: { profileName: 'Triage', mode: 'hub' } })
+    const hub = wrapper.get('[data-testid="titlebar-mode-hub"]')
+    const terminal = wrapper.get('[data-testid="titlebar-mode-terminal"]')
+
+    expect(hub.attributes('aria-pressed')).toBe('true')
+    expect(terminal.attributes('aria-pressed')).toBe('false')
+    // Always clickable: an unavailable terminal explains itself inside the mode.
+    expect(terminal.attributes('disabled')).toBeUndefined()
+
+    await terminal.trigger('click')
+    expect(wrapper.emitted('set-mode')).toEqual([['terminal']])
+
+    await wrapper.setProps({ mode: 'terminal' })
+    expect(wrapper.get('[data-testid="titlebar-mode-terminal"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    expect(wrapper.emitted('set-mode')).toEqual([['terminal'], ['hub']])
+  })
 })

@@ -40,7 +40,7 @@ import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKe
 import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
-import { isEditableTarget } from './lib/isEditableTarget'
+import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
@@ -59,6 +59,10 @@ import { kind } from './lib/itemPresentation'
 const devMode = import.meta.env.DEV
 const DevBar = devMode ? defineAsyncComponent(() => import('./components/DevBar.vue')) : null
 const DevView = devMode ? defineAsyncComponent(() => import('./components/DevView.vue')) : null
+
+// Async so xterm.js stays out of the initial bundle: terminal mode is opt-in
+// and the hub must not pay for it at startup.
+const TerminalMode = defineAsyncComponent(() => import('./components/TerminalMode.vue'))
 
 const {
   status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
@@ -639,6 +643,17 @@ watch(githubConnected, async (connected) => {
   }
 })
 
+// ── App mode ─────────────────────────────────────────────────────────────────
+// Hub is the feed/flows/settings app; Terminal takes the whole frame under the
+// title bar. Deliberately not persisted — entering it attaches a live tmux
+// control client, which is not something a relaunch should do unprompted.
+const mode = ref<'hub' | 'terminal'>('hub')
+const terminalActive = computed(() => mode.value === 'terminal' && !onboardingActive.value)
+
+function setMode(next: 'hub' | 'terminal'): void {
+  mode.value = next
+}
+
 // ── Layout chrome ─────────────────────────────────────────────────────────────
 // The feed sidebar and the detail preview both collapse to reclaim horizontal
 // space (handy in split screens); each choice is persisted. Their toggles only
@@ -647,7 +662,7 @@ watch(githubConnected, async (connected) => {
 const sidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
-  !onboardingActive.value &&
+  !onboardingActive.value && !terminalActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
@@ -706,7 +721,7 @@ const catalogById = new Map(commandCatalog.map((command) => [command.id, command
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
 const feedNavActive = computed(() =>
-  route.name === 'feed' && !onboardingActive.value && !!activeProfile.value,
+  route.name === 'feed' && !onboardingActive.value && !terminalActive.value && !!activeProfile.value,
 )
 
 // While an overlay owns the screen, only the palette toggle stays live.
@@ -818,6 +833,10 @@ useCommands(computed(() => {
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
 function onGlobalKeydown(e: KeyboardEvent): void {
+  // A focused terminal owns every key, modifiers included, so tmux prefixes
+  // reach the pane instead of firing a Hive shortcut.
+  if (isTerminalTarget(e.target)) return
+
   // WebKit can treat an unhandled Backspace as browser Back. Suppress that
   // default outside editors while still allowing components such as the flow
   // canvas to use Backspace for their own actions.
@@ -880,6 +899,7 @@ onUnmounted(() => {
     <div class="flex h-full min-h-0 flex-col overflow-hidden">
       <TitleBar
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
+        :mode="mode"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -894,6 +914,7 @@ onUnmounted(() => {
         :can-toggle-sidebar="feedViewActive"
         :preview-collapsed="previewCollapsed"
         :can-toggle-preview="feedViewActive"
+        @set-mode="setMode"
         @back="router.back()"
         @forward="router.forward()"
         @open-error-node="openErrorNode"
@@ -926,6 +947,10 @@ onUnmounted(() => {
         @request-permission="requestPermission"
         @finish-permissions="firstRunPermissions = false"
       />
+      <!-- Terminal mode takes the whole frame under the title bar, spaces rail
+           included: nothing in it is workspace-scoped, and the always-live mode
+           toggle is the way back. -->
+      <TerminalMode v-else-if="terminalActive" />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is
            what keeps the user from being stranded in the flows canvas — the

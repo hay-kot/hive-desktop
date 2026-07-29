@@ -31,6 +31,8 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
+// mode is the app-level Hub|Terminal switch; it is never disabled, because an
+// unavailable terminal explains itself inside Terminal mode (decision D10).
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
@@ -42,6 +44,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // onboarding too.
 const props = defineProps<{
   profileName?: string
+  mode?: 'hub' | 'terminal'
   activityActive?: boolean
   errorCount?: number
   unseenActivity?: number
@@ -58,6 +61,7 @@ const props = defineProps<{
   canTogglePreview?: boolean
 }>()
 const emit = defineEmits<{
+  'set-mode': [mode: 'hub' | 'terminal']
   back: []
   forward: []
   'open-error-node': []
@@ -130,6 +134,31 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @click="emit('forward')"
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
+      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
+      <div
+        v-if="profileName"
+        class="flex shrink-0 items-center gap-0.5"
+        style="--wails-draggable: no-drag"
+        role="group"
+        aria-label="App mode"
+      >
+        <button
+          type="button"
+          class="flex h-7 cursor-pointer items-center rounded-[7px] px-2 text-[11.5px] font-medium"
+          :class="mode === 'terminal' ? 'text-text-3 hover:bg-chip hover:text-text' : 'bg-accent-tint text-accent'"
+          :aria-pressed="mode !== 'terminal'"
+          data-testid="titlebar-mode-hub"
+          @click="emit('set-mode', 'hub')"
+        >Hub</button>
+        <button
+          type="button"
+          class="flex h-7 cursor-pointer items-center rounded-[7px] px-2 text-[11.5px] font-medium"
+          :class="mode === 'terminal' ? 'bg-accent-tint text-accent' : 'text-text-3 hover:bg-chip hover:text-text'"
+          :aria-pressed="mode === 'terminal'"
+          data-testid="titlebar-mode-terminal"
+          @click="emit('set-mode', 'terminal')"
+        >Terminal</button>
+      </div>
     </div>
 
     <!-- Center: command-palette launcher, window-centered -->

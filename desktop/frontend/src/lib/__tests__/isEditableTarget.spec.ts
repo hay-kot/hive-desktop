@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isEditableTarget } from '../isEditableTarget'
+import { isEditableTarget, isTerminalTarget } from '../isEditableTarget'
 
 describe('isEditableTarget', () => {
   it('returns true for input elements', () => {
@@ -27,5 +27,22 @@ describe('isEditableTarget', () => {
 
   it('returns false for null', () => {
     expect(isEditableTarget(null)).toBe(false)
+  })
+})
+
+describe('isTerminalTarget', () => {
+  it('claims anything inside a terminal pane, xterm helper textarea included', () => {
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    const helper = document.createElement('textarea')
+    pane.append(helper)
+
+    expect(isTerminalTarget(pane)).toBe(true)
+    expect(isTerminalTarget(helper)).toBe(true)
+  })
+
+  it('claims nothing outside one', () => {
+    expect(isTerminalTarget(document.createElement('textarea'))).toBe(false)
+    expect(isTerminalTarget(null)).toBe(false)
   })
 })

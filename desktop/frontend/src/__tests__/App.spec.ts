@@ -60,6 +60,9 @@ const mocks = vi.hoisted(() => ({
   Focused: vi.fn(),
   ActivityList: vi.fn(),
   RecordActivity: vi.fn(),
+  // terminalservice
+  TerminalAvailable: vi.fn(),
+  TerminalEndpoint: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -141,6 +144,11 @@ vi.mock('@wailsio/runtime', () => ({
   Events: { On: mocks.On },
   Window: { Hide: mocks.Hide },
   Call: { ByID: vi.fn() },
+}))
+
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
+  Available: mocks.TerminalAvailable,
+  Endpoint: mocks.TerminalEndpoint,
 }))
 
 const flow = {
@@ -1050,6 +1058,45 @@ describe('App', () => {
     const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1]
     expect(logHandler).toBeUndefined()
 
+    wrapper.unmount()
+  })
+
+  it('swaps the whole hub for terminal mode and back from the title-bar toggle', async () => {
+    mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    // Terminal mode is async-imported, so it lands a tick after the toggle.
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await flushPromises()
+
+    // The toggle is never gated on availability; the reason shows up inside.
+    expect(wrapper.get('[data-testid="terminal-unavailable-reason"]').text()).toBe('tmux is not installed.')
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(false)
+    // The feed panels are gone, so their title-bar toggles must not dangle.
+    expect(wrapper.get('[data-testid="titlebar-toggle-sidebar"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('lets a focused terminal keep every key, shortcuts included', async () => {
+    const wrapper = await mountApp()
+    const { open: paletteOpen } = useCommandPalette()
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
+    await flushPromises()
+
+    expect(paletteOpen.value).toBe(false)
+    pane.remove()
     wrapper.unmount()
   })
 
