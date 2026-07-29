@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"sort"
-	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
@@ -122,31 +121,18 @@ func (s *IntegrationsService) List(context.Context) ([]Integration, error) {
 	return out, nil
 }
 
-// groupTitle is a card's title: one descriptor's own title, or the shared
-// prefix of several so "Grafana metrics source" and "Grafana alerts source"
-// title a single "Grafana" card.
+// groupTitle is a card's title. A provider that ships several connector types
+// declares a ProviderTitle so its shared card is named once ("Grafana"); a
+// single-type connector's card takes its one descriptor's Title. Deriving the
+// title from the descriptors' own titles instead would couple the card label to
+// wording each title can otherwise be reworded freely.
 func groupTitle(ds []connector.Descriptor) string {
-	if len(ds) == 1 {
-		return ds[0].Title
+	for _, d := range ds {
+		if d.ProviderTitle != "" {
+			return d.ProviderTitle
+		}
 	}
-	prefix := ds[0].Title
-	for _, d := range ds[1:] {
-		prefix = commonPrefix(prefix, d.Title)
-	}
-	prefix = strings.TrimRight(prefix, " -–—:")
-	if prefix == "" {
-		return ds[0].Provider
-	}
-	return prefix
-}
-
-func commonPrefix(a, b string) string {
-	n := min(len(a), len(b))
-	i := 0
-	for i < n && a[i] == b[i] {
-		i++
-	}
-	return a[:i]
+	return ds[0].Title
 }
 
 // leastStable is the most conservative stability across a provider's

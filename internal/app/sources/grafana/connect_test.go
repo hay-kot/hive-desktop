@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -131,6 +132,31 @@ func TestConnectRejectsBadTokenWithoutStoring(t *testing.T) {
 	require.ErrorIs(t, err, credentials.ErrNotFound)
 	url, _ := env.stacks.URL(ref)
 	assert.Empty(t, url)
+}
+
+// A validated token is stored before the stack URL. If that URL write fails,
+// the token must be rolled back rather than left orphaned in the keychain with
+// no URL to fetch against.
+func TestConnectRollsBackTokenWhenURLWriteFails(t *testing.T) {
+	t.Parallel()
+
+	server := orgServer(t, 1, "Main Org.")
+	defer server.Close()
+
+	// A stacks path whose parent is a regular file: MkdirAll in StackStore.write
+	// fails, so the URL cannot be persisted after the token is stored.
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	creds := credentials.NewMemoryStore()
+	stacks := NewStackStore(filepath.Join(blocker, "grafana-stacks.json"))
+	auth := NewAuthenticator(creds, stacks, zerolog.Nop(), func(credentials.Ref) {})
+
+	_, err := auth.Connect(t.Context(), server.URL, "good")
+	require.Error(t, err, "a failed URL write fails the connect")
+
+	ref := credentials.Ref{Provider: Provider, Account: accountID(hostOf(t, server.URL), 1)}
+	_, err = creds.Get(ref)
+	require.ErrorIs(t, err, credentials.ErrNotFound, "the token is rolled back when the URL cannot be stored")
 }
 
 func TestConnectRejectsRemoteHTTP(t *testing.T) {

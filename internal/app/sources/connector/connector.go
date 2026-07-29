@@ -116,6 +116,11 @@ type Descriptor struct {
 	Type string
 	// Title is the human label — the palette entry, the docs heading.
 	Title string
+	// ProviderTitle names the provider on the Integrations card when a provider
+	// ships several connector types, so the card is titled once for the provider
+	// ("Grafana") rather than derived from the descriptors' own titles. Empty for
+	// a single-type connector, whose card takes its one descriptor's Title.
+	ProviderTitle string
 	// Provider is the credentials provider this connector fetches as
 	// ("github"), matching credentials.Ref.Provider. Empty means the
 	// connector needs no credential at all — the webhook listener is local

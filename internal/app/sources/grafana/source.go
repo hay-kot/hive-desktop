@@ -1,7 +1,7 @@
-// Package grafana is the Grafana source connector: the config a
-// sources.grafana_metrics node carries, the descriptor declaring what the
-// connector supports, the instance the producer drains on a tick, and the stack
-// auth that connects a stack in the first place.
+// Package grafana is the Grafana source connector: the configs its source nodes
+// carry (metrics and alerts), the descriptors declaring what each supports, the
+// instances the producer drains on a tick, and the stack auth that connects a
+// stack in the first place.
 package grafana
 
 import (
@@ -26,12 +26,13 @@ const SourceKind = "grafana"
 // each poll appends an ordinary event whose retention is not yet bounded per
 // topic — the documented pure-function requirement is the interim guard.
 var MetricsDescriptor = connector.Descriptor{
-	Type:      "sources.grafana_metrics",
-	Title:     "Grafana metrics source",
-	Provider:  Provider,
-	Mode:      connector.ModePull,
-	Stability: connector.Experimental,
-	NewConfig: func() connector.Config { return &MetricsConfig{} },
+	Type:          "sources.grafana_metrics",
+	Title:         "Grafana metrics source",
+	ProviderTitle: "Grafana",
+	Provider:      Provider,
+	Mode:          connector.ModePull,
+	Stability:     connector.Experimental,
+	NewConfig:     func() connector.Config { return &MetricsConfig{} },
 }
 
 // NewMetricsFactory builds the instance half over the per-stack fetcher

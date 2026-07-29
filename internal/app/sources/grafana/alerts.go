@@ -39,13 +39,14 @@ func (c *AlertsConfig) CredentialRef() (credentials.Ref, error) {
 // the Alertmanager response is the complete firing set, so an alert that leaves
 // it is authoritatively resolved rather than merely unseen.
 var AlertsDescriptor = connector.Descriptor{
-	Type:         "sources.grafana_alerts",
-	Title:        "Grafana alerts source",
-	Provider:     Provider,
-	Mode:         connector.ModePull,
-	Stability:    connector.Experimental,
-	Capabilities: connector.CapClassify | connector.CapConfirmAbsence,
-	NewConfig:    func() connector.Config { return &AlertsConfig{} },
+	Type:          "sources.grafana_alerts",
+	Title:         "Grafana alerts source",
+	ProviderTitle: "Grafana",
+	Provider:      Provider,
+	Mode:          connector.ModePull,
+	Stability:     connector.Experimental,
+	Capabilities:  connector.CapClassify | connector.CapConfirmAbsence,
+	NewConfig:     func() connector.Config { return &AlertsConfig{} },
 }
 
 // NewAlertsFactory builds the instance half over the per-stack fetcher

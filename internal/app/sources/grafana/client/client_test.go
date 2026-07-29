@@ -75,6 +75,21 @@ func TestQueryReportsPrometheusError(t *testing.T) {
 	assert.Contains(t, err.Error(), "parse error")
 }
 
+// The datasource proxy can return HTTP 200 with a non-success envelope, so a
+// body-level failure is an error even when the status line says OK.
+func TestQueryReportsErrorEnvelopeOn200(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"error","errorType":"bad_data","error":"invalid parameter"}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "t").Query(t.Context(), "ds-uid", "up")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid parameter", "the envelope's error message surfaces")
+}
+
 func TestAlertsListsFiringAlerts(t *testing.T) {
 	t.Parallel()
 

@@ -8,6 +8,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	grafana "github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 )
@@ -49,17 +50,31 @@ func TestIntegrationsCoverEveryRegisteredConnector(t *testing.T) {
 	assert.Len(t, covered, len(sources.All()), "every descriptor appears on exactly one card")
 }
 
-// A provider that ships several connector types shows once, titled by the
-// shared prefix of its descriptors rather than once per node type — the
-// grouping F12 called for so alerts does not add a second Grafana card.
+// A provider that ships several connector types shows once, titled by its
+// declared ProviderTitle rather than once per node type — the grouping F12
+// called for so alerts does not add a second Grafana card.
 func TestIntegrationsGroupAProviderIntoOneCard(t *testing.T) {
 	t.Parallel()
 
 	grafanaCard, ok := integrationsFor(t, credentials.NewMemoryStore())[grafana.Provider]
 	require.Truef(t, ok, "grafana is not grouped under one card keyed by its provider")
-	assert.Equal(t, "Grafana", grafanaCard.Title, "the card title is the shared prefix, not one node type's title")
+	assert.Equal(t, "Grafana", grafanaCard.Title, "the card title is the provider title, not one node type's title")
 	assert.Contains(t, grafanaCard.Types, grafana.MetricsDescriptor.Type)
 	assert.Contains(t, grafanaCard.Types, grafana.AlertsDescriptor.Type)
+}
+
+// leastStable is the card's stability, and a mixed-stability family must read as
+// its least-stable member. The Grafana card can't prove this — both its node
+// types are Experimental — so a synthetic mix pins the discriminating case.
+func TestLeastStableTakesTheMostConservative(t *testing.T) {
+	t.Parallel()
+
+	ds := []connector.Descriptor{
+		{Stability: connector.Stable},
+		{Stability: connector.Experimental},
+	}
+	assert.Equal(t, connector.Experimental, leastStable(ds))
+	assert.Equal(t, connector.Experimental, leastStable([]connector.Descriptor{ds[1], ds[0]}), "order-independent")
 }
 
 // Go map iteration is randomized, so an unsorted projection would reshuffle the

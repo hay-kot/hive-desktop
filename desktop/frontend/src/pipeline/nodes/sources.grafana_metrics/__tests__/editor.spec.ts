@@ -15,7 +15,7 @@ vi.mock('@wailsio/runtime', () => ({
 
 function connectedStacks(...accounts: string[]) {
   mocks.List.mockResolvedValue([
-    { type: 'sources.grafana_metrics', title: 'Grafana metrics source', stability: 'experimental', mode: 'pull', provider: 'grafana', accounts, envOverride: false },
+    { key: 'grafana', title: 'Grafana', stability: 'experimental', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts, envOverride: false },
   ])
 }
 

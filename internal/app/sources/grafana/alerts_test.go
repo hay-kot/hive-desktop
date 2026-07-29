@@ -97,6 +97,34 @@ func TestAlertsClassifierFiringThenResolved(t *testing.T) {
 	assert.Equal(t, store.TransitionLeftTerminal, reopened.Transition, "a re-firing alert leaves the terminal state")
 }
 
+// A still-firing alert re-observed with a changed payload takes the default arm
+// every poll. It must stay trivial, not re-raise attention — the opposite would
+// notify on every poll for the lifetime of the alert.
+func TestAlertsClassifierReobservedStaysTrivial(t *testing.T) {
+	t.Parallel()
+
+	firing := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"firing"}`)}
+	resolved := store.Observation{ExternalID: "abc", Title: "HighLatency", Payload: []byte(`{"state":"resolved"}`)}
+
+	stillFiring := alertsClassifier{}.Classify(&firing, firing)
+	assert.Equal(t, "updated", stillFiring.Kind)
+	assert.Equal(t, store.TransitionNone, stillFiring.Transition)
+	assert.Equal(t, store.AttentionTrivial, stillFiring.Attention, "a re-observed firing alert must not re-raise attention")
+
+	stillResolved := alertsClassifier{}.Classify(&resolved, resolved)
+	assert.Equal(t, "updated", stillResolved.Kind)
+	assert.Equal(t, store.AttentionTrivial, stillResolved.Attention)
+}
+
+// A payload the rewrite cannot parse as a JSON object is returned unchanged, so
+// a malformed alert never blocks absence confirmation.
+func TestWithResolvedStateLeavesNonObjectPayloadUnchanged(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`"not an object"`)
+	assert.Equal(t, payload, withResolvedState(payload))
+}
+
 func TestAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	t.Parallel()
 
