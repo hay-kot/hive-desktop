@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import GrafanaIntegrationDrawer from '../GrafanaIntegrationDrawer.vue'
 
-const mocks = vi.hoisted(() => ({ Connect: vi.fn(), Disconnect: vi.fn(), List: vi.fn(), On: vi.fn() }))
+const mocks = vi.hoisted(() => ({ Connect: vi.fn(), Disconnect: vi.fn(), List: vi.fn(), On: vi.fn(), OpenURL: vi.fn() }))
 
 vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/grafanaservice', () => ({
   Connect: mocks.Connect,
@@ -13,6 +13,7 @@ vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/w
 }))
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: mocks.On },
+  Browser: { OpenURL: mocks.OpenURL },
 }))
 
 function connectedStacks(...accounts: string[]) {
@@ -78,6 +79,28 @@ describe('GrafanaIntegrationDrawer', () => {
     await flushPromises()
 
     expect(mocks.Disconnect).toHaveBeenCalledWith('grafana.example.com-1')
+  })
+
+  it('links to the Grafana service-account docs', async () => {
+    const wrapper = mountDrawer()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="grafana-connect-help"]').text()).toContain('Viewer')
+    await wrapper.find('[data-testid="grafana-connect-docs"]').trigger('click')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://grafana.com/docs/grafana/latest/administration/service-accounts/')
+  })
+
+  it('deep-links to the stack service accounts only once a URL is entered', async () => {
+    const wrapper = mountDrawer()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="grafana-connect-stack-link"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="grafana-connect-url"]').setValue('https://my-stack.grafana.net/')
+    expect(wrapper.find('[data-testid="grafana-connect-stack-link"]').exists()).toBe(true)
+
+    await wrapper.find('[data-testid="grafana-connect-stack-link"]').trigger('click')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://my-stack.grafana.net/org/serviceaccounts')
   })
 
   it('closes from the footer', async () => {

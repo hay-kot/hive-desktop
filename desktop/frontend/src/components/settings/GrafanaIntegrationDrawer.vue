@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { Browser } from '@wailsio/runtime'
 import IconActivity from '~icons/lucide/activity'
 import BaseButton from '../BaseButton.vue'
 import DrawerSheet from '../DrawerSheet.vue'
@@ -8,6 +9,10 @@ import { useGrafanaConnection } from '../../composables/useGrafanaConnection'
 import { useIntegrations } from '../../composables/useIntegrations'
 
 const emit = defineEmits<{ close: [] }>()
+
+// Read-only is all the connector needs — a Viewer service account can query
+// metrics and read alerts — so the guidance points at the least-privilege token.
+const SERVICE_ACCOUNT_DOCS = 'https://grafana.com/docs/grafana/latest/administration/service-accounts/'
 
 // Acquisition is provider-specific, so it lives here rather than on the generic
 // Integrations card. The connected accounts come from the same registry
@@ -22,6 +27,22 @@ const tokenInput = ref('')
 const disconnecting = ref<string | null>(null)
 
 const canConnect = computed(() => urlInput.value.trim() !== '' && tokenInput.value.trim() !== '')
+
+// The stack's own service-accounts page, once a URL is entered, so creating the
+// token is one click away rather than a hunt through the Grafana menus.
+const stackServiceAccountsUrl = computed(() => {
+  const base = urlInput.value.trim().replace(/\/+$/, '')
+  if (!/^https?:\/\//i.test(base)) return ''
+  return `${base}/org/serviceaccounts`
+})
+
+function openDocs() {
+  void Browser.OpenURL(SERVICE_ACCOUNT_DOCS)
+}
+
+function openStackServiceAccounts() {
+  if (stackServiceAccountsUrl.value) void Browser.OpenURL(stackServiceAccountsUrl.value)
+}
 
 async function onConnect() {
   if (!canConnect.value) return
@@ -78,7 +99,14 @@ async function onDisconnect(account: string) {
     </SettingsField>
 
     <div class="mt-5">
-      <SettingsField label="Connect a stack" hint="Paste the stack URL and a service-account token. The token is validated once and stored in your keychain; only the URL is written to disk." testid="grafana-connect">
+      <SettingsField label="Connect a stack" hint="The token is validated once and stored in your keychain; only the URL is written to disk." testid="grafana-connect">
+        <div class="mb-2.5 rounded-lg border border-border bg-app px-3 py-2.5 text-xs leading-relaxed text-text-3" data-testid="grafana-connect-help">
+          Create a <span class="text-text-2">service account</span> with the <span class="text-text-2">Viewer</span> role, then add a token — Viewer can query metrics and read alerts. Paste the token below.
+          <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
+            <button type="button" class="cursor-pointer text-accent hover:underline" data-testid="grafana-connect-docs" @click="openDocs">Grafana docs ↗</button>
+            <button v-if="stackServiceAccountsUrl" type="button" class="cursor-pointer text-accent hover:underline" data-testid="grafana-connect-stack-link" @click="openStackServiceAccounts">Service accounts on your stack ↗</button>
+          </div>
+        </div>
         <div class="flex flex-col gap-2">
           <input
             v-model="urlInput"

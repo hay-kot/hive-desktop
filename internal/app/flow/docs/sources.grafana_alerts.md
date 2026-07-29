@@ -4,7 +4,7 @@ A **Grafana alerts source** node emits one item per currently firing Grafana-man
 
 ## Fields
 
-- `credential` — required. The connected Grafana stack to fetch as, written as `grafana/<account>`. Connect a stack under Settings ▸ Integrations by pasting its URL and a service-account token. Alerts are not scoped to a datasource, so there is nothing else to configure.
+- `credential` — required. The connected Grafana stack to fetch as, written as `grafana/<account>`. Connect a stack under Settings ▸ Integrations by pasting its URL and a service-account token; a Viewer-role service account is enough to read alerts. Alerts are not scoped to a datasource, so there is nothing else to configure.
 
 ## Behavior
 
