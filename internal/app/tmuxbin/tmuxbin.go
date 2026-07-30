@@ -35,16 +35,15 @@ var systemDirs = []string{
 	"/bin",
 }
 
-// Locate returns the tmux binary to exec. override is terminal.tmux_path: when
-// set it is used or it fails, never fallen back from — a configured path that
-// does not work is a mistake to report, not a reason to silently run a
-// different tmux.
+// Locate returns the tmux binary to exec. override is paths.tmux: when set it is
+// used or it fails, never fallen back from — a configured path that does not
+// work is a mistake to report, not a reason to silently run a different tmux.
 func Locate(override string) (string, error) { return locate(override, searchDirs()) }
 
 func locate(override string, dirs []string) (string, error) {
 	if override != "" {
 		if err := usable(override); err != nil {
-			return "", fmt.Errorf("terminal.tmux_path: %w", err)
+			return "", fmt.Errorf("paths.tmux: %w", err)
 		}
 		return override, nil
 	}
@@ -57,7 +56,7 @@ func locate(override string, dirs []string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("%w on PATH or in %s; set terminal.tmux_path in settings.yaml to point at it", ErrNotFound, strings.Join(dirs, ", "))
+	return "", fmt.Errorf("%w on PATH or in %s; set paths.tmux in settings.yaml to point at it", ErrNotFound, strings.Join(dirs, ", "))
 }
 
 func searchDirs() []string {

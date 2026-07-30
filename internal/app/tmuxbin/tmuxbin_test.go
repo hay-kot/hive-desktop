@@ -63,7 +63,7 @@ func TestLocateReportsWhereItLooked(t *testing.T) {
 	_, err := locate("", []string{searched})
 	require.ErrorIs(t, err, ErrNotFound)
 	require.Contains(t, err.Error(), searched)
-	require.Contains(t, err.Error(), "terminal.tmux_path")
+	require.Contains(t, err.Error(), "paths.tmux")
 }
 
 // An override that does not work must fail rather than fall through: a user who
@@ -83,7 +83,7 @@ func TestLocateOverrideWins(t *testing.T) {
 	_, err = locate(filepath.Join(t.TempDir(), "tmux"), []string{elsewhere})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrNotFound)
-	require.Contains(t, err.Error(), "terminal.tmux_path")
+	require.Contains(t, err.Error(), "paths.tmux")
 }
 
 func TestResolverCachesSuccessOnly(t *testing.T) {

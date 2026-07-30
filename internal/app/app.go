@@ -203,7 +203,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
-	a.tmux = tmuxbin.NewResolver(cfg.Settings.Terminal.TmuxPath)
+	a.tmux = tmuxbin.NewResolver(cfg.Settings.Paths.Tmux)
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.

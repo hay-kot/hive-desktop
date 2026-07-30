@@ -296,8 +296,8 @@ internal/
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
                                   #   slug, fan-out broker — no transport, no UI
-    tmuxbin/                      # where the tmux binary is: setting, then PATH,
-                                  #   then package-manager prefixes (ADR 0038)
+    tmuxbin/                      # where the tmux binary is: paths.tmux, then
+                                  #   PATH, then package prefixes (ADR 0038)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -702,7 +702,7 @@ them is the constraint (ADR 0036):
 
 **Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
 0038). A desktop launch inherits no shell `$PATH`, so the resolver checks
-`terminal.tmux_path`, then `$PATH`, then the prefixes package managers install
+`paths.tmux`, then `$PATH`, then the prefixes package managers install
 into, and remembers only success — installing tmux does not need a relaunch.
 `tmuxcc` holds none of that policy: it takes a `func() (string, error)` and the
 resolved path travels on `Options.Binary`. Hive session spawning execs tmux from

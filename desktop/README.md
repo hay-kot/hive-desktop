@@ -163,8 +163,8 @@ http:
   host: 127.0.0.1
   port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
-terminal:
-  tmux_path: "" # absolute path; empty discovers tmux (ADR 0038)
+paths:
+  tmux: "" # absolute path to tmux; empty discovers it (ADR 0038)
 experimental:
   terminal: false # terminal mode ships dark (ADR 0037); read at startup
 development:
@@ -187,7 +187,7 @@ development:
     pause_commit: 0s
 ```
 
-`terminal.tmux_path` is the escape hatch for tmux discovery, not the normal way
+`paths.tmux` is the escape hatch for tmux discovery, not the normal way
 to configure it: left empty, the app searches `$PATH` and then the prefixes
 package managers install into (Homebrew, MacPorts, Nix), because a desktop
 launch does not inherit the shell's `$PATH` — macOS gives an `.app` bundle

@@ -25,8 +25,8 @@ type ManagerOptions struct {
 	BufferBytes int
 
 	// Binary answers which tmux to exec, and is consulted on every failed
-	// availability probe rather than once at startup — installing tmux, or
-	// fixing terminal.tmux_path, must not need a relaunch. nil means $PATH.
+	// availability probe rather than once at startup, so installing tmux does not
+	// need a relaunch. nil means $PATH.
 	Binary func() (string, error)
 
 	versionProbe func(context.Context, string) (string, error)
@@ -127,8 +127,6 @@ func (m *Manager) Available(ctx context.Context) error {
 	m.probed = true
 	m.binary = binary
 	m.mu.Unlock()
-	// Which tmux this run found is the first thing worth knowing when a terminal
-	// misbehaves, and a problem report carries this log.
 	m.log.Info().Str("tmux", binary).Str("version", strings.TrimSpace(raw)).Msg("tmux control mode available")
 	return nil
 }
