@@ -260,7 +260,7 @@ more expensive, which is the whole reason it is being done now.
   polling: {interval: 5m}
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
-  appearance: {theme: "", terminal_font_size: ""}   # terminal_font_size: small/medium/large/xl/xxl; "" = medium
+  appearance: {theme: "", terminal_font_size: "", terminal_show_windows: true, terminal_pool_size: 3}   # terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_show_windows lists every session's windows in the terminal sidebar; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR 0042)
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
   paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
@@ -360,6 +360,8 @@ persisted by UI writes.
 | `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
 | `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE` | Terminal font size preset (`small`/`medium`/`large`/`xl`/`xxl`); empty means medium |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS` | List every active session's windows in the terminal sidebar, not just the attached one's; on by default |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE` | Sessions the terminal view keeps attached for instant switching (1-6, ADR 0042); values outside the range read as the default, 3 |
 | `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |

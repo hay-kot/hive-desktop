@@ -31,7 +31,7 @@ type ManagerOptions struct {
 
 	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
-	runTmux      func(ctx context.Context, binary string, args ...string) error
+	runTmux      func(context.Context, string, ...string) ([]string, error)
 }
 
 // managedClient carries the generation its registration was made under, so a
@@ -49,7 +49,7 @@ type Manager struct {
 	locate      func() (string, error)
 	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
-	run         func(ctx context.Context, binary string, args ...string) error
+	run         func(context.Context, string, ...string) ([]string, error)
 	bufferBytes int
 
 	// The app-lifetime context lives in this closure rather than in a field:
@@ -259,13 +259,10 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 	if err := m.Available(ctx); err != nil {
 		return nil
 	}
-	m.mu.Lock()
-	binary := m.binary
-	m.mu.Unlock()
-	if err := m.run(ctx, binary, "has-session", "-t", from); err != nil {
+	if _, err := m.oneShot(ctx, "has-session", "-t", from); err != nil {
 		return nil
 	}
-	if err := m.run(ctx, binary, "rename-session", "-t", from, to); err != nil {
+	if _, err := m.oneShot(ctx, "rename-session", "-t", from, to); err != nil {
 		return fmt.Errorf("tmuxcc: rename session %s to %s: %w", from, to, err)
 	}
 	if mc, ok := m.managed(from); ok {
@@ -273,6 +270,52 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 		m.remove(from, mc.gen)
 	}
 	return nil
+}
+
+// ListWindows answers slug's window set without requiring an attach: an
+// attached slug answers from its live client, any other from a one-shot
+// list-windows. A slug with no tmux session behind it answers with no windows
+// rather than an error — callers enumerate sessions hive knows about, and one
+// that was never spawned, or whose tmux server restarted, is a normal state.
+func (m *Manager) ListWindows(ctx context.Context, slug string) ([]Window, error) {
+	if slug == "" {
+		return nil, fmt.Errorf("%w: empty slug", ErrNotAttached)
+	}
+	if mc, ok := m.managed(slug); ok {
+		if _, dead := mc.client.exited(); !dead {
+			return mc.client.Windows(), nil
+		}
+	}
+	if err := m.Available(ctx); err != nil {
+		return nil, err
+	}
+	if _, err := m.oneShot(ctx, "has-session", "-t", slug); err != nil {
+		return nil, nil
+	}
+	lines, err := m.oneShot(ctx, "list-windows", "-t", slug, "-F", listWindowsFormat)
+	if err != nil {
+		return nil, fmt.Errorf("tmuxcc: list windows of %s: %w", slug, err)
+	}
+	windows := make([]Window, 0, len(lines))
+	for _, line := range lines {
+		w, ok := parseWindowLine(line)
+		if !ok {
+			m.log.Warn().Str("line", line).Msg("unparseable list-windows row")
+			continue
+		}
+		windows = append(windows, w)
+	}
+	return windows, nil
+}
+
+// oneShot runs a one-shot tmux command with the binary the availability probe
+// resolved (ADR 0039) — never a bare "tmux", which a desktop launch may not
+// have on $PATH. Callers go through Available first, which is what sets it.
+func (m *Manager) oneShot(ctx context.Context, args ...string) ([]string, error) {
+	m.mu.Lock()
+	binary := m.binary
+	m.mu.Unlock()
+	return m.run(ctx, binary, args...)
 }
 
 // Detach closes slug's client. Unknown slugs are a no-op.

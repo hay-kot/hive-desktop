@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { groupTerminalSessions, useTerminalSessions, type TerminalSessionRow } from '../useTerminalSessions'
+import { groupTerminalSessions, resetTerminalSessionsForTests, useTerminalSessions, type TerminalSessionRow } from '../useTerminalSessions'
 
 const mocks = vi.hoisted(() => ({ ListSessions: vi.fn() }))
 
@@ -8,7 +8,10 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 
 describe('useTerminalSessions', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetTerminalSessionsForTests()
+  })
 
   it('loads every session the list carries, whatever its state', async () => {
     mocks.ListSessions.mockResolvedValue([
@@ -34,14 +37,20 @@ describe('useTerminalSessions', () => {
     expect(sessions.value).toEqual([])
   })
 
-  it('surfaces a listing failure and clears the rows', async () => {
-    mocks.ListSessions.mockRejectedValue(new Error('hive.db is locked'))
+  it('surfaces a listing failure and keeps the last-good rows', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+    ])
     const { sessions, error, reload } = useTerminalSessions()
+    await reload()
 
+    mocks.ListSessions.mockRejectedValue(new Error('hive.db is locked'))
     await reload()
 
     expect(error.value).toBe('hive.db is locked')
-    expect(sessions.value).toEqual([])
+    // The reload is a revalidation of a tree that is already on screen; a
+    // failure must not collapse it.
+    expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser'])
   })
 })
 

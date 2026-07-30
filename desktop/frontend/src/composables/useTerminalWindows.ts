@@ -49,6 +49,8 @@ export interface TerminalWindowTab {
   windowId: string
   name: string
   active: boolean
+  // The viewport sits above the live tail, so new output lands below the fold.
+  scrolledUp: boolean
   term: Terminal
   fit: FitAddon
 }
@@ -57,6 +59,10 @@ export interface UseTerminalWindows {
   tabs: Ref<TerminalWindowTab[]>
   activeWindowId: Ref<string>
   status: Ref<TerminalStatus>
+  // True once a terminal has processed output. 'live' is not enough to swap a
+  // held pane onto this session: the socket opens before the first-paint
+  // capture lands, and swapping then shows a blank grid for a frame.
+  painted: Ref<boolean>
   endReason: Ref<TerminalEndReason | null>
   error: Ref<string | null>
   actionError: Ref<string | null>
@@ -70,6 +76,8 @@ export interface UseTerminalWindows {
   rename: (windowId: string, name: string) => Promise<void>
   attachTab: (windowId: string, host: HTMLElement) => void
   disposeTab: (windowId: string) => void
+  focusActive: () => void
+  scrollToBottom: () => void
   dispose: () => void
 }
 
@@ -132,6 +140,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const tabs = ref<TerminalWindowTab[]>([]) as Ref<TerminalWindowTab[]>
   const activeWindowId = ref('')
   const status = ref<TerminalStatus>('connecting')
+  const painted = ref(false)
   const endReason = ref<TerminalEndReason | null>(null)
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
@@ -191,9 +200,25 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
     runtime.set(state.windowId, {
-      disposers: [term.onData((data: string) => sendInput(state.windowId, data))],
+      disposers: [
+        term.onData((data: string) => sendInput(state.windowId, data)),
+        // onScroll covers user scrolling and the auto-pin on new output;
+        // onBufferChange covers entering the alternate screen, which has no
+        // scrollback and fires no scroll event on the way in.
+        term.onScroll(() => refreshScrolledUp(state.windowId)),
+        term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
+      ],
     })
-    return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, term, fit }
+    return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
+  }
+
+  // Reads through findTab so the reactive proxy is mutated, not the raw object
+  // createTab returned — a raw write would leave the pill stale.
+  function refreshScrolledUp(windowId: string): void {
+    const tab = findTab(windowId)
+    if (!tab) return
+    const buffer = tab.term.buffer.active
+    tab.scrolledUp = buffer.viewportY < buffer.baseY
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -243,7 +268,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // because fit() would resize the Terminal itself, which is tmux's call.
   function voteSize(): void {
     const tab = findTab(activeWindowId.value)
-    if (!tab || !runtime.get(tab.windowId)?.host) return
+    const host = tab ? runtime.get(tab.windowId)?.host : undefined
+    if (!tab || !host) return
+    // A pane inside a display:none subtree — every pooled session behind the
+    // shown one — has no rendered box, but proposeDimensions still produces a
+    // tiny "valid" grid there: getComputedStyle answers the specified '100%',
+    // which FitAddon parses as 100px. Voting it would squeeze every window of
+    // the session to ~8×4 and force the TUI inside to reflow, then reflow
+    // back on reveal — the repaint the pool exists to avoid.
+    if (!host.clientWidth || !host.clientHeight) return
     const proposed = tab.fit.proposeDimensions()
     if (!proposed?.cols || !proposed.rows) return
     scheduleConstraintCheck()
@@ -297,9 +330,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!frame) return
 
     switch (frame.type) {
-      case 'output':
-        findTab(frame.windowId)?.term.write(frame.data)
+      case 'output': {
+        const tab = findTab(frame.windowId)
+        if (!tab) break
+        // The callback fires once xterm has processed the chunk, which is the
+        // earliest moment this attach has a screen worth revealing.
+        if (painted.value) tab.term.write(frame.data)
+        else tab.term.write(frame.data, () => { painted.value = true })
         break
+      }
       case 'window':
         applyWindowEvent(frame.kind, frame.state)
         break
@@ -432,12 +471,29 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   async function select(windowId: string): Promise<void> {
-    if (!findTab(windowId) || activeWindowId.value === windowId) return
+    if (!findTab(windowId)) return
+    // Reselecting the active window is still an intent to type into it: the
+    // click just moved DOM focus onto the tab, so hand it back to the pane.
+    if (activeWindowId.value === windowId) {
+      focusActive()
+      return
+    }
     setActive(windowId)
     await nextTick()
     findTab(windowId)?.term.focus()
     scheduleVote()
     await control(() => client.selectWindow(slug, windowId), 'Could not select that window.')
+  }
+
+  function focusActive(): void {
+    findTab(activeWindowId.value)?.term.focus()
+  }
+
+  function scrollToBottom(): void {
+    const tab = findTab(activeWindowId.value)
+    if (!tab) return
+    tab.term.scrollToBottom()
+    tab.term.focus()
   }
 
   async function newWindow(): Promise<void> {
@@ -480,8 +536,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   return {
-    tabs, activeWindowId, status, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
-    start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, dispose,
+    tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
+    start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
 }
 

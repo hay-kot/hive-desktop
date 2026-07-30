@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/web/extractors"
 )
 
@@ -115,8 +116,26 @@ type terminalAttachResponse struct {
 	Windows []terminalWindow `json:"windows"`
 }
 
+type terminalWindowsResponse struct {
+	Windows []terminalWindow `json:"windows"`
+}
+
 type terminalNewWindowResponse struct {
 	WindowID string `json:"windowId"`
+}
+
+func toTerminalWindows(windows []tmuxcc.Window) []terminalWindow {
+	out := make([]terminalWindow, 0, len(windows))
+	for _, win := range windows {
+		out = append(out, terminalWindow{
+			WindowID: win.ID,
+			Name:     win.Name,
+			Active:   win.Active,
+			Width:    win.Width,
+			Height:   win.Height,
+		})
+	}
+	return out
 }
 
 // TerminalAttach opens the control client for a session slug and returns its
@@ -130,17 +149,21 @@ func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) e
 	if err != nil {
 		return err
 	}
-	out := make([]terminalWindow, 0, len(windows))
-	for _, win := range windows {
-		out = append(out, terminalWindow{
-			WindowID: win.ID,
-			Name:     win.Name,
-			Active:   win.Active,
-			Width:    win.Width,
-			Height:   win.Height,
-		})
+	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: toTerminalWindows(windows)})
+}
+
+// TerminalListWindows answers a session's window set without attaching, so the
+// sidebar can show windows for sessions this webview is not attached to.
+func (ctrl *Controller) TerminalListWindows(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalSlugRequest](ctrl, w, r)
+	if err != nil {
+		return err
 	}
-	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: out})
+	windows, err := ctrl.core.Terminals.ListWindows(r.Context(), body.Slug)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalWindowsResponse{Windows: toTerminalWindows(windows)})
 }
 
 // TerminalResize renegotiates the control client's size.

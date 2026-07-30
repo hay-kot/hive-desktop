@@ -36,14 +36,22 @@ type NotificationSettings struct {
 	NotificationSound bool   `json:"notificationSound"`
 }
 
-// AppearanceSettings is the frontend's presentation configuration. Values are
-// carried verbatim: the frontend owns each valid set and heals unknown values,
-// so an empty field means "nothing persisted yet" rather than an error.
+// AppearanceSettings is the frontend's presentation configuration. String
+// values are carried verbatim: the frontend owns each valid set and heals
+// unknown values, so an empty field means "nothing persisted yet" rather than
+// an error.
 type AppearanceSettings struct {
 	Theme string `json:"theme"`
 	// TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
 	// pixel count — the frontend owns the mapping.
 	TerminalFontSize string `json:"terminalFontSize"`
+	// TerminalShowWindows lists every active session's tmux windows in the
+	// terminal sidebar, not just the attached session's. Ships on.
+	TerminalShowWindows bool `json:"terminalShowWindows"`
+	// TerminalPoolSize is how many sessions the terminal view keeps attached
+	// for instant switching (ADR 0042). Carried verbatim; the frontend heals
+	// anything outside 1-6 to the default, 3.
+	TerminalPoolSize int `json:"terminalPoolSize"`
 }
 
 // ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
@@ -82,8 +90,10 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		return AppearanceSettings{}, err
 	}
 	return AppearanceSettings{
-		Theme:            current.Theme,
-		TerminalFontSize: current.TerminalFontSize,
+		Theme:               current.Theme,
+		TerminalFontSize:    current.TerminalFontSize,
+		TerminalShowWindows: current.TerminalShowWindows,
+		TerminalPoolSize:    current.TerminalPoolSize,
 	}, nil
 }
 
@@ -95,6 +105,14 @@ func (s *SettingsService) SetTheme(ctx context.Context, theme string) error {
 
 func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {
 	return s.settings.SetTerminalFontSize(ctx, size)
+}
+
+func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool) error {
+	return s.settings.SetTerminalShowWindows(ctx, show)
+}
+
+func (s *SettingsService) SetTerminalPoolSize(ctx context.Context, size int) error {
+	return s.settings.SetTerminalPoolSize(ctx, size)
 }
 
 func (s *SettingsService) ExperimentalSettings(ctx context.Context) (ExperimentalSettings, error) {

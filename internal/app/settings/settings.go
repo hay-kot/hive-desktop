@@ -85,6 +85,14 @@ type NotificationSettings struct {
 type Appearance struct {
 	Theme            string `yaml:"theme,omitempty"              env:"HIVE_DESKTOP_APPEARANCE_THEME"`
 	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
+	// TerminalShowWindows lists every active session's tmux windows in the
+	// terminal sidebar, not just the attached session's. On by default.
+	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
+	// TerminalPoolSize is how many sessions the terminal view keeps attached at
+	// once for instant switching (ADR 0042). Like the other appearance values it
+	// is carried verbatim and healed by the frontend: anything outside 1-6 reads
+	// as the default, 3.
+	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
 }
 
 // ExperimentalSettings opts into features that ship dark. Each flag defaults
@@ -184,13 +192,15 @@ type Settings struct {
 	Polling       PollingSettings      `yaml:"polling"`
 	Updates       UpdateSettings       `yaml:"updates"`
 	Notifications NotificationSettings `yaml:"notifications"`
-	Appearance    Appearance           `yaml:"appearance,omitempty"`
-	HTTP          HTTPSettings         `yaml:"http"`
-	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
-	Skills        SkillsSettings       `yaml:"skills"`
-	Paths         PathsSettings        `yaml:"paths,omitempty"`
-	Experimental  ExperimentalSettings `yaml:"experimental,omitempty"`
-	Development   DevelopmentSettings  `yaml:"development"`
+	// No omitempty: with terminal_show_windows off and nothing else set the
+	// struct is all-zero, and an omitted section would read back as defaults.
+	Appearance   Appearance           `yaml:"appearance"`
+	HTTP         HTTPSettings         `yaml:"http"`
+	Keybindings  map[string][]string  `yaml:"keybindings,omitempty"`
+	Skills       SkillsSettings       `yaml:"skills"`
+	Paths        PathsSettings        `yaml:"paths,omitempty"`
+	Experimental ExperimentalSettings `yaml:"experimental,omitempty"`
+	Development  DevelopmentSettings  `yaml:"development"`
 
 	overrides map[string]bool
 }
@@ -201,6 +211,7 @@ func DefaultSettings() Settings {
 		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
+		Appearance:    Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
 		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Skills:        SkillsSettings{AutoUpdate: true},
 		Development: DevelopmentSettings{

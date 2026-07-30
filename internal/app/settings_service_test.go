@@ -212,6 +212,8 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, got.Theme)
 	require.Empty(t, got.TerminalFontSize)
+	require.True(t, got.TerminalShowWindows, "the terminal window listing ships on")
+	require.Equal(t, 3, got.TerminalPoolSize, "the attach pool ships at three sessions")
 }
 
 func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing.T) {
@@ -223,11 +225,15 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
 	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
+	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
+	require.NoError(t, service.SetTerminalPoolSize(t.Context(), 5))
 
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
 	require.Equal(t, "large", got.Appearance.TerminalFontSize)
+	require.False(t, got.Appearance.TerminalShowWindows)
+	require.Equal(t, 5, got.Appearance.TerminalPoolSize)
 	require.Equal(t, 5*time.Minute, got.Polling.Interval.Duration())
 	require.False(t, got.Updates.Enabled)
 
@@ -235,4 +241,20 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.NoError(t, err)
 	require.Equal(t, "midnight", roundTripped.Theme)
 	require.Equal(t, "large", roundTripped.TerminalFontSize, "one appearance setter must not clobber the other field")
+	require.False(t, roundTripped.TerminalShowWindows)
+	require.Equal(t, 5, roundTripped.TerminalPoolSize)
+}
+
+func TestSettingsServiceTerminalShowWindowsOffSurvivesUnrelatedSaves(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+
+	require.NoError(t, service.SetTerminalShowWindows(t.Context(), false))
+	// False is the only non-default appearance value here, so the section is
+	// all-zero — a save that omitted it would resurrect the default.
+	require.NoError(t, service.SetKeybindings(t.Context(), map[string][]string{"feed.next": {"j"}}))
+
+	got, err := service.Appearance(t.Context())
+	require.NoError(t, err)
+	require.False(t, got.TerminalShowWindows)
 }

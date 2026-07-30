@@ -3,6 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
+import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
+import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
+import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
+import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +26,11 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.Available,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  SetTerminalShowWindows: vi.fn(),
+  SetTerminalPoolSize: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
@@ -49,11 +58,12 @@ vi.mock('@wailsio/runtime', () => ({
 function fakeSession() {
   return {
     tabs: ref([
-      { uid: 1, windowId: '@1', name: 'agent', active: true, term: {}, fit: {} },
-      { uid: 2, windowId: '@2', name: 'shell', active: false, term: {}, fit: {} },
+      { uid: 1, windowId: '@1', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 2, windowId: '@2', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
     ]),
     activeWindowId: ref('@1'),
     status: ref<'connecting' | 'live' | 'ended'>('live'),
+    painted: ref(true),
     endReason: ref<string | null>(null),
     error: ref<string | null>(null),
     actionError: ref<string | null>(null),
@@ -67,17 +77,21 @@ function fakeSession() {
     rename: vi.fn().mockResolvedValue(undefined),
     attachTab: vi.fn(),
     disposeTab: vi.fn(),
+    focusActive: vi.fn(),
+    scrollToBottom: vi.fn(),
     dispose: vi.fn(),
   }
 }
 
 // TerminalMode only renders under the terminal route in App.vue, so every
 // mount starts there; tests deep-link by passing the session in the path.
+// Transitions are stubbed because happy-dom never fires transitionend, which
+// would leave leave-transitioned elements in the DOM past their v-if.
 async function mountAt(path = '/terminal') {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
   await router.isReady()
-  const wrapper = mount(TerminalMode, { global: { plugins: [router] } })
+  const wrapper = mount(TerminalMode, { global: { plugins: [router], stubs: { transition: true, 'transition-group': true } } })
   await flushPromises()
   return { wrapper, router }
 }
@@ -96,6 +110,9 @@ describe('TerminalMode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    resetTerminalAvailabilityForTests()
+    resetTerminalSessionsForTests()
+    resetTerminalWindowListingsForTests()
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     mocks.createTerminalClient.mockReturnValue({})
@@ -194,8 +211,13 @@ describe('TerminalMode', () => {
     expect(session.select).toHaveBeenCalledWith('@2')
   })
 
-  it('switches sessions by disposing the old attach before the new one', async () => {
-    const { wrapper, session } = await mountAvailable()
+  it('keeps the outgoing attach warm and snaps back to it without re-attaching', async () => {
+    const first = fakeSession()
+    const second = fakeSession()
+    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, scrolledUp: false, term: {}, fit: {} }]
+    second.activeWindowId.value = '@9'
+    mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const { wrapper } = await mountAt()
     const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
     await rows[0].trigger('click')
     await flushPromises()
@@ -205,10 +227,242 @@ describe('TerminalMode', () => {
     await flushPromises()
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
 
-    await wrapper.find('[data-testid="terminal-session-row"][data-attached="false"]').trigger('click')
+    await rows[1].trigger('click')
     await flushPromises()
-    expect(session.dispose).toHaveBeenCalledTimes(1)
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(2)
+    // The outgoing attach stays in the pool: nothing disposed, its panes still
+    // mounted (hidden) beside the incoming session's, its subtree still live.
+    expect(first.dispose).not.toHaveBeenCalled()
+    expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(3)
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(1)
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(3)
+
+    // Snapping back is a reveal and a refocus, not a re-attach.
+    await rows[0].trigger('click')
+    await flushPromises()
+    expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(2)
+    expect(first.focusActive).toHaveBeenCalled()
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+  })
+
+  it('holds the outgoing session on screen until the incoming one paints', async () => {
+    const first = fakeSession()
+    const second = fakeSession()
+    second.tabs.value = []
+    second.status.value = 'connecting'
+    second.painted.value = false
+    mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const { wrapper } = await mountAt()
+    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    await rows[0].trigger('click')
+    await flushPromises()
+
+    await rows[1].trigger('click')
+    await flushPromises()
+
+    // The sidebar reflects the selection at once; the pane does not blank.
+    expect(wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').attributes('data-slug')).toBe('hive-fix-parser')
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+
+    // First paint is the swap signal.
+    second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, scrolledUp: false, term: {}, fit: {} }]
+    second.status.value = 'live'
+    second.painted.value = true
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(1)
+    expect(second.focusActive).toHaveBeenCalled()
+  })
+
+  it('gives up the hold once the cap fires, so a slow attach is not a dead click', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = fakeSession()
+      const second = fakeSession()
+      second.tabs.value = []
+      second.status.value = 'connecting'
+      second.painted.value = false
+      mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
+      const { wrapper } = await mountAt()
+      const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+      await rows[0].trigger('click')
+      await flushPromises()
+
+      await rows[1].trigger('click')
+      await flushPromises()
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+
+      await vi.advanceTimersByTimeAsync(300)
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(0)
+      expect(wrapper.text()).toContain('Attaching…')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('detaches the least recently used session past the pool limit', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'aaa', slug: 'hive-aaa', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'bbb', slug: 'hive-bbb', repo: 'hay-kot/hive', state: 'active' },
+      { id: '3', name: 'ccc', slug: 'hive-ccc', repo: 'hay-kot/hive', state: 'active' },
+      { id: '4', name: 'ddd', slug: 'hive-ddd', repo: 'hay-kot/hive', state: 'active' },
+    ])
+    const sessions = [fakeSession(), fakeSession(), fakeSession(), fakeSession()]
+    for (const session of sessions) mocks.useTerminalWindows.mockReturnValueOnce(session)
+    const { wrapper } = await mountAt()
+
+    for (const row of wrapper.findAll('[data-testid="terminal-session-row"]')) {
+      await row.trigger('click')
+      await flushPromises()
+    }
+
+    expect(sessions[0].dispose).toHaveBeenCalledTimes(1)
+    expect(sessions[1].dispose).not.toHaveBeenCalled()
+    expect(sessions[2].dispose).not.toHaveBeenCalled()
+    expect(sessions[3].dispose).not.toHaveBeenCalled()
+  })
+
+  it('refocuses the terminal when the attached row is reselected', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').trigger('click')
+    await flushPromises()
+
+    expect(session.focusActive).toHaveBeenCalled()
+    expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a way back to the live tail while the viewport is scrolled up', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+
+    session.tabs.value[0].scrolledUp = true
+    await flushPromises()
+    await wrapper.get('[data-testid="terminal-scroll-to-bottom"]').trigger('click')
+    expect(session.scrollToBottom).toHaveBeenCalled()
+
+    // Only the active window's viewport matters — and the ended overlay
+    // replaces the pane, so the pill goes with it.
+    session.activeWindowId.value = '@2'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+
+    session.activeWindowId.value = '@1'
+    session.status.value = 'ended'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+  })
+
+  it('lists windows for unattached sessions out of the box', async () => {
+    const listWindows = vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
+      ? { windows: [
+          { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+          { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
+        ] }
+      : { windows: [] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const session = fakeSession()
+    session.tabs.value = [
+      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    session.activeWindowId.value = '@7'
+    const { wrapper, router } = await mountAvailable(session)
+
+    // Settings ▸ Appearance ▸ Terminal ships the listing on, so the tree fills
+    // in without touching anything.
+    expect(listWindows).toHaveBeenCalledWith('hive-bump-deps')
+    expect(listWindows).toHaveBeenCalledWith('hive-fix-parser')
+    const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
+    expect(rows.map((row) => row.text())).toEqual(['agent', 'shell'])
+
+    // A listed window is a deep link: attach the session with that window
+    // pinned, exactly like entering /terminal/:slug?window=….
+    await rows[1].trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(session.select).toHaveBeenCalledWith('@8')
+
+    // Attached now, so its rows are the live tab set, not the listing.
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
+  })
+
+  it('empties the tree of listed windows when the setting is turned off', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const { wrapper } = await mountAvailable()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+
+    setTerminalShowWindows(false)
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+
+    // The setting is a module singleton; put the default back for later tests.
+    setTerminalShowWindows(true)
+  })
+
+  it('re-enters from the caches and resumes without waiting on the probe', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const { wrapper } = await mountAvailable()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+    wrapper.unmount()
+
+    // Neither the probe nor the listing resolves this time: everything the
+    // second entry shows has to come from the caches, revalidation pending.
+    mocks.Available.mockReturnValue(new Promise(() => {}))
+    mocks.ListSessions.mockReturnValue(new Promise(() => {}))
+    localStorage.setItem('hive.terminal.restore', JSON.stringify({ slug: 'hive-bump-deps', window: '' }))
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { wrapper: second, router } = await mountAt()
+
+    expect(second.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+    expect(second.findAll('[data-testid="terminal-session-row"]')).toHaveLength(2)
+    // The refresh control is the staleness indicator while revalidation runs.
+    expect(second.get('[data-testid="terminal-sessions-refresh"]').find('.animate-spin').exists()).toBe(true)
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(mocks.useTerminalWindows).toHaveBeenCalledWith('hive-bump-deps', expect.anything())
+    second.unmount()
+  })
+
+  it('stands in the cached listing for the tab strip and subtree while attaching', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+      { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const session = fakeSession()
+    session.tabs.value = []
+    session.status.value = 'connecting'
+    const { wrapper } = await mountAvailable(session)
+
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    const placeholders = wrapper.findAll('[data-testid="terminal-placeholder-tab"]')
+    expect(placeholders.map((tab) => tab.text())).toEqual(['agent', 'shell'])
+    // The attached session's subtree keeps its cached rows too.
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(4)
+
+    // The live tab set replaces the stand-ins in place.
+    session.tabs.value = [
+      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    session.status.value = 'live'
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-placeholder-tab"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
   })
 
   it('says when there are no sessions to attach to', async () => {
