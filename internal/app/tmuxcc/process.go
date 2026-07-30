@@ -108,11 +108,11 @@ func (p *execProcess) Kill() error {
 // clients attach to — see Start for why the socket is passed explicitly — and
 // folds tmux's own complaint into the error, since that is all a failed
 // has-session or rename-session reports.
-func runTmux(ctx context.Context, args ...string) error {
+func runTmux(ctx context.Context, binary string, args ...string) error {
 	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
 		args = append([]string{"-S", socket}, args...)
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = detachedEnv()
 	out, err := cmd.CombinedOutput()
 	if err == nil {
@@ -149,7 +149,8 @@ func detachedEnv() []string {
 }
 
 // cappedBuffer keeps the first max bytes written to it, so a failed spawn can
-// report tmux's complaint without an unbounded sink.
+// report tmux's complaint without an unbounded sink. Write returns len(p)
+// past the cap so a noisy child never blocks on a full pipe.
 type cappedBuffer struct {
 	mu  sync.Mutex
 	buf []byte

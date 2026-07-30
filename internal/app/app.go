@@ -12,13 +12,13 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/colonyops/hive/pkg/executil"
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
@@ -156,6 +156,10 @@ type App struct {
 	// terminal's control clients and Hive's session spawning (ADR 0039).
 	tmux *tmuxbin.Resolver
 
+	// execEnv is the environment every command the app spawns on the user's
+	// behalf runs in — session hooks, git, shell actions (ADR 0041).
+	execEnv *execenv.Resolver
+
 	// pollInterval is the validated, clamped interval the producer polls on.
 	pollInterval time.Duration
 
@@ -205,6 +209,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
 	a.tmux = tmuxbin.NewResolver(cfg.Settings.Paths.Tmux)
+	a.execEnv = execenv.NewResolver(execenv.Options{Logger: cfg.Logger})
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
@@ -671,7 +676,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, cfg.Logger))
+	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
 	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
 	worker.SetRecorder(a.activityStore)
 	worker.SetJobRecorder(a.jobStore)
@@ -796,7 +801,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		AgentWindow:  hiveCfg.Agents.Default,
 		AgentFlags:   profile.ShellFlags(),
 	})
-	exec := newTmuxExecutor(&executil.RealExecutor{}, a.tmux)
+	exec := newTmuxExecutor(newEnvExecutor(a.execEnv), a.tmux)
 	sessions := hive.NewSessionService(
 		stores.NewSessionStore(database),
 		git.NewExecutor(hiveCfg.GitPath, exec),
