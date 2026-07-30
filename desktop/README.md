@@ -326,8 +326,18 @@ port is taken, override it with the Wails-native `WAILS_SERVER_PORT` env var
 
 The desktop icon masters live in `build/icons/`: `hive-mark.svg` is the
 1024px amber Hive mark on its dark rounded-square field, and
-`tray-template.svg` is the separate black-only 18px macOS template mark.
+`tray-template.svg` is the separate 18px macOS template mark.
 Regenerate every committed desktop icon with `mise run desktop:icons`.
+
+The mark's amber is `#f5b23f` — the same value as the app's `--hv-accent` in
+`frontend/src/styles/main.css`. Keep the two in step.
+
+The tray master is **not** a scaled `hive-mark.svg`. At 18-44px the app mark's
+connector strokes fall below a pixel and its hexagons close up, so the tray
+redraws the same four-node figure with wider spacing, much thicker strokes, and
+the amber/gray split carried as opacity (macOS tints a template through its
+alpha). `web/public/favicon.svg` is a third copy on the tray's proportions, so
+a change to the mark has to land in all three.
 
 The script requires librsvg (`rsvg-convert`), ImageMagick (`magick`), and
 macOS `iconutil`; install the first two with `brew install librsvg imagemagick`.
