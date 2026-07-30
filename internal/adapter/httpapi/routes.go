@@ -120,6 +120,10 @@ func (ctrl *Controller) baseOperations() []Op {
 			Errors: []ErrResp{{Status: 503, When: "no producer is available (e.g. mock mode)"}},
 		},
 		{
+			Method: "GET", Path: "/api/actions", Summary: "List the action catalog with the actions.yml it was loaded from and whether the file on disk currently parses; an invalid edit leaves the previous catalog in effect and reports its error here.",
+			Response: actionsResponse{}, Handler: ctrl.Actions,
+		},
+		{
 			Method: "GET", Path: "/api/profiles", Summary: "List every profile with its load status and whether it has an avatar.",
 			Response: profilesResponse{}, Handler: ctrl.Profiles,
 		},
