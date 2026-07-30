@@ -714,6 +714,18 @@ and overflow is **fatal**: the client is torn down and the frontend re-attaches,
 which re-runs first paint. There is no partial resync, no drop-oldest (it
 corrupts emulator state), and no tmux `pause-after`.
 
+On the frontend, a pane **always loads an atlas renderer** — WebGL, falling back
+to 2D canvas — after `term.open()` and never before, because only an atlas
+renderer strokes box drawing and underlines to the cell's device-pixel bounds;
+xterm's DOM renderer cannot join either across cells at any size or device pixel
+ratio. Three rules follow and are the ones to keep (ADR 0038): the DOM renderer
+is a logged degradation path, not a supported one; **do not set `lineHeight` or
+`letterSpacing`** — every renderer quantises both to whole device pixels, so
+neither can tune a cell onto a cleaner boundary and a `lineHeight` above 1 pads
+the glyph off the edge box drawing has to reach; and the addon majors are pinned
+to the xterm core major, since they reach into `Terminal._core` for private
+services.
+
 ## Execution model
 
 The flow engine runs **in Go**, in-process. Source polling, graph routing,
