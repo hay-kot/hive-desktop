@@ -260,6 +260,34 @@ func TestTmuxAttachReturnsWindowsAndStreamsEvents(t *testing.T) {
 	readUntil(t, conn, "a closed window event", func(f []byte) bool { return isWindowEvent(f, "closed", created.WindowID) })
 }
 
+// The sidebar's "always show windows" option lists windows for sessions this
+// webview is not attached to, so the listing must work with no control client.
+func TestTmuxListWindowsAnswersWithoutAnAttach(t *testing.T) {
+	tmux := startTmux(t, "hive-list")
+	tmux.newWindow("shell")
+	h := newTerminalHarness(t)
+
+	list := func(t *testing.T, slug string) attachResult {
+		t.Helper()
+		resp := h.post(t, "/api/terminal/windows/list", testToken, map[string]any{"slug": slug})
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		var out attachResult
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+		_ = resp.Body.Close()
+		return out
+	}
+
+	listed := list(t, tmux.slug)
+	require.Len(t, listed.Windows, 2)
+	assert.ElementsMatch(t, []string{"claude", "shell"},
+		[]string{listed.Windows[0].Name, listed.Windows[1].Name})
+
+	// A hive session with no tmux session behind it is a normal state for the
+	// sidebar, so it reads as no windows rather than an error.
+	absent := list(t, "hive-never-spawned")
+	assert.Empty(t, absent.Windows)
+}
+
 func TestTmuxOutputFrameCarriesPaneOutput(t *testing.T) {
 	tmux := startTmux(t, "hive-output")
 	h := newTerminalHarness(t)

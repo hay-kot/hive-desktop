@@ -49,6 +49,8 @@ export interface TerminalWindowTab {
   windowId: string
   name: string
   active: boolean
+  // The viewport sits above the live tail, so new output lands below the fold.
+  scrolledUp: boolean
   term: Terminal
   fit: FitAddon
 }
@@ -70,6 +72,8 @@ export interface UseTerminalWindows {
   rename: (windowId: string, name: string) => Promise<void>
   attachTab: (windowId: string, host: HTMLElement) => void
   disposeTab: (windowId: string) => void
+  focusActive: () => void
+  scrollToBottom: () => void
   dispose: () => void
 }
 
@@ -191,9 +195,25 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
     runtime.set(state.windowId, {
-      disposers: [term.onData((data: string) => sendInput(state.windowId, data))],
+      disposers: [
+        term.onData((data: string) => sendInput(state.windowId, data)),
+        // onScroll covers user scrolling and the auto-pin on new output;
+        // onBufferChange covers entering the alternate screen, which has no
+        // scrollback and fires no scroll event on the way in.
+        term.onScroll(() => refreshScrolledUp(state.windowId)),
+        term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
+      ],
     })
-    return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, term, fit }
+    return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
+  }
+
+  // Reads through findTab so the reactive proxy is mutated, not the raw object
+  // createTab returned — a raw write would leave the pill stale.
+  function refreshScrolledUp(windowId: string): void {
+    const tab = findTab(windowId)
+    if (!tab) return
+    const buffer = tab.term.buffer.active
+    tab.scrolledUp = buffer.viewportY < buffer.baseY
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -432,12 +452,29 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   async function select(windowId: string): Promise<void> {
-    if (!findTab(windowId) || activeWindowId.value === windowId) return
+    if (!findTab(windowId)) return
+    // Reselecting the active window is still an intent to type into it: the
+    // click just moved DOM focus onto the tab, so hand it back to the pane.
+    if (activeWindowId.value === windowId) {
+      focusActive()
+      return
+    }
     setActive(windowId)
     await nextTick()
     findTab(windowId)?.term.focus()
     scheduleVote()
     await control(() => client.selectWindow(slug, windowId), 'Could not select that window.')
+  }
+
+  function focusActive(): void {
+    findTab(activeWindowId.value)?.term.focus()
+  }
+
+  function scrollToBottom(): void {
+    const tab = findTab(activeWindowId.value)
+    if (!tab) return
+    tab.term.scrollToBottom()
+    tab.term.focus()
   }
 
   async function newWindow(): Promise<void> {
@@ -481,7 +518,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   return {
     tabs, activeWindowId, status, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
-    start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, dispose,
+    start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
 }
 

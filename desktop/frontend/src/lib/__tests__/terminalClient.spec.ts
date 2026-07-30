@@ -130,6 +130,19 @@ describe('createTerminalClient', () => {
     expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', cols: 120, rows: 40 })
   })
 
+  it('lists a session’s windows without attaching', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {
+      windows: [{ windowId: '@2', name: 'shell', active: false, width: 120, height: 40 }],
+    }))
+
+    const result = await createTerminalClient(endpoint).listWindows('hive-abc')
+
+    expect(result.windows).toEqual([{ windowId: '@2', name: 'shell', active: false, width: 120, height: 40 }])
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/windows/list')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc' })
+  })
+
   it('treats a 204 as success for the void operations', async () => {
     fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
     const client = createTerminalClient(endpoint)

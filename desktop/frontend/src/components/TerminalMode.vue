@@ -2,10 +2,12 @@
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
+import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
+import IconListTree from '~icons/lucide/list-tree'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
@@ -25,7 +27,7 @@ import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
 import { useWailsEvent } from '../composables/useWailsEvent'
-import { createTerminalClient, getTerminalEndpoint, type TerminalClient } from '../lib/terminalClient'
+import { createTerminalClient, getTerminalEndpoint, type TerminalClient, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { MenuEntry } from '../types/menu'
@@ -72,6 +74,13 @@ const sidebarMenuOpen = ref(false)
 const sidebarMenuToggle = ref<HTMLElement | null>(null)
 const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
   kind: 'action',
+  id: 'windows',
+  label: 'Always show windows',
+  icon: IconListTree,
+  checked: showAllWindows.value,
+  testid: 'terminal-sessions-show-windows',
+}, {
+  kind: 'action',
   id: 'prune',
   label: prunableCount.value ? `Prune ${prunableCount.value} recycled…` : 'Nothing to prune',
   icon: IconTrash,
@@ -110,6 +119,7 @@ function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
 
 function onSidebarMenuSelect(id: string): void {
   sidebarMenuOpen.value = false
+  if (id === 'windows') showAllWindows.value = !showAllWindows.value
   if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
 }
 
@@ -126,6 +136,43 @@ function toggleGroup(key: string): void {
     : [...collapsedRepos.value, key]
 }
 
+// "Always show windows": windows are only known live through an attach, so
+// every other active session's come from a one-shot listing per session —
+// fetched only while the option is on, and refreshed whenever the session
+// list or the attached slug changes. The attached session never reads from
+// this map; its live tab set is fresher.
+const showAllWindows = useStorage('hive.terminal.sidebar.windows', false)
+const sessionWindows = ref<Record<string, WindowState[]>>({})
+watch([showAllWindows, attachable, activeSlug, client], () => { void refreshSessionWindows() })
+
+async function refreshSessionWindows(): Promise<void> {
+  const transport = client.value
+  if (!showAllWindows.value || !transport) {
+    sessionWindows.value = {}
+    return
+  }
+  const entries = await Promise.all(attachable.value.map(async (row) => {
+    try {
+      const { windows } = await transport.listWindows(row.slug)
+      return [row.slug, windows] as const
+    } catch {
+      // One session's listing failing must not blank the others' rows.
+      return [row.slug, [] as WindowState[]] as const
+    }
+  }))
+  if (!showAllWindows.value) return
+  sessionWindows.value = Object.fromEntries(entries)
+}
+
+function listedWindows(row: TerminalSessionRow): WindowState[] {
+  if (!showAllWindows.value || row.slug === activeSlug.value) return []
+  return sessionWindows.value[row.slug] ?? []
+}
+
+function openWindow(row: TerminalSessionRow, windowId: string): void {
+  void router.push({ name: 'terminal', params: { slug: row.slug }, query: { window: windowId } })
+}
+
 const { size: sidebarWidth, startResize, step } = useResizablePanel({
   storageKey: 'hive.panel.terminal.sidebar', defaultSize: 250, min: 180, max: 400, edge: 'right',
 })
@@ -137,6 +184,7 @@ useWailsEvent('jobs:updated', () => { void reloadSessions() })
 
 const tabs = computed<TerminalWindowTab[]>(() => session.value?.tabs.value ?? [])
 const activeWindowId = computed(() => session.value?.activeWindowId.value ?? '')
+const activeScrolledUp = computed(() => tabs.value.some((tab) => tab.windowId === activeWindowId.value && tab.scrolledUp))
 const status = computed(() => session.value?.status.value ?? 'connecting')
 const endReason = computed(() => session.value?.endReason.value ?? null)
 const sessionError = computed(() => session.value?.error.value ?? '')
@@ -228,8 +276,10 @@ watch([attachable, activeSlug], ([rows, slug]) => {
 function selectSession(slug: string): void {
   if (slug === activeSlug.value) {
     // Same URL, so the route watcher stays silent — but after the session
-    // ended the row is as valid a way back in as the overlay's Reconnect.
+    // ended the row is as valid a way back in as the overlay's Reconnect,
+    // and reselecting a live one is an intent to type into it.
     if (session.value?.status.value === 'ended') openSession(slug)
+    else session.value?.focusActive()
     return
   }
   void router.push({ name: 'terminal', params: { slug } })
@@ -317,9 +367,9 @@ onBeforeUnmount(() => session.value?.dispose())
 
     <div v-else class="flex min-h-0 min-w-0 flex-1">
       <!-- The sidebar is persistent, like the TUI's session tree: repos as
-           group headers, sessions under them, and the attached session's tmux
-           windows nested beneath it. Only the attached session can expand —
-           windows are only known through a live attach (lazy, by design). -->
+           group headers, sessions under them, and tmux windows nested beneath.
+           The attached session's windows are its live tab set; the rest render
+           only with "Always show windows" on, from a one-shot listing. -->
       <aside
         class="relative flex shrink-0 flex-col border-r border-border bg-sidebar"
         :style="{ width: sidebarWidth + 'px' }"
@@ -451,6 +501,20 @@ onBeforeUnmount(() => session.value?.dispose())
                     <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ tab.name || tab.windowId }}</span>
                   </button>
                 </div>
+                <div v-else-if="listedWindows(row).length" class="flex flex-col pb-1">
+                  <button
+                    v-for="(win, index) in listedWindows(row)"
+                    :key="win.windowId"
+                    type="button"
+                    class="window-row"
+                    :class="{ 'window-row-last': index === listedWindows(row).length - 1 }"
+                    data-testid="terminal-listed-window-row"
+                    :data-window-id="win.windowId"
+                    @click="openWindow(row, win.windowId)"
+                  >
+                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name || win.windowId }}</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -554,6 +618,16 @@ onBeforeUnmount(() => session.value?.dispose())
               @mount="onTabMount"
             />
             <div v-if="!tabs.length && status !== 'ended'" class="flex flex-1 items-center justify-center font-mono text-xs text-text-4">Attaching…</div>
+
+            <!-- New output keeps landing below the fold while the viewport is
+                 scrolled up; this is the way back to the live tail. -->
+            <button
+              v-if="activeScrolledUp && status !== 'ended'"
+              type="button"
+              class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
+              data-testid="terminal-scroll-to-bottom"
+              @click="session?.scrollToBottom()"
+            ><IconArrowDown class="size-3" />Scroll to bottom</button>
 
             <div
               v-if="status === 'ended'"

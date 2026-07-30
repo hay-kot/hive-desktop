@@ -49,8 +49,8 @@ vi.mock('@wailsio/runtime', () => ({
 function fakeSession() {
   return {
     tabs: ref([
-      { uid: 1, windowId: '@1', name: 'agent', active: true, term: {}, fit: {} },
-      { uid: 2, windowId: '@2', name: 'shell', active: false, term: {}, fit: {} },
+      { uid: 1, windowId: '@1', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 2, windowId: '@2', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
     ]),
     activeWindowId: ref('@1'),
     status: ref<'connecting' | 'live' | 'ended'>('live'),
@@ -67,6 +67,8 @@ function fakeSession() {
     rename: vi.fn().mockResolvedValue(undefined),
     attachTab: vi.fn(),
     disposeTab: vi.fn(),
+    focusActive: vi.fn(),
+    scrollToBottom: vi.fn(),
     dispose: vi.fn(),
   }
 }
@@ -209,6 +211,79 @@ describe('TerminalMode', () => {
     await flushPromises()
     expect(session.dispose).toHaveBeenCalledTimes(1)
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(2)
+  })
+
+  it('refocuses the terminal when the attached row is reselected', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').trigger('click')
+    await flushPromises()
+
+    expect(session.focusActive).toHaveBeenCalled()
+    expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a way back to the live tail while the viewport is scrolled up', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+
+    session.tabs.value[0].scrolledUp = true
+    await flushPromises()
+    await wrapper.get('[data-testid="terminal-scroll-to-bottom"]').trigger('click')
+    expect(session.scrollToBottom).toHaveBeenCalled()
+
+    // Only the active window's viewport matters — and the ended overlay
+    // replaces the pane, so the pill goes with it.
+    session.activeWindowId.value = '@2'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+
+    session.activeWindowId.value = '@1'
+    session.status.value = 'ended'
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
+  })
+
+  it('lists windows for unattached sessions once always-show-windows is on', async () => {
+    const listWindows = vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
+      ? { windows: [
+          { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+          { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
+        ] }
+      : { windows: [] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const session = fakeSession()
+    session.tabs.value = [
+      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    session.activeWindowId.value = '@7'
+    const { wrapper, router } = await mountAvailable(session)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+
+    await wrapper.get('[data-testid="terminal-sessions-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="terminal-sessions-show-windows"]').trigger('click')
+    await flushPromises()
+
+    expect(listWindows).toHaveBeenCalledWith('hive-bump-deps')
+    expect(listWindows).toHaveBeenCalledWith('hive-fix-parser')
+    const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
+    expect(rows.map((row) => row.text())).toEqual(['agent', 'shell'])
+
+    // A listed window is a deep link: attach the session with that window
+    // pinned, exactly like entering /terminal/:slug?window=….
+    await rows[1].trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(session.select).toHaveBeenCalledWith('@8')
+
+    // Attached now, so its rows are the live tab set, not the listing.
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
   })
 
   it('says when there are no sessions to attach to', async () => {

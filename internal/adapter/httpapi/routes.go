@@ -213,6 +213,11 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
 		},
 		{
+			Method: "POST", Path: "/api/terminal/windows/list", Summary: "List a session's windows without attaching. An attached slug answers from its live client; a slug with no tmux session behind it answers with no windows rather than an error.",
+			Request: terminalSlugRequest{}, Response: terminalWindowsResponse{}, Handler: ctrl.TerminalListWindows,
+			Errors: terminalErrors(""),
+		},
+		{
 			Method: "POST", Path: "/api/terminal/detach", Summary: "Close the control client, leaving the tmux session itself running.",
 			Request: terminalSlugRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalDetach,
 			Errors: terminalErrors("no terminal is attached for that slug"),
@@ -222,13 +227,14 @@ func (ctrl *Controller) terminalOperations() []Op {
 
 // terminalErrors documents what every terminal operation can answer beyond the
 // generic error: the bearer token these — and only these — routes require, and
-// tmux being absent or too old.
+// tmux being absent or too old. An empty notFound means the operation has no
+// 404: an absent target is one of its answers, not one of its failures.
 func terminalErrors(notFound string) []ErrResp {
-	return []ErrResp{
-		{Status: 401, When: "the Authorization: Bearer token is missing or wrong"},
-		{Status: 404, When: notFound},
-		{Status: 503, When: "tmux is unavailable: missing, older than 3.2, or an unsupported build"},
+	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
+	if notFound != "" {
+		errs = append(errs, ErrResp{Status: 404, When: notFound})
 	}
+	return append(errs, ErrResp{Status: 503, When: "tmux is unavailable: missing, older than 3.2, or an unsupported build"})
 }
 
 func (ctrl *Controller) Handler() http.Handler {

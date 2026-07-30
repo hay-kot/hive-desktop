@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { onClickOutside } from '@vueuse/core'
+import IconCheck from '~icons/lucide/check'
 import AppIcon from './AppIcon.vue'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import type { MenuEntry } from '../types/menu'
@@ -34,6 +35,7 @@ useEscapeToClose(() => emit('close'))
         <component :is="entry.icon" v-if="entry.icon" class="size-3.5 shrink-0" :style="entry.iconColor ? { color: entry.iconColor } : undefined" />
         <AppIcon v-else-if="entry.iconName" :name="entry.iconName" class="size-3.5 shrink-0" :style="entry.iconColor ? { color: entry.iconColor } : undefined" />
         <span class="min-w-0 flex-1 truncate">{{ entry.label }}</span>
+        <IconCheck v-if="entry.checked" class="size-3.5 shrink-0 text-accent" />
         <span v-if="entry.kbd" class="app-menu-kbd">{{ entry.kbd }}</span>
       </button>
     </template>

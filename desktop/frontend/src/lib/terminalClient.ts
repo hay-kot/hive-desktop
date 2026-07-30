@@ -50,6 +50,8 @@ export type TerminalFrame =
 export interface TerminalClient {
   /** cols/rows are the opening size vote; 0x0 attaches without setting one. */
   attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[] }>
+  /** Lists a session's windows without attaching; a slug with no tmux session behind it answers with none. */
+  listWindows(slug: string): Promise<{ windows: WindowState[] }>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
@@ -82,6 +84,10 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
   return {
     async attach(slug, cols, rows) {
       const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/attach', { slug, cols, rows })
+      return { windows: (body?.windows ?? []).map(toWindowState) }
+    },
+    async listWindows(slug) {
+      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/list', { slug })
       return { windows: (body?.windows ?? []).map(toWindowState) }
     },
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },

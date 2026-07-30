@@ -39,6 +39,17 @@ func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows i
 	return windows, nil
 }
 
+// ListWindows answers slug's window set without attaching: an attached slug
+// answers from its live client, any other from a one-shot tmux query. A slug
+// with no tmux session behind it answers with no windows rather than an error.
+func (s *TerminalsService) ListWindows(ctx context.Context, slug string) ([]tmuxcc.Window, error) {
+	windows, err := s.manager.ListWindows(ctx, slug)
+	if err != nil {
+		return nil, terminalError(err, "listing windows of session %q", slug)
+	}
+	return windows, nil
+}
+
 // Subscribe returns slug's event stream and its unsubscribe func. There is one
 // active subscriber per session: a second call closes the first channel, which
 // is how a replaced transport learns it was replaced.

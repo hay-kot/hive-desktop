@@ -105,23 +105,32 @@ func (p *execProcess) Kill() error {
 }
 
 // runTmux runs a one-shot tmux command against the same server the control
-// clients attach to — see Start for why the socket is passed explicitly — and
-// folds tmux's own complaint into the error, since that is all a failed
-// has-session or rename-session reports.
-func runTmux(ctx context.Context, args ...string) error {
+// clients attach to — see Start for why the socket is passed explicitly —
+// returning stdout as lines and folding tmux's own complaint into the error,
+// since that is all a failed has-session or rename-session reports.
+func runTmux(ctx context.Context, binary string, args ...string) ([]string, error) {
+	if binary == "" {
+		binary = defaultBinary
+	}
 	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
 		args = append([]string{"-S", socket}, args...)
 	}
-	cmd := exec.CommandContext(ctx, "tmux", args...)
+	cmd := exec.CommandContext(ctx, binary, args...)
 	cmd.Env = detachedEnv()
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		return nil
+	stderr := &cappedBuffer{max: 4 << 10}
+	cmd.Stderr = stderr
+	out, err := cmd.Output()
+	if err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return nil, fmt.Errorf("%w: %s", err, msg)
+		}
+		return nil, err
 	}
-	if msg := strings.TrimSpace(string(out)); msg != "" {
-		return fmt.Errorf("%w: %s", err, msg)
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return nil, nil
 	}
-	return err
+	return strings.Split(trimmed, "\n"), nil
 }
 
 // socketFromTMUX extracts the server socket path from a $TMUX value

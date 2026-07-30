@@ -16,7 +16,20 @@ const xterm = vi.hoisted(() => {
     dispose = vi.fn()
     resize = vi.fn((cols: number, rows: number) => { this.cols = cols; this.rows = rows })
     onDataDisposed = false
+    buffer = {
+      active: { viewportY: 0, baseY: 0 },
+      onBufferChange: (handler: () => void) => {
+        this.bufferHandlers.push(handler)
+        return { dispose: () => {} }
+      },
+    }
+    scrollToBottom = vi.fn(() => {
+      this.buffer.active.viewportY = this.buffer.active.baseY
+      for (const handler of this.scrollHandlers) handler()
+    })
     private handlers: ((data: string) => void)[] = []
+    private scrollHandlers: (() => void)[] = []
+    private bufferHandlers: (() => void)[] = []
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
@@ -28,8 +41,23 @@ const xterm = vi.hoisted(() => {
       return { dispose: () => { this.onDataDisposed = true } }
     }
 
+    onScroll(handler: () => void) {
+      this.scrollHandlers.push(handler)
+      return { dispose: () => {} }
+    }
+
     type(data: string): void {
       for (const handler of this.handlers) handler(data)
+    }
+
+    scrollTo(viewportY: number, baseY: number): void {
+      this.buffer.active.viewportY = viewportY
+      this.buffer.active.baseY = baseY
+      for (const handler of this.scrollHandlers) handler()
+    }
+
+    switchBuffer(): void {
+      for (const handler of this.bufferHandlers) handler()
     }
 
     static instances: FakeTerminal[] = []
@@ -129,6 +157,7 @@ function fakeClient(): MockedClient {
         { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 },
       ],
     }),
+    listWindows: vi.fn().mockResolvedValue({ windows: [] }),
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
     closeWindow: vi.fn().mockResolvedValue(undefined),
@@ -670,6 +699,45 @@ describe('useTerminalWindows', () => {
     socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs' }) })
 
     expect(session.activeWindowId.value).toBe('@3')
+  })
+
+  it('refocuses the pane when the active window is reselected', async () => {
+    const { client, session } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.focus.mockClear()
+
+    await session.select('@1')
+
+    expect(term.focus).toHaveBeenCalled()
+    expect(client.selectWindow).not.toHaveBeenCalled()
+  })
+
+  it('tracks whether the active window is scrolled above the live tail', async () => {
+    const { session } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+    term.scrollTo(5, 12)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+
+    // Entering the alternate screen (a full-screen TUI) has no scrollback and
+    // fires no scroll event, so the buffer switch is what clears the flag.
+    term.buffer.active = { viewportY: 0, baseY: 0 }
+    term.switchBuffer()
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  it('scrolls the active window back to the tail and refocuses it', async () => {
+    const { session } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.scrollTo(5, 12)
+    term.focus.mockClear()
+
+    session.scrollToBottom()
+
+    expect(term.scrollToBottom).toHaveBeenCalled()
+    expect(term.focus).toHaveBeenCalled()
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
   })
 
   it('reports a failed control action without ending the session', async () => {
