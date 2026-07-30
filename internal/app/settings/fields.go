@@ -41,18 +41,6 @@ func FieldNames() []string {
 	return names
 }
 
-// FieldValue formats one field of cfg by its dotted path. It reports ok=false
-// for a path FieldNames does not contain.
-func FieldValue(cfg Settings, field string) (value string, ok bool) {
-	v := reflect.ValueOf(cfg)
-	walkFields(v, v, "", func(name string, found, _ reflect.Value) {
-		if name == field {
-			value, ok = format(found), true
-		}
-	})
-	return value, ok
-}
-
 // walkFields visits every leaf field of two Settings values in parallel. A
 // nested struct recurses; a map or scalar is a leaf, because a settings map
 // (keybindings, skills.targets) is edited and reported as a whole.

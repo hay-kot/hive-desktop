@@ -85,8 +85,6 @@ func (s *Store) reloadLocked() (Settings, error) {
 	return cfg, nil
 }
 
-func (s *Store) Effective() (Settings, error) { return s.load(true) }
-
 func (s *Store) Persisted() (Settings, error) { return s.load(false) }
 
 func (s *Store) load(withEnvironment bool) (Settings, error) {

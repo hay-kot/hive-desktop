@@ -37,8 +37,9 @@ value and never fails; `Reload()` swaps it and leaves the previous one in servic
 when the new file will not parse or validate. Every core read goes through
 `Current()`, which also removes observation skew: two values read within one
 operation come from one atomic swap rather than two file loads an edit can land
-between. `Effective()`/`Persisted()` remain pure reads for the composition root
-and tooling.
+between. `Persisted()` remains a pure read for tooling that inspects the file
+without serving it; the composition root loads through `Reload()`, so the
+snapshot the app is built from is the one the store goes on to serve.
 
 A **write** still fails while the file is broken. Last-good is what keeps the app
 reading; writing it back would overwrite whatever the user has mid-edit.

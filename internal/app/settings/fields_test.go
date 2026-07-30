@@ -66,15 +66,3 @@ func TestFieldNamesCoversTheSchema(t *testing.T) {
 		seen[name] = true
 	}
 }
-
-func TestFieldValue(t *testing.T) {
-	cfg := DefaultSettings()
-	cfg.Appearance.Theme = "nord"
-
-	value, ok := FieldValue(cfg, "appearance.theme")
-	require.True(t, ok)
-	assert.Equal(t, "nord", value)
-
-	_, ok = FieldValue(cfg, "appearance.nonesuch")
-	assert.False(t, ok)
-}

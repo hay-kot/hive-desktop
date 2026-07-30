@@ -334,7 +334,7 @@ func ValidListenerPort(port int) bool { return port == 0 || (port >= 1024 && por
 // Package-level helpers remain for isolated tests and e2e harnesses. Runtime
 // composition owns and injects one Store at its resolved Paths.SettingsPath.
 func LoadPersistedSettings() (Settings, error) { return NewStore(SettingsPath()).Persisted() }
-func LoadSettings() (Settings, error)          { return NewStore(SettingsPath()).Effective() }
+func LoadSettings() (Settings, error)          { return NewStore(SettingsPath()).Reload() }
 
 func SaveSettings(cfg Settings) error {
 	settingsFileMu.Lock()

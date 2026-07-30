@@ -21,13 +21,13 @@ import (
 // silently does nothing for it and no restart hint ever appears. This is what
 // makes adding a field to the schema a decision rather than an omission.
 func TestSettingsReloadClassifiesEverySchemaField(t *testing.T) {
-	for _, field := range settings.FieldNames() {
+	schema := settings.FieldNames()
+	for _, field := range schema {
 		_, ok := settingsReload[field]
 		assert.True(t, ok, "settings field %q is not classified in settingsReload", field)
 	}
 	for field := range settingsReload {
-		_, ok := settings.FieldValue(settings.DefaultSettings(), field)
-		assert.True(t, ok, "settingsReload classifies %q, which is not a settings field", field)
+		assert.Contains(t, schema, field, "settingsReload classifies %q, which is not a settings field", field)
 	}
 }
 

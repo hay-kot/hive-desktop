@@ -29,7 +29,7 @@ func TestLoadSettingsMigratesUnversionedFileAndRoundTrips(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, current, saved.Version)
 
-	reloaded, err := store.Effective()
+	reloaded, err := store.Reload()
 	require.NoError(t, err)
 	assert.Equal(t, current, reloaded.Version)
 }

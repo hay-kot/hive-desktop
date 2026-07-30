@@ -244,7 +244,7 @@ func TestGitHubAPIBaseAcceptsLoopbackAndNormalizes(t *testing.T) {
 // setting must not make it a way to aim a shipped app at a remote host.
 func TestGitHubAPIBaseRejectsRemoteHostFromEnvironment(t *testing.T) {
 	t.Setenv(EnvGitHubAPIBase, "https://api.github.example.com")
-	_, err := NewStore(isolateSettings(t)).Effective()
+	_, err := NewStore(isolateSettings(t)).Reload()
 	require.Error(t, err)
 }
 

@@ -567,8 +567,8 @@ value but are never written into YAML by an unrelated settings edit.
 and never fails, so a file that is momentarily unparsable keeps the running app
 on its last good values instead of degrading it. Every core read goes through
 `Current()` — which also makes observation skew impossible, since two values
-read in one operation come from one atomic swap. `Effective()`/`Persisted()`
-stay pure reads for the composition root and tooling. A **write** still fails
+read in one operation come from one atomic swap. `Persisted()` stays a pure
+read for tooling that inspects the file without serving it. A **write** still fails
 while the file is broken: writing last-good back would overwrite a hand edit in
 progress.
 
