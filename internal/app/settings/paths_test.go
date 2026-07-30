@@ -58,6 +58,27 @@ func TestFlowsDirOverrideWinsOverTheOnboardingMockMode(t *testing.T) {
 	assert.Equal(t, "/tmp/explicit-flows", FlowsDir())
 }
 
+// main resolves the snapshot twice — once to read settings.yaml, then again
+// with the mock mode that file selected — and every other location has to come
+// out the same both times, or the second resolve would move settings.yaml out
+// from under the store already built on it.
+func TestMockModeMovesOnlyTheFlowsDir(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(EnvDataDir, filepath.Join(root, "data"))
+	t.Setenv(EnvConfigDir, filepath.Join(root, "config"))
+	unsetEnv(t, EnvFlowsDir)
+	unsetEnv(t, EnvMockMode)
+
+	live := ResolvePaths(Bootstrap{}, "")
+	for _, mode := range []string{MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke} {
+		t.Run(mode, func(t *testing.T) {
+			got := ResolvePaths(Bootstrap{}, mode)
+			got.FlowsDir = live.FlowsDir
+			assert.Equal(t, live, got, "mock mode may only move FlowsDir")
+		})
+	}
+}
+
 func TestHiveDataDirDefaultsToDataDir(t *testing.T) {
 	data := t.TempDir()
 	t.Setenv(EnvDataDir, data)

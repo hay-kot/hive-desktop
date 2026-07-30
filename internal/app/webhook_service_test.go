@@ -59,7 +59,8 @@ func TestWebhookServiceCapture(t *testing.T) {
 
 func TestWebhookServiceSettingsDefaultEnabled(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0, nil)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0,
+		func() []RestartPendingField { return nil })
 
 	view := service.State(t.Context())
 	assert.True(t, view.Enabled, "the loopback HTTP server is on by default")
