@@ -572,8 +572,10 @@ stay pure reads for the composition root and tooling. A **write** still fails
 while the file is broken: writing last-good back would overwrite a hand edit in
 progress.
 
-`SettingsWatcher` is the third watcher in `ConfigDir`, built like the other two,
-and its callback is the one reload path — `App.ReloadSettings`: reload, diff
+`settings.Watcher` is the third watcher in `ConfigDir`, built like the other
+two. A fourth consolidates all of them into a `configwatch` leaf beside
+`configmigrate` — they differ only in which filenames they match. Its callback
+is the one reload path — `App.ReloadSettings`: reload, diff
 against the snapshot it replaces, apply what this process can adopt
 (`polling.interval` to the producer and fetch layer, `paths.tmux` to the tmux
 resolver), publish `SettingsUpdated{Changed}`, record to the activity log. A

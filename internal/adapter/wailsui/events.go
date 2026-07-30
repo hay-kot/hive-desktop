@@ -25,7 +25,7 @@ func registerEvents() struct{} {
 	// log:appended carries the pipeline event log's new tail offset after a
 	// producer tick appends at least one row; flows:updated fires after a
 	// flows/*.yaml directory reload (an external edit, or the app's own
-	// SaveFlow/SaveLayout — see buildFlowsStore); actions:updated fires after
+	// SaveFlow/SaveLayout — see openFlows); actions:updated fires after
 	// an actions.yml reload. All are wake-up signals: the frontend re-reads
 	// the relevant service on receipt.
 	application.RegisterEvent[string]("connection:updated")
@@ -37,9 +37,12 @@ func registerEvents() struct{} {
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
 	application.RegisterEvent[string]("jobs:updated")
-	// settings:updated fires after settings.yaml is re-read — a hand edit, a
-	// dotfiles sync, or the app's own write. Like the others it is a wake-up:
-	// every composable holding a value out of settings.yaml re-hydrates.
+	// settings:updated fires after settings.yaml is re-read and found to differ
+	// from what the process was serving — a hand edit, a dotfiles sync, another
+	// machine's config. Not for the app's own writes: those are already in the
+	// snapshot by the time the watcher ticks, so the reload diffs to nothing.
+	// Like the others it is a wake-up: every composable holding a value out of
+	// settings.yaml re-hydrates.
 	application.RegisterEvent[string]("settings:updated")
 	// window:focus and window:blur carry the current focus state. Consumers use
 	// them to update focus-sensitive UI without querying the native window.

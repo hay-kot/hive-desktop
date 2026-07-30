@@ -51,7 +51,7 @@ records the failure instead — mirroring "a flow that cannot be built keeps its
 predecessor in service". The watcher, `POST /api/settings/reload`, and any future
 caller all go through it.
 
-**`SettingsWatcher` makes an outside edit live.** A near-verbatim copy of
+**`settings.Watcher` makes an outside edit live.** A near-verbatim copy of
 `actions.ActionsWatcher`: watch the directory (editors replace by rename),
 `MkdirAll` first, 250 ms debounce, exact basename match, `stopOnce`, and a
 construction failure that degrades to no hot-reload rather than a fatal. The
@@ -100,7 +100,13 @@ guarded to the first hydrate for the same reason.
 
 - Editing `settings.yaml` in an editor, or syncing it from another machine,
   takes effect in about 250 ms for everything that is not startup-only. The app's
-  own writes go through the same path, exactly as flows and actions already do.
+  own writes are live before the watcher sees them — `Update` swaps the snapshot
+  as it saves — so the reload they trigger diffs to nothing and publishes
+  nothing. `SettingsUpdated` fires only when the file has moved away from what
+  the process is serving, which is exactly when a subscriber is stale. Unlike
+  flows and actions, which publish unconditionally on every watcher tick, the
+  diff gate also means a subscriber that persists cannot retrigger itself — the
+  persist/apply split below is the backstop, not the primary mechanism.
 - A broken `settings.yaml` no longer degrades a running app. It keeps the last
   good values, records `Could not reload settings.yaml` to the activity log, and
   answers `400` on `POST /api/settings/reload`.
