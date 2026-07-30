@@ -9,16 +9,29 @@ const pollIntervalMs = ref(DEFAULT_POLL_INTERVAL_MS)
 let requestSequence = 0
 let pollGeneration = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
+let activeRequest: ReturnType<typeof SessionStatuses> | undefined
+
+function cancelActiveRequest(): void {
+  const request = activeRequest
+  activeRequest = undefined
+  if (request && typeof request.cancel === 'function') void request.cancel()
+}
 
 async function reload(): Promise<void> {
   const sequence = ++requestSequence
+  cancelActiveRequest()
+  let request: ReturnType<typeof SessionStatuses> | undefined
   try {
-    const snapshot = await SessionStatuses()
+    request = SessionStatuses()
+    activeRequest = request
+    const snapshot = await request
     if (sequence !== requestSequence) return
     statuses.value = Object.fromEntries((snapshot.items ?? []).map((status) => [status.sessionId, status]))
     if (snapshot.pollIntervalMs > 0) pollIntervalMs.value = snapshot.pollIntervalMs
   } catch {
     // A transient tmux probe failure must not erase the last status the user saw.
+  } finally {
+    if (request && activeRequest === request) activeRequest = undefined
   }
 }
 
@@ -36,8 +49,10 @@ function startPolling(): void {
 
 function stopPolling(): void {
   ++pollGeneration
+  ++requestSequence
   clearTimeout(pollTimer)
   pollTimer = undefined
+  cancelActiveRequest()
 }
 
 export function useSessionStatuses(): {
@@ -52,7 +67,6 @@ export function useSessionStatuses(): {
 
 export function resetSessionStatusesForTests(): void {
   stopPolling()
-  ++requestSequence
   statuses.value = {}
   pollIntervalMs.value = DEFAULT_POLL_INTERVAL_MS
 }

@@ -70,6 +70,25 @@ describe('useSessionStatuses', () => {
     expect(statuses.value.s1.status).toBe('approval')
   })
 
+  it('cancels an in-flight poll and ignores its result when polling stops', async () => {
+    let resolvePending!: (value: { items: Array<{ sessionId: string; status: string; tool: string }>; pollIntervalMs: number }) => void
+    const pending = Object.assign(new Promise<{ items: Array<{ sessionId: string; status: string; tool: string }>; pollIntervalMs: number }>((resolve) => { resolvePending = resolve }), { cancel: vi.fn() })
+    mocks.SessionStatuses.mockReturnValue(pending)
+    const { statuses, startPolling, stopPolling } = useSessionStatuses()
+    statuses.value = { s1: { sessionId: 's1', status: 'ready', tool: 'pi' } }
+
+    startPolling()
+    expect(mocks.SessionStatuses).toHaveBeenCalledTimes(1)
+    stopPolling()
+    expect(pending.cancel).toHaveBeenCalledTimes(1)
+
+    resolvePending({ items: [{ sessionId: 's1', status: 'approval', tool: 'pi' }], pollIntervalMs: 25 })
+    await pending
+    await Promise.resolve()
+
+    expect(statuses.value.s1.status).toBe('ready')
+  })
+
   it('polls serially at the interval returned by Hive and stops cleanly', async () => {
     vi.useFakeTimers()
     mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 25 })

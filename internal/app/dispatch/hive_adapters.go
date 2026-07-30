@@ -72,8 +72,8 @@ type SessionStatus struct {
 // SessionStatusSnapshot carries one poll result and the Hive-configured delay
 // the caller should use before requesting the next one.
 type SessionStatusSnapshot struct {
-	Items          []SessionStatus `json:"items"`
-	PollIntervalMS int64           `json:"pollIntervalMs"`
+	Items        []SessionStatus
+	PollInterval time.Duration
 }
 
 // SessionDetail is one session read in full, for a detail view.
@@ -201,8 +201,8 @@ func (m *HiveSessionManager) ListSessions(ctx context.Context) ([]SessionSummary
 // content or vendored status types beyond this anti-corruption layer.
 func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatusSnapshot, error) {
 	snapshot := SessionStatusSnapshot{
-		Items:          []SessionStatus{},
-		PollIntervalMS: m.statusPollInterval.Milliseconds(),
+		Items:        []SessionStatus{},
+		PollInterval: m.statusPollInterval,
 	}
 	if m.statuses == nil || !m.statuses.Available() {
 		return snapshot, nil

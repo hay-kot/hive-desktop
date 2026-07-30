@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -219,8 +220,8 @@ func TestSessionsService_ListSessionsPassesEveryStateThrough(t *testing.T) {
 func TestSessionsService_SessionStatusesPassesSnapshotThrough(t *testing.T) {
 	manager, _ := activeSession()
 	manager.statuses = dispatch.SessionStatusSnapshot{
-		Items:          []dispatch.SessionStatus{{SessionID: "s1", Status: "ready", Tool: "codex"}},
-		PollIntervalMS: 1500,
+		Items:        []dispatch.SessionStatus{{SessionID: "s1", Status: "ready", Tool: "codex"}},
+		PollInterval: 1500 * time.Millisecond,
 	}
 	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
 

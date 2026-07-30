@@ -145,15 +145,6 @@ export interface SessionStatus {
 }
 
 /**
- * SessionStatusSnapshot carries one poll result and the Hive-configured delay
- * the caller should use before requesting the next one.
- */
-export interface SessionStatusSnapshot {
-    "items": SessionStatus[] | null;
-    "pollIntervalMs": number;
-}
-
-/**
  * SessionSummary is one session as the desktop's session list sees it. Slug is
  * the tmux session name, which is what a terminal attach targets. It stays a
  * projection: the rest of a session is read on demand as a SessionDetail.

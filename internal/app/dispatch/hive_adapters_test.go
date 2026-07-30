@@ -224,7 +224,7 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, int64(1750), got.PollIntervalMS)
+	assert.Equal(t, 1750*time.Millisecond, got.PollInterval)
 	assert.Equal(t, []SessionStatus{
 		{SessionID: "s1", Status: "approval", Tool: "claude"},
 		{SessionID: "s2", Status: "missing"},
@@ -240,7 +240,7 @@ func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, got.Items)
-	assert.Equal(t, int64(1500), got.PollIntervalMS)
+	assert.Equal(t, 1500*time.Millisecond, got.PollInterval)
 }
 
 func TestHiveSessionManagerDetailReadsWorktreeMetadata(t *testing.T) {

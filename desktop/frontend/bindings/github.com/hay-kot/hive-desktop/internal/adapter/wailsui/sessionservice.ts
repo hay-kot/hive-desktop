@@ -15,6 +15,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 // @ts-ignore: Unused imports
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as $models from "./models.js";
+
 /**
  * CreateSession validates the form and starts the session as a background job,
  * returning the job id. Its outcome surfaces in the jobs UI.
@@ -85,6 +89,6 @@ export function SessionRisk(id: string): $CancellablePromise<dispatch$0.SessionR
  * SessionStatuses returns the current terminal-detected agent state for each
  * active session.
  */
-export function SessionStatuses(): $CancellablePromise<dispatch$0.SessionStatusSnapshot> {
+export function SessionStatuses(): $CancellablePromise<$models.SessionStatusSnapshot> {
     return $Call.ByID(1334914099);
 }

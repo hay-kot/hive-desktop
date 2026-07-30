@@ -27,10 +27,27 @@ func (s *SessionService) ListSessions(ctx context.Context) ([]dispatch.SessionSu
 	return s.sessions.ListSessions(ctx)
 }
 
+// SessionStatusSnapshot is one poll result in the units the browser timer uses.
+type SessionStatusSnapshot struct {
+	Items          []dispatch.SessionStatus `json:"items"`
+	PollIntervalMS int64                    `json:"pollIntervalMs"`
+}
+
 // SessionStatuses returns the current terminal-detected agent state for each
 // active session.
-func (s *SessionService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
-	return s.sessions.SessionStatuses(ctx)
+func (s *SessionService) SessionStatuses(ctx context.Context) (SessionStatusSnapshot, error) {
+	snapshot, err := s.sessions.SessionStatuses(ctx)
+	if err != nil {
+		return SessionStatusSnapshot{}, err
+	}
+	return sessionStatusSnapshotOf(snapshot), nil
+}
+
+func sessionStatusSnapshotOf(snapshot dispatch.SessionStatusSnapshot) SessionStatusSnapshot {
+	return SessionStatusSnapshot{
+		Items:          snapshot.Items,
+		PollIntervalMS: snapshot.PollInterval.Milliseconds(),
+	}
 }
 
 // SessionDetail reads one session in full, for the detail view.
