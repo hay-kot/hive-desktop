@@ -377,12 +377,16 @@ func (u *UI) reveal() {
 func (u *UI) Run() error { return u.app.Run() }
 
 // Close stops what the adapter owns. The core's own teardown is App.Close.
+//
+// Unsubscribing comes first: a settings reload delivered after Stop would find
+// the updater's enabled flag and its ticker disagreeing, which is the one state
+// Stop deliberately leaves behind.
 func (u *UI) Close() {
-	if u.updater != nil {
-		u.updater.Stop()
-	}
 	if u.cancelEvents != nil {
 		u.cancelEvents()
+	}
+	if u.updater != nil {
+		u.updater.Stop()
 	}
 }
 

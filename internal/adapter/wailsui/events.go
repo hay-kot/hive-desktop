@@ -124,10 +124,13 @@ func Subscribe(ctx context.Context, bus *events.Bus, hooks SubscribeHooks) (canc
 			}
 		}),
 		events.Subscribe(ctx, bus, "wailsui.settings", events.Coalesce(), func(_ context.Context, e events.SettingsUpdated) {
-			emitSettingsUpdated()
+			// Adopt before waking the frontend: the System screen re-reads the
+			// updater's state on settings:updated, and it must not read it back
+			// before this side has applied the reload to it.
 			if hooks.SettingsUpdated != nil {
 				hooks.SettingsUpdated(e.Changed)
 			}
+			emitSettingsUpdated()
 		}),
 		// A notify terminal's delivery is not state to re-read: it is the
 		// message, so every one gets a slot in the queue rather than risking
