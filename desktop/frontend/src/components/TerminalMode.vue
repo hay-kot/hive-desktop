@@ -382,14 +382,14 @@ onBeforeUnmount(() => session.value?.dispose())
           <div v-for="(group, index) in sessionGroups" :key="group.key" :class="gapAbove(index) && 'mt-1.5'">
             <button
               type="button"
-              class="flex h-7 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
+              class="flex h-8 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
               data-testid="terminal-repo-group"
               :data-repo="group.key"
               :aria-expanded="!collapsedRepos.includes(group.key)"
               @click="toggleGroup(group.key)"
             >
               <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
-              <span class="min-w-0 truncate font-mono text-[12.5px] tracking-[.06em]" :class="groupAttached(group) ? 'text-text-2' : 'text-text-3'">{{ group.name }}</span>
+              <span class="min-w-0 truncate font-mono text-[13.5px] font-semibold tracking-[.04em]" :class="groupAttached(group) ? 'text-text' : 'text-text-2'">{{ group.name }}</span>
               <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
             </button>
             <template v-if="!collapsedRepos.includes(group.key)">
@@ -410,14 +410,7 @@ onBeforeUnmount(() => session.value?.dispose())
                   @keydown.space.self.prevent="selectSession(row.slug)"
                   @contextmenu.prevent="toggleRowMenu(row, $event)"
                 >
-                  <!-- The wire only carries hive's session state today; agent
-                       activity (the TUI's [●]/[>] pair) needs terminal.Status
-                       plumbed through SessionSummary first. -->
-                  <span
-                    class="size-1.5 shrink-0 rounded-full"
-                    :class="row.slug === activeSlug ? 'bg-accent' : 'bg-severity-success'"
-                  />
-                  <span class="min-w-0 flex-1 truncate text-[15px]">{{ row.name }}</span>
+                  <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.name }}</span>
                   <!-- No `relative` here: AppMenu anchors to the nearest
                        positioned ancestor, and that has to be the row so the
                        panel spans it. Clicks stay inside the wrapper so choosing
@@ -458,7 +451,7 @@ onBeforeUnmount(() => session.value?.dispose())
                     v-for="tab in tabs"
                     :key="tab.uid"
                     type="button"
-                    class="flex h-8 w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
+                    class="flex h-7 w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
                     :class="tab.windowId === activeWindowId ? 'bg-pane' : 'hover:bg-pane'"
                     data-testid="terminal-window-row"
                     :data-window-id="tab.windowId"
@@ -466,7 +459,7 @@ onBeforeUnmount(() => session.value?.dispose())
                     @click="session?.select(tab.windowId)"
                   >
                     <span class="shrink-0 font-mono text-[11.5px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
-                    <span class="min-w-0 flex-1 truncate font-mono text-[13.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
+                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
                   </button>
                 </div>
               </div>
@@ -602,10 +595,10 @@ onBeforeUnmount(() => session.value?.dispose())
 </template>
 
 <style scoped>
-.session-row { position: relative; display: flex; height: 34px; width: 100%; align-items: center; gap: 8px; padding-left: 21px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
+.session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 34px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
 .session-row:hover, .session-row.menu-open { background: var(--color-chip); }
 .session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.session-row-attached { background: var(--color-selection); font-weight: 600; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.session-row-attached { background: var(--color-selection); font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
 /* Revealed by opacity so the kebab's column is always reserved — hovering a row
    never reflows the session name. Same affordance as the hub sidebar's rows. */
 .row-action { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
