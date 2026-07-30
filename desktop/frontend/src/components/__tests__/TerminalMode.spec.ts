@@ -83,11 +83,13 @@ function fakeSession() {
 
 // TerminalMode only renders under the terminal route in App.vue, so every
 // mount starts there; tests deep-link by passing the session in the path.
+// Transitions are stubbed because happy-dom never fires transitionend, which
+// would leave leave-transitioned elements in the DOM past their v-if.
 async function mountAt(path = '/terminal') {
   const router = createAppRouter(createMemoryHistory())
   await router.push(path)
   await router.isReady()
-  const wrapper = mount(TerminalMode, { global: { plugins: [router] } })
+  const wrapper = mount(TerminalMode, { global: { plugins: [router], stubs: { transition: true, 'transition-group': true } } })
   await flushPromises()
   return { wrapper, router }
 }

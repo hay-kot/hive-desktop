@@ -148,6 +148,54 @@ function listedWindows(row: TerminalSessionRow): WindowState[] {
   return sessionWindows.value[row.slug] ?? []
 }
 
+// One keyed list feeds a session's subtree whichever source is fresher, so the
+// listed → live swap on attach patches rows in place — window ids are stable
+// across the swap — instead of unmounting one branch and mounting the other.
+interface TreeWindowRow {
+  windowId: string
+  name: string
+  active: boolean
+  live: boolean
+}
+
+function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
+  if (row.slug === activeSlug.value && tabs.value.length) {
+    return tabs.value.map((tab) => ({
+      windowId: tab.windowId,
+      name: tab.name || tab.windowId,
+      active: tab.windowId === activeWindowId.value,
+      live: true,
+    }))
+  }
+  return listedWindows(row).map((win) => ({ windowId: win.windowId, name: win.name || win.windowId, active: false, live: false }))
+}
+
+function openTreeWindow(row: TerminalSessionRow, win: TreeWindowRow): void {
+  if (win.live) void session.value?.select(win.windowId)
+  else openWindow(row, win.windowId)
+}
+
+// Expand/collapse animates the measured height — the hooks only pin the start
+// and end values, the .tree-expand-* classes carry the (fast) transition, and
+// after-enter clears the inline height so an open panel resizes naturally.
+function expandEnter(el: Element): void {
+  const panel = el as HTMLElement
+  panel.style.height = '0'
+  panel.getBoundingClientRect() // commit the collapsed height before the target lands
+  panel.style.height = `${panel.scrollHeight}px`
+}
+
+function expandAfterEnter(el: Element): void {
+  (el as HTMLElement).style.height = ''
+}
+
+function expandLeave(el: Element): void {
+  const panel = el as HTMLElement
+  panel.style.height = `${panel.scrollHeight}px`
+  panel.getBoundingClientRect()
+  panel.style.height = '0'
+}
+
 function openWindow(row: TerminalSessionRow, windowId: string): void {
   void router.push({ name: 'terminal', params: { slug: row.slug }, query: { window: windowId } })
 }
@@ -438,85 +486,79 @@ onBeforeUnmount(() => session.value?.dispose())
               <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
               <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
             </button>
-            <div v-if="!collapsedRepos.includes(group.key)" class="flex flex-col border-t border-border bg-app py-1">
-              <div v-for="row in group.sessions" :key="row.id">
-                <!-- Not a <button>: the row's menu toggle is a real button, and
-                     nesting one inside another is invalid. -->
-                <div
-                  class="session-row"
-                  :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
-                  role="button"
-                  tabindex="0"
-                  data-testid="terminal-session-row"
-                  :data-slug="row.slug"
-                  :data-attached="row.slug === activeSlug"
-                  :title="row.slug"
-                  @click="selectSession(row.slug)"
-                  @keydown.enter.self.prevent="selectSession(row.slug)"
-                  @keydown.space.self.prevent="selectSession(row.slug)"
-                  @contextmenu.prevent="toggleRowMenu(row, $event)"
-                >
-                  <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
-                  <!-- No `relative` here: AppMenu anchors to the nearest
-                       positioned ancestor, and that has to be the row so the
-                       panel spans it. Clicks stay inside the wrapper so choosing
-                       an entry never also selects the row. -->
-                  <div class="flex shrink-0" @click.stop>
-                    <button
-                      :ref="(el) => setRowMenuToggle(row.id, el)"
-                      type="button"
-                      class="row-action"
-                      title="Session actions"
-                      aria-label="Session actions"
-                      aria-haspopup="menu"
-                      :aria-expanded="openRowMenu === row.id"
-                      data-testid="terminal-session-menu-toggle"
-                      @click="toggleRowMenu(row)"
-                    ><IconEllipsis class="size-3" /></button>
-                    <SessionRowMenu
-                      v-if="openRowMenu === row.id"
-                      :session="row"
-                      :flip="rowMenuFlip"
-                      :ignore="[rowMenuToggles.get(row.id) ?? null]"
-                      @close="openRowMenu = ''"
-                      @detail="openSessionDetail(row)"
-                      @rename="requestRename(row)"
-                      @recycle="requestRecycle(row)"
-                      @delete="requestDelete(row)"
-                    />
+            <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
+              <div v-if="!collapsedRepos.includes(group.key)" class="relative flex flex-col border-t border-border bg-app py-1">
+                <TransitionGroup name="tree">
+                  <div v-for="row in group.sessions" :key="row.id">
+                    <!-- Not a <button>: the row's menu toggle is a real button, and
+                         nesting one inside another is invalid. -->
+                    <div
+                      class="session-row"
+                      :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
+                      role="button"
+                      tabindex="0"
+                      data-testid="terminal-session-row"
+                      :data-slug="row.slug"
+                      :data-attached="row.slug === activeSlug"
+                      :title="row.slug"
+                      @click="selectSession(row.slug)"
+                      @keydown.enter.self.prevent="selectSession(row.slug)"
+                      @keydown.space.self.prevent="selectSession(row.slug)"
+                      @contextmenu.prevent="toggleRowMenu(row, $event)"
+                    >
+                      <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
+                      <!-- No `relative` here: AppMenu anchors to the nearest
+                           positioned ancestor, and that has to be the row so the
+                           panel spans it. Clicks stay inside the wrapper so choosing
+                           an entry never also selects the row. -->
+                      <div class="flex shrink-0" @click.stop>
+                        <button
+                          :ref="(el) => setRowMenuToggle(row.id, el)"
+                          type="button"
+                          class="row-action"
+                          title="Session actions"
+                          aria-label="Session actions"
+                          aria-haspopup="menu"
+                          :aria-expanded="openRowMenu === row.id"
+                          data-testid="terminal-session-menu-toggle"
+                          @click="toggleRowMenu(row)"
+                        ><IconEllipsis class="size-3" /></button>
+                        <SessionRowMenu
+                          v-if="openRowMenu === row.id"
+                          :session="row"
+                          :flip="rowMenuFlip"
+                          :ignore="[rowMenuToggles.get(row.id) ?? null]"
+                          @close="openRowMenu = ''"
+                          @detail="openSessionDetail(row)"
+                          @rename="requestRename(row)"
+                          @recycle="requestRecycle(row)"
+                          @delete="requestDelete(row)"
+                        />
+                      </div>
+                    </div>
+                    <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
+                      <div v-if="windowRowsFor(row).length" class="relative flex flex-col pb-1">
+                        <TransitionGroup name="tree">
+                          <button
+                            v-for="(win, index) in windowRowsFor(row)"
+                            :key="win.windowId"
+                            type="button"
+                            class="window-row"
+                            :class="{ 'window-row-last': index === windowRowsFor(row).length - 1, 'window-row-active': win.active }"
+                            :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
+                            :data-window-id="win.windowId"
+                            :data-active="win.live ? win.active : undefined"
+                            @click="openTreeWindow(row, win)"
+                          >
+                            <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
+                          </button>
+                        </TransitionGroup>
+                      </div>
+                    </Transition>
                   </div>
-                </div>
-                <div v-if="row.slug === activeSlug && session && tabs.length" class="flex flex-col pb-1">
-                  <button
-                    v-for="(tab, index) in tabs"
-                    :key="tab.uid"
-                    type="button"
-                    class="window-row"
-                    :class="{ 'window-row-last': index === tabs.length - 1, 'window-row-active': tab.windowId === activeWindowId }"
-                    data-testid="terminal-window-row"
-                    :data-window-id="tab.windowId"
-                    :data-active="tab.windowId === activeWindowId"
-                    @click="session?.select(tab.windowId)"
-                  >
-                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ tab.name || tab.windowId }}</span>
-                  </button>
-                </div>
-                <div v-else-if="listedWindows(row).length" class="flex flex-col pb-1">
-                  <button
-                    v-for="(win, index) in listedWindows(row)"
-                    :key="win.windowId"
-                    type="button"
-                    class="window-row"
-                    :class="{ 'window-row-last': index === listedWindows(row).length - 1 }"
-                    data-testid="terminal-listed-window-row"
-                    :data-window-id="win.windowId"
-                    @click="openWindow(row, win.windowId)"
-                  >
-                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name || win.windowId }}</span>
-                  </button>
-                </div>
+                </TransitionGroup>
               </div>
-            </div>
+            </Transition>
           </div>
         </div>
         <PanelResizeHandle edge="right" name="terminal-sidebar" :start="startResize" :step="step" />
@@ -713,6 +755,19 @@ onBeforeUnmount(() => session.value?.dispose())
 .window-row::before { content: ''; position: absolute; left: 26px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
 .window-row::after { content: ''; position: absolute; left: 26px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
 .window-row-last::before { bottom: 50%; }
+
+/* Tree motion, fast enough to read as instant: rows fade/slide over 150ms, a
+   leaving row drops out of flow so its neighbors glide up through .tree-move
+   (FLIP) instead of snapping, and expand/collapse animates the measured height
+   set by the expand* hooks. */
+.tree-enter-active, .tree-leave-active, .tree-move { transition: opacity .15s ease, transform .15s ease; }
+.tree-enter-from, .tree-leave-to { opacity: 0; transform: translateY(-4px); }
+.tree-leave-active { position: absolute; left: 0; right: 0; }
+.tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .15s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .tree-enter-active, .tree-leave-active, .tree-move,
+  .tree-expand-enter-active, .tree-expand-leave-active { transition: none; }
+}
 
 /* Revealed by opacity so the kebab's column is always reserved — hovering a row
    never reflows the session name. Same affordance as the hub sidebar's rows. */
