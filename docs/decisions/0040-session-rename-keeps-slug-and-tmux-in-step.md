@@ -1,4 +1,4 @@
-# 0038 — A session rename renames its tmux session, keeping slug and tmux name in step
+# 0040 — A session rename renames its tmux session, keeping slug and tmux name in step
 
 - **Status:** accepted
 - **Date:** 2026-07-29

@@ -100,6 +100,13 @@ func scrubbedTmuxEnv() []string {
 	return kept
 }
 
+// windowSize reports the session's own idea of its window size, which is what
+// an attach must not change unless it voted a size.
+func (f *tmuxFixture) windowSize() string {
+	f.t.Helper()
+	return strings.TrimSpace(f.tmux("list-windows", "-t", f.slug, "-F", "#{window_width}x#{window_height}"))
+}
+
 func (f *tmuxFixture) newWindow(name string) {
 	f.t.Helper()
 	f.tmux("new-window", "-t", f.slug, "-n", name, "sh")
@@ -288,6 +295,31 @@ func TestTmuxInputFrameReachesThePane(t *testing.T) {
 	require.NoError(t, conn.Write(ctx, websocket.MessageBinary, frame))
 
 	tmux.awaitPane(tmux.slug, "HELLO_FROM_WS")
+}
+
+// The attach size is a vote tmux obeys, so a caller with nothing measured must
+// send none: a placeholder would resize the session — and every agent redrawing
+// inside it — to a size nobody asked for.
+func TestTmuxUnsizedAttachLeavesTheSessionAtItsOwnSize(t *testing.T) {
+	tmux := startTmux(t, "hive-unsized")
+	h := newTerminalHarness(t)
+
+	resp := h.post(t, "/api/terminal/attach", testToken, map[string]any{"slug": tmux.slug, "cols": 0, "rows": 0})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var attached attachResult
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&attached))
+	_ = resp.Body.Close()
+
+	require.Len(t, attached.Windows, 1)
+	assert.Equal(t, 120, attached.Windows[0].Width, "the fixture's 120x40 survives the attach")
+	assert.Equal(t, 40, attached.Windows[0].Height)
+	assert.Equal(t, "120x40", tmux.windowSize())
+
+	// The first measured vote is what joins this client to the negotiation.
+	resize := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": tmux.slug, "cols": 100, "rows": 30})
+	_ = resize.Body.Close()
+	require.Equal(t, http.StatusNoContent, resize.StatusCode)
+	assert.Equal(t, "100x30", tmux.windowSize())
 }
 
 func TestTmuxResizeAndDetachLeaveTheSessionRunning(t *testing.T) {

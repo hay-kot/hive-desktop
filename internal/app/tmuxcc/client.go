@@ -48,10 +48,13 @@ var (
 
 // Options configures one attach.
 type Options struct {
-	Slug        string // tmux session name == Hive session slug
+	Slug string // tmux session name == Hive session slug
+	// Cols and Rows are the opening size vote, and 0x0 means the caller has
+	// nothing measured to vote with — see unsized.
 	Cols        int
 	Rows        int
-	BufferBytes int // broker bound; 0 == defaultBufferBytes
+	Binary      string // tmux executable; empty resolves "tmux" through $PATH
+	BufferBytes int    // broker bound; 0 == defaultBufferBytes
 	Metrics     MetricsSink
 	Logger      zerolog.Logger
 	OnExit      func(slug, reason string)
@@ -59,12 +62,21 @@ type Options struct {
 	newProcess func(Options) process
 }
 
+// unsized reports an attach that sets no client size at all. tmux ignores a
+// control client until it has set one, so an unsized attach leaves the session
+// at the size its other clients gave it instead of squeezing it to a
+// placeholder; the first Resize is what joins the negotiation.
+func (o Options) unsized() bool { return o.Cols == 0 && o.Rows == 0 }
+
 func (o *Options) normalize() error {
 	if o.Slug == "" {
 		return fmt.Errorf("%w: empty session slug", ErrNotAttached)
 	}
-	if err := validateSize(o.Cols, o.Rows); err != nil {
+	if err := validateAttachSize(o.Cols, o.Rows); err != nil {
 		return err
+	}
+	if o.Binary == "" {
+		o.Binary = defaultBinary
 	}
 	if o.Metrics == nil {
 		o.Metrics = NopMetrics
@@ -195,8 +207,10 @@ func (c *Client) Write(ctx context.Context, windowID string, p []byte) error {
 	return nil
 }
 
-// Resize renegotiates the client size. tmux gives every attached client of a
-// window the same size and the smallest one wins — a documented constraint.
+// Resize renegotiates the client size. Every client attached to a window
+// renders the same grid and tmux's window-size option picks whose size that is
+// — by default the most recently used client's — so this is a vote, and
+// %layout-change is the answer.
 func (c *Client) Resize(ctx context.Context, cols, rows int) error {
 	if err := validateSize(cols, rows); err != nil {
 		return err
@@ -274,9 +288,14 @@ func (c *Client) awaitHandshake(ctx context.Context) error {
 	}
 }
 
+// negotiate votes the opening size before it enumerates or captures anything,
+// so the snapshot each window is first painted from is already the size tmux
+// settled on rather than one it is about to reflow away from.
 func (c *Client) negotiate(ctx context.Context, opts Options) error {
-	if _, err := c.gw.Send(ctx, fmt.Sprintf("refresh-client -C %d,%d", opts.Cols, opts.Rows)); err != nil {
-		return err
+	if !opts.unsized() {
+		if _, err := c.gw.Send(ctx, fmt.Sprintf("refresh-client -C %d,%d", opts.Cols, opts.Rows)); err != nil {
+			return err
+		}
 	}
 
 	windows, err := c.listWindows(ctx)
@@ -575,6 +594,15 @@ func validateSize(cols, rows int) error {
 		return fmt.Errorf("%w: %dx%d", ErrInvalidSize, cols, rows)
 	}
 	return nil
+}
+
+// validateAttachSize also accepts 0x0, the unsized attach. Half of one is still
+// invalid: a caller with a measurement has both numbers.
+func validateAttachSize(cols, rows int) error {
+	if cols == 0 && rows == 0 {
+		return nil
+	}
+	return validateSize(cols, rows)
 }
 
 func platformSupported() bool {

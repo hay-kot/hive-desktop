@@ -18,7 +18,10 @@ const xterm = vi.hoisted(() => {
     onDataDisposed = false
     private handlers: ((data: string) => void)[] = []
 
-    constructor() { FakeTerminal.instances.push(this) }
+    constructor(options: Record<string, unknown> = {}) {
+      this.options = { ...options }
+      FakeTerminal.instances.push(this)
+    }
 
     onData(handler: (data: string) => void) {
       this.handlers.push(handler)
@@ -40,11 +43,49 @@ const xterm = vi.hoisted(() => {
     static instances: FakeFitAddon[] = []
   }
 
-  return { FakeTerminal, FakeFitAddon }
+  // Both renderer addons throw out of their constructor when the context they
+  // need is missing, which is the fallback trigger the composable catches.
+  class FakeWebglAddon {
+    static instances: FakeWebglAddon[] = []
+    static unavailable = false
+    dispose = vi.fn()
+    activate = vi.fn()
+    private lossHandlers: (() => void)[] = []
+
+    constructor() {
+      if (FakeWebglAddon.unavailable) throw new Error('WebGL2 not supported')
+      FakeWebglAddon.instances.push(this)
+    }
+
+    onContextLoss(handler: () => void) {
+      this.lossHandlers.push(handler)
+      return { dispose: () => {} }
+    }
+
+    loseContext(): void {
+      for (const handler of this.lossHandlers) handler()
+    }
+  }
+
+  class FakeCanvasAddon {
+    static instances: FakeCanvasAddon[] = []
+    static unavailable = false
+    dispose = vi.fn()
+    activate = vi.fn()
+
+    constructor() {
+      if (FakeCanvasAddon.unavailable) throw new Error('no 2d context')
+      FakeCanvasAddon.instances.push(this)
+    }
+  }
+
+  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon }
 })
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }))
+vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
+vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
 
 const encoder = new TextEncoder()
 
@@ -76,6 +117,7 @@ class FakeResizeObserver {
 }
 
 let sockets: FakeSocket[] = []
+let loadedFaces: string[] = []
 
 type MockedClient = { [K in keyof TerminalClient]: ReturnType<typeof vi.fn> }
 
@@ -156,11 +198,28 @@ async function attached() {
 describe('useTerminalWindows', () => {
   beforeEach(() => {
     sockets = []
+    loadedFaces = []
     xterm.FakeTerminal.instances = []
     xterm.FakeFitAddon.instances = []
+    xterm.FakeWebglAddon.instances = []
+    xterm.FakeCanvasAddon.instances = []
+    xterm.FakeWebglAddon.unavailable = false
+    xterm.FakeCanvasAddon.unavailable = false
     FakeResizeObserver.instances = []
+    // The remembered vote outlives a composable on purpose, so each test states
+    // its own starting memory rather than inheriting the last one's.
+    localStorage.clear()
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
     globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
+    Object.defineProperty(document, 'fonts', {
+      configurable: true,
+      value: {
+        load: vi.fn((font: string) => {
+          loadedFaces.push(font)
+          return Promise.resolve([])
+        }),
+      },
+    })
   })
 
   afterEach(() => vi.useRealTimers())
@@ -202,7 +261,7 @@ describe('useTerminalWindows', () => {
     expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
   })
 
-  // tmux sizes a window to the smallest attached client, so the size a tab
+  // Every client attached to a window renders the same grid, so the size a tab
   // renders at is whatever tmux reports — never what this pane measured.
   it('opens every terminal at the size tmux reported, before any output lands', async () => {
     const { session, socket } = await attached()
@@ -257,6 +316,98 @@ describe('useTerminalWindows', () => {
     expect(xterm.FakeTerminal.instances[0].dispose).not.toHaveBeenCalled()
     expect(xterm.FakeFitAddon.instances[0].dispose).not.toHaveBeenCalled()
     expect(FakeResizeObserver.instances[0].disconnected).toBe(false)
+  })
+
+  // xterm's DOM renderer cannot join box drawing or underlines across cells, so
+  // an atlas renderer is the fix for #131 rather than any cell-metric tuning.
+  it('loads the WebGL renderer, and only once the pane is open', async () => {
+    const { session } = await attached()
+
+    session.attachTab('@1', document.createElement('div'))
+
+    const term = xterm.FakeTerminal.instances[0]
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
+    expect(xterm.FakeCanvasAddon.instances).toHaveLength(0)
+    const loaded = term.loadAddon.mock.calls.findIndex((call) => call[0] instanceof xterm.FakeWebglAddon)
+    expect(term.open.mock.invocationCallOrder[0])
+      .toBeLessThan(term.loadAddon.mock.invocationCallOrder[loaded])
+  })
+
+  it('falls back to the canvas renderer where WebGL2 is missing', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    xterm.FakeWebglAddon.unavailable = true
+    const { session } = await attached()
+
+    session.attachTab('@1', document.createElement('div'))
+
+    expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
+    warn.mockRestore()
+  })
+
+  // Both atlas renderers gone leaves the DOM renderer, which draws with the
+  // #131 seams — degraded, but never a pane that failed to open.
+  it('still opens the pane when no renderer context exists at all', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    xterm.FakeWebglAddon.unavailable = true
+    xterm.FakeCanvasAddon.unavailable = true
+    const { session } = await attached()
+
+    session.attachTab('@1', document.createElement('div'))
+
+    expect(xterm.FakeTerminal.instances[0].open).toHaveBeenCalledTimes(1)
+    expect(session.status.value).toBe('live')
+    warn.mockRestore()
+  })
+
+  it('claims the canvas renderer when a WebGL context is lost for good', async () => {
+    const { session } = await attached()
+    session.attachTab('@1', document.createElement('div'))
+
+    xterm.FakeWebglAddon.instances[0].loseContext()
+
+    expect(xterm.FakeWebglAddon.instances[0].dispose).toHaveBeenCalledTimes(1)
+    expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
+  })
+
+  // xterm disposes its core before its addons, and a renderer addon restores a
+  // renderer as it goes, so it has to be disposed while the core is still up.
+  it('disposes the renderer addon ahead of the terminal it renders', async () => {
+    const { session } = await attached()
+    session.attachTab('@1', document.createElement('div'))
+
+    session.dispose()
+
+    const addon = xterm.FakeWebglAddon.instances[0]
+    const term = xterm.FakeTerminal.instances[0]
+    expect(addon.dispose).toHaveBeenCalledTimes(1)
+    expect(addon.dispose.mock.invocationCallOrder[0])
+      .toBeLessThan(term.dispose.mock.invocationCallOrder[0])
+  })
+
+  // An atlas renderer caches the glyphs it rasterised, so a face that arrives
+  // after the first paint stays wrong; xterm never re-measures on a font load.
+  it('preloads the regular and bold faces before it attaches', async () => {
+    const { client } = await attached()
+
+    expect(loadedFaces).toEqual([
+      `${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
+      `bold ${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
+    ])
+    const load = (document.fonts.load as ReturnType<typeof vi.fn>)
+    expect(load.mock.invocationCallOrder[1])
+      .toBeLessThan(client.attach.mock.invocationCallOrder[0])
+  })
+
+  // Pinning either is the obvious-looking fix for #131 and is the wrong one:
+  // both quantise to whole device pixels, and a lineHeight above 1 pads the
+  // glyph away from the cell edge box drawing has to reach. ADR 0038.
+  it('sets no lineHeight and no letterSpacing', async () => {
+    await attached()
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options).not.toHaveProperty('lineHeight')
+      expect(term.options).not.toHaveProperty('letterSpacing')
+    }
   })
 
   it('sends typed input as an input frame for the typing window', async () => {
@@ -329,6 +480,96 @@ describe('useTerminalWindows', () => {
     // currentSize is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
     await flushPromises()
+  })
+
+  // The attach size is a vote tmux obeys, so attaching with a placeholder would
+  // resize the session — and every other client attached to it — to a size
+  // nothing had measured. Setting no size leaves it alone.
+  it('attaches without a size when nothing has been measured', async () => {
+    const client = fakeClient()
+    await open(client).start()
+
+    expect(client.attach).toHaveBeenCalledWith('hive-abc', 0, 0)
+  })
+
+  it('attaches with the size this app window last voted, and does not re-vote it', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('hive.terminal.vote', JSON.stringify({ cols: 120, rows: 40, fontPx: terminalFontSizePx.medium }))
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+
+    expect(client.attach).toHaveBeenCalledWith('hive-abc', 120, 40)
+
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).not.toHaveBeenCalled()
+  })
+
+  it('remembers a measured vote for the next session it attaches', async () => {
+    vi.useFakeTimers()
+    const first = fakeClient()
+    const session = open(first)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 213, rows: 55 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    const second = fakeClient()
+    await open(second).start()
+
+    expect(second.attach).toHaveBeenCalledWith('hive-abc', 213, 55)
+  })
+
+  // A vote tmux never granted means another attached client decided the size.
+  // Nothing announces that, so the difference is the only signal there is.
+  it('reports the size tmux granted when it does not match the vote', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', document.createElement('div'))
+
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(session.sizeConstraint.value).toBeNull()
+
+    // tmux answers a vote it honours with a window event; silence past the
+    // settle window is what says some other client won.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(session.sizeConstraint.value).toEqual({ voted: { cols: 300, rows: 80 }, granted: { cols: 213, rows: 55 } })
+
+    session.dismissSizeConstraint()
+    expect(session.sizeConstraint.value).toBeNull()
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(session.sizeConstraint.value).toBeNull()
+  })
+
+  it('clears the constraint once tmux grants the voted size', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    sockets[0].onopen?.()
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(session.sizeConstraint.value).not.toBeNull()
+
+    sockets[0].onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 300, height: 80 }) })
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(session.sizeConstraint.value).toBeNull()
   })
 
   it('votes nothing when the pane cannot be measured', async () => {

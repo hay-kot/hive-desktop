@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // Rename dialog for a hive session. Renaming re-slugs, and the slug is the tmux
 // session name, so the hint says what a rename does to an open terminal — the
-// app renames the tmux session alongside it (ADR 0038) and re-attaches.
+// app renames the tmux session alongside it (ADR 0040) and re-attaches.
 import { nextTick, onMounted, ref } from 'vue'
 import IconPencil from '~icons/lucide/pencil'
 import BaseButton from './BaseButton.vue'

@@ -24,10 +24,13 @@ func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink) *T
 // loopback server that carries the transport is up is composed by the adapter
 // that owns that transport.
 func (s *TerminalsService) Available(ctx context.Context) error {
-	return terminalError(s.manager.Available(ctx), "Terminal sessions need tmux 3.2 or newer on the PATH.")
+	return terminalError(s.manager.Available(ctx), "Terminal sessions need tmux 3.2 or newer. Hive searches PATH and the usual install prefixes; set paths.tmux in settings.yaml if yours is elsewhere.")
 }
 
-// Attach opens, or returns the windows of, the control client for slug.
+// Attach opens, or returns the windows of, the control client for slug. cols
+// and rows are the caller's opening size vote; 0x0 attaches without setting a
+// client size at all, which leaves the session at the size its other clients
+// gave it until the first Resize.
 func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows int) ([]tmuxcc.Window, error) {
 	windows, err := s.manager.Attach(ctx, slug, cols, rows)
 	if err != nil {
@@ -56,8 +59,9 @@ func (s *TerminalsService) Write(ctx context.Context, slug, windowID string, p [
 	return terminalError(client.Write(ctx, windowID, p), "writing to window %q", windowID)
 }
 
-// Resize renegotiates the control client's size. tmux gives every attached
-// client of a window the same size and the smallest one wins.
+// Resize renegotiates the control client's size. Every client attached to a
+// window renders the same grid, and tmux's window-size option decides whose
+// size that is, so this is a vote rather than a resize.
 func (s *TerminalsService) Resize(ctx context.Context, slug string, cols, rows int) error {
 	client, err := s.client(slug)
 	if err != nil {

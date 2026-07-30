@@ -18,8 +18,14 @@ type process interface {
 	Kill() error
 }
 
+// defaultBinary is the fallback when no caller resolved one: what $PATH says.
+// This package holds no discovery policy — locating tmux is the composition
+// root's job (ADR 0039).
+const defaultBinary = "tmux"
+
 type execProcess struct {
-	slug string
+	slug   string
+	binary string
 
 	mu     sync.Mutex
 	cmd    *exec.Cmd
@@ -30,7 +36,7 @@ type execProcess struct {
 }
 
 func newExecProcess(opts Options) process {
-	return &execProcess{slug: opts.Slug, stderr: &cappedBuffer{max: 4 << 10}}
+	return &execProcess{slug: opts.Slug, binary: opts.Binary, stderr: &cappedBuffer{max: 4 << 10}}
 }
 
 // Start ignores ctx deliberately: the control client outlives the attach
@@ -46,7 +52,7 @@ func (p *execProcess) Start(context.Context) (io.Writer, io.Reader, error) {
 	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
 		args = append([]string{"-S", socket}, args...)
 	}
-	cmd := exec.Command("tmux", args...) //nolint:noctx // lifetime is teardown-managed, see above
+	cmd := exec.Command(p.binary, args...) //nolint:noctx // lifetime is teardown-managed, see above
 	cmd.Env = detachedEnv()
 	cmd.Stderr = p.stderr
 

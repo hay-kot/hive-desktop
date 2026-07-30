@@ -296,6 +296,8 @@ internal/
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
                                   #   slug, fan-out broker — no transport, no UI
+    tmuxbin/                      # where the tmux binary is: paths.tmux, then
+                                  #   PATH, then package prefixes (ADR 0039)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -707,7 +709,7 @@ live tmux session name**, and the desktop is what keeps it that way. Hive's
 `app.SessionsService.RenameSession` renames the tmux session first, writes the
 record second, and rolls the tmux rename back if that write fails — with a slug
 collision rejected up front, because hive checks none and the table has no
-uniqueness constraint. ADR 0038. A change that gives the slug a second identity,
+uniqueness constraint. ADR 0040. A change that gives the slug a second identity,
 or that makes something else the attach target, has to revisit that ADR rather
 than work around it.
 
@@ -721,6 +723,15 @@ and it has no business holding a delete. Delete, recycle and prune run through
 destructive is gated on `SessionRisk`, whose payload names the uncommitted or
 unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
+
+**Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
+0039). A desktop launch inherits no shell `$PATH`, so the resolver checks
+`paths.tmux`, then `$PATH`, then the prefixes package managers install
+into, and remembers only success — installing tmux does not need a relaunch.
+`tmuxcc` holds none of that policy: it takes a `func() (string, error)` and the
+resolved path travels on `Options.Binary`. Hive session spawning execs tmux from
+vendored code, so it gets the same binary through `app.tmuxExecutor`, a
+decorator over `executil.Executor` that substitutes the command name `tmux`.
 
 The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
 off, `main.go` mints no token and neither the control-plane routes nor the
@@ -737,6 +748,34 @@ therefore non-blocking. The broker's per-session buffer is bounded **by bytes**
 and overflow is **fatal**: the client is torn down and the frontend re-attaches,
 which re-runs first paint. There is no partial resync, no drop-oldest (it
 corrupts emulator state), and no tmux `pause-after`.
+
+**Size is a negotiation this app is only one voice in.** Every client attached
+to a session renders the same grid per window, and tmux's `window-size` option
+decides whose size that is — by default the most recently used client's — so a
+resize is a vote and the window event is the answer. Two rules follow, and both
+are load-bearing because a vote reaches every other client attached to that
+session:
+
+- **Never vote a size nothing measured.** Attach carries the last size this app
+  window measured, or `0x0`, which sets no client size at all — tmux ignores a
+  control client until it sets one, so the session keeps the size its other
+  clients gave it. A placeholder would resize the session, and the agent
+  redrawing inside it, before anything had been measured.
+- **A vote tmux does not grant is reported, not retried.** The frontend
+  compares its vote against the granted size and names the constraint; nothing
+  re-votes to win the size back from the other client.
+
+On the frontend, a pane **always loads an atlas renderer** — WebGL, falling back
+to 2D canvas — after `term.open()` and never before, because only an atlas
+renderer strokes box drawing and underlines to the cell's device-pixel bounds;
+xterm's DOM renderer cannot join either across cells at any size or device pixel
+ratio. Three rules follow and are the ones to keep (ADR 0038): the DOM renderer
+is a logged degradation path, not a supported one; **do not set `lineHeight` or
+`letterSpacing`** — every renderer quantises both to whole device pixels, so
+neither can tune a cell onto a cleaner boundary and a `lineHeight` above 1 pads
+the glyph off the edge box drawing has to reach; and the addon majors are pinned
+to the xterm core major, since they reach into `Terminal._core` for private
+services.
 
 ## Execution model
 
