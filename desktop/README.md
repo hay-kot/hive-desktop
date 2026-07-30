@@ -142,8 +142,16 @@ root after it moves.
 safe defaults → strict YAML validation → typed `HIVE_DESKTOP_*` environment
 overrides → effective-value validation; unknown fields and invalid explicit
 values fail startup even when an environment value shadows them. Process
-overrides are reapplied after writes and are never persisted accidentally. A
-fully expanded safe configuration is:
+overrides are reapplied after writes and are never persisted accidentally.
+
+**Resolution happens once, at startup: assume every change needs a relaunch.**
+Editing `settings.yaml` while the app runs, or flipping a flag the running
+process already mounted, does not reach it — the exceptions are
+`notifications.*` (re-read on every delivery) and the poll interval when changed
+through Settings ▸ Integrations rather than by hand. Making reload dynamic or
+triggerable is [#151](https://github.com/hay-kot/hive-desktop/issues/151).
+
+A fully expanded safe configuration is:
 
 ```yaml
 polling:
@@ -192,8 +200,10 @@ to configure it: left empty, the app searches `$PATH` and then the prefixes
 package managers install into (Homebrew, MacPorts, Nix), because a desktop
 launch does not inherit the shell's `$PATH` — macOS gives an `.app` bundle
 `/usr/bin:/bin:/usr/sbin:/sbin` (ADR 0038). Set it only for an install those
-misses; it must be absolute, and a configured path that does not work is an
-error rather than a fallback to a different tmux.
+misses; it must be absolute, a configured path that does not work is an error
+rather than a fallback to a different tmux, and changing it takes a relaunch.
+Installing tmux does not: a failed lookup is retried, so only a successful one
+is remembered.
 
 Every scalar override mirrors its YAML path, for example
 `updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →
