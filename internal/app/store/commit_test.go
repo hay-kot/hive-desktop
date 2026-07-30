@@ -64,27 +64,91 @@ func TestCommitBatch_FeedOutput_HealsLegacyEmptyScopeItem(t *testing.T) {
 	assert.Equal(t, 1, claims)
 }
 
-// A feed output whose item exists under no scope at all must not fail the whole
-// batch: the offset has to advance so the consumer cannot be wedged at one
-// unresolvable item forever (issue #95).
-func TestCommitBatch_FeedOutput_SkipsUnresolvableItem(t *testing.T) {
+// A feed output whose key has no inbox row is one a function node synthesized
+// while splitting a source message into per-entity items. The commit mints the
+// row from the payload it carried and claims membership, so the item appears in
+// the feed rather than being dropped.
+func TestCommitBatch_FeedOutput_MintsSynthesizedItem(t *testing.T) {
 	database := openTestDB(t)
 	ctx := t.Context()
 
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
 		Consumer: "flow-1", UpToOffset: 7,
 		Outputs: []Output{{
-			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "ghost#1",
+			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
+			Payload:    json.RawMessage(`{"title":"apps ignored","cluster":"prod"}`),
+			SourceKind: "grafana", SourceScope: "grafana/prod", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	offset, err := database.ConsumerOffset(ctx, "flow-1")
+	require.NoError(t, err)
+	assert.Equal(t, int64(7), offset, "the offset advances")
+
+	var (
+		title   string
+		payload string
+		unread  int
+	)
+	require.NoError(t, database.Conn().QueryRowContext(ctx,
+		`SELECT title, payload, unread FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").
+		Scan(&title, &payload, &unread))
+	assert.Equal(t, "apps ignored", title, "the minted item takes its title from the payload")
+	assert.JSONEq(t, `{"title":"apps ignored","cluster":"prod"}`, payload)
+	assert.Equal(t, 1, unread, "a freshly synthesized item is unread")
+
+	var claims int
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
+	assert.Equal(t, 1, claims, "the minted item claims feed membership")
+}
+
+// A payload with no title falls back to the key, so a synthesized item is never
+// blank in the feed.
+func TestCommitBatch_FeedOutput_MintedItemFallsBackToKeyForTitle(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 1,
+		Outputs: []Output{{
+			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "prod/flux/kustomization/apps",
+			Payload:    json.RawMessage(`{"cluster":"prod"}`),
+			SourceKind: "grafana", SourceScope: "grafana/prod", SourceTopic: "source:flow-1/source-a",
+		}},
+	}))
+
+	var title string
+	require.NoError(t, database.Conn().QueryRowContext(ctx,
+		`SELECT title FROM inbox_item WHERE external_id = ?`, "prod/flux/kustomization/apps").Scan(&title))
+	assert.Equal(t, "prod/flux/kustomization/apps", title)
+}
+
+// A feed output with no key has no identity to mint under (the omitempty
+// snapshot-boundary row of issue #95). It is skipped, not fatal: the offset has
+// to advance so the consumer cannot be wedged at one such row forever.
+func TestCommitBatch_FeedOutput_SkipsKeylessItem(t *testing.T) {
+	database := openTestDB(t)
+	ctx := t.Context()
+
+	require.NoError(t, database.CommitBatch(ctx, CommitBatch{
+		Consumer: "flow-1", UpToOffset: 7,
+		Outputs: []Output{{
+			Sink: Sink{Kind: SinkKindFeed, TargetID: "feed-a"}, Key: "",
 			SourceKind: "github", SourceScope: "hay-kot", SourceTopic: "source:flow-1/source-a",
 		}},
 	}))
 
 	offset, err := database.ConsumerOffset(ctx, "flow-1")
 	require.NoError(t, err)
-	assert.Equal(t, int64(7), offset, "an unresolvable item is skipped, not fatal — the offset still advances")
+	assert.Equal(t, int64(7), offset, "a keyless item is skipped, not fatal — the offset still advances")
 
-	var claims int
+	var (
+		items  int
+		claims int
+	)
+	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM inbox_item`).Scan(&items))
 	require.NoError(t, database.Conn().QueryRowContext(ctx, `SELECT COUNT(*) FROM feed_membership_claim`).Scan(&claims))
+	assert.Zero(t, items, "nothing is minted for a keyless output")
 	assert.Zero(t, claims)
 }
 

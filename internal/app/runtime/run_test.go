@@ -190,6 +190,51 @@ func TestFunctionStateSurvivesAcrossBatches(t *testing.T) {
 	require.JSONEq(t, `{"n":2}`, string(second.Outputs[0].Payload), "a second page continues the same instance")
 }
 
+// A function node may mint new Keys to split one message into many feed items,
+// but every split message must stay inside the source snapshot's
+// reconciliation scope: its Topic and SnapshotID have to match the declared
+// FeedSnapshot, or the commit cannot reconcile it and a departed item never
+// leaves the feed. This pins that contract — and, by extension, why an author
+// must not rewrite Topic.
+func TestFunctionNodeSplitInheritsSnapshotScope(t *testing.T) {
+	t.Parallel()
+
+	split := `return msg.Payload.result.map(function (s) {
+  return { ...msg, Key: s.name, Payload: { title: s.name } };
+});`
+	runner, err := runtime.NewRunner(flow.Flow{
+		ID: "f",
+		Nodes: []flow.Node{
+			{ID: "src", Type: "sources.webhook", Config: flow.NewSourceConfig(whsource.Descriptor.Type, &whsource.Config{Path: "hook"})},
+			{ID: "fn", Type: "function", Config: &flow.FunctionConfig{OnMessage: split}},
+			{ID: "inbox", Type: "feed", Config: &flow.FeedConfig{}},
+		},
+		Wires: []flow.Wire{{From: "src", To: "fn"}, {From: "fn", To: "inbox"}},
+	}, runtime.Options{Scripts: testScripts()})
+	require.NoError(t, err)
+	defer runner.Close()
+
+	got, err := runner.Run(t.Context(), []store.Msg{{
+		ID: "5", Topic: "source:f/src", Ts: 1, SourceKind: "grafana", SourceScope: "grafana/prod",
+		Snapshot: []store.SnapshotItem{{Key: "node", Payload: json.RawMessage(`{"result":[{"name":"a"},{"name":"b"}]}`)}},
+	}})
+	require.NoError(t, err)
+
+	require.Len(t, got.FeedSnapshots, 1, "the feed reconciles under one snapshot scope")
+	scope := got.FeedSnapshots[0]
+	require.Len(t, got.Outputs, 2, "one feed output per series")
+
+	keys := make([]string, 0, len(got.Outputs))
+	for _, out := range got.Outputs {
+		require.Equal(t, store.SinkKindFeed, out.Sink.Kind)
+		require.Equal(t, scope.SourceTopic, out.SourceTopic, "Topic is preserved, so the split output reconciles under the source scope")
+		require.Equal(t, scope.SnapshotID, out.SnapshotID, "each split output carries the snapshot id it was expanded from")
+		require.Equal(t, "grafana", out.SourceKind)
+		keys = append(keys, out.Key)
+	}
+	require.ElementsMatch(t, []string{"a", "b"}, keys, "each series is keyed by the value the script minted")
+}
+
 func nodeRun(t *testing.T, batch store.CommitBatch, nodeID string) store.NodeRunView {
 	t.Helper()
 	for _, run := range batch.NodeRuns {

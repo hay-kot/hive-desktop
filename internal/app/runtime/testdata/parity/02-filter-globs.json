@@ -55,6 +55,7 @@
       {
         "sink": { "kind": "feed", "targetId": "globs/inbox" },
         "key": "a",
+        "payload": { "repo": "acme/app", "author": "Alice", "kind": "pr" },
         "sourceKind": "github",
         "sourceScope": "search",
         "sourceTopic": "source:globs/src"

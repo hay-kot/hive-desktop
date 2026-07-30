@@ -89,10 +89,17 @@ func buildBehaviors(declared map[string]behavior) map[string]behavior {
 // feedSinks claims immutable inbox membership for the arriving item. A feed
 // is a pure inbox surface: it never interrupts — raising a notification is a
 // notify node's job.
+//
+// The payload rides along so the commit can mint an inbox row for a key that
+// never went through ingest — a function node that split one source message
+// into per-entity items with keys it minted (see store.CommitBatch). For a key
+// the producer already ingested, the payload is redundant and the row's own
+// classifier-owned presentation wins.
 func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.Output {
 	return []store.Output{{
 		Sink:        store.Sink{Kind: store.SinkKindFeed, TargetID: flowID + "/" + nodeID},
 		Key:         msg.Key,
+		Payload:     msg.Payload,
 		SourceTopic: msg.Topic,
 		SourceKind:  msg.SourceKind,
 		SourceScope: msg.SourceScope,

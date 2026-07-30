@@ -34,12 +34,12 @@
     "outputs": [
       {
         "sink": { "kind": "feed", "targetId": "loud/f" },
-        "key": "k1", "sourceKind": "github", "sourceScope": "notifications",
+        "key": "k1", "payload": { "title": "hello" }, "sourceKind": "github", "sourceScope": "notifications",
         "sourceTopic": "source:loud/src"
       },
       {
         "sink": { "kind": "feed", "targetId": "loud/f" },
-        "key": "k1", "sourceKind": "github", "sourceScope": "notifications",
+        "key": "k1", "payload": { "title": "hello" }, "sourceKind": "github", "sourceScope": "notifications",
         "sourceTopic": "source:loud/src", "snapshotId": "2"
       },
       {

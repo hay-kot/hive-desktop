@@ -42,6 +42,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0032](decisions/0032-yaml-config-migration.md) | Forward-only in-place YAML config migration |
 | [0033](decisions/0033-skill-installer.md) | Skill installer: install the paste-ready prompts as agent skills, kept in sync by content hash |
 | [0034](decisions/0034-github-tags-and-releases.md) | Publish GitHub tags and Releases as the source-side record of a desktop release |
+| [0035](decisions/0035-function-node-per-entity-feed-items.md) | Per-entity feed items by function-node fan-out: mint the inbox row at commit for a synthesized feed key |
 
 ## References
 
