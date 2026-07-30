@@ -674,7 +674,7 @@ onBeforeUnmount(() => {
 /* 8c "drop to connect": the currently-hovered legal wire-drag target. */
 .port-target-valid {
   background: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.32);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 32%, transparent);
 }
 
 /* Drop-from-palette affordance: a dashed accent outline while a compatible drag hovers the canvas. */

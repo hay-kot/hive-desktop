@@ -201,18 +201,19 @@ func (d *devtools) prepare(fresh bool) error {
 	proxyListen := devproxy.ListenFromConfig(d.worktree)
 
 	env := map[string]string{
-		settings.EnvDataDir:       dataDir,
-		settings.EnvHiveDataDir:   sourcePaths.DataDir,
-		settings.EnvConfigDir:     configDir,
-		settings.EnvGitHubAPIBase: devproxy.BaseURL(proxyListen),
-		settings.EnvLogLevel:      "debug",
-		settings.EnvHTTPEnabled:   "true",
-		settings.EnvHTTPPort:      strconv.Itoa(webhookPort),
-		"WAILS_VITE_HOST":         cfg.Development.Vite.Host,
-		"WAILS_VITE_PORT":         strconv.Itoa(vitePort),
-		"WAILS_SERVER_HOST":       cfg.Development.Wails.Host,
-		"WAILS_SERVER_PORT":       strconv.Itoa(wailsPort),
-		launchMarkerEnv:           d.launchPath,
+		settings.EnvDataDir:              dataDir,
+		settings.EnvHiveDataDir:          sourcePaths.DataDir,
+		settings.EnvConfigDir:            configDir,
+		settings.EnvGitHubAPIBase:        devproxy.BaseURL(proxyListen),
+		settings.EnvLogLevel:             "debug",
+		settings.EnvHTTPEnabled:          "true",
+		settings.EnvHTTPPort:             strconv.Itoa(webhookPort),
+		settings.EnvExperimentalTerminal: "true",
+		"WAILS_VITE_HOST":                cfg.Development.Vite.Host,
+		"WAILS_VITE_PORT":                strconv.Itoa(vitePort),
+		"WAILS_SERVER_HOST":              cfg.Development.Wails.Host,
+		"WAILS_SERVER_PORT":              strconv.Itoa(wailsPort),
+		launchMarkerEnv:                  d.launchPath,
 	}
 	if err := writeDotenvAtomic(d.launchPath, env); err != nil {
 		return err

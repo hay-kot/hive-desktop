@@ -21,6 +21,8 @@ const (
 	EnvHTTPEnabled = "HIVE_DESKTOP_HTTP_ENABLED"
 	EnvHTTPHost    = "HIVE_DESKTOP_HTTP_HOST"
 	EnvHTTPPort    = "HIVE_DESKTOP_HTTP_PORT"
+
+	EnvExperimentalTerminal = "HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"
 )
 
 // Paths is the immutable startup snapshot of every desktop-owned location.

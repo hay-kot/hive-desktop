@@ -32,6 +32,22 @@ func TestDefaultSettingsAreSafe(t *testing.T) {
 	assert.Zero(t, cfg.HTTP.Port)
 	assert.Equal(t, MockLive, cfg.Development.Mocks.Mode)
 	assert.False(t, cfg.Development.Pprof.Enabled)
+	assert.False(t, cfg.Experimental.Terminal, "terminal mode ships dark")
+}
+
+func TestExperimentalTerminalYAMLThenEnvironment(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("experimental:\n  terminal: true\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.True(t, cfg.Experimental.Terminal)
+
+	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL", "false")
+	cfg, err = LoadSettings()
+	require.NoError(t, err)
+	assert.False(t, cfg.Experimental.Terminal, "the environment wins over settings.yaml")
+	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"))
 }
 
 func TestLoadSettingsStrictNestedYAMLThenEnvironment(t *testing.T) {

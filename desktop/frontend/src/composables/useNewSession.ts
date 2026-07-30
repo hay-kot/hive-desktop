@@ -16,6 +16,32 @@ const error = ref<string | null>(null)
 const options = ref<SessionLaunchOptionsView | null>(null)
 const initial = ref<Draft>({ repository: '', name: '', prompt: '' })
 
+// SessionLaunchOptions scans every configured workspace directory (a git call
+// per repo), slow enough that a click blocked on it visibly lags. The last
+// result opens the dialog instantly; the refresh lands behind it.
+let cachedOptions: SessionLaunchOptionsView | null = null
+
+async function fetchOptions(): Promise<SessionLaunchOptionsView> {
+  const opts = await SessionLaunchOptions()
+  cachedOptions = opts
+  return opts
+}
+
+function resolveOptions(): Promise<SessionLaunchOptionsView> {
+  if (!cachedOptions) return fetchOptions()
+  void fetchOptions().then((opts) => { if (open.value) options.value = opts }).catch(() => {})
+  return Promise.resolve(cachedOptions)
+}
+
+export function resetNewSessionForTests(): void {
+  cachedOptions = null
+  open.value = false
+  loading.value = false
+  busy.value = false
+  error.value = null
+  options.value = null
+}
+
 function message(e: unknown, fallback: string): string {
   return e instanceof Error && e.message ? e.message : fallback
 }
@@ -23,12 +49,16 @@ function message(e: unknown, fallback: string): string {
 export function useNewSession() {
   const { showToast } = useToasts()
 
+  function prefetch(): void {
+    if (!cachedOptions) void fetchOptions().catch(() => {})
+  }
+
   async function openBlank(): Promise<void> {
     if (open.value || loading.value) return
     error.value = null
     loading.value = true
     try {
-      const opts = await SessionLaunchOptions()
+      const opts = await resolveOptions()
       options.value = opts
       initial.value = { repository: opts.defaultRepository ?? '', name: '', prompt: '' }
       open.value = true
@@ -44,7 +74,7 @@ export function useNewSession() {
     error.value = null
     loading.value = true
     try {
-      const [opts, draft] = await Promise.all([SessionLaunchOptions(), NewSessionDraft(item.id)])
+      const [opts, draft] = await Promise.all([resolveOptions(), NewSessionDraft(item.id)])
       options.value = opts
       initial.value = {
         repository: draft.repository || opts.defaultRepository || '',
@@ -84,5 +114,5 @@ export function useNewSession() {
     }
   }
 
-  return { open, options, initial, busy, loading, error, openBlank, openFromItem, cancel, submit }
+  return { open, options, initial, busy, loading, error, prefetch, openBlank, openFromItem, cancel, submit }
 }

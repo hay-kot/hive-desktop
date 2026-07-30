@@ -64,6 +64,17 @@ func (op Op) pattern() string {
 }
 
 func (ctrl *Controller) operations() []Op {
+	ops := ctrl.baseOperations()
+	// No token means terminal mode is off for this run (experimental.terminal,
+	// ADR 0037): the routes are absent rather than answering 503, so the route
+	// index and OpenAPI document never advertise a surface that cannot work.
+	if ctrl.terminalToken != "" {
+		ops = append(ops, ctrl.terminalOperations()...)
+	}
+	return ops
+}
+
+func (ctrl *Controller) baseOperations() []Op {
 	return []Op{
 		{
 			Method: "GET", Path: "/api/", Summary: "List every route this API serves, with a link to the OpenAPI document.",
@@ -165,12 +176,72 @@ func (ctrl *Controller) operations() []Op {
 	}
 }
 
+func (ctrl *Controller) terminalOperations() []Op {
+	return []Op{
+		{
+			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
+			Request: terminalSizeRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,
+			Errors: terminalErrors("the slug names no reachable tmux session"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/resize", Summary: "Resize the attached control client; tmux gives every client of a window the same size and the smallest wins.",
+			Request: terminalSizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalResize,
+			Errors: terminalErrors("no terminal is attached for that slug"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/windows/new", Summary: "Create a window in the attached session and return its tmux window id.",
+			Request: terminalSlugRequest{}, Response: terminalNewWindowResponse{}, Handler: ctrl.TerminalNewWindow,
+			Errors: terminalErrors("no terminal is attached for that slug"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/windows/close", Summary: "Kill one window of the attached session.",
+			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalCloseWindow,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/windows/rename", Summary: "Rename one window of the attached session.",
+			Request: terminalRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalRenameWindow,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/windows/select", Summary: "Make one window the attached session's active window.",
+			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalSelectWindow,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/detach", Summary: "Close the control client, leaving the tmux session itself running.",
+			Request: terminalSlugRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalDetach,
+			Errors: terminalErrors("no terminal is attached for that slug"),
+		},
+	}
+}
+
+// terminalErrors documents what every terminal operation can answer beyond the
+// generic error: the bearer token these — and only these — routes require, and
+// tmux being absent or too old.
+func terminalErrors(notFound string) []ErrResp {
+	return []ErrResp{
+		{Status: 401, When: "the Authorization: Bearer token is missing or wrong"},
+		{Status: 404, When: notFound},
+		{Status: 503, When: "tmux is unavailable: missing, older than 3.2, or an unsupported build"},
+	}
+}
+
 func (ctrl *Controller) Handler() http.Handler {
 	chain := errchain.New(mid.Errors(ctrl.log, mapAppError))
 
 	mux := http.NewServeMux()
+	preflighted := map[string]bool{}
 	for _, op := range ctrl.operations() {
-		mux.HandleFunc(op.pattern(), chain.ToHandlerFunc(op.Handler))
+		handler := chain.ToHandlerFunc(op.Handler)
+		if strings.HasPrefix(op.Path, TerminalPathPrefix) {
+			handler = ctrl.cors.wrap(handler)
+			if !preflighted[op.Path] {
+				preflighted[op.Path] = true
+				mux.HandleFunc("OPTIONS "+op.Path, ctrl.cors.preflight)
+			}
+		}
+		mux.HandleFunc(op.pattern(), handler)
 	}
 	return mid.Logger(ctrl.log, "/api/status", "/api/version")(mux)
 }

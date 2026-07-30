@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import {
   Build,
@@ -17,6 +17,11 @@ import {
   SetEnabled,
   Status,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
+import {
+  ExperimentalSettings as LoadExperimentalSettings,
+  SetExperimentalTerminal,
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
+import { Enabled as TerminalModeEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { BuildInfo, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
@@ -43,19 +48,47 @@ export function useSystemSettings() {
   const checkingUpdate = ref(false)
   const checkedOnce = ref(false)
 
+  // The experimental.terminal opt-in (ADR 0037) is read once at startup, so
+  // the toggle tracks two values: what is persisted and what this run mounted.
+  // They differ exactly while a relaunch is pending.
+  const experimentalTerminal = ref(false)
+  const terminalModeRunning = ref(false)
+  const terminalRestartPending = computed(() => experimentalTerminal.value !== terminalModeRunning.value)
+
   async function refresh(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      const [locations, buildInfo, status] = await Promise.all([Info(), Build(), Status()])
+      const [locations, buildInfo, status, experimental, terminalRunning] = await Promise.all([
+        Info(), Build(), Status(), LoadExperimentalSettings(), TerminalModeEnabled(),
+      ])
       info.value = locations
       build.value = buildInfo
       update.value = status
       autoUpdate.value = status.enabled
+      experimentalTerminal.value = experimental.terminal
+      terminalModeRunning.value = terminalRunning
     } catch (err) {
       error.value = errText(err)
     } finally {
       loading.value = false
+    }
+  }
+
+  // setExperimentalTerminal persists the opt-in; the running app is unchanged
+  // until relaunch, which is what terminalRestartPending surfaces. The stored
+  // value comes from the reply so a process env override cannot drift the
+  // switch from what the backend resolved.
+  async function setExperimentalTerminal(value: boolean): Promise<void> {
+    const previous = experimentalTerminal.value
+    experimentalTerminal.value = value
+    error.value = ''
+    try {
+      const effective = await SetExperimentalTerminal(value)
+      experimentalTerminal.value = effective.terminal
+    } catch (err) {
+      experimentalTerminal.value = previous
+      error.value = errText(err)
     }
   }
 
@@ -154,6 +187,9 @@ export function useSystemSettings() {
     update,
     checkingUpdate,
     checkedOnce,
+    experimentalTerminal,
+    terminalRestartPending,
+    setExperimentalTerminal,
     setAutoUpdate,
     checkForUpdates,
     refresh,

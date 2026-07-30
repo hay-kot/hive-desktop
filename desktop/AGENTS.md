@@ -260,9 +260,10 @@ more expensive, which is the whole reason it is being done now.
   polling: {interval: 5m}
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
-  appearance: {theme: ""}
+  appearance: {theme: "", terminal_font_size: ""}   # terminal_font_size: small/medium/large/xl/xxl; "" = medium
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
+  experimental: {terminal: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR 0037)
   development:
     mocks: {mode: live}
     instance: {id: ""}
@@ -357,9 +358,11 @@ persisted by UI writes.
 | `HIVE_DESKTOP_NOTIFICATIONS_DELIVERY` | `auto`, `system`, or `app` |
 | `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
 | `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE` | Terminal font size preset (`small`/`medium`/`large`/`xl`/`xxl`); empty means medium |
 | `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
+| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, read at startup |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
 | `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |

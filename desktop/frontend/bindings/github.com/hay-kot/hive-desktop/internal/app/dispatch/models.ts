@@ -93,3 +93,15 @@ export interface SessionLaunchRepository {
     "name": string;
     "repository": string;
 }
+
+/**
+ * SessionSummary is one live session as the desktop sees it. Slug is the tmux
+ * session name, which is what a terminal attach targets.
+ */
+export interface SessionSummary {
+    "id": string;
+    "name": string;
+    "slug": string;
+    "repo": string;
+    "state": string;
+}

@@ -12,5 +12,6 @@ export type {
     SessionExecutionOutcome,
     SessionInvocationInput,
     SessionLaunchOptions,
-    SessionLaunchRepository
+    SessionLaunchRepository,
+    SessionSummary
 } from "./models.js";

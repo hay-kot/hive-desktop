@@ -15,6 +15,7 @@ const newSessionJobActionID = "new-session"
 type sessionLauncher interface {
 	LaunchSession(context.Context, dispatch.LaunchSessionRequest) (dispatch.SessionExecutionOutcome, error)
 	SessionLaunchOptions(context.Context) (dispatch.SessionLaunchOptions, error)
+	ListSessions(context.Context) ([]dispatch.SessionSummary, error)
 }
 
 // sessionJobRunner runs the session launch as a tracked background job so a
@@ -42,6 +43,19 @@ func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.Se
 	}
 	opts, err := s.launcher.SessionLaunchOptions(ctx)
 	return opts, Wrap(err, KindInternal, "resolving session launch options")
+}
+
+// ListSessions returns the active sessions a terminal can attach to, keyed by
+// the slug that names their tmux session.
+func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionSummary, error) {
+	if s.launcher == nil {
+		return nil, Errorf(KindUnavailable, "session listing is unavailable")
+	}
+	sessions, err := s.launcher.ListSessions(ctx)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing sessions")
+	}
+	return sessions, nil
 }
 
 // CreateSession validates a New Session form, then launches the session as a

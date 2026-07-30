@@ -60,6 +60,10 @@ const mocks = vi.hoisted(() => ({
   Focused: vi.fn(),
   ActivityList: vi.fn(),
   RecordActivity: vi.fn(),
+  // terminalservice
+  TerminalAvailable: vi.fn(),
+  TerminalEndpoint: vi.fn(),
+  TerminalModeEnabled: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -143,6 +147,12 @@ vi.mock('@wailsio/runtime', () => ({
   Call: { ByID: vi.fn() },
 }))
 
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
+  Available: mocks.TerminalAvailable,
+  Endpoint: mocks.TerminalEndpoint,
+  Enabled: mocks.TerminalModeEnabled,
+}))
+
 const flow = {
   id: 'personal',
   name: 'Personal',
@@ -212,6 +222,7 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
+    mocks.TerminalModeEnabled.mockResolvedValue(true)
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -1050,6 +1061,92 @@ describe('App', () => {
     const logHandler = mocks.On.mock.calls.find(([event]) => event === 'log:appended')?.[1]
     expect(logHandler).toBeUndefined()
 
+    wrapper.unmount()
+  })
+
+  it('never renders the Hub|Terminal toggle while experimental.terminal is off', async () => {
+    mocks.TerminalModeEnabled.mockResolvedValue(false)
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('swaps the whole hub for terminal mode and back from the title-bar toggle', async () => {
+    mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    // Terminal mode is async-imported, so it lands a tick after the toggle.
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await flushPromises()
+
+    // The mode is a route, so the toggle is ordinary navigation.
+    expect(router.currentRoute.value.name).toBe('terminal')
+    // The toggle is never gated on availability; the reason shows up inside.
+    expect(wrapper.get('[data-testid="terminal-unavailable-reason"]').text()).toBe('tmux is not installed.')
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(false)
+    // The feed panels are gone, so their title-bar toggles must not dangle.
+    expect(wrapper.get('[data-testid="titlebar-toggle-sidebar"]').attributes('disabled')).toBeDefined()
+
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('feed')
+    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the title-bar navigation live inside terminal mode', async () => {
+    mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    // Start somewhere other than the feed so "back to the hub" is observable
+    // as "back to where the hub was", not "back to the default feed".
+    await router.push({ name: 'application-settings', params: { section: 'integrations' } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+
+    // The Hub toggle lands on the page the hub was left on, not the feed.
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('application-settings')
+    expect(router.currentRoute.value.params.section).toBe('integrations')
+
+    // Activity is reachable from inside terminal mode without toggling first.
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('activity')
+    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
+
+    // The mode is history like any page: Back returns to the terminal route.
+    router.back()
+    await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('terminal'))
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+
+    wrapper.unmount()
+  })
+
+  it('lets a focused terminal keep every key, shortcuts included', async () => {
+    const wrapper = await mountApp()
+    const { open: paletteOpen } = useCommandPalette()
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
+    await flushPromises()
+
+    expect(paletteOpen.value).toBe(false)
+    pane.remove()
     wrapper.unmount()
   })
 

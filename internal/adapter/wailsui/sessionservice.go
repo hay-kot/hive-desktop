@@ -20,6 +20,12 @@ func (s *SessionService) SessionLaunchOptions(ctx context.Context) (dispatch.Ses
 	return s.sessions.SessionLaunchOptions(ctx)
 }
 
+// ListSessions returns the active sessions the terminal picker offers; Slug is
+// the tmux target an attach uses.
+func (s *SessionService) ListSessions(ctx context.Context) ([]dispatch.SessionSummary, error) {
+	return s.sessions.ListSessions(ctx)
+}
+
 // CreateSession validates the form and starts the session as a background job,
 // returning the job id. Its outcome surfaces in the jobs UI.
 func (s *SessionService) CreateSession(ctx context.Context, req dispatch.CreateSessionRequest) (int64, error) {

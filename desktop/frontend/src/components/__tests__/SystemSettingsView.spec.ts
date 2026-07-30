@@ -18,6 +18,9 @@ const mocks = vi.hoisted(() => ({
   Status: vi.fn(),
   SetEnabled: vi.fn(),
   CheckNow: vi.fn(),
+  ExperimentalSettings: vi.fn(),
+  SetExperimentalTerminal: vi.fn(),
+  TerminalModeEnabled: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
@@ -35,6 +38,13 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   Status: mocks.Status,
   SetEnabled: mocks.SetEnabled,
   CheckNow: mocks.CheckNow,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
+  ExperimentalSettings: mocks.ExperimentalSettings,
+  SetExperimentalTerminal: mocks.SetExperimentalTerminal,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
+  Enabled: mocks.TerminalModeEnabled,
 }))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
@@ -84,6 +94,9 @@ beforeEach(() => {
   mocks.Status.mockResolvedValue(updateInfo())
   mocks.SetEnabled.mockResolvedValue(undefined)
   mocks.CheckNow.mockResolvedValue(updateInfo())
+  mocks.ExperimentalSettings.mockResolvedValue({ terminal: false })
+  mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled }))
+  mocks.TerminalModeEnabled.mockResolvedValue(false)
   document.body.innerHTML = ''
 })
 
@@ -214,6 +227,50 @@ describe('SystemSettingsView', () => {
     await wrapper.find('[data-testid="system-check-update"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="system-update-uptodate"]').exists()).toBe(true)
+  })
+
+  it('persists the terminal opt-in and flags that a relaunch is pending', async () => {
+    mocks.Info.mockResolvedValue(info())
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    // Persisted off, running off: nothing pending.
+    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(true)
+    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
+  })
+
+  it('shows no restart hint when the persisted opt-in matches the running app', async () => {
+    mocks.Info.mockResolvedValue(info())
+    mocks.ExperimentalSettings.mockResolvedValue({ terminal: true })
+    mocks.TerminalModeEnabled.mockResolvedValue(true)
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
+
+    // Turning it off is a change against the running app, so it is pending too.
+    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
+    await flushPromises()
+    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
+    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
+  })
+
+  it('reverts the terminal opt-in switch when the save fails', async () => {
+    mocks.Info.mockResolvedValue(info())
+    mocks.SetExperimentalTerminal.mockRejectedValue(new Error('disk is read-only'))
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="system-experimental-terminal"]').attributes('aria-checked')).toBe('false')
+    expect(wrapper.find('[data-testid="system-error"]').text()).toContain('disk is read-only')
   })
 
   it('quits the app from the restart banner', async () => {

@@ -30,6 +30,7 @@ import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
+import { setTerminalFontSize, terminalFontSizeLabels, terminalFontSizePx, terminalFontSizes, useTerminalFont, type TerminalFontSize } from '../composables/useTerminalFont'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
@@ -57,6 +58,11 @@ const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const { theme } = useTheme()
 const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
+const { size: terminalFontSize } = useTerminalFont()
+const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
+  value,
+  label: `${terminalFontSizeLabels[value]} · ${terminalFontSizePx[value]}px`,
+}))
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
@@ -138,6 +144,10 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
 function onThemeChange(value: string): void {
   setTheme(value as Theme)
 }
+
+function onTerminalFontSizeChange(value: string): void {
+  setTerminalFontSize(value as TerminalFontSize)
+}
 </script>
 
 <template>
@@ -161,14 +171,23 @@ function onThemeChange(value: string): void {
     </template>
 
     <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div v-if="props.activeCategory === 'appearance'" class="mx-auto max-w-[560px]">
+      <div v-if="props.activeCategory === 'appearance'" class="mx-auto max-w-[560px] space-y-4">
         <SettingsSegmented
           :model-value="theme"
           label="Theme"
           :options="themeOptions"
+          :columns="3"
           hint="Applies immediately across the whole app."
           testid="settings-theme-toggle"
           @update:model-value="onThemeChange"
+        />
+        <SettingsSegmented
+          :model-value="terminalFontSize"
+          label="Terminal font size"
+          :options="terminalFontSizeOptions"
+          hint="Applies immediately to open terminals; tmux re-fits their grid."
+          testid="settings-terminal-font-size"
+          @update:model-value="onTerminalFontSizeChange"
         />
       </div>
 

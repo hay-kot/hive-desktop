@@ -3,6 +3,7 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
+import { setTerminalFontSize } from '../../composables/useTerminalFont'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
@@ -10,6 +11,9 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '' }),
+  SetTheme: vi.fn(),
+  SetTerminalFontSize: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
@@ -94,6 +98,20 @@ describe('SettingsView', () => {
     expect(document.documentElement.dataset.theme).toBe('gruvbox')
     await nextTick()
     expect(localStorage.getItem('hive.theme')).toBe('gruvbox')
+  })
+
+  it('reflects and changes the terminal font size preset', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('true')
+
+    await wrapper.find('[data-testid="settings-terminal-font-size-xl"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="settings-terminal-font-size-xl"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('false')
+
+    // The size is a module singleton; put the default back for later tests.
+    setTerminalFontSize('medium')
   })
 
   it('shows the connected GitHub source', async () => {

@@ -44,7 +44,7 @@ func testServer(t *testing.T) (*app.App, http.Handler) {
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
-	return core, httpapi.New(core, zerolog.Nop()).Handler()
+	return core, httpapi.New(core, zerolog.Nop(), "", nil).Handler()
 }
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
@@ -106,7 +106,7 @@ func TestServedOverWebhookListener(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
 
-	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core, zerolog.Nop()).Handler()),
+	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core, zerolog.Nop(), "", nil).Handler()),
 		"the webhook listener exists, so the API mounts")
 	seedItem(t, core, "p1", "PR_1", `{"repo":"acme/widgets","num":7}`)
 	require.NoError(t, core.Start(t.Context()))

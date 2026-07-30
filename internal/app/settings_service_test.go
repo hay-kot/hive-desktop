@@ -168,13 +168,50 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 	})
 }
 
+func TestSettingsServiceSetExperimentalTerminalPersists(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	cfg := settings.DefaultSettings()
+	cfg.Updates.Enabled = false
+	require.NoError(t, settings.SaveSettings(cfg))
+
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+
+	effective, err := service.SetExperimentalTerminal(t.Context(), true)
+	require.NoError(t, err)
+	require.True(t, effective)
+
+	got, err := settings.LoadSettings()
+	require.NoError(t, err)
+	require.True(t, got.Experimental.Terminal)
+	require.False(t, got.Updates.Enabled, "the opt-in must not clobber unrelated fields")
+
+	roundTripped, err := service.Experimental(t.Context())
+	require.NoError(t, err)
+	require.True(t, roundTripped.Terminal)
+}
+
+func TestSettingsServiceSetExperimentalTerminalReportsEnvOverride(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL", "false")
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+
+	effective, err := service.SetExperimentalTerminal(t.Context(), true)
+	require.NoError(t, err)
+	require.False(t, effective, "the process override wins over the persisted value")
+
+	persisted, err := settings.NewStore(settings.SettingsPath()).Persisted()
+	require.NoError(t, err)
+	require.True(t, persisted.Experimental.Terminal, "the user's choice still lands on disk for the next launch")
+}
+
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
 
-	got, err := service.Theme(t.Context())
+	got, err := service.Appearance(t.Context())
 	require.NoError(t, err)
-	require.Empty(t, got)
+	require.Empty(t, got.Theme)
+	require.Empty(t, got.TerminalFontSize)
 }
 
 func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing.T) {
@@ -185,14 +222,17 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
+	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
 
 	got, err := settings.LoadSettings()
 	require.NoError(t, err)
 	require.Equal(t, "midnight", got.Appearance.Theme)
+	require.Equal(t, "large", got.Appearance.TerminalFontSize)
 	require.Equal(t, 5*time.Minute, got.Polling.Interval.Duration())
 	require.False(t, got.Updates.Enabled)
 
-	roundTripped, err := service.Theme(t.Context())
+	roundTripped, err := service.Appearance(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, "midnight", roundTripped)
+	require.Equal(t, "midnight", roundTripped.Theme)
+	require.Equal(t, "large", roundTripped.TerminalFontSize, "one appearance setter must not clobber the other field")
 }

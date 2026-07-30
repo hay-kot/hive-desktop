@@ -15,6 +15,8 @@ const props = defineProps<{
   options: SettingsSegmentedOption[]
   hint?: string
   testid?: string
+  /** Lay the options out as a grid with this many columns instead of a single strip. */
+  columns?: number
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -22,7 +24,13 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 <template>
   <SettingsField :label="label" :hint="hint" :testid="testid">
-    <div class="flex gap-1 rounded-lg border border-row bg-app p-1" role="tablist" :aria-label="label">
+    <div
+      class="gap-1 rounded-lg border border-row bg-app p-1"
+      :class="props.columns ? 'grid' : 'flex'"
+      :style="props.columns ? { gridTemplateColumns: `repeat(${props.columns}, minmax(0, 1fr))` } : undefined"
+      role="tablist"
+      :aria-label="label"
+    >
       <button
         v-for="opt in options"
         :key="opt.value"

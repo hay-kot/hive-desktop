@@ -82,7 +82,14 @@ type NotificationSettings struct {
 }
 
 type Appearance struct {
-	Theme string `yaml:"theme,omitempty" env:"HIVE_DESKTOP_APPEARANCE_THEME"`
+	Theme            string `yaml:"theme,omitempty"              env:"HIVE_DESKTOP_APPEARANCE_THEME"`
+	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
+}
+
+// ExperimentalSettings opts into features that ship dark. Each flag defaults
+// to off and is read once at startup — flipping one takes a relaunch.
+type ExperimentalSettings struct {
+	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -173,6 +180,7 @@ type Settings struct {
 	HTTP          HTTPSettings         `yaml:"http"`
 	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
 	Skills        SkillsSettings       `yaml:"skills"`
+	Experimental  ExperimentalSettings `yaml:"experimental,omitempty"`
 	Development   DevelopmentSettings  `yaml:"development"`
 
 	overrides map[string]bool

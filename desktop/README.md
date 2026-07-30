@@ -157,16 +157,21 @@ notifications:
   sound: true
 appearance:
   theme: ""
-webhooks:
-  enabled: false
+  terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
+http:
+  enabled: true # loopback server: webhook listener + agent API (ADR 0021)
   host: 127.0.0.1
-  port: 0 # the OS chooses when enabled
+  port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
+experimental:
+  terminal: false # terminal mode ships dark (ADR 0037); read at startup
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke
   instance:
     id: ""
+  github:
+    api_base: "" # loopback-only devserver override (ADR 0017)
   vite:
     host: 127.0.0.1
     port: 0
@@ -174,9 +179,7 @@ development:
     host: 127.0.0.1
     port: 0
   pprof:
-    enabled: false
-    host: 127.0.0.1
-    port: 0
+    enabled: false # mounts on the loopback HTTP server when on (ADR 0023)
   debug:
     pause_ingest: 0s
     pause_commit: 0s

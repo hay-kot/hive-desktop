@@ -20,6 +20,10 @@ export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSett
     return $Call.ByID(2122138421);
 }
 
+export function ExperimentalSettings(): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(1419259869);
+}
+
 export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
     return $Call.ByID(1295591268);
 }
@@ -32,8 +36,8 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
-export function SetAppearanceSettings($in: $models.AppearanceSettings): $CancellablePromise<void> {
-    return $Call.ByID(215032261, $in);
+export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(1793440840, enabled);
 }
 
 /**
@@ -51,4 +55,16 @@ export function SetKeybindingSettings($in: $models.KeybindingSettings): $Cancell
 
 export function SetNotificationSettings($in: $models.NotificationSettings): $CancellablePromise<void> {
     return $Call.ByID(460333036, $in);
+}
+
+export function SetTerminalFontSize(size: string): $CancellablePromise<void> {
+    return $Call.ByID(736291786, size);
+}
+
+/**
+ * The appearance setters are per-field so the theme picker and the terminal
+ * font picker cannot clobber each other's persisted value.
+ */
+export function SetTheme(theme: string): $CancellablePromise<void> {
+    return $Call.ByID(2875194419, theme);
 }

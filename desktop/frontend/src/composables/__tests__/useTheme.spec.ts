@@ -3,12 +3,12 @@ import { nextTick } from 'vue'
 
 const mocks = vi.hoisted(() => ({
   AppearanceSettings: vi.fn(),
-  SetAppearanceSettings: vi.fn(),
+  SetTheme: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: mocks.AppearanceSettings,
-  SetAppearanceSettings: mocks.SetAppearanceSettings,
+  SetTheme: mocks.SetTheme,
 }))
 
 // currentTheme is a module singleton that loads the cached theme (via VueUse
@@ -19,8 +19,8 @@ beforeEach(() => {
   vi.resetModules()
   vi.clearAllMocks()
   // Default: nothing persisted durably yet.
-  mocks.AppearanceSettings.mockResolvedValue({ theme: '' })
-  mocks.SetAppearanceSettings.mockResolvedValue(undefined)
+  mocks.AppearanceSettings.mockResolvedValue({ theme: '', terminalFontSize: '' })
+  mocks.SetTheme.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -79,7 +79,7 @@ describe('useTheme', () => {
     initializeTheme()
     await settle()
 
-    expect(mocks.SetAppearanceSettings).toHaveBeenCalledWith({ theme: 'gruvbox' })
+    expect(mocks.SetTheme).toHaveBeenCalledWith('gruvbox')
     expect(document.documentElement.dataset.theme).toBe('gruvbox')
   })
 
@@ -90,7 +90,7 @@ describe('useTheme', () => {
     await settle()
 
     // An absent key already means "use the default"; do not manufacture one.
-    expect(mocks.SetAppearanceSettings).not.toHaveBeenCalled()
+    expect(mocks.SetTheme).not.toHaveBeenCalled()
     expect(document.documentElement.dataset.theme).toBe('dark')
   })
 
@@ -103,7 +103,7 @@ describe('useTheme', () => {
     await settle()
 
     expect(document.documentElement.dataset.theme).toBe('light')
-    expect(mocks.SetAppearanceSettings).toHaveBeenCalledWith({ theme: 'light' })
+    expect(mocks.SetTheme).toHaveBeenCalledWith('light')
   })
 
   it('falls back to dark for unknown cached themes', async () => {
@@ -129,7 +129,7 @@ describe('useTheme', () => {
     await nextTick()
     expect(localStorage.getItem('hive.theme')).toBe('gruvbox')
     await settle()
-    expect(mocks.SetAppearanceSettings).toHaveBeenCalledWith({ theme: 'gruvbox' })
+    expect(mocks.SetTheme).toHaveBeenCalledWith('gruvbox')
   })
 
   it('does not let a slow settings read clobber a theme picked meanwhile', async () => {
@@ -144,7 +144,7 @@ describe('useTheme', () => {
     await settle()
 
     expect(document.documentElement.dataset.theme).toBe('light')
-    expect(mocks.SetAppearanceSettings).toHaveBeenCalledWith({ theme: 'light' })
+    expect(mocks.SetTheme).toHaveBeenCalledWith('light')
   })
 
   it('keeps the cached theme when the settings binding is unavailable', async () => {
@@ -159,7 +159,7 @@ describe('useTheme', () => {
   })
 
   it('keeps the applied theme when persisting fails', async () => {
-    mocks.SetAppearanceSettings.mockRejectedValue(new Error('disk full'))
+    mocks.SetTheme.mockRejectedValue(new Error('disk full'))
     const { initializeTheme, setTheme } = await import('../useTheme')
 
     initializeTheme()
@@ -178,7 +178,7 @@ describe('useTheme', () => {
     setTheme('gruvbox')
     await settle()
 
-    expect(mocks.SetAppearanceSettings.mock.calls.map(([arg]) => arg.theme)).toEqual([
+    expect(mocks.SetTheme.mock.calls.map(([arg]) => arg)).toEqual([
       'light',
       'midnight',
       'gruvbox',

@@ -65,15 +65,23 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// Theme returns the persisted theme, or "" when nothing has been recorded.
-// The value is opaque here: the frontend owns the valid set and heals unknown
-// values.
-func (s *SettingsService) Theme(context.Context) (string, error) {
+// AppearanceSettings is the persisted presentation configuration. Values are
+// opaque here: the frontend owns each valid set and heals unknown values, so
+// "" means "nothing persisted" rather than an error.
+type AppearanceSettings struct {
+	Theme            string
+	TerminalFontSize string
+}
+
+func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
 	cfg, err := s.store.Effective()
 	if err != nil {
-		return "", Wrap(err, KindInternal, "reading settings")
+		return AppearanceSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
-	return cfg.Appearance.Theme, nil
+	return AppearanceSettings{
+		Theme:            cfg.Appearance.Theme,
+		TerminalFontSize: cfg.Appearance.TerminalFontSize,
+	}, nil
 }
 
 func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
@@ -82,6 +90,43 @@ func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalFontSize = size
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// ExperimentalSettings are the ships-dark opt-ins (ADR 0037). Each flag is
+// read once at startup, so a persisted change applies on the next launch.
+type ExperimentalSettings struct {
+	Terminal bool
+}
+
+func (s *SettingsService) Experimental(context.Context) (ExperimentalSettings, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return ExperimentalSettings{}, Wrap(err, KindInternal, "reading settings")
+	}
+	return ExperimentalSettings{Terminal: cfg.Experimental.Terminal}, nil
+}
+
+// SetExperimentalTerminal persists the opt-in and returns the effective value
+// after any process environment override is reapplied. The surfaces it gates
+// are mounted at composition time, so the running app is unchanged until the
+// next launch.
+func (s *SettingsService) SetExperimentalTerminal(_ context.Context, enabled bool) (bool, error) {
+	effective, err := s.store.Update(func(current *settings.Settings) error {
+		current.Experimental.Terminal = enabled
+		return nil
+	})
+	if err != nil {
+		return false, Wrap(err, KindInternal, "saving settings")
+	}
+	return effective.Experimental.Terminal, nil
 }
 
 // NotificationSettings is the resolved notification configuration.
