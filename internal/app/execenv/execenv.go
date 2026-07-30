@@ -179,12 +179,26 @@ func (r *Resolver) resolveShellPath(ctx context.Context) (string, error) {
 	return r.probe(probeCtx, r.shell)
 }
 
+// probeKillGrace bounds how long the probe waits on its output pipe after the
+// shell is done. The context only bounds the shell's lifetime: a startup file
+// that background-spawns anything inheriting stdout (`something &` in .zshrc)
+// keeps the pipe open after the shell exits, and Output would block on it —
+// with the resolver's lock held, stalling every spawn in the app. WaitDelay
+// force-closes the pipe instead; the same mechanism as dispatch's
+// shellKillGrace.
+const probeKillGrace = 2 * time.Second
+
 // shellPath asks the user's login shell for its PATH. Interactive (-i) as well
 // as login (-l), because the PATH a terminal shows is as often set in an
 // interactive startup file (.zshrc) as in a login one.
 func shellPath(ctx context.Context, shell string) (string, error) {
-	out, err := exec.CommandContext(ctx, shell, "-ilc", probeCommand).Output()
-	if err != nil {
+	cmd := exec.CommandContext(ctx, shell, "-ilc", probeCommand)
+	cmd.WaitDelay = probeKillGrace
+	out, err := cmd.Output()
+	// ErrWaitDelay means the shell exited cleanly but something it left
+	// running held the pipe past the grace. Its answer is already in out —
+	// a shell that answered is not failed for what it left behind.
+	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return "", err
 	}
 	// A startup file is free to print, so the environment is scanned for the

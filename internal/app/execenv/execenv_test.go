@@ -171,6 +171,25 @@ func TestShellPathReadsTheShellsEnvironment(t *testing.T) {
 	assert.Equal(t, "/opt/tools/bin:/usr/bin", path)
 }
 
+// A startup file may leave a background process holding the shell's stdout
+// (`something &` in .zshrc). The shell's own exit must end the probe anyway —
+// otherwise the resolver's lock is held until that stranger exits.
+func TestShellPathReturnsWhenAChildHoldsThePipeOpen(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "shell")
+	require.NoError(t, os.WriteFile(shell, []byte(
+		"#!/bin/sh\n"+
+			"export PATH=/opt/tools/bin:/usr/bin\n"+
+			"/bin/sleep 10 &\n"+
+			"exec \"$2\"\n"), 0o755))
+
+	start := time.Now()
+	path, err := shellPath(t.Context(), shell)
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/tools/bin:/usr/bin", path)
+	assert.Less(t, time.Since(start), 8*time.Second,
+		"the probe must end with the shell, not with whatever it left running")
+}
+
 func TestShellPathFailsWhenTheShellReportsNothing(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "shell")
 	require.NoError(t, os.WriteFile(shell, []byte("#!/bin/sh\necho hello\n"), 0o755))
