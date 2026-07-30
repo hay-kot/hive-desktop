@@ -15,6 +15,7 @@ flow `action` node, which fires it automatically for every message routed there.
   - `type` — one of the action types documented below.
   - `applies_to` — optional list of item kinds this action is offered for in the detail pane (e.g. `[pr]`, `[issue]`, or a webhook item's own `kind`). Empty means any kind. It does not restrict flow `action` nodes, which target one id explicitly.
   - `show_in_detail` — whether the detail pane offers it as a manual button. Flow `action` nodes can target the action either way.
+  - `inputs` — optional list of values collected from the user when the action is run, each `{name, label, type, required, default, placeholder, options}`. `name` must be a template identifier (letters, digits, underscores) because it is read as `{{"{{ .Inputs.<name> }}"}}`; `type` is `text` (default), `multiline`, or `select`; `options` is required for — and only valid on — a `select`, and a `default` must be one of them. An action with a required input that has no default is detail-pane only: a flow `action` node cannot run it, because there is nobody to ask.
   - plus that type's own fields, **flattened at the same level** — not nested under a `config:` key.
 {{template "template-data" .}}
 ## Action types

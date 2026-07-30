@@ -340,7 +340,7 @@ describe('useFeedState', () => {
     mocks.RenderClipboardAction.mockResolvedValue('gh pr checkout 7 -R acme/app')
     const get = mountState(); await flushPromises()
     await get().invokeAction('copy-checkout')
-    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', 7)
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('copy-checkout', 7, {})
     expect(mocks.SetText).toHaveBeenCalledWith('gh pr checkout 7 -R acme/app')
     // A clipboard action never enqueues a durable command or records a run.
     expect(mocks.InvokeAction).not.toHaveBeenCalled()
@@ -379,6 +379,60 @@ describe('useFeedState', () => {
     await get().submitSessionLaunch({ name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' })
     expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' } })
     expect(mocks.notify).toHaveBeenCalledWith({ title: 'Created session review-pr-7 (session-1)', severity: 'success', category: 'session' })
+  })
+
+  it('collects declared inputs before invoking and sends them with the run', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ActionViews.mockResolvedValue([{
+      id: 'silence', label: 'Silence alert', type: 'shell', showInDetail: true, requiresSessionInput: false,
+      inputs: [{ name: 'reason', label: 'Reason', type: 'text', required: true, default: '', placeholder: '', options: null }],
+    }])
+    const get = mountState(); await flushPromises()
+
+    await get().invokeAction('silence')
+    expect(mocks.InvokeAction).not.toHaveBeenCalled()
+    expect(get().actionInputsAction.value?.id).toBe('silence')
+
+    mocks.InvokeAction.mockResolvedValueOnce({ commandId: 21, status: 'done' })
+    await get().submitActionInputs({ reason: 'flapping' })
+    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('silence', 7, { inputs: { reason: 'flapping' } })
+    expect(get().actionInputsAction.value).toBeNull()
+  })
+
+  it('routes a clipboard action with declared inputs through the render path', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ActionViews.mockResolvedValue([{
+      id: 'silence', label: 'Silence alert', type: 'clipboard', showInDetail: true, requiresSessionInput: false,
+      inputs: [{ name: 'reason', label: 'Reason', type: 'text', required: true, default: '', placeholder: '', options: null }],
+    }])
+    mocks.RenderClipboardAction.mockResolvedValue('amtool silence add # flapping')
+    const get = mountState(); await flushPromises()
+
+    await get().invokeAction('silence')
+    expect(mocks.RenderClipboardAction).not.toHaveBeenCalled()
+    await get().submitActionInputs({ reason: 'flapping' })
+    expect(mocks.RenderClipboardAction).toHaveBeenCalledWith('silence', 7, { reason: 'flapping' })
+    expect(mocks.SetText).toHaveBeenCalledWith('amtool silence add # flapping')
+    expect(mocks.InvokeAction).not.toHaveBeenCalled()
+  })
+
+  // An interactive launch-session action can declare inputs too: one dialog
+  // collects both, and both reach the invocation.
+  it('sends declared inputs alongside session input from the launch dialog', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue([item(7)])
+    mocks.ActionViews.mockResolvedValue([{
+      id: 'launch', label: 'Launch', type: 'launch-session', showInDetail: true, requiresSessionInput: true,
+      inputs: [{ name: 'focus', label: 'Focus', type: 'text', required: false, default: 'tests', placeholder: '', options: null }],
+    }])
+    const get = mountState(); await flushPromises()
+
+    await get().invokeAction('launch')
+    expect(get().actionInputsAction.value).toBeNull()
+    expect(get().sessionLaunchAction.value?.id).toBe('launch')
+
+    mocks.InvokeAction.mockResolvedValueOnce({ commandId: 22, status: 'done', result: { session: { id: 's1', name: 'n' } } })
+    await get().submitSessionLaunch({ name: 'n', repository: 'r', inputs: { focus: 'tests' } })
+    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'n', repository: 'r' }, inputs: { focus: 'tests' } })
   })
 
   it('scopes persisted action runs to the numeric item that owns them', async () => {

@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import IconPlay from '~icons/lucide/play'
+import ActionInputFields from './ActionInputFields.vue'
 import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
+import type { InputSpec } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { useAutofocus } from '../composables/useAutofocus'
+import { type ActionInputValues, initialActionInputs, validateActionInputs } from '../lib/actionInputs'
 
-const props = defineProps<{ actionLabel: string; options: SessionLaunchOptions; busy: boolean; error: string | null }>()
-const emit = defineEmits<{ close: []; submit: [input: { name: string; repository: string; agent?: string }] }>()
+// An interactive launch-session action can also declare inputs; the two
+// compose in one dialog rather than stacking two.
+const props = withDefaults(defineProps<{ actionLabel: string; options: SessionLaunchOptions; busy: boolean; error: string | null; inputs?: InputSpec[] }>(), { inputs: () => [] })
+const emit = defineEmits<{ close: []; submit: [input: { name: string; repository: string; agent?: string; inputs: ActionInputValues }] }>()
 
 const repository = ref(props.options.defaultRepository)
 const name = ref('')
 const agent = ref(props.options.defaultAgent)
+const inputValues = ref<ActionInputValues>(initialActionInputs(props.inputs))
 const validationError = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
 const canSubmit = computed(() => repository.value.trim() !== '' && name.value.trim() !== '')
@@ -35,8 +41,13 @@ function submit() {
     validationError.value = 'Use letters, numbers, spaces, and - _ : . /.'
     return
   }
+  const inputProblem = validateActionInputs(props.inputs, inputValues.value)
+  if (inputProblem) {
+    validationError.value = inputProblem
+    return
+  }
   validationError.value = ''
-  emit('submit', { name: sessionName, repository: repo, ...(agent.value ? { agent: agent.value } : {}) })
+  emit('submit', { name: sessionName, repository: repo, ...(agent.value ? { agent: agent.value } : {}), inputs: { ...inputValues.value } })
 }
 
 useAutofocus(nameInput)
@@ -68,6 +79,7 @@ useAutofocus(nameInput)
           @update:model-value="agent = $event"
         />
       </div>
+      <ActionInputFields v-if="inputs.length" v-model="inputValues" :inputs="inputs" />
       <p v-if="validationError || error" class="text-xs text-severity-error" data-testid="create-session-error">{{ validationError || error }}</p>
     </form>
     <template #footer>

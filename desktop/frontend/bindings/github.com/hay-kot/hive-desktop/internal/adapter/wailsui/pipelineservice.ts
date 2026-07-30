@@ -84,8 +84,8 @@ export function NodeRuns(flowID: string, limit: number): $CancellablePromise<sto
  * item. The frontend writes it to the clipboard through the native Wails
  * clipboard; the core produces the text and never touches the clipboard.
  */
-export function RenderClipboardAction(actionID: string, itemID: number): $CancellablePromise<string> {
-    return $Call.ByID(3812385739, actionID, itemID);
+export function RenderClipboardAction(actionID: string, itemID: number, inputs: { [_ in string]?: string } | null): $CancellablePromise<string> {
+    return $Call.ByID(3812385739, actionID, itemID, inputs);
 }
 
 export function ToggleInboxItemArchived(itemID: number, revision: number): $CancellablePromise<store$0.InboxItemView> {

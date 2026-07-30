@@ -18,7 +18,7 @@ import (
 // It is the single renderer both the detail-pane render-only path
 // (InboxService.RenderClipboardAction) and ClipboardExecutor call, so the text
 // a user copies can never drift from what a durable dispatch would produce.
-func RenderClipboardText(action actions.Action, key string, payload []byte) (string, error) {
+func RenderClipboardText(action actions.Action, key string, payload []byte, inputs map[string]string) (string, error) {
 	cfg, ok := action.Config.(*actions.ClipboardConfig)
 	if !ok {
 		return "", fmt.Errorf("clipboard: action %q has config type %T", action.ID, action.Config)
@@ -31,6 +31,7 @@ func RenderClipboardText(action actions.Action, key string, payload []byte) (str
 		Key:     key,
 		Payload: decoded,
 		Raw:     json.RawMessage(payload),
+		Inputs:  inputs,
 	})
 	if err != nil {
 		return "", fmt.Errorf("clipboard: text_template: %w", err)
@@ -53,7 +54,7 @@ type ClipboardExecutor struct{}
 func NewClipboardExecutor() *ClipboardExecutor { return &ClipboardExecutor{} }
 
 func (e *ClipboardExecutor) Execute(_ context.Context, action actions.Action, data OutputData, _ ActionInvocationInput) (ExecutionResult, error) {
-	text, err := RenderClipboardText(action, data.Key, data.Raw)
+	text, err := RenderClipboardText(action, data.Key, data.Raw, data.Inputs)
 	if err != nil {
 		return ExecutionResult{}, err
 	}

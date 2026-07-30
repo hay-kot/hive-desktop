@@ -14,6 +14,7 @@ import ProfileRail from './components/ProfileRail.vue'
 import SideBar from './components/SideBar.vue'
 import FeedList from './components/FeedList.vue'
 import DetailPane from './components/DetailPane.vue'
+import ActionInputsDialog from './components/ActionInputsDialog.vue'
 import CreateSessionDialog from './components/CreateSessionDialog.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
 import ConfirmationDialog from './components/ConfirmationDialog.vue'
@@ -76,11 +77,11 @@ const {
 
 const {
   profiles, profilesLoaded, profilesError, activeProfile, activeProfileId, selection, items, sourceIcons, sourceImages, visibleItems, unreadCount, search, loadError,
-  selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
+  selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionInputsAction, actionInputsBusy, actionInputsError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
   reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
-  toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
+  toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, cancelActionInputs, submitActionInputs, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
 } = useFeedState()
 
 // The feed-item kinds currently in the system — what the actions editor
@@ -750,7 +751,7 @@ const feedNavActive = computed(() =>
 
 // While an overlay owns the screen, only the palette toggle stays live.
 const anyOverlayOpen = computed(() =>
-  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!pendingNavigation.value,
+  paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
 )
 
 // Seed commands — reactive getter so they update when profiles/flows load
@@ -1111,10 +1112,20 @@ onUnmounted(() => {
       v-if="sessionLaunchAction && sessionLaunchOptions"
       :action-label="sessionLaunchAction.label"
       :options="sessionLaunchOptions"
+      :inputs="sessionLaunchAction.inputs ?? []"
       :busy="sessionLaunchBusy"
       :error="sessionLaunchError"
       @close="cancelSessionLaunch"
       @submit="submitSessionLaunch"
+    />
+    <ActionInputsDialog
+      v-if="actionInputsAction"
+      :action-label="actionInputsAction.label"
+      :inputs="actionInputsAction.inputs ?? []"
+      :busy="actionInputsBusy"
+      :error="actionInputsError"
+      @close="cancelActionInputs"
+      @submit="submitActionInputs"
     />
     <NewSessionDialog
       v-if="newSessionOpen && newSessionOptions"

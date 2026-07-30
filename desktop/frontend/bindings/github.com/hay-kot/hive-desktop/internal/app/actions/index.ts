@@ -8,5 +8,6 @@ export type {
     EditableLaunchConfig,
     EditableMessageConfig,
     EditableShellConfig,
+    InputSpec,
     View
 } from "./models.js";

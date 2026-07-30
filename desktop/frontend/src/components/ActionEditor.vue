@@ -4,6 +4,7 @@ import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
 import AppCheckbox from './AppCheckbox.vue'
+import ActionInputsEditor from './ActionInputsEditor.vue'
 import AppliesToField from './AppliesToField.vue'
 import DrawerSheet from './DrawerSheet.vue'
 import { SelectField, TextareaField, TextField } from '../pipeline/fields'
@@ -86,6 +87,7 @@ onUnmounted(() => {
       <template v-if="action.clipboard">
         <TextareaField v-model="action.clipboard.textTemplate" label="Text template" monospace testid="action-clipboard-template" />
       </template>
+      <ActionInputsEditor :model-value="action.inputs ?? []" @update:model-value="action.inputs = $event" />
       <p v-if="validationError || error" class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="action-editor-error">{{ validationError || error }}</p>
     </div>
 

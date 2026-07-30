@@ -301,7 +301,7 @@ internal/
                                   #   PATH, then package prefixes (ADR 0039)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
-                                  #   process's, then those prefixes (ADR 0041)
+                                  #   process's, then those prefixes (ADR 0043)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -358,7 +358,7 @@ has per-type config.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043) |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
@@ -676,7 +676,7 @@ not adopted it.
 ### Subprocess environment
 
 **A command the user wrote runs in the PATH the user has, not the one the app
-inherited** (ADR 0041). A desktop launch's environment is the launcher's —
+inherited** (ADR 0043). A desktop launch's environment is the launcher's —
 macOS gives an `.app` bundle `/usr/bin:/bin:/usr/sbin:/sbin` — and session hooks
 and shell actions are an open set of user commands, so no list of prefixes
 substitutes for asking. `internal/app/execenv` asks the login shell once per run

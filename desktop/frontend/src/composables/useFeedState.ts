@@ -90,6 +90,10 @@ export function useFeedState() {
   const sessionLaunchOptions = ref<SessionLaunchOptionsView | null>(null)
   const sessionLaunchBusy = ref(false)
   const sessionLaunchError = ref<string | null>(null)
+  const actionInputsAction = ref<ActionView | null>(null)
+  const actionInputsItem = ref<InboxItem | null>(null)
+  const actionInputsBusy = ref(false)
+  const actionInputsError = ref<string | null>(null)
   const actionRerunConfirmation = ref<{ actionID: string; label: string; item: InboxItem; input: Record<string, unknown> } | null>(null)
   const actionRerunBusy = ref(false)
   const actionRerunError = ref<string | null>(null)
@@ -869,16 +873,27 @@ export function useFeedState() {
     if (succeeded) {
       actionRerunConfirmation.value = null
       if (sessionLaunchAction.value) cancelSessionLaunch()
+      if (actionInputsAction.value) cancelActionInputs()
     } else {
       actionRerunError.value = actionError.value ?? 'Could not rerun the action.'
     }
   }
 
-  // Interactive launch-session actions never invoke until the user has chosen
-  // a repository and valid session name. Configured repo_template actions
-  // remain headless and use the same direct execution path as other actions.
+  // An action that needs something from the user does not invoke on click: it
+  // opens a form first. Declared inputs open the generic one; an interactive
+  // launch-session action opens the session dialog, which renders any declared
+  // inputs alongside its own fields. Everything else runs directly.
   async function invokeAction(actionID: string) {
     const action = actions.value.find((candidate) => candidate.id === actionID)
+    if (action?.inputs?.length && !action.requiresSessionInput) {
+      if (pendingAction.value || actionInputsBusy.value) return
+      const item = selectedItem.value
+      if (!item) return
+      actionInputsError.value = null
+      actionInputsAction.value = action
+      actionInputsItem.value = item
+      return
+    }
     if (action?.type === 'clipboard') {
       const item = selectedItem.value
       if (item) await copyActionToClipboard(actionID, item)
@@ -915,16 +930,40 @@ export function useFeedState() {
     sessionLaunchError.value = null
   }
 
-  async function submitSessionLaunch(input: { name: string; repository: string; agent?: string }) {
+  async function submitSessionLaunch(input: { name: string; repository: string; agent?: string; inputs?: Record<string, string> }) {
     const action = sessionLaunchAction.value
     const item = sessionLaunchItem.value
     if (!action || !item || sessionLaunchBusy.value) return
+    const { inputs, ...session } = input
     sessionLaunchBusy.value = true
     sessionLaunchError.value = null
-    const succeeded = await runAction(action.id, { session: input }, item)
+    const succeeded = await runAction(action.id, { session, ...(action.inputs?.length ? { inputs } : {}) }, item)
     sessionLaunchBusy.value = false
     if (succeeded) cancelSessionLaunch()
     else if (!actionRerunConfirmation.value) sessionLaunchError.value = actionError.value ?? 'Could not create the session.'
+  }
+
+  function cancelActionInputs() {
+    if (actionInputsBusy.value) return
+    actionInputsAction.value = null
+    actionInputsItem.value = null
+    actionInputsError.value = null
+  }
+
+  // A clipboard action is copied rather than run, so its collected values go
+  // to the render path instead of an invocation.
+  async function submitActionInputs(values: Record<string, string>) {
+    const action = actionInputsAction.value
+    const item = actionInputsItem.value
+    if (!action || !item || actionInputsBusy.value) return
+    actionInputsBusy.value = true
+    actionInputsError.value = null
+    const succeeded = action.type === 'clipboard'
+      ? await copyActionToClipboard(action.id, item, values)
+      : await runAction(action.id, { inputs: values }, item)
+    actionInputsBusy.value = false
+    if (succeeded) cancelActionInputs()
+    else if (!actionRerunConfirmation.value) actionInputsError.value = actionError.value ?? 'Could not run the action.'
   }
 
   function notWired() {
@@ -977,19 +1016,21 @@ export function useFeedState() {
   // text_template over the item and returns the text (no durable command), and
   // this writes it through the native Wails clipboard. Re-copying just renders
   // again, so there is no rerun prompt.
-  async function copyActionToClipboard(actionID: string, item: InboxItem): Promise<void> {
+  async function copyActionToClipboard(actionID: string, item: InboxItem, inputs: Record<string, string> = {}): Promise<boolean> {
     const key = actionKey(item.id, actionID)
-    if (pendingActionKeys.value[key]) return
+    if (pendingActionKeys.value[key]) return false
     pendingActionKeys.value = { ...pendingActionKeys.value, [key]: true }
     actionError.value = null
     try {
-      const text = await RenderClipboardAction(actionID, item.id)
+      const text = await RenderClipboardAction(actionID, item.id, inputs)
       await copyToClipboard(text, 'Copied')
+      return true
     } catch (error) {
       console.warn('Unable to copy action to clipboard', error)
       const message = error instanceof Error && error.message ? error.message : 'Could not copy to the clipboard.'
       actionError.value = message
       showToast(message, { severity: 'error' })
+      return false
     } finally {
       const next = { ...pendingActionKeys.value }; delete next[key]; pendingActionKeys.value = next
     }
@@ -1056,6 +1097,9 @@ export function useFeedState() {
     sessionLaunchOptions,
     sessionLaunchBusy,
     sessionLaunchError,
+    actionInputsAction,
+    actionInputsBusy,
+    actionInputsError,
     actionRerunConfirmation,
     actionRerunBusy,
     actionRerunError,
@@ -1107,6 +1151,8 @@ export function useFeedState() {
     confirmActionRerun,
     cancelSessionLaunch,
     submitSessionLaunch,
+    cancelActionInputs,
+    submitActionInputs,
     notWired,
     openUrl,
     openItemInBrowser,

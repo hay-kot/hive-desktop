@@ -18,7 +18,7 @@ describe('CreateSessionDialog', () => {
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="session-name"]').setValue('review-pr-12')
     await wrapper.get('[data-testid="create-session-submit"]').trigger('click')
-    expect(wrapper.emitted('submit')).toEqual([[{ name: 'review-pr-12', repository: options.defaultRepository, agent: 'claude' }]])
+    expect(wrapper.emitted('submit')).toEqual([[{ name: 'review-pr-12', repository: options.defaultRepository, agent: 'claude', inputs: {} }]])
   })
 
   it('keeps the dialog open and reports invalid input locally', async () => {
