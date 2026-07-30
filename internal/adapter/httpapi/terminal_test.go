@@ -108,6 +108,20 @@ func TestTerminalControlPlaneRequiresTheBearerToken(t *testing.T) {
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode, "the right token is served")
 }
 
+// 0x0 is the whole unsized case — "nothing measured yet". One measured
+// dimension without the other is a caller bug, and a resize is never unsized.
+func TestTerminalSizeValidationSeparatesAttachFromResize(t *testing.T) {
+	h := newTerminalHarness(t)
+
+	half := h.post(t, "/api/terminal/attach", testToken, map[string]any{"slug": "hive-x", "cols": 0, "rows": 24})
+	_ = half.Body.Close()
+	assert.Equal(t, http.StatusUnprocessableEntity, half.StatusCode, "half a measurement is rejected")
+
+	unsizedResize := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": "hive-x", "cols": 0, "rows": 0})
+	_ = unsizedResize.Body.Close()
+	assert.Equal(t, http.StatusUnprocessableEntity, unsizedResize.StatusCode, "a resize always carries a size")
+}
+
 func TestTerminalControlPlaneAnswersPreflight(t *testing.T) {
 	h := newTerminalHarness(t)
 

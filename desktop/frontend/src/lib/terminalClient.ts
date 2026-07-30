@@ -29,10 +29,10 @@ export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' 
 export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error'
 
 /**
- * One tmux window. `width`/`height` are tmux's own size for it — the smallest
- * attached client's, which may be another terminal entirely — and 0 when tmux
- * has not reported one. Rendering at any other size mangles the pane's
- * cursor-addressed output.
+ * One tmux window. `width`/`height` are tmux's own size for it — whichever
+ * attached client tmux's window-size option picked, which may be another
+ * terminal entirely — and 0 when tmux has not reported one. Rendering at any
+ * other size mangles the pane's cursor-addressed output.
  */
 export interface WindowState {
   windowId: string
@@ -48,6 +48,7 @@ export type TerminalFrame =
   | { type: 'lifecycle'; kind: LifecycleKind; windowId: string; message: string }
 
 export interface TerminalClient {
+  /** cols/rows are the opening size vote; 0x0 attaches without setting one. */
   attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[] }>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>

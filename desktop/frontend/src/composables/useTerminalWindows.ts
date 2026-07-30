@@ -24,6 +24,21 @@ export type TerminalStatus = 'connecting' | 'live' | 'ended'
 /** Why the session ended, so the UI can say which of the two signals fired. */
 export type TerminalEndReason = 'attach-failed' | 'exited' | 'error' | 'disconnected'
 
+export interface TerminalSize {
+  cols: number
+  rows: number
+}
+
+/**
+ * tmux answered a size vote with a different grid, so this pane is rendering a
+ * window some other client's size decided. Not an error — the rule needs
+ * naming, or it reads as a rendering bug.
+ */
+export interface TerminalSizeConstraint {
+  voted: TerminalSize
+  granted: TerminalSize
+}
+
 export interface TerminalWindowTab {
   // Unique per Terminal instance, not per tmux window: reconnect rebuilds the
   // terminals under the same window ids, and a v-for keyed on the window id
@@ -43,6 +58,8 @@ export interface UseTerminalWindows {
   endReason: Ref<TerminalEndReason | null>
   error: Ref<string | null>
   actionError: Ref<string | null>
+  sizeConstraint: Ref<TerminalSizeConstraint | null>
+  dismissSizeConstraint: () => void
   start: () => Promise<void>
   reconnect: () => Promise<void>
   select: (windowId: string) => Promise<void>
@@ -54,10 +71,14 @@ export interface UseTerminalWindows {
   dispose: () => void
 }
 
-// The size a window renders at until tmux reports its own. Every path that
-// learns tmux's size overrides it.
-const DEFAULT_SIZE = { cols: 80, rows: 24 }
+// The grid a window renders at while tmux has reported none of its own, and
+// only then. Every path that learns tmux's size overrides it.
+const DEFAULT_SIZE: TerminalSize = { cols: 80, rows: 24 }
 const RESIZE_DEBOUNCE_MS = 80
+// How long tmux's answer to a vote is waited for before the difference is
+// reported as a constraint. A vote is answered by a window event, which arrives
+// well inside this; an unanswered vote means something else decided the size.
+const CONSTRAINT_SETTLE_MS = 750
 
 interface TabRuntime {
   host?: HTMLElement
@@ -65,7 +86,41 @@ interface TabRuntime {
   disposers: IDisposable[]
 }
 
+// The pane box belongs to the app window, not to a session, so one remembered
+// vote serves every session — including one being attached for the first time.
+// It is keyed by font size because the cell metrics, and so the vote, change
+// with the preset.
+const VOTE_KEY = 'hive.terminal.vote'
+// tmux's own bound on a client dimension. A stored value outside it would fail
+// the attach, and the session would land on the error overlay instead.
+const MAX_DIMENSION = 1000
+
 let nextTabUID = 1
+
+function rememberedVote(fontPx: number): TerminalSize | null {
+  try {
+    const stored = JSON.parse(localStorage.getItem(VOTE_KEY) ?? 'null') as
+      { cols?: number; rows?: number; fontPx?: number } | null
+    if (!stored || stored.fontPx !== fontPx) return null
+    if (!validDimension(stored.cols) || !validDimension(stored.rows)) return null
+    return { cols: stored.cols, rows: stored.rows }
+  } catch {
+    // unparseable or unreadable storage is simply no memory
+    return null
+  }
+}
+
+function rememberVote(size: TerminalSize, fontPx: number): void {
+  try {
+    localStorage.setItem(VOTE_KEY, JSON.stringify({ ...size, fontPx }))
+  } catch {
+    // storage denied; the vote is re-measured next attach either way
+  }
+}
+
+function validDimension(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= MAX_DIMENSION
+}
 
 export function useTerminalWindows(slug: string, client: TerminalClient): UseTerminalWindows {
   const tabs = ref<TerminalWindowTab[]>([]) as Ref<TerminalWindowTab[]>
@@ -74,20 +129,26 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const endReason = ref<TerminalEndReason | null>(null)
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
+  const sizeConstraint = ref<TerminalSizeConstraint | null>(null)
 
   const runtime = new Map<string, TabRuntime>()
   const scope = effectScope(true)
   let socket: WebSocket | null = null
   let disposed = false
-  // The last size this client voted for. tmux sizes a window to the *smallest*
-  // attached client, so this is a request, never the size anything renders at.
-  let vote = { ...DEFAULT_SIZE }
+
+  const { px: fontSizePx } = useTerminalFont()
+
+  // The last size this client voted for: a request, never the size anything
+  // renders at. It opens at the last measured vote, and null — nothing measured
+  // and nothing remembered — is a real state rather than a placeholder, because
+  // tmux obeys the attach vote and would resize the session to it.
+  let vote: TerminalSize | null = rememberedVote(fontSizePx.value)
   let resizeTimer: ReturnType<typeof setTimeout> | undefined
+  let constraintTimer: ReturnType<typeof setTimeout> | undefined
+  let constraintDismissed = false
   // A window created from the toolbar is only knowable by id once tmux
   // announces it, so the intent to focus it is parked until then.
   let pendingActivate = ''
-
-  const { px: fontSizePx } = useTerminalFont()
 
   scope.run(() => {
     const { theme } = useTheme()
@@ -118,7 +179,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     term.loadAddon(fit)
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
-    term.resize(state.width || DEFAULT_SIZE.cols, state.height || DEFAULT_SIZE.rows)
+    term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
     runtime.set(state.windowId, {
       disposers: [term.onData((data: string) => sendInput(state.windowId, data))],
     })
@@ -171,11 +232,49 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!tab || !runtime.get(tab.windowId)?.host) return
     const proposed = tab.fit.proposeDimensions()
     if (!proposed?.cols || !proposed.rows) return
-    if (proposed.cols === vote.cols && proposed.rows === vote.rows) return
+    scheduleConstraintCheck()
+    if (vote && proposed.cols === vote.cols && proposed.rows === vote.rows) return
     vote = { cols: proposed.cols, rows: proposed.rows }
+    rememberVote(vote, fontSizePx.value)
     void client.resize(slug, vote.cols, vote.rows).catch((e: unknown) => {
       actionError.value = message(e, 'Could not resize the terminal.')
     })
+  }
+
+  // The grid a tab opens at while tmux has reported no size for its window — a
+  // window created from the toolbar lands at the pane's size rather than
+  // snapping to it when the reconcile behind it arrives.
+  function unreportedSize(): TerminalSize {
+    return vote ?? DEFAULT_SIZE
+  }
+
+  function scheduleConstraintCheck(): void {
+    clearTimeout(constraintTimer)
+    constraintTimer = setTimeout(checkSizeConstraint, CONSTRAINT_SETTLE_MS)
+  }
+
+  // A vote tmux did not grant means another client decided this window's size.
+  // The pane then renders a grid that does not match its box, which reads as a
+  // rendering bug unless the rule is named.
+  function checkSizeConstraint(): void {
+    const tab = findTab(activeWindowId.value)
+    if (!tab || !vote || constraintDismissed) {
+      sizeConstraint.value = null
+      return
+    }
+    const granted = { cols: tab.term.cols, rows: tab.term.rows }
+    sizeConstraint.value = granted.cols === vote.cols && granted.rows === vote.rows
+      ? null
+      : { voted: { ...vote }, granted }
+  }
+
+  // Dismissal lasts as long as this attach: the constraint is a property of the
+  // other client, so re-raising it on the next resize would nag about something
+  // already read and understood.
+  function dismissSizeConstraint(): void {
+    constraintDismissed = true
+    clearTimeout(constraintTimer)
+    sizeConstraint.value = null
   }
 
   function handleFrame(payload: unknown): void {
@@ -229,6 +328,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
     const tab = findTab(windowId)
     if (tab) applySize(tab, state.width, state.height)
+    scheduleConstraintCheck()
   }
 
   function openSocket(): void {
@@ -298,7 +398,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // xterm measures cell metrics when a terminal opens; without this the
       // grid is sized from the fallback font until something forces a refresh.
       await document.fonts?.load(`${fontSizePx.value}px 'JetBrainsMono Nerd Font'`).catch(() => {})
-      const { windows } = await client.attach(slug, vote.cols, vote.rows)
+      // 0x0 sets no client size at all: tmux ignores a control client until it
+      // sets one, so the session keeps the size its other clients gave it.
+      const { windows } = await client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0)
       if (disposed) return
       tabs.value = windows.map(createTab)
       setActive(windows.find((window) => window.active)?.windowId ?? windows[0]?.windowId ?? '')
@@ -356,6 +458,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (disposed) return
     disposed = true
     clearTimeout(resizeTimer)
+    clearTimeout(constraintTimer)
     closeSocket()
     disposeTabs()
     scope.stop()
@@ -365,7 +468,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   return {
-    tabs, activeWindowId, status, endReason, error, actionError,
+    tabs, activeWindowId, status, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
     start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, dispose,
   }
 }

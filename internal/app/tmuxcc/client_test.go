@@ -3,6 +3,7 @@
 package tmuxcc
 
 import (
+	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -62,6 +63,28 @@ func TestAttachRunsTheHandshakeSequence(t *testing.T) {
 	for _, cmd := range commands {
 		require.NotContains(t, cmd, "pause-after", "v1 never enables pause mode")
 	}
+}
+
+// A caller with nothing measured must not vote a placeholder: tmux would obey
+// it and resize the session, and every other client attached to it, to a size
+// nobody asked for. Setting no size keeps this client out of the negotiation
+// until Resize opts it in.
+func TestUnsizedAttachSetsNoClientSizeUntilResized(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+
+	ctx := t.Context()
+	client, err := Attach(ctx, ctx, Options{Slug: f.slug, newProcess: f.factory()})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = client.Close(context.WithoutCancel(ctx)) })
+
+	require.Zero(t, f.countCommands("refresh-client"))
+	require.Equal(t, 120, client.Windows()[0].Width, "the session keeps the size its other clients gave it")
+
+	require.NoError(t, client.Resize(ctx, 213, 55))
+	require.Equal(t, "refresh-client -C 213,55", f.sentCommands()[len(f.sentCommands())-1])
 }
 
 // First paint reaches a subscriber that connects after Attach, because the

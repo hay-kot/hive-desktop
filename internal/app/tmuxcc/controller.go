@@ -8,9 +8,10 @@ type Window struct {
 	Name       string
 	Active     bool
 	ActivePane string // tmux pane id, e.g. "%512"
-	// Width and Height are tmux's own size for this window — the smallest
-	// attached client's, not ours. A renderer that draws at any other size
-	// mangles the pane's cursor-addressed output. 0 means not known yet.
+	// Width and Height are tmux's own size for this window — whichever attached
+	// client tmux's window-size option picked, not necessarily ours. A renderer
+	// that draws at any other size mangles the pane's cursor-addressed output.
+	// 0 means not known yet.
 	Width  int
 	Height int
 }

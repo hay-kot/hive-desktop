@@ -714,6 +714,22 @@ and overflow is **fatal**: the client is torn down and the frontend re-attaches,
 which re-runs first paint. There is no partial resync, no drop-oldest (it
 corrupts emulator state), and no tmux `pause-after`.
 
+**Size is a negotiation this app is only one voice in.** Every client attached
+to a session renders the same grid per window, and tmux's `window-size` option
+decides whose size that is — by default the most recently used client's — so a
+resize is a vote and the window event is the answer. Two rules follow, and both
+are load-bearing because a vote reaches every other client attached to that
+session:
+
+- **Never vote a size nothing measured.** Attach carries the last size this app
+  window measured, or `0x0`, which sets no client size at all — tmux ignores a
+  control client until it sets one, so the session keeps the size its other
+  clients gave it. A placeholder would resize the session, and the agent
+  redrawing inside it, before anything had been measured.
+- **A vote tmux does not grant is reported, not retried.** The frontend
+  compares its vote against the granted size and names the constraint; nothing
+  re-votes to win the size back from the other client.
+
 ## Execution model
 
 The flow engine runs **in Go**, in-process. Source polling, graph routing,
