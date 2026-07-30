@@ -5,6 +5,7 @@ import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
+import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { createAppRouter } from '../../router'
@@ -12,6 +13,7 @@ import { createAppRouter } from '../../router'
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
   ListSessions: vi.fn(),
+  SessionStatuses: vi.fn(),
   SessionDetail: vi.fn(),
   SessionRisk: vi.fn(),
   RenameSession: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
+  SessionStatuses: mocks.SessionStatuses,
   SessionDetail: mocks.SessionDetail,
   SessionRisk: mocks.SessionRisk,
   RenameSession: mocks.RenameSession,
@@ -112,6 +115,7 @@ describe('TerminalMode', () => {
     localStorage.clear()
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
+    resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
@@ -120,6 +124,7 @@ describe('TerminalMode', () => {
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
     ])
+    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 60_000 })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
   })
 
@@ -177,6 +182,37 @@ describe('TerminalMode', () => {
     expect(rows[1].attributes('data-attached')).toBe('true')
     expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
+  })
+
+  it('shows Hive’s live agent status for every session state', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'working', slug: 'working', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'waiting', slug: 'waiting', repo: 'hay-kot/hive', state: 'active' },
+      { id: '3', name: 'ready', slug: 'ready', repo: 'hay-kot/hive', state: 'active' },
+      { id: '4', name: 'unknown', slug: 'unknown', repo: 'hay-kot/hive', state: 'active' },
+    ])
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        { sessionId: '1', status: 'active', tool: 'pi' },
+        { sessionId: '2', status: 'approval', tool: 'claude' },
+        { sessionId: '3', status: 'ready', tool: 'codex' },
+        { sessionId: '4', status: 'missing', tool: '' },
+      ],
+      pollIntervalMs: 60_000,
+    })
+
+    const { wrapper } = await mountAt()
+    const badges = wrapper.findAll('[data-testid="terminal-session-status"]')
+
+    expect(Object.fromEntries(badges.map((badge) => [badge.attributes('data-status'), badge.get('[aria-hidden="true"]').text()]))).toEqual({
+      active: '[●]',
+      approval: '[!]',
+      ready: '[>]',
+      missing: '[?]',
+    })
+    expect(wrapper.get('[data-status="active"]').attributes('title')).toBe('pi is working')
+    expect(wrapper.get('[data-status="active"]').text()).toContain('pi is working')
+    expect(wrapper.get('[data-status="approval"]').attributes('title')).toBe('claude needs approval')
   })
 
   it('opens the new-session dialog from the sidebar header', async () => {

@@ -31,10 +31,12 @@ import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } f
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
+import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import type { SessionStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
@@ -143,6 +145,30 @@ const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSessio
 const attachable = computed(() => sessionRows.value.filter((row) => row.state === 'active'))
 const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
 const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
+
+const { statuses: sessionStatuses, startPolling: startStatusPolling, stopPolling: stopStatusPolling } = useSessionStatuses()
+interface SessionStatusBadge {
+  symbol: string
+  color: string
+  label: string
+}
+const sessionStatusBadges = computed<Record<string, SessionStatusBadge>>(() => Object.fromEntries(
+  Object.entries(sessionStatuses.value).map(([id, status]) => [id, sessionStatusBadge(status)]),
+))
+
+function sessionStatusBadge(status: SessionStatus): SessionStatusBadge {
+  const tool = status.tool || 'Agent'
+  switch (status.status) {
+    case 'active':
+      return { symbol: '[●]', color: 'text-severity-success', label: `${tool} is working` }
+    case 'approval':
+      return { symbol: '[!]', color: 'text-severity-warning', label: `${tool} needs approval` }
+    case 'ready':
+      return { symbol: '[>]', color: 'text-text-2', label: `${tool} is ready` }
+    default:
+      return { symbol: '[?]', color: 'text-text-4', label: 'No agent detected' }
+  }
+}
 
 const openRowMenu = ref('')
 const rowMenuFlip = ref(false)
@@ -537,10 +563,12 @@ function commitRename(): void {
 
 onMounted(() => {
   void probe()
+  startStatusPolling()
   prefetchNewSession()
 })
 onBeforeUnmount(() => {
   clearTimeout(holdTimer)
+  stopStatusPolling()
   for (const slug of [...pool.keys()]) dropSession(slug)
 })
 </script>
@@ -666,6 +694,14 @@ onBeforeUnmount(() => {
                       @contextmenu.prevent="toggleRowMenu(row, $event)"
                     >
                       <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
+                      <span
+                        v-if="sessionStatusBadges[row.id]"
+                        class="shrink-0 font-mono text-[11px]"
+                        :class="sessionStatusBadges[row.id].color"
+                        :title="sessionStatusBadges[row.id].label"
+                        data-testid="terminal-session-status"
+                        :data-status="sessionStatuses[row.id].status"
+                      ><span aria-hidden="true">{{ sessionStatusBadges[row.id].symbol }}</span><span class="sr-only">{{ sessionStatusBadges[row.id].label }}</span></span>
                       <!-- No `relative` here: AppMenu anchors to the nearest
                            positioned ancestor, and that has to be the row so the
                            panel spans it. Clicks stay inside the wrapper so choosing

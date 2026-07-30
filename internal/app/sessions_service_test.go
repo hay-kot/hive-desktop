@@ -33,6 +33,7 @@ func (f *fakeSessionLauncher) SessionLaunchOptions(context.Context) (dispatch.Se
 // id; sessions is what the list returns.
 type fakeSessionManager struct {
 	sessions []dispatch.SessionSummary
+	statuses dispatch.SessionStatusSnapshot
 	details  map[string]dispatch.SessionDetail
 	risk     dispatch.SessionRisk
 	err      error
@@ -48,6 +49,10 @@ type fakeSessionManager struct {
 
 func (f *fakeSessionManager) ListSessions(context.Context) ([]dispatch.SessionSummary, error) {
 	return f.sessions, f.err
+}
+
+func (f *fakeSessionManager) SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error) {
+	return f.statuses, f.err
 }
 
 func (f *fakeSessionManager) SessionDetail(_ context.Context, id string) (dispatch.SessionDetail, error) {
@@ -209,6 +214,19 @@ func TestSessionsService_ListSessionsPassesEveryStateThrough(t *testing.T) {
 	got, err := svc.ListSessions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, manager.sessions, got, "a recycled session is unattachable, not unmanageable")
+}
+
+func TestSessionsService_SessionStatusesPassesSnapshotThrough(t *testing.T) {
+	manager, _ := activeSession()
+	manager.statuses = dispatch.SessionStatusSnapshot{
+		Items:          []dispatch.SessionStatus{{SessionID: "s1", Status: "ready", Tool: "codex"}},
+		PollIntervalMS: 1500,
+	}
+	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
+
+	got, err := svc.SessionStatuses(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, manager.statuses, got)
 }
 
 func TestSessionsService_RenameSessionRenamesTmuxBeforeTheStore(t *testing.T) {

@@ -27,6 +27,7 @@ type sessionLauncher interface {
 // command holds a launcher, and it has no business holding a delete.
 type sessionManager interface {
 	ListSessions(context.Context) ([]dispatch.SessionSummary, error)
+	SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error)
 	SessionDetail(ctx context.Context, id string) (dispatch.SessionDetail, error)
 	SessionRisk(ctx context.Context, id string) (dispatch.SessionRisk, error)
 	RenameSession(ctx context.Context, id, name string) error
@@ -84,6 +85,20 @@ func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionS
 		return nil, Wrap(err, KindInternal, "listing sessions")
 	}
 	return sessions, nil
+}
+
+// SessionStatuses detects the live agent state for active sessions. Missing or
+// unavailable terminals are data, so only a failure to read the session set
+// fails the request.
+func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
+	if s.manager == nil {
+		return dispatch.SessionStatusSnapshot{}, Errorf(KindUnavailable, "session status is unavailable")
+	}
+	statuses, err := s.manager.SessionStatuses(ctx)
+	if err != nil {
+		return dispatch.SessionStatusSnapshot{}, Wrap(err, KindInternal, "reading session status")
+	}
+	return statuses, nil
 }
 
 // SessionDetail reads one session in full.

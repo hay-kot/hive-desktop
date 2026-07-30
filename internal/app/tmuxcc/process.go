@@ -109,6 +109,18 @@ func (p *execProcess) Kill() error {
 // returning stdout as lines and folding tmux's own complaint into the error,
 // since that is all a failed has-session or rename-session reports.
 func runTmux(ctx context.Context, binary string, args ...string) ([]string, error) {
+	out, err := outputTmux(ctx, binary, args...)
+	if err != nil {
+		return nil, err
+	}
+	trimmed := strings.TrimRight(string(out), "\n")
+	if trimmed == "" {
+		return nil, nil
+	}
+	return strings.Split(trimmed, "\n"), nil
+}
+
+func outputTmux(ctx context.Context, binary string, args ...string) ([]byte, error) {
 	if binary == "" {
 		binary = defaultBinary
 	}
@@ -126,11 +138,7 @@ func runTmux(ctx context.Context, binary string, args ...string) ([]string, erro
 		}
 		return nil, err
 	}
-	trimmed := strings.TrimRight(string(out), "\n")
-	if trimmed == "" {
-		return nil, nil
-	}
-	return strings.Split(trimmed, "\n"), nil
+	return out, nil
 }
 
 // socketFromTMUX extracts the server socket path from a $TMUX value

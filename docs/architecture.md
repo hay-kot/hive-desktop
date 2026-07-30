@@ -744,6 +744,15 @@ attach keeps the outgoing screen until the incoming one has painted, so a
 switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
+Live agent status is a separate pull projection from session lifecycle state:
+`SessionSummary.State` remains active/recycled/corrupted, while
+`SessionsService.SessionStatuses` reports active/approval/ready/missing plus the
+detected tool. Terminal mode polls that projection only while mounted, at
+Hive's configured tmux interval. The Hive anti-corruption layer drops captured
+pane content and provider errors before the Wails boundary, and its status
+integration runs through `tmuxcc.Commander`, so detection uses the same resolved
+binary, environment, and tmux server socket as control-mode attaches.
+
 The slug is load-bearing in both products, so **`session.Slug` must equal the
 live tmux session name**, and the desktop is what keeps it that way. Hive's
 `RenameSession` re-slugs the record and leaves tmux alone, so

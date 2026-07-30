@@ -80,3 +80,11 @@ export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLa
 export function SessionRisk(id: string): $CancellablePromise<dispatch$0.SessionRisk> {
     return $Call.ByID(2710389542, id);
 }
+
+/**
+ * SessionStatuses returns the current terminal-detected agent state for each
+ * active session.
+ */
+export function SessionStatuses(): $CancellablePromise<dispatch$0.SessionStatusSnapshot> {
+    return $Call.ByID(1334914099);
+}

@@ -27,6 +27,12 @@ func (s *SessionService) ListSessions(ctx context.Context) ([]dispatch.SessionSu
 	return s.sessions.ListSessions(ctx)
 }
 
+// SessionStatuses returns the current terminal-detected agent state for each
+// active session.
+func (s *SessionService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
+	return s.sessions.SessionStatuses(ctx)
+}
+
 // SessionDetail reads one session in full, for the detail view.
 func (s *SessionService) SessionDetail(ctx context.Context, id string) (dispatch.SessionDetail, error) {
 	return s.sessions.SessionDetail(ctx, id)
