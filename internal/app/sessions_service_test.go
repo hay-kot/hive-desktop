@@ -220,7 +220,11 @@ func TestSessionsService_ListSessionsPassesEveryStateThrough(t *testing.T) {
 func TestSessionsService_SessionStatusesPassesSnapshotThrough(t *testing.T) {
 	manager, _ := activeSession()
 	manager.statuses = dispatch.SessionStatusSnapshot{
-		Items:        []dispatch.SessionStatus{{SessionID: "s1", Status: "ready", Tool: "codex"}},
+		Items: []dispatch.SessionStatus{{
+			SessionID: "s1",
+			Running:   true,
+			Windows:   []dispatch.SessionWindowStatus{{WindowID: "@1", Status: "ready", Tool: "codex"}},
+		}},
 		PollInterval: 1500 * time.Millisecond,
 	}
 	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})

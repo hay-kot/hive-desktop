@@ -61,12 +61,19 @@ type SessionSummary struct {
 	State string `json:"state"`
 }
 
-// SessionStatus is one active session's live agent state, detected from its
-// terminal rather than persisted with the session lifecycle record.
+// SessionWindowStatus is one tmux window's detected agent activity.
+type SessionWindowStatus struct {
+	WindowID string `json:"windowId"`
+	Status   string `json:"status"`
+	Tool     string `json:"tool"`
+}
+
+// SessionStatus separates tmux liveness from the activity detected in each
+// agent window.
 type SessionStatus struct {
-	SessionID string `json:"sessionId"`
-	Status    string `json:"status"`
-	Tool      string `json:"tool"`
+	SessionID string                `json:"sessionId"`
+	Running   bool                  `json:"running"`
+	Windows   []SessionWindowStatus `json:"windows"`
 }
 
 // SessionStatusSnapshot carries one poll result and the Hive-configured delay
@@ -224,11 +231,22 @@ func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatus
 		if !ok {
 			continue
 		}
-		snapshot.Items = append(snapshot.Items, SessionStatus{
-			SessionID: s.ID,
-			Status:    string(status.Status),
-			Tool:      status.Tool,
-		})
+		item := SessionStatus{SessionID: s.ID, Running: status.Running, Windows: []SessionWindowStatus{}}
+		if len(status.Windows) == 0 && status.WindowID != "" {
+			item.Windows = append(item.Windows, SessionWindowStatus{
+				WindowID: status.WindowID,
+				Status:   string(status.Status),
+				Tool:     status.Tool,
+			})
+		}
+		for _, window := range status.Windows {
+			item.Windows = append(item.Windows, SessionWindowStatus{
+				WindowID: window.WindowID,
+				Status:   string(window.Status),
+				Tool:     window.Tool,
+			})
+		}
+		snapshot.Items = append(snapshot.Items, item)
 	}
 	return snapshot, nil
 }

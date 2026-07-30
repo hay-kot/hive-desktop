@@ -10,7 +10,11 @@ import (
 )
 
 func TestSessionStatusSnapshotOfConvertsPollIntervalForBrowser(t *testing.T) {
-	items := []dispatch.SessionStatus{{SessionID: "s1", Status: "approval", Tool: "claude"}}
+	items := []dispatch.SessionStatus{{
+		SessionID: "s1",
+		Running:   true,
+		Windows:   []dispatch.SessionWindowStatus{{WindowID: "@1", Status: "approval", Tool: "claude"}},
+	}}
 
 	got := sessionStatusSnapshotOf(dispatch.SessionStatusSnapshot{
 		Items:        items,

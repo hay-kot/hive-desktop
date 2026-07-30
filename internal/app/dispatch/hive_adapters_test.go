@@ -212,26 +212,36 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 	statuses := &fakeSessionStatusSource{
 		available: true,
 		results: map[string]hivesvc.TerminalStatus{
-			"s1": {Status: coreterminal.StatusApproval, Tool: "claude"},
-			"s2": {Status: coreterminal.StatusMissing, Error: errors.New("pane disappeared")},
+			"s1": {Running: true, Windows: []hivesvc.WindowStatus{
+				{WindowID: "@1", Status: coreterminal.StatusApproval, Tool: "claude"},
+				{WindowID: "@2", Status: coreterminal.StatusActive, Tool: "pi"},
+			}},
+			"s2": {Running: true, WindowID: "@3", Status: coreterminal.StatusReady, Tool: "codex"},
+			"s4": {Status: coreterminal.StatusMissing, Error: errors.New("session disappeared")},
 		},
 	}
 	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
 		{ID: "s1", State: session.StateActive},
 		{ID: "s2", State: session.StateActive},
 		{ID: "s3", State: session.StateRecycled},
+		{ID: "s4", State: session.StateActive},
 	}}, statuses, 1750*time.Millisecond)
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, 1750*time.Millisecond, got.PollInterval)
 	assert.Equal(t, []SessionStatus{
-		{SessionID: "s1", Status: "approval", Tool: "claude"},
-		{SessionID: "s2", Status: "missing"},
+		{SessionID: "s1", Running: true, Windows: []SessionWindowStatus{
+			{WindowID: "@1", Status: "approval", Tool: "claude"},
+			{WindowID: "@2", Status: "active", Tool: "pi"},
+		}},
+		{SessionID: "s2", Running: true, Windows: []SessionWindowStatus{{WindowID: "@3", Status: "ready", Tool: "codex"}}},
+		{SessionID: "s4", Windows: []SessionWindowStatus{}},
 	}, got.Items)
-	require.Len(t, statuses.seen, 2)
+	require.Len(t, statuses.seen, 3)
 	assert.Equal(t, "s1", statuses.seen[0].ID)
 	assert.Equal(t, "s2", statuses.seen[1].ID)
+	assert.Equal(t, "s4", statuses.seen[2].ID)
 }
 
 func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.T) {

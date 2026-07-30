@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconCircle from '~icons/lucide/circle'
+import IconCircleAlert from '~icons/lucide/circle-alert'
+import IconCircleCheck from '~icons/lucide/circle-check'
+import IconCircleDot from '~icons/lucide/circle-dot'
+import IconCircleOff from '~icons/lucide/circle-off'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
+import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -36,7 +42,7 @@ import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
-import type { SessionStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
@@ -147,27 +153,37 @@ const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
 const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
 
 const { statuses: sessionStatuses, startPolling: startStatusPolling, stopPolling: stopStatusPolling } = useSessionStatuses()
-interface SessionStatusBadge {
-  symbol: string
+interface StatusIndicator {
+  icon: Component
   color: string
   label: string
+  animated?: boolean
 }
-const sessionStatusBadges = computed<Record<string, SessionStatusBadge>>(() => Object.fromEntries(
-  Object.entries(sessionStatuses.value).map(([id, status]) => [id, sessionStatusBadge(status)]),
+const sessionLivenessIndicators = computed<Record<string, StatusIndicator>>(() => Object.fromEntries(
+  Object.entries(sessionStatuses.value).map(([id, status]) => [id, {
+    icon: status.running ? IconCircleDot : IconCircle,
+    color: status.running ? 'text-severity-success' : 'text-text-4',
+    label: status.running ? 'Terminal running' : 'Terminal not running',
+  }]),
 ))
 
-function sessionStatusBadge(status: SessionStatus): SessionStatusBadge {
+function windowActivityIndicator(status: SessionWindowStatus): StatusIndicator {
   const tool = status.tool || 'Agent'
   switch (status.status) {
     case 'active':
-      return { symbol: '[●]', color: 'text-severity-success', label: `${tool} is working` }
+      return { icon: IconLoaderCircle, color: 'text-severity-success', label: `${tool} is working`, animated: true }
     case 'approval':
-      return { symbol: '[!]', color: 'text-severity-warning', label: `${tool} needs approval` }
+      return { icon: IconCircleAlert, color: 'text-severity-warning', label: `${tool} needs approval` }
     case 'ready':
-      return { symbol: '[>]', color: 'text-text-2', label: `${tool} is ready` }
+      return { icon: IconCircleCheck, color: 'text-text-2', label: `${tool} is ready` }
     default:
-      return { symbol: '[?]', color: 'text-text-4', label: 'No agent detected' }
+      return { icon: IconCircleOff, color: 'text-text-4', label: `${tool} status unavailable` }
   }
+}
+
+function windowIndicator(sessionID: string, windowID: string): StatusIndicator | null {
+  const status = sessionStatuses.value[sessionID]?.windows?.find((window) => window.windowId === windowID)
+  return status ? windowActivityIndicator(status) : null
 }
 
 const openRowMenu = ref('')
@@ -256,6 +272,7 @@ interface TreeWindowRow {
   name: string
   active: boolean
   live: boolean
+  indicator: StatusIndicator | null
 }
 
 // A pooled session's live tab set is fresher than its listing — but while its
@@ -269,9 +286,16 @@ function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
       name: tab.name || tab.windowId,
       active: row.slug === activeSlug.value && tab.windowId === live.activeWindowId.value,
       live: true,
+      indicator: windowIndicator(row.id, tab.windowId),
     }))
   }
-  return listedWindows(row).map((win) => ({ windowId: win.windowId, name: win.name || win.windowId, active: false, live: false }))
+  return listedWindows(row).map((win) => ({
+    windowId: win.windowId,
+    name: win.name || win.windowId,
+    active: false,
+    live: false,
+    indicator: windowIndicator(row.id, win.windowId),
+  }))
 }
 
 function openTreeWindow(row: TerminalSessionRow, win: TreeWindowRow): void {
@@ -695,13 +719,16 @@ onBeforeUnmount(() => {
                     >
                       <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
                       <span
-                        v-if="sessionStatusBadges[row.id]"
-                        class="shrink-0 font-mono text-[11px]"
-                        :class="sessionStatusBadges[row.id].color"
-                        :title="sessionStatusBadges[row.id].label"
-                        data-testid="terminal-session-status"
-                        :data-status="sessionStatuses[row.id].status"
-                      ><span aria-hidden="true">{{ sessionStatusBadges[row.id].symbol }}</span><span class="sr-only">{{ sessionStatusBadges[row.id].label }}</span></span>
+                        v-if="sessionLivenessIndicators[row.id]"
+                        class="shrink-0"
+                        :class="sessionLivenessIndicators[row.id].color"
+                        :title="sessionLivenessIndicators[row.id].label"
+                        data-testid="terminal-session-liveness"
+                        :data-status="sessionStatuses[row.id].running ? 'running' : 'inactive'"
+                      >
+                        <component :is="sessionLivenessIndicators[row.id].icon" class="size-3" aria-hidden="true" />
+                        <span class="sr-only">{{ sessionLivenessIndicators[row.id].label }}</span>
+                      </span>
                       <!-- No `relative` here: AppMenu anchors to the nearest
                            positioned ancestor, and that has to be the row so the
                            panel spans it. Clicks stay inside the wrapper so choosing
@@ -748,6 +775,17 @@ onBeforeUnmount(() => {
                             @click="openTreeWindow(row, win)"
                           >
                             <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
+                            <span
+                              v-if="win.indicator"
+                              class="shrink-0"
+                              :class="win.indicator.color"
+                              :title="win.indicator.label"
+                              data-testid="terminal-window-status"
+                              :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                            >
+                              <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
+                              <span class="sr-only">{{ win.indicator.label }}</span>
+                            </span>
                           </button>
                         </TransitionGroup>
                       </div>

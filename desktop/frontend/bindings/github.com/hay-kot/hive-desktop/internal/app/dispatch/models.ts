@@ -135,13 +135,13 @@ export interface SessionRisk {
 }
 
 /**
- * SessionStatus is one active session's live agent state, detected from its
- * terminal rather than persisted with the session lifecycle record.
+ * SessionStatus separates tmux liveness from the activity detected in each
+ * agent window.
  */
 export interface SessionStatus {
     "sessionId": string;
-    "status": string;
-    "tool": string;
+    "running": boolean;
+    "windows": SessionWindowStatus[] | null;
 }
 
 /**
@@ -155,4 +155,13 @@ export interface SessionSummary {
     "slug": string;
     "repo": string;
     "state": string;
+}
+
+/**
+ * SessionWindowStatus is one tmux window's detected agent activity.
+ */
+export interface SessionWindowStatus {
+    "windowId": string;
+    "status": string;
+    "tool": string;
 }

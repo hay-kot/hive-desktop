@@ -184,35 +184,68 @@ describe('TerminalMode', () => {
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
   })
 
-  it('shows Hive’s live agent status for every session state', async () => {
+  it('shows session liveness on sessions and agent activity on windows with icons', async () => {
     mocks.ListSessions.mockResolvedValue([
-      { id: '1', name: 'working', slug: 'working', repo: 'hay-kot/hive', state: 'active' },
-      { id: '2', name: 'waiting', slug: 'waiting', repo: 'hay-kot/hive', state: 'active' },
-      { id: '3', name: 'ready', slug: 'ready', repo: 'hay-kot/hive', state: 'active' },
-      { id: '4', name: 'unknown', slug: 'unknown', repo: 'hay-kot/hive', state: 'active' },
+      { id: '1', name: 'live', slug: 'live', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'stopped', slug: 'stopped', repo: 'hay-kot/hive', state: 'active' },
     ])
+    mocks.createTerminalClient.mockReturnValue({
+      listWindows: vi.fn(async (slug: string) => ({
+        windows: slug === 'live'
+          ? [
+              { windowId: '@1', name: 'working', active: true, width: 0, height: 0 },
+              { windowId: '@2', name: 'approval', active: false, width: 0, height: 0 },
+              { windowId: '@3', name: 'ready', active: false, width: 0, height: 0 },
+              { windowId: '@4', name: 'unknown', active: false, width: 0, height: 0 },
+            ]
+          : [],
+      })),
+    })
+    const liveSession = fakeSession()
+    liveSession.tabs.value = [
+      { uid: 1, windowId: '@1', name: 'working', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 2, windowId: '@2', name: 'approval', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 3, windowId: '@3', name: 'ready', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 4, windowId: '@4', name: 'unknown', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    mocks.useTerminalWindows.mockReturnValue(liveSession)
     mocks.SessionStatuses.mockResolvedValue({
       items: [
-        { sessionId: '1', status: 'active', tool: 'pi' },
-        { sessionId: '2', status: 'approval', tool: 'claude' },
-        { sessionId: '3', status: 'ready', tool: 'codex' },
-        { sessionId: '4', status: 'missing', tool: '' },
+        {
+          sessionId: '1',
+          running: true,
+          windows: [
+            { windowId: '@1', status: 'active', tool: 'pi' },
+            { windowId: '@2', status: 'approval', tool: 'claude' },
+            { windowId: '@3', status: 'ready', tool: 'codex' },
+            { windowId: '@4', status: 'missing', tool: '' },
+          ],
+        },
+        { sessionId: '2', running: false, windows: [] },
       ],
       pollIntervalMs: 60_000,
     })
 
     const { wrapper } = await mountAt()
-    const badges = wrapper.findAll('[data-testid="terminal-session-status"]')
+    const liveness = wrapper.findAll('[data-testid="terminal-session-liveness"]')
+    expect(liveness).toHaveLength(2)
+    expect(liveness.every((indicator) => indicator.find('svg').exists())).toBe(true)
+    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="running"]').attributes('title')).toBe('Terminal running')
+    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="inactive"]').classes()).toContain('text-text-4')
 
-    expect(Object.fromEntries(badges.map((badge) => [badge.attributes('data-status'), badge.get('[aria-hidden="true"]').text()]))).toEqual({
-      active: '[●]',
-      approval: '[!]',
-      ready: '[>]',
-      missing: '[?]',
-    })
-    expect(wrapper.get('[data-status="active"]').attributes('title')).toBe('pi is working')
-    expect(wrapper.get('[data-status="active"]').text()).toContain('pi is working')
-    expect(wrapper.get('[data-status="approval"]').attributes('title')).toBe('claude needs approval')
+    const activity = wrapper.findAll('[data-testid="terminal-window-status"]')
+    expect(activity).toHaveLength(4)
+    expect(activity.every((indicator) => indicator.find('svg').exists())).toBe(true)
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="active"]').attributes('title')).toBe('pi is working')
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="active"] svg').classes()).toContain('animate-spin')
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="approval"]').attributes('title')).toBe('claude needs approval')
+    expect(wrapper.text()).not.toContain('[●]')
+
+    await wrapper.get('[data-testid="terminal-session-row"][data-slug="live"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-testid="terminal-window-status"]')).toHaveLength(4)
   })
 
   it('opens the new-session dialog from the sidebar header', async () => {
