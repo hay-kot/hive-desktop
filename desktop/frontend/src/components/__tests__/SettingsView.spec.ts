@@ -4,16 +4,19 @@ import { flushPromises, mount } from '@vue/test-utils'
 import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
 import { setTerminalFontSize } from '../../composables/useTerminalFont'
+import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 
+const setTerminalShowWindowsBinding = vi.hoisted(() => vi.fn())
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '' }),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true }),
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  SetTerminalShowWindows: setTerminalShowWindowsBinding,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
@@ -112,6 +115,22 @@ describe('SettingsView', () => {
 
     // The size is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
+  })
+
+  it('reflects and toggles the terminal window listing', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    const toggle = wrapper.get('[data-testid="settings-terminal-show-windows"]')
+    expect(toggle.attributes('aria-checked')).toBe('true')
+
+    await toggle.trigger('click')
+    await flushPromises()
+
+    expect(toggle.attributes('aria-checked')).toBe('false')
+    expect(setTerminalShowWindowsBinding).toHaveBeenCalledWith(false)
+
+    // The setting is a module singleton; put the default back for later tests.
+    setTerminalShowWindows(true)
   })
 
   it('shows the connected GitHub source', async () => {

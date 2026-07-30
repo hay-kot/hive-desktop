@@ -65,12 +65,13 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// AppearanceSettings is the persisted presentation configuration. Values are
-// opaque here: the frontend owns each valid set and heals unknown values, so
-// "" means "nothing persisted" rather than an error.
+// AppearanceSettings is the persisted presentation configuration. The string
+// values are opaque here: the frontend owns each valid set and heals unknown
+// values, so "" means "nothing persisted" rather than an error.
 type AppearanceSettings struct {
-	Theme            string
-	TerminalFontSize string
+	Theme               string
+	TerminalFontSize    string
+	TerminalShowWindows bool
 }
 
 func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
@@ -79,8 +80,9 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		return AppearanceSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
 	return AppearanceSettings{
-		Theme:            cfg.Appearance.Theme,
-		TerminalFontSize: cfg.Appearance.TerminalFontSize,
+		Theme:               cfg.Appearance.Theme,
+		TerminalFontSize:    cfg.Appearance.TerminalFontSize,
+		TerminalShowWindows: cfg.Appearance.TerminalShowWindows,
 	}, nil
 }
 
@@ -95,6 +97,14 @@ func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
 func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.TerminalFontSize = size
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalShowWindows(_ context.Context, show bool) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalShowWindows = show
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

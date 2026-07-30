@@ -16,8 +16,6 @@ export interface MenuActionEntry {
   iconColor?: string
   /** Right-aligned shortcut hint, already formatted for display. */
   kbd?: string
-  /** Trailing check mark — for entries that toggle a state and report it. */
-  checked?: boolean
   testid?: string
 }
 

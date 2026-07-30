@@ -7,7 +7,6 @@ import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
-import IconListTree from '~icons/lucide/list-tree'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
@@ -22,6 +21,7 @@ import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
+import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
@@ -74,13 +74,6 @@ const sidebarMenuOpen = ref(false)
 const sidebarMenuToggle = ref<HTMLElement | null>(null)
 const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
   kind: 'action',
-  id: 'windows',
-  label: 'Always show windows',
-  icon: IconListTree,
-  checked: showAllWindows.value,
-  testid: 'terminal-sessions-show-windows',
-}, {
-  kind: 'action',
   id: 'prune',
   label: prunableCount.value ? `Prune ${prunableCount.value} recycled…` : 'Nothing to prune',
   icon: IconTrash,
@@ -119,7 +112,6 @@ function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
 
 function onSidebarMenuSelect(id: string): void {
   sidebarMenuOpen.value = false
-  if (id === 'windows') showAllWindows.value = !showAllWindows.value
   if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
 }
 
@@ -136,12 +128,12 @@ function toggleGroup(key: string): void {
     : [...collapsedRepos.value, key]
 }
 
-// "Always show windows": windows are only known live through an attach, so
-// every other active session's come from a one-shot listing per session —
-// fetched only while the option is on, and refreshed whenever the session
-// list or the attached slug changes. The attached session never reads from
-// this map; its live tab set is fresher.
-const showAllWindows = useStorage('hive.terminal.sidebar.windows', false)
+// Windows are only known live through an attach, so every other active
+// session's come from a one-shot listing per session — fetched only while the
+// Settings ▸ Appearance ▸ Terminal option is on, and refreshed whenever the
+// session list or the attached slug changes. The attached session never reads
+// from this map; its live tab set is fresher.
+const { showWindows: showAllWindows } = useTerminalShowWindows()
 const sessionWindows = ref<Record<string, WindowState[]>>({})
 watch([showAllWindows, attachable, activeSlug, client], () => { void refreshSessionWindows() })
 

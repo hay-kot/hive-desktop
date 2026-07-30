@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
+import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
@@ -22,6 +23,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.Available,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true }),
+  SetTerminalShowWindows: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
@@ -248,7 +253,7 @@ describe('TerminalMode', () => {
     expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
   })
 
-  it('lists windows for unattached sessions once always-show-windows is on', async () => {
+  it('lists windows for unattached sessions out of the box', async () => {
     const listWindows = vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
       ? { windows: [
           { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
@@ -263,12 +268,9 @@ describe('TerminalMode', () => {
     ]
     session.activeWindowId.value = '@7'
     const { wrapper, router } = await mountAvailable(session)
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
 
-    await wrapper.get('[data-testid="terminal-sessions-menu-toggle"]').trigger('click')
-    await wrapper.get('[data-testid="terminal-sessions-show-windows"]').trigger('click')
-    await flushPromises()
-
+    // Settings ▸ Appearance ▸ Terminal ships the listing on, so the tree fills
+    // in without touching anything.
     expect(listWindows).toHaveBeenCalledWith('hive-bump-deps')
     expect(listWindows).toHaveBeenCalledWith('hive-fix-parser')
     const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
@@ -284,6 +286,22 @@ describe('TerminalMode', () => {
     // Attached now, so its rows are the live tab set, not the listing.
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
     expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
+  })
+
+  it('empties the tree of listed windows when the setting is turned off', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const { wrapper } = await mountAvailable()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+
+    setTerminalShowWindows(false)
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+
+    // The setting is a module singleton; put the default back for later tests.
+    setTerminalShowWindows(true)
   })
 
   it('says when there are no sessions to attach to', async () => {

@@ -61,6 +61,10 @@ export function SetTerminalFontSize(size: string): $CancellablePromise<void> {
     return $Call.ByID(736291786, size);
 }
 
+export function SetTerminalShowWindows(show: boolean): $CancellablePromise<void> {
+    return $Call.ByID(2890059572, show);
+}
+
 /**
  * The appearance setters are per-field so the theme picker and the terminal
  * font picker cannot clobber each other's persisted value.

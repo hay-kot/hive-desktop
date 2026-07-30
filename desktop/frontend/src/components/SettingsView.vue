@@ -11,6 +11,7 @@ import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconSettings from '~icons/lucide/settings'
 import IconSparkles from '~icons/lucide/sparkles'
+import AppSwitch from './AppSwitch.vue'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
@@ -31,6 +32,7 @@ import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { setTerminalFontSize, terminalFontSizeLabels, terminalFontSizePx, terminalFontSizes, useTerminalFont, type TerminalFontSize } from '../composables/useTerminalFont'
+import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
@@ -63,6 +65,7 @@ const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
   value,
   label: `${terminalFontSizeLabels[value]} · ${terminalFontSizePx[value]}px`,
 }))
+const { showWindows: terminalShowWindows } = useTerminalShowWindows()
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
@@ -171,7 +174,7 @@ function onTerminalFontSizeChange(value: string): void {
     </template>
 
     <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div v-if="props.activeCategory === 'appearance'" class="mx-auto max-w-[560px] space-y-4">
+      <div v-if="props.activeCategory === 'appearance'" class="mx-auto max-w-[560px] space-y-6">
         <SettingsSegmented
           :model-value="theme"
           label="Theme"
@@ -181,14 +184,25 @@ function onTerminalFontSizeChange(value: string): void {
           testid="settings-theme-toggle"
           @update:model-value="onThemeChange"
         />
-        <SettingsSegmented
-          :model-value="terminalFontSize"
-          label="Terminal font size"
-          :options="terminalFontSizeOptions"
-          hint="Applies immediately to open terminals; tmux re-fits their grid."
-          testid="settings-terminal-font-size"
-          @update:model-value="onTerminalFontSizeChange"
-        />
+        <SettingsSection title="Terminal">
+          <div class="mt-3 space-y-4">
+            <SettingsSegmented
+              :model-value="terminalFontSize"
+              label="Font size"
+              :options="terminalFontSizeOptions"
+              hint="Applies immediately to open terminals; tmux re-fits their grid."
+              testid="settings-terminal-font-size"
+              @update:model-value="onTerminalFontSizeChange"
+            />
+            <AppSwitch
+              :model-value="terminalShowWindows"
+              label="Always show windows"
+              hint="List every active session's windows in the session tree, not just the attached one's."
+              testid="settings-terminal-show-windows"
+              @update:model-value="setTerminalShowWindows"
+            />
+          </div>
+        </SettingsSection>
       </div>
 
       <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
