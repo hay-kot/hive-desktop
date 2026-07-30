@@ -45,6 +45,8 @@ function fakeSession() {
     endReason: ref<string | null>(null),
     error: ref<string | null>(null),
     actionError: ref<string | null>(null),
+    sizeConstraint: ref<{ voted: { cols: number; rows: number }; granted: { cols: number; rows: number } } | null>(null),
+    dismissSizeConstraint: vi.fn(),
     start: vi.fn().mockResolvedValue(undefined),
     reconnect: vi.fn().mockResolvedValue(undefined),
     select: vi.fn().mockResolvedValue(undefined),
@@ -277,6 +279,26 @@ describe('TerminalMode', () => {
 
     await wrapper.get('[data-testid="terminal-reconnect"]').trigger('click')
     expect(session.reconnect).toHaveBeenCalled()
+  })
+
+  // The grid not matching the pane is tmux's rule, not a fault, so it is named
+  // in place rather than reported as an error.
+  it('names the client that is deciding the size, and can be dismissed', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-size-constraint"]').exists()).toBe(false)
+
+    session.sizeConstraint.value = { voted: { cols: 213, rows: 55 }, granted: { cols: 80, rows: 24 } }
+    await flushPromises()
+
+    const hint = wrapper.get('[data-testid="terminal-size-constraint"]').text()
+    expect(hint).toContain('80×24')
+    expect(hint).toContain('213×55')
+    expect(hint).toContain('another attached')
+
+    await wrapper.get('[data-testid="terminal-size-constraint-dismiss"]').trigger('click')
+    expect(session.dismissSizeConstraint).toHaveBeenCalled()
   })
 
   it('re-attaches from the sidebar row after the session ended', async () => {

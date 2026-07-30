@@ -206,6 +206,9 @@ describe('useTerminalWindows', () => {
     xterm.FakeWebglAddon.unavailable = false
     xterm.FakeCanvasAddon.unavailable = false
     FakeResizeObserver.instances = []
+    // The remembered vote outlives a composable on purpose, so each test states
+    // its own starting memory rather than inheriting the last one's.
+    localStorage.clear()
     globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
     globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
     Object.defineProperty(document, 'fonts', {
@@ -258,7 +261,7 @@ describe('useTerminalWindows', () => {
     expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
   })
 
-  // tmux sizes a window to the smallest attached client, so the size a tab
+  // Every client attached to a window renders the same grid, so the size a tab
   // renders at is whatever tmux reports — never what this pane measured.
   it('opens every terminal at the size tmux reported, before any output lands', async () => {
     const { session, socket } = await attached()
@@ -477,6 +480,96 @@ describe('useTerminalWindows', () => {
     // currentSize is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
     await flushPromises()
+  })
+
+  // The attach size is a vote tmux obeys, so attaching with a placeholder would
+  // resize the session — and every other client attached to it — to a size
+  // nothing had measured. Setting no size leaves it alone.
+  it('attaches without a size when nothing has been measured', async () => {
+    const client = fakeClient()
+    await open(client).start()
+
+    expect(client.attach).toHaveBeenCalledWith('hive-abc', 0, 0)
+  })
+
+  it('attaches with the size this app window last voted, and does not re-vote it', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('hive.terminal.vote', JSON.stringify({ cols: 120, rows: 40, fontPx: terminalFontSizePx.medium }))
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+
+    expect(client.attach).toHaveBeenCalledWith('hive-abc', 120, 40)
+
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).not.toHaveBeenCalled()
+  })
+
+  it('remembers a measured vote for the next session it attaches', async () => {
+    vi.useFakeTimers()
+    const first = fakeClient()
+    const session = open(first)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 213, rows: 55 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    const second = fakeClient()
+    await open(second).start()
+
+    expect(second.attach).toHaveBeenCalledWith('hive-abc', 213, 55)
+  })
+
+  // A vote tmux never granted means another attached client decided the size.
+  // Nothing announces that, so the difference is the only signal there is.
+  it('reports the size tmux granted when it does not match the vote', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', document.createElement('div'))
+
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+    expect(session.sizeConstraint.value).toBeNull()
+
+    // tmux answers a vote it honours with a window event; silence past the
+    // settle window is what says some other client won.
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(session.sizeConstraint.value).toEqual({ voted: { cols: 300, rows: 80 }, granted: { cols: 213, rows: 55 } })
+
+    session.dismissSizeConstraint()
+    expect(session.sizeConstraint.value).toBeNull()
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(session.sizeConstraint.value).toBeNull()
+  })
+
+  it('clears the constraint once tmux grants the voted size', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    sockets[0].onopen?.()
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(session.sizeConstraint.value).not.toBeNull()
+
+    sockets[0].onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 300, height: 80 }) })
+    await vi.advanceTimersByTimeAsync(1000)
+
+    expect(session.sizeConstraint.value).toBeNull()
   })
 
   it('votes nothing when the pane cannot be measured', async () => {

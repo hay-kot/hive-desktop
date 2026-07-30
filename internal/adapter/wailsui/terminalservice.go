@@ -75,7 +75,7 @@ func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error
 	}
 	running, port := s.webhooks.Endpoint(ctx)
 	if !running {
-		return TerminalEndpoint{}, app.Errorf(app.KindUnavailable, "The local HTTP server is not running, so the terminal has nothing to connect to.")
+		return TerminalEndpoint{}, app.Errorf(app.KindUnavailable, "The local HTTP server is not running, so the terminal has nothing to connect to. Check http.enabled in settings.yaml.")
 	}
 	authority := net.JoinHostPort(s.webhooks.Host(), strconv.Itoa(port))
 	return TerminalEndpoint{

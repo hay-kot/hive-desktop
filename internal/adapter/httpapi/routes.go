@@ -179,12 +179,12 @@ func (ctrl *Controller) baseOperations() []Op {
 func (ctrl *Controller) terminalOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
-			Request: terminalSizeRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,
+			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. cols/rows are the opening size vote; 0x0 attaches without setting a client size, leaving the session at the size its other clients gave it. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
+			Request: terminalAttachRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,
 			Errors: terminalErrors("the slug names no reachable tmux session"),
 		},
 		{
-			Method: "POST", Path: "/api/terminal/resize", Summary: "Resize the attached control client; tmux gives every client of a window the same size and the smallest wins.",
+			Method: "POST", Path: "/api/terminal/resize", Summary: "Vote a size for the attached control client; every client attached to a window renders the same grid and tmux's window-size option decides whose size that is.",
 			Request: terminalSizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalResize,
 			Errors: terminalErrors("no terminal is attached for that slug"),
 		},

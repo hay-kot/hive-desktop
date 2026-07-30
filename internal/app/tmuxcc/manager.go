@@ -133,12 +133,13 @@ func (m *Manager) Available(ctx context.Context) error {
 
 // Attach opens, or returns the windows of, the client for slug. A second
 // attach for a live slug reuses it; after a client exits its slug is free
-// again and a re-attach starts fresh.
+// again and a re-attach starts fresh. cols/rows of 0x0 attach unsized —
+// see Options.unsized.
 func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Window, error) {
 	if err := m.Available(ctx); err != nil {
 		return nil, err
 	}
-	if err := validateSize(cols, rows); err != nil {
+	if err := validateAttachSize(cols, rows); err != nil {
 		return nil, err
 	}
 	if slug == "" {

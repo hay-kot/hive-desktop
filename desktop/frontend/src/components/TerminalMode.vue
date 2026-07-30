@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconInfo from '~icons/lucide/info'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
@@ -87,6 +88,7 @@ const status = computed(() => session.value?.status.value ?? 'connecting')
 const endReason = computed(() => session.value?.endReason.value ?? null)
 const sessionError = computed(() => session.value?.error.value ?? '')
 const actionError = computed(() => session.value?.actionError.value ?? '')
+const sizeConstraint = computed(() => session.value?.sizeConstraint.value ?? null)
 
 // The toggle into this mode is always live, so the gate is a panel here
 // rather than a disabled button in the title bar.
@@ -391,6 +393,32 @@ onBeforeUnmount(() => session.value?.dispose())
           </div>
 
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
+
+          <!-- Names tmux's rule rather than reporting a fault: the grid is
+               smaller (or larger) than the pane because another client attached
+               to this session is the one deciding its size. -->
+          <div
+            v-if="sizeConstraint"
+            class="flex shrink-0 items-start gap-2 border-b border-border bg-raised px-3 py-2"
+            data-testid="terminal-size-constraint"
+          >
+            <IconInfo class="mt-px size-3.5 shrink-0 text-text-4" />
+            <p class="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-3">
+              tmux is drawing this window at
+              <span class="font-mono text-text-2">{{ sizeConstraint.granted.cols }}×{{ sizeConstraint.granted.rows }}</span>,
+              not the <span class="font-mono text-text-2">{{ sizeConstraint.voted.cols }}×{{ sizeConstraint.voted.rows }}</span>
+              this pane fits. Every client attached to a session shares one grid per window, so another attached
+              client is deciding the size. Detach it, or change tmux's
+              <span class="font-mono text-text-2">window-size</span> option, to use the whole pane.
+            </p>
+            <button
+              type="button"
+              class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+              data-testid="terminal-size-constraint-dismiss"
+              aria-label="Dismiss"
+              @click="session?.dismissSizeConstraint()"
+            ><IconX class="size-3" /></button>
+          </div>
 
           <div class="relative flex min-h-0 min-w-0 flex-1 flex-col">
             <TerminalTab

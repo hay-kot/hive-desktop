@@ -72,6 +72,19 @@ func (b terminalSizeRequest) Validate() error {
 	)
 }
 
+// terminalAttachRequest is a size request that also accepts 0x0: a webview that
+// has not measured its pane yet attaches unsized rather than voting a
+// placeholder tmux would obey, which would resize the session — and every other
+// client attached to it — to a size nothing asked for.
+type terminalAttachRequest terminalSizeRequest
+
+func (b terminalAttachRequest) Validate() error {
+	if b.Cols == 0 && b.Rows == 0 {
+		return criterio.Run("slug", b.Slug, criterio.Required)
+	}
+	return terminalSizeRequest(b).Validate()
+}
+
 type terminalWindowRequest struct {
 	Slug     string `json:"slug"`
 	WindowID string `json:"windowId"`
@@ -109,7 +122,7 @@ type terminalNewWindowResponse struct {
 // TerminalAttach opens the control client for a session slug and returns its
 // windows.
 func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[terminalSizeRequest](ctrl, w, r)
+	body, err := terminalBody[terminalAttachRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
