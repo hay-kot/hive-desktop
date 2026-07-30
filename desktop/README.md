@@ -172,7 +172,7 @@ http:
   port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
 paths:
-  tmux: "" # absolute path to tmux; empty discovers it (ADR 0038)
+  tmux: "" # absolute path to tmux; empty discovers it (ADR 0039)
 experimental:
   terminal: false # terminal mode ships dark (ADR 0037); read at startup
 development:
@@ -199,7 +199,7 @@ development:
 to configure it: left empty, the app searches `$PATH` and then the prefixes
 package managers install into (Homebrew, MacPorts, Nix), because a desktop
 launch does not inherit the shell's `$PATH` — macOS gives an `.app` bundle
-`/usr/bin:/bin:/usr/sbin:/sbin` (ADR 0038). Set it only for an install those
+`/usr/bin:/bin:/usr/sbin:/sbin` (ADR 0039). Set it only for an install those
 misses; it must be absolute, a configured path that does not work is an error
 rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one

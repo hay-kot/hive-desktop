@@ -152,7 +152,7 @@ type App struct {
 	terminals *tmuxcc.Manager
 
 	// tmux is the one place the tmux binary is discovered, shared by the
-	// terminal's control clients and Hive's session spawning (ADR 0038).
+	// terminal's control clients and Hive's session spawning (ADR 0039).
 	tmux *tmuxbin.Resolver
 
 	// pollInterval is the validated, clamped interval the producer polls on.

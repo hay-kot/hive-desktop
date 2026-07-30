@@ -263,7 +263,7 @@ more expensive, which is the whole reason it is being done now.
   appearance: {theme: "", terminal_font_size: ""}   # terminal_font_size: small/medium/large/xl/xxl; "" = medium
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
-  paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0038)
+  paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
   experimental: {terminal: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR 0037)
   development:
     mocks: {mode: live}
@@ -363,7 +363,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
-| `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR 0038); empty searches `$PATH` then the usual package-manager prefixes |
+| `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR 0039); empty searches `$PATH` then the usual package-manager prefixes |
 | `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, read at startup |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |

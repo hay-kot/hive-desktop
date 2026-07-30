@@ -1,4 +1,4 @@
-# 0038 — Discover the tmux binary instead of trusting $PATH
+# 0039 — Discover the tmux binary instead of trusting $PATH
 
 - **Status:** accepted
 - **Date:** 2026-07-29

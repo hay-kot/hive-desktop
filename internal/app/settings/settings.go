@@ -94,7 +94,7 @@ type ExperimentalSettings struct {
 }
 
 // PathsSettings locates the external binaries the app execs. Each is the escape
-// hatch for an install discovery does not know about (ADR 0038): empty — the
+// hatch for an install discovery does not know about (ADR 0039): empty — the
 // shipped value — searches PATH and the usual package-manager prefixes.
 type PathsSettings struct {
 	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`

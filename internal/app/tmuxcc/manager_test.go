@@ -98,7 +98,7 @@ func TestManagerAttachValidatesInput(t *testing.T) {
 }
 
 // A tmux found outside $PATH is only useful if both the probe and the attach
-// exec it; a bare "tmux" in either one is the bug this guards (ADR 0038).
+// exec it; a bare "tmux" in either one is the bug this guards (ADR 0039).
 func TestManagerRunsTheLocatedBinary(t *testing.T) {
 	t.Parallel()
 
