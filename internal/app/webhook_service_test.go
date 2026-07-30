@@ -29,7 +29,7 @@ func testSettingsStore(t *testing.T) *settings.Store {
 }
 
 func TestWebhookServiceInfoWithoutListener(t *testing.T) {
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 24483)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 24483, nil)
 	running, port := service.Endpoint(t.Context())
 	assert.False(t, running)
 	assert.Equal(t, 24483, port)
@@ -40,7 +40,7 @@ func TestWebhookServiceCapture(t *testing.T) {
 	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	service := newWebhookService(testSettingsStore(t), db, nil, nil, "127.0.0.1", 24483)
+	service := newWebhookService(testSettingsStore(t), db, nil, nil, "127.0.0.1", 24483, nil)
 
 	view, err := service.Capture(t.Context(), "triage", "hook")
 	require.NoError(t, err)
@@ -59,43 +59,61 @@ func TestWebhookServiceCapture(t *testing.T) {
 
 func TestWebhookServiceSettingsDefaultEnabled(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0, nil)
 
-	view, err := service.State(t.Context())
-	require.NoError(t, err)
+	view := service.State(t.Context())
 	assert.True(t, view.Enabled, "the loopback HTTP server is on by default")
 	assert.Equal(t, "127.0.0.1", view.Host)
 	assert.Zero(t, view.Port)
 	assert.False(t, view.PortOverridden)
 	assert.False(t, view.Running, "no listener was constructed for this test")
-	assert.True(t, view.RestartRequired, "enabled in config but not yet running")
+	assert.False(t, view.RestartRequired, "nothing was persisted that this process is not running")
+}
+
+// RestartRequired is App.RestartPending filtered to the http section, not a
+// second comparison: a pending change elsewhere must not send the user to
+// restart for the listener's sake.
+func TestWebhookServiceStateRestartRequiredFollowsPendingHTTPFields(t *testing.T) {
+	isolateSettings(t)
+	for _, tc := range []struct {
+		name    string
+		pending []RestartPendingField
+		want    bool
+	}{
+		{"nothing pending", nil, false},
+		{"an unrelated field", []RestartPendingField{{Field: "experimental.terminal"}}, false},
+		{"an http field", []RestartPendingField{{Field: "experimental.terminal"}, {Field: "http.port"}}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0,
+				func() []RestartPendingField { return tc.pending })
+			assert.Equal(t, tc.want, service.State(t.Context()).RestartRequired)
+		})
+	}
 }
 
 func TestWebhookServiceSettingsPortOverride(t *testing.T) {
 	isolateSettings(t)
 	t.Setenv(settings.EnvHTTPPort, "24499")
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 24499)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 24499, nil)
 
-	view, err := service.State(t.Context())
-	require.NoError(t, err)
+	view := service.State(t.Context())
 	assert.Equal(t, 24499, view.Port)
 	assert.True(t, view.PortOverridden)
 }
 
 func TestWebhookServiceSetSettings(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0, nil)
 	cfg := settings.DefaultSettings()
 	cfg.Polling.Interval = settings.Duration(2 * time.Minute)
 	require.NoError(t, settings.SaveSettings(cfg))
 
 	require.NoError(t, service.SetState(t.Context(), true, "127.0.0.1", 27777))
 
-	view, err := service.State(t.Context())
-	require.NoError(t, err)
+	view := service.State(t.Context())
 	assert.True(t, view.Enabled)
 	assert.Equal(t, 27777, view.Port)
-	assert.True(t, view.RestartRequired)
 
 	saved, err := settings.LoadPersistedSettings()
 	require.NoError(t, err)
@@ -104,7 +122,7 @@ func TestWebhookServiceSetSettings(t *testing.T) {
 
 func TestWebhookServiceSetSettingsValidation(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0, nil)
 
 	for _, tc := range []struct {
 		host string
@@ -119,7 +137,7 @@ func TestWebhookServiceSetSettingsValidation(t *testing.T) {
 
 func TestWebhookServiceGeneratePort(t *testing.T) {
 	isolateSettings(t)
-	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, nil, "127.0.0.1", 0, nil)
 	port, err := service.GeneratePort(t.Context())
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, port, settings.WebhookPortMin)
@@ -128,7 +146,7 @@ func TestWebhookServiceGeneratePort(t *testing.T) {
 
 func TestWebhookServiceMarkImageRoundTrip(t *testing.T) {
 	marks := sourcemark.NewStore(t.TempDir())
-	service := newWebhookService(testSettingsStore(t), nil, nil, marks, "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, marks, "127.0.0.1", 0, nil)
 
 	hash, err := service.StoreMarkImage(t.Context(), testPNG(t))
 	require.NoError(t, err)
@@ -147,7 +165,7 @@ func TestWebhookServiceMarkImageRoundTrip(t *testing.T) {
 }
 
 func TestWebhookServiceStoreMarkImageRejectsBadInput(t *testing.T) {
-	service := newWebhookService(testSettingsStore(t), nil, nil, sourcemark.NewStore(t.TempDir()), "127.0.0.1", 0)
+	service := newWebhookService(testSettingsStore(t), nil, nil, sourcemark.NewStore(t.TempDir()), "127.0.0.1", 0, nil)
 
 	_, err := service.StoreMarkImage(t.Context(), []byte("not an image"))
 	require.Error(t, err)

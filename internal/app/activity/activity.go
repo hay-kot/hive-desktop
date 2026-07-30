@@ -128,14 +128,29 @@ func FlowRuntimeFailed(flowID string, err error) Event {
 	}
 }
 
-// ConfigReloaded records a config file reload, reporting the resulting action
-// count.
-func ConfigReloaded(file string, actions int) Event {
+// ConfigReloaded records a config file reload. detail is what the file now
+// yields — an action count, the settings fields that changed — because the
+// reload itself is uninteresting without it.
+func ConfigReloaded(file, detail string) Event {
 	return Event{
 		Category: CategoryConfig,
 		Severity: SeverityInfo,
 		Title:    fmt.Sprintf("Reloaded %s", file),
-		Body:     fmt.Sprintf("%d actions", actions),
+		Body:     detail,
+		Source:   file,
+	}
+}
+
+// ConfigReloadFailed records a config file that could not be reloaded. The
+// previous values stay in service, which is exactly why this has to be
+// recorded: without it the app silently runs configuration the file on disk no
+// longer describes.
+func ConfigReloadFailed(file string, err error) Event {
+	return Event{
+		Category: CategoryConfig,
+		Severity: SeverityError,
+		Title:    fmt.Sprintf("Could not reload %s", file),
+		Body:     err.Error(),
 		Source:   file,
 	}
 }

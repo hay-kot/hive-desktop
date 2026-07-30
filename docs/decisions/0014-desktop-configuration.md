@@ -94,6 +94,13 @@ Vite cannot accept an already-open listener.
   place on a breaking schema change instead of hard-failing. The
   no-compatibility-alias stance for **environment variable names** is
   unchanged.
+  **Update (2026-07-30):** amended in part by ADR 0041 — `settings.yaml`
+  **values** are re-read at runtime and the store serves a last-good snapshot,
+  so "resolve once at startup" now describes only the fields that cannot be
+  adopted while the process runs (ADR 0041 enumerates them). Resolution order,
+  environment precedence, and the immutable `Paths` snapshot are unchanged: the
+  config root determines where `settings.yaml` lives, so it cannot move
+  underneath a reload.
 - Wails/Vite port selection still has a small preflight race because those
   frameworks cannot receive an already-open listener; app-owned listeners do
   not have that race.

@@ -4,12 +4,26 @@ import { nextTick } from 'vue'
 const mocks = vi.hoisted(() => ({
   AppearanceSettings: vi.fn(),
   SetTheme: vi.fn(),
+  settingsUpdated: [] as Array<() => void>,
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: mocks.AppearanceSettings,
   SetTheme: mocks.SetTheme,
 }))
+vi.mock('@wailsio/runtime', () => ({
+  Events: {
+    On: (name: string, handler: () => void) => {
+      if (name === 'settings:updated') mocks.settingsUpdated.push(handler)
+      return () => {}
+    },
+  },
+}))
+
+// Stands in for the backend reloading settings.yaml and waking the frontend.
+function emitSettingsUpdated(): void {
+  for (const handler of mocks.settingsUpdated) handler()
+}
 
 // currentTheme is a module singleton that loads the cached theme (via VueUse
 // useStorage) at import time, so each test sets localStorage first, then resets
@@ -18,6 +32,7 @@ beforeEach(() => {
   localStorage.clear()
   vi.resetModules()
   vi.clearAllMocks()
+  mocks.settingsUpdated.length = 0
   // Default: nothing persisted durably yet.
   mocks.AppearanceSettings.mockResolvedValue({ theme: '', terminalFontSize: '' })
   mocks.SetTheme.mockResolvedValue(undefined)
@@ -145,6 +160,37 @@ describe('useTheme', () => {
 
     expect(document.documentElement.dataset.theme).toBe('light')
     expect(mocks.SetTheme).toHaveBeenCalledWith('light')
+  })
+
+  it('re-hydrates when settings.yaml is reloaded outside the app', async () => {
+    mocks.AppearanceSettings.mockResolvedValue({ theme: 'gruvbox' })
+    const { initializeTheme } = await import('../useTheme')
+
+    initializeTheme()
+    await settle()
+    expect(document.documentElement.dataset.theme).toBe('gruvbox')
+
+    mocks.AppearanceSettings.mockResolvedValue({ theme: 'nord' })
+    emitSettingsUpdated()
+    await settle()
+
+    expect(document.documentElement.dataset.theme).toBe('nord')
+  })
+
+  // The adoption write is what a reload would otherwise cycle on: write ->
+  // watcher -> reload -> hydrate -> write. It happens once or never.
+  it('does not re-adopt the cached theme on every reload', async () => {
+    localStorage.setItem('hive.theme', 'gruvbox')
+    const { initializeTheme } = await import('../useTheme')
+
+    initializeTheme()
+    await settle()
+    expect(mocks.SetTheme).toHaveBeenCalledTimes(1)
+
+    emitSettingsUpdated()
+    await settle()
+
+    expect(mocks.SetTheme).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the cached theme when the settings binding is unavailable', async () => {

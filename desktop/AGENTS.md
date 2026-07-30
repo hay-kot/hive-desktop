@@ -216,7 +216,7 @@ more expensive, which is the whole reason it is being done now.
   signals.** `app/events` carries typed payloads (`LogAppended{NextOffset}`,
   `JobsUpdated{JobID}`, …) and `wailsui.Subscribe` maps each one to the Wails
   event the frontend already knows — `connection:updated`, `log:appended`,
-  `flows:updated`, `actions:updated`. On receipt the frontend re-reads the
+  `flows:updated`, `actions:updated`, `settings:updated`. On receipt the frontend re-reads the
   relevant service; the signal just says "something changed".
 
   `inbox:updated` is the one that matters most for the feed: the flow engine
@@ -290,13 +290,23 @@ more expensive, which is the whole reason it is being done now.
   in dev land in the real hive database (desktop-pipeline.db and feed state stay
   worktree-isolated). Set it to the worktree data dir in `overrides.env` to
   re-isolate. e2e leaves it unset, so its hive.db stays isolated.
-- **Flows/actions are code, hot-reloaded and last-good.** Flow parsing is strict
+- **Config is code, hot-reloaded and last-good.** Flow parsing is strict
   and validated by Go on save/deploy (unique node ids, known types, source
-  limits within GitHub caps, action refs that exist, valid wires). `FlowsWatcher`
-  and `ActionsWatcher` watch the *directory* (so atomic editor saves work) and
-  reload live; a broken file keeps the **last-good** set rather than blanking
-  the running app. The app's own SaveFlow/SaveLayout writes intentionally
-  trigger the same reload + wake-up.
+  limits within GitHub caps, action refs that exist, valid wires). `FlowsWatcher`,
+  `ActionsWatcher` and `settings.Watcher` watch the *directory* (so atomic editor
+  saves work) and reload live; a broken file keeps the **last-good** set rather
+  than blanking the running app. The app's own SaveFlow/SaveLayout writes
+  intentionally trigger the same reload + wake-up.
+
+  Settings go one step further (ADR 0041): `settings.Store.Current()` is the
+  snapshot every core read takes, `App.ReloadSettings` is the one reload path
+  (watcher, `POST /api/settings/reload`), and `settingsReload` in `internal/app`
+  declares per field whether the running process adopts it or why it needs a
+  relaunch — **a new settings field must be classified there or a test fails**.
+  `App.RestartPending` is the single answer behind every "restart needed" hint;
+  do not write a second comparison. A setter that persists and applies has to
+  split, so the reload path can apply without writing the file back and
+  retriggering its own watcher.
 - **Keychain / secrets.** Credentials go through `app/credentials`, keyed by
   `Ref{Provider, Account}` — values in the OS keychain, refs in a JSON index
   beside the state dir because keychains cannot enumerate. The keychain is the

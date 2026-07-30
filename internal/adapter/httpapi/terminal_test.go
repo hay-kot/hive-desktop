@@ -42,7 +42,6 @@ func newTerminalHarness(t *testing.T) *terminalHarness {
 	t.Setenv(settings.EnvMockMode, "feed")
 
 	core, err := app.New(t.Context(), app.Config{
-		Settings: settings.DefaultSettings(),
 		MockMode: settings.MockMode(),
 		Logger:   zerolog.Nop(),
 	})

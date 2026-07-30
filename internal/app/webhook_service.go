@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -24,13 +25,24 @@ type WebhookService struct {
 	marks    *sourcemark.Store
 	host     string
 	port     int
+	// restartPending is App.RestartPending. The listener's own "restart needed"
+	// hint is one row of that answer rather than a second comparison of its own.
+	restartPending func() []RestartPendingField
 
 	mu       sync.Mutex
 	startErr error
 }
 
-func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, marks *sourcemark.Store, host string, port int) *WebhookService {
-	return &WebhookService{settings: settingsStore, db: db, listener: listener, marks: marks, host: host, port: port}
+func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, marks *sourcemark.Store, host string, port int, restartPending func() []RestartPendingField) *WebhookService {
+	return &WebhookService{
+		settings:       settingsStore,
+		db:             db,
+		listener:       listener,
+		marks:          marks,
+		host:           host,
+		port:           port,
+		restartPending: restartPending,
+	}
 }
 
 func (s *WebhookService) setStartError(err error) {
@@ -56,8 +68,9 @@ type WebhookState struct {
 	BoundHost  string
 	BoundPort  int
 	StartError string
-	// RestartRequired reports that the persisted configuration and the running
-	// listener disagree — both toggles only take effect at startup.
+	// RestartRequired reports that the persisted http section differs from the
+	// one this process bound. It is App.RestartPending filtered to http.*, not a
+	// comparison of its own.
 	RestartRequired bool
 }
 
@@ -79,15 +92,10 @@ func (s *WebhookService) Host() string {
 }
 
 // State returns the persisted configuration alongside the listener's state.
-func (s *WebhookService) State(context.Context) (WebhookState, error) {
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return WebhookState{}, Wrap(err, KindInternal, "reading settings")
-	}
-
-	enabled := cfg.HTTP.Enabled
+func (s *WebhookService) State(context.Context) WebhookState {
+	cfg := s.settings.Current()
 	state := WebhookState{
-		Enabled:        enabled,
+		Enabled:        cfg.HTTP.Enabled,
 		Host:           cfg.HTTP.Host,
 		Port:           cfg.HTTP.Port,
 		PortMin:        settings.WebhookPortMin,
@@ -109,9 +117,15 @@ func (s *WebhookService) State(context.Context) (WebhookState, error) {
 	if state.Running {
 		state.BoundPort = s.listener.Port()
 	}
-	portChanged := state.Port != 0 && state.BoundPort != state.Port
-	state.RestartRequired = enabled != state.Running || (state.Running && (portChanged || s.host != state.Host))
-	return state, nil
+	if s.restartPending != nil {
+		for _, pending := range s.restartPending() {
+			if strings.HasPrefix(pending.Field, "http.") {
+				state.RestartRequired = true
+				break
+			}
+		}
+	}
+	return state
 }
 
 // SetState persists the enable toggle and port. Neither is applied to the

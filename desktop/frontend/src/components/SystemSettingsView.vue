@@ -4,6 +4,10 @@
 // actions, point-only overrides for the data and config directories that take
 // effect after a restart, and an About card with the build strip and
 // auto-update controls.
+//
+// The restart banner is a projection of SettingsService.RestartPending, so a
+// startup-only setting added later surfaces here without this view learning
+// about it.
 import { onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -22,6 +26,7 @@ const {
   build,
   error,
   restartRequired,
+  restartPending,
   autoUpdate,
   update,
   checkingUpdate,
@@ -56,7 +61,14 @@ onMounted(() => {
       data-testid="system-restart-banner"
     >
       <IconInfo class="size-4 shrink-0 text-severity-info" />
-      <div class="min-w-0 flex-1 text-[12.5px] text-text-2">Location changes take effect after restarting Hive.</div>
+      <div class="min-w-0 flex-1 text-[12.5px] text-text-2">
+        <p>These take effect after restarting Hive:</p>
+        <ul class="mt-1 flex flex-col gap-0.5">
+          <li v-for="field in restartPending" :key="field.field" class="text-[11.5px] text-text-3">
+            <span class="font-mono text-text-2">{{ field.field }}</span> — {{ field.reason }}
+          </li>
+        </ul>
+      </div>
       <button
         type="button"
         class="shrink-0 cursor-pointer rounded-md border border-border px-2.5 py-1.5 text-[12px] font-medium text-text-2 hover:bg-chip hover:text-text"

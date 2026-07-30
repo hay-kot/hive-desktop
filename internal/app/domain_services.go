@@ -198,16 +198,9 @@ func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) 
 		env.WebhookBaseURL = WebhookBaseURLAt(s.webhooks.Host(), port)
 		env.APIBaseURL = APIBaseURLAt(s.webhooks.Host(), port)
 	}
-	// A settings read failure must not take the prompts page down with it:
-	// every other prompt is still correct, so fall back to reporting the
-	// listener as enabled and let the webhook settings pane surface the error.
-	if cfg, err := s.settings.Effective(); err == nil {
-		env.WebhookEnabled = cfg.HTTP.Enabled
-		env.APIEnabled = cfg.HTTP.Enabled
-	} else {
-		env.WebhookEnabled = false
-		env.APIEnabled = false
-	}
+	enabled := s.settings.Current().HTTP.Enabled
+	env.WebhookEnabled = enabled
+	env.APIEnabled = enabled
 	svc, err := prompts.New(env)
 	return svc, Wrap(err, KindInternal, "building the prompt catalog")
 }

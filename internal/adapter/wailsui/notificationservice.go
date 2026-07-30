@@ -129,8 +129,9 @@ type NotificationToast struct {
 // nodes immediately rather than at the next restart. Whether notifications
 // are allowed at all, and how loud, is a settings-derived decision the core
 // already owns (app.SettingsService.Notifications is the same read a
-// Settings screen makes) — an unreadable settings file fails closed there,
-// never surfacing a notification the user may have switched off.
+// Settings screen makes) — and it reads the store's last-good snapshot, so a
+// settings.yaml that is mid-edit keeps the preferences the user last saved
+// instead of silencing every notification while the file is unparsable.
 //
 // What this gate adds is the one thing the core cannot know: where a
 // notification surfaces. It holds the window's focus state because the
@@ -153,11 +154,7 @@ func (g NotificationGate) NotificationPolicy() dispatch.NotificationPolicy {
 	// parameter — it is dispatch's interface, not this package's to change —
 	// so this is the one place a context is synthesized rather than threaded
 	// through.
-	current, err := g.settings.Notifications(context.Background())
-	if err != nil {
-		g.logger.Warn().Err(err).Msg("notification settings unreadable; suppressing flow notifications")
-		return dispatch.NotificationPolicy{}
-	}
+	current := g.settings.Notifications(context.Background())
 	return dispatch.NotificationPolicy{
 		Allowed: current.Enabled,
 		Sound:   current.Sound,

@@ -18,30 +18,103 @@ import (
 // Store serializes access to one settings.yaml and keeps environment overrides
 // process-local. All mutations go through Update so concurrent UI/background
 // writes cannot lose each other.
+//
+// It also serves a last-good snapshot. Current never fails: a running app whose
+// settings.yaml is momentarily unparsable keeps the values it was already using
+// rather than degrading to nothing, the same way a flow that cannot be built
+// keeps its predecessor in service (ADR 0041). Reload swaps the snapshot; a
+// failed reload leaves the previous one in service and is reported by
+// LoadError.
+//
+// Lock order is mu then settingsFileMu, never the reverse.
 type Store struct {
 	path string
+
+	mu      sync.Mutex
+	loaded  bool
+	current Settings
+	loadErr error
 }
 
 var settingsFileMu sync.Mutex
 
-func NewStore(path string) *Store { return &Store{path: path} }
+func NewStore(path string) *Store { return &Store{path: path, current: DefaultSettings()} }
 func (s *Store) Path() string     { return s.path }
 
-func (s *Store) Effective() (Settings, error) {
-	settingsFileMu.Lock()
-	defer settingsFileMu.Unlock()
-	return loadSettingsAt(s.path, true)
+// Current returns the effective settings this process is serving, by value so
+// callers keep their own copy. Before the first successful load it is the
+// compiled defaults — the same safe shape a missing file resolves to.
+func (s *Store) Current() Settings {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	return s.current
 }
 
-func (s *Store) Persisted() (Settings, error) {
-	settingsFileMu.Lock()
-	defer settingsFileMu.Unlock()
-	return loadSettingsAt(s.path, false)
+// LoadError reports why the snapshot Current serves is older than the file on
+// disk, or nil when the two agree.
+func (s *Store) LoadError() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	return s.loadErr
 }
 
-// Update atomically applies mutate to persisted settings, then returns the
-// effective value after environment overrides are reapplied.
+// Reload re-reads settings.yaml and swaps the snapshot. On failure it returns
+// the snapshot still in service alongside the error.
+func (s *Store) Reload() (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.reloadLocked()
+}
+
+func (s *Store) ensureLoadedLocked() {
+	if !s.loaded {
+		_, _ = s.reloadLocked()
+	}
+}
+
+func (s *Store) reloadLocked() (Settings, error) {
+	cfg, err := s.load(true)
+	s.loaded = true
+	if err != nil {
+		s.loadErr = err
+		return s.current, err
+	}
+	s.current, s.loadErr = cfg, nil
+	return cfg, nil
+}
+
+func (s *Store) Effective() (Settings, error) { return s.load(true) }
+
+func (s *Store) Persisted() (Settings, error) { return s.load(false) }
+
+func (s *Store) load(withEnvironment bool) (Settings, error) {
+	settingsFileMu.Lock()
+	defer settingsFileMu.Unlock()
+	return loadSettingsAt(s.path, withEnvironment)
+}
+
+// Update atomically applies mutate to persisted settings, refreshes the
+// snapshot, and returns the effective value after environment overrides are
+// reapplied.
+//
+// A file that will not parse fails the write rather than falling back to the
+// snapshot: last-good keeps a running app reading, but writing last-good back
+// would overwrite whatever the user has mid-edit on disk.
 func (s *Store) Update(mutate func(*Settings) error) (Settings, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	effective, err := s.updateFile(mutate)
+	if err != nil {
+		return Settings{}, err
+	}
+	s.loaded, s.current, s.loadErr = true, effective, nil
+	return effective, nil
+}
+
+func (s *Store) updateFile(mutate func(*Settings) error) (Settings, error) {
 	settingsFileMu.Lock()
 	defer settingsFileMu.Unlock()
 

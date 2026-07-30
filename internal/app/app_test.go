@@ -37,7 +37,6 @@ func TestAppLifecycle(t *testing.T) {
 	before := runtime.NumGoroutine()
 
 	core, err := New(t.Context(), Config{
-		Settings: settings.DefaultSettings(),
 		MockMode: settings.MockMode(),
 		Logger:   zerolog.Nop(),
 	})

@@ -58,7 +58,7 @@ func main() {
 	}
 
 	settingsStore := settings.NewStore(paths.SettingsPath)
-	cfg, err := settingsStore.Effective()
+	cfg, err := settingsStore.Reload()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -74,6 +74,9 @@ func main() {
 		}
 	}
 	settingsStore = settings.NewStore(paths.SettingsPath)
+	if cfg, err = settingsStore.Reload(); err != nil {
+		log.Fatal(err)
+	}
 	backupDir = filepath.Join(paths.StateDir, "migration-backups")
 
 	// Migrate flows/*.yaml and actions.yml in place before app.New constructs the
@@ -106,7 +109,6 @@ func main() {
 
 	version, commit, date := resolvedBuildInfo()
 	core, err := app.New(ctx, app.Config{
-		Settings:       cfg,
 		SettingsStore:  settingsStore,
 		Paths:          paths,
 		MockMode:       cfg.MockMode(),

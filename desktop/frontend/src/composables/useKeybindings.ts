@@ -1,3 +1,4 @@
+import { Events } from '@wailsio/runtime'
 import { computed, ref } from 'vue'
 import {
   KeybindingSettings as GetKeybindingSettings,
@@ -207,6 +208,11 @@ async function hydrateFromSettings(): Promise<void> {
 /** Called once from main.ts, before the app can dispatch a shortcut. */
 export function initializeKeybindings(): void {
   void hydrateFromSettings()
+  // App-lifetime, like the keymap it drives: a rebind written into
+  // settings.yaml by hand takes effect without a relaunch.
+  Events.On('settings:updated', () => {
+    void hydrateFromSettings()
+  })
 }
 
 // True while the settings editor is capturing a keystroke; the global

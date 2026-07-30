@@ -13,6 +13,10 @@ import (
 // a change, persisting it, and applying what can be applied to the running
 // subsystems without a restart.
 //
+// Reads come from the store's snapshot, so they never fail and never disagree
+// with each other: two values read within one operation come from one atomic
+// swap rather than two file loads that a mid-flight edit can land between.
+//
 // Every setter is load-modify-save so unrelated fields survive; writing a
 // fresh single-field Settings would clobber them.
 type SettingsService struct {
@@ -40,15 +44,12 @@ func NewSettingsService(store *settings.Store) *SettingsService {
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.
 // A nil map is normalized to an empty one so callers never null-check it.
-func (s *SettingsService) Keybindings(context.Context) (map[string][]string, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return nil, Wrap(err, KindInternal, "reading settings")
-	}
+func (s *SettingsService) Keybindings(context.Context) map[string][]string {
+	cfg := s.store.Current()
 	if cfg.Keybindings == nil {
-		return map[string][]string{}, nil
+		return map[string][]string{}
 	}
-	return cfg.Keybindings, nil
+	return cfg.Keybindings
 }
 
 // SetKeybindings persists shortcut overrides. An empty map clears the section
@@ -73,15 +74,12 @@ type AppearanceSettings struct {
 	TerminalFontSize string
 }
 
-func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return AppearanceSettings{}, Wrap(err, KindInternal, "reading settings")
-	}
+func (s *SettingsService) Appearance(context.Context) AppearanceSettings {
+	cfg := s.store.Current()
 	return AppearanceSettings{
 		Theme:            cfg.Appearance.Theme,
 		TerminalFontSize: cfg.Appearance.TerminalFontSize,
-	}, nil
+	}
 }
 
 func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
@@ -106,12 +104,8 @@ type ExperimentalSettings struct {
 	Terminal bool
 }
 
-func (s *SettingsService) Experimental(context.Context) (ExperimentalSettings, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return ExperimentalSettings{}, Wrap(err, KindInternal, "reading settings")
-	}
-	return ExperimentalSettings{Terminal: cfg.Experimental.Terminal}, nil
+func (s *SettingsService) Experimental(context.Context) ExperimentalSettings {
+	return ExperimentalSettings{Terminal: s.store.Current().Experimental.Terminal}
 }
 
 // SetExperimentalTerminal persists the opt-in and returns the effective value
@@ -138,16 +132,13 @@ type NotificationSettings struct {
 	Sound    bool
 }
 
-func (s *SettingsService) Notifications(context.Context) (NotificationSettings, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return NotificationSettings{}, Wrap(err, KindInternal, "reading settings")
-	}
+func (s *SettingsService) Notifications(context.Context) NotificationSettings {
+	cfg := s.store.Current()
 	return NotificationSettings{
 		Enabled:  cfg.Notifications.Enabled,
 		Delivery: cfg.Notifications.Delivery,
 		Sound:    cfg.Notifications.Sound,
-	}, nil
+	}
 }
 
 func (s *SettingsService) SetNotifications(_ context.Context, in NotificationSettings) error {
@@ -167,8 +158,21 @@ type GithubSettings struct {
 	MinPollInterval time.Duration
 }
 
+// UpdatesSettings is the self-update configuration. Channel is empty when the
+// build's own channel is in force.
+type UpdatesSettings struct {
+	Enabled bool
+	Channel string
+}
+
+func (s *SettingsService) Updates(context.Context) UpdatesSettings {
+	cfg := s.store.Current()
+	return UpdatesSettings{Enabled: cfg.Updates.Enabled, Channel: cfg.Updates.Channel}
+}
+
 // SetUpdatesEnabled persists the user's value and returns the effective value
-// after any process environment override is reapplied.
+// after any process environment override is reapplied. Applying it — starting
+// or stopping the poll ticker — belongs to the adapter that owns the engine.
 func (s *SettingsService) SetUpdatesEnabled(enabled bool) (bool, error) {
 	effective, err := s.store.Update(func(current *settings.Settings) error {
 		current.Updates.Enabled = enabled
@@ -180,12 +184,11 @@ func (s *SettingsService) SetUpdatesEnabled(enabled bool) (bool, error) {
 	return effective.Updates.Enabled, nil
 }
 
-func (s *SettingsService) Github(context.Context) (GithubSettings, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return GithubSettings{}, Wrap(err, KindInternal, "reading settings")
+func (s *SettingsService) Github(context.Context) GithubSettings {
+	return GithubSettings{
+		PollInterval:    s.store.Current().Polling.Interval.Duration(),
+		MinPollInterval: settings.MinPollInterval,
 	}
-	return GithubSettings{PollInterval: cfg.Polling.Interval.Duration(), MinPollInterval: settings.MinPollInterval}, nil
 }
 
 // SetGithub validates against the floor, persists, and applies to the running
@@ -204,12 +207,20 @@ func (s *SettingsService) SetGithub(_ context.Context, in GithubSettings) error 
 	if err != nil {
 		return Wrap(err, KindInternal, "saving settings")
 	}
-	interval := effective.Polling.Interval.Duration()
+	s.applyPolling(effective.Polling.Interval.Duration())
+	return nil
+}
+
+// applyPolling pushes an interval into the running producer and fetch layer.
+// It is SetGithub's apply half, split out so a reload can adopt a hand-edited
+// interval without persisting anything: a reload path that wrote the file back
+// would retrigger the watcher that called it. Both are nil in mock mode, where
+// persistence still works and there is nothing live to apply to.
+func (s *SettingsService) applyPolling(interval time.Duration) {
 	if s.producer != nil {
 		s.producer.SetInterval(interval)
 	}
 	if s.fetchers != nil {
 		s.fetchers.SetSearchTTL(interval)
 	}
-	return nil
 }

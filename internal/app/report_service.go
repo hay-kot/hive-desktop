@@ -111,13 +111,7 @@ func (s *ReportService) assemble(id string, req ReportRequest) *report.Bundle {
 	})
 }
 
-func (s *ReportService) channel() string {
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return ""
-	}
-	return cfg.Updates.Channel
-}
+func (s *ReportService) channel() string { return s.settings.Current().Updates.Channel }
 
 func newReportID() string {
 	return "rpt_" + strings.ReplaceAll(uuid.NewString(), "-", "")

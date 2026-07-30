@@ -11,11 +11,12 @@ import (
 // shapes below are the wire contract; the core deals in Durations and plain
 // maps.
 type SettingsService struct {
-	settings *app.SettingsService
+	settings       *app.SettingsService
+	restartPending func(context.Context) []app.RestartPendingField
 }
 
-func NewSettingsService(s *app.SettingsService) *SettingsService {
-	return &SettingsService{settings: s}
+func NewSettingsService(s *app.SettingsService, restartPending func(context.Context) []app.RestartPendingField) *SettingsService {
+	return &SettingsService{settings: s, restartPending: restartPending}
 }
 
 // GithubSettings is the GitHub integration's editable configuration. Seconds
@@ -47,11 +48,21 @@ type AppearanceSettings struct {
 }
 
 // ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
-// the effective persisted value, not the running one: the flag is read at
-// startup, so the frontend compares it against TerminalService.Enabled to
-// know whether a relaunch is pending.
+// the effective persisted value, not the running one; RestartPending is what
+// reports the difference.
 type ExperimentalSettings struct {
 	Terminal bool `json:"terminal"`
+}
+
+// RestartPendingField is one persisted value this process is not running.
+// Field is the dotted settings path (or bootstrap.data_dir /
+// bootstrap.config_dir), which is what a view keys off to decide where to
+// surface the hint.
+type RestartPendingField struct {
+	Field     string `json:"field"`
+	Reason    string `json:"reason"`
+	Running   string `json:"running"`
+	Persisted string `json:"persisted"`
 }
 
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
@@ -64,27 +75,33 @@ type KeybindingSettings struct {
 	Overrides map[string][]string `json:"overrides"`
 }
 
-func (s *SettingsService) KeybindingSettings(ctx context.Context) (KeybindingSettings, error) {
-	overrides, err := s.settings.Keybindings(ctx)
-	if err != nil {
-		return KeybindingSettings{}, err
+func (s *SettingsService) KeybindingSettings(ctx context.Context) KeybindingSettings {
+	return KeybindingSettings{Overrides: s.settings.Keybindings(ctx)}
+}
+
+// RestartPending lists everything persisted that this process is not running.
+// It is the single answer behind every "restart needed" hint in the UI — the
+// terminal opt-in, the HTTP listener, a moved data or config directory — so a
+// new startup-only setting surfaces without a second comparison being written.
+func (s *SettingsService) RestartPending(ctx context.Context) []RestartPendingField {
+	pending := s.restartPending(ctx)
+	out := make([]RestartPendingField, 0, len(pending))
+	for _, field := range pending {
+		out = append(out, RestartPendingField(field))
 	}
-	return KeybindingSettings{Overrides: overrides}, nil
+	return out
 }
 
 func (s *SettingsService) SetKeybindingSettings(ctx context.Context, in KeybindingSettings) error {
 	return s.settings.SetKeybindings(ctx, in.Overrides)
 }
 
-func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSettings, error) {
-	current, err := s.settings.Appearance(ctx)
-	if err != nil {
-		return AppearanceSettings{}, err
-	}
+func (s *SettingsService) AppearanceSettings(ctx context.Context) AppearanceSettings {
+	current := s.settings.Appearance(ctx)
 	return AppearanceSettings{
 		Theme:            current.Theme,
 		TerminalFontSize: current.TerminalFontSize,
-	}, nil
+	}
 }
 
 // The appearance setters are per-field so the theme picker and the terminal
@@ -97,12 +114,8 @@ func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) 
 	return s.settings.SetTerminalFontSize(ctx, size)
 }
 
-func (s *SettingsService) ExperimentalSettings(ctx context.Context) (ExperimentalSettings, error) {
-	current, err := s.settings.Experimental(ctx)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	return ExperimentalSettings{Terminal: current.Terminal}, nil
+func (s *SettingsService) ExperimentalSettings(ctx context.Context) ExperimentalSettings {
+	return ExperimentalSettings{Terminal: s.settings.Experimental(ctx).Terminal}
 }
 
 func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
@@ -113,16 +126,13 @@ func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled b
 	return ExperimentalSettings{Terminal: effective}, nil
 }
 
-func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {
-	current, err := s.settings.Notifications(ctx)
-	if err != nil {
-		return NotificationSettings{}, err
-	}
+func (s *SettingsService) NotificationSettings(ctx context.Context) NotificationSettings {
+	current := s.settings.Notifications(ctx)
 	return NotificationSettings{
 		NotificationsEnabled: current.Enabled,
 		Delivery:             current.Delivery,
 		NotificationSound:    current.Sound,
-	}, nil
+	}
 }
 
 func (s *SettingsService) SetNotificationSettings(ctx context.Context, in NotificationSettings) error {
@@ -133,15 +143,12 @@ func (s *SettingsService) SetNotificationSettings(ctx context.Context, in Notifi
 	})
 }
 
-func (s *SettingsService) GithubSettings(ctx context.Context) (GithubSettings, error) {
-	current, err := s.settings.Github(ctx)
-	if err != nil {
-		return GithubSettings{}, err
-	}
+func (s *SettingsService) GithubSettings(ctx context.Context) GithubSettings {
+	current := s.settings.Github(ctx)
 	return GithubSettings{
 		PollIntervalSeconds:    int(current.PollInterval / time.Second),
 		MinPollIntervalSeconds: int(current.MinPollInterval / time.Second),
-	}, nil
+	}
 }
 
 // SetGithubSettings converts the wire's seconds to a duration and hands it to

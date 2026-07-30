@@ -20,7 +20,8 @@ const mocks = vi.hoisted(() => ({
   CheckNow: vi.fn(),
   ExperimentalSettings: vi.fn(),
   SetExperimentalTerminal: vi.fn(),
-  TerminalModeEnabled: vi.fn(),
+  RestartPending: vi.fn(),
+  EventsOn: vi.fn(() => () => {}),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
@@ -42,14 +43,19 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   ExperimentalSettings: mocks.ExperimentalSettings,
   SetExperimentalTerminal: mocks.SetExperimentalTerminal,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
-  Enabled: mocks.TerminalModeEnabled,
+  RestartPending: mocks.RestartPending,
 }))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
   Browser: { OpenURL: mocks.OpenURL },
+  Events: { On: mocks.EventsOn },
 }))
+
+// The backend is the only judge of what needs a relaunch; the view is a
+// projection of this list.
+function pendingField(field: string) {
+  return { field, reason: 'read once at startup', running: 'off', persisted: 'on' }
+}
 
 function updateInfo(overrides: Record<string, unknown> = {}) {
   return {
@@ -96,7 +102,7 @@ beforeEach(() => {
   mocks.CheckNow.mockResolvedValue(updateInfo())
   mocks.ExperimentalSettings.mockResolvedValue({ terminal: false })
   mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled }))
-  mocks.TerminalModeEnabled.mockResolvedValue(false)
+  mocks.RestartPending.mockResolvedValue([])
   document.body.innerHTML = ''
 })
 
@@ -139,6 +145,7 @@ describe('SystemSettingsView', () => {
     mocks.Info.mockResolvedValueOnce(info()).mockResolvedValueOnce(
       info({ dataDir: { path: '/icloud/hive', exists: true, overridden: true } }),
     )
+    mocks.RestartPending.mockResolvedValueOnce([]).mockResolvedValueOnce([pendingField('bootstrap.data_dir')])
     mocks.ChooseDirectory.mockResolvedValue('/icloud/hive')
     mocks.SetDataDir.mockResolvedValue(undefined)
     const wrapper = mount(SystemSettingsView)
@@ -237,6 +244,7 @@ describe('SystemSettingsView', () => {
     // Persisted off, running off: nothing pending.
     expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
 
+    mocks.RestartPending.mockResolvedValue([pendingField('experimental.terminal')])
     await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
     await flushPromises()
 
@@ -247,13 +255,13 @@ describe('SystemSettingsView', () => {
   it('shows no restart hint when the persisted opt-in matches the running app', async () => {
     mocks.Info.mockResolvedValue(info())
     mocks.ExperimentalSettings.mockResolvedValue({ terminal: true })
-    mocks.TerminalModeEnabled.mockResolvedValue(true)
     const wrapper = mount(SystemSettingsView)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
 
     // Turning it off is a change against the running app, so it is pending too.
+    mocks.RestartPending.mockResolvedValue([pendingField('experimental.terminal')])
     await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
     await flushPromises()
     expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
@@ -275,6 +283,7 @@ describe('SystemSettingsView', () => {
 
   it('quits the app from the restart banner', async () => {
     mocks.Info.mockResolvedValue(info({ dataDir: { path: '/icloud/hive', exists: true, overridden: true } }))
+    mocks.RestartPending.mockResolvedValue([pendingField('bootstrap.data_dir')])
     mocks.ClearDataDir.mockResolvedValue(undefined)
     const wrapper = mount(SystemSettingsView)
     await flushPromises()

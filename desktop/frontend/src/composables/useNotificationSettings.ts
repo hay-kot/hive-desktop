@@ -1,3 +1,4 @@
+import { Events } from '@wailsio/runtime'
 import { ref, type Ref } from 'vue'
 import {
   NotificationSettings as GetNotificationSettings,
@@ -155,6 +156,11 @@ export function useNotificationSettings() {
   if (!initialized) {
     initialized = true
     void refresh()
+    // App-lifetime, like the refs: a preference edited in settings.yaml is
+    // already live in the delivery gate, so the screen must not disagree.
+    Events.On('settings:updated', () => {
+      void refresh()
+    })
   }
 
   return {

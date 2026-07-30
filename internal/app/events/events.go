@@ -42,6 +42,13 @@ type FlowsUpdated struct{ Reason string }
 // ActionsUpdated reports that the actions catalog was reloaded or mutated.
 type ActionsUpdated struct{ Count int }
 
+// SettingsUpdated reports that settings.yaml was re-read and the process
+// adopted what it could. Changed names the fields that differ from the snapshot
+// previously in service, dotted ("polling.interval"), so a consumer can ignore
+// a section it does not render. A reload that fails validation publishes
+// nothing at all: the running values stay in service.
+type SettingsUpdated struct{ Changed []string }
+
 // ConnectionUpdated reports that one provider's stored credentials changed —
 // connected, rotated, or disconnected. Provider names which ("github"), so a
 // consumer can ignore a provider it does not use; the new state is not in the
@@ -70,5 +77,6 @@ func (ActivityAppended) eventName() string   { return "activity.appended" }
 func (JobsUpdated) eventName() string        { return "jobs.updated" }
 func (FlowsUpdated) eventName() string       { return "flows.updated" }
 func (ActionsUpdated) eventName() string     { return "actions.updated" }
+func (SettingsUpdated) eventName() string    { return "settings.updated" }
 func (ConnectionUpdated) eventName() string  { return "connection.updated" }
 func (NotificationRaised) eventName() string { return "notification.raised" }

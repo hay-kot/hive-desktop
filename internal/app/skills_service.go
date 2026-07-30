@@ -136,10 +136,7 @@ func (s *SkillsService) UninstallTarget(ctx context.Context, in prompts.Input, t
 // untouched and agents with nothing installed alone. It returns the refreshed
 // catalog plus a summary for the caller to report.
 func (s *SkillsService) Sync(ctx context.Context, in prompts.Input) (SkillsSyncResult, error) {
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return SkillsSyncResult{}, Wrap(err, KindInternal, "reading settings")
-	}
+	cfg := s.settings.Current()
 	list, err := s.prompts.Catalog(ctx, in)
 	if err != nil {
 		return SkillsSyncResult{}, err
@@ -238,10 +235,7 @@ func (s *SkillsService) SetAutoUpdate(ctx context.Context, in prompts.Input, ena
 // start it renders as absent and its installed file is left untouched until a sync
 // runs with that context (the Skills tab).
 func (s *SkillsService) SyncInstalled(ctx context.Context) (skills.SyncResult, error) {
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return skills.SyncResult{}, Wrap(err, KindInternal, "reading settings")
-	}
+	cfg := s.settings.Current()
 	catalog, err := s.skillMap(ctx, prompts.Input{})
 	if err != nil {
 		return skills.SyncResult{}, err
@@ -254,10 +248,7 @@ func (s *SkillsService) SyncInstalled(ctx context.Context) (skills.SyncResult, e
 }
 
 func (s *SkillsService) view(ctx context.Context, in prompts.Input) (SkillsCatalog, error) {
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return SkillsCatalog{}, Wrap(err, KindInternal, "reading settings")
-	}
+	cfg := s.settings.Current()
 	list, err := s.prompts.Catalog(ctx, in)
 	if err != nil {
 		return SkillsCatalog{}, err
@@ -326,11 +317,7 @@ func (s *SkillsService) target(id string) (skills.Target, string, error) {
 	if !ok {
 		return skills.Target{}, "", Errorf(KindNotFound, "unknown skill target %q", id)
 	}
-	cfg, err := s.settings.Effective()
-	if err != nil {
-		return skills.Target{}, "", Wrap(err, KindInternal, "reading settings")
-	}
-	return target, targetDir(cfg, target), nil
+	return target, targetDir(s.settings.Current(), target), nil
 }
 
 type resolvedTarget struct {

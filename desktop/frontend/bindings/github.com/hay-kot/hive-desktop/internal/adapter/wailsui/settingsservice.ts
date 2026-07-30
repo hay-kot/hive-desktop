@@ -36,6 +36,16 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
+/**
+ * RestartPending lists everything persisted that this process is not running.
+ * It is the single answer behind every "restart needed" hint in the UI — the
+ * terminal opt-in, the HTTP listener, a moved data or config directory — so a
+ * new startup-only setting surfaces without a second comparison being written.
+ */
+export function RestartPending(): $CancellablePromise<$models.RestartPendingField[] | null> {
+    return $Call.ByID(801901132);
+}
+
 export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
     return $Call.ByID(1793440840, enabled);
 }

@@ -44,9 +44,13 @@ surface, and the terminal's transport is already composed per run in
   startup read, not a live toggle. Graduating a feature means deleting its
   flag, not defaulting it on.
 - Settings ▸ System ▸ Experimental exposes the flag as a switch. It only
-  persists the value — the gate stays a startup read — so the UI compares the
-  persisted value against what the running process mounted
-  (`TerminalService.Enabled`) and shows a restart-pending hint while they
-  differ. An earlier revision of this ADR skipped the UI toggle entirely;
-  that was revised once the mode had a sidebar and appearance controls worth
-  reaching without a YAML edit.
+  persists the value — the gate stays a startup read — so the UI shows a
+  restart-pending hint while the persisted value differs from what the running
+  process mounted. An earlier revision of this ADR skipped the UI toggle
+  entirely; that was revised once the mode had a sidebar and appearance controls
+  worth reaching without a YAML edit.
+  **Update (2026-07-30):** that comparison is no longer this feature's own.
+  ADR 0041 makes `App.RestartPending` the single answer for every startup-only
+  setting, and `experimental.terminal` is one row of it — with the reason above
+  as its explanation. A future ships-dark flag gets the same hint by classifying
+  itself, not by writing a comparison.

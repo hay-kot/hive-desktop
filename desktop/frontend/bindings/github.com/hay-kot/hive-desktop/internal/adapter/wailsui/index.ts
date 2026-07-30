@@ -58,6 +58,7 @@ export type {
     ReportInput,
     ReportPreview,
     ReportResult,
+    RestartPendingField,
     SystemInfo,
     TerminalAvailability,
     TerminalEndpoint,

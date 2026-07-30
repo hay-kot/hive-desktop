@@ -4,6 +4,7 @@ import (
 	"context"
 	"embed"
 	"fmt"
+	"slices"
 
 	"github.com/rs/zerolog"
 
@@ -132,7 +133,11 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 
 	// The tray refresh is published before the flows subscription can fire it:
 	// the flows watcher calls subscribers from its own goroutine.
-	u.cancelEvents = Subscribe(ctx, core.Events, u.refreshTray)
+	u.cancelEvents = Subscribe(ctx, core.Events, SubscribeHooks{
+		FlowsUpdated: u.refreshTray,
+		//nolint:contextcheck // the ticker is rooted at Background on purpose -- see settingsReloadHook
+		SettingsUpdated: u.settingsReloadHook(core.Settings),
+	})
 
 	u.trayIcon = opts.TrayIcon
 	u.trayIconLinux = opts.TrayIconLinux
@@ -140,6 +145,22 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 	u.attachUpdater(opts)
 	u.buildWindow()
 	u.buildTray(core)
+}
+
+// settingsReloadHook adopts a reloaded settings.yaml into the state this side
+// of the app holds. The update ticker is all of it; everything else the
+// frontend re-reads for itself on settings:updated.
+//
+// It takes no context, and is built outside Subscribe's for that reason: the
+// ticker's lifetime is the app's, not the reload event's — see
+// startLoopLocked, and NotificationGate for the same reasoning on the other
+// driven port that reads settings outside a call.
+func (u *UI) settingsReloadHook(settings *app.SettingsService) func(changed []string) {
+	return func(changed []string) {
+		if slices.Contains(changed, "updates.enabled") {
+			u.updater.applyEnabled(settings.Updates(context.Background()).Enabled)
+		}
+	}
 }
 
 func (u *UI) options(core *app.App, opts MountOptions) application.Options {
@@ -154,7 +175,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewActivityService(core.Activity)),
 		application.NewService(NewJobService(core.Jobs)),
 		application.NewService(NewSystemService(core.System, opts.Build.Version, opts.Build.Commit, opts.Build.Date)),
-		application.NewService(NewSettingsService(core.Settings)),
+		application.NewService(NewSettingsService(core.Settings, core.RestartPending)),
 		application.NewService(NewWebhookService(core.Webhooks)),
 		application.NewService(NewPromptsService(core.Prompts)),
 		application.NewService(NewSkillsService(core.Skills)),

@@ -37,6 +37,10 @@ func registerEvents() struct{} {
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
 	application.RegisterEvent[string]("jobs:updated")
+	// settings:updated fires after settings.yaml is re-read — a hand edit, a
+	// dotfiles sync, or the app's own write. Like the others it is a wake-up:
+	// every composable holding a value out of settings.yaml re-hydrates.
+	application.RegisterEvent[string]("settings:updated")
 	// window:focus and window:blur carry the current focus state. Consumers use
 	// them to update focus-sensitive UI without querying the native window.
 	application.RegisterEvent[bool]("window:focus")
@@ -76,7 +80,19 @@ func registerEvents() struct{} {
 // This is where the core's typed payload is deliberately degraded. Wails
 // events are wake-up signals by design — an adapter that needs the delta gets
 // it from the bus instead.
-func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (cancel func()) {
+// SubscribeHooks are the adapter-owned reactions that ride along with the
+// wake-up emissions: state this side of the app holds and the frontend cannot
+// re-read for it. Each may be nil.
+type SubscribeHooks struct {
+	// FlowsUpdated rebuilds the tray's profile listing.
+	FlowsUpdated func()
+	// SettingsUpdated adopts a reloaded settings.yaml into adapter-owned state
+	// (the update ticker). It receives the changed fields so it can ignore a
+	// section it does not own.
+	SettingsUpdated func(changed []string)
+}
+
+func Subscribe(ctx context.Context, bus *events.Bus, hooks SubscribeHooks) (cancel func()) {
 	cancels := []func(){
 		events.Subscribe(ctx, bus, "wailsui.log", events.Coalesce(), func(_ context.Context, e events.LogAppended) {
 			emitLogAppended(e.NextOffset)
@@ -100,8 +116,14 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.flows", events.Coalesce(), func(context.Context, events.FlowsUpdated) {
 			emitFlowsUpdated()
-			if onFlowsUpdated != nil {
-				onFlowsUpdated()
+			if hooks.FlowsUpdated != nil {
+				hooks.FlowsUpdated()
+			}
+		}),
+		events.Subscribe(ctx, bus, "wailsui.settings", events.Coalesce(), func(_ context.Context, e events.SettingsUpdated) {
+			emitSettingsUpdated()
+			if hooks.SettingsUpdated != nil {
+				hooks.SettingsUpdated(e.Changed)
 			}
 		}),
 		// A notify terminal's delivery is not state to re-read: it is the
@@ -233,6 +255,16 @@ func emitFlowsUpdated() {
 func emitActionsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("actions:updated", "changed")
+	}
+}
+
+// emitSettingsUpdated wakes every frontend consumer holding a value read out of
+// settings.yaml after a reload. The changed field list stays on this side: the
+// frontend re-hydrates whole sections, so naming them would only invite a
+// consumer to skip a re-read it should be doing.
+func emitSettingsUpdated() {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("settings:updated", "changed")
 	}
 }
 

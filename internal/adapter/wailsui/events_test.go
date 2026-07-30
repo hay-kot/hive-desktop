@@ -31,7 +31,7 @@ func TestSubscribeEmitsToastForInAppNotification(t *testing.T) {
 
 	bus := events.New(zerolog.Nop())
 	t.Cleanup(bus.Close)
-	cancel := Subscribe(t.Context(), bus, nil)
+	cancel := Subscribe(t.Context(), bus, SubscribeHooks{})
 	t.Cleanup(cancel)
 
 	bus.Publish(t.Context(), events.NotificationRaised{
@@ -60,7 +60,7 @@ func TestSubscribeSkipsToastForBannerNotification(t *testing.T) {
 
 	bus := events.New(zerolog.Nop())
 	t.Cleanup(bus.Close)
-	cancel := Subscribe(t.Context(), bus, nil)
+	cancel := Subscribe(t.Context(), bus, SubscribeHooks{})
 	t.Cleanup(cancel)
 
 	bus.Publish(t.Context(), events.NotificationRaised{Title: "New review", Body: "body", Severity: "info", InApp: false})

@@ -2,6 +2,7 @@
 // shows the status badge) and the drawer that edits it, so a save updates both
 // without either re-fetching independently.
 import { ref } from 'vue'
+import { useWailsEvent } from './useWailsEvent'
 import {
   GeneratePort,
   SetSettings,
@@ -64,6 +65,9 @@ async function generatePort(): Promise<number | undefined> {
 }
 
 export function useWebhookSettings() {
+  useWailsEvent('settings:updated', () => {
+    void refresh()
+  })
   return { settings, loading, error, refresh, save, generatePort }
 }
 

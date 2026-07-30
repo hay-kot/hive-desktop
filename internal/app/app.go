@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -47,8 +48,11 @@ import (
 )
 
 // Config is everything App needs that it cannot resolve itself.
+//
+// There is no Settings value: the store is the single source of the current
+// settings, and a copy handed in beside it would be a second one that a reload
+// could not reach.
 type Config struct {
-	Settings      settings.Settings
 	SettingsStore *settings.Store
 	Paths         settings.Paths
 	MockMode      string
@@ -171,12 +175,20 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	settings       settings.Settings
-	settingsStore  *settings.Store
-	paths          settings.Paths
-	flowsWatcher   *flow.FlowsWatcher
-	actionsWatcher *actions.ActionsWatcher
-	hiveBusCancel  context.CancelFunc
+	settingsStore *settings.Store
+	paths         settings.Paths
+
+	// mounted is what this process is running with for every field that is only
+	// read at startup. Current settings live in settingsStore and move under a
+	// reload; this snapshot deliberately does not, because comparing the two is
+	// how RestartPending answers what a relaunch would change.
+	mountedMu sync.Mutex
+	mounted   settings.Settings
+
+	flowsWatcher    *flow.FlowsWatcher
+	actionsWatcher  *actions.ActionsWatcher
+	settingsWatcher *settings.Watcher
+	hiveBusCancel   context.CancelFunc
 }
 
 // New builds the core: the store, the domain stores and their watchers, the
@@ -192,19 +204,20 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 
+	current := cfg.SettingsStore.Current()
 	a := &App{
 		logger:        cfg.Logger,
 		Events:        events.New(cfg.Logger),
 		mock:          cfg.MockMode,
-		settings:      cfg.Settings,
+		mounted:       current,
 		settingsStore: cfg.SettingsStore,
 		paths:         cfg.Paths,
 		ctx:           runCtx,
 		cancel:        cancel,
 	}
 
-	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
-	a.tmux = tmuxbin.NewResolver(cfg.Settings.Paths.Tmux)
+	a.pollInterval = current.Polling.Interval.Duration()
+	a.tmux = tmuxbin.NewResolver(current.Paths.Tmux)
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
@@ -216,7 +229,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// override and is empty in shipped builds; the OAuth base is never
 	// redirected, so the device flow still reaches github.com.
 	gitHubOpts := []ghclient.Option{ghclient.WithLogger(cfg.Logger)}
-	if apiBase := cfg.Settings.GitHubAPIBase(); apiBase != "" {
+	if apiBase := current.GitHubAPIBase(); apiBase != "" {
 		gitHubOpts = append(gitHubOpts, ghclient.WithAPIBase(apiBase))
 	}
 	gitHubClient := ghclient.NewClient(gitHubOpts...)
@@ -227,8 +240,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	dbOptions := store.DefaultOpenOptions()
-	dbOptions.PauseIngest = cfg.Settings.Development.Debug.PauseIngest.Duration()
-	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
+	dbOptions.PauseIngest = current.Development.Debug.PauseIngest.Duration()
+	dbOptions.PauseCommit = current.Development.Debug.PauseCommit.Duration()
 	dbOptions.Logger = cfg.Logger
 	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
 	if err != nil {
@@ -259,6 +272,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
+	a.openSettings(cfg.Paths.SettingsPath, cfg.Logger)
 	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
 
 	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, gitHubClient, a.credentials, func() {
@@ -303,7 +317,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort,
+		func() []RestartPendingField { return a.RestartPending(a.ctx) })
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
@@ -332,6 +347,9 @@ func (a *App) Start(ctx context.Context) error {
 	if a.flowsWatcher != nil {
 		a.flowsWatcher.Start()
 	}
+	if a.settingsWatcher != nil {
+		a.settingsWatcher.Start()
+	}
 	if a.mock == "" {
 		a.outputs.Start(ctx)
 	}
@@ -350,7 +368,11 @@ func (a *App) Start(ctx context.Context) error {
 		if err := a.webhook.Start(ctx); err != nil {
 			a.Webhooks.setStartError(err)
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
-		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
+		} else if a.webhookPort == 0 && !a.mountedSettings().EnvironmentOverridden(settings.EnvHTTPPort) {
+			// The allocated port is what this process is running, so record it as
+			// mounted before persisting it: otherwise the write-back reads back as
+			// a pending restart against the zero it was configured with.
+			a.setMountedHTTPPort(a.webhook.Port())
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
 				persisted.HTTP.Port = a.webhook.Port()
 				return nil
@@ -365,7 +387,7 @@ func (a *App) Start(ctx context.Context) error {
 	// type re-renders itself without the user re-installing. It only touches files
 	// already tracked in the index, so an empty index is a no-op; it is skipped in
 	// mock/e2e runs so a fixture launch never writes into the real ~ skill dirs.
-	if a.mock == "" && a.settings.Skills.AutoUpdate {
+	if a.mock == "" && a.mountedSettings().Skills.AutoUpdate {
 		go a.syncInstalledSkills()
 	}
 	return nil
@@ -461,6 +483,9 @@ func (a *App) Close() error {
 	if a.actionsWatcher != nil {
 		a.actionsWatcher.Close()
 	}
+	if a.settingsWatcher != nil {
+		a.settingsWatcher.Close()
+	}
 	a.Events.Close()
 
 	if a.hiveBusCancel != nil {
@@ -521,7 +546,7 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: count})
 		// A hand edit (or the app's own write) reloaded actions.yml: record
 		// the now-effective action count so the change is auditable.
-		a.activityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", count))
+		a.activityStore.Record(a.ctx, activity.ConfigReloaded("actions.yml", fmt.Sprintf("%d actions", count)))
 	}, logger)
 	if err != nil {
 		logger.Warn().Err(err).Msg("actions.yml hot-reload unavailable")
@@ -548,6 +573,24 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 		return
 	}
 	a.flowsWatcher = watcher
+}
+
+// openSettings watches settings.yaml so an edit made outside the app — a
+// dotfiles sync, an editor, another machine's config — is adopted without a
+// relaunch. Unlike actions and flows there is nothing to load here: the store
+// already holds the snapshot New was built from, and the watcher only asks it
+// to re-read. A watcher that fails to start degrades to no hot-reload.
+func (a *App) openSettings(path string, logger zerolog.Logger) {
+	watcher, err := settings.NewWatcher(path, func() {
+		if _, err := a.ReloadSettings(a.ctx); err != nil {
+			logger.Warn().Err(err).Msg("settings.yaml reload failed")
+		}
+	}, logger)
+	if err != nil {
+		logger.Warn().Err(err).Msg("settings.yaml hot-reload unavailable")
+		return
+	}
+	a.settingsWatcher = watcher
 }
 
 // PublishLogAppended announces that the event log grew and wakes the engine to
@@ -657,7 +700,7 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 	}
 	producer := ingest.NewProducer(a.Store, a.sources, a.pollInterval, a.PublishLogAppended, logger)
 	producer.SetRecorder(a.activityStore)
-	producer.SetDebugPause(a.settings.Development.Debug.PauseIngest.Duration())
+	producer.SetDebugPause(a.mountedSettings().Development.Debug.PauseIngest.Duration())
 	return producer
 }
 
@@ -729,12 +772,13 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 // probe/rebind race. Mock instances only claim a listener through an explicit
 // port override, keeping parallel e2e lanes isolated.
 func (a *App) openWebhook(_ context.Context, cfg Config) {
-	a.webhookHost = cfg.Settings.HTTP.Host
-	a.webhookPort = cfg.Settings.HTTP.Port
-	if !cfg.Settings.HTTP.Enabled {
+	current := a.settingsStore.Current()
+	a.webhookHost = current.HTTP.Host
+	a.webhookPort = current.HTTP.Port
+	if !current.HTTP.Enabled {
 		return
 	}
-	if cfg.MockMode != "" && !cfg.Settings.EnvironmentOverridden(settings.EnvHTTPPort) {
+	if cfg.MockMode != "" && !current.EnvironmentOverridden(settings.EnvHTTPPort) {
 		return
 	}
 

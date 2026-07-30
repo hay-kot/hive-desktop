@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -38,7 +39,6 @@ func testServer(t *testing.T) (*app.App, http.Handler) {
 	t.Setenv(settings.EnvMockMode, "feed")
 
 	core, err := app.New(t.Context(), app.Config{
-		Settings: settings.DefaultSettings(),
 		MockMode: settings.MockMode(),
 		Logger:   zerolog.Nop(),
 	})
@@ -100,9 +100,7 @@ func TestServedOverWebhookListener(t *testing.T) {
 	t.Setenv(settings.EnvHTTPEnabled, "true")
 	t.Setenv(settings.EnvHTTPPort, "0")
 
-	cfg, err := settings.NewStore(filepath.Join(root, "config", "settings.yaml")).Effective()
-	require.NoError(t, err)
-	core, err := app.New(t.Context(), app.Config{Settings: cfg, MockMode: cfg.MockMode(), Logger: zerolog.Nop()})
+	core, err := app.New(t.Context(), app.Config{MockMode: settings.MockMode(), Logger: zerolog.Nop()})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
 
@@ -541,4 +539,45 @@ func TestRefreshUnavailableInMockMode(t *testing.T) {
 	var body map[string]string
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.Equal(t, string(app.KindUnavailable), body["kind"], "the Kind reaches the wire")
+}
+
+func TestSettingsReload(t *testing.T) {
+	core, handler := testServer(t)
+	settingsPath := core.RuntimePaths().SettingsPath
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o700))
+
+	require.NoError(t, os.WriteFile(settingsPath, []byte("polling:\n  interval: 9m\nexperimental:\n  terminal: true\n"), 0o600))
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/settings/reload", nil))
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var body struct {
+		Changed        []string `json:"changed"`
+		RestartPending []struct {
+			Field  string `json:"field"`
+			Reason string `json:"reason"`
+		} `json:"restartPending"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.ElementsMatch(t, []string{"polling.interval", "experimental.terminal"}, body.Changed)
+	require.Len(t, body.RestartPending, 1)
+	assert.Equal(t, "experimental.terminal", body.RestartPending[0].Field)
+	assert.NotEmpty(t, body.RestartPending[0].Reason)
+}
+
+// A file the running app cannot use answers 400 and keeps serving the values it
+// already had — the reload endpoint reports the problem, it does not adopt it.
+func TestSettingsReloadRejectsABrokenFile(t *testing.T) {
+	core, handler := testServer(t)
+	settingsPath := core.RuntimePaths().SettingsPath
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o700))
+	require.NoError(t, os.WriteFile(settingsPath, []byte("polling:\n  interval: \"soon\"\n"), 0o600))
+
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/settings/reload", nil))
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+
+	var body map[string]string
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	assert.Equal(t, string(app.KindInvalid), body["kind"])
 }

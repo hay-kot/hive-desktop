@@ -19,7 +19,7 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	require.NoError(t, err)
 	paths := settings.ResolvePaths(b, "")
 	store := settings.NewStore(paths.SettingsPath)
-	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", 24917))
+	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", 24917, nil))
 	installer, err := skills.NewInstaller(filepath.Join(t.TempDir(), "skills.json"))
 	require.NoError(t, err)
 	return newSkillsService(promptsSvc, installer, store, "", zerolog.Nop())

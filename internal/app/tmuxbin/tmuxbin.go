@@ -99,6 +99,18 @@ type Resolver struct {
 
 func NewResolver(override string) *Resolver { return &Resolver{override: override} }
 
+// SetOverride replaces paths.tmux and forgets the remembered path, so pointing
+// the setting somewhere new takes effect on the next attach rather than at the
+// next launch.
+func (r *Resolver) SetOverride(override string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.override == override {
+		return
+	}
+	r.override, r.path = override, ""
+}
+
 func (r *Resolver) Path() (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

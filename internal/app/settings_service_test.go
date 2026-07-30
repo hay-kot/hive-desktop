@@ -34,9 +34,8 @@ func TestNewSettingsServiceReadsNotifications(t *testing.T) {
 
 	service := NewSettingsService(settings.NewStore(settings.SettingsPath()))
 
-	got, err := service.Notifications(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, NotificationSettings{Enabled: false, Delivery: settings.DeliverySystem, Sound: true}, got)
+	require.Equal(t, NotificationSettings{Enabled: false, Delivery: settings.DeliverySystem, Sound: true},
+		service.Notifications(t.Context()))
 }
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
@@ -52,9 +51,8 @@ func TestSettingsServiceNotificationSettings(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
 
-	got, err := service.Notifications(t.Context())
-	require.NoError(t, err)
-	require.Equal(t, NotificationSettings{Enabled: true, Delivery: settings.DeliveryAuto, Sound: true}, got)
+	require.Equal(t, NotificationSettings{Enabled: true, Delivery: settings.DeliveryAuto, Sound: true},
+		service.Notifications(t.Context()))
 }
 
 func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
@@ -155,8 +153,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 2*time.Minute, saved.Polling.Interval.Duration())
 
-		got, err := service.Github(t.Context())
-		require.NoError(t, err)
+		got := service.Github(t.Context())
 		require.Equal(t, 2*time.Minute, got.PollInterval)
 		require.Equal(t, settings.MinPollInterval, got.MinPollInterval)
 
@@ -185,9 +182,7 @@ func TestSettingsServiceSetExperimentalTerminalPersists(t *testing.T) {
 	require.True(t, got.Experimental.Terminal)
 	require.False(t, got.Updates.Enabled, "the opt-in must not clobber unrelated fields")
 
-	roundTripped, err := service.Experimental(t.Context())
-	require.NoError(t, err)
-	require.True(t, roundTripped.Terminal)
+	require.True(t, service.Experimental(t.Context()).Terminal)
 }
 
 func TestSettingsServiceSetExperimentalTerminalReportsEnvOverride(t *testing.T) {
@@ -208,8 +203,7 @@ func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
 
-	got, err := service.Appearance(t.Context())
-	require.NoError(t, err)
+	got := service.Appearance(t.Context())
 	require.Empty(t, got.Theme)
 	require.Empty(t, got.TerminalFontSize)
 }
@@ -231,8 +225,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	require.Equal(t, 5*time.Minute, got.Polling.Interval.Duration())
 	require.False(t, got.Updates.Enabled)
 
-	roundTripped, err := service.Appearance(t.Context())
-	require.NoError(t, err)
+	roundTripped := service.Appearance(t.Context())
 	require.Equal(t, "midnight", roundTripped.Theme)
 	require.Equal(t, "large", roundTripped.TerminalFontSize, "one appearance setter must not clobber the other field")
 }

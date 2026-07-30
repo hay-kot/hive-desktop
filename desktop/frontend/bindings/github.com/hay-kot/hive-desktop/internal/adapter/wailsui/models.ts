@@ -44,9 +44,8 @@ export interface BuildInfo {
 
 /**
  * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
- * the effective persisted value, not the running one: the flag is read at
- * startup, so the frontend compares it against TerminalService.Enabled to
- * know whether a relaunch is pending.
+ * the effective persisted value, not the running one; RestartPending is what
+ * reports the difference.
  */
 export interface ExperimentalSettings {
     "terminal": boolean;
@@ -196,6 +195,19 @@ export interface ReportResult {
 }
 
 /**
+ * RestartPendingField is one persisted value this process is not running.
+ * Field is the dotted settings path (or bootstrap.data_dir /
+ * bootstrap.config_dir), which is what a view keys off to decide where to
+ * surface the hint.
+ */
+export interface RestartPendingField {
+    "field": string;
+    "reason": string;
+    "running": string;
+    "persisted": string;
+}
+
+/**
  * SystemInfo is the full set of locations shown on the System settings screen.
  */
 export interface SystemInfo {
@@ -296,8 +308,8 @@ export interface WebhookSettings {
     "startError": string;
 
     /**
-     * RestartRequired reports that the persisted configuration and the running
-     * listener disagree — both toggles only take effect at startup.
+     * RestartRequired reports that the persisted http section differs from the
+     * one this process bound; the listener is built at startup.
      */
     "restartRequired": boolean;
 }

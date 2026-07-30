@@ -53,8 +53,12 @@ individual choices; this document describes the shape everything fits into.
 >
 > Desktop configuration is one nested typed schema: startup resolves safe
 > defaults, strict YAML and `HIVE_DESKTOP_*` overrides once, then injects the
-> resulting settings and immutable path snapshot. Development state is local to
-> each worktree under `.hive-desktop/` (ADR 0014).
+> immutable path snapshot and a settings store. Settings themselves are served
+> from a last-good snapshot that a watcher reloads, so an edit made outside the
+> app applies without a relaunch and a broken file cannot degrade a running one;
+> the fields a running process cannot adopt are declared, with `RestartPending`
+> as the one answer for all of them (ADRs 0014 and 0041). Development state is
+> local to each worktree under `.hive-desktop/` (ADR 0014).
 >
 > Partly built: the first HTTP adapter exists —
 > `internal/adapter/httpapi` is an agent-facing control surface over `app.App`
@@ -168,6 +172,7 @@ column is the section that specifies it.
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
+| A new **`settings.yaml` field** | Declared reload class — live, or the reason a relaunch is needed; never a second restart-pending comparison | [Config versus data](#config-versus-data), ADR 0041 |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -556,6 +561,41 @@ validation. Missing config is safe: webhooks and pprof
 are disabled, listener hosts are loopback, automatic ports are `0`, mock mode
 is live, and debug pauses are zero. Environment overrides affect the effective
 value but are never written into YAML by an unrelated settings edit.
+
+**Settings are read from a snapshot, and the snapshot reloads** (ADR 0041).
+`settings.Store` holds one guarded `Settings`; `Current()` returns it by value
+and never fails, so a file that is momentarily unparsable keeps the running app
+on its last good values instead of degrading it. Every core read goes through
+`Current()` — which also makes observation skew impossible, since two values
+read in one operation come from one atomic swap. `Effective()`/`Persisted()`
+stay pure reads for the composition root and tooling. A **write** still fails
+while the file is broken: writing last-good back would overwrite a hand edit in
+progress.
+
+`SettingsWatcher` is the third watcher in `ConfigDir`, built like the other two,
+and its callback is the one reload path — `App.ReloadSettings`: reload, diff
+against the snapshot it replaces, apply what this process can adopt
+(`polling.interval` to the producer and fetch layer, `paths.tmux` to the tmux
+resolver), publish `SettingsUpdated{Changed}`, record to the activity log. A
+reload that fails validation publishes nothing and records the failure. Startup
+is still fail-fast: at launch there is no last-good to fall back to.
+
+Two rules keep it from cycling. A setter that persists is split into a persist
+half and an apply half, and the reload path calls only the apply half —
+otherwise a reload subscriber rewrites the file and retriggers the watcher that
+called it. And the watcher matches the basename `settings.yaml` exactly, because
+the store's atomic write creates `.settings-*.yaml` siblings beside it.
+
+**Whether a field can be adopted is declared, not inferred.** `settingsReload`
+in `internal/app` maps every dotted field to "" (live) or the reason a relaunch
+is needed; a test fails when a field of `settings.Settings` is missing from it,
+so a new setting is a decision rather than an omission. `App.RestartPending` is
+the single answer built from it — the persisted settings diffed against what
+this process mounted, filtered to the startup-only set, plus the bootstrap
+directory overrides compared against the injected `Paths`. Everything that
+surfaces a "restart needed" hint (the terminal opt-in, `WebhookState.RestartRequired`,
+the System settings banner) is a filter over that list. Do not write a second
+comparison.
 
 `settings.yaml`, `flows/*.yaml`, and `actions.yml` each carry a top-level
 `version:` and are migrated forward in place at startup by

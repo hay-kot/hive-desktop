@@ -1,4 +1,5 @@
 import { useStorage } from '@vueuse/core'
+import { Events } from '@wailsio/runtime'
 import type { Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
@@ -91,6 +92,11 @@ function persistTheme(theme: Theme): void {
     })
 }
 
+// The one-time adoption below writes to settings.yaml, and a write is what the
+// settings watcher reloads on. Restricting it to the first hydrate is what
+// keeps reload → hydrate → write → reload from cycling.
+let adoptedCachedTheme = false
+
 // Reconciles the first-paint cache against the durable record. settings.yaml
 // wins when it holds a known theme. When it holds nothing — first run after
 // this change, or a hand-edited value too garbled to use — a theme the user
@@ -108,6 +114,8 @@ async function hydrateFromSettings(): Promise<void> {
       applyTheme(settings.theme)
       return
     }
+    if (adoptedCachedTheme) return
+    adoptedCachedTheme = true
     if (isTheme(cachedThemeAtLoad)) persistTheme(cachedThemeAtLoad)
   } catch (error) {
     // Keep the cached theme: an unavailable binding must not reset the UI.
@@ -126,9 +134,16 @@ export function setTheme(nextTheme: Theme): void {
 // reconciled asynchronously right after: it cannot be read synchronously, and
 // blocking the first paint on it would cause the very flash this ordering
 // avoids.
+//
+// The subscription is app-lifetime, like the singleton it drives, so there is
+// nothing to dispose: settings.yaml edited outside the app re-themes the window
+// the same way the picker does.
 export function initializeTheme(): void {
   applyTheme(isTheme(currentTheme.value) ? currentTheme.value : 'dark')
   void hydrateFromSettings()
+  Events.On('settings:updated', () => {
+    void hydrateFromSettings()
+  })
 }
 
 /** The live theme, kept in sync by every setTheme()/initializeTheme() call. */

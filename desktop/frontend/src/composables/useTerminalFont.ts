@@ -1,3 +1,4 @@
+import { Events } from '@wailsio/runtime'
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
@@ -70,6 +71,11 @@ export function useTerminalFont(): { size: Ref<TerminalFontSize>; px: ComputedRe
   if (!hydrated) {
     hydrated = true
     void hydrate()
+    // App-lifetime, like the singleton: a settings.yaml edit resizes every open
+    // pane without a relaunch.
+    Events.On('settings:updated', () => {
+      void hydrate()
+    })
   }
   return { size: currentSize, px: computed(() => terminalFontSizePx[currentSize.value]) }
 }

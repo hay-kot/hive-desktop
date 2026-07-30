@@ -47,10 +47,11 @@ type pristineFile struct {
 // ordering: the pipeline database is wiped and reseeded in one transaction,
 // the core database's action tables are wiped in a second transaction (a
 // separate SQLite file cannot share the first), and the mutable config files
-// (actions.yml, settings.yaml, flows/*) are rewritten last. The flows/actions
-// watchers observe those writes and hot-reload exactly as they would for an
-// external edit — including recording the same reload activity a hand edit
-// would.
+// (actions.yml, settings.yaml, flows/*) are rewritten last. The flows, actions
+// and settings watchers observe those writes and hot-reload exactly as they
+// would for an external edit — including recording the same reload activity a
+// hand edit would. Only files a spec actually changed are rewritten, so a reset
+// reloads exactly what an external edit would have.
 type StateReset struct {
 	db       *store.DB
 	core     *sql.DB

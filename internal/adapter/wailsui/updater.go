@@ -124,15 +124,26 @@ func (s *UpdaterService) SetEnabled(enabled bool) error {
 	if err != nil {
 		return err
 	}
+	s.applyEnabled(effective)
+	return nil
+}
 
+// applyEnabled starts or stops the ticker for a value that is already
+// persisted — SetEnabled's apply half, called on its own when a settings.yaml
+// reload brings updates.enabled in from outside the app. Splitting the two is
+// what stops a reload from writing the file back and retriggering the watcher
+// that called it.
+func (s *UpdaterService) applyEnabled(enabled bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.enabled = effective
+	if s.enabled == enabled {
+		return
+	}
+	s.enabled = enabled
 	s.stopLoopLocked()
-	if effective && s.engine != nil {
+	if enabled && s.engine != nil {
 		s.startLoopLocked()
 	}
-	return nil
 }
 
 // CheckNow runs a manual silent check, updates the cache, and emits

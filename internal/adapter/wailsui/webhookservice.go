@@ -54,16 +54,13 @@ type WebhookSettings struct {
 	BoundPort  int    `json:"boundPort"`
 	BaseURL    string `json:"baseUrl"`
 	StartError string `json:"startError"`
-	// RestartRequired reports that the persisted configuration and the running
-	// listener disagree — both toggles only take effect at startup.
+	// RestartRequired reports that the persisted http section differs from the
+	// one this process bound; the listener is built at startup.
 	RestartRequired bool `json:"restartRequired"`
 }
 
-func (s *WebhookService) Settings(ctx context.Context) (WebhookSettings, error) {
-	state, err := s.webhooks.State(ctx)
-	if err != nil {
-		return WebhookSettings{}, err
-	}
+func (s *WebhookService) Settings(ctx context.Context) WebhookSettings {
+	state := s.webhooks.State(ctx)
 	view := WebhookSettings{
 		Enabled:         state.Enabled,
 		Host:            state.Host,
@@ -81,7 +78,7 @@ func (s *WebhookService) Settings(ctx context.Context) (WebhookSettings, error) 
 	if view.Running {
 		view.BaseURL = app.WebhookBaseURLAt(view.BoundHost, view.BoundPort)
 	}
-	return view, nil
+	return view
 }
 
 // SetSettings persists the enable toggle and port.
