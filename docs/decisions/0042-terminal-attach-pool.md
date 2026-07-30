@@ -1,4 +1,4 @@
-# 0041 — Terminal view pools live attaches and swaps sessions on first paint
+# 0042 — Terminal view pools live attaches and swaps sessions on first paint
 
 - **Status:** accepted
 - **Date:** 2026-07-30

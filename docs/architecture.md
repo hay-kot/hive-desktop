@@ -172,6 +172,7 @@ column is the section that specifies it.
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
+| A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH | [Subprocess environment](#subprocess-environment) |
 | A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR 0032 |
 
 If what you are building is not on this list, it is probably a service method
@@ -298,6 +299,9 @@ internal/
                                   #   slug, fan-out broker — no transport, no UI
     tmuxbin/                      # where the tmux binary is: paths.tmux, then
                                   #   PATH, then package prefixes (ADR 0039)
+    execenv/                      # the environment the user's own commands run
+                                  #   in: the login shell's PATH, then this
+                                  #   process's, then those prefixes (ADR 0041)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -669,6 +673,28 @@ The app's other outbound HTTP — the updater, `cmd/release`, and the
 problem-report uploader (`report.Uploader`, ADR 0024) — is not a source and has
 not adopted it.
 
+### Subprocess environment
+
+**A command the user wrote runs in the PATH the user has, not the one the app
+inherited** (ADR 0041). A desktop launch's environment is the launcher's —
+macOS gives an `.app` bundle `/usr/bin:/bin:/usr/sbin:/sbin` — and session hooks
+and shell actions are an open set of user commands, so no list of prefixes
+substitutes for asking. `internal/app/execenv` asks the login shell once per run
+(`$SHELL -ilc /usr/bin/env`, timed out, the answer kept whether or not it
+worked) and layers this process's PATH and the ADR 0039 prefixes behind it; a
+probe that fails degrades to exactly what the app could reach before.
+
+Two rules follow for anything new that spawns a process on the user's behalf:
+
+- **Take the environment from `execenv`, and resolve the binary through it too.**
+  `os/exec` searches the *calling* process's PATH and ignores `Cmd.Env`, so
+  setting the environment alone still fails to start a command only the resolved
+  PATH knows about. `app.envExecutor` is the worked example; it is also why
+  Hive's vendored `executil.RealExecutor` is not used.
+- **A streamed command's failure carries the opening of its stderr.** Hive
+  streams hook output to `io.Discard`, so without it a missing command reaches
+  the jobs list as an exit status naming nothing.
+
 ### Terminal sessions
 
 Terminal mode attaches one tmux control-mode client per Hive session, keyed by
@@ -706,7 +732,7 @@ them is the constraint (ADR 0036):
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a
-switch never blanks the pane (ADR 0041). Detach fires on eviction, explicit
+switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
 The slug is load-bearing in both products, so **`session.Slug` must equal the

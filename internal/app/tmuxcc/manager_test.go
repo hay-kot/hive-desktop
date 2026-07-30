@@ -388,13 +388,18 @@ func TestManagerRenameSessionRenamesTheLiveSession(t *testing.T) {
 	t.Parallel()
 
 	cmds := &fakeTmuxCommands{}
-	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+	m := newTestManager(t, nil, ManagerOptions{
+		Binary:  func() (string, error) { return "/opt/homebrew/bin/tmux", nil },
+		runTmux: cmds.run,
+	})
 
 	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo-2"))
 	require.Equal(t, [][]string{
 		{"has-session", "-t", "hive-demo"},
 		{"rename-session", "-t", "hive-demo", "hive-demo-2"},
 	}, cmds.calls)
+	require.Equal(t, []string{"/opt/homebrew/bin/tmux", "/opt/homebrew/bin/tmux"}, cmds.binaries,
+		"one-shot commands must run the discovered tmux, not whatever $PATH says")
 }
 
 func TestManagerRenameSessionTreatsAnAbsentSessionAsSuccess(t *testing.T) {

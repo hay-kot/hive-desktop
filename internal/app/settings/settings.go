@@ -89,7 +89,7 @@ type Appearance struct {
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached at
-	// once for instant switching (ADR 0041). Like the other appearance values it
+	// once for instant switching (ADR 0042). Like the other appearance values it
 	// is carried verbatim and healed by the frontend: anything outside 1-6 reads
 	// as the default, 3.
 	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`

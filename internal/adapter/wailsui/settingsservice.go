@@ -49,7 +49,7 @@ type AppearanceSettings struct {
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached
-	// for instant switching (ADR 0041). Carried verbatim; the frontend heals
+	// for instant switching (ADR 0042). Carried verbatim; the frontend heals
 	// anything outside 1-6 to the default, 3.
 	TerminalPoolSize int `json:"terminalPoolSize"`
 }

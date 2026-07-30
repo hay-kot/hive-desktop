@@ -28,11 +28,12 @@ func outputExecutors(
 	notifier dispatch.SystemNotifier,
 	gate dispatch.NotificationGate,
 	items dispatch.InboxItemLocator,
+	env dispatch.ExecEnvironment,
 	logger zerolog.Logger,
 ) map[string]dispatch.Executor {
 	return map[string]dispatch.Executor{
 		dispatch.ActionTypeLaunchSession: dispatch.NewLaunchSessionExecutor(launcher),
-		"shell":                          dispatch.NewShellExecutor(logger),
+		"shell":                          dispatch.NewShellExecutor(logger, env),
 		"publish-message":                dispatch.NewPublishMessageExecutor(publisher),
 		"clipboard":                      dispatch.NewClipboardExecutor(),
 		dispatch.ActionTypeNotify:        dispatch.NewNotifyExecutor(notifier, gate, items, logger),

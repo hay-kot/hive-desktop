@@ -20,7 +20,7 @@ import (
 // entry — see outputExecutors' doc comment. Coverage of the catalog is the
 // invariant here, not set equality with the map's keys.
 func TestOutputExecutorsCoverEveryActionType(t *testing.T) {
-	executors := outputExecutors(nil, nil, nil, nil, nil, zerolog.Nop())
+	executors := outputExecutors(nil, nil, nil, nil, nil, nil, zerolog.Nop())
 
 	for _, actionType := range actions.Types() {
 		_, ok := executors[actionType]
