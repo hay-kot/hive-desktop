@@ -174,13 +174,13 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 	service := newInboxService(db, actionStore, worker)
 	prID := insertActionItemSource(t, db, "github", "pr-9", "PR", "Title", map[string]any{"num": 9, "repo": "acme/app"})
 
-	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID)
+	text, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, "gh pr checkout 9 -R acme/app", text)
 
 	// Repeatable: no durable command to confirm, so a second copy renders the
 	// same text with no error or rerun prompt.
-	again, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID)
+	again, err := service.RenderClipboardAction(t.Context(), "copy-checkout", prID, nil)
 	require.NoError(t, err)
 	assert.Equal(t, text, again)
 
@@ -191,7 +191,7 @@ func TestPipelineService_RenderClipboardActionIsRenderOnlyAndRepeatable(t *testi
 	require.ErrorContains(t, err, "clipboard action")
 
 	// The render path refuses a non-clipboard action.
-	_, err = service.RenderClipboardAction(t.Context(), "review-pr", prID)
+	_, err = service.RenderClipboardAction(t.Context(), "review-pr", prID, nil)
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
@@ -366,4 +366,62 @@ func TestInboxService_NewSessionDraft(t *testing.T) {
 
 	_, err = service.NewSessionDraft(t.Context(), 9999)
 	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
+// An action's declared inputs are part of the safe view (the detail pane needs
+// them to build the form) and are validated against the catalog on the way in,
+// so an incomplete or stale form is refused before it becomes a durable
+// command.
+func TestInboxService_DeclaredInputsAreViewedAndPreflighted(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "actions.yml")
+	require.NoError(t, os.WriteFile(path, []byte(`version: 1
+actions:
+  - id: ignore-alert
+    label: Ignore alert
+    type: shell
+    show_in_detail: true
+    inputs:
+      - name: reason
+        label: Reason
+        type: multiline
+        required: true
+      - name: window
+        type: select
+        default: 1h
+        options: [1h, 24h]
+    command_template: "true"
+`), 0o644))
+	actionStore := actions.NewActionStore(path)
+	require.NoError(t, actionStore.Reload())
+
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	executor := &recordingActionExecutor{}
+	worker := dispatch.NewWorker(db, actionStore, dispatch.NewDispatcher(map[string]dispatch.Executor{"shell": executor}), 0, zerolog.Nop())
+	service := newInboxService(db, actionStore, worker)
+	itemID := insertActionItem(t, db, "pr-1", "PR", "Fix it")
+
+	views, err := service.ActionViews(t.Context(), itemID)
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	require.Len(t, views[0].Inputs, 2)
+	assert.Equal(t, "reason", views[0].Inputs[0].Name)
+	assert.Equal(t, actions.InputTypeMultiline, views[0].Inputs[0].Type)
+	assert.Equal(t, []string{"1h", "24h"}, views[0].Inputs[1].Options)
+
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{ActionID: "ignore-alert", ItemID: itemID})
+	require.ErrorContains(t, err, "is required")
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Equal(t, 0, executor.calls, "a refused form never reaches the worker")
+
+	_, err = service.InvokeAction(t.Context(), InvokeActionRequest{
+		ActionID: "ignore-alert",
+		ItemID:   itemID,
+		Input:    dispatch.ActionInvocationInput{Inputs: map[string]string{"reason": "flapping"}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, executor.calls)
+	assert.Equal(t, map[string]string{"reason": "flapping", "window": "1h"}, executor.data.Inputs)
 }

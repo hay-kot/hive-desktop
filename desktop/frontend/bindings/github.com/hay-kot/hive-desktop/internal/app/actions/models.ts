@@ -12,6 +12,7 @@ export interface EditableAction {
     "type": string;
     "showInDetail": boolean;
     "appliesTo": string[] | null;
+    "inputs"?: InputSpec[] | null;
     "launch"?: EditableLaunchConfig | null;
     "shell"?: EditableShellConfig | null;
     "message"?: EditableMessageConfig | null;
@@ -51,6 +52,52 @@ export interface EditableShellConfig {
 }
 
 /**
+ * InputSpec declares one value collected from the user when an action is
+ * invoked, exposed to every template that action renders as
+ * `{{ .Inputs.<name> }}`.
+ * 
+ * Inputs are an envelope field rather than per-type config: every action type
+ * renders over the same OutputData, so one declaration gives a new action type
+ * the invocation form with nothing further to wire (ADR 0043).
+ */
+export interface InputSpec {
+    /**
+     * Name is the template key: `{{ .Inputs.<name> }}`.
+     */
+    "name": string;
+
+    /**
+     * Label is the form field's caption; the name is shown when it is empty.
+     */
+    "label": string;
+
+    /**
+     * Type selects the control: text, select, or multiline.
+     */
+    "type": string;
+
+    /**
+     * Required rejects an invocation whose value is blank.
+     */
+    "required": boolean;
+
+    /**
+     * Default prefills the form and supplies the value when none is given.
+     */
+    "default": string;
+
+    /**
+     * Placeholder is the hint shown in an empty text or multiline control.
+     */
+    "placeholder": string;
+
+    /**
+     * Options is the closed value set of a select input.
+     */
+    "options": string[] | null;
+}
+
+/**
  * View is the complete action contract exposed to the desktop frontend. It
  * deliberately excludes executable configuration: the frontend can present
  * and identify an action, but execution always resolves its current
@@ -62,4 +109,5 @@ export interface View {
     "type": string;
     "showInDetail": boolean;
     "requiresSessionInput": boolean;
+    "inputs"?: InputSpec[] | null;
 }

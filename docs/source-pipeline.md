@@ -247,10 +247,16 @@ be changed in Keybinding Settings.
 ## Actions
 
 `actions.yml` is the global desktop action catalog. Its `launch-session`,
-`shell`, and `publish-message` action types are validated before execution.
-Both flow outputs and detail-pane invocations use the durable output-command
-queue. Background commands retry up to the configured limit; command output
+`shell`, `publish-message`, and `clipboard` action types are validated before
+execution. Both flow outputs and detail-pane invocations use the durable
+output-command queue, except `clipboard`, which renders without one (ADR 0029).
+Background commands retry up to the configured limit; command output
 and failure diagnostics are retained with the command record.
+
+An action may declare `inputs` — values collected from the user when it is
+invoked and rendered into its templates as `.Inputs.<name>` (ADR 0043). An
+action with a required input that has no default cannot run headlessly, so a
+flow `action` node may not reference it.
 
 ## Testing
 

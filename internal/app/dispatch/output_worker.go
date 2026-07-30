@@ -29,6 +29,12 @@ type OutputData struct {
 	Key     string
 	Payload map[string]any
 	Raw     json.RawMessage
+	// Inputs are the action's declared inputs resolved for this invocation,
+	// reachable from every template as `.Inputs.<name>`; nil when the action
+	// declares none. Resolution fills a key for every declared name, so
+	// referencing an undeclared one is a render error (missingkey=error
+	// fires on nil maps too), never a blank.
+	Inputs map[string]string
 	// CreatedAt is when the command was enqueued (Unix milliseconds), so an
 	// executor whose side effect is time-sensitive can tell a fresh command
 	// from one that waited out an app restart. Zero when unknown.
@@ -325,8 +331,15 @@ func (w *Worker) execute(
 		logger.Warn().Err(err).Msg("output worker: decoding command payload failed")
 		return ExecutionResult{}, fmt.Errorf("decode payload: %w", err)
 	}
+	// Resolving here rather than at the callers is what makes the automatic
+	// path work at all: a flow-fired command carries no collected values, so
+	// this is where its declared defaults are filled in.
+	inputs, err := a.ResolveInputs(input.Inputs)
+	if err != nil {
+		return ExecutionResult{}, err
+	}
 	return w.dispatch.Execute(ctx, a, OutputData{
-		Key: row.Key, Payload: payload, Raw: json.RawMessage(row.Payload),
+		Key: row.Key, Payload: payload, Raw: json.RawMessage(row.Payload), Inputs: inputs,
 		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun != 0,
 	}, input)
 }

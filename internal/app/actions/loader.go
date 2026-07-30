@@ -91,6 +91,9 @@ func validateActions(actionList []Action) error {
 		if slices.Contains(a.AppliesTo, "") {
 			return fmt.Errorf("action %q: applies_to entries must not be empty", a.ID)
 		}
+		if err := validateInputs(a.Inputs); err != nil {
+			return fmt.Errorf("action %q: %w", a.ID, err)
+		}
 		if a.Config == nil {
 			return fmt.Errorf("action %q: no config decoded", a.ID)
 		}

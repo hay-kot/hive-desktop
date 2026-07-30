@@ -28,13 +28,13 @@ func TestClipboardExecutor_RendersTextAsOutcome(t *testing.T) {
 }
 
 func TestRenderClipboardText_ShqIsAvailable(t *testing.T) {
-	text, err := RenderClipboardText(clipboardAction("{{ .Payload.title | shq }}"), "k", []byte(`{"title":"a b"}`))
+	text, err := RenderClipboardText(clipboardAction("{{ .Payload.title | shq }}"), "k", []byte(`{"title":"a b"}`), nil)
 	require.NoError(t, err)
 	assert.Equal(t, "'a b'", text)
 }
 
 func TestRenderClipboardText_BlankRenderIsError(t *testing.T) {
-	_, err := RenderClipboardText(clipboardAction("{{ .Payload.empty }}"), "k", []byte(`{"empty":""}`))
+	_, err := RenderClipboardText(clipboardAction("{{ .Payload.empty }}"), "k", []byte(`{"empty":""}`), nil)
 	require.Error(t, err)
 }
 

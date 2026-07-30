@@ -433,6 +433,9 @@ func actionNode(a Action) (*yaml.Node, error) {
 		}
 		n.Content = append(n.Content, scalar("applies_to"), seq)
 	}
+	if len(a.Inputs) > 0 {
+		n.Content = append(n.Content, scalar("inputs"), inputsNode(a.Inputs))
+	}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
 		if c.RepoTemplate != "" {
@@ -476,6 +479,37 @@ func actionNode(a Action) (*yaml.Node, error) {
 		return nil, fmt.Errorf("actions: action %q (type %q): no actionNode writer case for config type %T; registry and writer are out of sync", a.ID, a.Type, a.Config)
 	}
 	return n, nil
+}
+
+func inputsNode(specs []InputSpec) *yaml.Node {
+	seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+	for _, spec := range specs {
+		n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		add := func(k, v string) { n.Content = append(n.Content, scalar(k), scalar(v)) }
+		add("name", spec.Name)
+		if spec.Label != "" {
+			add("label", spec.Label)
+		}
+		add("type", spec.Type)
+		if spec.Required {
+			n.Content = append(n.Content, scalar("required"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+		}
+		if spec.Default != "" {
+			add("default", spec.Default)
+		}
+		if spec.Placeholder != "" {
+			add("placeholder", spec.Placeholder)
+		}
+		if len(spec.Options) > 0 {
+			options := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+			for _, option := range spec.Options {
+				options.Content = append(options.Content, scalar(option))
+			}
+			n.Content = append(n.Content, scalar("options"), options)
+		}
+		seq.Content = append(seq.Content, n)
+	}
+	return seq
 }
 
 // actionFileOps isolates filesystem failures that cannot be reliably induced

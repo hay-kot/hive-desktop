@@ -202,6 +202,12 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 	if item.ID == "" {
 		return dispatch.ActionRunView{}, Errorf(KindInvalid, "action %q: item id is required", req.ActionID)
 	}
+	// Preflight the collected inputs against the catalog's declaration so an
+	// incomplete form is refused outright, rather than becoming a durable
+	// command the worker then fails.
+	if _, err := action.ResolveInputs(req.Input.Inputs); err != nil {
+		return dispatch.ActionRunView{}, Wrap(err, KindInvalid, "invoking action %q", req.ActionID)
+	}
 	if s.worker == nil {
 		return dispatch.ActionRunView{}, Errorf(KindUnavailable, "action execution is unavailable")
 	}
@@ -222,7 +228,7 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 // action must exist, be a clipboard action shown in the detail pane, apply to
 // the item's kind, and the item must have an id); executable configuration is
 // always re-resolved from the catalog rather than taken from the caller.
-func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID string, itemID int64) (string, error) {
+func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID string, itemID int64, inputs map[string]string) (string, error) {
 	item, err := s.decodeItem(ctx, itemID)
 	if err != nil {
 		return "", err
@@ -243,7 +249,11 @@ func (s *InboxService) RenderClipboardAction(ctx context.Context, actionID strin
 	if item.ID == "" {
 		return "", Errorf(KindInvalid, "action %q: item id is required", actionID)
 	}
-	text, err := dispatch.RenderClipboardText(action, item.ID, item.Payload)
+	resolved, err := action.ResolveInputs(inputs)
+	if err != nil {
+		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
+	}
+	text, err := dispatch.RenderClipboardText(action, item.ID, item.Payload, resolved)
 	if err != nil {
 		return "", Wrap(err, KindInvalid, "rendering clipboard action %q", actionID)
 	}

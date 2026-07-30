@@ -83,7 +83,7 @@ func DecodeActionItem(payload []byte, externalID string) (DecodedActionItem, err
 // executes. Actions without a repo_template (interactive launch-session, or
 // any non-launch-session type) render "" with no error — they impose no
 // payload requirement.
-func RenderRepoTarget(action actions.Action, key string, payload []byte) (string, error) {
+func RenderRepoTarget(action actions.Action, key string, payload []byte, inputs map[string]string) (string, error) {
 	cfg, ok := action.Config.(*actions.LaunchSessionConfig)
 	if !ok || cfg.RepoTemplate == "" {
 		return "", nil
@@ -99,6 +99,7 @@ func RenderRepoTarget(action actions.Action, key string, payload []byte) (string
 		Key:     key,
 		Payload: decoded,
 		Raw:     json.RawMessage(payload),
+		Inputs:  inputs,
 	})
 	if err != nil {
 		return "", err
@@ -125,7 +126,15 @@ func ActionApplicability(action actions.Action, item DecodedActionItem) (ok bool
 		return true, ""
 	}
 
-	repo, err := RenderRepoTarget(action, item.ID, item.Payload)
+	// The probe has no collected values, so it resolves the declared
+	// defaults — the same values a headless run would get. Under the
+	// HeadlessCapable guard above resolution cannot fail; if that ever
+	// breaks, the action correctly reads as not applicable.
+	inputs, err := action.ResolveInputs(nil)
+	if err != nil {
+		return false, fmt.Sprintf("action %q: inputs: %v", action.ID, err)
+	}
+	repo, err := RenderRepoTarget(action, item.ID, item.Payload, inputs)
 	if err != nil {
 		return false, fmt.Sprintf("action %q: repo_template: %v", action.ID, err)
 	}

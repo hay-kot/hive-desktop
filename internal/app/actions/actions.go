@@ -27,11 +27,12 @@ import (
 // and identify an action, but execution always resolves its current
 // definition from ActionStore.
 type View struct {
-	ID                   string `json:"id"`
-	Label                string `json:"label"`
-	Type                 string `json:"type"`
-	ShowInDetail         bool   `json:"showInDetail"`
-	RequiresSessionInput bool   `json:"requiresSessionInput"`
+	ID                   string      `json:"id"`
+	Label                string      `json:"label"`
+	Type                 string      `json:"type"`
+	ShowInDetail         bool        `json:"showInDetail"`
+	RequiresSessionInput bool        `json:"requiresSessionInput"`
+	Inputs               []InputSpec `json:"inputs,omitempty"`
 }
 
 // Action is one parsed and validated actions.yml entry: the common envelope
@@ -54,6 +55,9 @@ type Action struct {
 	// ShowInDetail controls whether this action is offered in the detail pane.
 	// Flow action nodes remain eligible regardless of this presentation flag.
 	ShowInDetail bool
+	// Inputs declares the values collected from the user at invocation time
+	// and rendered into this action's templates as `.Inputs.<name>`.
+	Inputs []InputSpec
 	// Config is the per-type configuration: *LaunchSessionConfig,
 	// *ShellConfig, *PublishMessageConfig, or *ClipboardConfig.
 	Config ActionConfig
@@ -61,7 +65,14 @@ type Action struct {
 
 // View returns the safe presentation contract for this action.
 func (a Action) View() View {
-	return View{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, RequiresSessionInput: a.RequiresSessionInput()}
+	return View{
+		ID:                   a.ID,
+		Label:                a.Label,
+		Type:                 a.Type,
+		ShowInDetail:         a.ShowInDetail,
+		RequiresSessionInput: a.RequiresSessionInput(),
+		Inputs:               cloneInputs(a.Inputs),
+	}
 }
 
 // ActionConfig is the per-type union every registered action type
@@ -90,11 +101,12 @@ var registry = map[string]actionFactory{
 // first (laxly — unknown keys ignored) purely to read the `type:`
 // discriminator and the envelope fields.
 type actionHeader struct {
-	ID           string   `yaml:"id"`
-	Label        string   `yaml:"label"`
-	Type         string   `yaml:"type"`
-	AppliesTo    []string `yaml:"applies_to"`
-	ShowInDetail bool     `yaml:"show_in_detail"`
+	ID           string      `yaml:"id"`
+	Label        string      `yaml:"label"`
+	Type         string      `yaml:"type"`
+	AppliesTo    []string    `yaml:"applies_to"`
+	ShowInDetail bool        `yaml:"show_in_detail"`
+	Inputs       []InputSpec `yaml:"inputs"`
 }
 
 // reservedActionKeys are the envelope keys every action mapping may carry.
@@ -107,6 +119,7 @@ var reservedActionKeys = map[string]bool{
 	"type":           true,
 	"applies_to":     true,
 	"show_in_detail": true,
+	"inputs":         true,
 }
 
 // UnmarshalYAML implements the two-pass strict decode: (1) decode a lax
@@ -150,13 +163,14 @@ func (a *Action) UnmarshalYAML(value *yaml.Node) error {
 	a.Type = header.Type
 	a.AppliesTo = header.AppliesTo
 	a.ShowInDetail = header.ShowInDetail
+	a.Inputs = normalizeInputs(header.Inputs)
 	a.Config = cfg
 	return nil
 }
 
 // stripReservedKeys returns a shallow copy of an action's mapping node with
-// the envelope keys (id/label/type/applies_to) removed, leaving
-// only per-type fields for the strict config decode.
+// the envelope keys (reservedActionKeys) removed, leaving only per-type
+// fields for the strict config decode.
 func stripReservedKeys(value *yaml.Node) *yaml.Node {
 	out := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	for i := 0; i+1 < len(value.Content); i += 2 {
@@ -188,6 +202,9 @@ func nodeKindName(kind yaml.Kind) string {
 
 // HeadlessCapable reports whether a flow worker can execute this action without interactive input.
 func (a Action) HeadlessCapable() bool {
+	if !a.inputsHeadlessCapable() {
+		return false
+	}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
 		return strings.TrimSpace(c.RepoTemplate) != ""

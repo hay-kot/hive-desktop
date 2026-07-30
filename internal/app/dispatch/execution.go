@@ -4,7 +4,11 @@ package dispatch
 // carries executable configuration or message attribution.
 type ActionInvocationInput struct {
 	Session *SessionInvocationInput `json:"session,omitempty"`
-	Rerun   bool                    `json:"rerun,omitempty"`
+	// Inputs are the values collected for the action's declared inputs, keyed
+	// by input name. They are validated against the catalog's declaration on
+	// every invocation, so a name the action does not declare is refused.
+	Inputs map[string]string `json:"inputs,omitempty"`
+	Rerun  bool              `json:"rerun,omitempty"`
 }
 
 // SessionLaunchRepository is the safe presentation of a repository available

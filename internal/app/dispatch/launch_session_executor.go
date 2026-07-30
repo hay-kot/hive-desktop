@@ -56,7 +56,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 		return ExecutionResult{}, fmt.Errorf("launch-session: prompt_template rendered blank")
 	}
 
-	repo, err := RenderRepoTarget(action, data.Key, data.Raw)
+	repo, err := RenderRepoTarget(action, data.Key, data.Raw, data.Inputs)
 	if err != nil {
 		return ExecutionResult{}, fmt.Errorf("launch-session: repo_template: %w", err)
 	}

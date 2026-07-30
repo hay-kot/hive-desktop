@@ -15,6 +15,7 @@ type EditableAction struct {
 	Type         string                   `json:"type"`
 	ShowInDetail bool                     `json:"showInDetail"`
 	AppliesTo    []string                 `json:"appliesTo"`
+	Inputs       []InputSpec              `json:"inputs,omitempty"`
 	Launch       *EditableLaunchConfig    `json:"launch,omitempty"`
 	Shell        *EditableShellConfig     `json:"shell,omitempty"`
 	Message      *EditableMessageConfig   `json:"message,omitempty"`
@@ -52,7 +53,7 @@ type EditableClipboardConfig struct {
 }
 
 func editableFromAction(a Action) (EditableAction, error) {
-	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, AppliesTo: append([]string(nil), a.AppliesTo...)}
+	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, AppliesTo: append([]string(nil), a.AppliesTo...), Inputs: cloneInputs(a.Inputs)}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
 		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate}
@@ -93,7 +94,7 @@ func actionFromEditable(e EditableAction) (Action, error) {
 	if branches != 1 {
 		return Action{}, fmt.Errorf("action %q: exactly one matching config branch is required", e.ID)
 	}
-	a := Action{ID: e.ID, Label: e.Label, Type: e.Type, ShowInDetail: e.ShowInDetail, AppliesTo: append([]string(nil), e.AppliesTo...)}
+	a := Action{ID: e.ID, Label: e.Label, Type: e.Type, ShowInDetail: e.ShowInDetail, AppliesTo: append([]string(nil), e.AppliesTo...), Inputs: normalizeInputs(cloneInputs(e.Inputs))}
 	switch e.Type {
 	case "launch-session":
 		if e.Launch == nil {
