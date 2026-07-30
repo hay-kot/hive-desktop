@@ -131,7 +131,9 @@ func TestActionApplicability_RepoProbeUsesDeclaredDefaults(t *testing.T) {
 	ok, reason := ActionApplicability(withDefault, item)
 	assert.True(t, ok, reason)
 
-	repo, err := RenderRepoTarget(withDefault, item.ID, item.Payload, withDefault.DefaultInputs())
+	inputs, err := withDefault.ResolveInputs(nil)
+	require.NoError(t, err)
+	repo, err := RenderRepoTarget(withDefault, item.ID, item.Payload, inputs)
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/acme/app.git#main", repo)
 

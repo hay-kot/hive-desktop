@@ -126,9 +126,15 @@ func ActionApplicability(action actions.Action, item DecodedActionItem) (ok bool
 		return true, ""
 	}
 
-	// The probe has no collected values, so it renders over the declared
-	// defaults — the same values a headless run would get.
-	repo, err := RenderRepoTarget(action, item.ID, item.Payload, action.DefaultInputs())
+	// The probe has no collected values, so it resolves the declared
+	// defaults — the same values a headless run would get. Under the
+	// HeadlessCapable guard above resolution cannot fail; if that ever
+	// breaks, the action correctly reads as not applicable.
+	inputs, err := action.ResolveInputs(nil)
+	if err != nil {
+		return false, fmt.Sprintf("action %q: inputs: %v", action.ID, err)
+	}
+	repo, err := RenderRepoTarget(action, item.ID, item.Payload, inputs)
 	if err != nil {
 		return false, fmt.Sprintf("action %q: repo_template: %v", action.ID, err)
 	}

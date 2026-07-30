@@ -151,22 +151,6 @@ func (a Action) ResolveInputs(supplied map[string]string) (map[string]string, er
 	return resolved, nil
 }
 
-// DefaultInputs is what this action's templates render over when nothing was
-// collected: every declared input at its default. It is what a headless run
-// resolves to, and what the detail pane's applicability probe renders with —
-// neither has a user to ask, and neither is the place a missing required
-// value is reported.
-func (a Action) DefaultInputs() map[string]string {
-	if len(a.Inputs) == 0 {
-		return nil
-	}
-	defaults := make(map[string]string, len(a.Inputs))
-	for _, spec := range a.Inputs {
-		defaults[spec.Name] = spec.Default
-	}
-	return defaults
-}
-
 // inputsHeadlessCapable reports whether every declared input can be satisfied
 // without a user: a required input with no default has no value a flow worker
 // could supply.

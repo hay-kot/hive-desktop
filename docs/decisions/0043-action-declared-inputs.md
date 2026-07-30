@@ -62,9 +62,11 @@ them for every action type.**
   not a blank — the renderer runs with `missingkey=error` and resolution only
   ever populates declared names. Referencing an input you forgot to declare
   fails loudly.
-- `RenderClipboardText` and `RenderRepoTarget` both take the resolved map, so
-  the detail pane's applicability probe renders `repo_template` over declared
-  defaults — the same values a headless run would see — rather than over blanks.
+- `RenderClipboardText` and `RenderRepoTarget` both take the resolved map, and
+  `Action.ResolveInputs` is the only producer of that map: the detail pane's
+  applicability probe resolves with nothing supplied, so it renders
+  `repo_template` over declared defaults — the same values a headless run
+  resolves to — rather than over blanks.
 - Adding an input to an action a flow references is refused when it turns the
   action interactive, through the existing headless-to-interactive check in
   `ActionStore.Update`.
