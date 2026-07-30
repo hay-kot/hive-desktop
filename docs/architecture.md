@@ -296,6 +296,8 @@ internal/
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
                                   #   slug, fan-out broker — no transport, no UI
+    tmuxbin/                      # where the tmux binary is: paths.tmux, then
+                                  #   PATH, then package prefixes (ADR 0039)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -697,6 +699,15 @@ them is the constraint (ADR 0036):
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
+
+**Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
+0039). A desktop launch inherits no shell `$PATH`, so the resolver checks
+`paths.tmux`, then `$PATH`, then the prefixes package managers install
+into, and remembers only success — installing tmux does not need a relaunch.
+`tmuxcc` holds none of that policy: it takes a `func() (string, error)` and the
+resolved path travels on `Options.Binary`. Hive session spawning execs tmux from
+vendored code, so it gets the same binary through `app.tmuxExecutor`, a
+decorator over `executil.Executor` that substitutes the command name `tmux`.
 
 The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
 off, `main.go` mints no token and neither the control-plane routes nor the

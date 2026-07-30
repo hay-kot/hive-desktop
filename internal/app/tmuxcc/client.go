@@ -51,7 +51,8 @@ type Options struct {
 	Slug        string // tmux session name == Hive session slug
 	Cols        int
 	Rows        int
-	BufferBytes int // broker bound; 0 == defaultBufferBytes
+	Binary      string // tmux executable; empty resolves "tmux" through $PATH
+	BufferBytes int    // broker bound; 0 == defaultBufferBytes
 	Metrics     MetricsSink
 	Logger      zerolog.Logger
 	OnExit      func(slug, reason string)
@@ -65,6 +66,9 @@ func (o *Options) normalize() error {
 	}
 	if err := validateSize(o.Cols, o.Rows); err != nil {
 		return err
+	}
+	if o.Binary == "" {
+		o.Binary = defaultBinary
 	}
 	if o.Metrics == nil {
 		o.Metrics = NopMetrics

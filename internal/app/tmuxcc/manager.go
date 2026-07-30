@@ -24,7 +24,12 @@ type ManagerOptions struct {
 	Logger      zerolog.Logger
 	BufferBytes int
 
-	versionProbe func(context.Context) (string, error)
+	// Binary answers which tmux to exec, and is consulted on every failed
+	// availability probe rather than once at startup, so installing tmux does not
+	// need a relaunch. nil means $PATH.
+	Binary func() (string, error)
+
+	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
 }
 
@@ -40,7 +45,8 @@ type managedClient struct {
 type Manager struct {
 	log         zerolog.Logger
 	metrics     MetricsSink
-	probe       func(context.Context) (string, error)
+	locate      func() (string, error)
+	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
 	bufferBytes int
 
@@ -56,6 +62,7 @@ type Manager struct {
 	gen     uint64
 	stopped bool
 	probed  bool
+	binary  string
 
 	stopOnce sync.Once
 }
@@ -68,6 +75,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 	m := &Manager{
 		log:         opts.Logger,
 		metrics:     opts.Metrics,
+		locate:      opts.Binary,
 		probe:       opts.versionProbe,
 		newProcess:  opts.newProcess,
 		bufferBytes: opts.BufferBytes,
@@ -78,6 +86,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 	if m.metrics == nil {
 		m.metrics = NopMetrics
 	}
+	if m.locate == nil {
+		m.locate = func() (string, error) { return defaultBinary, nil }
+	}
 	if m.probe == nil {
 		m.probe = tmuxVersion
 	}
@@ -85,8 +96,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 }
 
 // Available reports nil when a usable tmux (>= 3.2) is present on a supported
-// build and platform, else ErrUnavailable. A successful probe is cached; a
-// failing one is retried, so installing tmux does not require a restart.
+// build and platform, else ErrUnavailable. A successful probe is cached along
+// with the binary it ran; a failing one is retried, so installing tmux does not
+// require a restart.
 func (m *Manager) Available(ctx context.Context) error {
 	if !platformSupported() {
 		return ErrUnavailable
@@ -99,17 +111,23 @@ func (m *Manager) Available(ctx context.Context) error {
 		return nil
 	}
 
-	raw, err := m.probe(ctx)
+	binary, err := m.locate()
 	if err != nil {
-		return fmt.Errorf("%w: tmux not usable: %w", ErrUnavailable, err)
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
+	}
+	raw, err := m.probe(ctx, binary)
+	if err != nil {
+		return fmt.Errorf("%w: %s not usable: %w", ErrUnavailable, binary, err)
 	}
 	if !versionAtLeast(raw, minMajor, minMinor) {
-		return fmt.Errorf("%w: %s is older than %d.%d", ErrUnavailable, strings.TrimSpace(raw), minMajor, minMinor)
+		return fmt.Errorf("%w: %s is %s, older than %d.%d", ErrUnavailable, binary, strings.TrimSpace(raw), minMajor, minMinor)
 	}
 
 	m.mu.Lock()
 	m.probed = true
+	m.binary = binary
 	m.mu.Unlock()
+	m.log.Info().Str("tmux", binary).Str("version", strings.TrimSpace(raw)).Msg("tmux control mode available")
 	return nil
 }
 
@@ -139,6 +157,7 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 
 	m.mu.Lock()
 	stopped := m.stopped
+	binary := m.binary
 	m.gen++
 	gen := m.gen
 	m.mu.Unlock()
@@ -151,6 +170,7 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 		Slug:        slug,
 		Cols:        cols,
 		Rows:        rows,
+		Binary:      binary,
 		BufferBytes: m.bufferBytes,
 		Metrics:     m.metrics,
 		Logger:      m.log,
@@ -259,8 +279,8 @@ func (m *Manager) remove(slug string, gen uint64) {
 	mc.cancel()
 }
 
-func tmuxVersion(ctx context.Context) (string, error) {
-	out, err := exec.CommandContext(ctx, "tmux", "-V").Output()
+func tmuxVersion(ctx context.Context, binary string) (string, error) {
+	out, err := exec.CommandContext(ctx, binary, "-V").Output()
 	if err != nil {
 		return "", err
 	}
