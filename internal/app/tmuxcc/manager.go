@@ -31,6 +31,7 @@ type ManagerOptions struct {
 
 	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
+	runTmux      func(context.Context, ...string) error
 }
 
 // managedClient carries the generation its registration was made under, so a
@@ -48,6 +49,7 @@ type Manager struct {
 	locate      func() (string, error)
 	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
+	run         func(context.Context, ...string) error
 	bufferBytes int
 
 	// The app-lifetime context lives in this closure rather than in a field:
@@ -78,6 +80,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 		locate:      opts.Binary,
 		probe:       opts.versionProbe,
 		newProcess:  opts.newProcess,
+		run:         opts.runTmux,
 		bufferBytes: opts.BufferBytes,
 		cancelAll:   cancel,
 		derive:      func() (context.Context, context.CancelFunc) { return context.WithCancel(lifetime) },
@@ -91,6 +94,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 	}
 	if m.probe == nil {
 		m.probe = tmuxVersion
+	}
+	if m.run == nil {
+		m.run = runTmux
 	}
 	return m
 }
@@ -230,6 +236,40 @@ func (m *Manager) Subscribe(slug string) (<-chan Event, func(), error) {
 	}
 	ch, unsubscribe := c.Subscribe()
 	return ch, unsubscribe, nil
+}
+
+// RenameSession renames the live tmux session named from to to, and drops the
+// control client registered under the old slug so nothing keeps addressing a
+// name tmux no longer answers to; the frontend re-attaches under the new one.
+//
+// A session hive knows about does not have to have a tmux session behind it —
+// it may never have been spawned, or its tmux server may have been restarted —
+// so an absent one is success, not an error. Existence is probed with
+// has-session rather than inferred from rename-session's stderr, because the
+// alternative is matching on tmux's message text.
+func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
+	if from == "" || to == "" {
+		return fmt.Errorf("%w: empty slug", ErrInvalidName)
+	}
+	if from == to {
+		return nil
+	}
+	// tmux being unavailable means there is no live session to keep in step:
+	// the rename is a store-only concern and must not be blocked by it.
+	if err := m.Available(ctx); err != nil {
+		return nil
+	}
+	if err := m.run(ctx, "has-session", "-t", from); err != nil {
+		return nil
+	}
+	if err := m.run(ctx, "rename-session", "-t", from, to); err != nil {
+		return fmt.Errorf("tmuxcc: rename session %s to %s: %w", from, to, err)
+	}
+	if mc, ok := m.managed(from); ok {
+		_ = mc.client.Close(ctx)
+		m.remove(from, mc.gen)
+	}
+	return nil
 }
 
 // Detach closes slug's client. Unknown slugs are a no-op.

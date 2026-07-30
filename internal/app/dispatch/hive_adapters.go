@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
@@ -25,18 +27,54 @@ type sessionLaunchOptionsSource interface {
 	ResolveSessionLaunchRepository(context.Context, string) (hive.SessionLaunchRepository, error)
 }
 
-type sessionListSource interface {
+// SessionManagement is the vendored session surface the desktop manages
+// sessions through. Every method matches hive's SessionService structurally, so
+// an upstream signature change breaks this file rather than the core.
+type SessionManagement interface {
 	ListSessions(context.Context) ([]session.Session, error)
+	GetSession(context.Context, string) (session.Session, error)
+	RenameSession(ctx context.Context, id, newName string) error
+	DeleteSession(ctx context.Context, id string) error
+	RecycleSession(ctx context.Context, id string, w io.Writer) error
+	Prune(ctx context.Context, all bool) (int, error)
+	CheckSessionRisk(ctx context.Context, id string) (hive.SessionRisk, error)
 }
 
-// SessionSummary is one live session as the desktop sees it. Slug is the tmux
-// session name, which is what a terminal attach targets.
+// SessionSummary is one session as the desktop's session list sees it. Slug is
+// the tmux session name, which is what a terminal attach targets. It stays a
+// projection: the rest of a session is read on demand as a SessionDetail.
 type SessionSummary struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Slug  string `json:"slug"`
 	Repo  string `json:"repo"`
 	State string `json:"state"`
+}
+
+// SessionDetail is one session read in full, for a detail view.
+type SessionDetail struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Slug           string    `json:"slug"`
+	Repo           string    `json:"repo"`
+	State          string    `json:"state"`
+	Path           string    `json:"path"`
+	CloneStrategy  string    `json:"cloneStrategy"`
+	WorktreeBranch string    `json:"worktreeBranch"`
+	Tags           []string  `json:"tags"`
+	CreatedAt      time.Time `json:"createdAt"`
+	UpdatedAt      time.Time `json:"updatedAt"`
+}
+
+// SessionRisk is the pre-flight a destructive operation confirms against: what
+// unsaved work the session holds, and whether recycling it is really a delete.
+type SessionRisk struct {
+	UncommittedChanges bool `json:"uncommittedChanges"`
+	UnpushedCommits    bool `json:"unpushedCommits"`
+	// RecycleDeletes reports that recycling this session destroys it: hive
+	// routes a worktree session's recycle straight to DeleteSession, because a
+	// worktree has no clone of its own to reset.
+	RecycleDeletes bool `json:"recycleDeletes"`
 }
 
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
@@ -104,31 +142,115 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 	return view, nil
 }
 
-// ListSessions returns only session.StateActive rows: a recycled or corrupted
-// session has no live tmux session behind it, so nothing can attach to one.
-func (l *HiveSessionLauncher) ListSessions(ctx context.Context) ([]SessionSummary, error) {
-	source, ok := l.sessions.(sessionListSource)
-	if !ok {
-		return nil, fmt.Errorf("session listing is unavailable")
-	}
-	sessions, err := source.ListSessions(ctx)
+// HiveSessionManager adapts Hive's session service to the read and lifecycle
+// operations the desktop's session list drives. It is separate from
+// HiveSessionLauncher because launching is a dispatch action and managing is
+// not: the launcher is what an output command reaches for, and widening it
+// would hand every action executor a delete.
+type HiveSessionManager struct{ sessions SessionManagement }
+
+func NewHiveSessionManager(sessions SessionManagement) *HiveSessionManager {
+	return &HiveSessionManager{sessions: sessions}
+}
+
+// ListSessions returns every session, recycled and corrupted included: an
+// unattachable session still has to be manageable, which is the whole point of
+// listing it.
+func (m *HiveSessionManager) ListSessions(ctx context.Context) ([]SessionSummary, error) {
+	sessions, err := m.sessions.ListSessions(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list hive sessions: %w", err)
 	}
 	out := make([]SessionSummary, 0, len(sessions))
 	for _, s := range sessions {
-		if s.State != session.StateActive {
-			continue
-		}
-		out = append(out, SessionSummary{
-			ID:    s.ID,
-			Name:  s.Name,
-			Slug:  s.Slug,
-			Repo:  s.Remote,
-			State: string(s.State),
-		})
+		out = append(out, sessionSummaryOf(s))
 	}
 	return out, nil
+}
+
+func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (SessionDetail, error) {
+	s, err := m.sessions.GetSession(ctx, id)
+	if err != nil {
+		return SessionDetail{}, fmt.Errorf("get hive session: %w", err)
+	}
+	return SessionDetail{
+		ID:             s.ID,
+		Name:           s.Name,
+		Slug:           s.Slug,
+		Repo:           s.Remote,
+		State:          string(s.State),
+		Path:           s.Path,
+		CloneStrategy:  s.CloneStrategy,
+		WorktreeBranch: s.GetMeta(session.MetaWorktreeBranch),
+		Tags:           s.Tags,
+		CreatedAt:      s.CreatedAt,
+		UpdatedAt:      s.UpdatedAt,
+	}, nil
+}
+
+// SessionRisk reports what a delete or recycle of id would cost. Hive reports
+// no risk for a non-active session, which is correct — there is no live clone
+// left to hold unsaved work.
+func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (SessionRisk, error) {
+	s, err := m.sessions.GetSession(ctx, id)
+	if err != nil {
+		return SessionRisk{}, fmt.Errorf("get hive session: %w", err)
+	}
+	risk, err := m.sessions.CheckSessionRisk(ctx, id)
+	if err != nil {
+		return SessionRisk{}, fmt.Errorf("check hive session risk: %w", err)
+	}
+	return SessionRisk{
+		UncommittedChanges: risk.UncommittedChanges,
+		UnpushedCommits:    risk.UnpushedCommits,
+		RecycleDeletes:     s.CloneStrategy == session.CloneStrategyWorktree,
+	}, nil
+}
+
+func (m *HiveSessionManager) RenameSession(ctx context.Context, id, name string) error {
+	if err := m.sessions.RenameSession(ctx, id, name); err != nil {
+		return fmt.Errorf("rename hive session: %w", err)
+	}
+	return nil
+}
+
+func (m *HiveSessionManager) DeleteSession(ctx context.Context, id string) error {
+	if err := m.sessions.DeleteSession(ctx, id); err != nil {
+		return fmt.Errorf("delete hive session: %w", err)
+	}
+	return nil
+}
+
+// RecycleSession discards the recycle commands' output. The commands are the
+// user's own (hive's recycle_commands), and the job records whether they
+// succeeded; streaming their stdout would need a job log to stream into.
+func (m *HiveSessionManager) RecycleSession(ctx context.Context, id string) error {
+	if err := m.sessions.RecycleSession(ctx, id, io.Discard); err != nil {
+		return fmt.Errorf("recycle hive session: %w", err)
+	}
+	return nil
+}
+
+// PruneSessions deletes every recycled and corrupted session. Hive's Prune also
+// has a mode that only trims each pool back to max_recycled; that is a config
+// reconciliation, not something a menu entry can honestly name, so the desktop
+// exposes the unambiguous one.
+func (m *HiveSessionManager) PruneSessions(ctx context.Context) (int, error) {
+	count, err := m.sessions.Prune(ctx, true)
+	if err != nil {
+		return count, fmt.Errorf("prune hive sessions: %w", err)
+	}
+	return count, nil
+}
+
+func sessionSummaryOf(s session.Session) SessionSummary {
+	return SessionSummary{
+		ID:    s.ID,
+		Name:  s.Name,
+		Slug:  s.Slug,
+		Repo:  s.Remote,
+		State: string(s.State),
+	}
 }
 
 // SlugifySessionName converts a display name to the slug Hive uses for

@@ -1,7 +1,11 @@
 import { ref, type Ref } from 'vue'
 import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 
-/** One row of the terminal sidebar. Slug is the tmux target an attach uses. */
+/**
+ * One row of the terminal sidebar. Slug is the tmux target an attach uses, and
+ * only an `active` session has one — recycled and corrupted sessions are listed
+ * so they can be read and deleted, not attached to.
+ */
 export interface TerminalSessionRow {
   id: string
   name: string

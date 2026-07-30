@@ -10,16 +10,19 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 describe('useTerminalSessions', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('loads the active sessions the picker offers', async () => {
+  it('loads every session the list carries, whatever its state', async () => {
     mocks.ListSessions.mockResolvedValue([
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'old work', slug: 'old-work', repo: 'hay-kot/hive', state: 'recycled' },
     ])
     const { sessions, loading, reload } = useTerminalSessions()
 
     await reload()
 
     expect(loading.value).toBe(false)
-    expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser'])
+    // Filtering to what can be attached belongs to the tree, not the listing:
+    // a recycled session is what the prune entry counts.
+    expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser', 'old-work'])
   })
 
   it('reads a null listing as no sessions', async () => {

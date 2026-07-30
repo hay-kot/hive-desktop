@@ -8,6 +8,12 @@ import { createAppRouter } from '../../router'
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
   ListSessions: vi.fn(),
+  SessionDetail: vi.fn(),
+  SessionRisk: vi.fn(),
+  RenameSession: vi.fn(),
+  DeleteSession: vi.fn(),
+  RecycleSession: vi.fn(),
+  PruneSessions: vi.fn(),
   getTerminalEndpoint: vi.fn(),
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
@@ -19,6 +25,12 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
+  SessionDetail: mocks.SessionDetail,
+  SessionRisk: mocks.SessionRisk,
+  RenameSession: mocks.RenameSession,
+  DeleteSession: mocks.DeleteSession,
+  RecycleSession: mocks.RecycleSession,
+  PruneSessions: mocks.PruneSessions,
 }))
 vi.mock('../../lib/terminalClient', () => ({
   getTerminalEndpoint: mocks.getTerminalEndpoint,
@@ -91,6 +103,7 @@ describe('TerminalMode', () => {
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
     ])
+    mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
   })
 
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
@@ -371,5 +384,142 @@ describe('TerminalMode', () => {
     await flushPromises()
     wrapper.unmount()
     expect(session.dispose).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps sessions that cannot be attached out of the tree', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'old work', slug: 'hive-old-work', repo: 'hay-kot/hive', state: 'recycled' },
+      { id: '3', name: 'broken', slug: 'hive-broken', repo: 'hay-kot/hive', state: 'corrupted' },
+    ])
+    const { wrapper } = await mountAvailable()
+
+    // The tree is the attach surface, and only an active session has a tmux
+    // session behind it. Prune is how the other two are dealt with.
+    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].attributes('data-slug')).toBe('hive-fix-parser')
+    expect(wrapper.get('[data-testid="terminal-repo-group"]').text()).toContain('1')
+  })
+
+  it('reads a session on demand from its row menu', async () => {
+    mocks.SessionDetail.mockResolvedValue({
+      id: '2', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active',
+      path: '/tmp/hive-fix-parser', cloneStrategy: 'full', worktreeBranch: '', tags: null,
+      createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-02T00:00:00Z',
+    })
+    const { wrapper } = await mountAvailable()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await wrapper.get('[data-testid="session-menu-detail"]').trigger('click')
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="session-detail-path"]')?.textContent).toBe('/tmp/hive-fix-parser')
+    wrapper.unmount()
+  })
+
+  it('confirms a delete against the session\u2019s own risk before starting the job', async () => {
+    mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: true, unpushedCommits: true, recycleDeletes: false })
+    const { wrapper } = await mountAvailable()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await wrapper.get('[data-testid="session-menu-delete"]').trigger('click')
+    await flushPromises()
+
+    const dialog = document.querySelector('[data-testid="session-confirmation"]')
+    expect(dialog?.textContent).toContain('uncommitted changes and unpushed commits')
+    expect(mocks.DeleteSession).not.toHaveBeenCalled()
+
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')!.click()
+    await flushPromises()
+    expect(mocks.DeleteSession).toHaveBeenCalledWith('2')
+    wrapper.unmount()
+  })
+
+  it('recycles from the row menu, behind the same confirmation', async () => {
+    const { wrapper } = await mountAvailable()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await wrapper.get('[data-testid="session-menu-recycle"]').trigger('click')
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('resets its clone')
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')!.click()
+    await flushPromises()
+    expect(mocks.RecycleSession).toHaveBeenCalledWith('2')
+    wrapper.unmount()
+  })
+
+  it('re-attaches under the new slug when the attached session is renamed', async () => {
+    mocks.RenameSession.mockResolvedValue({ id: '1', name: 'parse it', slug: 'parse-it', repo: 'hay-kot/hive', state: 'active' })
+    const { wrapper, router } = await mountAvailable()
+    await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await wrapper.get('[data-testid="session-menu-rename"]').trigger('click')
+    await flushPromises()
+
+    const input = document.querySelector<HTMLInputElement>('[data-testid="session-rename-input"]')!
+    input.value = 'parse it'
+    input.dispatchEvent(new Event('input'))
+    // The list still holds the old slug at this point, which is what lets the
+    // rename recognise the renamed session as the attached one.
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'parse it', slug: 'parse-it', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
+    ])
+    document.querySelector<HTMLButtonElement>('[data-testid="session-rename-save"]')!.click()
+    await flushPromises()
+
+    expect(mocks.RenameSession).toHaveBeenCalledWith('1', 'parse it')
+    // The slug is the tmux target, so the attach has to follow it.
+    expect(router.currentRoute.value.params.slug).toBe('parse-it')
+    expect(mocks.useTerminalWindows).toHaveBeenLastCalledWith('parse-it', expect.anything())
+    wrapper.unmount()
+  })
+
+  it('prunes from the sidebar header, naming how many sessions go', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'old work', slug: 'hive-old-work', repo: 'hay-kot/hive', state: 'recycled' },
+      { id: '3', name: 'broken', slug: 'hive-broken', repo: 'hay-kot/hive', state: 'corrupted' },
+    ])
+    const { wrapper } = await mountAvailable()
+
+    await wrapper.get('[data-testid="terminal-sessions-menu-toggle"]').trigger('click')
+    const prune = wrapper.get('[data-testid="terminal-sessions-prune"]')
+    expect(prune.text()).toContain('Prune 2 recycled')
+    await prune.trigger('click')
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('All 2 recycled and corrupted sessions')
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')!.click()
+    await flushPromises()
+    expect(mocks.PruneSessions).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['deleted', [{ id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' }]],
+    ['recycled', [
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'recycled' },
+      { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
+    ]],
+  ])('closes the attach when the attached session is %s', async (_case, listing) => {
+    const { wrapper, router, session } = await mountAvailable()
+    await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+    await flushPromises()
+
+    // Delete and recycle finish as jobs, so a jobs:updated reload is how the
+    // frontend learns the session it was attached to can no longer be attached.
+    mocks.ListSessions.mockResolvedValue(listing)
+    await wrapper.get('[data-testid="terminal-sessions-refresh"]').trigger('click')
+    await flushPromises()
+
+    expect(session.dispose).toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
+    expect(router.currentRoute.value.params.slug ?? '').toBe('')
+    expect(storedRestore()).toEqual({ slug: '', window: '' })
   })
 })

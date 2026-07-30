@@ -8,10 +8,12 @@ export type {
     CreateSessionRequest,
     ExecutionOutcome,
     MessageExecutionOutcome,
+    SessionDetail,
     SessionDraft,
     SessionExecutionOutcome,
     SessionInvocationInput,
     SessionLaunchOptions,
     SessionLaunchRepository,
+    SessionRisk,
     SessionSummary
 } from "./models.js";
