@@ -144,6 +144,7 @@ type App struct {
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
 	launcher *dispatch.HiveSessionLauncher
+	sessions *dispatch.HiveSessionManager
 	hiveDB   *coredb.DB
 
 	// terminals owns one tmux control-mode client per attached session slug.
@@ -287,7 +288,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.jobStore)
+	a.Sessions = newSessionsService(a.launcher, a.sessions, a.terminals, a.jobStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
@@ -804,6 +805,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 
 	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
 	a.launcher.SetRecorder(a.activityStore)
+	a.sessions = dispatch.NewHiveSessionManager(sessions)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
 }

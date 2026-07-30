@@ -311,3 +311,100 @@ func TestManagerAttachAfterStopIsUnavailable(t *testing.T) {
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
 	require.ErrorIs(t, err, ErrUnavailable)
 }
+
+// fakeTmuxCommands records one-shot tmux invocations and can fail a chosen one,
+// standing in for a real server the way fakeTmux stands in for a control client.
+type fakeTmuxCommands struct {
+	calls   [][]string
+	absent  bool
+	failure error
+}
+
+func (f *fakeTmuxCommands) run(_ context.Context, args ...string) error {
+	f.calls = append(f.calls, args)
+	switch {
+	case len(args) > 0 && args[0] == "has-session" && f.absent:
+		return errors.New("can't find session")
+	case len(args) > 0 && args[0] == "rename-session":
+		return f.failure
+	}
+	return nil
+}
+
+func TestManagerRenameSessionRenamesTheLiveSession(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo-2"))
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "hive-demo"},
+		{"rename-session", "-t", "hive-demo", "hive-demo-2"},
+	}, cmds.calls)
+}
+
+func TestManagerRenameSessionTreatsAnAbsentSessionAsSuccess(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	// A hive session that was never spawned, or whose tmux server restarted,
+	// still has to be renamable.
+	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo-2"))
+	require.Len(t, cmds.calls, 1, "no rename is attempted for a session that is not there")
+}
+
+func TestManagerRenameSessionReportsARefusedRename(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{failure: errors.New("duplicate session: hive-demo-2")}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	err := m.RenameSession(t.Context(), "hive-demo", "hive-demo-2")
+	require.ErrorContains(t, err, "duplicate session")
+}
+
+func TestManagerRenameSessionIsANoOpWithoutUsableTmux(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{}
+	m := newTestManager(t, nil, ManagerOptions{versionProbe: probe("tmux 2.9\n"), runTmux: cmds.run})
+
+	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo-2"))
+	require.Empty(t, cmds.calls)
+}
+
+func TestManagerRenameSessionValidatesSlugs(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	require.ErrorIs(t, m.RenameSession(t.Context(), "", "hive-demo"), ErrInvalidName)
+	require.ErrorIs(t, m.RenameSession(t.Context(), "hive-demo", ""), ErrInvalidName)
+	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo"), "renaming to the same slug is nothing to do")
+	require.Empty(t, cmds.calls)
+}
+
+func TestManagerRenameSessionDropsTheClientOnTheOldSlug(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	cmds := &fakeTmuxCommands{}
+	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+	_, ok := m.Client("hive-demo")
+	require.True(t, ok)
+
+	require.NoError(t, m.RenameSession(t.Context(), "hive-demo", "hive-demo-2"))
+
+	// The client addressed the session by its old name; leaving it registered
+	// would leave every later command pointed at a name tmux dropped.
+	_, ok = m.Client("hive-demo")
+	require.False(t, ok)
+}

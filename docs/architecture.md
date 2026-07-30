@@ -678,7 +678,10 @@ them is the constraint (ADR 0036):
   slug over `tmux -C attach`, and a per-session fan-out broker. **No transport
   and no UI** — it is driven over injectable process pipes, so it is testable
   without tmux, HTTP or Wails. `Manager` owns an app-lifetime context and joins
-  the App-owned lifecycle behind a `stopOnce` (PR rule 8); tmux is spawned
+  the App-owned lifecycle behind a `stopOnce` (PR rule 8), and also runs the
+  one-shot commands that keep a slug and its tmux session in step
+  (`RenameSession`) — through the same `$TMUX` socket resolution an attach uses,
+  or they would address a different server; tmux is spawned
   outside any request context, so an `Attach`'s context bounds only its
   handshake, and processes are killed explicitly on teardown.
 - **`app.TerminalsService`** — the slug-keyed driving service both adapters
@@ -697,6 +700,27 @@ them is the constraint (ADR 0036):
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
+
+The slug is load-bearing in both products, so **`session.Slug` must equal the
+live tmux session name**, and the desktop is what keeps it that way. Hive's
+`RenameSession` re-slugs the record and leaves tmux alone, so
+`app.SessionsService.RenameSession` renames the tmux session first, writes the
+record second, and rolls the tmux rename back if that write fails — with a slug
+collision rejected up front, because hive checks none and the table has no
+uniqueness constraint. ADR 0038. A change that gives the slug a second identity,
+or that makes something else the attach target, has to revisit that ADR rather
+than work around it.
+
+Session lifecycle (read, rename, group, delete, recycle, prune) reaches hive
+through `dispatch.HiveSessionManager`, a second seam type beside
+`HiveSessionLauncher`: launching is a dispatch action an output command holds,
+and it has no business holding a delete. Delete, recycle and prune run through
+`jobs.Track` like `CreateSession` does — they do git and worktree work — so
+`jobs:updated` is what refreshes the list, and the frontend follows a session by
+**id** across a reload so a rename is told apart from a deletion. Anything
+destructive is gated on `SessionRisk`, whose payload names the uncommitted or
+unpushed work at stake and whether recycling this session is really a delete (it
+is, for a worktree session).
 
 The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
 off, `main.go` mints no token and neither the control-plane routes nor the

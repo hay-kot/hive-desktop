@@ -56,6 +56,24 @@ export interface MessageExecutionOutcome {
 }
 
 /**
+ * SessionDetail is one session read in full, for a detail view.
+ */
+export interface SessionDetail {
+    "id": string;
+    "name": string;
+    "slug": string;
+    "repo": string;
+    "state": string;
+    "group": string;
+    "path": string;
+    "cloneStrategy": string;
+    "worktreeBranch": string;
+    "tags": string[] | null;
+    "createdAt": string;
+    "updatedAt": string;
+}
+
+/**
  * SessionDraft is a New Session form prefilled from an inbox item.
  */
 export interface SessionDraft {
@@ -95,8 +113,26 @@ export interface SessionLaunchRepository {
 }
 
 /**
- * SessionSummary is one live session as the desktop sees it. Slug is the tmux
- * session name, which is what a terminal attach targets.
+ * SessionRisk is the pre-flight a destructive operation confirms against: what
+ * unsaved work the session holds, and whether recycling it is really a delete.
+ */
+export interface SessionRisk {
+    "uncommittedChanges": boolean;
+    "unpushedCommits": boolean;
+
+    /**
+     * RecycleDeletes reports that recycling this session destroys it: hive
+     * routes a worktree session's recycle straight to DeleteSession, because a
+     * worktree has no clone of its own to reset.
+     */
+    "recycleDeletes": boolean;
+}
+
+/**
+ * SessionSummary is one session as the desktop's session list sees it. Slug is
+ * the tmux session name, which is what a terminal attach targets. Group is the
+ * only organisational field carried here; the rest of a session is read on
+ * demand as a SessionDetail.
  */
 export interface SessionSummary {
     "id": string;
@@ -104,4 +140,5 @@ export interface SessionSummary {
     "slug": string;
     "repo": string;
     "state": string;
+    "group": string;
 }

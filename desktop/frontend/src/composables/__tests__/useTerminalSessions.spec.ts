@@ -10,16 +10,18 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 describe('useTerminalSessions', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('loads the active sessions the picker offers', async () => {
+  it('loads every session the list carries, whatever its state', async () => {
     mocks.ListSessions.mockResolvedValue([
-      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active', group: 'backend' },
+      { id: '2', name: 'old work', slug: 'old-work', repo: 'hay-kot/hive', state: 'recycled', group: '' },
     ])
     const { sessions, loading, reload } = useTerminalSessions()
 
     await reload()
 
     expect(loading.value).toBe(false)
-    expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser'])
+    expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser', 'old-work'])
+    expect(sessions.value[0].group).toBe('backend')
   })
 
   it('reads a null listing as no sessions', async () => {
@@ -44,7 +46,7 @@ describe('useTerminalSessions', () => {
 
 describe('groupTerminalSessions', () => {
   function row(name: string, repo: string): TerminalSessionRow {
-    return { id: name, name, slug: `slug-${name}`, repo, state: 'active' }
+    return { id: name, name, slug: `slug-${name}`, repo, state: 'active', group: '' }
   }
 
   it('groups by remote with readable names, both levels alphabetical', () => {

@@ -4,21 +4,30 @@ import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconEllipsis from '~icons/lucide/ellipsis'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
 import IconTerminal from '~icons/lucide/terminal'
+import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
+import AppMenu from './AppMenu.vue'
+import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
+import SessionDetailDialog from './SessionDetailDialog.vue'
+import SessionEditDialog from './SessionEditDialog.vue'
+import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
-import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup } from '../composables/useTerminalSessions'
+import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
+import { useSessionActions } from '../composables/useSessionActions'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type TerminalClient } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
 const checking = ref(true)
@@ -49,6 +58,57 @@ const {
 } = useTerminalSessions()
 const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
 const sessionGroups = computed(() => groupTerminalSessions(sessionRows.value))
+const prunableCount = computed(() => sessionRows.value.filter((row) => row.state !== 'active').length)
+
+const openRowMenu = ref('')
+const rowMenuFlip = ref(false)
+const rowMenuToggles = new Map<string, HTMLElement>()
+const sidebarMenuOpen = ref(false)
+const sidebarMenuToggle = ref<HTMLElement | null>(null)
+const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
+  kind: 'action',
+  id: 'prune',
+  label: prunableCount.value ? `Prune ${prunableCount.value} recycled…` : 'Nothing to prune',
+  icon: IconTrash,
+  testid: 'terminal-sessions-prune',
+}])
+
+const {
+  confirmation,
+  detail: sessionDetail,
+  openDetail: openSessionDetail,
+  closeDetail: closeSessionDetail,
+  edit: sessionEdit,
+  editBusy: sessionEditBusy,
+  editError: sessionEditError,
+  requestRename, requestGroup, cancelEdit, submitEdit, requestDelete, requestRecycle, requestPrune,
+} = useSessionActions({ onChanged: () => { void reloadSessions() } })
+const {
+  open: confirmOpen, options: confirmOptions, busy: confirmBusy, error: confirmError,
+  cancel: cancelConfirm, confirm: runConfirm,
+} = confirmation
+
+function setRowMenuToggle(id: string, el: unknown): void {
+  if (el instanceof HTMLElement) rowMenuToggles.set(id, el)
+  else rowMenuToggles.delete(id)
+}
+
+// The sidebar is a scroll container, so an overflowing menu is clipped rather
+// than allowed to hang outside it: open upward near the bottom of the window.
+function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
+  if (openRowMenu.value === row.id && !event) {
+    openRowMenu.value = ''
+    return
+  }
+  const rect = (event?.currentTarget instanceof HTMLElement ? event.currentTarget : rowMenuToggles.get(row.id))?.getBoundingClientRect()
+  rowMenuFlip.value = rect != null && window.innerHeight - rect.bottom < 200 && rect.top > 200
+  openRowMenu.value = row.id
+}
+
+function onSidebarMenuSelect(id: string): void {
+  sidebarMenuOpen.value = false
+  if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
+}
 
 function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
@@ -108,11 +168,12 @@ async function probe(): Promise<void> {
   }
 }
 
-// A remembered session that no longer exists is forgotten rather than
-// attached blind — the picker shows, same as a first visit.
+// A remembered session that no longer exists — or that has since been recycled,
+// which leaves no tmux session to attach to — is forgotten rather than attached
+// blind; the picker shows, same as a first visit.
 function restoreLastSession(): void {
   if (routeSlug.value || !restore.value.slug) return
-  if (!sessionRows.value.some((row) => row.slug === restore.value.slug)) {
+  if (!sessionRows.value.some((row) => row.slug === restore.value.slug && row.state === 'active')) {
     restore.value = { slug: '', window: '' }
     return
   }
@@ -141,6 +202,43 @@ watch([activeSlug, () => session.value?.activeWindowId.value ?? ''], ([slug, win
     void router.replace({ name: 'terminal', params: { slug }, query: { window: windowId } })
   }
 })
+
+// The attached slug can stop being listed two ways, and a list reload is how we
+// find out about either: the session was deleted or recycled (both run as jobs),
+// or it was renamed — hive re-slugs on rename, so the same session reappears
+// under a new slug. Following the id is what tells the two apart, and it works
+// whether the change came from this window or from the hive CLI.
+const attachedId = ref('')
+watch([sessionRows, activeSlug], ([rows, slug]) => {
+  if (!slug || sessionsError.value) return
+  const attached = rows.find((row) => row.slug === slug)
+  if (attached) {
+    attachedId.value = attached.id
+    return
+  }
+  // Attached before the list ever loaded, so which session this is was never
+  // learned; the attach reports its own failure rather than being guessed at.
+  if (!attachedId.value) return
+  const renamed = rows.find((row) => row.id === attachedId.value)
+  if (!renamed) {
+    closeSession()
+    return
+  }
+  // The slug is the tmux target, so the attach follows the rename.
+  restore.value = { slug: renamed.slug, window: '' }
+  void router.replace({ name: 'terminal', params: { slug: renamed.slug } })
+})
+
+// Only an active session has a tmux session to attach to. A recycled or
+// corrupted row is still worth opening — its detail is the only thing left to
+// read about it.
+function selectSessionRow(row: TerminalSessionRow): void {
+  if (row.state !== 'active') {
+    void openSessionDetail(row)
+    return
+  }
+  selectSession(row.slug)
+}
 
 function selectSession(slug: string): void {
   if (slug === activeSlug.value) {
@@ -261,12 +359,33 @@ onBeforeUnmount(() => session.value?.dispose())
             title="New session"
             @click="openNewSession"
           ><IconPlus class="size-3.5" /></button>
+          <!-- List-wide operations; a session's own live on its row. -->
+          <div class="relative flex">
+            <button
+              ref="sidebarMenuToggle"
+              type="button"
+              class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+              data-testid="terminal-sessions-menu-toggle"
+              aria-label="Session list actions"
+              aria-haspopup="menu"
+              :aria-expanded="sidebarMenuOpen"
+              @click="sidebarMenuOpen = !sidebarMenuOpen"
+            ><IconEllipsis class="size-3.5" /></button>
+            <AppMenu
+              v-if="sidebarMenuOpen"
+              :entries="sidebarMenuEntries"
+              :ignore="[sidebarMenuToggle]"
+              testid="terminal-sessions-menu"
+              @close="sidebarMenuOpen = false"
+              @select="onSidebarMenuSelect"
+            />
+          </div>
         </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pt-3 pb-4">
           <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
           <p v-else-if="sessionsLoading && !sessionRows.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
           <p v-else-if="!sessionRows.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
-            No active sessions. Start one from the hub and it will appear here.
+            No sessions yet. Start one from the hub and it will appear here.
           </p>
           <div v-for="(group, index) in sessionGroups" :key="group.key" :class="gapAbove(index) && 'mt-1.5'">
             <button
@@ -283,15 +402,26 @@ onBeforeUnmount(() => session.value?.dispose())
             </button>
             <template v-if="!collapsedRepos.includes(group.key)">
               <div v-for="row in group.sessions" :key="row.id">
-                <button
-                  type="button"
-                  class="flex h-[34px] w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
-                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent shadow-[inset_2px_0_0_var(--color-accent)]' : 'text-text hover:bg-chip'"
+                <!-- Not a <button>: the row's menu toggle is a real button, and
+                     nesting one inside another is invalid. -->
+                <div
+                  class="session-row"
+                  :class="{
+                    'session-row-attached': row.slug === activeSlug,
+                    'session-row-inactive': row.state !== 'active',
+                    'menu-open': openRowMenu === row.id,
+                  }"
+                  role="button"
+                  tabindex="0"
                   data-testid="terminal-session-row"
                   :data-slug="row.slug"
+                  :data-state="row.state"
                   :data-attached="row.slug === activeSlug"
-                  :title="row.slug"
-                  @click="selectSession(row.slug)"
+                  :title="row.state === 'active' ? row.slug : `${row.slug} (${row.state})`"
+                  @click="selectSessionRow(row)"
+                  @keydown.enter.self.prevent="selectSessionRow(row)"
+                  @keydown.space.self.prevent="selectSessionRow(row)"
+                  @contextmenu.prevent="toggleRowMenu(row, $event)"
                 >
                   <!-- The wire only carries hive's session state today; agent
                        activity (the TUI's [●]/[>] pair) needs terminal.Status
@@ -300,8 +430,43 @@ onBeforeUnmount(() => session.value?.dispose())
                     class="size-1.5 shrink-0 rounded-full"
                     :class="row.slug === activeSlug ? 'bg-accent' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
                   />
-                  <span class="min-w-0 truncate text-[15px]">{{ row.name }}</span>
-                </button>
+                  <span class="min-w-0 flex-1 truncate text-[15px]">{{ row.name }}</span>
+                  <span
+                    v-if="row.state !== 'active'"
+                    class="shrink-0 font-mono text-[10px] uppercase tracking-[.08em] text-text-4"
+                    data-testid="terminal-session-state"
+                  >{{ row.state }}</span>
+                  <span
+                    v-else-if="row.group"
+                    class="min-w-0 max-w-[70px] shrink-0 truncate font-mono text-[10.5px] text-text-4"
+                    data-testid="terminal-session-group"
+                  >{{ row.group }}</span>
+                  <div class="relative flex shrink-0" @click.stop>
+                    <button
+                      :ref="(el) => setRowMenuToggle(row.id, el)"
+                      type="button"
+                      class="row-action"
+                      title="Session actions"
+                      aria-label="Session actions"
+                      aria-haspopup="menu"
+                      :aria-expanded="openRowMenu === row.id"
+                      data-testid="terminal-session-menu-toggle"
+                      @click="toggleRowMenu(row)"
+                    ><IconEllipsis class="size-3" /></button>
+                    <SessionRowMenu
+                      v-if="openRowMenu === row.id"
+                      :session="row"
+                      :flip="rowMenuFlip"
+                      :ignore="[rowMenuToggles.get(row.id) ?? null]"
+                      @close="openRowMenu = ''"
+                      @detail="openSessionDetail(row)"
+                      @rename="requestRename(row)"
+                      @group="requestGroup(row)"
+                      @recycle="requestRecycle(row)"
+                      @delete="requestDelete(row)"
+                    />
+                  </div>
+                </div>
                 <!-- The well sits on bg-app — the surface xtermTheme() renders
                      on — so the windows read as part of the terminal they
                      belong to rather than as sidebar chrome. -->
@@ -432,5 +597,41 @@ onBeforeUnmount(() => session.value?.dispose())
         </template>
       </div>
     </div>
+
+    <SessionDetailDialog v-if="sessionDetail" :detail="sessionDetail" @close="closeSessionDetail" />
+    <SessionEditDialog
+      v-if="sessionEdit"
+      :edit="sessionEdit"
+      :busy="sessionEditBusy"
+      :error="sessionEditError"
+      @close="cancelEdit"
+      @save="submitEdit"
+    />
+    <ConfirmationDialog
+      v-if="confirmOpen && confirmOptions"
+      :title="confirmOptions.title"
+      :description="confirmOptions.description"
+      :confirm-label="confirmOptions.confirmLabel"
+      :busy="confirmBusy"
+      :error="confirmError"
+      testid="session-confirmation"
+      @confirm="runConfirm"
+      @cancel="cancelConfirm"
+    />
   </div>
 </template>
+
+<style scoped>
+.session-row { position: relative; display: flex; height: 34px; width: 100%; align-items: center; gap: 8px; padding-left: 21px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
+.session-row:hover, .session-row.menu-open { background: var(--color-chip); }
+.session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.session-row-attached { background: var(--color-selection); font-weight: 600; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+/* A recycled or corrupted session has no tmux session behind it, so the row
+   recedes: it is there to be read and deleted, not attached to. */
+.session-row-inactive { color: var(--color-text-3); }
+/* Revealed by opacity so the kebab's column is always reserved — hovering a row
+   never reflows the session name. Same affordance as the hub sidebar's rows. */
+.row-action { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+.row-action:hover, .row-action[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
+.session-row:hover .row-action, .row-action:focus-visible, .session-row.menu-open .row-action { opacity: 1; }
+</style>
