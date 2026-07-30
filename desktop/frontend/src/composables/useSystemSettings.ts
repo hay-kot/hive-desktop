@@ -65,12 +65,19 @@ export function useSystemSettings() {
     return pending.value.find((entry) => entry.field === field)
   }
 
+  // A Go slice crosses the bridge as null when it is empty, so every read of
+  // the pending list normalizes before it lands in the ref — the rest of this
+  // composable and the view treat it as a plain array.
+  async function loadPending(): Promise<RestartPendingField[]> {
+    return (await LoadRestartPending()) ?? []
+  }
+
   async function refresh(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
       const [locations, buildInfo, status, experimental, restartPending] = await Promise.all([
-        Info(), Build(), Status(), LoadExperimentalSettings(), LoadRestartPending(),
+        Info(), Build(), Status(), LoadExperimentalSettings(), loadPending(),
       ])
       info.value = locations
       build.value = buildInfo
@@ -101,7 +108,7 @@ export function useSystemSettings() {
     try {
       const effective = await SetExperimentalTerminal(value)
       experimentalTerminal.value = effective.terminal
-      pending.value = await LoadRestartPending()
+      pending.value = await loadPending()
     } catch (err) {
       experimentalTerminal.value = previous
       error.value = errText(err)
