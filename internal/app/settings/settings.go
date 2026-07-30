@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,13 @@ type Appearance struct {
 // to off and is read once at startup — flipping one takes a relaunch.
 type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
+}
+
+// PathsSettings locates the external binaries the app execs. Each is the escape
+// hatch for an install discovery does not know about (ADR 0039): empty — the
+// shipped value — searches PATH and the usual package-manager prefixes.
+type PathsSettings struct {
+	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -180,6 +188,7 @@ type Settings struct {
 	HTTP          HTTPSettings         `yaml:"http"`
 	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
 	Skills        SkillsSettings       `yaml:"skills"`
+	Paths         PathsSettings        `yaml:"paths,omitempty"`
 	Experimental  ExperimentalSettings `yaml:"experimental,omitempty"`
 	Development   DevelopmentSettings  `yaml:"development"`
 
@@ -250,6 +259,9 @@ func (s Settings) Validate() error {
 	}
 	if !ValidListenerPort(s.HTTP.Port) {
 		return fmt.Errorf("http.port must be 0 or between 1024 and 65535")
+	}
+	if s.Paths.Tmux != "" && !filepath.IsAbs(s.Paths.Tmux) {
+		return fmt.Errorf("paths.tmux must be an absolute path")
 	}
 	switch s.Development.Mocks.Mode {
 	case MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke:

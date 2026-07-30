@@ -45,6 +45,8 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0035](decisions/0035-function-node-per-entity-feed-items.md) | Per-entity feed items by function-node fan-out: mint the inbox row at commit for a synthesized feed key |
 | [0036](decisions/0036-terminal-transport.md) | Terminal transport: REST control plane on httpapi, one binary WebSocket per session |
 | [0037](decisions/0037-terminal-experimental-gate.md) | Terminal mode ships dark behind an experimental settings opt-in |
+| [0038](decisions/0038-terminal-atlas-renderer.md) | Terminal panes render through an atlas renderer, not xterm's DOM renderer |
+| [0039](decisions/0039-tmux-discovery.md) | Discover the tmux binary instead of trusting $PATH |
 
 ## References
 

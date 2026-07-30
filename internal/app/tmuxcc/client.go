@@ -53,7 +53,8 @@ type Options struct {
 	// nothing measured to vote with — see unsized.
 	Cols        int
 	Rows        int
-	BufferBytes int // broker bound; 0 == defaultBufferBytes
+	Binary      string // tmux executable; empty resolves "tmux" through $PATH
+	BufferBytes int    // broker bound; 0 == defaultBufferBytes
 	Metrics     MetricsSink
 	Logger      zerolog.Logger
 	OnExit      func(slug, reason string)
@@ -73,6 +74,9 @@ func (o *Options) normalize() error {
 	}
 	if err := validateAttachSize(o.Cols, o.Rows); err != nil {
 		return err
+	}
+	if o.Binary == "" {
+		o.Binary = defaultBinary
 	}
 	if o.Metrics == nil {
 		o.Metrics = NopMetrics

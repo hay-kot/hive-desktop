@@ -296,6 +296,8 @@ internal/
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
                                   #   slug, fan-out broker — no transport, no UI
+    tmuxbin/                      # where the tmux binary is: paths.tmux, then
+                                  #   PATH, then package prefixes (ADR 0039)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -698,6 +700,15 @@ them is the constraint (ADR 0036):
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
+**Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
+0039). A desktop launch inherits no shell `$PATH`, so the resolver checks
+`paths.tmux`, then `$PATH`, then the prefixes package managers install
+into, and remembers only success — installing tmux does not need a relaunch.
+`tmuxcc` holds none of that policy: it takes a `func() (string, error)` and the
+resolved path travels on `Options.Binary`. Hive session spawning execs tmux from
+vendored code, so it gets the same binary through `app.tmuxExecutor`, a
+decorator over `executil.Executor` that substitutes the command name `tmux`.
+
 The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
 off, `main.go` mints no token and neither the control-plane routes nor the
 stream mount exist. The bearer token is minted per run in `desktop/main.go` and
@@ -729,6 +740,18 @@ session:
 - **A vote tmux does not grant is reported, not retried.** The frontend
   compares its vote against the granted size and names the constraint; nothing
   re-votes to win the size back from the other client.
+
+On the frontend, a pane **always loads an atlas renderer** — WebGL, falling back
+to 2D canvas — after `term.open()` and never before, because only an atlas
+renderer strokes box drawing and underlines to the cell's device-pixel bounds;
+xterm's DOM renderer cannot join either across cells at any size or device pixel
+ratio. Three rules follow and are the ones to keep (ADR 0038): the DOM renderer
+is a logged degradation path, not a supported one; **do not set `lineHeight` or
+`letterSpacing`** — every renderer quantises both to whole device pixels, so
+neither can tune a cell onto a cleaner boundary and a `lineHeight` above 1 pads
+the glyph off the edge box drawing has to reach; and the addon majors are pinned
+to the xterm core major, since they reach into `Terminal._core` for private
+services.
 
 ## Execution model
 

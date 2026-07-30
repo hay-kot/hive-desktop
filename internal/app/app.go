@@ -35,6 +35,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
@@ -150,6 +151,10 @@ type App struct {
 	// Its context is the app's lifetime, not a request's (ADR 0036).
 	terminals *tmuxcc.Manager
 
+	// tmux is the one place the tmux binary is discovered, shared by the
+	// terminal's control clients and Hive's session spawning (ADR 0039).
+	tmux *tmuxbin.Resolver
+
 	// pollInterval is the validated, clamped interval the producer polls on.
 	pollInterval time.Duration
 
@@ -198,6 +203,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	a.pollInterval = cfg.Settings.Polling.Interval.Duration()
+	a.tmux = tmuxbin.NewResolver(cfg.Settings.Paths.Tmux)
 
 	// Mock modes get an in-memory credential store: a keychain read can
 	// prompt, and a fixture run that prompts is a fixture run that hangs.
@@ -248,7 +254,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		cancel()
 		return nil, err
 	}
-	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger})
+	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
@@ -789,7 +795,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		AgentWindow:  hiveCfg.Agents.Default,
 		AgentFlags:   profile.ShellFlags(),
 	})
-	exec := &executil.RealExecutor{}
+	exec := newTmuxExecutor(&executil.RealExecutor{}, a.tmux)
 	sessions := hive.NewSessionService(
 		stores.NewSessionStore(database),
 		git.NewExecutor(hiveCfg.GitPath, exec),

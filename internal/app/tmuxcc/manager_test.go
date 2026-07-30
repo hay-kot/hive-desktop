@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func probe(version string) func(context.Context) (string, error) {
-	return func(context.Context) (string, error) { return version, nil }
+func probe(version string) func(context.Context, string) (string, error) {
+	return func(context.Context, string) (string, error) { return version, nil }
 }
 
 func newTestManager(t *testing.T, f *fakeTmux, opts ManagerOptions) *Manager {
@@ -35,7 +35,7 @@ func TestManagerAvailabilityGate(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		probe   func(context.Context) (string, error)
+		probe   func(context.Context, string) (string, error)
 		wantErr bool
 	}{
 		{"current tmux", probe("tmux 3.7b\n"), false},
@@ -45,7 +45,7 @@ func TestManagerAvailabilityGate(t *testing.T) {
 		{"below the floor", probe("tmux 3.1c\n"), true},
 		{"far below the floor", probe("tmux 2.9\n"), true},
 		{"unparseable", probe("tmux master\n"), true},
-		{"tmux absent", func(context.Context) (string, error) {
+		{"tmux absent", func(context.Context, string) (string, error) {
 			return "", errors.New(`exec: "tmux": executable file not found in $PATH`)
 		}, true},
 	}
@@ -69,7 +69,7 @@ func TestManagerCachesASuccessfulProbe(t *testing.T) {
 	t.Parallel()
 
 	calls := 0
-	m := newTestManager(t, nil, ManagerOptions{versionProbe: func(context.Context) (string, error) {
+	m := newTestManager(t, nil, ManagerOptions{versionProbe: func(context.Context, string) (string, error) {
 		calls++
 		return "tmux 3.7b", nil
 	}})
@@ -95,6 +95,54 @@ func TestManagerAttachValidatesInput(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotAttached)
 
 	require.Empty(t, f.sentCommands(), "a rejected attach never spawns tmux")
+}
+
+// A tmux found outside $PATH is only useful if both the probe and the attach
+// exec it; a bare "tmux" in either one is the bug this guards (ADR 0039).
+func TestManagerRunsTheLocatedBinary(t *testing.T) {
+	t.Parallel()
+
+	const located = "/opt/homebrew/bin/tmux"
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	spawn := f.factory()
+
+	var probed string
+	var attached []string
+	m := newTestManager(t, nil, ManagerOptions{
+		Binary: func() (string, error) { return located, nil },
+		versionProbe: func(_ context.Context, binary string) (string, error) {
+			probed = binary
+			return "tmux 3.7b", nil
+		},
+		newProcess: func(opts Options) process {
+			attached = append(attached, opts.Binary)
+			return spawn(opts)
+		},
+	})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+	require.Equal(t, located, probed)
+	require.Equal(t, []string{located}, attached)
+}
+
+func TestManagerUnavailableWhenTmuxIsNotFound(t *testing.T) {
+	t.Parallel()
+
+	probes := 0
+	m := newTestManager(t, nil, ManagerOptions{
+		Binary: func() (string, error) { return "", errors.New("tmux not found") },
+		versionProbe: func(context.Context, string) (string, error) {
+			probes++
+			return "tmux 3.7b", nil
+		},
+	})
+
+	err := m.Available(t.Context())
+	require.ErrorIs(t, err, ErrUnavailable)
+	require.Contains(t, err.Error(), "tmux not found")
+	require.Zero(t, probes, "nothing to probe until a binary is located")
 }
 
 func TestManagerAttachIsOneClientPerSlug(t *testing.T) {

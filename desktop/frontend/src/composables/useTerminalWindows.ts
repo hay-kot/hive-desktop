@@ -1,6 +1,8 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
+import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
-import { Terminal, type IDisposable } from '@xterm/xterm'
+import { WebglAddon } from '@xterm/addon-webgl'
+import { Terminal, type IDisposable, type ITerminalAddon } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
 import '../assets/fonts/jetbrains-mono-nerd.css'
@@ -79,6 +81,10 @@ const RESIZE_DEBOUNCE_MS = 80
 // reported as a constraint. A vote is answered by a window event, which arrives
 // well inside this; an unanswered vote means something else decided the size.
 const CONSTRAINT_SETTLE_MS = 750
+
+// The face xterm measures its cell from. The rest of the stack only covers the
+// window between a Terminal opening and this one resolving.
+const TERMINAL_FONT = "'JetBrainsMono Nerd Font'"
 
 interface TabRuntime {
   host?: HTMLElement
@@ -169,8 +175,12 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   function createTab(state: WindowState): TerminalWindowTab {
+    // lineHeight and letterSpacing are unset on purpose: every renderer
+    // quantises both to whole device pixels, so neither can move the cell onto
+    // a cleaner boundary, and a lineHeight above 1 pads the glyph away from the
+    // cell edge box drawing has to meet. ADR 0038.
     const term = markRaw(new Terminal({
-      fontFamily: "'JetBrainsMono Nerd Font', 'IBM Plex Mono', ui-monospace, monospace",
+      fontFamily: `${TERMINAL_FONT}, 'IBM Plex Mono', ui-monospace, monospace`,
       fontSize: fontSizePx.value,
       scrollback: 5000,
       theme: xtermTheme(),
@@ -211,6 +221,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!tab || !state || state.host) return
     state.host = host
     tab.term.open(host)
+    // After open(), never before: an unopened Terminal defers addon activation
+    // to its own open(), which would throw a missing-context error out of there
+    // rather than out of the load, past the fallback below.
+    loadRenderer(state, tab.term)
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
@@ -395,9 +409,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     error.value = null
     actionError.value = null
     try {
-      // xterm measures cell metrics when a terminal opens; without this the
-      // grid is sized from the fallback font until something forces a refresh.
-      await document.fonts?.load(`${fontSizePx.value}px 'JetBrainsMono Nerd Font'`).catch(() => {})
+      await loadTerminalFaces(fontSizePx.value)
       // 0x0 sets no client size at all: tmux ignores a control client until it
       // sets one, so the session keeps the size its other clients gave it.
       const { windows } = await client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0)
@@ -475,4 +487,51 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
 function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
+}
+
+// xterm's DOM renderer paints box drawing from the font's own glyphs and
+// underlines as text-decoration on per-cell inline-block spans, so neither can
+// join across cells at any font size or device pixel ratio. An atlas renderer
+// strokes both to the cell's own device-pixel bounds, so one is loaded wherever
+// a context for it exists, and the DOM renderer is only ever the last resort.
+// ADR 0038.
+function loadRenderer(state: TabRuntime, term: Terminal): void {
+  const webgl = loadRendererAddon(state, term, () => new WebglAddon())
+  if (!webgl) {
+    loadRendererAddon(state, term, () => new CanvasAddon())
+    return
+  }
+  // Fires only when the browser did not restore the context on its own. The
+  // addon puts the DOM renderer back as it goes, so claim the canvas instead.
+  webgl.onContextLoss(() => {
+    webgl.dispose()
+    loadRendererAddon(state, term, () => new CanvasAddon())
+  })
+}
+
+function loadRendererAddon<T extends ITerminalAddon>(
+  state: TabRuntime,
+  term: Terminal,
+  create: () => T,
+): T | undefined {
+  try {
+    const addon = create()
+    term.loadAddon(addon)
+    // Disposed with the tab and ahead of the Terminal: xterm disposes its core
+    // before its addons, and this one restores a renderer on the way out.
+    state.disposers.push(addon)
+    return addon
+  } catch (error) {
+    console.warn('Terminal renderer unavailable, falling back', error)
+    return undefined
+  }
+}
+
+// xterm measures its cell when a Terminal opens and never re-measures when a
+// face arrives later, and an atlas renderer caches the glyphs it rasterised
+// from whatever was resident — so bold has to be here too, not just regular.
+async function loadTerminalFaces(px: number): Promise<void> {
+  await Promise.all([`${px}px`, `bold ${px}px`].map(
+    (font) => document.fonts?.load(`${font} ${TERMINAL_FONT}`).catch(() => {}),
+  ))
 }
