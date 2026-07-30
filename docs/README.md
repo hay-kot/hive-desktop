@@ -48,6 +48,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0038](decisions/0038-terminal-atlas-renderer.md) | Terminal panes render through an atlas renderer, not xterm's DOM renderer |
 | [0039](decisions/0039-tmux-discovery.md) | Discover the tmux binary instead of trusting $PATH |
 | [0040](decisions/0040-session-rename-keeps-slug-and-tmux-in-step.md) | A session rename renames its tmux session, keeping slug and tmux name in step |
+| [0041](decisions/0041-terminal-attach-pool.md) | Terminal view pools live attaches and swaps sessions on first paint |
 
 ## References
 

@@ -273,6 +273,23 @@ describe('useTerminalWindows', () => {
     expect(new TextDecoder().decode(written)).toBe('from the shell')
   })
 
+  // 'live' only says the socket opened; the first-paint capture is still in
+  // flight then, and the session switcher must not reveal a blank grid.
+  it('flags the first paint once a terminal has processed output', async () => {
+    const { session, socket } = await attached()
+    expect(session.painted.value).toBe(false)
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', 'hello') })
+    const write = session.tabs.value[0].term.write as ReturnType<typeof vi.fn>
+    expect(session.painted.value).toBe(false)
+    write.mock.calls[0][1]() // xterm reports the chunk processed
+    expect(session.painted.value).toBe(true)
+
+    // Later output does not pay for the callback.
+    socket.onmessage?.({ data: outputFrame('@1', '%1', 'more') })
+    expect(write.mock.calls[1][1]).toBeUndefined()
+  })
+
   it('maps window events onto the tab list', async () => {
     const { session, socket } = await attached()
 

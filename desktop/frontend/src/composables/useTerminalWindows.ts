@@ -59,6 +59,10 @@ export interface UseTerminalWindows {
   tabs: Ref<TerminalWindowTab[]>
   activeWindowId: Ref<string>
   status: Ref<TerminalStatus>
+  // True once a terminal has processed output. 'live' is not enough to swap a
+  // held pane onto this session: the socket opens before the first-paint
+  // capture lands, and swapping then shows a blank grid for a frame.
+  painted: Ref<boolean>
   endReason: Ref<TerminalEndReason | null>
   error: Ref<string | null>
   actionError: Ref<string | null>
@@ -136,6 +140,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const tabs = ref<TerminalWindowTab[]>([]) as Ref<TerminalWindowTab[]>
   const activeWindowId = ref('')
   const status = ref<TerminalStatus>('connecting')
+  const painted = ref(false)
   const endReason = ref<TerminalEndReason | null>(null)
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
@@ -317,9 +322,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!frame) return
 
     switch (frame.type) {
-      case 'output':
-        findTab(frame.windowId)?.term.write(frame.data)
+      case 'output': {
+        const tab = findTab(frame.windowId)
+        if (!tab) break
+        // The callback fires once xterm has processed the chunk, which is the
+        // earliest moment this attach has a screen worth revealing.
+        if (painted.value) tab.term.write(frame.data)
+        else tab.term.write(frame.data, () => { painted.value = true })
         break
+      }
       case 'window':
         applyWindowEvent(frame.kind, frame.state)
         break
@@ -517,7 +528,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   return {
-    tabs, activeWindowId, status, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
+    tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
     start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
 }

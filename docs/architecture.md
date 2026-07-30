@@ -703,6 +703,12 @@ them is the constraint (ADR 0036):
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
+The frontend holds a small LRU pool of live attaches rather than one:
+switching sessions hides the outgoing panes instead of detaching, and a cold
+attach keeps the outgoing screen until the incoming one has painted, so a
+switch never blanks the pane (ADR 0041). Detach fires on eviction, explicit
+close, the session leaving the listing, and view unmount — not on switch.
+
 The slug is load-bearing in both products, so **`session.Slug` must equal the
 live tmux session name**, and the desktop is what keeps it that way. Hive's
 `RenameSession` re-slugs the record and leaves tmux alone, so
