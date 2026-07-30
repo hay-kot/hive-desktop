@@ -286,7 +286,7 @@ onBeforeUnmount(() => session.value?.dispose())
                 <button
                   type="button"
                   class="flex h-[34px] w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
-                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent shadow-[inset_3px_0_0_var(--color-accent)]' : 'text-text hover:bg-chip'"
+                  :class="row.slug === activeSlug ? 'bg-selection font-semibold text-accent shadow-[inset_2px_0_0_var(--color-accent)]' : 'text-text hover:bg-chip'"
                   data-testid="terminal-session-row"
                   :data-slug="row.slug"
                   :data-attached="row.slug === activeSlug"
@@ -298,7 +298,7 @@ onBeforeUnmount(() => session.value?.dispose())
                        plumbed through SessionSummary first. -->
                   <span
                     class="size-1.5 shrink-0 rounded-full"
-                    :class="row.slug === activeSlug ? 'bg-accent [animation:hivePulse_2.4s_ease-in-out_infinite]' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
+                    :class="row.slug === activeSlug ? 'bg-accent' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
                   />
                   <span class="min-w-0 truncate text-[15px]">{{ row.name }}</span>
                 </button>
@@ -347,16 +347,12 @@ onBeforeUnmount(() => session.value?.dispose())
               <div
                 v-for="tab in tabs"
                 :key="tab.uid"
-                class="flex w-[180px] shrink-0 items-center gap-2 border-r border-border px-3"
+                class="flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
                 :class="tab.windowId === activeWindowId ? 'bg-app shadow-[inset_0_1px_0_var(--color-accent)]' : 'hover:bg-chip'"
                 data-testid="terminal-tab"
                 :data-window-id="tab.windowId"
                 :data-active="tab.windowId === activeWindowId"
               >
-                <span
-                  class="size-1.5 shrink-0 rounded-full"
-                  :class="tab.windowId === activeWindowId ? 'bg-severity-success [animation:hivePulse_2.4s_ease-in-out_infinite]' : 'bg-hover'"
-                />
                 <input
                   v-if="renamingId === tab.windowId"
                   v-model="renameDraft"
