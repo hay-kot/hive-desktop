@@ -116,15 +116,6 @@ function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
 }
 
-// Groups separate by a small gap — except after the attached session's window
-// well, whose recessed edge is already a hard boundary.
-function gapAbove(index: number): boolean {
-  const prev = sessionGroups.value[index - 1]
-  if (!prev) return false
-  if (collapsedRepos.value.includes(prev.key)) return true
-  return prev.sessions[prev.sessions.length - 1]?.slug !== activeSlug.value
-}
-
 // Expand/collapse is transient view state, not configuration — localStorage,
 // same as the hub sidebar's folder collapse.
 const collapsedRepos = useStorage<string[]>('hive.terminal.sidebar.collapsed', [])
@@ -373,26 +364,29 @@ onBeforeUnmount(() => session.value?.dispose())
             />
           </div>
         </div>
-        <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pt-3 pb-4">
+        <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4">
           <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
           <p v-else-if="sessionsLoading && !attachable.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
           <p v-else-if="!attachable.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
             No active sessions. Start one from the hub and it will appear here.
           </p>
-          <div v-for="(group, index) in sessionGroups" :key="group.key" :class="gapAbove(index) && 'mt-1.5'">
+          <!-- One repository reads as one block: the header keeps the sidebar's
+               own surface and its sessions sit in a recessed panel under it, so
+               a long run of sessions cannot bleed into the next repo's. -->
+          <div v-for="group in sessionGroups" :key="group.key" class="border-t border-border first:border-t-0">
             <button
               type="button"
-              class="flex h-8 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
+              class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
               data-testid="terminal-repo-group"
               :data-repo="group.key"
               :aria-expanded="!collapsedRepos.includes(group.key)"
               @click="toggleGroup(group.key)"
             >
               <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
-              <span class="min-w-0 truncate font-mono text-[13.5px] font-semibold tracking-[.04em]" :class="groupAttached(group) ? 'text-text' : 'text-text-2'">{{ group.name }}</span>
+              <span class="min-w-0 truncate font-mono text-[13.5px] font-semibold tracking-[.02em] text-text">{{ group.name }}</span>
               <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
             </button>
-            <template v-if="!collapsedRepos.includes(group.key)">
+            <div v-if="!collapsedRepos.includes(group.key)" class="flex flex-col border-t border-border bg-app py-1">
               <div v-for="row in group.sessions" :key="row.id">
                 <!-- Not a <button>: the row's menu toggle is a real button, and
                      nesting one inside another is invalid. -->
@@ -410,7 +404,7 @@ onBeforeUnmount(() => session.value?.dispose())
                   @keydown.space.self.prevent="selectSession(row.slug)"
                   @contextmenu.prevent="toggleRowMenu(row, $event)"
                 >
-                  <span class="min-w-0 flex-1 truncate text-[13px]">{{ row.name }}</span>
+                  <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
                   <!-- No `relative` here: AppMenu anchors to the nearest
                        positioned ancestor, and that has to be the row so the
                        panel spans it. Clicks stay inside the wrapper so choosing
@@ -440,30 +434,23 @@ onBeforeUnmount(() => session.value?.dispose())
                     />
                   </div>
                 </div>
-                <!-- The well sits on bg-app — the surface xtermTheme() renders
-                     on — so the windows read as part of the terminal they
-                     belong to rather than as sidebar chrome. -->
-                <div
-                  v-if="row.slug === activeSlug && session && tabs.length"
-                  class="flex flex-col bg-app"
-                >
+                <div v-if="row.slug === activeSlug && session && tabs.length" class="flex flex-col pb-1">
                   <button
-                    v-for="tab in tabs"
+                    v-for="(tab, index) in tabs"
                     :key="tab.uid"
                     type="button"
-                    class="flex h-7 w-full cursor-pointer items-center gap-2 pl-[21px] pr-3 text-left"
-                    :class="tab.windowId === activeWindowId ? 'bg-pane' : 'hover:bg-pane'"
+                    class="window-row"
+                    :class="{ 'window-row-last': index === tabs.length - 1, 'window-row-active': tab.windowId === activeWindowId }"
                     data-testid="terminal-window-row"
                     :data-window-id="tab.windowId"
                     :data-active="tab.windowId === activeWindowId"
                     @click="session?.select(tab.windowId)"
                   >
-                    <span class="shrink-0 font-mono text-[11.5px] leading-none" :class="tab.windowId === activeWindowId ? 'text-accent' : 'text-text-4'">&gt;_</span>
                     <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
                   </button>
                 </div>
               </div>
-            </template>
+            </div>
           </div>
         </div>
         <PanelResizeHandle edge="right" name="terminal-sidebar" :start="startResize" :step="step" />
@@ -595,10 +582,22 @@ onBeforeUnmount(() => session.value?.dispose())
 </template>
 
 <style scoped>
-.session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 34px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
+.session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 32px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
 .session-row:hover, .session-row.menu-open { background: var(--color-chip); }
 .session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.session-row-attached { background: var(--color-selection); font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+/* No fill: the rail and the accent are enough to find the attached row, and
+   leaving the surface alone also lets it keep its hover feedback. */
+.session-row-attached { font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+/* The tree connector is drawn, not typed: a box-drawing glyph is only as tall as
+   its font size, so stacked rows would show a gap where the TUI's cell grid
+   shows an unbroken line. ::before is the vertical, stopped at the elbow on the
+   last row; ::after is the tick into the name. */
+.window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; padding-left: 52px; padding-right: 12px; text-align: left; cursor: pointer; }
+.window-row:hover, .window-row-active { background: var(--color-chip); }
+.window-row::before { content: ''; position: absolute; left: 38px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
+.window-row::after { content: ''; position: absolute; left: 38px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
+.window-row-last::before { bottom: 50%; }
+
 /* Revealed by opacity so the kebab's column is always reserved — hovering a row
    never reflows the session name. Same affordance as the hub sidebar's rows. */
 .row-action { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
