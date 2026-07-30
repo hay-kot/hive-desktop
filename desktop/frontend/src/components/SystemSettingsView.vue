@@ -168,7 +168,7 @@ onMounted(() => {
           />
           <div class="min-w-0 flex-1">
             <div class="text-[13.5px] font-semibold text-text">Terminal mode</div>
-            <div class="mt-0.5 text-[11.5px] text-text-3">Attach to Hive tmux sessions in a terminal built into the app, via the Hub | Terminal switch in the title bar.</div>
+            <div class="mt-0.5 text-[11.5px] text-text-3">Attach to a session's tmux windows inside the app, from the Hub | Terminal switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running.</div>
           </div>
           <span
             v-if="terminalRestartPending"
