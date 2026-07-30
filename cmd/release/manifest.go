@@ -166,20 +166,31 @@ func validateManifestAdvancement(candidate releaseVersion, manifests map[string]
 	return nil
 }
 
-func releaseVersions(ctx context.Context) ([]releaseVersion, map[string]channelManifest, error) {
+func releaseTagVersions(ctx context.Context) ([]releaseVersion, error) {
 	output, err := exec.CommandContext(ctx, "git", "tag", "--list", "desktop-v*").Output()
 	if err != nil {
-		return nil, nil, fmt.Errorf("list desktop release tags: %w", err)
+		return nil, fmt.Errorf("list desktop release tags: %w", err)
 	}
 
 	var versions []releaseVersion
 	for tag := range strings.Lines(string(output)) {
 		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
 		version, err := parseVersion(tag)
 		if err != nil {
-			return nil, nil, fmt.Errorf("tag %q: %w", tag, err)
+			return nil, fmt.Errorf("tag %q: %w", tag, err)
 		}
 		versions = append(versions, version)
+	}
+	return versions, nil
+}
+
+func releaseVersions(ctx context.Context) ([]releaseVersion, map[string]channelManifest, error) {
+	versions, err := releaseTagVersions(ctx)
+	if err != nil {
+		return nil, nil, err
 	}
 	manifests, err := readManifests(ctx)
 	if err != nil {

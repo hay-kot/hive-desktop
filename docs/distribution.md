@@ -130,9 +130,10 @@ The pipeline is the Go CLI in `cmd/release`. **A release publishes every platfor
 
 1. builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, and verifies the extracted archive's signature and stapled ticket;
 2. builds `linux-amd64` and `linux-arm64` in a container, asserting each binary carries the version stamp and each tarball still satisfies the updater's single-entry rule;
-3. writes one `SHA256SUMS` covering all three, uploads them to `releases/<semver>/`, writes one channel manifest naming all three, and verifies every published artifact against the manifest it just wrote.
+3. writes one `SHA256SUMS` covering all three, uploads them to `releases/<semver>/`, writes one channel manifest naming all three, and verifies every published artifact against the manifest it just wrote;
+4. records the release on GitHub ([0034](decisions/0034-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
 
-Publishing everything in one process is what keeps the manifest-advancement rule (below) usable: a second publish topping up another platform would be rejected for not advancing the version the first just set. It also means a release needs macOS **and** a running Docker on the same machine. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
+Publishing everything in one process is what keeps the manifest-advancement rule (below) usable: a second publish topping up another platform would be rejected for not advancing the version the first just set. It also means a release needs macOS, a running Docker, **and** an authenticated `gh` on the same machine. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
 ### Building Linux from macOS
 
@@ -147,21 +148,21 @@ Building the non-host architecture (amd64 on Apple Silicon) works but runs the i
 
 The web landing page and worker are **not** independent of a release. Before the app build, `publish` deploys `web/` (`npm ci && npm run deploy`) and verifies the worker is live and — when `HIVE_DESKTOP_REPORT_TOKEN` is set — that the release token is accepted (an authenticated non-gzip `POST /api/report` must return `415`, past the `401`/`503` gates, so it never writes a report). This runs first because the R2 upload is the only irreversible step: a broken or misconfigured backend aborts the release before any immutable artifact ships, keeping the app and its backend in sync or failing loudly. `--skip-web` opts out. Pushing to `main` under `web/**` still deploys the site on its own (`.github/workflows/deploy-web.yml`) for web-only changes.
 
-**Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise; tag afterwards):
+**Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise):
 
 ```bash
 go run ./cmd/release prepare dev 1.4.0-dev.1
 mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --skip-web, --force
-git tag desktop-v1.4.0-dev.1             # local only; do not push after a local upload
 ```
 
-`publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256 before it succeeds. `verify` remains available for later diagnostics without rebuilding.
+`publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.
 
 Rules enforced by the publisher:
 1. Release preparation requires a clean, current `main`. Publishing requires the same state. Source state is checked again immediately before upload.
 2. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
 3. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
 4. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+5. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
 
 ## Installing on Linux
 
@@ -223,3 +224,4 @@ Dev builds are pruned by a scheduled job (delete `-dev.` versions older than N d
 - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (repo secrets + local `.env`) — S3 credentials for `hive-desktop-releases`.
 - `HIVE_DESKTOP_REPORT_TOKEN` (repo secret + local `.env`) — stamped into release builds so problem-report uploads pass the worker's bearer check; set it to the same value as the worker's `REPORT_TOKEN` secret. Extractable from the binary, so not a real secret (see [Problem reporting](#problem-reporting)).
 - Signing/notary set (local `.env`): `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PWD`, `MACOS_SIGN_IDENTITY`, `AC_API_KEY`, `AC_API_KEY_ID`, `AC_API_ISSUER_ID`. macOS only — Linux publishing needs nothing beyond the R2 pair.
+- `gh` authentication (`gh auth status`) — the maintainer's own GitHub login, used to create the GitHub Release; the tag push uses `git`'s configured push credentials. Not a repo secret. `publish` checks it in preflight so a missing login aborts before the upload.
