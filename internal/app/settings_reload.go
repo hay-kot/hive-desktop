@@ -85,10 +85,7 @@ type SettingsReload struct {
 // and announces the change. It is the one reload path: the watcher, the HTTP
 // endpoint and any future caller all go through it.
 //
-// A file that will not parse or validate leaves the running values in service
-// and publishes nothing — a settings edit is not a reason to take a working app
-// down — but records the failure to the activity log so the degradation is not
-// silent.
+// Failed reload semantics are defined by ADR 0041.
 func (a *App) ReloadSettings(ctx context.Context) (SettingsReload, error) {
 	previous := a.settingsStore.Current()
 	next, err := a.settingsStore.Reload()

@@ -13,10 +13,6 @@ import (
 // a change, persisting it, and applying what can be applied to the running
 // subsystems without a restart.
 //
-// Reads come from the store's snapshot, so they never fail and never disagree
-// with each other: two values read within one operation come from one atomic
-// swap rather than two file loads that a mid-flight edit can land between.
-//
 // Every setter is load-modify-save so unrelated fields survive; writing a
 // fresh single-field Settings would clobber them.
 type SettingsService struct {

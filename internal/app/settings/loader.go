@@ -19,12 +19,7 @@ import (
 // process-local. All mutations go through Update so concurrent UI/background
 // writes cannot lose each other.
 //
-// It also serves a last-good snapshot. Current never fails: a running app whose
-// settings.yaml is momentarily unparsable keeps the values it was already using
-// rather than degrading to nothing, the same way a flow that cannot be built
-// keeps its predecessor in service (ADR 0041). Reload swaps the snapshot; a
-// failed reload leaves the previous one in service and is reported by
-// LoadError.
+// It also serves the last-good snapshot described by ADR 0041.
 //
 // Lock order is mu then settingsFileMu, never the reverse.
 type Store struct {

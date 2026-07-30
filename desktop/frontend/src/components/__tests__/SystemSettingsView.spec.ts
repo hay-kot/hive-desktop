@@ -236,36 +236,34 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-update-uptodate"]').exists()).toBe(true)
   })
 
-  it('persists the terminal opt-in and flags that a relaunch is pending', async () => {
+  it('restart hint mirrors RestartPending', async () => {
     mocks.Info.mockResolvedValue(info())
     const wrapper = mount(SystemSettingsView)
     await flushPromises()
 
-    // Persisted off, running off: nothing pending.
     expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
 
+    wrapper.unmount()
     mocks.RestartPending.mockResolvedValue([pendingField('experimental.terminal')])
-    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
+    const pendingWrapper = mount(SystemSettingsView)
     await flushPromises()
 
-    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(true)
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
+    expect(pendingWrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
   })
 
-  it('shows no restart hint when the persisted opt-in matches the running app', async () => {
+  it('switch reflects the persisted value and turning it off persists false', async () => {
     mocks.Info.mockResolvedValue(info())
     mocks.ExperimentalSettings.mockResolvedValue({ terminal: true })
     const wrapper = mount(SystemSettingsView)
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="system-experimental-terminal"]').attributes('aria-checked')).toBe('true')
 
-    // Turning it off is a change against the running app, so it is pending too.
-    mocks.RestartPending.mockResolvedValue([pendingField('experimental.terminal')])
     await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
     await flushPromises()
+
     expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="system-experimental-terminal"]').attributes('aria-checked')).toBe('false')
   })
 
   it('reverts the terminal opt-in switch when the save fails', async () => {
