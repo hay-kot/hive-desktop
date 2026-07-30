@@ -382,9 +382,9 @@ onBeforeUnmount(() => session.value?.dispose())
               :aria-expanded="!collapsedRepos.includes(group.key)"
               @click="toggleGroup(group.key)"
             >
-              <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
               <span class="min-w-0 truncate font-mono text-[13.5px] font-semibold tracking-[.02em] text-text">{{ group.name }}</span>
               <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+              <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
             </button>
             <div v-if="!collapsedRepos.includes(group.key)" class="flex flex-col border-t border-border bg-app py-1">
               <div v-for="row in group.sessions" :key="row.id">
@@ -446,7 +446,7 @@ onBeforeUnmount(() => session.value?.dispose())
                     :data-active="tab.windowId === activeWindowId"
                     @click="session?.select(tab.windowId)"
                   >
-                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]" :class="tab.windowId === activeWindowId ? 'text-text' : 'text-text-2'">{{ tab.name || tab.windowId }}</span>
+                    <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ tab.name || tab.windowId }}</span>
                   </button>
                 </div>
               </div>
@@ -582,7 +582,7 @@ onBeforeUnmount(() => session.value?.dispose())
 </template>
 
 <style scoped>
-.session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 32px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
+.session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 20px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
 .session-row:hover, .session-row.menu-open { background: var(--color-chip); }
 .session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 /* No fill: the rail and the accent are enough to find the attached row, and
@@ -592,10 +592,12 @@ onBeforeUnmount(() => session.value?.dispose())
    its font size, so stacked rows would show a gap where the TUI's cell grid
    shows an unbroken line. ::before is the vertical, stopped at the elbow on the
    last row; ::after is the tick into the name. */
-.window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; padding-left: 52px; padding-right: 12px; text-align: left; cursor: pointer; }
-.window-row:hover, .window-row-active { background: var(--color-chip); }
-.window-row::before { content: ''; position: absolute; left: 38px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
-.window-row::after { content: ''; position: absolute; left: 38px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
+.window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; padding-left: 40px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
+.window-row:hover { background: var(--color-chip); }
+.window-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.window-row-active { font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.window-row::before { content: ''; position: absolute; left: 26px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
+.window-row::after { content: ''; position: absolute; left: 26px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
 .window-row-last::before { bottom: 50%; }
 
 /* Revealed by opacity so the kebab's column is always reserved — hovering a row
