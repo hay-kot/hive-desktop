@@ -152,11 +152,33 @@ describe('createTerminalClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ slug: 'hive-abc', windowId: '@2' })
   })
 
-  it('surfaces the core error message from a failed control action', async () => {
+  it('starts a session and reports whether the call is what spawned it', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { started: true }))
+
+    const result = await createTerminalClient(endpoint).start('hive-abc')
+
+    expect(result).toEqual({ started: true })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/start')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc' })
+  })
+
+  it('kills a session and reports whether there was one to kill', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { killed: false }))
+
+    const result = await createTerminalClient(endpoint).kill('hive-abc')
+
+    expect(result).toEqual({ killed: false })
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:58006/api/terminal/kill')
+  })
+
+  it('surfaces the core error message and its kind from a failed control action', async () => {
     fetchMock.mockResolvedValue(jsonResponse(404, { kind: 'not_found', message: 'no terminal is attached for that slug' }))
 
+    // The kind is what tells a session that is not running apart from tmux
+    // being unusable; the view branches on it rather than on the message.
     await expect(createTerminalClient(endpoint).detach('gone'))
-      .rejects.toThrow('no terminal is attached for that slug')
+      .rejects.toMatchObject({ message: 'no terminal is attached for that slug', kind: 'not_found' })
   })
 
   it('opens the stream on the versioned URL with the token in the query', () => {

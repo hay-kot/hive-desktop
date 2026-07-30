@@ -183,9 +183,20 @@ func (ctrl *Controller) baseOperations() []Op {
 func (ctrl *Controller) terminalOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. cols/rows are the opening size vote; 0x0 attaches without setting a client size, leaving the session at the size its other clients gave it. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
+			Method: "POST", Path: "/api/terminal/attach", Summary: "Attach a tmux control-mode client to a session slug and return its windows. Attaching never spawns: a slug tmux is not running answers 404, and POST /api/terminal/start is what creates it. cols/rows are the opening size vote; 0x0 attaches without setting a client size, leaving the session at the size its other clients gave it. The data plane is a WebSocket served at " + TerminalStreamPath + ", outside this operations table.",
 			Request: terminalAttachRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.TerminalAttach,
 			Errors: terminalErrors("the slug names no reachable tmux session"),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/start", Summary: "Spawn the tmux session a slug names, from the hive session's own spawn configuration — the windows, working directory and agent command hive itself would use — and report whether this call is what created it. A session tmux is already running answers started=false rather than being respawned. Starting runs the session's agent command, which is why it is a separate call from attach.",
+			Request: terminalSlugRequest{}, Response: terminalStartResponse{}, Handler: ctrl.TerminalStart,
+			Errors: terminalErrors("no hive session carries that slug",
+				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
+		},
+		{
+			Method: "POST", Path: "/api/terminal/kill", Summary: "Kill the tmux session a slug names and report whether there was one to kill. This is the terminal's lifecycle only — the hive session, its checkout and its record are untouched — but whatever is running inside it, the agent included, stops. A slug tmux is not running answers killed=false rather than failing.",
+			Request: terminalSlugRequest{}, Response: terminalKillResponse{}, Handler: ctrl.TerminalKill,
+			Errors: terminalErrors(""),
 		},
 		{
 			Method: "POST", Path: "/api/terminal/resize", Summary: "Vote a size for the attached control client; every client attached to a window renders the same grid and tmux's window-size option decides whose size that is.",
@@ -228,12 +239,14 @@ func (ctrl *Controller) terminalOperations() []Op {
 // terminalErrors documents what every terminal operation can answer beyond the
 // generic error: the bearer token these — and only these — routes require, and
 // tmux being absent or too old. An empty notFound means the operation has no
-// 404: an absent target is one of its answers, not one of its failures.
-func terminalErrors(notFound string) []ErrResp {
+// 404: an absent target is one of its answers, not one of its failures. extra
+// carries whatever else one operation alone can answer.
+func terminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
 	if notFound != "" {
 		errs = append(errs, ErrResp{Status: 404, When: notFound})
 	}
+	errs = append(errs, extra...)
 	return append(errs, ErrResp{Status: 503, When: "tmux is unavailable: missing, older than 3.2, or an unsupported build"})
 }
 

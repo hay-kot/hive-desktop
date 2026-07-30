@@ -51,6 +51,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0041](decisions/0041-subprocess-environment.md) | Run the user's commands (session hooks, shell actions) in the user's PATH |
 | [0042](decisions/0042-terminal-attach-pool.md) | Terminal view pools live attaches and swaps sessions on first paint |
 | [0043](decisions/0043-action-declared-inputs.md) | Actions declare their inputs on the envelope, collected by one generic invocation form |
+| [0044](decisions/0044-terminal-start-is-an-offered-action.md) | A session's terminal is started and killed on purpose, never as a side effect of attaching |
 
 ## References
 

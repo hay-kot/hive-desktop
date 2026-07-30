@@ -2,7 +2,7 @@ import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useTerminalWindows } from '../useTerminalWindows'
 import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
-import type { TerminalClient } from '../../lib/terminalClient'
+import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
 const xterm = vi.hoisted(() => {
   class FakeTerminal {
@@ -157,6 +157,8 @@ function fakeClient(): MockedClient {
         { windowId: '@2', name: 'shell', active: false, width: 213, height: 55 },
       ],
     }),
+    start: vi.fn().mockResolvedValue({ started: true }),
+    kill: vi.fn().mockResolvedValue({ killed: true }),
     listWindows: vi.fn().mockResolvedValue({ windows: [] }),
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
@@ -695,6 +697,18 @@ describe('useTerminalWindows', () => {
     expect(session.status.value).toBe('ended')
     expect(session.endReason.value).toBe('attach-failed')
     expect(session.error.value).toBe('no terminal is attached for that slug')
+  })
+
+  it('separates a session that is not running from an attach that failed', async () => {
+    const client = fakeClient()
+    client.attach.mockRejectedValue(new TerminalRequestError('session "hive-abc" is not running', 'not_found'))
+    const session = open(client)
+
+    await session.start()
+
+    // Not a fault: the view turns this into the panel offering to start it.
+    expect(session.endReason.value).toBe('not-started')
+    expect(session.error.value).toBe('session "hive-abc" is not running')
   })
 
   it('reconnect re-attaches with fresh terminals', async () => {

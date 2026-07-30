@@ -8,16 +8,24 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
+// terminalStarter spawns the tmux session a slug names when tmux has none. It
+// belongs to the session domain rather than to this one: the slug names a hive
+// session, and what its terminal holds is hive's spawn configuration.
+type terminalStarter interface {
+	StartTmuxSession(ctx context.Context, slug string) error
+}
+
 // TerminalsService is the slug-keyed driving service both the HTTP and the
 // Wails adapter call. It holds no token, base URL or stream path: what the
 // terminal is reached over is the adapter's, not the core's (ADR 0036).
 type TerminalsService struct {
 	manager *tmuxcc.Manager
 	metrics tmuxcc.MetricsSink
+	starter terminalStarter
 }
 
-func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink) *TerminalsService {
-	return &TerminalsService{manager: manager, metrics: metrics}
+func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink, starter terminalStarter) *TerminalsService {
+	return &TerminalsService{manager: manager, metrics: metrics, starter: starter}
 }
 
 // Available reports tmux/build/platform availability only. Whether the
@@ -31,12 +39,56 @@ func (s *TerminalsService) Available(ctx context.Context) error {
 // and rows are the caller's opening size vote; 0x0 attaches without setting a
 // client size at all, which leaves the session at the size its other clients
 // gave it until the first Resize.
+//
+// A slug tmux is not running is a KindNotFound the caller is expected to answer
+// with Start — attaching never spawns on its own, because spawning runs the
+// session's agent command and that is the user's call to make (ADR 0044). That
+// answer comes from a has-session probe rather than from a dead control
+// stream's message, which is unclassifiable and reads as an internal fault.
 func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows int) ([]tmuxcc.Window, error) {
+	exists, err := s.manager.HasSession(ctx, slug)
+	if err != nil {
+		return nil, terminalError(err, "attaching to session %q", slug)
+	}
+	if !exists {
+		return nil, Errorf(KindNotFound, "session %q is not running", slug)
+	}
 	windows, err := s.manager.Attach(ctx, slug, cols, rows)
 	if err != nil {
 		return nil, terminalError(err, "attaching to session %q", slug)
 	}
 	return windows, nil
+}
+
+// Start spawns the tmux session slug names, from the hive session's own spawn
+// configuration, and reports whether it had to. A session tmux is already
+// running is left alone: the probe is what keeps a spawn configuration the
+// desktop cannot drive — hive's command-based `spawn:` rather than `windows:` —
+// from failing a start for a session that needs none.
+func (s *TerminalsService) Start(ctx context.Context, slug string) (bool, error) {
+	exists, err := s.manager.HasSession(ctx, slug)
+	if err != nil {
+		return false, terminalError(err, "starting session %q", slug)
+	}
+	if exists {
+		return false, nil
+	}
+	if err := s.starter.StartTmuxSession(ctx, slug); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// Kill kills the tmux session slug names and reports whether there was one to
+// kill. It is the terminal's own lifecycle only: the hive session, its checkout
+// and its record are untouched, which is what separates this from a delete or a
+// recycle. Whatever was running inside — the agent included — stops with it.
+func (s *TerminalsService) Kill(ctx context.Context, slug string) (bool, error) {
+	killed, err := s.manager.KillSession(ctx, slug)
+	if err != nil {
+		return false, terminalError(err, "killing the terminal for session %q", slug)
+	}
+	return killed, nil
 }
 
 // ListWindows answers slug's window set without attaching: an attached slug

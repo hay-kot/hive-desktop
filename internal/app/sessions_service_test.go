@@ -42,6 +42,8 @@ type fakeSessionManager struct {
 	recycled  []string
 	pruned    int
 	renameErr error
+	spawned   [][3]string
+	spawnErr  error
 }
 
 func (f *fakeSessionManager) ListSessions(context.Context) ([]dispatch.SessionSummary, error) {
@@ -85,6 +87,14 @@ func (f *fakeSessionManager) RecycleSession(_ context.Context, id string) error 
 func (f *fakeSessionManager) PruneSessions(context.Context) (int, error) {
 	f.pruned++
 	return 3, f.err
+}
+
+func (f *fakeSessionManager) SpawnTmuxSession(_ context.Context, name, path, repo string) error {
+	if f.spawnErr != nil {
+		return f.spawnErr
+	}
+	f.spawned = append(f.spawned, [3]string{name, path, repo})
+	return nil
 }
 
 type fakeSessionTmux struct {
@@ -337,8 +347,57 @@ func TestSessionsService_SessionDetail(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 }
 
+func TestSessionsService_StartTmuxSessionSpawnsFromTheSessionsOwnCheckout(t *testing.T) {
+	manager, detail := activeSession()
+	detail.Path = "/repos/site-wt-ab12"
+	manager.details["s1"] = detail
+	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
+
+	require.NoError(t, svc.StartTmuxSession(t.Context(), "review-81"))
+	assert.Equal(t, [][3]string{{"review 81", "/repos/site-wt-ab12", "acme/site"}}, manager.spawned,
+		"the spawn is hive's, so it gets the name, checkout and remote hive spawns from")
+}
+
+func TestSessionsService_StartTmuxSessionRejectsASlugNoSessionCarries(t *testing.T) {
+	manager, _ := activeSession()
+	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
+
+	// A tmux session made by hand is attachable, but there is nothing to
+	// create one from when it is gone.
+	assert.Equal(t, KindNotFound, KindOf(svc.StartTmuxSession(t.Context(), "hand-rolled")))
+	assert.Equal(t, KindInvalid, KindOf(svc.StartTmuxSession(t.Context(), "  ")))
+	assert.Empty(t, manager.spawned)
+}
+
+func TestSessionsService_StartTmuxSessionRefusesASessionWithNoCheckout(t *testing.T) {
+	recycled := dispatch.SessionDetail{ID: "s2", Name: "old", Slug: "old", Repo: "acme/site", State: "recycled"}
+	manager := &fakeSessionManager{
+		sessions: []dispatch.SessionSummary{{ID: "s2", Name: "old", Slug: "old", Repo: "acme/site", State: "recycled"}},
+		details:  map[string]dispatch.SessionDetail{"s2": recycled},
+	}
+	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
+
+	assert.Equal(t, KindConflict, KindOf(svc.StartTmuxSession(t.Context(), "old")))
+	assert.Empty(t, manager.spawned, "a recycled session's directory is gone; a terminal in it would be one too")
+}
+
+func TestSessionsService_StartTmuxSessionRefusesASlugItsNameWouldNotSpawn(t *testing.T) {
+	// Hive spawns under the slug it derives from the name, so a record whose two
+	// have drifted apart would create a session under a name nothing attaches to.
+	drifted := dispatch.SessionDetail{ID: "s1", Name: "review 82", Slug: "review-81", Repo: "acme/site", State: "active"}
+	manager := &fakeSessionManager{
+		sessions: []dispatch.SessionSummary{{ID: "s1", Name: "review 82", Slug: "review-81", Repo: "acme/site", State: "active"}},
+		details:  map[string]dispatch.SessionDetail{"s1": drifted},
+	}
+	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
+
+	assert.Equal(t, KindConflict, KindOf(svc.StartTmuxSession(t.Context(), "review-81")))
+	assert.Empty(t, manager.spawned)
+}
+
 func TestSessionsService_UnavailableWithoutDependencies(t *testing.T) {
 	svc := newSessionsService(nil, nil, nil, &fakeJobRunner{})
+	assert.Equal(t, KindUnavailable, KindOf(svc.StartTmuxSession(t.Context(), "review-81")))
 	_, err := svc.SessionLaunchOptions(t.Context())
 	assert.Equal(t, KindUnavailable, KindOf(err))
 	_, err = svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "n"})

@@ -704,6 +704,95 @@ describe('TerminalMode', () => {
     wrapper.unmount()
   })
 
+  it('offers to start a session tmux is not running rather than starting it on selection', async () => {
+    const start = vi.fn().mockResolvedValue({ started: true })
+    mocks.createTerminalClient.mockReturnValue({ start })
+    const session = fakeSession()
+    session.tabs.value = []
+    session.status.value = 'ended'
+    session.endReason.value = 'not-started'
+    session.error.value = 'session "hive-fix-parser" is not running'
+    const { wrapper } = await mountAvailable(session)
+
+    await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+    await flushPromises()
+
+    // Selecting attaches and nothing more: starting runs the session's agent
+    // command, so it waits for the click below.
+    expect(session.start).toHaveBeenCalled()
+    expect(start).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="terminal-session-not-started"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="terminal-session-ended"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="terminal-tab"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="terminal-start-session"]').trigger('click')
+    await flushPromises()
+
+    expect(start).toHaveBeenCalledWith('hive-fix-parser')
+    expect(session.reconnect).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('reports a start that failed without leaving the panel', async () => {
+    const start = vi.fn().mockRejectedValue(new Error('session "hive-fix-parser" is recycled'))
+    mocks.createTerminalClient.mockReturnValue({ start })
+    const session = fakeSession()
+    session.tabs.value = []
+    session.status.value = 'ended'
+    session.endReason.value = 'not-started'
+    const { wrapper } = await mountAvailable(session)
+    await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="terminal-start-session"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="terminal-start-error"]').text()).toContain('recycled')
+    expect(session.reconnect).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('starts a session from its row menu and attaches to it', async () => {
+    const start = vi.fn().mockResolvedValue({ started: true })
+    mocks.createTerminalClient.mockReturnValue({ start })
+    const { wrapper, router } = await mountAvailable()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await wrapper.get('[data-testid="session-menu-start"]').trigger('click')
+    await flushPromises()
+
+    // Started first, then selected: attaching before the spawn would only fail.
+    expect(start).toHaveBeenCalledWith('hive-bump-deps')
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    wrapper.unmount()
+  })
+
+  it('kills the attached terminal behind a confirmation and re-attaches onto the start panel', async () => {
+    const kill = vi.fn().mockResolvedValue({ killed: true })
+    mocks.createTerminalClient.mockReturnValue({ kill })
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await wrapper.get('[data-testid="session-menu-kill"]').trigger('click')
+    await flushPromises()
+
+    // What it kills, and what it leaves, is the whole point of confirming it.
+    const dialog = document.querySelector('[data-testid="session-confirmation"]')
+    expect(dialog?.textContent).toContain('stopping the agent')
+    expect(dialog?.textContent).toContain('checkout and its work are untouched')
+    expect(kill).not.toHaveBeenCalled()
+
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')!.click()
+    await flushPromises()
+
+    expect(kill).toHaveBeenCalledWith('hive-fix-parser')
+    // Re-attaching is what turns the dead session into the start panel.
+    expect(session.reconnect).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('re-attaches under the new slug when the attached session is renamed', async () => {
     mocks.RenameSession.mockResolvedValue({ id: '1', name: 'parse it', slug: 'parse-it', repo: 'hay-kot/hive', state: 'active' })
     const { wrapper, router } = await mountAvailable()
