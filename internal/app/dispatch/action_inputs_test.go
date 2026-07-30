@@ -23,7 +23,7 @@ func TestShellExecutor_RendersCollectedInputs(t *testing.T) {
 		&actions.ShellConfig{CommandTemplate: "printf %s {{ .Inputs.reason | shq }}"},
 		actions.InputSpec{Name: "reason", Type: actions.InputTypeText, Required: true})
 
-	result, err := NewShellExecutor(zerolog.Nop()).Execute(t.Context(), action,
+	result, err := NewShellExecutor(zerolog.Nop(), hostEnvironment{}).Execute(t.Context(), action,
 		OutputData{Payload: map[string]any{}, Inputs: map[string]string{"reason": "flapping; rm -rf /"}},
 		ActionInvocationInput{})
 	require.NoError(t, err)

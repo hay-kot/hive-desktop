@@ -58,7 +58,7 @@ export interface EditableShellConfig {
  * 
  * Inputs are an envelope field rather than per-type config: every action type
  * renders over the same OutputData, so one declaration gives a new action type
- * the invocation form with nothing further to wire (ADR 0041).
+ * the invocation form with nothing further to wire (ADR 0043).
  */
 export interface InputSpec {
     /**
