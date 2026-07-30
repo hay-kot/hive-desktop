@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -29,13 +30,23 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
-func testServer(t *testing.T) (*app.App, http.Handler) {
+// testServer builds the app over a fresh config root. seedConfig, when given,
+// writes into that config dir before the app starts: actions.yml is read
+// eagerly at startup and afterwards only by an fsnotify watcher, so a
+// bad-hand-edit case has to be on disk first to be observed deterministically.
+func testServer(t *testing.T, seedConfig ...func(t *testing.T, configDir string)) (*app.App, http.Handler) {
 	t.Helper()
 	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
 	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
-	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
+	t.Setenv(settings.EnvConfigDir, configDir)
 	t.Setenv(settings.EnvMockMode, "feed")
+
+	for _, seed := range seedConfig {
+		require.NoError(t, os.MkdirAll(configDir, 0o755))
+		seed(t, configDir)
+	}
 
 	core, err := app.New(t.Context(), app.Config{
 		Settings: settings.DefaultSettings(),
@@ -338,6 +349,86 @@ func TestNodeImageRejectsBadRequests(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, notWebhook.Code, "a non-webhook node is a 400")
 }
 
+// actionsCatalog reads GET /api/actions into the shape an agent consumes.
+type actionsCatalog struct {
+	Path    string `json:"path"`
+	Valid   bool   `json:"valid"`
+	Error   string `json:"error"`
+	Actions []struct {
+		ID        string `json:"id"`
+		Label     string `json:"label"`
+		Type      string `json:"type"`
+		Clipboard *struct {
+			TextTemplate string `json:"textTemplate"`
+		} `json:"clipboard"`
+	} `json:"actions"`
+}
+
+func readActions(t *testing.T, handler http.Handler) actionsCatalog {
+	t.Helper()
+	rec := get(t, handler, "/api/actions")
+	require.Equal(t, http.StatusOK, rec.Code)
+	var out actionsCatalog
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	return out
+}
+
+// TestActionsCatalogReportsLoadedActions covers GET /api/actions on a healthy
+// install: the catalog an agent edits, reported with the file it came from, so
+// an actions.yml edit can be verified without invoking the action (issue #111).
+func TestActionsCatalogReportsLoadedActions(t *testing.T) {
+	core, handler := testServer(t)
+
+	got := readActions(t, handler)
+	assert.Equal(t, core.RuntimePaths().ActionsPath, got.Path, "the catalog names the file to edit")
+	assert.True(t, got.Valid)
+	assert.Empty(t, got.Error)
+	require.NotEmpty(t, got.Actions, "the seeded catalog is reported")
+
+	for _, a := range got.Actions {
+		assert.NotEmptyf(t, a.ID, "%s has an id", a.Label)
+		assert.NotEmptyf(t, a.Type, "%s has a type", a.ID)
+	}
+}
+
+// TestActionsCatalogReportsConfiguredTemplate asserts the type-specific config
+// comes back, which is what makes the endpoint a post-edit check rather than
+// just an id list: a clipboard action reports the template it will render.
+func TestActionsCatalogReportsConfiguredTemplate(t *testing.T) {
+	_, handler := testServer(t, func(t *testing.T, configDir string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "actions.yml"), []byte(
+			"version: 1\nactions:\n  - id: copy-url\n    label: Copy URL\n    type: clipboard\n    text_template: \"{{ .Payload.url }}\"\n",
+		), 0o600))
+	})
+
+	got := readActions(t, handler)
+	require.True(t, got.Valid, "error: %s", got.Error)
+	require.Len(t, got.Actions, 1)
+	assert.Equal(t, "copy-url", got.Actions[0].ID)
+	assert.Equal(t, "clipboard", got.Actions[0].Type)
+	require.NotNil(t, got.Actions[0].Clipboard, "the clipboard branch is reported")
+	assert.Equal(t, "{{ .Payload.url }}", got.Actions[0].Clipboard.TextTemplate)
+}
+
+// TestActionsCatalogSurfacesParseError is the failure this endpoint exists for:
+// a malformed actions.yml keeps the last-good catalog in effect, so without a
+// reported error an editor cannot distinguish "accepted" from "rejected and
+// ignored" (issue #111).
+func TestActionsCatalogSurfacesParseError(t *testing.T) {
+	_, handler := testServer(t, func(t *testing.T, configDir string) {
+		t.Helper()
+		require.NoError(t, os.WriteFile(filepath.Join(configDir, "actions.yml"), []byte(
+			"version: 1\nactions:\n  - id: copy-url\n    label: Copy URL\n    type: clipboard\n    txt_template: \"{{ .Payload.url }}\"\n",
+		), 0o600))
+	})
+
+	got := readActions(t, handler)
+	assert.False(t, got.Valid, "an unknown key is a hard error, not a silent drop")
+	assert.Contains(t, got.Error, "txt_template", "the error names the offending key")
+	assert.Empty(t, got.Actions, "nothing was ever loaded, so the last-good catalog is empty")
+}
+
 // TestAPIIndexListsEveryRoute covers the GET /api discovery index: it names the
 // service, points at the OpenAPI document, and describes every route — including
 // that the avatar upload takes a raw body, not multipart (issue #97).
@@ -509,6 +600,49 @@ func TestOpenAPIDocumentsInboxDetail(t *testing.T) {
 	itemProps := obj(obj(obj(obj(schema)["properties"])["items"])["items"])["properties"]
 	assert.Contains(t, obj(itemProps), "feedId", "inbox items carry a feedId")
 	assert.Contains(t, obj(obj(itemProps)["lifecycle"])["enum"], "terminal", "lifecycle is enumerated")
+}
+
+// TestOpenAPISuccessSchemasNameTheirFields guards what the document exists for.
+// A route whose response type reflects to a bare object — a map, a named slice,
+// a type swapped for `any` — still validates as OpenAPI and still agrees with
+// the index, but tells a consumer no field names, which is the reverse-
+// engineering the self-describing surface replaced (ADR 0027). Fail here rather
+// than at the agent.
+func TestOpenAPISuccessSchemasNameTheirFields(t *testing.T) {
+	_, handler := testServer(t)
+
+	var doc struct {
+		Paths map[string]map[string]struct {
+			Responses map[string]struct {
+				Content map[string]struct {
+					Schema struct {
+						Type       string         `json:"type"`
+						Properties map[string]any `json:"properties"`
+					} `json:"schema"`
+				} `json:"content"`
+			} `json:"responses"`
+		} `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(get(t, handler, "/api/openapi.json").Body.Bytes(), &doc))
+
+	checked := 0
+	for path, methods := range doc.Paths {
+		for method, op := range methods {
+			for code, resp := range op.Responses {
+				if !strings.HasPrefix(code, "2") {
+					continue
+				}
+				body, ok := resp.Content["application/json"]
+				if !ok {
+					continue // 204s and the raw-image responses carry no JSON body
+				}
+				checked++
+				assert.Equalf(t, "object", body.Schema.Type, "%s %s -> %s is a JSON object", method, path, code)
+				assert.NotEmptyf(t, body.Schema.Properties, "%s %s -> %s names its fields", method, path, code)
+			}
+		}
+	}
+	assert.NotZero(t, checked, "the document has JSON responses to check")
 }
 
 // TestOpenAPISpecIsValid validates the generated document against the embedded
