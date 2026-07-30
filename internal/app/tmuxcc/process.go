@@ -149,7 +149,8 @@ func detachedEnv() []string {
 }
 
 // cappedBuffer keeps the first max bytes written to it, so a failed spawn can
-// report tmux's complaint without an unbounded sink.
+// report tmux's complaint without an unbounded sink. Write returns len(p)
+// past the cap so a noisy child never blocks on a full pipe.
 type cappedBuffer struct {
 	mu  sync.Mutex
 	buf []byte

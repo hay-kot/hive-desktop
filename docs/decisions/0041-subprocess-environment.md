@@ -71,9 +71,15 @@ supplies, and the desktop supplies `io.Discard`, so the shell's own
   and inherits whatever that shell does. That is the cost ADR 0039 declined to
   pay to locate a single binary; for an open set of user commands there is no
   list that substitutes for it. tmux discovery is unchanged and still does not
-  consult the probe.
+  consult the probe — though when discovery finds nothing, the bare name falls
+  through to `envExecutor`, whose PATH includes the probe's answer: a
+  deliberate last-resort rescue rather than a hard failure.
 - A hook that is slow because the user's shell is slow to start pays that once,
   not per command.
+- The probe captures the whole environment but only PATH is adopted. Widening
+  to more variables (the full-environment model VS Code and JetBrains use) is
+  a contained change behind `Environ`, deferred until a hook demonstrably
+  needs a non-PATH variable.
 - The PATH a run resolved is logged (`info` for the source, `debug` for the
   value), so a problem report (ADR 0024) says which environment a failing hook
   actually had.

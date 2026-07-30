@@ -39,9 +39,10 @@ func (e tmuxExecutor) RunDirStream(ctx context.Context, dir string, stdout, stde
 	return e.Executor.RunDirStream(ctx, dir, stdout, stderr, e.resolve(cmd), args...)
 }
 
-// resolve rewrites only the bare name, and only when discovery succeeds: a
-// failed lookup runs `tmux` so the user sees the shell's own "not found" for
-// the command that failed, rather than a rewrite that hid it.
+// resolve rewrites only the bare name, and only when discovery succeeds. A
+// failed lookup passes `tmux` through to the inner executor, which searches
+// the probe-derived PATH (ADR 0041) — a last-resort rescue for a tmux only
+// the login shell knows about — before the user sees the OS's own "not found".
 func (e tmuxExecutor) resolve(cmd string) string {
 	if cmd != "tmux" {
 		return cmd
