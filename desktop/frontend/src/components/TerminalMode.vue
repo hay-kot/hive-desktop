@@ -20,23 +20,22 @@ import SessionDetailDialog from './SessionDetailDialog.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
+import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
+import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
 import { useWailsEvent } from '../composables/useWailsEvent'
-import { createTerminalClient, getTerminalEndpoint, type TerminalClient, type WindowState } from '../lib/terminalClient'
+import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
-const checking = ref(true)
-const available = ref(false)
-const reason = ref('')
-const client = shallowRef<TerminalClient | null>(null)
+const { checking, available, reason, client } = useTerminalAvailability()
 const session = shallowRef<UseTerminalWindows | null>(null)
 const activeSlug = ref('')
 const renamingId = ref('')
@@ -131,33 +130,21 @@ function toggleGroup(key: string): void {
 // Windows are only known live through an attach, so every other active
 // session's come from a one-shot listing per session — fetched only while the
 // Settings ▸ Appearance ▸ Terminal option is on, and refreshed whenever the
-// session list or the attached slug changes. The attached session never reads
-// from this map; its live tab set is fresher.
+// session list or the attached slug changes.
 const { showWindows: showAllWindows } = useTerminalShowWindows()
-const sessionWindows = ref<Record<string, WindowState[]>>({})
-watch([showAllWindows, attachable, activeSlug, client], () => { void refreshSessionWindows() })
-
-async function refreshSessionWindows(): Promise<void> {
+const { listings: sessionWindows, refresh: refreshListings } = useTerminalWindowListings()
+watch([showAllWindows, attachable, activeSlug, client], () => {
   const transport = client.value
-  if (!showAllWindows.value || !transport) {
-    sessionWindows.value = {}
-    return
-  }
-  const entries = await Promise.all(attachable.value.map(async (row) => {
-    try {
-      const { windows } = await transport.listWindows(row.slug)
-      return [row.slug, windows] as const
-    } catch {
-      // One session's listing failing must not blank the others' rows.
-      return [row.slug, [] as WindowState[]] as const
-    }
-  }))
-  if (!showAllWindows.value) return
-  sessionWindows.value = Object.fromEntries(entries)
-}
+  if (!showAllWindows.value || !transport) return
+  void refreshListings(transport, attachable.value)
+})
 
+// The attached session's live tab set is fresher than its listing — but while
+// the attach is still in flight, the cached listing stands in so selecting a
+// session does not collapse its subtree.
 function listedWindows(row: TerminalSessionRow): WindowState[] {
-  if (!showAllWindows.value || row.slug === activeSlug.value) return []
+  if (!showAllWindows.value) return []
+  if (row.slug === activeSlug.value && status.value !== 'connecting') return []
   return sessionWindows.value[row.slug] ?? []
 }
 
@@ -178,23 +165,38 @@ const tabs = computed<TerminalWindowTab[]>(() => session.value?.tabs.value ?? []
 const activeWindowId = computed(() => session.value?.activeWindowId.value ?? '')
 const activeScrolledUp = computed(() => tabs.value.some((tab) => tab.windowId === activeWindowId.value && tab.scrolledUp))
 const status = computed(() => session.value?.status.value ?? 'connecting')
+// The cached listing stands in for the tab strip while the attach is in
+// flight, so selecting a session swaps the strip's contents in place instead
+// of emptying and rebuilding it.
+const placeholderTabs = computed<WindowState[]>(() =>
+  (status.value === 'connecting' && !tabs.value.length ? sessionWindows.value[activeSlug.value] ?? [] : []))
 const endReason = computed(() => session.value?.endReason.value ?? null)
 const sessionError = computed(() => session.value?.error.value ?? '')
 const actionError = computed(() => session.value?.actionError.value ?? '')
 const sizeConstraint = computed(() => session.value?.sizeConstraint.value ?? null)
 
 // The toggle into this mode is always live, so the gate is a panel here
-// rather than a disabled button in the title bar.
+// rather than a disabled button in the title bar. The gate only shows on the
+// first visit: with a cached client the last-known tree renders immediately,
+// the resume and the listing revalidation start at once, and the probe below
+// only re-checks availability.
 async function probe(): Promise<void> {
-  checking.value = true
+  if (client.value) {
+    if (attachable.value.length) restoreLastSession()
+    void reloadSessions().then(restoreLastSession)
+  } else {
+    checking.value = true
+  }
   try {
     const availability = await Available()
     available.value = availability.available
     reason.value = availability.reason
     if (!availability.available) return
-    client.value = createTerminalClient(await getTerminalEndpoint())
-    await reloadSessions()
-    restoreLastSession()
+    if (!client.value) {
+      client.value = createTerminalClient(await getTerminalEndpoint())
+      await reloadSessions()
+      restoreLastSession()
+    }
   } catch (e) {
     available.value = false
     reason.value = appErrorMessage(e) || (e instanceof Error && e.message) || 'The terminal is unavailable.'
@@ -221,12 +223,13 @@ function restoreLastSession(): void {
 
 // The route is what attaches: rows and restores only navigate, and this
 // watcher is the single path into openSession, so back/forward re-attach
-// exactly like a click.
+// exactly like a click. Immediate because the cached client can already be
+// live at mount, in which case a deep-linked slug fires no change at all.
 watch([client, routeSlug], ([ready, slug]) => {
   if (!ready) return
   if (slug) openSession(slug)
   else detachSession()
-})
+}, { immediate: true })
 
 // Mirror the attached window into the URL and the resume snapshot. Guarded to
 // the live route so a navigation away cannot claw the history entry back.
@@ -371,13 +374,18 @@ onBeforeUnmount(() => session.value?.dispose())
           <span class="text-[15px] font-semibold">Sessions</span>
           <span v-if="attachable.length" class="font-mono text-[12px] text-text-3">{{ attachable.length }}</span>
           <span class="flex-1" />
+          <!-- The refresh control doubles as the staleness indicator: the
+               cached tree renders instantly, and the spin is what says a
+               revalidation is still in flight. -->
           <button
             type="button"
-            class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+            class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default"
             data-testid="terminal-sessions-refresh"
             aria-label="Reload sessions"
+            :aria-busy="sessionsLoading"
+            :disabled="sessionsLoading"
             @click="reloadSessions"
-          ><IconRotateCw class="size-3.5" /></button>
+          ><IconRotateCw class="size-3.5" :class="{ 'animate-spin': sessionsLoading }" /></button>
           <button
             type="button"
             class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
@@ -561,6 +569,18 @@ onBeforeUnmount(() => session.value?.dispose())
                   :aria-label="`Close ${tab.name || tab.windowId}`"
                   @click="session?.closeWindow(tab.windowId)"
                 ><IconX class="size-3" /></button>
+              </div>
+              <!-- Inert stand-ins from the cached listing while the attach is
+                   in flight; the live tabs replace them in place. -->
+              <div
+                v-for="win in placeholderTabs"
+                :key="win.windowId"
+                class="flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
+                :class="win.active ? 'bg-app shadow-[inset_0_1px_0_var(--color-accent)]' : ''"
+                data-testid="terminal-placeholder-tab"
+                :data-window-id="win.windowId"
+              >
+                <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]" :class="win.active ? 'font-medium text-text' : 'text-text-2'">{{ win.name || win.windowId }}</span>
               </div>
               <button
                 type="button"

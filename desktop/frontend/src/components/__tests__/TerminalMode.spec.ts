@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
+import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
+import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
+import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
@@ -103,6 +106,9 @@ describe('TerminalMode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
+    resetTerminalAvailabilityForTests()
+    resetTerminalSessionsForTests()
+    resetTerminalWindowListingsForTests()
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     mocks.createTerminalClient.mockReturnValue({})
@@ -302,6 +308,64 @@ describe('TerminalMode', () => {
 
     // The setting is a module singleton; put the default back for later tests.
     setTerminalShowWindows(true)
+  })
+
+  it('re-enters from the caches and resumes without waiting on the probe', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const { wrapper } = await mountAvailable()
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+    wrapper.unmount()
+
+    // Neither the probe nor the listing resolves this time: everything the
+    // second entry shows has to come from the caches, revalidation pending.
+    mocks.Available.mockReturnValue(new Promise(() => {}))
+    mocks.ListSessions.mockReturnValue(new Promise(() => {}))
+    localStorage.setItem('hive.terminal.restore', JSON.stringify({ slug: 'hive-bump-deps', window: '' }))
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { wrapper: second, router } = await mountAt()
+
+    expect(second.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+    expect(second.findAll('[data-testid="terminal-session-row"]')).toHaveLength(2)
+    // The refresh control is the staleness indicator while revalidation runs.
+    expect(second.get('[data-testid="terminal-sessions-refresh"]').find('.animate-spin').exists()).toBe(true)
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+    expect(mocks.useTerminalWindows).toHaveBeenCalledWith('hive-bump-deps', expect.anything())
+    second.unmount()
+  })
+
+  it('stands in the cached listing for the tab strip and subtree while attaching', async () => {
+    const listWindows = vi.fn(async () => ({ windows: [
+      { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+      { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
+    ] }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const session = fakeSession()
+    session.tabs.value = []
+    session.status.value = 'connecting'
+    const { wrapper } = await mountAvailable(session)
+
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    const placeholders = wrapper.findAll('[data-testid="terminal-placeholder-tab"]')
+    expect(placeholders.map((tab) => tab.text())).toEqual(['agent', 'shell'])
+    // The attached session's subtree keeps its cached rows too.
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(4)
+
+    // The live tab set replaces the stand-ins in place.
+    session.tabs.value = [
+      { uid: 7, windowId: '@7', name: 'agent', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 8, windowId: '@8', name: 'shell', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    session.status.value = 'live'
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-placeholder-tab"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
   })
 
   it('says when there are no sessions to attach to', async () => {

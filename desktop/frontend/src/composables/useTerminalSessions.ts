@@ -57,28 +57,39 @@ function repoDisplayName(remote: string): string {
   return segments.slice(-2).join('/')
 }
 
+// Module singletons: terminal mode unmounts on every trip to the hub, and a
+// component-local list re-entered as empty made the whole tree pop in again.
+// The rows survive here so re-entry renders the last-known tree immediately,
+// with reload() as the revalidation.
+const sessions = ref<TerminalSessionRow[]>([])
+const loading = ref(false)
+const error = ref<string | null>(null)
+
+async function reload(): Promise<void> {
+  loading.value = true
+  error.value = null
+  try {
+    sessions.value = (await ListSessions()) ?? []
+  } catch (e) {
+    // Keep the last-good rows: a failed revalidation reports itself without
+    // collapsing the tree it could not refresh.
+    error.value = e instanceof Error && e.message ? e.message : 'Could not list sessions.'
+  } finally {
+    loading.value = false
+  }
+}
+
 export function useTerminalSessions(): {
   sessions: Ref<TerminalSessionRow[]>
   loading: Ref<boolean>
   error: Ref<string | null>
   reload: () => Promise<void>
 } {
-  const sessions = ref<TerminalSessionRow[]>([])
-  const loading = ref(false)
-  const error = ref<string | null>(null)
-
-  async function reload(): Promise<void> {
-    loading.value = true
-    error.value = null
-    try {
-      sessions.value = (await ListSessions()) ?? []
-    } catch (e) {
-      error.value = e instanceof Error && e.message ? e.message : 'Could not list sessions.'
-      sessions.value = []
-    } finally {
-      loading.value = false
-    }
-  }
-
   return { sessions, loading, error, reload }
+}
+
+export function resetTerminalSessionsForTests(): void {
+  sessions.value = []
+  loading.value = false
+  error.value = null
 }
