@@ -32,7 +32,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
 // mode is the app-level Hub|Terminal switch. It renders only while
-// terminalEnabled — the experimental.terminal opt-in (ADR 0035) — and once
+// terminalEnabled — the experimental.terminal opt-in (ADR 0037) — and once
 // rendered it is never disabled, because an unavailable terminal explains
 // itself inside Terminal mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run

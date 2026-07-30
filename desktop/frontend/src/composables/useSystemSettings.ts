@@ -48,7 +48,7 @@ export function useSystemSettings() {
   const checkingUpdate = ref(false)
   const checkedOnce = ref(false)
 
-  // The experimental.terminal opt-in (ADR 0035) is read once at startup, so
+  // The experimental.terminal opt-in (ADR 0037) is read once at startup, so
   // the toggle tracks two values: what is persisted and what this run mounted.
   // They differ exactly while a relaunch is pending.
   const experimentalTerminal = ref(false)

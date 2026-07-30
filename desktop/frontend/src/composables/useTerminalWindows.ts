@@ -360,7 +360,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     disposeTabs()
     scope.stop()
     // Intentional teardown releases the control client; only an unexpected drop
-    // leaves tmux attached (ADR 0034 / decision D5).
+    // leaves tmux attached (ADR 0036 / decision D5).
     void client.detach(slug).catch(() => {})
   }
 

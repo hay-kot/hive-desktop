@@ -63,7 +63,7 @@ type MountOptions struct {
 	// Terminal carries the per-run bearer token and WebSocket path the terminal
 	// bootstrap hands the webview. Zero when no terminal transport was mounted.
 	Terminal TerminalTransport
-	// TerminalEnabled is the experimental.terminal opt-in (ADR 0035). Off means
+	// TerminalEnabled is the experimental.terminal opt-in (ADR 0037). Off means
 	// the frontend never renders the way into terminal mode.
 	TerminalEnabled bool
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.

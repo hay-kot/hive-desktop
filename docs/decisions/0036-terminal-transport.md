@@ -1,4 +1,4 @@
-# 0034 — Terminal transport: REST control plane on httpapi, one binary WebSocket per session
+# 0036 — Terminal transport: REST control plane on httpapi, one binary WebSocket per session
 
 - **Status:** accepted
 - **Date:** 2026-07-28

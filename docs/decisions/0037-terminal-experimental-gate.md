@@ -1,11 +1,11 @@
-# 0035 — Terminal mode ships dark behind an experimental settings opt-in
+# 0037 — Terminal mode ships dark behind an experimental settings opt-in
 
 - **Status:** accepted
 - **Date:** 2026-07-29
 
 ## Context
 
-Terminal mode (ADR 0034) is merging ahead of its follow-ups — session sidebar,
+Terminal mode (ADR 0036) is merging ahead of its follow-ups — session sidebar,
 appearance controls — and should reach users only deliberately. The app has no
 feature-flag mechanism; `settings.yaml` is the one user-facing configuration
 surface, and the terminal's transport is already composed per run in

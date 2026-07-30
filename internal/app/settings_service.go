@@ -100,7 +100,7 @@ func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) er
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// ExperimentalSettings are the ships-dark opt-ins (ADR 0035). Each flag is
+// ExperimentalSettings are the ships-dark opt-ins (ADR 0037). Each flag is
 // read once at startup, so a persisted change applies on the next launch.
 type ExperimentalSettings struct {
 	Terminal bool

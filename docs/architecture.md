@@ -72,7 +72,7 @@ individual choices; this document describes the shape everything fits into.
 > `app.TerminalsService` is the slug-keyed driving service, `httpapi` carries
 > both the REST control plane and the per-session binary WebSocket data plane on
 > the same loopback server, and the wailsui `TerminalService` gates the feature
-> and bootstraps the webview (ADR 0034). See
+> and bootstraps the webview (ADR 0036). See
 > [Terminal sessions](#terminal-sessions).
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
@@ -122,7 +122,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
 | **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body`/`Query` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR 0022. |
-| **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR 0034. |
+| **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR 0036. |
 | **Anti-Corruption Layer** (DDD) | the `internal/hivecore` seam | Declare a narrow local interface describing only what we need, let the vendored concrete type satisfy it structurally, convert types at the seam. An upstream signature change then breaks one adapter file rather than the app. The idiom is `hive_adapters.go`. |
 | **Bounded Context** (DDD) | `app` vs `internal/hivecore` | Two models that must not merge. `hive` is a separate external product with its own vocabulary; its types stop at the ACL and never appear in an `app` signature. This is also why the vendored code is read-only. |
 
@@ -164,7 +164,7 @@ column is the section that specifies it.
 | A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
 | A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
 | A new **HTTP endpoint** | Error chain — `errchain` handler, `web/extractors` input, `ctrl_*.go` + routes in one place | ADR 0022 |
-| A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR 0034 |
+| A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR 0036 |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
@@ -305,7 +305,7 @@ internal/
       events.go                   # bus subscriber → Emit, per-event delivery policy
       windowservice.go  tray.go  focusstate.go  updater.go  notify.go
       terminalservice.go          # Available + Endpoint: the terminal's gate and
-                                  #   webview bootstrap (ADR 0034)
+                                  #   webview bootstrap (ADR 0036)
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route.
                                   #   Built: an agent-facing control surface
@@ -319,7 +319,7 @@ internal/
                                   #   validated GET /api/openapi.json (ADR 0027).
                                   #   The terminal control plane is rows on that
                                   #   table; its per-session WebSocket data plane
-                                  #   is a separate raw mount (ADR 0034)
+                                  #   is a separate raw mount (ADR 0036)
     mcpsrv/                       # tools over App; in-memory transport for the agent
 
   web/                            # HTTP plumbing shared with cmd/devserver
@@ -547,7 +547,7 @@ orphaned blobs are left in place rather than reference-counted.
 `notifications`, `appearance`, `http`, `keybindings`, `skills`,
 `experimental`, and
 `development` sections. `experimental` holds ships-dark feature opt-ins
-(ADR 0035), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
+(ADR 0037), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof
@@ -671,7 +671,7 @@ not adopted it.
 
 Terminal mode attaches one tmux control-mode client per Hive session, keyed by
 the session **slug** (the tmux session name). Four pieces, and the split between
-them is the constraint (ADR 0034):
+them is the constraint (ADR 0036):
 
 - **`internal/app/tmuxcc`** — the protocol: line framer, `%begin`/`%end`/`%error`
   command FIFO, notification dispatch, `%output` octal decode, one client per
@@ -692,13 +692,13 @@ them is the constraint (ADR 0034):
   [Data-plane mount](#named-patterns).
 - **`adapter/wailsui.TerminalService`** — `Enabled`, `Available` and `Endpoint`,
   the frontend's only gate and bootstrap. `Enabled` reports the
-  `experimental.terminal` opt-in (ADR 0035) — off means the Hub|Terminal toggle
+  `experimental.terminal` opt-in (ADR 0037) — off means the Hub|Terminal toggle
   never renders. `Available` must answer while the loopback
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
-The whole surface ships dark behind `experimental.terminal` (ADR 0035): when
+The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
 off, `main.go` mints no token and neither the control-plane routes nor the
 stream mount exist. The bearer token is minted per run in `desktop/main.go` and
 passed to the two

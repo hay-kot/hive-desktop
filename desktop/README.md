@@ -164,7 +164,7 @@ http:
   port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
 experimental:
-  terminal: false # terminal mode ships dark (ADR 0035); read at startup
+  terminal: false # terminal mode ships dark (ADR 0037); read at startup
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke

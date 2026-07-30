@@ -24,7 +24,7 @@ export function Available(): $CancellablePromise<$models.TerminalAvailability> {
 }
 
 /**
- * Enabled reports the experimental.terminal opt-in (ADR 0035). The frontend
+ * Enabled reports the experimental.terminal opt-in (ADR 0037). The frontend
  * renders the way into terminal mode only when it is on; availability stays a
  * separate axis, because an enabled-but-unavailable terminal explains itself
  * inside the mode instead of hiding the way in.

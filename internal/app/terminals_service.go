@@ -10,7 +10,7 @@ import (
 
 // TerminalsService is the slug-keyed driving service both the HTTP and the
 // Wails adapter call. It holds no token, base URL or stream path: what the
-// terminal is reached over is the adapter's, not the core's (ADR 0034).
+// terminal is reached over is the adapter's, not the core's (ADR 0036).
 type TerminalsService struct {
 	manager *tmuxcc.Manager
 	metrics tmuxcc.MetricsSink

@@ -123,8 +123,8 @@ func main() {
 
 	// The terminal surface is the one part of the API that authenticates, so its
 	// token and CORS allowlist are minted here and handed to the two adapters
-	// that need them — the core carries neither (ADR 0034). Terminal mode ships
-	// dark behind experimental.terminal (ADR 0035): when off, no token is minted
+	// that need them — the core carries neither (ADR 0036). Terminal mode ships
+	// dark behind experimental.terminal (ADR 0037): when off, no token is minted
 	// and neither terminal surface — the control-plane routes or the stream
 	// mount — exists on the loopback server.
 	terminalToken := ""

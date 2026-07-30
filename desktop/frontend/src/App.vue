@@ -661,7 +661,7 @@ watch(() => route.fullPath, (path) => {
   if (route.name && route.name !== 'terminal') lastHubPath = path
 }, { immediate: true })
 
-// Terminal mode ships dark (experimental.terminal, ADR 0035): until the probe
+// Terminal mode ships dark (experimental.terminal, ADR 0037): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
 // separate axis — an enabled-but-unavailable terminal explains itself inside
 // the mode.

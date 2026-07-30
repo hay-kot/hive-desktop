@@ -147,7 +147,7 @@ type App struct {
 	hiveDB   *coredb.DB
 
 	// terminals owns one tmux control-mode client per attached session slug.
-	// Its context is the app's lifetime, not a request's (ADR 0034).
+	// Its context is the app's lifetime, not a request's (ADR 0036).
 	terminals *tmuxcc.Manager
 
 	// pollInterval is the validated, clamped interval the producer polls on.
@@ -420,7 +420,7 @@ func (a *App) Close() error {
 	// Before the webhook listener: a terminal WebSocket has hijacked its
 	// connection, which http.Server.Shutdown neither tracks nor closes, so the
 	// socket has to be brought down by closing the streams behind it first
-	// (ADR 0034). The context is a fresh one for the same reason Shutdown's is.
+	// (ADR 0036). The context is a fresh one for the same reason Shutdown's is.
 	if a.terminals != nil {
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
 		_ = a.terminals.Stop(stopCtx)

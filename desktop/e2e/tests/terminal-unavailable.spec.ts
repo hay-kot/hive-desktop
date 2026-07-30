@@ -5,7 +5,7 @@ import { expect, test } from './fixtures.js'
 // is observable end to end: TerminalsService.Available -> KindUnavailable ->
 // TerminalService.Available{available:false, reason} -> the panel.
 //
-// What it guards is the ADR 0035 rule that the Terminal toggle is never
+// What it guards is the ADR 0037 rule that the Terminal toggle is never
 // disabled: a build that cannot run tmux must explain itself inside the mode
 // rather than leaving a dead button in the title bar. A regression that gates
 // the toggle on availability, or that lets the unavailable probe throw instead

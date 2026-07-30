@@ -43,7 +43,7 @@ export interface BuildInfo {
 }
 
 /**
- * ExperimentalSettings carries the ships-dark opt-ins (ADR 0035). Terminal is
+ * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
  * the effective persisted value, not the running one: the flag is read at
  * startup, so the frontend compares it against TerminalService.Enabled to
  * know whether a relaunch is pending.
