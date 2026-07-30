@@ -27,7 +27,6 @@ type sessionLauncher interface {
 // command holds a launcher, and it has no business holding a delete.
 type sessionManager interface {
 	ListSessions(context.Context) ([]dispatch.SessionSummary, error)
-	SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error)
 	SessionDetail(ctx context.Context, id string) (dispatch.SessionDetail, error)
 	SessionRisk(ctx context.Context, id string) (dispatch.SessionRisk, error)
 	RenameSession(ctx context.Context, id, name string) error
@@ -35,6 +34,10 @@ type sessionManager interface {
 	RecycleSession(ctx context.Context, id string) error
 	PruneSessions(ctx context.Context) (int, error)
 	SpawnTmuxSession(ctx context.Context, name, path, repo string) error
+}
+
+type sessionStatusSource interface {
+	SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error)
 }
 
 // sessionTmux renames the live tmux session behind a slug. Hive's rename
@@ -55,12 +58,13 @@ type sessionJobRunner interface {
 type SessionsService struct {
 	launcher sessionLauncher
 	manager  sessionManager
+	statuses sessionStatusSource
 	tmux     sessionTmux
 	jobs     sessionJobRunner
 }
 
-func newSessionsService(launcher sessionLauncher, manager sessionManager, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
-	return &SessionsService{launcher: launcher, manager: manager, tmux: tmux, jobs: jobs}
+func newSessionsService(launcher sessionLauncher, manager sessionManager, statuses sessionStatusSource, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
+	return &SessionsService{launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs}
 }
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
@@ -91,10 +95,10 @@ func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionS
 // unavailable terminals are data, so only a failure to read the session set
 // fails the request.
 func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
-	if s.manager == nil {
+	if s.statuses == nil {
 		return dispatch.SessionStatusSnapshot{}, Errorf(KindUnavailable, "session status is unavailable")
 	}
-	statuses, err := s.manager.SessionStatuses(ctx)
+	statuses, err := s.statuses.SessionStatuses(ctx)
 	if err != nil {
 		return dispatch.SessionStatusSnapshot{}, Wrap(err, KindInternal, "reading session status")
 	}

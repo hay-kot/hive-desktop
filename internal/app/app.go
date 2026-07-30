@@ -301,7 +301,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.sessions, a.terminals, a.jobStore)
+	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
