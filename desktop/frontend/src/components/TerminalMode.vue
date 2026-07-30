@@ -22,6 +22,7 @@ import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
+import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
@@ -41,7 +42,8 @@ const { checking, available, reason, client } = useTerminalAvailability()
 // the last few attaches stay live in this pool — control client, stream and
 // terminals intact, panes hidden — and snapping back to one is a v-show flip.
 // Detach happens on eviction, explicit close, list removal, and unmount.
-const POOL_LIMIT = 3
+// The limit is Settings ▸ Appearance ▸ Terminal's warm-session count.
+const { poolSize } = useTerminalPoolSize()
 const pool = shallowReactive(new Map<string, UseTerminalWindows>())
 const lastUsed: string[] = []
 const activeSlug = ref('')
@@ -88,11 +90,19 @@ function touchPool(slug: string): void {
   const at = lastUsed.indexOf(slug)
   if (at !== -1) lastUsed.splice(at, 1)
   lastUsed.push(slug)
+  evictOverLimit()
+}
+
+function evictOverLimit(): void {
   for (const victim of [...lastUsed]) {
-    if (pool.size <= POOL_LIMIT) return
+    if (pool.size <= poolSize.value) return
     if (victim !== activeSlug.value && pool.get(victim) !== displayed.value) dropSession(victim)
   }
 }
+
+// Shrinking the setting takes effect without a re-entry; growing it simply
+// leaves room for the next attaches.
+watch(poolSize, evictOverLimit)
 
 // The only way out of the pool, so every exit funnels through here: eviction,
 // explicit close, and sessions the listing no longer carries.

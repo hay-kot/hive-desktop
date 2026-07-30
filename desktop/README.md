@@ -167,6 +167,7 @@ appearance:
   theme: ""
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
+  terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR 0041)
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR 0021)
   host: 127.0.0.1

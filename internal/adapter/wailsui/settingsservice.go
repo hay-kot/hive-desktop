@@ -48,6 +48,10 @@ type AppearanceSettings struct {
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
+	// TerminalPoolSize is how many sessions the terminal view keeps attached
+	// for instant switching (ADR 0041). Carried verbatim; the frontend heals
+	// anything outside 1-6 to the default, 3.
+	TerminalPoolSize int `json:"terminalPoolSize"`
 }
 
 // ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
@@ -89,6 +93,7 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		Theme:               current.Theme,
 		TerminalFontSize:    current.TerminalFontSize,
 		TerminalShowWindows: current.TerminalShowWindows,
+		TerminalPoolSize:    current.TerminalPoolSize,
 	}, nil
 }
 
@@ -104,6 +109,10 @@ func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) 
 
 func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool) error {
 	return s.settings.SetTerminalShowWindows(ctx, show)
+}
+
+func (s *SettingsService) SetTerminalPoolSize(ctx context.Context, size int) error {
+	return s.settings.SetTerminalPoolSize(ctx, size)
 }
 
 func (s *SettingsService) ExperimentalSettings(ctx context.Context) (ExperimentalSettings, error) {

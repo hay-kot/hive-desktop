@@ -20,7 +20,9 @@ rebuild.
 
 ## Decision
 
-1. **The terminal view keeps an LRU pool of up to 3 live attaches.** Switching
+1. **The terminal view keeps an LRU pool of live attaches**
+   (`appearance.terminal_pool_size`, 1–6, default 3; healed by the frontend
+   like the other appearance values, applied live on change). Switching
    sessions no longer detaches: the outgoing session keeps its control client,
    WebSocket and xterm terminals, with its panes hidden (`v-show`). The stream
    keeps draining while hidden — which also keeps the broker's overflow bound

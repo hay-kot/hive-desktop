@@ -21,6 +21,13 @@ export interface AppearanceSettings {
      * terminal sidebar, not just the attached session's. Ships on.
      */
     "terminalShowWindows": boolean;
+
+    /**
+     * TerminalPoolSize is how many sessions the terminal view keeps attached
+     * for instant switching (ADR 0041). Carried verbatim; the frontend heals
+     * anything outside 1-6 to the default, 3.
+     */
+    "terminalPoolSize": number;
 }
 
 /**

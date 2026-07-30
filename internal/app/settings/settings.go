@@ -88,6 +88,11 @@ type Appearance struct {
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
+	// TerminalPoolSize is how many sessions the terminal view keeps attached at
+	// once for instant switching (ADR 0041). Like the other appearance values it
+	// is carried verbatim and healed by the frontend: anything outside 1-6 reads
+	// as the default, 3.
+	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
 }
 
 // ExperimentalSettings opts into features that ship dark. Each flag defaults
@@ -206,7 +211,7 @@ func DefaultSettings() Settings {
 		Polling:       PollingSettings{Interval: Duration(5 * time.Minute)},
 		Updates:       UpdateSettings{Enabled: true},
 		Notifications: NotificationSettings{Enabled: true, Delivery: DeliveryAuto, Sound: true},
-		Appearance:    Appearance{TerminalShowWindows: true},
+		Appearance:    Appearance{TerminalShowWindows: true, TerminalPoolSize: 3},
 		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Skills:        SkillsSettings{AutoUpdate: true},
 		Development: DevelopmentSettings{

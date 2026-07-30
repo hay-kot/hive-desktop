@@ -32,6 +32,7 @@ import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
 import { setTerminalFontSize, terminalFontSizeLabels, terminalFontSizePx, terminalFontSizes, useTerminalFont, type TerminalFontSize } from '../composables/useTerminalFont'
+import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
@@ -66,6 +67,8 @@ const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
   label: `${terminalFontSizeLabels[value]} · ${terminalFontSizePx[value]}px`,
 }))
 const { showWindows: terminalShowWindows } = useTerminalShowWindows()
+const { poolSize: terminalPoolSize } = useTerminalPoolSize()
+const terminalPoolSizeOptions = terminalPoolSizes.map((value) => ({ value: String(value), label: String(value) }))
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
@@ -151,6 +154,10 @@ function onThemeChange(value: string): void {
 function onTerminalFontSizeChange(value: string): void {
   setTerminalFontSize(value as TerminalFontSize)
 }
+
+function onTerminalPoolSizeChange(value: string): void {
+  setTerminalPoolSize(Number(value))
+}
 </script>
 
 <template>
@@ -200,6 +207,14 @@ function onTerminalFontSizeChange(value: string): void {
               hint="List every active session's windows in the session tree, not just the attached one's."
               testid="settings-terminal-show-windows"
               @update:model-value="setTerminalShowWindows"
+            />
+            <SettingsSegmented
+              :model-value="String(terminalPoolSize)"
+              label="Warm sessions"
+              :options="terminalPoolSizeOptions"
+              hint="Sessions kept attached in the background so switching back is instant. Each holds a tmux client, its stream, and its terminals."
+              testid="settings-terminal-pool-size"
+              @update:model-value="onTerminalPoolSizeChange"
             />
           </div>
         </SettingsSection>

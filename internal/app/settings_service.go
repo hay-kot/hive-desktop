@@ -72,6 +72,7 @@ type AppearanceSettings struct {
 	Theme               string
 	TerminalFontSize    string
 	TerminalShowWindows bool
+	TerminalPoolSize    int
 }
 
 func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
@@ -83,6 +84,7 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		Theme:               cfg.Appearance.Theme,
 		TerminalFontSize:    cfg.Appearance.TerminalFontSize,
 		TerminalShowWindows: cfg.Appearance.TerminalShowWindows,
+		TerminalPoolSize:    cfg.Appearance.TerminalPoolSize,
 	}, nil
 }
 
@@ -105,6 +107,14 @@ func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) er
 func (s *SettingsService) SetTerminalShowWindows(_ context.Context, show bool) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.TerminalShowWindows = show
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalPoolSize(_ context.Context, size int) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalPoolSize = size
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

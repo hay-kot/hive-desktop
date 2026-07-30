@@ -5,18 +5,21 @@ import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
 import { setTerminalFontSize } from '../../composables/useTerminalFont'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
+import { setTerminalPoolSize } from '../../composables/useTerminalPoolSize'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 
 const setTerminalShowWindowsBinding = vi.hoisted(() => vi.fn())
+const setTerminalPoolSizeBinding = vi.hoisted(() => vi.fn())
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true }),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
   SetTerminalShowWindows: setTerminalShowWindowsBinding,
+  SetTerminalPoolSize: setTerminalPoolSizeBinding,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
@@ -131,6 +134,21 @@ describe('SettingsView', () => {
 
     // The setting is a module singleton; put the default back for later tests.
     setTerminalShowWindows(true)
+  })
+
+  it('reflects and changes the terminal warm-session count', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    expect(wrapper.find('[data-testid="settings-terminal-pool-size-3"]').attributes('aria-selected')).toBe('true')
+
+    await wrapper.find('[data-testid="settings-terminal-pool-size-5"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="settings-terminal-pool-size-5"]').attributes('aria-selected')).toBe('true')
+    expect(setTerminalPoolSizeBinding).toHaveBeenCalledWith(5)
+
+    // The setting is a module singleton; put the default back for later tests.
+    setTerminalPoolSize(3)
   })
 
   it('shows the connected GitHub source', async () => {
