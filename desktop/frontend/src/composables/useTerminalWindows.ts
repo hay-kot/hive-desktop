@@ -268,7 +268,15 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // because fit() would resize the Terminal itself, which is tmux's call.
   function voteSize(): void {
     const tab = findTab(activeWindowId.value)
-    if (!tab || !runtime.get(tab.windowId)?.host) return
+    const host = tab ? runtime.get(tab.windowId)?.host : undefined
+    if (!tab || !host) return
+    // A pane inside a display:none subtree — every pooled session behind the
+    // shown one — has no rendered box, but proposeDimensions still produces a
+    // tiny "valid" grid there: getComputedStyle answers the specified '100%',
+    // which FitAddon parses as 100px. Voting it would squeeze every window of
+    // the session to ~8×4 and force the TUI inside to reflow, then reflow
+    // back on reveal — the repaint the pool exists to avoid.
+    if (!host.clientWidth || !host.clientHeight) return
     const proposed = tab.fit.proposeDimensions()
     if (!proposed?.cols || !proposed.rows) return
     scheduleConstraintCheck()

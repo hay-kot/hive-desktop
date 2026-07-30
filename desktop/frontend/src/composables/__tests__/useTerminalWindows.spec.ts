@@ -176,6 +176,18 @@ function open(client: MockedClient) {
   return useTerminalWindows('hive-abc', client as unknown as TerminalClient)
 }
 
+// happy-dom lays nothing out, so a plain div measures 0×0 — which the
+// composable rightly refuses to vote from. A pane meant to be visible
+// stubs its box.
+function paneHost(): HTMLElement {
+  const host = document.createElement('div')
+  Object.defineProperties(host, {
+    clientWidth: { value: 800 },
+    clientHeight: { value: 600 },
+  })
+  return host
+}
+
 function outputFrame(windowId: string, paneId: string, data: string): ArrayBuffer {
   const win = encoder.encode(windowId)
   const pane = encoder.encode(paneId)
@@ -349,8 +361,8 @@ describe('useTerminalWindows', () => {
 
   it('disposes exactly the closed tab: its terminal, addon and resize observer', async () => {
     const { session, socket } = await attached()
-    session.attachTab('@1', document.createElement('div'))
-    session.attachTab('@2', document.createElement('div'))
+    session.attachTab('@1', paneHost())
+    session.attachTab('@2', paneHost())
 
     socket.onmessage?.({ data: windowFrame('closed', '@2', { name: 'shell' }) })
 
@@ -369,7 +381,7 @@ describe('useTerminalWindows', () => {
   it('loads the WebGL renderer, and only once the pane is open', async () => {
     const { session } = await attached()
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     const term = xterm.FakeTerminal.instances[0]
     expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
@@ -384,7 +396,7 @@ describe('useTerminalWindows', () => {
     xterm.FakeWebglAddon.unavailable = true
     const { session } = await attached()
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
     warn.mockRestore()
@@ -398,7 +410,7 @@ describe('useTerminalWindows', () => {
     xterm.FakeCanvasAddon.unavailable = true
     const { session } = await attached()
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     expect(xterm.FakeTerminal.instances[0].open).toHaveBeenCalledTimes(1)
     expect(session.status.value).toBe('live')
@@ -407,7 +419,7 @@ describe('useTerminalWindows', () => {
 
   it('claims the canvas renderer when a WebGL context is lost for good', async () => {
     const { session } = await attached()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     xterm.FakeWebglAddon.instances[0].loseContext()
 
@@ -419,7 +431,7 @@ describe('useTerminalWindows', () => {
   // renderer as it goes, so it has to be disposed while the core is still up.
   it('disposes the renderer addon ahead of the terminal it renders', async () => {
     const { session } = await attached()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     session.dispose()
 
@@ -486,7 +498,7 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
@@ -506,7 +518,7 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     await vi.advanceTimersByTimeAsync(100)
     client.resize.mockClear()
     xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
@@ -548,7 +560,7 @@ describe('useTerminalWindows', () => {
 
     expect(client.attach).toHaveBeenCalledWith('hive-abc', 120, 40)
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     xterm.FakeFitAddon.instances[0].proposed = { cols: 120, rows: 40 }
     await vi.advanceTimersByTimeAsync(100)
 
@@ -561,7 +573,7 @@ describe('useTerminalWindows', () => {
     const session = open(first)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     xterm.FakeFitAddon.instances[0].proposed = { cols: 213, rows: 55 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
@@ -580,7 +592,7 @@ describe('useTerminalWindows', () => {
     const session = open(client)
     await session.start()
     await flushPromises()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
     FakeResizeObserver.instances[0].trigger()
@@ -606,7 +618,7 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
     sockets[0].onopen?.()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     xterm.FakeFitAddon.instances[0].proposed = { cols: 300, rows: 80 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(1100)
@@ -625,8 +637,27 @@ describe('useTerminalWindows', () => {
     await session.start()
     await flushPromises()
 
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
     xterm.FakeFitAddon.instances[0].proposed = undefined
+    FakeResizeObserver.instances[0].trigger()
+    await vi.advanceTimersByTimeAsync(100)
+
+    expect(client.resize).not.toHaveBeenCalled()
+  })
+
+  // A pooled session's panes sit behind display:none while another session is
+  // shown, and a hidden box still yields a small "valid" proposal — WebKit
+  // answers the specified '100%' for it, which FitAddon parses as 100px. A
+  // vote from there squeezes the session's windows to ~8×4 for every client.
+  it('never votes from a pane with no rendered box', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+
+    session.attachTab('@1', document.createElement('div'))
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 8, rows: 4 }
     FakeResizeObserver.instances[0].trigger()
     await vi.advanceTimersByTimeAsync(100)
 
@@ -684,7 +715,7 @@ describe('useTerminalWindows', () => {
 
   it('detaches and tears everything down on dispose', async () => {
     const { client, session, socket } = await attached()
-    session.attachTab('@1', document.createElement('div'))
+    session.attachTab('@1', paneHost())
 
     session.dispose()
 
