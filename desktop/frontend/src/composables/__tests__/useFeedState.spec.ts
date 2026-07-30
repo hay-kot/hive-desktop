@@ -376,8 +376,8 @@ describe('useFeedState', () => {
     expect(mocks.SessionLaunchOptions).toHaveBeenCalledOnce()
     expect(get().sessionLaunchAction.value?.id).toBe('launch')
     mocks.InvokeAction.mockResolvedValueOnce({ commandId: 19, status: 'done', result: { session: { id: 'session-1', name: 'review-pr-7' } } })
-    await get().submitSessionLaunch({ name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' })
-    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' } })
+    await get().submitSessionLaunch({ name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude', inputs: {} })
+    expect(mocks.InvokeAction).toHaveBeenLastCalledWith('launch', 7, { session: { name: 'review-pr-7', repository: 'https://github.com/hay-kot/hive-desktop.git', agent: 'claude' }, inputs: {} })
     expect(mocks.notify).toHaveBeenCalledWith({ title: 'Created session review-pr-7 (session-1)', severity: 'success', category: 'session' })
   })
 

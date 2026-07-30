@@ -30,8 +30,10 @@ type OutputData struct {
 	Payload map[string]any
 	Raw     json.RawMessage
 	// Inputs are the action's declared inputs resolved for this invocation,
-	// reachable from every template as `.Inputs.<name>`. Nil when the action
-	// declares none, which renders blank rather than failing.
+	// reachable from every template as `.Inputs.<name>`; nil when the action
+	// declares none. Resolution fills a key for every declared name, so
+	// referencing an undeclared one is a render error (missingkey=error
+	// fires on nil maps too), never a blank.
 	Inputs map[string]string
 	// CreatedAt is when the command was enqueued (Unix milliseconds), so an
 	// executor whose side effect is time-sensitive can tell a fresh command

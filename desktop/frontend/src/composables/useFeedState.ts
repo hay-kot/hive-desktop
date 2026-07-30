@@ -930,14 +930,14 @@ export function useFeedState() {
     sessionLaunchError.value = null
   }
 
-  async function submitSessionLaunch(input: { name: string; repository: string; agent?: string; inputs?: Record<string, string> }) {
+  async function submitSessionLaunch(input: { name: string; repository: string; agent?: string; inputs: Record<string, string> }) {
     const action = sessionLaunchAction.value
     const item = sessionLaunchItem.value
     if (!action || !item || sessionLaunchBusy.value) return
     const { inputs, ...session } = input
     sessionLaunchBusy.value = true
     sessionLaunchError.value = null
-    const succeeded = await runAction(action.id, { session, ...(action.inputs?.length ? { inputs } : {}) }, item)
+    const succeeded = await runAction(action.id, { session, inputs }, item)
     sessionLaunchBusy.value = false
     if (succeeded) cancelSessionLaunch()
     else if (!actionRerunConfirmation.value) sessionLaunchError.value = actionError.value ?? 'Could not create the session.'

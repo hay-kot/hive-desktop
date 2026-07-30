@@ -9,14 +9,14 @@ export function inputLabel(spec: InputSpec): string {
   return spec.label.trim() || spec.name
 }
 
-export function initialActionInputs(specs: InputSpec[] | null | undefined): ActionInputValues {
+export function initialActionInputs(specs: InputSpec[]): ActionInputValues {
   const values: ActionInputValues = {}
-  for (const spec of specs ?? []) values[spec.name] = spec.default
+  for (const spec of specs) values[spec.name] = spec.default
   return values
 }
 
-export function validateActionInputs(specs: InputSpec[] | null | undefined, values: ActionInputValues): string | null {
-  for (const spec of specs ?? []) {
+export function validateActionInputs(specs: InputSpec[], values: ActionInputValues): string | null {
+  for (const spec of specs) {
     const value = values[spec.name] ?? ''
     if (spec.required && !value.trim()) return `${inputLabel(spec)} is required.`
     if (spec.type === 'select' && value && !(spec.options ?? []).includes(value)) return `${inputLabel(spec)} is not one of its options.`

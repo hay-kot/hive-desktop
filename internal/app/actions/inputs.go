@@ -53,8 +53,8 @@ type InputSpec struct {
 	Options []string `json:"options" yaml:"options,omitempty"`
 }
 
-// DisplayLabel is the caption for this input, falling back to its name.
-func (s InputSpec) DisplayLabel() string {
+// displayLabel is the caption for this input, falling back to its name.
+func (s InputSpec) displayLabel() string {
 	if strings.TrimSpace(s.Label) != "" {
 		return s.Label
 	}
@@ -141,10 +141,10 @@ func (a Action) ResolveInputs(supplied map[string]string) (map[string]string, er
 			value = spec.Default
 		}
 		if spec.Required && strings.TrimSpace(value) == "" {
-			return nil, fmt.Errorf("action %q: input %q is required", a.ID, spec.DisplayLabel())
+			return nil, fmt.Errorf("action %q: input %q is required", a.ID, spec.displayLabel())
 		}
 		if spec.Type == InputTypeSelect && value != "" && !slices.Contains(spec.Options, value) {
-			return nil, fmt.Errorf("action %q: input %q: %q is not one of its options", a.ID, spec.DisplayLabel(), value)
+			return nil, fmt.Errorf("action %q: input %q: %q is not one of its options", a.ID, spec.displayLabel(), value)
 		}
 		resolved[spec.Name] = value
 	}
