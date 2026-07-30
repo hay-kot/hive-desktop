@@ -16,7 +16,7 @@ import (
 )
 
 func TestShellExecutor_SuccessfulCommand(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:     "run-true",
 		Type:   "shell",
@@ -28,7 +28,7 @@ func TestShellExecutor_SuccessfulCommand(t *testing.T) {
 }
 
 func TestShellExecutor_FailingCommand_IsError(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:     "run-false",
 		Type:   "shell",
@@ -43,7 +43,7 @@ func TestShellExecutor_RendersCommandTemplateWithShq(t *testing.T) {
 	dir := t.TempDir()
 	outFile := dir + "/out.txt"
 
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:   "echo-title",
 		Type: "shell",
@@ -63,7 +63,7 @@ func TestShellExecutor_RendersCommandTemplateWithShq(t *testing.T) {
 func TestShellExecutor_RespectsCwd(t *testing.T) {
 	dir := t.TempDir()
 
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:   "touch-file",
 		Type: "shell",
@@ -81,7 +81,7 @@ func TestShellExecutor_RespectsCwd(t *testing.T) {
 }
 
 func TestShellExecutor_TimeoutKillsSlowCommand(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:   "slow",
 		Type: "shell",
@@ -98,7 +98,7 @@ func TestShellExecutor_TimeoutKillsSlowCommand(t *testing.T) {
 }
 
 func TestShellExecutor_BoundsAndDrainsNoisyStreams(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{
 		ID:     "noisy",
 		Type:   "shell",
@@ -126,12 +126,16 @@ func TestBoundedExecutionWriterNeverBuffersMoreThanLimit(t *testing.T) {
 }
 
 func TestShellExecutor_WrongConfigType_IsError(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop(), nil)
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{ID: "x", Type: "shell", Config: &actions.PublishMessageConfig{}}
 
 	_, err := exec.Execute(t.Context(), action, OutputData{}, ActionInvocationInput{})
 	require.Error(t, err)
 }
+
+type hostEnvironment struct{}
+
+func (hostEnvironment) Environ(context.Context) []string { return os.Environ() }
 
 type stubExecEnvironment struct{ path string }
 

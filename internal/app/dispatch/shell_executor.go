@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -45,8 +44,6 @@ type ShellExecutor struct {
 	env    ExecEnvironment
 }
 
-// NewShellExecutor builds the executor. A nil env runs commands in this
-// process's own environment.
 func NewShellExecutor(logger zerolog.Logger, env ExecEnvironment) *ShellExecutor {
 	return &ShellExecutor{logger: logger, env: env}
 }
@@ -75,10 +72,7 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
-	env := os.Environ()
-	if e.env != nil {
-		env = e.env.Environ(runCtx)
-	}
+	env := e.env.Environ(runCtx)
 	for k, v := range cfg.Env {
 		env = append(env, k+"="+v)
 	}
