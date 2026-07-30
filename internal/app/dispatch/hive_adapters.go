@@ -45,6 +45,11 @@ type SessionManagement interface {
 // only one whose terminal can be started or attached to.
 const SessionStateActive = string(session.StateActive)
 
+type sessionStatusSource interface {
+	Available() bool
+	FetchBatch(context.Context, []*session.Session, []hive.RootRepoTarget) map[string]hive.TerminalStatus
+}
+
 // SessionSummary is one session as the desktop's session list sees it. Slug is
 // the tmux session name, which is what a terminal attach targets. It stays a
 // projection: the rest of a session is read on demand as a SessionDetail.
@@ -54,6 +59,28 @@ type SessionSummary struct {
 	Slug  string `json:"slug"`
 	Repo  string `json:"repo"`
 	State string `json:"state"`
+}
+
+// SessionWindowStatus is one tmux window's detected agent activity.
+type SessionWindowStatus struct {
+	WindowID string `json:"windowId"`
+	Status   string `json:"status"`
+	Tool     string `json:"tool"`
+}
+
+// SessionStatus separates tmux liveness from the activity detected in each
+// agent window.
+type SessionStatus struct {
+	SessionID string                `json:"sessionId"`
+	Running   bool                  `json:"running"`
+	Windows   []SessionWindowStatus `json:"windows"`
+}
+
+// SessionStatusSnapshot carries one poll result and the Hive-configured delay
+// the caller should use before requesting the next one.
+type SessionStatusSnapshot struct {
+	Items        []SessionStatus
+	PollInterval time.Duration
 }
 
 // SessionDetail is one session read in full, for a detail view.
@@ -152,10 +179,14 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 // HiveSessionLauncher because launching is a dispatch action and managing is
 // not: the launcher is what an output command reaches for, and widening it
 // would hand every action executor a delete.
-type HiveSessionManager struct{ sessions SessionManagement }
+type HiveSessionManager struct {
+	sessions           SessionManagement
+	statuses           sessionStatusSource
+	statusPollInterval time.Duration
+}
 
-func NewHiveSessionManager(sessions SessionManagement) *HiveSessionManager {
-	return &HiveSessionManager{sessions: sessions}
+func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, statusPollInterval time.Duration) *HiveSessionManager {
+	return &HiveSessionManager{sessions: sessions, statuses: statuses, statusPollInterval: statusPollInterval}
 }
 
 // ListSessions returns every session, recycled and corrupted included: an
@@ -171,6 +202,53 @@ func (m *HiveSessionManager) ListSessions(ctx context.Context) ([]SessionSummary
 		out = append(out, sessionSummaryOf(s))
 	}
 	return out, nil
+}
+
+// SessionStatuses projects Hive's terminal detection without exposing pane
+// content or vendored status types beyond this anti-corruption layer.
+func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatusSnapshot, error) {
+	snapshot := SessionStatusSnapshot{
+		Items:        []SessionStatus{},
+		PollInterval: m.statusPollInterval,
+	}
+	if m.statuses == nil || !m.statuses.Available() {
+		return snapshot, nil
+	}
+
+	sessions, err := m.sessions.ListSessions(ctx)
+	if err != nil {
+		return SessionStatusSnapshot{}, fmt.Errorf("list hive sessions for status: %w", err)
+	}
+	active := make([]*session.Session, 0, len(sessions))
+	for i := range sessions {
+		if sessions[i].State == session.StateActive {
+			active = append(active, &sessions[i])
+		}
+	}
+	statuses := m.statuses.FetchBatch(ctx, active, nil)
+	for _, s := range active {
+		status, ok := statuses[s.ID]
+		if !ok {
+			continue
+		}
+		item := SessionStatus{SessionID: s.ID, Running: status.Running, Windows: []SessionWindowStatus{}}
+		if len(status.Windows) == 0 && status.WindowID != "" {
+			item.Windows = append(item.Windows, SessionWindowStatus{
+				WindowID: status.WindowID,
+				Status:   string(status.Status),
+				Tool:     status.Tool,
+			})
+		}
+		for _, window := range status.Windows {
+			item.Windows = append(item.Windows, SessionWindowStatus{
+				WindowID: window.WindowID,
+				Status:   string(window.Status),
+				Tool:     window.Tool,
+			})
+		}
+		snapshot.Items = append(snapshot.Items, item)
+	}
+	return snapshot, nil
 }
 
 func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (SessionDetail, error) {

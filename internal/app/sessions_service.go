@@ -36,6 +36,10 @@ type sessionManager interface {
 	SpawnTmuxSession(ctx context.Context, name, path, repo string) error
 }
 
+type sessionStatusSource interface {
+	SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error)
+}
+
 // sessionTmux renames the live tmux session behind a slug. Hive's rename
 // recomputes the slug and saves; the tmux session keeps its old name, so
 // without this the stored slug addresses nothing.
@@ -54,12 +58,13 @@ type sessionJobRunner interface {
 type SessionsService struct {
 	launcher sessionLauncher
 	manager  sessionManager
+	statuses sessionStatusSource
 	tmux     sessionTmux
 	jobs     sessionJobRunner
 }
 
-func newSessionsService(launcher sessionLauncher, manager sessionManager, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
-	return &SessionsService{launcher: launcher, manager: manager, tmux: tmux, jobs: jobs}
+func newSessionsService(launcher sessionLauncher, manager sessionManager, statuses sessionStatusSource, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
+	return &SessionsService{launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs}
 }
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
@@ -84,6 +89,20 @@ func (s *SessionsService) ListSessions(ctx context.Context) ([]dispatch.SessionS
 		return nil, Wrap(err, KindInternal, "listing sessions")
 	}
 	return sessions, nil
+}
+
+// SessionStatuses detects the live agent state for active sessions. Missing or
+// unavailable terminals are data, so only a failure to read the session set
+// fails the request.
+func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.SessionStatusSnapshot, error) {
+	if s.statuses == nil {
+		return dispatch.SessionStatusSnapshot{}, Errorf(KindUnavailable, "session status is unavailable")
+	}
+	statuses, err := s.statuses.SessionStatuses(ctx)
+	if err != nil {
+		return dispatch.SessionStatusSnapshot{}, Wrap(err, KindInternal, "reading session status")
+	}
+	return statuses, nil
 }
 
 // SessionDetail reads one session in full.

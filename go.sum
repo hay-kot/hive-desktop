@@ -36,8 +36,8 @@ github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7 h1:3FmWo
 github.com/charmbracelet/ultraviolet v0.0.0-20260703014108-f5a850f9c2b7/go.mod h1:f/jRa757WUmaOZrbPspXymbg/GnbF+rwe4OLsG7aXYo=
 github.com/charmbracelet/x/ansi v0.11.7 h1:kzv1kJvjg2S3r9KHo8hDdHFQLEqn4RBCb39dAYC84jI=
 github.com/charmbracelet/x/ansi v0.11.7/go.mod h1:9qGpnAVYz+8ACONkZBUWPtL7lulP9No6p1epAihUZwQ=
-github.com/charmbracelet/x/exp/golden v0.0.0-20260719004043-bb9a97036f23 h1:p9CClVZbm4TVoeYdfM9l3xoMhIo5JHg+Y24i31hrMu8=
-github.com/charmbracelet/x/exp/golden v0.0.0-20260719004043-bb9a97036f23/go.mod h1:6fMpcW6iwN/kX+xJ52eqVWsDiBTe0UJD24JLoHFe+P0=
+github.com/charmbracelet/x/exp/golden v0.0.0-20260726004341-482a56510f1b h1:DXXxD1W4pZ6QWadyHnK0bLH+mD57d2WB/VObSLGL8X0=
+github.com/charmbracelet/x/exp/golden v0.0.0-20260726004341-482a56510f1b/go.mod h1:6fMpcW6iwN/kX+xJ52eqVWsDiBTe0UJD24JLoHFe+P0=
 github.com/charmbracelet/x/exp/slice v0.0.0-20260122224438-b01af16209d9 h1:BBTx26Fy+CW9U3kLiWBuWn9pI9C1NybaS+p/AZeAOkA=
 github.com/charmbracelet/x/exp/slice v0.0.0-20260122224438-b01af16209d9/go.mod h1:vqEfX6xzqW1pKKZUUiFOKg0OQ7bCh54Q2vR/tserrRA=
 github.com/charmbracelet/x/term v0.2.2 h1:xVRT/S2ZcKdhhOuSP4t5cLi5o+JxklsoEObBSgfgZRk=
@@ -52,8 +52,8 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/coder/websocket v1.8.14 h1:9L0p0iKiNOibykf283eHkKUHHrpG7f65OE3BhhO7v9g=
 github.com/coder/websocket v1.8.14/go.mod h1:NX3SzP+inril6yawo5CQXx8+fk145lPDC6pumgx0mVg=
-github.com/colonyops/hive v0.57.1-0.20260723192937-81bc4a047d45 h1:opmtz/ulnEtmZwWsnGbdIyOx1H9LFSI454LLBSaGA1g=
-github.com/colonyops/hive v0.57.1-0.20260723192937-81bc4a047d45/go.mod h1:/RefOJ1VJRVE8DiXIOhbeu3NdesZC5gpmmoR0FCZD7Q=
+github.com/colonyops/hive v0.58.1-0.20260730204015-0e40f753012d h1:zyc88xKAaV9UbGAIxWfba77au7w19izZfluv5jGtF4s=
+github.com/colonyops/hive v0.58.1-0.20260730204015-0e40f753012d/go.mod h1:cjGPuZp81KgzqSW994mKKOt3+CVPDR7qyAqwB0MY3t8=
 github.com/creack/pty v1.1.9/go.mod h1:oKZEueFk5CKHvIhNR5MUki03XCEU+Q6VDXinZuGJ33E=
 github.com/danieljoos/wincred v1.2.3 h1:v7dZC2x32Ut3nEfRH+vhoZGvN72+dQ/snVXo/vMFLdQ=
 github.com/danieljoos/wincred v1.2.3/go.mod h1:6qqX0WNrS4RzPZ1tnroDzq9kY3fu1KwE7MRLQK4X0bs=

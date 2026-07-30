@@ -1,12 +1,18 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconCircle from '~icons/lucide/circle'
+import IconCircleAlert from '~icons/lucide/circle-alert'
+import IconCircleCheck from '~icons/lucide/circle-check'
+import IconCircleOff from '~icons/lucide/circle-off'
 import IconEllipsis from '~icons/lucide/ellipsis'
+import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
+import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -31,10 +37,12 @@ import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } f
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
+import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
@@ -144,6 +152,40 @@ const attachable = computed(() => sessionRows.value.filter((row) => row.state ==
 const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
 const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
 
+const { statuses: sessionStatuses, startPolling: startStatusPolling, stopPolling: stopStatusPolling } = useSessionStatuses()
+interface StatusIndicator {
+  icon: Component
+  color: string
+  label: string
+  animated?: boolean
+}
+const sessionLivenessIndicators = computed<Record<string, StatusIndicator>>(() => Object.fromEntries(
+  Object.entries(sessionStatuses.value).map(([id, status]) => [id, {
+    icon: IconCircle,
+    color: status.running ? 'text-severity-success' : 'text-text-4',
+    label: status.running ? 'Terminal running' : 'Terminal not running',
+  }]),
+))
+
+function windowActivityIndicator(status: SessionWindowStatus): StatusIndicator {
+  const tool = status.tool || 'Agent'
+  switch (status.status) {
+    case 'active':
+      return { icon: IconLoaderCircle, color: 'text-severity-success', label: `${tool} is working`, animated: true }
+    case 'approval':
+      return { icon: IconCircleAlert, color: 'text-severity-warning', label: `${tool} needs approval` }
+    case 'ready':
+      return { icon: IconCircleCheck, color: 'text-text-2', label: `${tool} is ready` }
+    default:
+      return { icon: IconCircleOff, color: 'text-text-4', label: `${tool} status unavailable` }
+  }
+}
+
+function windowIndicator(sessionID: string, windowID: string): StatusIndicator | null {
+  const status = sessionStatuses.value[sessionID]?.windows?.find((window) => window.windowId === windowID)
+  return status ? windowActivityIndicator(status) : null
+}
+
 const openRowMenu = ref('')
 const rowMenuFlip = ref(false)
 const rowMenuToggles = new Map<string, HTMLElement>()
@@ -230,6 +272,7 @@ interface TreeWindowRow {
   name: string
   active: boolean
   live: boolean
+  indicator: StatusIndicator | null
 }
 
 // A pooled session's live tab set is fresher than its listing — but while its
@@ -243,9 +286,16 @@ function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
       name: tab.name || tab.windowId,
       active: row.slug === activeSlug.value && tab.windowId === live.activeWindowId.value,
       live: true,
+      indicator: windowIndicator(row.id, tab.windowId),
     }))
   }
-  return listedWindows(row).map((win) => ({ windowId: win.windowId, name: win.name || win.windowId, active: false, live: false }))
+  return listedWindows(row).map((win) => ({
+    windowId: win.windowId,
+    name: win.name || win.windowId,
+    active: false,
+    live: false,
+    indicator: windowIndicator(row.id, win.windowId),
+  }))
 }
 
 function openTreeWindow(row: TerminalSessionRow, win: TreeWindowRow): void {
@@ -537,10 +587,12 @@ function commitRename(): void {
 
 onMounted(() => {
   void probe()
+  startStatusPolling()
   prefetchNewSession()
 })
 onBeforeUnmount(() => {
   clearTimeout(holdTimer)
+  stopStatusPolling()
   for (const slug of [...pool.keys()]) dropSession(slug)
 })
 </script>
@@ -666,11 +718,31 @@ onBeforeUnmount(() => {
                       @contextmenu.prevent="toggleRowMenu(row, $event)"
                     >
                       <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
-                      <!-- No `relative` here: AppMenu anchors to the nearest
-                           positioned ancestor, and that has to be the row so the
-                           panel spans it. Clicks stay inside the wrapper so choosing
-                           an entry never also selects the row. -->
-                      <div class="flex shrink-0" @click.stop>
+                      <!-- AppMenu must anchor to the positioned row so its panel
+                           spans the row. Grid overlap avoids making this slot a
+                           positioning ancestor while keeping its width fixed. -->
+                      <div class="row-trailing" data-testid="terminal-session-trailing" @click.stop>
+                        <span
+                          v-if="sessionLivenessIndicators[row.id]"
+                          class="row-status"
+                          :class="sessionLivenessIndicators[row.id].color"
+                          :title="sessionLivenessIndicators[row.id].label"
+                          data-testid="terminal-session-liveness"
+                          :data-status="sessionStatuses[row.id].running ? 'running' : 'inactive'"
+                        >
+                          <span
+                            v-if="sessionStatuses[row.id].running"
+                            class="size-2.5 rounded-full bg-current"
+                            aria-hidden="true"
+                          />
+                          <component
+                            :is="sessionLivenessIndicators[row.id].icon"
+                            v-else
+                            class="size-3"
+                            aria-hidden="true"
+                          />
+                          <span class="sr-only">{{ sessionLivenessIndicators[row.id].label }}</span>
+                        </span>
                         <button
                           :ref="(el) => setRowMenuToggle(row.id, el)"
                           type="button"
@@ -681,7 +753,7 @@ onBeforeUnmount(() => {
                           :aria-expanded="openRowMenu === row.id"
                           data-testid="terminal-session-menu-toggle"
                           @click="toggleRowMenu(row)"
-                        ><IconEllipsis class="size-3" /></button>
+                        ><IconEllipsisVertical class="size-3" /></button>
                         <SessionRowMenu
                           v-if="openRowMenu === row.id"
                           :session="row"
@@ -712,6 +784,17 @@ onBeforeUnmount(() => {
                             @click="openTreeWindow(row, win)"
                           >
                             <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
+                            <span
+                              v-if="win.indicator"
+                              class="window-status"
+                              :class="win.indicator.color"
+                              :title="win.indicator.label"
+                              data-testid="terminal-window-status"
+                              :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                            >
+                              <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
+                              <span class="sr-only">{{ win.indicator.label }}</span>
+                            </span>
                           </button>
                         </TransitionGroup>
                       </div>
@@ -970,9 +1053,13 @@ onBeforeUnmount(() => {
   .tree-expand-enter-active, .tree-expand-leave-active { transition: none; }
 }
 
-/* Revealed by opacity so the kebab's column is always reserved — hovering a row
-   never reflows the session name. Same affordance as the hub sidebar's rows. */
-.row-action { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+/* The shared slot keeps session names aligned while swapping liveness for actions. */
+.row-trailing { display: grid; width: 18px; height: 18px; flex: none; align-self: center; }
+.row-status, .row-action { grid-area: 1 / 1; }
+.row-status, .window-status { display: flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; }
+.row-status { pointer-events: none; }
+.row-action { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover, .row-action[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
 .session-row:hover .row-action, .row-action:focus-visible, .session-row.menu-open .row-action { opacity: 1; }
+.session-row:hover .row-status, .session-row.menu-open .row-status, .row-trailing:focus-within .row-status { opacity: 0; }
 </style>

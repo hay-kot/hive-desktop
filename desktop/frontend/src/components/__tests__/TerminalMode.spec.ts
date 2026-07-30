@@ -5,6 +5,7 @@ import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
+import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { createAppRouter } from '../../router'
@@ -12,6 +13,7 @@ import { createAppRouter } from '../../router'
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
   ListSessions: vi.fn(),
+  SessionStatuses: vi.fn(),
   SessionDetail: vi.fn(),
   SessionRisk: vi.fn(),
   RenameSession: vi.fn(),
@@ -34,6 +36,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
+  SessionStatuses: mocks.SessionStatuses,
   SessionDetail: mocks.SessionDetail,
   SessionRisk: mocks.SessionRisk,
   RenameSession: mocks.RenameSession,
@@ -112,6 +115,7 @@ describe('TerminalMode', () => {
     localStorage.clear()
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
+    resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
@@ -120,6 +124,7 @@ describe('TerminalMode', () => {
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
     ])
+    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 60_000 })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
   })
 
@@ -177,6 +182,75 @@ describe('TerminalMode', () => {
     expect(rows[1].attributes('data-attached')).toBe('true')
     expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
+  })
+
+  it('shows session liveness on sessions and agent activity on windows with icons', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'live', slug: 'live', repo: 'hay-kot/hive', state: 'active' },
+      { id: '2', name: 'stopped', slug: 'stopped', repo: 'hay-kot/hive', state: 'active' },
+    ])
+    mocks.createTerminalClient.mockReturnValue({
+      listWindows: vi.fn(async (slug: string) => ({
+        windows: slug === 'live'
+          ? [
+              { windowId: '@1', name: 'working', active: true, width: 0, height: 0 },
+              { windowId: '@2', name: 'approval', active: false, width: 0, height: 0 },
+              { windowId: '@3', name: 'ready', active: false, width: 0, height: 0 },
+              { windowId: '@4', name: 'unknown', active: false, width: 0, height: 0 },
+            ]
+          : [],
+      })),
+    })
+    const liveSession = fakeSession()
+    liveSession.tabs.value = [
+      { uid: 1, windowId: '@1', name: 'working', active: true, scrolledUp: false, term: {}, fit: {} },
+      { uid: 2, windowId: '@2', name: 'approval', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 3, windowId: '@3', name: 'ready', active: false, scrolledUp: false, term: {}, fit: {} },
+      { uid: 4, windowId: '@4', name: 'unknown', active: false, scrolledUp: false, term: {}, fit: {} },
+    ]
+    mocks.useTerminalWindows.mockReturnValue(liveSession)
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        {
+          sessionId: '1',
+          running: true,
+          windows: [
+            { windowId: '@1', status: 'active', tool: 'pi' },
+            { windowId: '@2', status: 'approval', tool: 'claude' },
+            { windowId: '@3', status: 'ready', tool: 'codex' },
+            { windowId: '@4', status: 'missing', tool: '' },
+          ],
+        },
+        { sessionId: '2', running: false, windows: [] },
+      ],
+      pollIntervalMs: 60_000,
+    })
+
+    const { wrapper } = await mountAt()
+    const liveness = wrapper.findAll('[data-testid="terminal-session-liveness"]')
+    expect(liveness).toHaveLength(2)
+    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="running"]').attributes('title')).toBe('Terminal running')
+    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="running"] span[aria-hidden="true"]').classes()).toEqual(expect.arrayContaining(['size-2.5', 'rounded-full', 'bg-current']))
+    expect(wrapper.find('[data-testid="terminal-session-liveness"][data-status="inactive"] svg').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="inactive"]').classes()).toContain('text-text-4')
+    const liveRow = wrapper.get('[data-testid="terminal-session-row"][data-slug="live"]')
+    expect(liveRow.get('[data-testid="terminal-session-liveness"]').element.parentElement)
+      .toBe(liveRow.get('[data-testid="terminal-session-menu-toggle"]').element.parentElement)
+
+    const activity = wrapper.findAll('[data-testid="terminal-window-status"]')
+    expect(activity).toHaveLength(4)
+    expect(activity.every((indicator) => indicator.find('svg').exists())).toBe(true)
+    expect(activity.every((indicator) => indicator.classes().includes('window-status'))).toBe(true)
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="active"]').attributes('title')).toBe('pi is working')
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="active"] svg').classes()).toContain('animate-spin')
+    expect(wrapper.get('[data-testid="terminal-window-status"][data-status="approval"]').attributes('title')).toBe('claude needs approval')
+    expect(wrapper.text()).not.toContain('[●]')
+
+    await wrapper.get('[data-testid="terminal-session-row"][data-slug="live"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-testid="terminal-window-status"]')).toHaveLength(4)
   })
 
   it('opens the new-session dialog from the sidebar header', async () => {

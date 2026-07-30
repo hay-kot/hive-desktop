@@ -15,5 +15,7 @@ export type {
     SessionLaunchOptions,
     SessionLaunchRepository,
     SessionRisk,
-    SessionSummary
+    SessionStatus,
+    SessionSummary,
+    SessionWindowStatus
 } from "./models.js";

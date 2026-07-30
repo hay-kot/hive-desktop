@@ -40,6 +40,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/config"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/eventbus"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
+	coreterminal "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
+	terminaltmux "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal/tmux"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
@@ -299,7 +301,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.sessions, a.terminals, a.jobStore)
+	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
@@ -816,7 +818,23 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 
 	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
 	a.launcher.SetRecorder(a.activityStore)
-	a.sessions = dispatch.NewHiveSessionManager(sessions)
+
+	var statusService *hive.StatusService
+	if cfg.MockMode == "" && cfg.Settings.Experimental.Terminal {
+		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path))}
+		if hiveCfg.Tmux.CaptureRecording.Enabled {
+			recorder, recorderErr := terminaltmux.NewJSONCaptureRecorder(hiveCfg.TmuxCaptureRecordingsDir())
+			if recorderErr != nil {
+				cfg.Logger.Warn().Err(recorderErr).Msg("enable tmux pane capture recording for session status")
+			} else {
+				statusOptions = append(statusOptions, terminaltmux.WithCaptureRecorder(recorder))
+			}
+		}
+		terminalManager := coreterminal.NewManager([]string{"tmux"})
+		terminalManager.Register(terminaltmux.NewFromPreviewMatchers(hiveCfg.Tmux.PreviewWindowMatcher, statusOptions...))
+		statusService = hive.NewStatusService(terminalManager, hiveCfg.Git.StatusWorkers)
+	}
+	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, hiveCfg.Tmux.PollInterval)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
 }

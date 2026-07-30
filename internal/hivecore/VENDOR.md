@@ -1,6 +1,6 @@
 # Vendored hive core
 
-Vendored from `github.com/colonyops/hive` at `81bc4a047d456a85fa0189cfff507e75f1b6102d` by `cmd/vendorhive`.
+Vendored from `github.com/colonyops/hive` at `0e40f753012d546566b08b1d1fb396e85d912f04` by `cmd/vendorhive`.
 
 **Do not edit anything in this tree.** Change hive first, then re-run
 `mise run vendor`. CI fails on drift. License: see LICENSE (MIT, upstream).
@@ -21,6 +21,10 @@ Packages:
 - core/session
 - core/styles
 - core/terminal
+- core/terminal/classifier
+- core/terminal/content
+- core/terminal/process
+- core/terminal/tmux
 - core/tmux
 - core/todo
 - core/workspace

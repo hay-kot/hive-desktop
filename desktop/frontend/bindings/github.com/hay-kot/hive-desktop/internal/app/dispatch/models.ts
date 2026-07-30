@@ -135,6 +135,16 @@ export interface SessionRisk {
 }
 
 /**
+ * SessionStatus separates tmux liveness from the activity detected in each
+ * agent window.
+ */
+export interface SessionStatus {
+    "sessionId": string;
+    "running": boolean;
+    "windows": SessionWindowStatus[] | null;
+}
+
+/**
  * SessionSummary is one session as the desktop's session list sees it. Slug is
  * the tmux session name, which is what a terminal attach targets. It stays a
  * projection: the rest of a session is read on demand as a SessionDetail.
@@ -145,4 +155,13 @@ export interface SessionSummary {
     "slug": string;
     "repo": string;
     "state": string;
+}
+
+/**
+ * SessionWindowStatus is one tmux window's detected agent activity.
+ */
+export interface SessionWindowStatus {
+    "windowId": string;
+    "status": string;
+    "tool": string;
 }

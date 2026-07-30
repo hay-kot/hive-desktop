@@ -14,6 +14,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	coreterminal "github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
 	coredb "github.com/hay-kot/hive-desktop/internal/hivecore/data/db"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/data/stores"
 	hivesvc "github.com/hay-kot/hive-desktop/internal/hivecore/hive"
@@ -93,7 +94,29 @@ func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executo
 		io.Discard,
 		io.Discard,
 	)
-	return NewHiveSessionManager(svc), store
+	return NewHiveSessionManager(svc, nil, 0), store
+}
+
+type listingSessionManagement struct {
+	SessionManagement
+	sessions []session.Session
+}
+
+func (m listingSessionManagement) ListSessions(context.Context) ([]session.Session, error) {
+	return m.sessions, nil
+}
+
+type fakeSessionStatusSource struct {
+	available bool
+	results   map[string]hivesvc.TerminalStatus
+	seen      []*session.Session
+}
+
+func (f *fakeSessionStatusSource) Available() bool { return f.available }
+
+func (f *fakeSessionStatusSource) FetchBatch(_ context.Context, sessions []*session.Session, _ []hivesvc.RootRepoTarget) map[string]hivesvc.TerminalStatus {
+	f.seen = sessions
+	return f.results
 }
 
 // recordingExecutor stands in for the shell hive spawns tmux through, so the
@@ -183,6 +206,51 @@ func TestHiveSessionManagerListsEveryState(t *testing.T) {
 		{ID: "s1", Name: "review 81", Slug: "review-81", Repo: "acme/site", State: "active"},
 		{ID: "s2", Name: "old", Slug: "old", State: "recycled"},
 	}, got)
+}
+
+func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
+	statuses := &fakeSessionStatusSource{
+		available: true,
+		results: map[string]hivesvc.TerminalStatus{
+			"s1": {Running: true, Windows: []hivesvc.WindowStatus{
+				{WindowID: "@1", Status: coreterminal.StatusApproval, Tool: "claude"},
+				{WindowID: "@2", Status: coreterminal.StatusActive, Tool: "pi"},
+			}},
+			"s2": {Running: true, WindowID: "@3", Status: coreterminal.StatusReady, Tool: "codex"},
+			"s4": {Status: coreterminal.StatusMissing, Error: errors.New("session disappeared")},
+		},
+	}
+	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
+		{ID: "s1", State: session.StateActive},
+		{ID: "s2", State: session.StateActive},
+		{ID: "s3", State: session.StateRecycled},
+		{ID: "s4", State: session.StateActive},
+	}}, statuses, 1750*time.Millisecond)
+
+	got, err := manager.SessionStatuses(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, 1750*time.Millisecond, got.PollInterval)
+	assert.Equal(t, []SessionStatus{
+		{SessionID: "s1", Running: true, Windows: []SessionWindowStatus{
+			{WindowID: "@1", Status: "approval", Tool: "claude"},
+			{WindowID: "@2", Status: "active", Tool: "pi"},
+		}},
+		{SessionID: "s2", Running: true, Windows: []SessionWindowStatus{{WindowID: "@3", Status: "ready", Tool: "codex"}}},
+		{SessionID: "s4", Windows: []SessionWindowStatus{}},
+	}, got.Items)
+	require.Len(t, statuses.seen, 3)
+	assert.Equal(t, "s1", statuses.seen[0].ID)
+	assert.Equal(t, "s2", statuses.seen[1].ID)
+	assert.Equal(t, "s4", statuses.seen[2].ID)
+}
+
+func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.T) {
+	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, 1500*time.Millisecond)
+
+	got, err := manager.SessionStatuses(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, got.Items)
+	assert.Equal(t, 1500*time.Millisecond, got.PollInterval)
 }
 
 func TestHiveSessionManagerDetailReadsWorktreeMetadata(t *testing.T) {
