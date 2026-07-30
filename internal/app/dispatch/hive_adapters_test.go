@@ -2,6 +2,7 @@ package dispatch
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 	"time"
@@ -71,6 +72,11 @@ func TestHiveMessagePublisherPersistsThroughCoreSQLiteReopen(t *testing.T) {
 // satisfied structurally here rather than by a fake shaped to fit it.
 func newHiveSessions(t *testing.T) (*HiveSessionManager, session.Store) {
 	t.Helper()
+	return newHiveSessionsWith(t, &config.Config{}, &executil.RealExecutor{})
+}
+
+func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executor) (*HiveSessionManager, session.Store) {
+	t.Helper()
 	database, err := coredb.Open(t.TempDir(), coredb.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, database.Close()) })
@@ -78,16 +84,89 @@ func newHiveSessions(t *testing.T) (*HiveSessionManager, session.Store) {
 	store := stores.NewSessionStore(database)
 	svc := hivesvc.NewSessionService(
 		store,
-		git.NewExecutor("git", &executil.RealExecutor{}),
-		&config.Config{},
+		git.NewExecutor("git", exec),
+		cfg,
 		eventbus.New(8),
-		&executil.RealExecutor{},
+		exec,
 		tmpl.New(tmpl.Config{}),
 		zerolog.Nop(),
 		io.Discard,
 		io.Discard,
 	)
 	return NewHiveSessionManager(svc), store
+}
+
+// recordingExecutor stands in for the shell hive spawns tmux through, so the
+// seam can be checked against the real vendored spawner with no tmux server
+// running. absent fails has-session, which is how tmux answers for a session it
+// does not hold.
+type recordingExecutor struct {
+	absent bool
+	runs   [][]string
+}
+
+func (e *recordingExecutor) record(cmd string, args []string) error {
+	e.runs = append(e.runs, append([]string{cmd}, args...))
+	if e.absent && len(args) > 0 && args[0] == "has-session" {
+		return errors.New("can't find session")
+	}
+	return nil
+}
+
+func (e *recordingExecutor) Run(_ context.Context, cmd string, args ...string) ([]byte, error) {
+	return nil, e.record(cmd, args)
+}
+
+func (e *recordingExecutor) RunDir(_ context.Context, _, cmd string, args ...string) ([]byte, error) {
+	return nil, e.record(cmd, args)
+}
+
+func (e *recordingExecutor) RunStream(_ context.Context, _, _ io.Writer, cmd string, args ...string) error {
+	return e.record(cmd, args)
+}
+
+func (e *recordingExecutor) RunDirStream(_ context.Context, _ string, _, _ io.Writer, cmd string, args ...string) error {
+	return e.record(cmd, args)
+}
+
+// spawnConfig is a rule whose windows are distinguishable from hive's defaults,
+// so the test can tell "hive rendered the configured spawn" from "something here
+// built a window set of its own".
+func spawnConfig() *config.Config {
+	return &config.Config{Rules: []config.Rule{{
+		Windows: []config.WindowConfig{
+			{Name: "agent", Command: "run {{ .Slug }}", Focus: true},
+			{Name: "shell"},
+		},
+	}}}
+}
+
+func TestHiveSessionManagerSpawnsTheConfiguredWindowsDetached(t *testing.T) {
+	exec := &recordingExecutor{absent: true}
+	manager, _ := newHiveSessionsWith(t, spawnConfig(), exec)
+
+	require.NoError(t, manager.SpawnTmuxSession(t.Context(), "review 81", "/tmp/review-81", "acme/site"))
+
+	assert.Contains(t, exec.runs, []string{"tmux", "has-session", "-t", "review-81"})
+	// The session is created under the slug, in the session's own directory,
+	// running the configured command — hive's spawn semantics, not a second
+	// definition of them here.
+	assert.Contains(t, exec.runs, []string{"tmux", "new-session", "-d", "-s", "review-81", "-n", "agent", "-c", "/tmp/review-81", "--", "sh", "-c", "run review-81"})
+	assert.Contains(t, exec.runs, []string{"tmux", "new-window", "-t", "review-81", "-n", "shell", "-c", "/tmp/review-81"})
+	for _, run := range exec.runs {
+		assert.NotContains(t, run, "attach-session", "the desktop attaches over control mode; the spawn must stay detached")
+		assert.NotContains(t, run, "switch-client")
+	}
+}
+
+func TestHiveSessionManagerSpawnLeavesALiveSessionAlone(t *testing.T) {
+	exec := &recordingExecutor{}
+	manager, _ := newHiveSessionsWith(t, spawnConfig(), exec)
+
+	require.NoError(t, manager.SpawnTmuxSession(t.Context(), "review 81", "/tmp/review-81", "acme/site"))
+
+	assert.Equal(t, [][]string{{"tmux", "has-session", "-t", "review-81"}}, exec.runs,
+		"a session tmux already holds is not respawned, so every cold attach can ask for one")
 }
 
 func TestHiveSessionManagerListsEveryState(t *testing.T) {

@@ -120,6 +120,17 @@ type terminalWindowsResponse struct {
 	Windows []terminalWindow `json:"windows"`
 }
 
+// terminalStartResponse reports whether this call is what spawned the session,
+// so a caller can tell "I started it" from "it was already running".
+type terminalStartResponse struct {
+	Started bool `json:"started"`
+}
+
+// terminalKillResponse reports whether there was a session to kill.
+type terminalKillResponse struct {
+	Killed bool `json:"killed"`
+}
+
 type terminalNewWindowResponse struct {
 	WindowID string `json:"windowId"`
 }
@@ -150,6 +161,33 @@ func (ctrl *Controller) TerminalAttach(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 	return server.JSON(w, http.StatusOK, terminalAttachResponse{Windows: toTerminalWindows(windows)})
+}
+
+// TerminalStart spawns the tmux session behind a slug so it can be attached to.
+func (ctrl *Controller) TerminalStart(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalSlugRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	started, err := ctrl.core.Terminals.Start(r.Context(), body.Slug)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalStartResponse{Started: started})
+}
+
+// TerminalKill kills the tmux session behind a slug, leaving the hive session
+// itself alone.
+func (ctrl *Controller) TerminalKill(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalSlugRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	killed, err := ctrl.core.Terminals.Kill(r.Context(), body.Slug)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalKillResponse{Killed: killed})
 }
 
 // TerminalListWindows answers a session's window set without attaching, so the

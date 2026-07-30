@@ -9,6 +9,7 @@ import '../assets/fonts/jetbrains-mono-nerd.css'
 import {
   decodeFrame,
   encodeInputFrames,
+  TerminalRequestError,
   type TerminalClient,
   type WindowEventKind,
   type WindowState,
@@ -23,8 +24,12 @@ import { useTheme } from './useTheme'
  */
 export type TerminalStatus = 'connecting' | 'live' | 'ended'
 
-/** Why the session ended, so the UI can say which of the two signals fired. */
-export type TerminalEndReason = 'attach-failed' | 'exited' | 'error' | 'disconnected'
+/**
+ * Why the session ended, so the UI can say which of the signals fired.
+ * 'not-started' is the one that is not a failure: tmux is running no session
+ * under this slug yet, and starting it is an action the view offers.
+ */
+export type TerminalEndReason = 'not-started' | 'attach-failed' | 'exited' | 'error' | 'disconnected'
 
 export interface TerminalSize {
   cols: number
@@ -457,6 +462,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       setActive(windows.find((window) => window.active)?.windowId ?? windows[0]?.windowId ?? '')
       openSocket()
     } catch (e) {
+      // The core classifies "tmux is running no such session" rather than
+      // letting a dead control stream's message stand in for it, so this is a
+      // kind check, never a message match.
+      if (e instanceof TerminalRequestError && e.kind === 'not_found') {
+        end('not-started', e.message)
+        return
+      }
       end('attach-failed', message(e, 'Could not attach to this session.'))
     }
   }

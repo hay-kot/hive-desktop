@@ -14,6 +14,8 @@ describe('SessionRowMenu', () => {
     const wrapper = mountMenu()
 
     for (const [testid, event] of [
+      ['session-menu-start', 'start'],
+      ['session-menu-kill', 'kill'],
       ['session-menu-detail', 'detail'],
       ['session-menu-rename', 'rename'],
       ['session-menu-recycle', 'recycle'],
@@ -22,14 +24,20 @@ describe('SessionRowMenu', () => {
       await wrapper.get(`[data-testid="${testid}"]`).trigger('click')
       expect(wrapper.emitted(event), testid).toHaveLength(1)
     }
-    expect(wrapper.emitted('close')).toHaveLength(4)
+    expect(wrapper.emitted('close')).toHaveLength(6)
   })
 
-  it('offers recycle only for an active session', () => {
-    expect(mountMenu().find('[data-testid="session-menu-recycle"]').exists()).toBe(true)
+  it('offers the terminal lifecycle and recycle only for an active session', () => {
+    const active = mountMenu()
+    expect(active.find('[data-testid="session-menu-start"]').exists()).toBe(true)
+    expect(active.find('[data-testid="session-menu-kill"]').exists()).toBe(true)
+    expect(active.find('[data-testid="session-menu-recycle"]').exists()).toBe(true)
 
-    // Hive rejects recycling a session that is not active, so it is not offered.
+    // Hive rejects recycling a session that is not active, and a recycled one
+    // has no checkout left to run a terminal in.
     const recycled = mountMenu({ session: { ...session, state: 'recycled' } })
+    expect(recycled.find('[data-testid="session-menu-start"]').exists()).toBe(false)
+    expect(recycled.find('[data-testid="session-menu-kill"]').exists()).toBe(false)
     expect(recycled.find('[data-testid="session-menu-recycle"]').exists()).toBe(false)
     expect(recycled.find('[data-testid="session-menu-delete"]').exists()).toBe(true)
   })

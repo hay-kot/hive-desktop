@@ -260,6 +260,73 @@ func TestTmuxAttachReturnsWindowsAndStreamsEvents(t *testing.T) {
 	readUntil(t, conn, "a closed window event", func(f []byte) bool { return isWindowEvent(f, "closed", created.WindowID) })
 }
 
+// A session tmux is not running answers 404 rather than tmux's own complaint
+// dressed as an internal fault: that is the answer the terminal view turns into
+// its "start this session" panel, so it has to be classified, not narrated.
+func TestTmuxAttachReportsASessionThatIsNotRunning(t *testing.T) {
+	startTmux(t, "hive-known")
+	h := newTerminalHarness(t)
+
+	resp := h.post(t, "/api/terminal/attach", testToken, map[string]any{"slug": "hive-never-spawned", "cols": 120, "rows": 40})
+	require.Equal(t, http.StatusNotFound, resp.StatusCode)
+	var failure struct {
+		Kind    string `json:"kind"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&failure))
+	_ = resp.Body.Close()
+	assert.Equal(t, "not_found", failure.Kind)
+	assert.Contains(t, failure.Message, "hive-never-spawned")
+
+	// Starting it is the caller's next move — and with no hive session behind
+	// the slug there is nothing to build one from, which is its own 404.
+	start := h.post(t, "/api/terminal/start", testToken, map[string]any{"slug": "hive-never-spawned"})
+	assert.Equal(t, http.StatusNotFound, start.StatusCode)
+	_ = start.Body.Close()
+}
+
+// Killing is the terminal's lifecycle alone: tmux loses the session, and the
+// attach that follows is the not-running answer the start panel is built on.
+func TestTmuxKillEndsTheSession(t *testing.T) {
+	tmux := startTmux(t, "hive-doomed")
+	h := newTerminalHarness(t)
+	h.attach(t, tmux.slug)
+
+	resp := h.post(t, "/api/terminal/kill", testToken, map[string]any{"slug": tmux.slug})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body struct {
+		Killed bool `json:"killed"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	_ = resp.Body.Close()
+	assert.True(t, body.Killed)
+
+	attach := h.post(t, "/api/terminal/attach", testToken, map[string]any{"slug": tmux.slug, "cols": 120, "rows": 40})
+	_ = attach.Body.Close()
+	assert.Equal(t, http.StatusNotFound, attach.StatusCode)
+
+	again := h.post(t, "/api/terminal/kill", testToken, map[string]any{"slug": tmux.slug})
+	require.Equal(t, http.StatusOK, again.StatusCode, "killing what is already gone is nothing to do")
+	require.NoError(t, json.NewDecoder(again.Body).Decode(&body))
+	_ = again.Body.Close()
+	assert.False(t, body.Killed)
+}
+
+// A slug tmux is already running needs no start, and must not be respawned over.
+func TestTmuxStartIsANoOpForALiveSession(t *testing.T) {
+	tmux := startTmux(t, "hive-running")
+	h := newTerminalHarness(t)
+
+	resp := h.post(t, "/api/terminal/start", testToken, map[string]any{"slug": tmux.slug})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var body struct {
+		Started bool `json:"started"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	_ = resp.Body.Close()
+	assert.False(t, body.Started, "the session was already there")
+}
+
 // The sidebar's "always show windows" option lists windows for sessions this
 // webview is not attached to, so the listing must work with no control client.
 func TestTmuxListWindowsAnswersWithoutAnAttach(t *testing.T) {

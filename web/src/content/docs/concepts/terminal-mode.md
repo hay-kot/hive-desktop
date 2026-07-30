@@ -30,6 +30,39 @@ missing when it isn't:
 Once it's on, the title bar carries a **Hub | Terminal** switch. The sidebar
 lists your sessions, and picking one attaches to it.
 
+## Starting a session that has no terminal yet
+
+The tmux session behind a Hive session does not survive a reboot or a
+`tmux kill-server`, and a session created by an action may never have had one —
+but the session itself outlives all of that. Picking one of those in the sidebar
+shows **Session not started** where the terminal would be, with a **Start
+session** button. The same action lives in the row's ⋯ menu.
+
+Starting builds the session from Hive's own `windows:` spawn configuration for
+that repository — same windows, same working directory, same agent command as
+`hive` would use — and then attaches.
+
+It waits for that click on purpose: starting **runs your agent again** from a
+clean slate, nothing is resumed from where it left off, and opening the app
+re-attaches your last session on its own. Only **active** sessions can be
+started; a recycled one has no checkout left to open a terminal in, which is why
+the sidebar does not list it.
+
+If a repository's rule uses the older command-based `spawn:` (launching a
+terminal app of your own) rather than `windows:`, Hive cannot build the session
+for you — start it with `hive` and it will be there to attach to.
+
+## Killing a terminal without touching the session
+
+The same ⋯ menu carries **Kill terminal…**. It kills the tmux session and
+nothing else: the agent and anything else running in it stop, while the
+checkout, your uncommitted work, and the session itself stay exactly as they
+are. What is left is the **Session not started** panel, so starting it again is
+one click away.
+
+That is what separates it from the two below it in the menu — **Recycle** resets
+the checkout, and **Delete** removes the session and its directory.
+
 ## It is a real attach, not a copy
 
 Hive attaches as another tmux client, exactly as `tmux attach` in a terminal

@@ -301,7 +301,7 @@ internal/
                                   #   PATH, then package prefixes (ADR 0039)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
-                                  #   process's, then those prefixes (ADR 0043)
+                                  #   process's, then those prefixes (ADR 0041)
     jobs/  activity/              # observability domains
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
@@ -676,7 +676,7 @@ not adopted it.
 ### Subprocess environment
 
 **A command the user wrote runs in the PATH the user has, not the one the app
-inherited** (ADR 0043). A desktop launch's environment is the launcher's —
+inherited** (ADR 0041). A desktop launch's environment is the launcher's —
 macOS gives an `.app` bundle `/usr/bin:/bin:/usr/sbin:/sbin` — and session hooks
 and shell actions are an open set of user commands, so no list of prefixes
 substitutes for asking. `internal/app/execenv` asks the login shell once per run
@@ -716,7 +716,16 @@ them is the constraint (ADR 0036):
   call. It pre-validates (unknown slug, window id not in the client's window
   set, size and name bounds) so a `Kind` is chosen without matching error text,
   and it holds **no** token, base URL or stream path: the core stays
-  transport-neutral.
+  transport-neutral. **Attach never spawns; `Start` and `Kill` are the terminal's
+  lifecycle** (ADR 0044) — spawning runs the session's agent command, and the
+  view attaches without a click. A slug tmux is not running is a `KindNotFound`
+  decided by a `has-session` probe, never by reading a dead control stream's
+  message, and the frontend turns it into a panel offering to start. What a
+  started session *contains* is hive's spawn configuration, reached through the
+  seam (`SessionsService.StartTmuxSession` → `HiveSessionManager.SpawnTmuxSession`
+  → hive's `OpenTmuxSession`, detached); a kill is tmux's alone and touches no
+  hive record, which is what separates it from delete and recycle. Anything that
+  builds a session's windows here instead has to revisit that ADR.
 - **`internal/adapter/httpapi`** — the control plane as errchain operations
   (`POST /api/terminal/…`) in the operations table, and the data plane as a raw
   WebSocket handler at its own prefix. See
@@ -745,10 +754,10 @@ uniqueness constraint. ADR 0040. A change that gives the slug a second identity,
 or that makes something else the attach target, has to revisit that ADR rather
 than work around it.
 
-Session lifecycle (read, rename, delete, recycle, prune) reaches hive
-through `dispatch.HiveSessionManager`, a second seam type beside
-`HiveSessionLauncher`: launching is a dispatch action an output command holds,
-and it has no business holding a delete. Delete, recycle and prune run through
+Session lifecycle (read, rename, delete, recycle, prune, and spawning the tmux
+session a slug names) reaches hive through `dispatch.HiveSessionManager`, a
+second seam type beside `HiveSessionLauncher`: launching is a dispatch action an
+output command holds, and it has no business holding a delete. Delete, recycle and prune run through
 `jobs.Track` like `CreateSession` does — they do git and worktree work — so
 `jobs:updated` is what refreshes the list, and the frontend follows a session by
 **id** across a reload so a rename is told apart from a deletion. Anything

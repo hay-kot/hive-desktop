@@ -272,25 +272,59 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 	return nil
 }
 
+// HasSession reports whether tmux is running a session named slug. Attach and
+// start both ask before doing anything, so "there is no session" is a probe's
+// answer rather than a reading of an attach failure's message. A live client is
+// proof enough, which keeps a warm re-attach free of the round trip.
+func (m *Manager) HasSession(ctx context.Context, slug string) (bool, error) {
+	if slug == "" {
+		return false, fmt.Errorf("%w: empty slug", ErrNotAttached)
+	}
+	if mc, ok := m.managed(slug); ok {
+		if _, dead := mc.client.exited(); !dead {
+			return true, nil
+		}
+	}
+	if err := m.Available(ctx); err != nil {
+		return false, err
+	}
+	_, err := m.oneShot(ctx, "has-session", "-t", slug)
+	return err == nil, nil
+}
+
+// KillSession kills the tmux session named slug and reports whether there was
+// one to kill; a slug tmux is not running is success with nothing done, the same
+// tolerance RenameSession has. The control client goes with it, synchronously:
+// the child would exit on its own moments later, and a caller that re-attaches
+// in between must not be handed the dying client's window set.
+func (m *Manager) KillSession(ctx context.Context, slug string) (bool, error) {
+	exists, err := m.HasSession(ctx, slug)
+	if err != nil || !exists {
+		return false, err
+	}
+	if mc, ok := m.managed(slug); ok {
+		_ = mc.client.Close(ctx)
+		m.remove(slug, mc.gen)
+	}
+	if _, err := m.oneShot(ctx, "kill-session", "-t", slug); err != nil {
+		return false, fmt.Errorf("tmuxcc: kill session %s: %w", slug, err)
+	}
+	return true, nil
+}
+
 // ListWindows answers slug's window set without requiring an attach: an
 // attached slug answers from its live client, any other from a one-shot
 // list-windows. A slug with no tmux session behind it answers with no windows
 // rather than an error — callers enumerate sessions hive knows about, and one
 // that was never spawned, or whose tmux server restarted, is a normal state.
 func (m *Manager) ListWindows(ctx context.Context, slug string) ([]Window, error) {
-	if slug == "" {
-		return nil, fmt.Errorf("%w: empty slug", ErrNotAttached)
-	}
 	if mc, ok := m.managed(slug); ok {
 		if _, dead := mc.client.exited(); !dead {
 			return mc.client.Windows(), nil
 		}
 	}
-	if err := m.Available(ctx); err != nil {
+	if exists, err := m.HasSession(ctx, slug); err != nil || !exists {
 		return nil, err
-	}
-	if _, err := m.oneShot(ctx, "has-session", "-t", slug); err != nil {
-		return nil, nil
 	}
 	lines, err := m.oneShot(ctx, "list-windows", "-t", slug, "-F", listWindowsFormat)
 	if err != nil {

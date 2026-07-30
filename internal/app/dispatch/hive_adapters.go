@@ -38,7 +38,12 @@ type SessionManagement interface {
 	RecycleSession(ctx context.Context, id string, w io.Writer) error
 	Prune(ctx context.Context, all bool) (int, error)
 	CheckSessionRisk(ctx context.Context, id string) (hive.SessionRisk, error)
+	OpenTmuxSession(ctx context.Context, name, path, remote, targetWindow string, background bool) error
 }
+
+// SessionStateActive is the one state with a live checkout behind it, and so the
+// only one whose terminal can be started or attached to.
+const SessionStateActive = string(session.StateActive)
 
 // SessionSummary is one session as the desktop's session list sees it. Slug is
 // the tmux session name, which is what a terminal attach targets. It stays a
@@ -205,6 +210,21 @@ func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (Sessio
 		UnpushedCommits:    risk.UnpushedCommits,
 		RecycleDeletes:     s.CloneStrategy == session.CloneStrategyWorktree,
 	}, nil
+}
+
+// SpawnTmuxSession creates the tmux session for a session hive already holds,
+// from hive's own spawn configuration for the remote — the windows, working
+// directory and commands hive would have used itself. A session tmux already
+// has is left alone, so this is idempotent.
+//
+// It spawns detached: the desktop attaches over control mode, and an attaching
+// spawn would hand the session to whatever terminal launched the app — or fail
+// for a launcher that has none.
+func (m *HiveSessionManager) SpawnTmuxSession(ctx context.Context, name, path, repo string) error {
+	if err := m.sessions.OpenTmuxSession(ctx, name, path, repo, "", true); err != nil {
+		return fmt.Errorf("open hive tmux session: %w", err)
+	}
+	return nil
 }
 
 func (m *HiveSessionManager) RenameSession(ctx context.Context, id, name string) error {

@@ -47,9 +47,32 @@ export type TerminalFrame =
   | { type: 'window'; kind: WindowEventKind; state: WindowState }
   | { type: 'lifecycle'; kind: LifecycleKind; windowId: string; message: string }
 
+/**
+ * A control-plane failure carrying the core's own classification, so a caller
+ * can tell a session that is not running (`not_found`) from tmux being
+ * unusable (`unavailable`) without reading the message.
+ */
+export class TerminalRequestError extends Error {
+  constructor(message: string, readonly kind: string) {
+    super(message)
+    this.name = 'TerminalRequestError'
+  }
+}
+
 export interface TerminalClient {
-  /** cols/rows are the opening size vote; 0x0 attaches without setting one. */
+  /**
+   * cols/rows are the opening size vote; 0x0 attaches without setting one.
+   * Attaching never spawns: a session that is not running rejects with a
+   * `not_found` TerminalRequestError, and start() is what creates it.
+   */
   attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[] }>
+  /** Spawns the tmux session behind a slug, or reports it was already running. */
+  start(slug: string): Promise<{ started: boolean }>
+  /**
+   * Kills the tmux session behind a slug — the terminal only; the hive session
+   * and its checkout are untouched. A slug with no session answers killed:false.
+   */
+  kill(slug: string): Promise<{ killed: boolean }>
   /** Lists a session's windows without attaching; a slug with no tmux session behind it answers with none. */
   listWindows(slug: string): Promise<{ windows: WindowState[] }>
   resize(slug: string, cols: number, rows: number): Promise<void>
@@ -76,7 +99,7 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${endpoint.token}` },
       body: JSON.stringify(body),
     })
-    if (!response.ok) throw new Error(await failureMessage(response))
+    if (!response.ok) throw await failure(response)
     if (response.status === 204) return null
     return (await response.json()) as T
   }
@@ -85,6 +108,14 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
     async attach(slug, cols, rows) {
       const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/attach', { slug, cols, rows })
       return { windows: (body?.windows ?? []).map(toWindowState) }
+    },
+    async start(slug) {
+      const body = await post<{ started: boolean }>('/api/terminal/start', { slug })
+      return { started: !!body?.started }
+    },
+    async kill(slug) {
+      const body = await post<{ killed: boolean }>('/api/terminal/kill', { slug })
+      return { killed: !!body?.killed }
     },
     async listWindows(slug) {
       const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/list', { slug })
@@ -198,12 +229,12 @@ function readJSON<T>(bytes: Uint8Array): T | null {
   }
 }
 
-async function failureMessage(response: Response): Promise<string> {
+async function failure(response: Response): Promise<TerminalRequestError> {
   try {
-    const body = await response.json() as { message?: string }
-    if (body?.message) return body.message
+    const body = await response.json() as { message?: string; kind?: string }
+    if (body?.message) return new TerminalRequestError(body.message, body.kind ?? '')
   } catch {
     // fall through to the status line
   }
-  return `${response.status} ${response.statusText}`.trim()
+  return new TerminalRequestError(`${response.status} ${response.statusText}`.trim(), '')
 }

@@ -33,6 +33,7 @@ type sessionManager interface {
 	DeleteSession(ctx context.Context, id string) error
 	RecycleSession(ctx context.Context, id string) error
 	PruneSessions(ctx context.Context) (int, error)
+	SpawnTmuxSession(ctx context.Context, name, path, repo string) error
 }
 
 // sessionTmux renames the live tmux session behind a slug. Hive's rename
@@ -209,6 +210,62 @@ func (s *SessionsService) RenameSession(ctx context.Context, id, name string) (d
 		Repo:  renamed.Repo,
 		State: renamed.State,
 	}, nil
+}
+
+// StartTmuxSession spawns the tmux session a slug names. A session hive knows
+// about does not have to have one — its tmux server was restarted, the machine
+// rebooted, or it was created by something that never spawned one — and this is
+// what lets the terminal attach to it anyway.
+//
+// The windows are hive's: what a session's terminal holds is its spawn
+// configuration for the remote, and a second definition of that here would
+// drift from the one `hive` itself uses. Spawning a session tmux already has is
+// a no-op, so this is safe to call before every cold attach.
+func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) error {
+	if s.manager == nil {
+		return Errorf(KindUnavailable, "starting sessions is unavailable")
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return Errorf(KindInvalid, "session slug is required")
+	}
+
+	detail, err := s.detailBySlug(ctx, slug)
+	if err != nil {
+		return err
+	}
+	if detail.State != dispatch.SessionStateActive {
+		return Errorf(KindConflict, "session %q is %s, so there is no checkout left to open a terminal in", detail.Name, detail.State)
+	}
+	// Hive spawns under the slug it derives from the name, so a record whose two
+	// disagree would create a tmux session nothing is attaching to (ADR 0040).
+	if spawned := dispatch.SlugifySessionName(detail.Name); spawned != slug {
+		return Errorf(KindConflict, "session %q would start as %q, not %q", detail.Name, spawned, slug)
+	}
+	if err := s.manager.SpawnTmuxSession(ctx, detail.Name, detail.Path, detail.Repo); err != nil {
+		return Wrap(err, KindInternal, "starting the terminal session for %q", detail.Name)
+	}
+	return nil
+}
+
+// detailBySlug reads the session a tmux session name belongs to. The listing is
+// what maps a slug to an id; nothing queries hive by slug.
+func (s *SessionsService) detailBySlug(ctx context.Context, slug string) (dispatch.SessionDetail, error) {
+	sessions, err := s.manager.ListSessions(ctx)
+	if err != nil {
+		return dispatch.SessionDetail{}, Wrap(err, KindInternal, "listing sessions")
+	}
+	for _, summary := range sessions {
+		if summary.Slug != slug {
+			continue
+		}
+		detail, err := s.manager.SessionDetail(ctx, summary.ID)
+		if err != nil {
+			return dispatch.SessionDetail{}, Wrap(err, KindNotFound, "reading session %q", summary.Name)
+		}
+		return detail, nil
+	}
+	return dispatch.SessionDetail{}, Errorf(KindNotFound, "no session named %q", slug)
 }
 
 // DeleteSession removes a session, its worktree or clone, and its tmux session,

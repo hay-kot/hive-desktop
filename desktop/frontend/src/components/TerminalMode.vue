@@ -7,6 +7,7 @@ import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconInfo from '~icons/lucide/info'
+import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
@@ -14,6 +15,7 @@ import IconTerminal from '~icons/lucide/terminal'
 import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
 import AppMenu from './AppMenu.vue'
+import BaseButton from './BaseButton.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SessionDetailDialog from './SessionDetailDialog.vue'
@@ -135,8 +137,9 @@ const {
 } = useTerminalSessions()
 const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
 // The tree is the attach surface, so only an active session belongs in it — a
-// recycled or corrupted one has no tmux session behind it. They still arrive in
-// the listing, which is what the header's prune entry counts and acts on.
+// recycled or corrupted one has no checkout left to open a terminal in, and
+// attaching cannot start one. They still arrive in the listing, which is what
+// the header's prune entry counts and acts on.
 const attachable = computed(() => sessionRows.value.filter((row) => row.state === 'active'))
 const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
 const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
@@ -294,6 +297,11 @@ const status = computed(() => visible.value?.status.value ?? 'connecting')
 const placeholderTabs = computed<WindowState[]>(() =>
   (status.value === 'connecting' && !tabs.value.length ? sessionWindows.value[activeSlug.value] ?? [] : []))
 const endReason = computed(() => visible.value?.endReason.value ?? null)
+// Not a failure: tmux is running nothing under this slug, and starting it runs
+// the session's agent command — so it is offered, never done on selection.
+const notStarted = computed(() => endReason.value === 'not-started')
+const starting = ref('')
+const startError = ref('')
 const sessionError = computed(() => visible.value?.error.value ?? '')
 const actionError = computed(() => visible.value?.actionError.value ?? '')
 const sizeConstraint = computed(() => visible.value?.sizeConstraint.value ?? null)
@@ -420,9 +428,57 @@ function selectSession(slug: string): void {
   void router.push({ name: 'terminal', params: { slug } })
 }
 
+// Starting is the user's move, never a side effect of selecting a row: it runs
+// the session's agent command. A session already running is not respawned, so
+// this doubles as "open it" from the row menu.
+async function startSession(slug: string): Promise<void> {
+  if (!client.value || starting.value) return
+  starting.value = slug
+  startError.value = ''
+  try {
+    await client.value.start(slug)
+  } catch (e) {
+    startError.value = e instanceof Error && e.message ? e.message : 'Could not start this session.'
+    return
+  } finally {
+    starting.value = ''
+  }
+  if (slug !== activeSlug.value) {
+    void router.push({ name: 'terminal', params: { slug } })
+    return
+  }
+  const pooled = pool.get(slug)
+  if (!pooled) openSession(slug)
+  else if (pooled.status.value === 'ended') void pooled.reconnect()
+  else pooled.focusActive()
+}
+
+// Killing ends the terminal and nothing else — the checkout, the record and the
+// work stay — but it stops whatever is running inside, so it is confirmed like
+// the session's own destructive operations.
+function requestKill(row: TerminalSessionRow): void {
+  confirmation.request({
+    title: 'Kill this terminal?',
+    description: `The tmux session behind ${row.name} is killed, stopping the agent and anything else running in it. Its checkout and its work are untouched, and you can start it again from here.`,
+    confirmLabel: 'Kill',
+    onConfirm: () => killSession(row.slug),
+  })
+}
+
+async function killSession(slug: string): Promise<void> {
+  if (!client.value) return
+  await client.value.kill(slug)
+  // Re-attaching the killed session is what lands it on the start panel; a
+  // pooled one that is not on screen is simply let go.
+  if (slug === activeSlug.value) void pool.get(slug)?.reconnect()
+  else dropSession(slug)
+  if (showAllWindows.value) void refreshListings(client.value, attachable.value)
+}
+
 function openSession(slug: string): void {
   if (!client.value) return
   renamingId.value = ''
+  startError.value = ''
   activeSlug.value = slug
   const pooled = pool.get(slug)
   if (pooled && pooled.status.value !== 'ended') {
@@ -452,6 +508,7 @@ function openSession(slug: string): void {
 function detachSession(): void {
   activeSlug.value = ''
   renamingId.value = ''
+  startError.value = ''
   displayed.value = null
 }
 
@@ -631,6 +688,8 @@ onBeforeUnmount(() => {
                           :flip="rowMenuFlip"
                           :ignore="[rowMenuToggles.get(row.id) ?? null]"
                           @close="openRowMenu = ''"
+                          @start="startSession(row.slug)"
+                          @kill="requestKill(row)"
                           @detail="openSessionDetail(row)"
                           @rename="requestRename(row)"
                           @recycle="requestRecycle(row)"
@@ -676,7 +735,10 @@ onBeforeUnmount(() => {
           <p class="text-xs text-text-3">Select a session to attach.</p>
         </div>
 
-        <template v-if="visible">
+        <!-- A session with no tmux session behind it has no tabs to show and
+             nothing to attach to yet, so the chrome stays out of the way and
+             the panel below does the talking. -->
+        <template v-if="visible && !notStarted">
           <div class="flex h-9 shrink-0 items-stretch border-b border-border bg-raised">
             <div class="hive-scroll flex min-w-0 items-stretch overflow-x-auto">
               <div
@@ -793,8 +855,37 @@ onBeforeUnmount(() => {
               @click="visible?.scrollToBottom()"
             ><IconArrowDown class="size-3" />Scroll to bottom</button>
 
+            <!-- Selecting a session never starts it: starting runs the
+                 session's own agent command, so it is offered here and taken
+                 on a click. -->
             <div
-              v-if="status === 'ended'"
+              v-if="notStarted"
+              class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-app/95 px-10 text-center"
+              data-testid="terminal-session-not-started"
+            >
+              <IconTerminal class="size-6 text-text-4" />
+              <div class="text-[13.5px] font-semibold">Session not started</div>
+              <p class="max-w-[420px] text-xs leading-relaxed text-text-3">
+                No terminal is running for <span class="font-mono text-text-2">{{ activeSlug }}</span> yet.
+                Starting it opens this session's configured windows and runs its agent command.
+              </p>
+              <p v-if="startError" class="max-w-[420px] text-xs text-severity-error" data-testid="terminal-start-error">{{ startError }}</p>
+              <div class="mt-1 flex items-center gap-2">
+                <BaseButton
+                  size="sm"
+                  :busy="starting === activeSlug"
+                  data-testid="terminal-start-session"
+                  @click="startSession(activeSlug)"
+                >
+                  <template #icon><IconPlay class="size-3.5" /></template>
+                  {{ starting === activeSlug ? 'Starting…' : 'Start session' }}
+                </BaseButton>
+                <BaseButton variant="secondary" size="sm" data-testid="terminal-close-session" @click="closeSession">Close</BaseButton>
+              </div>
+            </div>
+
+            <div
+              v-else-if="status === 'ended'"
               class="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-app/95 px-10 text-center"
               data-testid="terminal-session-ended"
             >

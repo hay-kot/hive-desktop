@@ -3,7 +3,9 @@ import { computed } from 'vue'
 import AppMenu from './AppMenu.vue'
 import IconInfo from '~icons/lucide/info'
 import IconPencil from '~icons/lucide/pencil'
+import IconPlay from '~icons/lucide/play'
 import IconRecycle from '~icons/lucide/recycle'
+import IconSquare from '~icons/lucide/square'
 import IconTrash from '~icons/lucide/trash-2'
 import type { SessionSummary } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
@@ -23,6 +25,8 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   close: []
+  start: []
+  kill: []
   detail: []
   rename: []
   recycle: []
@@ -31,12 +35,24 @@ const emit = defineEmits<{
 }>()
 
 const entries = computed<MenuEntry[]>(() => {
-  const list: MenuEntry[] = [
+  const list: MenuEntry[] = []
+  // The terminal's own lifecycle leads: starting a stopped session is also an
+  // attach, and killing ends the terminal without touching the session itself —
+  // which is what separates it from Recycle and Delete below. Only an active
+  // session has a checkout to run one in.
+  if (props.session.state === 'active') {
+    list.push(
+      { kind: 'action', id: 'start', label: 'Start session', icon: IconPlay, testid: 'session-menu-start' },
+      { kind: 'action', id: 'kill', label: 'Kill terminal…', icon: IconSquare, testid: 'session-menu-kill' },
+      { kind: 'separator' },
+    )
+  }
+  list.push(
     { kind: 'action', id: 'detail', label: 'Session details…', icon: IconInfo, testid: 'session-menu-detail' },
     { kind: 'separator' },
     { kind: 'action', id: 'rename', label: 'Rename…', icon: IconPencil, testid: 'session-menu-rename' },
     { kind: 'separator' },
-  ]
+  )
   // Only an active session has a clone to reset; recycling a recycled one is
   // rejected by hive, so it is not offered.
   if (props.session.state === 'active') {
@@ -49,10 +65,12 @@ const entries = computed<MenuEntry[]>(() => {
   return list
 })
 
-const own = new Set(['detail', 'rename', 'recycle', 'delete'])
+const own = new Set(['start', 'kill', 'detail', 'rename', 'recycle', 'delete'])
 
 function onSelect(id: string): void {
-  if (id === 'detail') emit('detail')
+  if (id === 'start') emit('start')
+  else if (id === 'kill') emit('kill')
+  else if (id === 'detail') emit('detail')
   else if (id === 'rename') emit('rename')
   else if (id === 'recycle') emit('recycle')
   else if (id === 'delete') emit('delete')

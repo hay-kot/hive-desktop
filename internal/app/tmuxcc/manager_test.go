@@ -499,6 +499,89 @@ func TestManagerListWindowsTreatsAnAbsentSessionAsNoWindows(t *testing.T) {
 	require.Len(t, cmds.calls, 1, "no list is attempted for a session that is not there")
 }
 
+func TestManagerHasSessionProbesTmux(t *testing.T) {
+	t.Parallel()
+
+	present := &fakeTmuxCommands{}
+	exists, err := newTestManager(t, nil, ManagerOptions{runTmux: present.run}).HasSession(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.True(t, exists)
+	require.Equal(t, [][]string{{"has-session", "-t", "hive-demo"}}, present.calls)
+
+	// A server that is not running, or has no such session, is what the caller
+	// is asking about — not a failure to report.
+	absent := &fakeTmuxCommands{absent: true}
+	exists, err = newTestManager(t, nil, ManagerOptions{runTmux: absent.run}).HasSession(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.False(t, exists)
+}
+
+func TestManagerHasSessionAnswersFromTheAttachedClient(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	exists, err := m.HasSession(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.True(t, exists, "a live control client is proof the session is there")
+	require.Empty(t, cmds.calls, "a warm re-attach costs no probe")
+}
+
+func TestManagerKillSessionDropsTheClientWithTheSession(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	cmds := &fakeTmuxCommands{}
+	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	killed, err := m.KillSession(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.True(t, killed)
+	require.Equal(t, [][]string{{"kill-session", "-t", "hive-demo"}}, cmds.calls,
+		"the live client answers the existence probe, so only the kill reaches tmux")
+	// Dropped synchronously: the child exits on its own moments later, and a
+	// re-attach in between must not be handed the dying client.
+	_, ok := m.Client("hive-demo")
+	require.False(t, ok)
+}
+
+func TestManagerKillSessionTreatsAnAbsentSessionAsNothingToDo(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	killed, err := m.KillSession(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.False(t, killed)
+	require.Equal(t, [][]string{{"has-session", "-t", "hive-demo"}}, cmds.calls, "nothing is killed for a session that is not there")
+}
+
+func TestManagerHasSessionValidatesInput(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{}
+
+	_, err := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run}).HasSession(t.Context(), "")
+	require.ErrorIs(t, err, ErrNotAttached)
+
+	old := newTestManager(t, nil, ManagerOptions{versionProbe: probe("tmux 2.9\n"), runTmux: cmds.run})
+	_, err = old.HasSession(t.Context(), "hive-demo")
+	require.ErrorIs(t, err, ErrUnavailable)
+
+	require.Empty(t, cmds.calls)
+}
+
 func TestManagerListWindowsValidatesInput(t *testing.T) {
 	t.Parallel()
 
