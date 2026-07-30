@@ -1,6 +1,6 @@
 ---
 name: desktop-api
-description: Observe the Hive Desktop notification pipeline and force a re-poll through its loopback agent HTTP API, instead of reading desktop-pipeline.db. Use to assert what an event produced in the inbox, force a refresh after a devserver overlay/action/scenario, or discover the webhook port for a push.
+description: Observe the Hive Desktop notification pipeline and force a re-poll through its loopback agent HTTP API, instead of reading desktop-pipeline.db. Use to assert what an event produced in the inbox, force a refresh after a devserver overlay/action/scenario, discover the webhook port for a push, or confirm an actions.yml/flow edit actually loaded.
 compatibility: Requires a running desktop instance built from this worktree. The loopback HTTP server (webhook listener + agent API) is on by default; launch.env pins its port via HIVE_DESKTOP_HTTP_PORT. curl and jq.
 ---
 
@@ -65,6 +65,22 @@ curl -s "$API/api/inbox?externalId=$EXT" | jq '.items'
 curl -s "$API/api/feeds?profile=$P" | jq '.feeds'
 curl -s "$API/api/inbox/events?itemId=$ID" | jq '.events'
 ```
+
+## 4. Did my config edit load?
+
+Both config surfaces report their own load status, so an edit is verified by
+reading it back rather than by clicking through the UI. A file that fails to
+parse leaves the previous version in effect, so `valid` is the only signal that
+separates "accepted" from "rejected and ignored":
+
+```bash
+curl -s "$API/api/actions"  | jq '{path, valid, error, ids: [.actions[].id]}'
+curl -s "$API/api/profiles" | jq '[.profiles[] | {id, valid}]'
+```
+
+`/api/actions` returns each action's type-specific config too, so a template
+edit is confirmed by the value that came back — `.actions[] |
+select(.id=="…") | .clipboard.textTemplate`.
 
 ## Guardrails
 

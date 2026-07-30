@@ -120,6 +120,10 @@ func (ctrl *Controller) baseOperations() []Op {
 			Errors: []ErrResp{{Status: 503, When: "no producer is available (e.g. mock mode)"}},
 		},
 		{
+			Method: "GET", Path: "/api/actions", Summary: "List the action catalog with the actions.yml it was loaded from and whether the file on disk currently parses; an invalid edit leaves the previous catalog in effect and reports its error here.",
+			Response: actionsResponse{}, Handler: ctrl.Actions,
+		},
+		{
 			Method: "POST", Path: "/api/settings/reload", Summary: "Re-read settings.yaml and apply what the running process can adopt; a file that fails validation leaves the running values in service and answers 400.",
 			Response: settingsReloadResponse{}, Handler: ctrl.SettingsReload,
 			Errors: []ErrResp{{Status: 400, When: "settings.yaml could not be parsed, migrated, or validated"}},
