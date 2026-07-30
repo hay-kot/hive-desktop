@@ -31,7 +31,7 @@ type ManagerOptions struct {
 
 	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
-	runTmux      func(context.Context, ...string) error
+	runTmux      func(ctx context.Context, binary string, args ...string) error
 }
 
 // managedClient carries the generation its registration was made under, so a
@@ -49,7 +49,7 @@ type Manager struct {
 	locate      func() (string, error)
 	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
-	run         func(context.Context, ...string) error
+	run         func(ctx context.Context, binary string, args ...string) error
 	bufferBytes int
 
 	// The app-lifetime context lives in this closure rather than in a field:
@@ -259,10 +259,13 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 	if err := m.Available(ctx); err != nil {
 		return nil
 	}
-	if err := m.run(ctx, "has-session", "-t", from); err != nil {
+	m.mu.Lock()
+	binary := m.binary
+	m.mu.Unlock()
+	if err := m.run(ctx, binary, "has-session", "-t", from); err != nil {
 		return nil
 	}
-	if err := m.run(ctx, "rename-session", "-t", from, to); err != nil {
+	if err := m.run(ctx, binary, "rename-session", "-t", from, to); err != nil {
 		return fmt.Errorf("tmuxcc: rename session %s to %s: %w", from, to, err)
 	}
 	if mc, ok := m.managed(from); ok {
