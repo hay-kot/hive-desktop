@@ -28,6 +28,13 @@ const (
 // duration.
 const shellKillGrace = 2 * time.Second
 
+// ExecEnvironment supplies the environment a spawned command runs in. A shell
+// action's command is the user's own, so it needs the PATH their terminal has
+// rather than the one a desktop launch inherits (ADR 0041).
+type ExecEnvironment interface {
+	Environ(ctx context.Context) []string
+}
+
 // ShellExecutor runs a shell action's command_template via `sh -c`. The
 // command is author-trusted config (actions.yml is a local file the
 // desktop user authors themselves, not untrusted input), so no sandboxing
@@ -35,9 +42,15 @@ const shellKillGrace = 2 * time.Second
 // no heavy sandbox" posture for flow function nodes.
 type ShellExecutor struct {
 	logger zerolog.Logger
+	env    ExecEnvironment
 }
 
-func NewShellExecutor(logger zerolog.Logger) *ShellExecutor { return &ShellExecutor{logger: logger} }
+// NewShellExecutor builds the executor. A nil env runs commands in this
+// process's own environment.
+func NewShellExecutor(logger zerolog.Logger, env ExecEnvironment) *ShellExecutor {
+	return &ShellExecutor{logger: logger, env: env}
+}
+
 func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data OutputData, _ ActionInvocationInput) (ExecutionResult, error) {
 	cfg, ok := action.Config.(*actions.ShellConfig)
 	if !ok {
@@ -62,13 +75,14 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
-	if len(cfg.Env) > 0 {
-		env := os.Environ()
-		for k, v := range cfg.Env {
-			env = append(env, k+"="+v)
-		}
-		cmd.Env = env
+	env := os.Environ()
+	if e.env != nil {
+		env = e.env.Environ(runCtx)
 	}
+	for k, v := range cfg.Env {
+		env = append(env, k+"="+v)
+	}
+	cmd.Env = env
 	stdout, stderr := &boundedExecutionWriter{}, &boundedExecutionWriter{}
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr

@@ -1,7 +1,9 @@
 package dispatch
 
 import (
+	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +16,7 @@ import (
 )
 
 func TestShellExecutor_SuccessfulCommand(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:     "run-true",
 		Type:   "shell",
@@ -26,7 +28,7 @@ func TestShellExecutor_SuccessfulCommand(t *testing.T) {
 }
 
 func TestShellExecutor_FailingCommand_IsError(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:     "run-false",
 		Type:   "shell",
@@ -41,7 +43,7 @@ func TestShellExecutor_RendersCommandTemplateWithShq(t *testing.T) {
 	dir := t.TempDir()
 	outFile := dir + "/out.txt"
 
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:   "echo-title",
 		Type: "shell",
@@ -61,7 +63,7 @@ func TestShellExecutor_RendersCommandTemplateWithShq(t *testing.T) {
 func TestShellExecutor_RespectsCwd(t *testing.T) {
 	dir := t.TempDir()
 
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:   "touch-file",
 		Type: "shell",
@@ -79,7 +81,7 @@ func TestShellExecutor_RespectsCwd(t *testing.T) {
 }
 
 func TestShellExecutor_TimeoutKillsSlowCommand(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:   "slow",
 		Type: "shell",
@@ -96,7 +98,7 @@ func TestShellExecutor_TimeoutKillsSlowCommand(t *testing.T) {
 }
 
 func TestShellExecutor_BoundsAndDrainsNoisyStreams(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{
 		ID:     "noisy",
 		Type:   "shell",
@@ -124,9 +126,39 @@ func TestBoundedExecutionWriterNeverBuffersMoreThanLimit(t *testing.T) {
 }
 
 func TestShellExecutor_WrongConfigType_IsError(t *testing.T) {
-	exec := NewShellExecutor(zerolog.Nop())
+	exec := NewShellExecutor(zerolog.Nop(), nil)
 	action := actions.Action{ID: "x", Type: "shell", Config: &actions.PublishMessageConfig{}}
 
 	_, err := exec.Execute(t.Context(), action, OutputData{}, ActionInvocationInput{})
 	require.Error(t, err)
+}
+
+type stubExecEnvironment struct{ path string }
+
+func (s stubExecEnvironment) Environ(context.Context) []string {
+	return append(os.Environ(), "PATH="+s.path)
+}
+
+// A shell action's command is the user's own, so it has the same problem a
+// session hook does: the PATH a desktop launch inherits is not the one the
+// command was written against.
+func TestShellExecutor_RunsWithTheResolvedEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "tool"), []byte("#!/bin/sh\necho found\n"), 0o755))
+
+	exec := NewShellExecutor(zerolog.Nop(), stubExecEnvironment{path: dir + ":/usr/bin:/bin"})
+	action := actions.Action{
+		ID:     "run-tool",
+		Type:   "shell",
+		Config: &actions.ShellConfig{CommandTemplate: "tool", Env: map[string]string{"MARKER": "set"}},
+	}
+
+	result, err := exec.Execute(t.Context(), action, OutputData{Payload: map[string]any{}}, ActionInvocationInput{})
+	require.NoError(t, err)
+	assert.Equal(t, "found", strings.TrimSpace(result.Log.Stdout))
+
+	action.Config = &actions.ShellConfig{CommandTemplate: `printf %s "$MARKER"`, Env: map[string]string{"MARKER": "set"}}
+	result, err = exec.Execute(t.Context(), action, OutputData{Payload: map[string]any{}}, ActionInvocationInput{})
+	require.NoError(t, err)
+	assert.Equal(t, "set", result.Log.Stdout, "the action's own env still overlays the resolved one")
 }

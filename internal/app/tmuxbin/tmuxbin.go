@@ -13,32 +13,19 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
+
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 )
 
 // ErrNotFound reports that neither PATH nor any searched prefix held tmux.
 var ErrNotFound = errors.New("tmuxbin: tmux not found")
 
-// The prefixes package managers install into, standing in for the PATH a
-// desktop launch does not get. Order is precedence: a Homebrew tmux is the one
-// the user's shell would have picked over /usr/bin.
-var systemDirs = []string{
-	"/opt/homebrew/bin",                 // Homebrew, Apple silicon
-	"/usr/local/bin",                    // Homebrew on Intel, manual installs
-	"/opt/local/bin",                    // MacPorts
-	"/home/linuxbrew/.linuxbrew/bin",    // Homebrew on Linux
-	"/run/current-system/sw/bin",        // NixOS
-	"/nix/var/nix/profiles/default/bin", // Nix, multi-user
-	"/usr/bin",
-	"/bin",
-}
-
 // Locate returns the tmux binary to exec. override is paths.tmux: when set it is
 // used or it fails, never fallen back from — a configured path that does not
 // work is a mistake to report, not a reason to silently run a different tmux.
-func Locate(override string) (string, error) { return locate(override, searchDirs()) }
+func Locate(override string) (string, error) { return locate(override, execenv.SearchDirs()) }
 
 func locate(override string, dirs []string) (string, error) {
 	if override != "" {
@@ -57,18 +44,6 @@ func locate(override string, dirs []string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%w on PATH or in %s; set paths.tmux in settings.yaml to point at it", ErrNotFound, strings.Join(dirs, ", "))
-}
-
-func searchDirs() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return systemDirs
-	}
-	return slices.Concat(systemDirs, []string{
-		filepath.Join(home, ".nix-profile", "bin"),
-		filepath.Join(home, ".local", "bin"),
-		filepath.Join(home, "bin"),
-	})
 }
 
 // usable follows symlinks, because a Homebrew or Nix bin entry is a link into a
