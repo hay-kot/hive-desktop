@@ -4,7 +4,6 @@ import AppMenu from './AppMenu.vue'
 import IconInfo from '~icons/lucide/info'
 import IconPencil from '~icons/lucide/pencil'
 import IconRecycle from '~icons/lucide/recycle'
-import IconTags from '~icons/lucide/tags'
 import IconTrash from '~icons/lucide/trash-2'
 import type { SessionSummary } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
@@ -26,7 +25,6 @@ const emit = defineEmits<{
   close: []
   detail: []
   rename: []
-  group: []
   recycle: []
   delete: []
   extra: [id: string]
@@ -37,13 +35,6 @@ const entries = computed<MenuEntry[]>(() => {
     { kind: 'action', id: 'detail', label: 'Session details…', icon: IconInfo, testid: 'session-menu-detail' },
     { kind: 'separator' },
     { kind: 'action', id: 'rename', label: 'Rename…', icon: IconPencil, testid: 'session-menu-rename' },
-    {
-      kind: 'action',
-      id: 'group',
-      label: props.session.group ? 'Change group…' : 'Set group…',
-      icon: IconTags,
-      testid: 'session-menu-group',
-    },
     { kind: 'separator' },
   ]
   // Only an active session has a clone to reset; recycling a recycled one is
@@ -58,12 +49,11 @@ const entries = computed<MenuEntry[]>(() => {
   return list
 })
 
-const own = new Set(['detail', 'rename', 'group', 'recycle', 'delete'])
+const own = new Set(['detail', 'rename', 'recycle', 'delete'])
 
 function onSelect(id: string): void {
   if (id === 'detail') emit('detail')
   else if (id === 'rename') emit('rename')
-  else if (id === 'group') emit('group')
   else if (id === 'recycle') emit('recycle')
   else if (id === 'delete') emit('delete')
   if (!own.has(id)) emit('extra', id)

@@ -711,7 +711,7 @@ uniqueness constraint. ADR 0038. A change that gives the slug a second identity,
 or that makes something else the attach target, has to revisit that ADR rather
 than work around it.
 
-Session lifecycle (read, rename, group, delete, recycle, prune) reaches hive
+Session lifecycle (read, rename, delete, recycle, prune) reaches hive
 through `dispatch.HiveSessionManager`, a second seam type beside
 `HiveSessionLauncher`: launching is a dispatch action an output command holds,
 and it has no business holding a delete. Delete, recycle and prune run through

@@ -15,7 +15,7 @@ import AppMenu from './AppMenu.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SessionDetailDialog from './SessionDetailDialog.vue'
-import SessionEditDialog from './SessionEditDialog.vue'
+import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
@@ -57,8 +57,12 @@ const {
   sessions: sessionRows, loading: sessionsLoading, error: sessionsError, reload: reloadSessions,
 } = useTerminalSessions()
 const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
-const sessionGroups = computed(() => groupTerminalSessions(sessionRows.value))
-const prunableCount = computed(() => sessionRows.value.filter((row) => row.state !== 'active').length)
+// The tree is the attach surface, so only an active session belongs in it — a
+// recycled or corrupted one has no tmux session behind it. They still arrive in
+// the listing, which is what the header's prune entry counts and acts on.
+const attachable = computed(() => sessionRows.value.filter((row) => row.state === 'active'))
+const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
+const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
 
 const openRowMenu = ref('')
 const rowMenuFlip = ref(false)
@@ -78,10 +82,8 @@ const {
   detail: sessionDetail,
   openDetail: openSessionDetail,
   closeDetail: closeSessionDetail,
-  edit: sessionEdit,
-  editBusy: sessionEditBusy,
-  editError: sessionEditError,
-  requestRename, requestGroup, cancelEdit, submitEdit, requestDelete, requestRecycle, requestPrune,
+  renaming, renameBusy, renameError,
+  requestRename, cancelRename, submitRename, requestDelete, requestRecycle, requestPrune,
 } = useSessionActions({ onChanged: () => { void reloadSessions() } })
 const {
   open: confirmOpen, options: confirmOptions, busy: confirmBusy, error: confirmError,
@@ -173,7 +175,7 @@ async function probe(): Promise<void> {
 // blind; the picker shows, same as a first visit.
 function restoreLastSession(): void {
   if (routeSlug.value || !restore.value.slug) return
-  if (!sessionRows.value.some((row) => row.slug === restore.value.slug && row.state === 'active')) {
+  if (!attachable.value.some((row) => row.slug === restore.value.slug)) {
     restore.value = { slug: '', window: '' }
     return
   }
@@ -203,13 +205,14 @@ watch([activeSlug, () => session.value?.activeWindowId.value ?? ''], ([slug, win
   }
 })
 
-// The attached slug can stop being listed two ways, and a list reload is how we
-// find out about either: the session was deleted or recycled (both run as jobs),
-// or it was renamed — hive re-slugs on rename, so the same session reappears
-// under a new slug. Following the id is what tells the two apart, and it works
-// whether the change came from this window or from the hive CLI.
+// The attached slug can stop being attachable two ways, and a list reload is how
+// we find out about either: the session was deleted or recycled (both run as
+// jobs, and a recycled session leaves the attachable set), or it was renamed —
+// hive re-slugs on rename, so the same session reappears under a new slug.
+// Following the id is what tells the two apart, and it works whether the change
+// came from this window or from the hive CLI.
 const attachedId = ref('')
-watch([sessionRows, activeSlug], ([rows, slug]) => {
+watch([attachable, activeSlug], ([rows, slug]) => {
   if (!slug || sessionsError.value) return
   const attached = rows.find((row) => row.slug === slug)
   if (attached) {
@@ -228,17 +231,6 @@ watch([sessionRows, activeSlug], ([rows, slug]) => {
   restore.value = { slug: renamed.slug, window: '' }
   void router.replace({ name: 'terminal', params: { slug: renamed.slug } })
 })
-
-// Only an active session has a tmux session to attach to. A recycled or
-// corrupted row is still worth opening — its detail is the only thing left to
-// read about it.
-function selectSessionRow(row: TerminalSessionRow): void {
-  if (row.state !== 'active') {
-    void openSessionDetail(row)
-    return
-  }
-  selectSession(row.slug)
-}
 
 function selectSession(slug: string): void {
   if (slug === activeSlug.value) {
@@ -342,7 +334,7 @@ onBeforeUnmount(() => session.value?.dispose())
       >
         <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
           <span class="text-[15px] font-semibold">Sessions</span>
-          <span v-if="sessionRows.length" class="font-mono text-[12px] text-text-3">{{ sessionRows.length }}</span>
+          <span v-if="attachable.length" class="font-mono text-[12px] text-text-3">{{ attachable.length }}</span>
           <span class="flex-1" />
           <button
             type="button"
@@ -383,9 +375,9 @@ onBeforeUnmount(() => session.value?.dispose())
         </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pt-3 pb-4">
           <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
-          <p v-else-if="sessionsLoading && !sessionRows.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
-          <p v-else-if="!sessionRows.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
-            No sessions yet. Start one from the hub and it will appear here.
+          <p v-else-if="sessionsLoading && !attachable.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
+          <p v-else-if="!attachable.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
+            No active sessions. Start one from the hub and it will appear here.
           </p>
           <div v-for="(group, index) in sessionGroups" :key="group.key" :class="gapAbove(index) && 'mt-1.5'">
             <button
@@ -406,21 +398,16 @@ onBeforeUnmount(() => session.value?.dispose())
                      nesting one inside another is invalid. -->
                 <div
                   class="session-row"
-                  :class="{
-                    'session-row-attached': row.slug === activeSlug,
-                    'session-row-inactive': row.state !== 'active',
-                    'menu-open': openRowMenu === row.id,
-                  }"
+                  :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
                   role="button"
                   tabindex="0"
                   data-testid="terminal-session-row"
                   :data-slug="row.slug"
-                  :data-state="row.state"
                   :data-attached="row.slug === activeSlug"
-                  :title="row.state === 'active' ? row.slug : `${row.slug} (${row.state})`"
-                  @click="selectSessionRow(row)"
-                  @keydown.enter.self.prevent="selectSessionRow(row)"
-                  @keydown.space.self.prevent="selectSessionRow(row)"
+                  :title="row.slug"
+                  @click="selectSession(row.slug)"
+                  @keydown.enter.self.prevent="selectSession(row.slug)"
+                  @keydown.space.self.prevent="selectSession(row.slug)"
                   @contextmenu.prevent="toggleRowMenu(row, $event)"
                 >
                   <!-- The wire only carries hive's session state today; agent
@@ -428,20 +415,14 @@ onBeforeUnmount(() => session.value?.dispose())
                        plumbed through SessionSummary first. -->
                   <span
                     class="size-1.5 shrink-0 rounded-full"
-                    :class="row.slug === activeSlug ? 'bg-accent' : row.state === 'active' ? 'bg-severity-success' : 'bg-text-4'"
+                    :class="row.slug === activeSlug ? 'bg-accent' : 'bg-severity-success'"
                   />
                   <span class="min-w-0 flex-1 truncate text-[15px]">{{ row.name }}</span>
-                  <span
-                    v-if="row.state !== 'active'"
-                    class="shrink-0 font-mono text-[10px] uppercase tracking-[.08em] text-text-4"
-                    data-testid="terminal-session-state"
-                  >{{ row.state }}</span>
-                  <span
-                    v-else-if="row.group"
-                    class="min-w-0 max-w-[70px] shrink-0 truncate font-mono text-[10.5px] text-text-4"
-                    data-testid="terminal-session-group"
-                  >{{ row.group }}</span>
-                  <div class="relative flex shrink-0" @click.stop>
+                  <!-- No `relative` here: AppMenu anchors to the nearest
+                       positioned ancestor, and that has to be the row so the
+                       panel spans it. Clicks stay inside the wrapper so choosing
+                       an entry never also selects the row. -->
+                  <div class="flex shrink-0" @click.stop>
                     <button
                       :ref="(el) => setRowMenuToggle(row.id, el)"
                       type="button"
@@ -461,7 +442,6 @@ onBeforeUnmount(() => session.value?.dispose())
                       @close="openRowMenu = ''"
                       @detail="openSessionDetail(row)"
                       @rename="requestRename(row)"
-                      @group="requestGroup(row)"
                       @recycle="requestRecycle(row)"
                       @delete="requestDelete(row)"
                     />
@@ -599,13 +579,13 @@ onBeforeUnmount(() => session.value?.dispose())
     </div>
 
     <SessionDetailDialog v-if="sessionDetail" :detail="sessionDetail" @close="closeSessionDetail" />
-    <SessionEditDialog
-      v-if="sessionEdit"
-      :edit="sessionEdit"
-      :busy="sessionEditBusy"
-      :error="sessionEditError"
-      @close="cancelEdit"
-      @save="submitEdit"
+    <SessionRenameDialog
+      v-if="renaming"
+      :name="renaming.name"
+      :busy="renameBusy"
+      :error="renameError"
+      @close="cancelRename"
+      @save="submitRename"
     />
     <ConfirmationDialog
       v-if="confirmOpen && confirmOptions"
@@ -626,9 +606,6 @@ onBeforeUnmount(() => session.value?.dispose())
 .session-row:hover, .session-row.menu-open { background: var(--color-chip); }
 .session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .session-row-attached { background: var(--color-selection); font-weight: 600; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
-/* A recycled or corrupted session has no tmux session behind it, so the row
-   recedes: it is there to be read and deleted, not attached to. */
-.session-row-inactive { color: var(--color-text-3); }
 /* Revealed by opacity so the kebab's column is always reserved — hovering a row
    never reflows the session name. Same affordance as the hub sidebar's rows. */
 .row-action { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }

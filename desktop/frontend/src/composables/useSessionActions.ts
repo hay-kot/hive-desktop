@@ -6,7 +6,6 @@ import {
   RenameSession,
   SessionDetail,
   SessionRisk,
-  SetSessionGroup,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type {
   SessionDetail as SessionDetailView,
@@ -16,18 +15,6 @@ import type {
 import { appErrorMessage } from '../lib/appError'
 import { useConfirmation } from './useConfirmation'
 import { useToasts } from './useToasts'
-
-/** A pending single-field edit — a rename or a group change — and how to apply it. */
-export interface SessionEdit {
-  title: string
-  label: string
-  hint: string
-  value: string
-  confirmLabel: string
-  allowEmpty: boolean
-  testid: string
-  apply: (value: string) => Promise<void>
-}
 
 export interface SessionActionOptions {
   /**
@@ -63,29 +50,25 @@ export function riskDescription(name: string, operation: 'delete' | 'recycle', r
 }
 
 /**
- * The session row's operations: read, rename, group, recycle, delete, and the
- * list-wide prune. Destructive ones are gated on a risk pre-flight and run as
- * background jobs, so what they report is that the job started — `jobs:updated`
- * is what tells the list to re-read.
+ * The session row's operations: read, rename, recycle, delete, and the list-wide
+ * prune. Destructive ones are gated on a risk pre-flight and run as background
+ * jobs, so what they report is that the job started — `jobs:updated` is what
+ * tells the list to re-read.
  */
 export function useSessionActions(options: SessionActionOptions = {}) {
   const { showToast } = useToasts()
   const confirmation = useConfirmation()
 
   const detail = ref<SessionDetailView | null>(null)
-  const detailLoading = ref(false)
-  const edit = ref<SessionEdit | null>(null)
-  const editBusy = ref(false)
-  const editError = ref<string | null>(null)
+  const renaming = ref<SessionSummary | null>(null)
+  const renameBusy = ref(false)
+  const renameError = ref<string | null>(null)
 
   async function openDetail(session: SessionSummary): Promise<void> {
-    detailLoading.value = true
     try {
       detail.value = await SessionDetail(session.id)
     } catch (e) {
       showToast(message(e, 'Could not read that session.'), { severity: 'error' })
-    } finally {
-      detailLoading.value = false
     }
   }
 
@@ -94,57 +77,32 @@ export function useSessionActions(options: SessionActionOptions = {}) {
   }
 
   function requestRename(session: SessionSummary): void {
-    edit.value = {
-      title: 'Rename session',
-      label: 'Session name',
-      hint: 'Renaming also renames its terminal session, so an open terminal reconnects.',
-      value: session.name,
-      confirmLabel: 'Rename',
-      allowEmpty: false,
-      testid: 'session-rename',
-      apply: async (name) => {
-        await RenameSession(session.id, name)
-        options.onChanged?.()
-      },
-    }
+    renaming.value = session
+    renameError.value = null
   }
 
-  function requestGroup(session: SessionSummary): void {
-    edit.value = {
-      title: 'Set group',
-      label: 'Group',
-      hint: 'Leave empty to remove this session from its group.',
-      value: session.group,
-      confirmLabel: 'Save',
-      allowEmpty: true,
-      testid: 'session-group',
-      apply: async (group) => {
-        await SetSessionGroup(session.id, group)
-        options.onChanged?.()
-      },
-    }
+  function cancelRename(): void {
+    if (renameBusy.value) return
+    renaming.value = null
+    renameError.value = null
   }
 
-  function cancelEdit(): void {
-    if (editBusy.value) return
-    edit.value = null
-    editError.value = null
-  }
-
-  // A failed edit keeps the dialog open with its error — the value is almost
-  // always nearly right (a name hive rejects, a slug already taken).
-  async function submitEdit(value: string): Promise<void> {
-    const pending = edit.value
-    if (!pending || editBusy.value) return
-    editBusy.value = true
-    editError.value = null
+  // A failed rename keeps the dialog open with its reason: the name is almost
+  // always nearly right — one hive rejects, or a slug already taken by another
+  // session.
+  async function submitRename(name: string): Promise<void> {
+    const session = renaming.value
+    if (!session || renameBusy.value) return
+    renameBusy.value = true
+    renameError.value = null
     try {
-      await pending.apply(value.trim())
-      edit.value = null
+      await RenameSession(session.id, name.trim())
+      renaming.value = null
+      options.onChanged?.()
     } catch (e) {
-      editError.value = message(e, 'Could not save that.')
+      renameError.value = message(e, 'Could not rename that session.')
     } finally {
-      editBusy.value = false
+      renameBusy.value = false
     }
   }
 
@@ -195,16 +153,14 @@ export function useSessionActions(options: SessionActionOptions = {}) {
   return {
     confirmation,
     detail,
-    detailLoading,
     openDetail,
     closeDetail,
-    edit,
-    editBusy,
-    editError,
+    renaming,
+    renameBusy,
+    renameError,
     requestRename,
-    requestGroup,
-    cancelEdit,
-    submitEdit,
+    cancelRename,
+    submitRename,
     requestDelete,
     requestRecycle,
     requestPrune,

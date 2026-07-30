@@ -34,7 +34,6 @@ type SessionManagement interface {
 	ListSessions(context.Context) ([]session.Session, error)
 	GetSession(context.Context, string) (session.Session, error)
 	RenameSession(ctx context.Context, id, newName string) error
-	SetSessionGroup(ctx context.Context, id, group string) error
 	DeleteSession(ctx context.Context, id string) error
 	RecycleSession(ctx context.Context, id string, w io.Writer) error
 	Prune(ctx context.Context, all bool) (int, error)
@@ -42,16 +41,14 @@ type SessionManagement interface {
 }
 
 // SessionSummary is one session as the desktop's session list sees it. Slug is
-// the tmux session name, which is what a terminal attach targets. Group is the
-// only organisational field carried here; the rest of a session is read on
-// demand as a SessionDetail.
+// the tmux session name, which is what a terminal attach targets. It stays a
+// projection: the rest of a session is read on demand as a SessionDetail.
 type SessionSummary struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Slug  string `json:"slug"`
 	Repo  string `json:"repo"`
 	State string `json:"state"`
-	Group string `json:"group"`
 }
 
 // SessionDetail is one session read in full, for a detail view.
@@ -61,7 +58,6 @@ type SessionDetail struct {
 	Slug           string    `json:"slug"`
 	Repo           string    `json:"repo"`
 	State          string    `json:"state"`
-	Group          string    `json:"group"`
 	Path           string    `json:"path"`
 	CloneStrategy  string    `json:"cloneStrategy"`
 	WorktreeBranch string    `json:"worktreeBranch"`
@@ -183,7 +179,6 @@ func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (Sess
 		Slug:           s.Slug,
 		Repo:           s.Remote,
 		State:          string(s.State),
-		Group:          s.Group(),
 		Path:           s.Path,
 		CloneStrategy:  s.CloneStrategy,
 		WorktreeBranch: s.GetMeta(session.MetaWorktreeBranch),
@@ -215,13 +210,6 @@ func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (Sessio
 func (m *HiveSessionManager) RenameSession(ctx context.Context, id, name string) error {
 	if err := m.sessions.RenameSession(ctx, id, name); err != nil {
 		return fmt.Errorf("rename hive session: %w", err)
-	}
-	return nil
-}
-
-func (m *HiveSessionManager) SetSessionGroup(ctx context.Context, id, group string) error {
-	if err := m.sessions.SetSessionGroup(ctx, id, group); err != nil {
-		return fmt.Errorf("set hive session group: %w", err)
 	}
 	return nil
 }
@@ -262,7 +250,6 @@ func sessionSummaryOf(s session.Session) SessionSummary {
 		Slug:  s.Slug,
 		Repo:  s.Remote,
 		State: string(s.State),
-		Group: s.Group(),
 	}
 }
 

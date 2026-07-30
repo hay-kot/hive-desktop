@@ -38,7 +38,6 @@ type fakeSessionManager struct {
 	err      error
 
 	renamed   [][2]string
-	groups    [][2]string
 	deleted   []string
 	recycled  []string
 	pruned    int
@@ -71,11 +70,6 @@ func (f *fakeSessionManager) RenameSession(_ context.Context, id, name string) e
 	detail.Slug = dispatch.SlugifySessionName(name)
 	f.details[id] = detail
 	return nil
-}
-
-func (f *fakeSessionManager) SetSessionGroup(_ context.Context, id, group string) error {
-	f.groups = append(f.groups, [2]string{id, group})
-	return f.err
 }
 
 func (f *fakeSessionManager) DeleteSession(_ context.Context, id string) error {
@@ -267,15 +261,6 @@ func TestSessionsService_RenameSessionValidatesTheName(t *testing.T) {
 	assert.Empty(t, tmux.renames)
 }
 
-func TestSessionsService_SetSessionGroupTrimsAndClears(t *testing.T) {
-	manager, _ := activeSession()
-	svc := newSessionsService(&fakeSessionLauncher{}, manager, &fakeSessionTmux{}, &fakeJobRunner{})
-
-	require.NoError(t, svc.SetSessionGroup(t.Context(), "s1", "  backend  "))
-	require.NoError(t, svc.SetSessionGroup(t.Context(), "s1", ""))
-	assert.Equal(t, [][2]string{{"s1", "backend"}, {"s1", ""}}, manager.groups)
-}
-
 func TestSessionsService_DeleteAndRecycleRunAsJobsLabelledWithTheSessionName(t *testing.T) {
 	for _, tt := range []struct {
 		name     string
@@ -366,7 +351,6 @@ func TestSessionsService_UnavailableWithoutDependencies(t *testing.T) {
 	assert.Equal(t, KindUnavailable, KindOf(err))
 	_, err = svc.RenameSession(t.Context(), "s1", "n")
 	assert.Equal(t, KindUnavailable, KindOf(err))
-	assert.Equal(t, KindUnavailable, KindOf(svc.SetSessionGroup(t.Context(), "s1", "g")))
 	_, err = svc.DeleteSession(t.Context(), "s1")
 	assert.Equal(t, KindUnavailable, KindOf(err))
 	_, err = svc.RecycleSession(t.Context(), "s1")

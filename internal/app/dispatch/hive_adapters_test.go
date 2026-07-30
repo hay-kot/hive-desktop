@@ -90,19 +90,18 @@ func newHiveSessions(t *testing.T) (*HiveSessionManager, session.Store) {
 	return NewHiveSessionManager(svc), store
 }
 
-func TestHiveSessionManagerListsEveryStateAndMapsGroup(t *testing.T) {
+func TestHiveSessionManagerListsEveryState(t *testing.T) {
 	manager, store := newHiveSessions(t)
 	now := time.Now().UTC().Truncate(time.Second)
 
 	active := session.Session{ID: "s1", Name: "review 81", Slug: "review-81", Path: "/tmp/review-81", Remote: "acme/site", State: session.StateActive, CreatedAt: now, UpdatedAt: now}
-	active.SetGroup("backend")
 	require.NoError(t, store.Save(t.Context(), active))
 	require.NoError(t, store.Save(t.Context(), session.Session{ID: "s2", Name: "old", Slug: "old", Path: "/tmp/old", State: session.StateRecycled, CreatedAt: now, UpdatedAt: now}))
 
 	got, err := manager.ListSessions(t.Context())
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []SessionSummary{
-		{ID: "s1", Name: "review 81", Slug: "review-81", Repo: "acme/site", State: "active", Group: "backend"},
+		{ID: "s1", Name: "review 81", Slug: "review-81", Repo: "acme/site", State: "active"},
 		{ID: "s2", Name: "old", Slug: "old", State: "recycled"},
 	}, got)
 }
@@ -117,7 +116,6 @@ func TestHiveSessionManagerDetailReadsWorktreeMetadata(t *testing.T) {
 		Tags: []string{"pr-81"}, CreatedAt: now, UpdatedAt: now,
 	}
 	sess.SetMeta(session.MetaWorktreeBranch, "hive/review-81")
-	sess.SetGroup("backend")
 	require.NoError(t, store.Save(t.Context(), sess))
 
 	detail, err := manager.SessionDetail(t.Context(), "s1")
@@ -128,7 +126,7 @@ func TestHiveSessionManagerDetailReadsWorktreeMetadata(t *testing.T) {
 	detail.CreatedAt, detail.UpdatedAt = now, now
 	assert.Equal(t, SessionDetail{
 		ID: "s1", Name: "review 81", Slug: "review-81", Repo: "acme/site", State: "active",
-		Group: "backend", Path: "/tmp/review-81", CloneStrategy: session.CloneStrategyWorktree,
+		Path: "/tmp/review-81", CloneStrategy: session.CloneStrategyWorktree,
 		WorktreeBranch: "hive/review-81", Tags: []string{"pr-81"}, CreatedAt: now, UpdatedAt: now,
 	}, detail)
 
@@ -151,22 +149,6 @@ func TestHiveSessionManagerRenameReSlugsTheSession(t *testing.T) {
 	// app.SessionsService.RenameSession and ADR 0038.
 	assert.Equal(t, "review-82", detail.Slug)
 	assert.Equal(t, "/tmp/review-81", detail.Path, "the directory keeps the slug it was cloned under")
-}
-
-func TestHiveSessionManagerSetsAndClearsGroup(t *testing.T) {
-	manager, store := newHiveSessions(t)
-	now := time.Now().UTC()
-	require.NoError(t, store.Save(t.Context(), session.Session{ID: "s1", Name: "review 81", Slug: "review-81", Path: "/tmp/review-81", State: session.StateActive, CreatedAt: now, UpdatedAt: now}))
-
-	require.NoError(t, manager.SetSessionGroup(t.Context(), "s1", "backend"))
-	detail, err := manager.SessionDetail(t.Context(), "s1")
-	require.NoError(t, err)
-	assert.Equal(t, "backend", detail.Group)
-
-	require.NoError(t, manager.SetSessionGroup(t.Context(), "s1", ""))
-	detail, err = manager.SessionDetail(t.Context(), "s1")
-	require.NoError(t, err)
-	assert.Empty(t, detail.Group)
 }
 
 func TestHiveSessionManagerRiskIsEmptyForANonActiveSession(t *testing.T) {

@@ -12,7 +12,6 @@ export interface TerminalSessionRow {
   slug: string
   repo: string
   state: string
-  group: string
 }
 
 /** One repo group of the sidebar tree, keyed by the session's remote. */

@@ -10,12 +10,11 @@ const mocks = vi.hoisted(() => ({
   RenameSession: vi.fn(),
   SessionDetail: vi.fn(),
   SessionRisk: vi.fn(),
-  SetSessionGroup: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => mocks)
 
-const session: SessionSummary = { id: 's1', name: 'review 81', slug: 'review-81', repo: 'acme/site', state: 'active', group: '' }
+const session: SessionSummary = { id: 's1', name: 'review 81', slug: 'review-81', repo: 'acme/site', state: 'active' }
 
 const noRisk = { uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false }
 
@@ -113,44 +112,34 @@ describe('useSessionActions destructive operations', () => {
   })
 })
 
-describe('useSessionActions edits', () => {
+describe('useSessionActions rename and read', () => {
   it('renames the session and asks the host to re-read the list', async () => {
     mocks.RenameSession.mockResolvedValue({ ...session, name: 'review 82', slug: 'review-82' })
     const onChanged = vi.fn()
     const actions = useSessionActions({ onChanged })
 
     actions.requestRename(session)
-    expect(actions.edit.value?.value).toBe('review 81')
+    expect(actions.renaming.value?.name).toBe('review 81')
 
-    await actions.submitEdit('  review 82  ')
+    await actions.submitRename('  review 82  ')
 
     expect(mocks.RenameSession).toHaveBeenCalledWith('s1', 'review 82')
     // The re-read is how the new slug reaches the host: it is the tmux target.
     expect(onChanged).toHaveBeenCalled()
-    expect(actions.edit.value).toBeNull()
+    expect(actions.renaming.value).toBeNull()
   })
 
   it('keeps the rename dialog open with the reason a name was rejected', async () => {
     mocks.RenameSession.mockRejectedValue(new Error('a session named "review 82" already exists'))
-    const actions = useSessionActions()
+    const onChanged = vi.fn()
+    const actions = useSessionActions({ onChanged })
 
     actions.requestRename(session)
-    await actions.submitEdit('review 82')
+    await actions.submitRename('review 82')
 
-    expect(actions.edit.value).not.toBeNull()
-    expect(actions.editError.value).toContain('already exists')
-  })
-
-  it('treats an empty group as a clear, and an empty name as nothing to submit', async () => {
-    const actions = useSessionActions()
-
-    actions.requestGroup({ ...session, group: 'backend' })
-    expect(actions.edit.value?.allowEmpty).toBe(true)
-    await actions.submitEdit('')
-    expect(mocks.SetSessionGroup).toHaveBeenCalledWith('s1', '')
-
-    actions.requestRename(session)
-    expect(actions.edit.value?.allowEmpty).toBe(false)
+    expect(actions.renaming.value).not.toBeNull()
+    expect(actions.renameError.value).toContain('already exists')
+    expect(onChanged).not.toHaveBeenCalled()
   })
 
   it('reads a session on demand for the detail view', async () => {

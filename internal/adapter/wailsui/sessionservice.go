@@ -51,11 +51,6 @@ func (s *SessionService) RenameSession(ctx context.Context, id, name string) (di
 	return s.sessions.RenameSession(ctx, id, name)
 }
 
-// SetSessionGroup sets a session's group; an empty group clears it.
-func (s *SessionService) SetSessionGroup(ctx context.Context, id, group string) error {
-	return s.sessions.SetSessionGroup(ctx, id, group)
-}
-
 // DeleteSession starts the delete as a background job and returns the job id.
 func (s *SessionService) DeleteSession(ctx context.Context, id string) (int64, error) {
 	return s.sessions.DeleteSession(ctx, id)

@@ -30,7 +30,6 @@ type sessionManager interface {
 	SessionDetail(ctx context.Context, id string) (dispatch.SessionDetail, error)
 	SessionRisk(ctx context.Context, id string) (dispatch.SessionRisk, error)
 	RenameSession(ctx context.Context, id, name string) error
-	SetSessionGroup(ctx context.Context, id, group string) error
 	DeleteSession(ctx context.Context, id string) error
 	RecycleSession(ctx context.Context, id string) error
 	PruneSessions(ctx context.Context) (int, error)
@@ -209,19 +208,7 @@ func (s *SessionsService) RenameSession(ctx context.Context, id, name string) (d
 		Slug:  renamed.Slug,
 		Repo:  renamed.Repo,
 		State: renamed.State,
-		Group: renamed.Group,
 	}, nil
-}
-
-// SetSessionGroup sets, or with an empty group clears, a session's group.
-func (s *SessionsService) SetSessionGroup(ctx context.Context, id, group string) error {
-	if s.manager == nil {
-		return Errorf(KindUnavailable, "grouping sessions is unavailable")
-	}
-	if strings.TrimSpace(id) == "" {
-		return Errorf(KindInvalid, "session id is required")
-	}
-	return Wrap(s.manager.SetSessionGroup(ctx, id, strings.TrimSpace(group)), KindInternal, "setting the group for session %q", id)
 }
 
 // DeleteSession removes a session, its worktree or clone, and its tmux session,

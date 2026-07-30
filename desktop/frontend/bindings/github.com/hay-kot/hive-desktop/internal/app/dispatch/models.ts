@@ -64,7 +64,6 @@ export interface SessionDetail {
     "slug": string;
     "repo": string;
     "state": string;
-    "group": string;
     "path": string;
     "cloneStrategy": string;
     "worktreeBranch": string;
@@ -130,9 +129,8 @@ export interface SessionRisk {
 
 /**
  * SessionSummary is one session as the desktop's session list sees it. Slug is
- * the tmux session name, which is what a terminal attach targets. Group is the
- * only organisational field carried here; the rest of a session is read on
- * demand as a SessionDetail.
+ * the tmux session name, which is what a terminal attach targets. It stays a
+ * projection: the rest of a session is read on demand as a SessionDetail.
  */
 export interface SessionSummary {
     "id": string;
@@ -140,5 +138,4 @@ export interface SessionSummary {
     "slug": string;
     "repo": string;
     "state": string;
-    "group": string;
 }

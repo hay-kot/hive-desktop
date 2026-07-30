@@ -80,10 +80,3 @@ export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLa
 export function SessionRisk(id: string): $CancellablePromise<dispatch$0.SessionRisk> {
     return $Call.ByID(2710389542, id);
 }
-
-/**
- * SetSessionGroup sets a session's group; an empty group clears it.
- */
-export function SetSessionGroup(id: string, group: string): $CancellablePromise<void> {
-    return $Call.ByID(4133128838, id, group);
-}
