@@ -163,6 +163,8 @@ http:
   host: 127.0.0.1
   port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
+terminal:
+  tmux_path: "" # absolute path; empty discovers tmux (ADR 0038)
 experimental:
   terminal: false # terminal mode ships dark (ADR 0037); read at startup
 development:
@@ -184,6 +186,14 @@ development:
     pause_ingest: 0s
     pause_commit: 0s
 ```
+
+`terminal.tmux_path` is the escape hatch for tmux discovery, not the normal way
+to configure it: left empty, the app searches `$PATH` and then the prefixes
+package managers install into (Homebrew, MacPorts, Nix), because a desktop
+launch does not inherit the shell's `$PATH` — macOS gives an `.app` bundle
+`/usr/bin:/bin:/usr/sbin:/sbin` (ADR 0038). Set it only for an install those
+misses; it must be absolute, and a configured path that does not work is an
+error rather than a fallback to a different tmux.
 
 Every scalar override mirrors its YAML path, for example
 `updates.channel` → `HIVE_DESKTOP_UPDATES_CHANNEL` and `http.port` →

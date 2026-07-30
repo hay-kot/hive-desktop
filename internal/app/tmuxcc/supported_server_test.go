@@ -18,7 +18,7 @@ func TestServerBuildIsUnavailable(t *testing.T) {
 	require.False(t, platformSupported())
 
 	m := NewManager(t.Context(), ManagerOptions{
-		versionProbe: func(context.Context) (string, error) { return "tmux 3.7b", nil },
+		versionProbe: func(context.Context, string) (string, error) { return "tmux 3.7b", nil },
 	})
 	t.Cleanup(func() { _ = m.Stop(context.WithoutCancel(t.Context())) })
 

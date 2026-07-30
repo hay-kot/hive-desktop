@@ -1,0 +1,54 @@
+package app
+
+import (
+	"context"
+	"io"
+
+	"github.com/colonyops/hive/pkg/executil"
+
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
+)
+
+// tmuxExecutor is Hive's shell executor with one substitution: a `tmux` command
+// runs the binary discovery found (ADR 0038). Session spawn, recycle and kill
+// all exec tmux by bare name from vendored code, so a desktop launch — whose
+// PATH holds no Homebrew or Nix prefix — cannot create a session at all without
+// this. Decorating the interface is what keeps internal/hivecore untouched.
+type tmuxExecutor struct {
+	executil.Executor
+	tmux *tmuxbin.Resolver
+}
+
+func newTmuxExecutor(inner executil.Executor, tmux *tmuxbin.Resolver) executil.Executor {
+	return tmuxExecutor{Executor: inner, tmux: tmux}
+}
+
+func (e tmuxExecutor) Run(ctx context.Context, cmd string, args ...string) ([]byte, error) {
+	return e.Executor.Run(ctx, e.resolve(cmd), args...)
+}
+
+func (e tmuxExecutor) RunDir(ctx context.Context, dir, cmd string, args ...string) ([]byte, error) {
+	return e.Executor.RunDir(ctx, dir, e.resolve(cmd), args...)
+}
+
+func (e tmuxExecutor) RunStream(ctx context.Context, stdout, stderr io.Writer, cmd string, args ...string) error {
+	return e.Executor.RunStream(ctx, stdout, stderr, e.resolve(cmd), args...)
+}
+
+func (e tmuxExecutor) RunDirStream(ctx context.Context, dir string, stdout, stderr io.Writer, cmd string, args ...string) error {
+	return e.Executor.RunDirStream(ctx, dir, stdout, stderr, e.resolve(cmd), args...)
+}
+
+// resolve rewrites only the bare name, and only when discovery succeeds: a
+// failed lookup runs `tmux` so the user sees the shell's own "not found" for
+// the command that failed, rather than a rewrite that hid it.
+func (e tmuxExecutor) resolve(cmd string) string {
+	if cmd != "tmux" {
+		return cmd
+	}
+	path, err := e.tmux.Path()
+	if err != nil {
+		return cmd
+	}
+	return path
+}

@@ -24,7 +24,7 @@ func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink) *T
 // loopback server that carries the transport is up is composed by the adapter
 // that owns that transport.
 func (s *TerminalsService) Available(ctx context.Context) error {
-	return terminalError(s.manager.Available(ctx), "Terminal sessions need tmux 3.2 or newer on the PATH.")
+	return terminalError(s.manager.Available(ctx), "Terminal sessions need tmux 3.2 or newer. Hive searches PATH and the usual install prefixes; set terminal.tmux_path in settings.yaml if yours is elsewhere.")
 }
 
 // Attach opens, or returns the windows of, the control client for slug.

@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -90,6 +91,13 @@ type Appearance struct {
 // to off and is read once at startup — flipping one takes a relaunch.
 type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
+}
+
+// TerminalSettings configures the tmux the app execs. TmuxPath is the escape
+// hatch for an install discovery does not know about (ADR 0038): empty — the
+// shipped value — searches PATH and the usual package-manager prefixes.
+type TerminalSettings struct {
+	TmuxPath string `yaml:"tmux_path,omitempty" env:"HIVE_DESKTOP_TERMINAL_TMUX_PATH"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -180,6 +188,7 @@ type Settings struct {
 	HTTP          HTTPSettings         `yaml:"http"`
 	Keybindings   map[string][]string  `yaml:"keybindings,omitempty"`
 	Skills        SkillsSettings       `yaml:"skills"`
+	Terminal      TerminalSettings     `yaml:"terminal,omitempty"`
 	Experimental  ExperimentalSettings `yaml:"experimental,omitempty"`
 	Development   DevelopmentSettings  `yaml:"development"`
 
@@ -250,6 +259,13 @@ func (s Settings) Validate() error {
 	}
 	if !ValidListenerPort(s.HTTP.Port) {
 		return fmt.Errorf("http.port must be 0 or between 1024 and 65535")
+	}
+	// Absolute only: a bare name or relative path would be resolved against
+	// PATH or the working directory, which is what setting this opts out of.
+	// Whether the binary exists is not checked here — a missing tmux surfaces
+	// as terminal-unavailable, not as a settings file the app refuses to load.
+	if s.Terminal.TmuxPath != "" && !filepath.IsAbs(s.Terminal.TmuxPath) {
+		return fmt.Errorf("terminal.tmux_path must be an absolute path")
 	}
 	switch s.Development.Mocks.Mode {
 	case MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke:

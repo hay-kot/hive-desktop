@@ -50,6 +50,21 @@ func TestExperimentalTerminalYAMLThenEnvironment(t *testing.T) {
 	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"))
 }
 
+func TestTerminalTmuxPathYAMLThenEnvironment(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("terminal:\n  tmux_path: /opt/homebrew/bin/tmux\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "/opt/homebrew/bin/tmux", cfg.Terminal.TmuxPath)
+
+	t.Setenv("HIVE_DESKTOP_TERMINAL_TMUX_PATH", "/usr/local/bin/tmux")
+	cfg, err = LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, "/usr/local/bin/tmux", cfg.Terminal.TmuxPath)
+	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_TERMINAL_TMUX_PATH"))
+}
+
 func TestLoadSettingsStrictNestedYAMLThenEnvironment(t *testing.T) {
 	path := isolateSettings(t)
 	require.NoError(t, os.WriteFile(path, []byte(`
@@ -180,6 +195,8 @@ func TestSettingsValidation(t *testing.T) {
 		{"github api base missing scheme", func(s *Settings) {
 			s.Development.GitHub.APIBase = "127.0.0.1:8080"
 		}},
+		{"relative tmux path", func(s *Settings) { s.Terminal.TmuxPath = "bin/tmux" }},
+		{"bare tmux name", func(s *Settings) { s.Terminal.TmuxPath = "tmux" }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
