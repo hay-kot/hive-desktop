@@ -358,6 +358,24 @@ describe('useTerminalWindows', () => {
     expect(new TextDecoder().decode(written)).toBe('from the shell')
   })
 
+  it('coalesces a synchronized redraw split across tmux output frames', async () => {
+    const { client, session, socket } = await attached()
+    const term = session.tabs.value[0].term
+    const write = term.write as ReturnType<typeof vi.fn>
+    const resizeCalls = (term.resize as ReturnType<typeof vi.fn>).mock.calls.length
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', '\x1b[?2026h\x1b[2Kworking') })
+    expect(write).not.toHaveBeenCalled()
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', '\r\n\x1b[2K> prompt\x1b[?2026l') })
+
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(new TextDecoder().decode(write.mock.calls[0][0]))
+      .toBe('\x1b[?2026h\x1b[2Kworking\r\n\x1b[2K> prompt\x1b[?2026l')
+    expect(term.resize).toHaveBeenCalledTimes(resizeCalls)
+    expect(client.resize).not.toHaveBeenCalled()
+  })
+
   // 'live' only says the socket opened; the first-paint capture is still in
   // flight then, and the session switcher must not reveal a blank grid.
   it('flags the first paint once a terminal has processed output', async () => {
