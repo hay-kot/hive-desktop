@@ -136,6 +136,21 @@ func TestControllerReconcileDiffs(t *testing.T) {
 	require.Equal(t, []string{"@1", "@3"}, windowIDs(c.Windows()))
 }
 
+// A reorder changes no window, so the snapshot's order is the only evidence it
+// happened — and the only thing that carries it.
+func TestControllerReconcileAdoptsTmuxOrder(t *testing.T) {
+	t.Parallel()
+
+	c := seededController()
+	events := c.reconcile([]Window{
+		{ID: "@2", Name: "shell", ActivePane: "%2", Width: 120, Height: 40},
+		{ID: "@1", Name: "claude", Active: true, ActivePane: "%1", Width: 120, Height: 40},
+	})
+
+	require.Empty(t, events, "a pure reorder changes nothing about any window")
+	require.Equal(t, []string{"@2", "@1"}, windowIDs(c.Windows()))
+}
+
 // A %window-add placeholder gains its name and pane from the reconcile that
 // follows it.
 func TestControllerReconcileFillsPlaceholder(t *testing.T) {

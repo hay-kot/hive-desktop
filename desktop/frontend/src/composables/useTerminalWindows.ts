@@ -101,6 +101,7 @@ export interface UseTerminalWindows {
   newWindow: () => Promise<void>
   closeWindow: (windowId: string) => Promise<void>
   rename: (windowId: string, name: string) => Promise<void>
+  moveWindow: (windowId: string, position: number) => Promise<void>
   attachTab: (windowId: string, host: HTMLElement) => void
   disposeTab: (windowId: string) => void
   focusActive: () => void
@@ -681,6 +682,30 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     await control(() => client.renameWindow(slug, windowId, name), 'Could not rename that window.')
   }
 
+  // The strip reorders on the pointer and tmux confirms after, because the round
+  // trip is long enough for a drop to read as ignored. tmux owns the order — a
+  // window may have moved from another client since — so its answer replaces the
+  // guess rather than being assumed to match it, and a refusal puts the strip
+  // back where it was instead of leaving the tabs somewhere tmux never agreed to.
+  async function moveWindow(windowId: string, position: number): Promise<void> {
+    const before = tabs.value
+    const optimistic = reorderTabs(before, windowId, position)
+    if (!optimistic) return
+    tabs.value = optimistic
+    actionError.value = null
+    try {
+      const { windows } = await client.moveWindow(slug, windowId, position)
+      if (disposed) return
+      tabs.value = applyOrder(tabs.value, windows.map((window) => window.windowId))
+    } catch (e) {
+      if (disposed) return
+      // The order goes back, not the tab set: a window opened or closed while
+      // the move was in flight is tmux's news, and the refusal is not about it.
+      tabs.value = applyOrder(tabs.value, before.map((tab) => tab.windowId))
+      actionError.value = message(e, 'Could not move that window.')
+    }
+  }
+
   async function control<T>(run: () => Promise<T>, fallback: string): Promise<T | undefined> {
     actionError.value = null
     try {
@@ -707,8 +732,33 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   return {
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
     search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
-    start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
+    start, reconnect, select, newWindow, closeWindow, rename, moveWindow, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
+}
+
+/**
+ * Moves one tab to `position`, an index into the resulting order. Returns null
+ * when nothing would change, so a drop that lands where it started costs no
+ * round trip.
+ */
+function reorderTabs<T extends { windowId: string }>(tabs: T[], windowId: string, position: number): T[] | null {
+  const from = tabs.findIndex((tab) => tab.windowId === windowId)
+  if (from < 0 || position < 0 || position >= tabs.length || position === from) return null
+  const next = [...tabs]
+  next.splice(position, 0, ...next.splice(from, 1))
+  return next
+}
+
+/**
+ * Reorders tabs to match an authoritative window-id order. Ids the order does
+ * not name keep their relative places at the end rather than vanishing: the
+ * strip is what the user is looking at, and a window this client has not caught
+ * up on yet is not evidence that its tab should go.
+ */
+function applyOrder<T extends { windowId: string }>(tabs: T[], order: string[]): T[] {
+  const rank = new Map(order.map((windowId, index) => [windowId, index]))
+  return [...tabs].sort((a, b) =>
+    (rank.get(a.windowId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.windowId) ?? Number.MAX_SAFE_INTEGER))
 }
 
 // Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal

@@ -510,6 +510,139 @@ func TestWindowCommands(t *testing.T) {
 	require.ErrorIs(t, client.CloseWindow(ctx, "@404"), ErrUnknownWindow)
 }
 
+// The destination is an index into the resulting order; which tmux insertion
+// expresses it, and whether the moved window keeps the selection, is what this
+// pins down. -d is the flag that decides selection, and it has to follow the
+// window being moved rather than being fixed.
+func TestMoveWindowInsertsAtAPosition(t *testing.T) {
+	t.Parallel()
+
+	const (
+		alpha   = "@1 0 %1 120 40 alpha"
+		bravo   = "@2 0 %2 120 40 bravo"
+		charlie = "@3 1 %3 120 40 charlie"
+	)
+
+	cases := map[string]struct {
+		windowID string
+		position int
+		want     string
+		reordered
+	}{
+		"a background window to the front": {
+			windowID: "@2", position: 0,
+			want:      "move-window -d -b -s @2 -t @1",
+			reordered: reordered{bravo, alpha, charlie},
+		},
+		"a background window to the end": {
+			windowID: "@1", position: 2,
+			want:      "move-window -d -a -s @1 -t @3",
+			reordered: reordered{bravo, charlie, alpha},
+		},
+		"one place along": {
+			windowID: "@1", position: 1,
+			want:      "move-window -d -a -s @1 -t @2",
+			reordered: reordered{bravo, alpha, charlie},
+		},
+		"the active window keeps the selection": {
+			windowID: "@3", position: 0,
+			want:      "move-window -b -s @3 -t @1",
+			reordered: reordered{charlie, alpha, bravo},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			f := newFakeTmux(t, "hive-demo")
+			f.setWindows(alpha, bravo, charlie)
+			client := attachFake(t, f, Options{})
+			f.setWindows(tc.reordered...)
+
+			windows, err := client.MoveWindow(t.Context(), tc.windowID, tc.position)
+			require.NoError(t, err)
+
+			require.Contains(t, f.sentCommands(), tc.want)
+			require.Contains(t, f.sentCommands(), "move-window -r",
+				"an insert leaves the session's indices with gaps otherwise")
+			require.Equal(t, windowIDsOf(tc.reordered), windowIDs(windows),
+				"the answer is the order tmux settled on, read back rather than assumed")
+			require.Equal(t, windowIDs(windows), windowIDs(client.Windows()))
+		})
+	}
+}
+
+// A move is an unlink and a relink, so tmux reports the window it moved as
+// closed. Acting on that would tear the tab and its terminal down and rebuild
+// them blank — and, for the window that was selected, move the selection too.
+func TestMoveWindowSurvivesTheRelinkClose(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 alpha", "@2 0 %2 120 40 bravo")
+	client := attachFake(t, f, Options{})
+
+	f.setOnCommand(func(cmd string) {
+		if strings.HasPrefix(cmd, "move-window -") && !strings.HasPrefix(cmd, "move-window -r") {
+			f.setWindows("@2 0 %2 120 40 bravo", "@1 1 %1 120 40 alpha")
+			f.emit("%window-add @1")
+			f.emit("%window-close @1")
+		}
+	})
+
+	windows, err := client.MoveWindow(t.Context(), "@1", 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"@2", "@1"}, windowIDs(windows))
+	require.Equal(t, []string{"@2", "@1"}, windowIDs(client.Windows()),
+		"the moved window is still in the set the close claimed to remove")
+
+	// The guard lifts with the move: a real close still closes.
+	f.setWindows("@2 0 %2 120 40 bravo")
+	f.emit("%window-close @1")
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		wc, ok := ev.(WindowChanged)
+		return ok && wc.Kind == WindowClosed && wc.Window.ID == "@1"
+	})
+	defer unsubscribe()
+	require.NotEmpty(t, events)
+}
+
+func TestMoveWindowRejectsWhatItCannotPlace(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 alpha", "@2 0 %2 120 40 bravo")
+	client := attachFake(t, f, Options{})
+	ctx := t.Context()
+
+	_, err := client.MoveWindow(ctx, "@404", 0)
+	require.ErrorIs(t, err, ErrUnknownWindow)
+	_, err = client.MoveWindow(ctx, "@1", 2)
+	require.ErrorIs(t, err, ErrInvalidPosition)
+	_, err = client.MoveWindow(ctx, "@1", -1)
+	require.ErrorIs(t, err, ErrInvalidPosition)
+	require.Zero(t, f.countCommands("move-window"), "nothing rejected reaches tmux")
+
+	// Landing where it already is costs tmux a whole index shift for no reorder.
+	windows, err := client.MoveWindow(ctx, "@1", 0)
+	require.NoError(t, err)
+	require.Equal(t, []string{"@1", "@2"}, windowIDs(windows))
+	require.Zero(t, f.countCommands("move-window"))
+}
+
+// reordered is the list-windows the fake answers with once the move has run.
+type reordered []string
+
+func windowIDsOf(lines []string) []string {
+	ids := make([]string, 0, len(lines))
+	for _, line := range lines {
+		w, _ := parseWindowLine(line)
+		ids = append(ids, w.ID)
+	}
+	return ids
+}
+
 func TestCommandErrorSurfacesToCaller(t *testing.T) {
 	t.Parallel()
 

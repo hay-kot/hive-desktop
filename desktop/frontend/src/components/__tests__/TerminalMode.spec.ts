@@ -1,4 +1,4 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type DOMWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
@@ -95,6 +95,7 @@ function fakeSession() {
     newWindow: vi.fn().mockResolvedValue(undefined),
     closeWindow: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
+    moveWindow: vi.fn().mockResolvedValue(undefined),
     attachTab: vi.fn(),
     disposeTab: vi.fn(),
     focusActive: vi.fn(),
@@ -959,6 +960,115 @@ describe('TerminalMode', () => {
     expect(storedRestore()).toEqual({ slug: '', window: '' })
   })
 
+  describe('reordering tabs', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    // happy-dom lays nothing out, so the drop edge has to be stated: a tab
+    // 150px wide starting at x, and a pointer somewhere in it.
+    function box(tab: DOMWrapper<Element>, left: number): void {
+      (tab.element as HTMLElement).getBoundingClientRect = () =>
+        ({ left, width: 150, right: left + 150, top: 0, bottom: 30, height: 30, x: left, y: 0 }) as DOMRect
+    }
+
+    async function drag(wrapper: Awaited<ReturnType<typeof attached>>['wrapper'], from: number, onto: number, clientX: number) {
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      box(tabs[onto], onto * 150)
+      await tabs[from].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[onto].trigger('dragover', { dataTransfer: new DataTransfer(), clientX })
+      await tabs[onto].trigger('drop')
+    }
+
+    it('drops a tab into the gap the pointer is nearest', async () => {
+      const { wrapper, session } = await attached()
+
+      // Past the middle of the second tab: after it, which is the end.
+      await drag(wrapper, 0, 1, 250)
+
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+    })
+
+    it('drops before the tab when the pointer is on its leading half', async () => {
+      const { wrapper, session } = await attached()
+
+      await drag(wrapper, 1, 0, 20)
+
+      expect(session.moveWindow).toHaveBeenCalledWith('@2', 0)
+    })
+
+    it('marks the gap it would drop into, and clears it when the drag ends', async () => {
+      const { wrapper } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      box(tabs[1], 150)
+
+      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientX: 160 })
+      expect(tabs[1].classes()).toContain('drop-before')
+      expect(tabs[0].classes()).toContain('opacity-40')
+
+      await tabs[0].trigger('dragend')
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].classes()).not.toContain('drop-before')
+    })
+
+    it('steps a focused tab along the strip from the keyboard', async () => {
+      const { wrapper, session } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+
+      await tabs[0].find('button').trigger('keydown', { key: 'ArrowRight', altKey: true })
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+
+      // The ends hold: there is nowhere left of the first tab to go.
+      session.moveWindow.mockClear()
+      await tabs[0].find('button').trigger('keydown', { key: 'ArrowLeft', altKey: true })
+      expect(session.moveWindow).not.toHaveBeenCalled()
+
+      // A bare arrow is not a reorder; the modifier is what makes it one.
+      await tabs[0].find('button').trigger('keydown', { key: 'ArrowRight' })
+      expect(session.moveWindow).not.toHaveBeenCalled()
+    })
+
+    it('moves the tab in view from the overflow menu, and stops at the ends', async () => {
+      const { wrapper, session } = await attached()
+      await wrapper.get('[data-testid="terminal-view-menu-toggle"]').trigger('click')
+      const menu = wrapper.get('[data-testid="terminal-view-menu"]')
+
+      // The active window is the first tab, so only one direction is open.
+      expect(menu.get('[data-testid="terminal-tab-move-left"]').attributes('disabled')).toBeDefined()
+      expect(menu.get('[data-testid="terminal-tab-move-right"]').attributes('disabled')).toBeUndefined()
+
+      await menu.get('[data-testid="terminal-tab-move-right"]').trigger('click')
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+    })
+
+    // The strip and the sidebar's window well read the same list, so the order
+    // cannot disagree between them.
+    it('renders the tab strip and the sidebar tree in the order the tabs carry', async () => {
+      const { wrapper, session } = await attached()
+      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
+
+      session.tabs.value = [session.tabs.value[1], session.tabs.value[0]]
+      await flushPromises()
+
+      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['shell', 'agent'])
+      expect(wrapper.findAll('[data-testid="terminal-window-row"]').map((row) => row.attributes('data-window-id')))
+        .toEqual(['@2', '@1'])
+    })
+
+    it('leaves a tab being renamed undraggable so its text can be selected', async () => {
+      const { wrapper } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      expect(tabs[1].attributes('draggable')).toBe('true')
+
+      await tabs[1].find('button').trigger('dblclick')
+
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].attributes('draggable')).toBe('false')
+    })
+  })
+
   describe('terminal overflow menu', () => {
     async function attached() {
       const mounted = await mountAvailable()
@@ -985,7 +1095,9 @@ describe('TerminalMode', () => {
 
       expect(toggle.attributes('aria-expanded')).toBe('true')
       expect(menu.attributes('role')).toBe('menu')
-      expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual(['Decrease', 'Increase', 'Reset'])
+      expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual([
+        'Decrease', 'Increase', 'Reset', 'Move tab leftAlt+←', 'Move tab rightAlt+→',
+      ])
       expect(menu.text()).toContain('Text size · Medium')
       wrapper.unmount()
     })

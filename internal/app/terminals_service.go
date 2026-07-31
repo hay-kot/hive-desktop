@@ -163,6 +163,22 @@ func (s *TerminalsService) CloseWindow(ctx context.Context, slug, windowID strin
 	return terminalError(client.CloseWindow(ctx, windowID), "closing window %q", windowID)
 }
 
+// MoveWindow moves a window to a position in the session's window order and
+// answers with the order tmux settled on, so a caller renders what happened
+// rather than what it asked for. Window order is tmux session state: the move
+// reaches every other client attached to the same session.
+func (s *TerminalsService) MoveWindow(ctx context.Context, slug, windowID string, position int) ([]tmuxcc.Window, error) {
+	client, err := s.client(slug)
+	if err != nil {
+		return nil, err
+	}
+	windows, err := client.MoveWindow(ctx, windowID, position)
+	if err != nil {
+		return nil, terminalError(err, "moving window %q of session %q", windowID, slug)
+	}
+	return windows, nil
+}
+
 func (s *TerminalsService) RenameWindow(ctx context.Context, slug, windowID, name string) error {
 	client, err := s.client(slug)
 	if err != nil {
@@ -201,7 +217,7 @@ func terminalError(err error, format string, args ...any) error {
 		return nil
 	case errors.Is(err, tmuxcc.ErrUnavailable):
 		return Wrap(err, KindUnavailable, format, args...)
-	case errors.Is(err, tmuxcc.ErrInvalidSize), errors.Is(err, tmuxcc.ErrInvalidName):
+	case errors.Is(err, tmuxcc.ErrInvalidSize), errors.Is(err, tmuxcc.ErrInvalidName), errors.Is(err, tmuxcc.ErrInvalidPosition):
 		return Wrap(err, KindInvalid, format, args...)
 	case errors.Is(err, tmuxcc.ErrNotAttached), errors.Is(err, tmuxcc.ErrUnknownWindow):
 		return Wrap(err, KindNotFound, format, args...)

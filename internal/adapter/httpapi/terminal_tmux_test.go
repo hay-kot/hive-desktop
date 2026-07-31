@@ -355,6 +355,95 @@ func TestTmuxListWindowsAnswersWithoutAnAttach(t *testing.T) {
 	assert.Empty(t, absent.Windows)
 }
 
+// The move is the one control-plane operation whose reply carries a whole
+// window set: the order is tmux's, so the caller renders what tmux settled on
+// rather than the order it asked for. The pane must survive the round trip —
+// tmux reports a moved window as closed, and a torn-down tab would come back
+// blank and unselected.
+func TestTmuxMoveWindowReordersWithoutDisturbingThePane(t *testing.T) {
+	tmux := startTmux(t, "hive-move")
+	tmux.newWindow("shell")
+	tmux.newWindow("logs")
+	h := newTerminalHarness(t)
+
+	attached := h.attach(t, tmux.slug)
+	require.Len(t, attached.Windows, 3)
+	require.Equal(t, []string{"claude", "shell", "logs"}, windowNames(attached))
+	first := attached.Windows[0].WindowID
+
+	conn := h.dial(t, tmux.slug)
+	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
+
+	moved := h.move(t, tmux.slug, first, 2)
+	assert.Equal(t, []string{"shell", "logs", "claude"}, windowNames(moved))
+	assert.Equal(t, "logs", activeName(t, moved), "a reorder is not a selection")
+	assert.Equal(t, "0 1 2", strings.Join(strings.Fields(tmux.tmux("list-windows", "-t", tmux.slug, "-F", "#{window_index}")), " "),
+		"the insert's index gaps are renumbered away")
+
+	// The moved window is still live: no close reached the stream, and its pane
+	// still carries output on the same window id.
+	tmux.tmux("send-keys", "-t", first, "echo HIVE_STILL_HERE", "Enter")
+	frame := readUntil(t, conn, "output from the moved window", func(f []byte) bool {
+		return outputContains(t, f, "HIVE_STILL_HERE")
+	})
+	windowID, _, _, err := decodeOutputFrame(frame)
+	require.NoError(t, err)
+	assert.Equal(t, first, windowID)
+}
+
+func TestTmuxMoveWindowRejectsAPositionThatIsNotThere(t *testing.T) {
+	tmux := startTmux(t, "hive-move-bad")
+	h := newTerminalHarness(t)
+	attached := h.attach(t, tmux.slug)
+
+	resp := h.post(t, "/api/terminal/windows/move", testToken,
+		map[string]any{"slug": tmux.slug, "windowId": attached.Windows[0].WindowID, "position": 4})
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	resp = h.post(t, "/api/terminal/windows/move", testToken,
+		map[string]any{"slug": tmux.slug, "windowId": "@404", "position": 0})
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+
+	// A negative index never reaches the core: the request rejects it.
+	resp = h.post(t, "/api/terminal/windows/move", testToken,
+		map[string]any{"slug": tmux.slug, "windowId": attached.Windows[0].WindowID, "position": -1})
+	_ = resp.Body.Close()
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}
+
+func (h *terminalHarness) move(t *testing.T, slug, windowID string, position int) attachResult {
+	t.Helper()
+	resp := h.post(t, "/api/terminal/windows/move", testToken,
+		map[string]any{"slug": slug, "windowId": windowID, "position": position})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var out attachResult
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	_ = resp.Body.Close()
+	return out
+}
+
+func windowNames(result attachResult) []string {
+	names := make([]string, 0, len(result.Windows))
+	for _, w := range result.Windows {
+		names = append(names, w.Name)
+	}
+	return names
+}
+
+func activeName(t *testing.T, result attachResult) string {
+	t.Helper()
+	for _, w := range result.Windows {
+		if w.Active {
+			return w.Name
+		}
+	}
+	t.Fatalf("no active window in %#v", result.Windows)
+	return ""
+}
+
 func TestTmuxOutputFrameCarriesPaneOutput(t *testing.T) {
 	tmux := startTmux(t, "hive-output")
 	h := newTerminalHarness(t)
