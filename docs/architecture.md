@@ -299,6 +299,9 @@ internal/
                                   #   slug, fan-out broker — no transport, no UI
     tmuxbin/                      # where the tmux binary is: paths.tmux, then
                                   #   PATH, then package prefixes (ADR 0039)
+    ptyterm/                      # ephemeral terminals: a PTY and the process on
+                                  #   the far end, id-keyed, dying with the app —
+                                  #   what the pop-up runs on (ADR 0048)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
                                   #   process's, then those prefixes (ADR 0041)
@@ -872,6 +875,43 @@ device pixels, so neither can tune a cell onto a cleaner boundary and a
 `lineHeight` above 1 pads the glyph off the edge box drawing has to reach; and
 the addon majors are pinned to the xterm core major, since they reach into
 `Terminal._core` for private services.
+
+#### Pop-up terminals
+
+`internal/app/ptyterm` is the *other* terminal backend, and the rule for which
+one serves a request is the session: **a terminal that belongs to a hive session
+is tmux's; a terminal that belongs to a moment is this one's** (ADR 0048). It
+owns a PTY and the process on the far end directly — no multiplexer, no
+discovered binary, no negotiation — and every terminal it opens dies with the
+app.
+
+Three rules govern it, and each is a consequence of that:
+
+- **A pop-up is addressed by an id this process mints**, never by a slug.
+  Nothing else can attach to it and nothing outlives the run, so there is no
+  registry to keep in step with hive.
+- **A launch is a directory and a shell command line.** The directory resolves
+  session checkout → explicit path → home; the command runs through a login
+  shell so the user's own PATH and aliases resolve it (ADR 0041), and empty
+  means an interactive shell. A named launcher is that spec with config in front
+  of it — add the config, not another launch path.
+- **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
+  covered by that prefix's bearer token and CORS policy. Its stream carries one
+  terminal per socket, so its frames carry no window or pane ids and are not the
+  tmux stream's.
+- **Hiding the panel keeps the shell; exiting the shell takes the panel.** The
+  toggle opens a terminal outright, returns to a running one, and hands focus
+  back where it came from on the way out. Anything that adds a step between the
+  shortcut and a prompt is working against what this is for.
+- **The panel's box is derived from the window, never stored.** Centred, a fixed
+  fraction of it, following a resize; not draggable and not resizable for now.
+  Restoring either means answering how a remembered box stays honest against a
+  window that changed since — a stored one that does not is a bug that presents
+  as the pop-up ignoring its own setting.
+
+Do not build a shared interface across the two backends, and do not extend one
+because the other has something: they answer different questions, and the
+overlap in vocabulary is a coincidence of both being terminals.
 
 ## Execution model
 

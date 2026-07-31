@@ -8,7 +8,6 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
-import '../assets/fonts/jetbrains-mono-nerd.css'
 import {
   decodeFrame,
   encodeInputFrames,
@@ -17,6 +16,7 @@ import {
   type WindowEventKind,
   type WindowState,
 } from '../lib/terminalClient'
+import { loadTerminalFaces, TERMINAL_FONT_STACK, resetTerminalFacesForTests } from '../lib/terminalFaces'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
@@ -116,10 +116,6 @@ const RESIZE_DEBOUNCE_MS = 80
 // reported as a constraint. A vote is answered by a window event, which arrives
 // well inside this; an unanswered vote means something else decided the size.
 const CONSTRAINT_SETTLE_MS = 750
-
-// The face xterm measures its cell from. The rest of the stack only covers the
-// window between a Terminal opening and this one resolving.
-const TERMINAL_FONT = "'JetBrainsMono Nerd Font'"
 
 // A link has to leave the webview: it hosts one document for the app's whole
 // lifetime, and xterm's own default for an OSC 8 hyperlink — confirm() then
@@ -241,7 +237,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // a cleaner boundary, and a lineHeight above 1 pads the glyph away from the
     // cell edge box drawing has to meet. ADR 0038.
     const term = markRaw(new Terminal({
-      fontFamily: `${TERMINAL_FONT}, 'IBM Plex Mono', ui-monospace, monospace`,
+      fontFamily: TERMINAL_FONT_STACK,
       fontSize: fontSizePx.value,
       linkHandler,
       scrollback: 5000,
@@ -774,24 +770,6 @@ function loadRendererAddon<T extends ITerminalAddon>(
   }
 }
 
-// Kept per size because document.fonts.load re-resolves on every call — 12ms
-// to 47ms measured, even for a face already resident — and every attach awaits
-// it before it may so much as ask for the session.
-const faceLoads = new Map<number, Promise<void>>()
-
-// xterm measures its cell when a Terminal opens and never re-measures when a
-// face arrives later, and an atlas renderer caches the glyphs it rasterised
-// from whatever was resident — so bold has to be here too, not just regular.
-function loadTerminalFaces(px: number): Promise<void> {
-  const loaded = faceLoads.get(px)
-  if (loaded) return loaded
-  const pending = Promise.all([`${px}px`, `bold ${px}px`].map(
-    (font) => document.fonts?.load(`${font} ${TERMINAL_FONT}`).catch(() => {}),
-  )).then(() => {})
-  faceLoads.set(px, pending)
-  return pending
-}
-
-export function resetTerminalFacesForTests(): void {
-  faceLoads.clear()
-}
+// Re-exported so the pane's own tests keep reaching it through the composable
+// they exercise.
+export { resetTerminalFacesForTests }

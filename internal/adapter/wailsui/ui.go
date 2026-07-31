@@ -63,6 +63,9 @@ type MountOptions struct {
 	// Terminal carries the per-run bearer token and WebSocket path the terminal
 	// bootstrap hands the webview. Zero when no terminal transport was mounted.
 	Terminal TerminalTransport
+	// PopupTerminal carries the same for the ephemeral pop-up terminal (ADR
+	// 0048). Zero when its stream was not mounted.
+	PopupTerminal PopupTerminalTransport
 	// TerminalEnabled is the experimental.terminal opt-in (ADR 0037). Off means
 	// the frontend never renders the way into terminal mode.
 	TerminalEnabled bool
@@ -160,6 +163,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
 		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
+		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal, opts.TerminalEnabled)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {
