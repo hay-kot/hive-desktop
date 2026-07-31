@@ -17,7 +17,17 @@ tabs:
   - title: devserver
     cmd: mise run devserver
 
+  # The app, the Vite server and the file watcher. `solo down` stops this by
+  # sending the window an interrupt, but the teardown does not depend on that
+  # landing: the task runs the dev runner under `devtools run`, which also
+  # watches for the terminal going away and stops the session either way
+  # (ADR 0046). Killing this window is therefore safe — it cannot leave the app
+  # running with nothing supervising it, which is what used to happen.
   - title: desktop
     cmd: mise run desktop:dev
 
-timeout: 15
+# Long enough to cover the supervisor's own worst case — the app's shutdown
+# grace plus the runner's — so `solo down` reports a window as stopped when it
+# has actually finished, rather than force-killing a teardown in progress. A
+# normal stop takes about a second.
+timeout: 30

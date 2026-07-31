@@ -349,6 +349,52 @@ func TestManagerStopClosesEveryClient(t *testing.T) {
 	}
 }
 
+// wedgedTmux is a control client that cannot be brought down: Kill leaves the
+// stream open, so the reader teardown joins on never returns. It stands in for
+// the shapes that hang a real one — a tmux child ignoring its kill, a detach
+// write parked on a pipe nobody drains.
+type wedgedTmux struct {
+	*fakeTmux
+	released chan struct{}
+}
+
+func (w *wedgedTmux) Kill() error { return nil }
+
+func (w *wedgedTmux) Wait() error {
+	<-w.released
+	return nil
+}
+
+func TestManagerStopHonorsItsDeadline(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	// An %error keeps the fake from closing the stream the way a real detach
+	// would, which is what leaves this client with no way to finish closing.
+	f.failures["detach"] = "no current client"
+
+	wedged := &wedgedTmux{fakeTmux: f, released: make(chan struct{})}
+	t.Cleanup(func() { close(wedged.released) })
+
+	m := newTestManager(t, nil, ManagerOptions{newProcess: func(Options) process { return wedged }})
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- m.Stop(ctx) }()
+
+	select {
+	case err := <-stopped:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("Stop waited past its deadline on a client that cannot come down, which is what hangs App.Close")
+	}
+}
+
 func TestManagerAttachAfterStopIsUnavailable(t *testing.T) {
 	t.Parallel()
 

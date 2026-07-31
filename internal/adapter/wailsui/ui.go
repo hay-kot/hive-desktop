@@ -355,6 +355,29 @@ func (u *UI) reveal() {
 // Run blocks until the app quits.
 func (u *UI) Run() error { return u.app.Run() }
 
+// Quit asks the application to terminate. It is what the tray's Quit item
+// does; a signal handler takes the same path so every exit runs one teardown.
+// It is a no-op before Mount, and on macOS it does not return, so a caller that
+// must exit regardless needs its own backstop.
+func (u *UI) Quit() {
+	if u.app == nil {
+		return
+	}
+	u.app.Quit()
+}
+
+// OnShutdown registers work to run while the application is terminating. It is
+// how a teardown reaches macOS at all: Quit there is [NSApp terminate:], which
+// runs these hooks from applicationShouldTerminate: and then exits the process
+// without ever returning from Run. Registering only after Run returns would
+// mean every quit on macOS — tray, Cmd+Q, signal — skipped the teardown.
+func (u *UI) OnShutdown(f func()) {
+	if u.app == nil {
+		return
+	}
+	u.app.OnShutdown(f)
+}
+
 // Close stops what the adapter owns. The core's own teardown is App.Close.
 func (u *UI) Close() {
 	if u.updater != nil {

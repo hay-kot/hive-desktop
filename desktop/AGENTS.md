@@ -284,7 +284,9 @@ more expensive, which is the whole reason it is being done now.
   marker-guarded destructive operations that refuse while a configured dev
   server is active. `prepare` writes non-secret `launch.env`; the `desktop:dev`
   mise task loads it followed by optional gitignored `overrides.env`, then
-  starts Wails directly. Data/config/ports are isolated, but the OS keychain,
+  starts Wails through `devtools run`, which owns the session's teardown so a
+  closed terminal cannot leave the app running (ADR 0046).
+  Data/config/ports are isolated, but the OS keychain,
   the fixed bootstrap pointer, and `hive.db` are shared: dev sets
   `HIVE_DESKTOP_HIVE_DATA_DIR` to the installed hive data dir so sessions created
   in dev land in the real hive database (desktop-pipeline.db and feed state stay

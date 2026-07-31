@@ -9,7 +9,13 @@ import (
 	"embed"
 	"log"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"sync"
+	"syscall"
+	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
@@ -178,19 +184,71 @@ func main() {
 		log.Fatal(err)
 	}
 
-	shutdown := func() {
+	// Registered as a shutdown hook and called again after Run, because which
+	// of the two fires is the platform's business: on macOS Quit is [NSApp
+	// terminate:], which runs the hooks and exits without Run ever returning,
+	// while the server build returns from Run normally. Once, so the pair is
+	// exactly one teardown.
+	shutdown := sync.OnceFunc(func() {
 		ui.Close()
 		cancel()
 		if err := core.Close(); err != nil {
 			logger.Warn().Err(err).Msg("core shutdown reported an error")
 		}
 		logCloser()
-	}
+	})
+	ui.OnShutdown(shutdown)
+	quitOnSignal(ui.Quit, logger, logCloser)
+
 	if err := ui.Run(); err != nil {
 		shutdown()
 		log.Fatal(err)
 	}
 	shutdown()
+}
+
+// shutdownGrace bounds a signal-triggered teardown end to end. App.Close
+// budgets three seconds each for the terminal clients and the HTTP drain and
+// then closes two databases, so this is that worst case with headroom — not a
+// target anything is expected to reach.
+const shutdownGrace = 10 * time.Second
+
+// quitOnSignal answers SIGINT, SIGTERM and SIGHUP by asking for the same quit
+// the tray's Quit item asks for, which reaches the teardown above by whichever
+// of its two routes the platform takes. Without it the process dies on Go's
+// default disposition with the databases mid-write and the tmux control
+// clients still attached.
+//
+// os/signal is wired here rather than in internal/app because the disposition
+// belongs to the process, not the core — App.Close documents why the core must
+// register none of its own.
+//
+// The watchdog is the part that earns its keep. quit hands work to the main
+// thread and the teardown then joins terminal clients and drains an HTTP
+// server, so either can wedge; past the grace period, or on a second signal,
+// the process exits anyway. An app you cannot kill is worse than one that
+// skipped its teardown.
+func quitOnSignal(quit func(), logger zerolog.Logger, flush func()) {
+	signals := make(chan os.Signal, 2)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+
+	go func() {
+		sig := <-signals
+		logger.Info().Str("signal", sig.String()).Msg("signal received; shutting down")
+
+		go func() {
+			select {
+			case next := <-signals:
+				logger.Warn().Str("signal", next.String()).Msg("second signal; exiting without finishing shutdown")
+			case <-time.After(shutdownGrace):
+				logger.Error().Dur("grace", shutdownGrace).Msg("shutdown did not finish in time; exiting")
+			}
+			flush()
+			os.Exit(1)
+		}()
+
+		quit()
+	}()
 }
 
 // webviewOrigins is the CORS allowlist for the terminal surface: the packaged
