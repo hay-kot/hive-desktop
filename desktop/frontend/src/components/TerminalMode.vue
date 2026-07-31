@@ -317,8 +317,10 @@ function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
   openRowMenu.value = row.id
 }
 
+// The separator is escaped, never typed: a literal NUL in the source makes the
+// whole file read as binary, and every grep over it comes back empty.
 function windowMenuKey(row: TerminalSessionRow, windowId: string): string {
-  return `${row.slug} ${windowId}`
+  return `${row.slug}\u0000${windowId}`
 }
 
 function toggleWindowMenu(row: TerminalSessionRow, windowId: string, event?: MouseEvent): void {
