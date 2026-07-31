@@ -81,6 +81,32 @@ type SettingsReload struct {
 	RestartPending []RestartPendingField
 }
 
+// SettingsStatus is settings.yaml's standing state: where it lives, whether
+// the last (re)load of the file on disk parsed and validated, and what a
+// relaunch would change. Reading it causes no reload.
+type SettingsStatus struct {
+	Path  string
+	Valid bool
+	// Error is why the served snapshot is older than the file on disk —
+	// Store.LoadError — empty when they agree.
+	Error          string
+	RestartPending []RestartPendingField
+}
+
+// SettingsStatus reports settings.yaml's standing state without reloading it.
+func (a *App) SettingsStatus(ctx context.Context) SettingsStatus {
+	status := SettingsStatus{
+		Path:           a.settingsStore.Path(),
+		Valid:          true,
+		RestartPending: a.RestartPending(ctx),
+	}
+	if err := a.settingsStore.LoadError(); err != nil {
+		status.Valid = false
+		status.Error = err.Error()
+	}
+	return status
+}
+
 // ReloadSettings re-reads settings.yaml, applies what this process can adopt,
 // and announces the change. It is the one reload path: the watcher, the HTTP
 // endpoint and any future caller all go through it.

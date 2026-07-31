@@ -161,6 +161,31 @@ func TestReloadSettingsKeepsLastGoodOnABrokenFile(t *testing.T) {
 	}), "the reload failure is in the activity log")
 }
 
+func TestSettingsStatusReportsLoadErrorAndRestartPending(t *testing.T) {
+	core := newReloadTestApp(t)
+	t.Setenv(settings.EnvMockMode, "")
+	writeSettings(t, core, "development:\n  mocks:\n    mode: onboarding\n")
+	_, err := core.ReloadSettings(t.Context())
+	require.NoError(t, err)
+
+	status := core.SettingsStatus(t.Context())
+	assert.Equal(t, core.settingsStore.Path(), status.Path)
+	assert.True(t, status.Valid)
+	assert.Empty(t, status.Error)
+	require.Len(t, status.RestartPending, 1)
+	assert.Equal(t, "development.mocks.mode", status.RestartPending[0].Field)
+
+	writeSettings(t, core, "polling:\n  nope: true\n")
+	_, err = core.ReloadSettings(t.Context())
+	require.Error(t, err)
+
+	status = core.SettingsStatus(t.Context())
+	assert.False(t, status.Valid)
+	assert.Contains(t, status.Error, "parse desktop settings")
+	require.Len(t, status.RestartPending, 1)
+	assert.Equal(t, "development.mocks.mode", status.RestartPending[0].Field)
+}
+
 func TestRestartPendingReportsOnlyStartupFields(t *testing.T) {
 	core := newReloadTestApp(t)
 	require.Empty(t, core.RestartPending(t.Context()))

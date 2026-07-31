@@ -124,6 +124,10 @@ func (ctrl *Controller) baseOperations() []Op {
 			Response: actionsResponse{}, Handler: ctrl.Actions,
 		},
 		{
+			Method: "GET", Path: "/api/settings", Summary: "Report settings.yaml's load status and every persisted value this process cannot adopt without a relaunch; reading causes no reload.",
+			Response: settingsStatusResponse{}, Handler: ctrl.SettingsStatus,
+		},
+		{
 			Method: "POST", Path: "/api/settings/reload", Summary: "Re-read settings.yaml and apply what the running process can adopt; a file that fails validation leaves the running values in service and answers 400.",
 			Response: settingsReloadResponse{}, Handler: ctrl.SettingsReload,
 			Errors: []ErrResp{{Status: 400, When: "settings.yaml could not be parsed, migrated, or validated"}},

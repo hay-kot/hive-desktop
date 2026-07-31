@@ -698,6 +698,58 @@ func TestSettingsReload(t *testing.T) {
 	assert.NotEmpty(t, body.RestartPending[0].Reason)
 }
 
+func TestSettingsStatusReportsLoadState(t *testing.T) {
+	core, handler := testServer(t)
+	t.Setenv(settings.EnvMockMode, "")
+	settingsPath := core.RuntimePaths().SettingsPath
+	require.NoError(t, os.MkdirAll(filepath.Dir(settingsPath), 0o700))
+
+	var status struct {
+		Path           string `json:"path"`
+		Valid          bool   `json:"valid"`
+		Error          string `json:"error"`
+		RestartPending []struct {
+			Field string `json:"field"`
+		} `json:"restartPending"`
+	}
+	readStatus := func() {
+		t.Helper()
+		rec := get(t, handler, "/api/settings")
+		require.Equal(t, http.StatusOK, rec.Code)
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &status))
+	}
+
+	require.NoError(t, os.WriteFile(settingsPath, []byte("polling:\n  interval: 9m\ndevelopment:\n  mocks:\n    mode: onboarding\n"), 0o600))
+	reload := do(t, handler, http.MethodPost, "/api/settings/reload", nil)
+	require.Equal(t, http.StatusOK, reload.Code)
+
+	readStatus()
+	assert.Equal(t, settingsPath, status.Path)
+	assert.True(t, status.Valid)
+	assert.Empty(t, status.Error)
+	require.Len(t, status.RestartPending, 1)
+	assert.Equal(t, "development.mocks.mode", status.RestartPending[0].Field)
+
+	require.NoError(t, os.WriteFile(settingsPath, []byte("polling:\n  nope: true\n"), 0o600))
+	broken := do(t, handler, http.MethodPost, "/api/settings/reload", nil)
+	require.Equal(t, http.StatusBadRequest, broken.Code)
+
+	readStatus()
+	assert.False(t, status.Valid)
+	assert.Contains(t, status.Error, "parse desktop settings")
+	require.Len(t, status.RestartPending, 1)
+	assert.Equal(t, "development.mocks.mode", status.RestartPending[0].Field)
+
+	require.NoError(t, os.WriteFile(settingsPath, []byte("polling:\n  interval: 9m\ndevelopment:\n  mocks:\n    mode: feed\n"), 0o600))
+	reloaded := do(t, handler, http.MethodPost, "/api/settings/reload", nil)
+	require.Equal(t, http.StatusOK, reloaded.Code)
+
+	readStatus()
+	assert.True(t, status.Valid)
+	assert.Empty(t, status.Error)
+	assert.Empty(t, status.RestartPending)
+}
+
 // A file the running app cannot use answers 400 and keeps serving the values it
 // already had — the reload endpoint reports the problem, it does not adopt it.
 func TestSettingsReloadRejectsABrokenFile(t *testing.T) {
