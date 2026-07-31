@@ -254,6 +254,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		cancel()
 		return nil, fmt.Errorf("open desktop store: %w", err)
 	}
+	compactPipelineStoreAtStartup(ctx, db, store.DatabasePath(cfg.Paths.StateDir), cfg.Logger)
 	a.Store = db
 
 	// The activity recorder is shared by every subsystem that reports to the
@@ -340,6 +341,66 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 
 	return a, nil
+}
+
+type pipelineCompactor interface {
+	Compact(context.Context, store.CompactionPolicy) (store.CompactionResult, error)
+}
+
+func compactPipelineStoreAtStartup(ctx context.Context, db pipelineCompactor, path string, logger zerolog.Logger) {
+	before, beforeErr := os.Stat(path)
+	started := time.Now()
+	result, compactErr := db.Compact(ctx, store.DefaultCompactionPolicy())
+	duration := time.Since(started)
+	after, afterErr := os.Stat(path)
+
+	if beforeErr != nil {
+		logger.Warn().Err(beforeErr).Str("path", path).Msg("pipeline compaction: measure size before maintenance")
+	}
+	if afterErr != nil {
+		logger.Warn().Err(afterErr).Str("path", path).Msg("pipeline compaction: measure size after maintenance")
+	}
+
+	if compactErr != nil {
+		event := logger.Warn().Err(compactErr).Dur("duration", duration)
+		if beforeErr == nil {
+			event = event.Int64("before_bytes", before.Size())
+		}
+		if afterErr == nil {
+			event = event.Int64("after_bytes", after.Size())
+		}
+		event.Msg("pipeline compaction failed; startup continuing")
+		return
+	}
+
+	ratio := float64(0)
+	if result.PageCount > 0 {
+		ratio = float64(result.FreelistCount) / float64(result.PageCount)
+	}
+	if !result.Compacted {
+		logger.Debug().
+			Int64("page_count", result.PageCount).
+			Int64("freelist_count", result.FreelistCount).
+			Float64("reclaimable_ratio", ratio).
+			Int64("reclaimable_bytes", result.ReclaimableBytes).
+			Dur("duration", duration).
+			Msg("pipeline compaction skipped")
+		return
+	}
+
+	event := logger.Info().
+		Int64("page_count", result.PageCount).
+		Int64("freelist_count", result.FreelistCount).
+		Float64("reclaimable_ratio", ratio).
+		Int64("reclaimable_bytes", result.ReclaimableBytes).
+		Dur("duration", duration)
+	if beforeErr == nil {
+		event = event.Int64("before_bytes", before.Size())
+	}
+	if afterErr == nil {
+		event = event.Int64("after_bytes", after.Size())
+	}
+	event.Msg("pipeline database compacted")
 }
 
 // Start runs the background subsystems: the config watchers, the output
