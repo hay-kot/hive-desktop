@@ -93,6 +93,12 @@ type Appearance struct {
 	// nothing persisted; the frontend owns the defaults and the valid set.
 	TerminalFontWeight     int `yaml:"terminal_font_weight,omitempty"      env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT"`
 	TerminalFontWeightBold int `yaml:"terminal_font_weight_bold,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD"`
+	// TerminalLineHeight multiplies the cell height and TerminalLetterSpacing
+	// widens the cell by whole device pixels. Zero means nothing persisted, so
+	// the letter-spacing default has to stay zero — moving it would make "no
+	// extra tracking" unselectable.
+	TerminalLineHeight    float64 `yaml:"terminal_line_height,omitempty"    env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT"`
+	TerminalLetterSpacing int     `yaml:"terminal_letter_spacing,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING"`
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`

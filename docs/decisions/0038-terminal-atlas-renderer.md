@@ -2,7 +2,9 @@
 
 - **Status:** accepted (decision 1's *timing* — a renderer per pane at mount —
   amended by [0045](0045-terminal-renderer-claimed-on-activation.md), which
-  claims one when a window is first shown; the atlas-over-DOM substance stands)
+  claims one when a window is first shown; decision 4 superseded by
+  [0051](0051-terminal-line-height-and-letter-spacing.md); the atlas-over-DOM
+  substance stands)
 - **Date:** 2026-07-29
 
 ## Context
@@ -76,6 +78,13 @@ reachable from any `Terminal` option. Plain underlines elsewhere, including a
    makes things worse: it pads the glyph away from the cell edge that box
    drawing has to reach. This is recorded because pinning `lineHeight` is the
    obvious-looking fix and was the first suspect on #131.
+
+   **Superseded by [0051](0051-terminal-line-height-and-letter-spacing.md).**
+   Neither knob fixes #131 and both still quantise, but the last claim is
+   wrong: the atlas strokes a custom glyph across the padded cell and offsets it
+   by exactly what the renderer centres the char box by, so box drawing meets
+   the cell edge at any line height. Both are settings now, and line height
+   defaults to 1.2.
 
 5. **Both font weights are resident before a pane opens.** xterm measures its
    cell once on `open()` and never re-measures when a face arrives later, and an

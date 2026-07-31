@@ -59,6 +59,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0048](decisions/0048-ephemeral-popup-terminals.md) | Ephemeral pop-up terminals this process owns, beside the tmux ones it does not |
 | [0049](decisions/0049-launchers-are-their-own-list-in-actions-yml.md) | A pop-up terminal launcher is its own list in actions.yml, not an action |
 | [0050](decisions/0050-terminal-typography-is-configurable.md) | Terminal typography is configurable, and the bundled face carries five weights |
+| [0051](decisions/0051-terminal-line-height-and-letter-spacing.md) | Terminal line height and letter spacing are settings, and line height defaults to 1.2 |
 
 ## References
 

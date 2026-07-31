@@ -34,6 +34,13 @@ export interface AppearanceSettings {
     "terminalFontWeightBold": number;
 
     /**
+     * TerminalLineHeight multiplies the cell height; TerminalLetterSpacing
+     * widens the cell by whole device pixels. Zero means nothing persisted.
+     */
+    "terminalLineHeight": number;
+    "terminalLetterSpacing": number;
+
+    /**
      * TerminalShowWindows lists every active session's tmux windows in the
      * terminal sidebar, not just the attached session's. Ships on.
      */

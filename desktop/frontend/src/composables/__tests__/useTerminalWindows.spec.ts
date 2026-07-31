@@ -5,9 +5,14 @@ import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWi
 import {
   defaultTerminalFontWeight,
   defaultTerminalFontWeightBold,
+  defaultTerminalLetterSpacing,
+  defaultTerminalLineHeight,
   setTerminalFontFamily,
   setTerminalFontSize,
   setTerminalFontWeight,
+  setTerminalLetterSpacing,
+  setTerminalLineHeight,
+  terminalCellMetrics,
   terminalFontSizePx,
 } from '../useTerminalFont'
 import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
@@ -737,15 +742,25 @@ describe('useTerminalWindows', () => {
       .toBeLessThan(client.attach.mock.invocationCallOrder[0])
   })
 
-  // Pinning either is the obvious-looking fix for #131 and is the wrong one:
-  // both quantise to whole device pixels, and a lineHeight above 1 pads the
-  // glyph away from the cell edge box drawing has to reach. ADR 0038.
-  it('sets no lineHeight and no letterSpacing', async () => {
+  it('opens every pane at the configured line height and letter spacing', async () => {
     await attached()
 
     for (const term of xterm.FakeTerminal.instances) {
-      expect(term.options).not.toHaveProperty('lineHeight')
-      expect(term.options).not.toHaveProperty('letterSpacing')
+      expect(term.options.lineHeight).toBe(defaultTerminalLineHeight)
+      expect(term.options.letterSpacing).toBe(defaultTerminalLetterSpacing)
+    }
+  })
+
+  it('re-applies line height and letter spacing to open panes', async () => {
+    await attached()
+
+    setTerminalLineHeight(1.4)
+    setTerminalLetterSpacing(2)
+    await flushPromises()
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.lineHeight).toBe(1.4)
+      expect(term.options.letterSpacing).toBe(2)
     }
   })
 
@@ -898,7 +913,7 @@ describe('useTerminalWindows', () => {
 
   it('attaches with the size this app window last voted, and does not re-vote it', async () => {
     vi.useFakeTimers()
-    localStorage.setItem('hive.terminal.vote', JSON.stringify({ cols: 120, rows: 40, fontPx: terminalFontSizePx.medium }))
+    localStorage.setItem('hive.terminal.vote', JSON.stringify({ cols: 120, rows: 40, metrics: terminalCellMetrics() }))
     const client = fakeClient()
     const session = open(client)
     await session.start()

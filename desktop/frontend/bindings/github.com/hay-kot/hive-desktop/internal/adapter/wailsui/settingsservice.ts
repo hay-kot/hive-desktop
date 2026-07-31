@@ -81,6 +81,14 @@ export function SetTerminalFontWeights(weight: number, weightBold: number): $Can
     return $Call.ByID(749037916, weight, weightBold);
 }
 
+export function SetTerminalLetterSpacing(spacing: number): $CancellablePromise<void> {
+    return $Call.ByID(704140251, spacing);
+}
+
+export function SetTerminalLineHeight(lineHeight: number): $CancellablePromise<void> {
+    return $Call.ByID(207805027, lineHeight);
+}
+
 export function SetTerminalPoolSize(size: number): $CancellablePromise<void> {
     return $Call.ByID(3703274857, size);
 }
