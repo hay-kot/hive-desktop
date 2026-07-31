@@ -71,6 +71,20 @@ func main() {
 					return tools.withLock(tools.reset)
 				}),
 			},
+			{
+				Name:      "run",
+				Usage:     "run the Wails dev runner and own the session's teardown",
+				ArgsUsage: "-- <runner> [args...]",
+				Description: "Supervises the dev runner so a closed terminal cannot leave the app running, " +
+					"and so the app is asked to shut down before the runner kills it.",
+				Action: func(_ context.Context, cmd *cli.Command) error {
+					argv := cmd.Args().Slice()
+					if len(argv) == 0 {
+						return cli.Exit("run needs the dev runner command, e.g. `run -- wails3 dev`", 2)
+					}
+					return runDevSession(logger, argv)
+				},
+			},
 		},
 	}
 

@@ -591,8 +591,16 @@ worktree lock serializes those operations, and destructive commands refuse
 while either configured development server is active. `cmd/devtools prepare`
 writes the resolved paths and ports to a gitignored, non-secret `launch.env`.
 The `desktop:dev` mise task loads it followed by optional gitignored
-`overrides.env`, then starts Wails directly. Devtools itself does not interpret
-developer overrides.
+`overrides.env`, then starts Wails through `cmd/devtools run`. Devtools itself
+does not interpret developer overrides.
+
+`devtools run` supervises the dev runner because the runner does not supervise
+itself on the way out (ADR 0046): it puts the app and Vite in process groups of
+their own, so a closing terminal signals neither, and the runner dies on SIGHUP
+before it can tear them down — leaving the app running with no dev session
+behind it. The supervisor answers the signal instead: it asks the app to shut
+down, waits for `App.Close`, interrupts the runner, and sweeps what is left.
+Rebuild-and-restart stays the runner's; only teardown moves.
 Wails and Vite need ports before Go starts, so devtools resolves
 `development.wails` and `development.vite` and bridges them to `WAILS_*`.
 Wails hard-codes localhost in its frontend URL, so the Vite host is fixed to

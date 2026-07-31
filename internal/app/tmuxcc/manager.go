@@ -371,6 +371,15 @@ func (m *Manager) Detach(ctx context.Context, slug string) error {
 
 // Stop closes every client, joins their readers, and cancels the app-lifetime
 // context. Idempotent.
+//
+// Clients close concurrently and the join is bounded by ctx, because closing
+// one is not: teardown waits on the reader, the command worker and the tmux
+// child with no deadline of its own, and the detach it sends first writes to a
+// pipe that nothing guarantees is being read. Serially and unbounded, a single
+// client that will not come down holds App.Close — and therefore the whole
+// quit — open forever. Every client has already been sent its kill by the time
+// the deadline can expire, so what is abandoned here is the join, not the
+// teardown.
 func (m *Manager) Stop(ctx context.Context) error {
 	m.stopOnce.Do(func() {
 		m.mu.Lock()
@@ -382,9 +391,23 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.clients = map[string]*managedClient{}
 		m.mu.Unlock()
 
-		for _, mc := range clients {
-			_ = mc.client.Close(ctx)
-			mc.cancel()
+		closed := make(chan struct{})
+		go func() {
+			defer close(closed)
+			var wg sync.WaitGroup
+			for _, mc := range clients {
+				wg.Go(func() {
+					_ = mc.client.Close(ctx)
+					mc.cancel()
+				})
+			}
+			wg.Wait()
+		}()
+
+		select {
+		case <-closed:
+		case <-ctx.Done():
+			m.log.Warn().Int("clients", len(clients)).Msg("tmux clients did not close within the shutdown budget")
 		}
 		m.cancelAll()
 	})

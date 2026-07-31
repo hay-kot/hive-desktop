@@ -198,12 +198,15 @@ dir = "desktop"
 # launch.env is generated; optional overrides.env is developer-authored and
 # wins because mise loads it second.
 env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}" }
+# The runner goes through `devtools run` rather than being exec'd directly: it
+# leaves the app running when the terminal closes, and it only ever SIGKILLs
+# the app. See cmd/devtools/devsession.go and ADR 0046.
 run = """
 test -f ../launch.env || {
   echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2
   exit 1
 }
-wails3 dev -config ./build/config.yml
+go run ../cmd/devtools run -- wails3 dev -config ./build/config.yml
 """
 
 [tasks."desktop:dev:prepare"]
