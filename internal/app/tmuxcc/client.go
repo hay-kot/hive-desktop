@@ -325,6 +325,32 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 	return nil
 }
 
+// Repaint re-runs the first paint for every window, so a caller re-attaching to
+// a live client is handed the same paintable stream a fresh attach would be. A
+// transport-only drop — a stalled write, a webview reload — leaves this client
+// attached while taking the emulator that rendered it, and what the dropped
+// stream already delivered is not in the backlog to replay: without a fresh
+// snapshot the new panes open blank against a session that never stopped.
+//
+// The broker is reset first, which is what makes the snapshot the caller's:
+// see broker.reset. The captures are bounded like an attach's own, because the
+// manager runs this under the lock every other attach queues behind.
+func (c *Client) Repaint(ctx context.Context) error {
+	paintCtx, cancel := context.WithTimeout(ctx, attachTimeout)
+	defer cancel()
+
+	c.events.reset()
+	for _, w := range c.Windows() {
+		if w.ActivePane == "" {
+			continue
+		}
+		if err := c.firstPaint(paintCtx, w.ActivePane, w.Height); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // firstPaint snapshots a pane and replays the live output that arrived while
 // the snapshot was in flight. Every path releases the pane: one left held
 // buffers its output forever.

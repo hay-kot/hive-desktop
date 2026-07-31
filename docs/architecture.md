@@ -758,6 +758,16 @@ tmux replays all of it and a configured one cannot make attach cost unbounded.
 `-J` joins wrapped rows in the history only: a joined screen row re-wraps into
 more rows than it was captured from and breaks the height.
 
+**Every attach leaves a first paint on the stream, including one onto a client
+that is already live.** A transport-only drop — a stalled write, a reloaded
+webview — takes the emulator and leaves the control client attached, and what
+that stream already delivered is not in the broker's backlog to replay, so an
+attach that answered from memory would hand a fresh emulator a session it can
+only render the future of. The repaint resets the broker first: the snapshot
+supersedes every undelivered byte, and a subscriber still draining the dropped
+stream would otherwise consume the snapshot meant for its replacement. The size
+vote is a fresh attach's alone — a live client keeps the one it already cast.
+
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a

@@ -209,6 +209,35 @@ func TestAttachReplaysLiveOutputBehindSnapshot(t *testing.T) {
 	require.Equal(t, strings.Repeat("A", len(middle)), middle, "the live stream stays contiguous")
 }
 
+// A transport-only drop leaves this client attached and its emulator gone. The
+// stream that replaces it starts from nothing, so a repaint has to put every
+// window back on screen — and drop what the dead transport never delivered,
+// which the snapshot already contains.
+func TestRepaintSnapshotsEveryWindowForTheNextSubscriber(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 1 claude", "@2 0 %2 120 1 shell")
+	f.setCapture("%1", "FIRST")
+	f.setCapture("%2", "$ ")
+
+	client := attachFake(t, f, Options{})
+	_, dropped := subscribeAndCollect(t, client, lifecycleIs(LifecycleAttached))
+	dropped()
+
+	f.emit("%output %1 STALE")
+	require.Eventually(t, func() bool { return client.events.depth() > 0 }, 2*time.Second, time.Millisecond,
+		"the output the dropped transport never took is what the repaint supersedes")
+	f.setCapture("%1", "REPAINTED")
+
+	require.NoError(t, client.Repaint(t.Context()))
+
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@2", "$ "))
+	defer unsubscribe()
+	require.Equal(t, "REPAINTED", outputData(events, "@1"), "the pane is captured again, and the undelivered bytes go with the old stream")
+	require.Equal(t, "$ ", outputData(events, "@2"), "every window is painted, not just the active one")
+}
+
 // %window-add carries no name or pane, so it schedules a list-windows on the
 // command worker — never on the reader goroutine.
 func TestWindowAddTriggersReconcile(t *testing.T) {

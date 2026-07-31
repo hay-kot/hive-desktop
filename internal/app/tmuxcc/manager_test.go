@@ -162,6 +162,38 @@ func TestManagerAttachIsOneClientPerSlug(t *testing.T) {
 	require.Equal(t, 1, f.countCommands("list-windows"), "the second attach reuses the client")
 }
 
+// Re-attaching to a live client is the transport-drop path: tmux never let go,
+// so nothing tears the client down, and the stream that replaces the dropped one
+// has no first paint of its own to open on unless the attach makes one.
+func TestManagerAttachRepaintsALiveClient(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 1 claude")
+	f.setCapture("%1", "AGENT RUNNING")
+	m := newTestManager(t, f, ManagerOptions{})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	// The stream that took the first paint took it out of the backlog with it,
+	// which is what leaves the next one with nothing to open on.
+	ch, unsubscribe, err := m.Subscribe("hive-demo")
+	require.NoError(t, err)
+	require.Equal(t, "AGENT RUNNING", outputData(collect(t, ch, lifecycleIs(LifecycleAttached)), "@1"))
+	unsubscribe()
+
+	windows, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+	require.Len(t, windows, 1)
+	require.Equal(t, 1, f.countCommands("refresh-client"), "the live client keeps the size it already voted")
+
+	resumed, stop, err := m.Subscribe("hive-demo")
+	require.NoError(t, err)
+	defer stop()
+	require.Equal(t, "AGENT RUNNING", outputData(collect(t, resumed, outputContains("@1", "AGENT RUNNING")), "@1"))
+}
+
 func TestManagerSubscribeRequiresAnAttachedClient(t *testing.T) {
 	t.Parallel()
 

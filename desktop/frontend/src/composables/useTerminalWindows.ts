@@ -23,8 +23,8 @@ import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
 /**
- * 'ended' is terminal: the control client is gone and the only way forward is
- * reconnect(), which re-attaches from scratch.
+ * 'ended' is terminal: this view has no stream any more — whether or not the
+ * control client behind it survived — and the only way forward is reconnect().
  */
 export type TerminalStatus = 'connecting' | 'live' | 'ended'
 
@@ -650,9 +650,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
-  // Reconnect always builds new terminals. After an overflow the backend tears
-  // its client down and re-attaches with a fresh capture, so a reused terminal
-  // would paint that capture over a stale screen.
+  // Reconnect always builds new terminals. What the attach behind it guarantees
+  // is a snapshot to open on, not a fresh control client: the backend captures
+  // the panes again whether or not its client survived the drop, and a reused
+  // terminal would paint that capture over a stale screen.
   async function reconnect(): Promise<void> {
     closeSocket()
     disposeTabs()
