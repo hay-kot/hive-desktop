@@ -11,7 +11,7 @@ into triaged feeds and automated coding-agent sessions. Its configuration is
 plain text on this machine, meant to be edited directly:
 
 - {{.Env.FlowsDir}}/<id>.yaml — flows: the graph that decides what reaches which feed and what fires an action.
-- {{.Env.ActionsPath}} — actions: what a feed item or flow node can trigger.
+- {{.Env.ActionsPath}} — actions: what a feed item, a terminal session or window, or a flow node can trigger.
 - {{.Env.SettingsPath}} — app settings: polling, updates, notifications, appearance, keyboard shortcuts.
 {{end}}
 

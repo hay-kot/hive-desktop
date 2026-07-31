@@ -17,8 +17,8 @@ script, a `curl` to an internal service.
 
 ## Templates and quoting
 
-`command_template` is a Go `text/template` rendered over the triggering message
-(see "Template data" above). **Pipe every interpolated value through the `shq`
+`command_template` is a Go `text/template` rendered over the target's data (see
+"Template data" above). **Pipe every interpolated value through the `shq`
 helper** — it shell-quotes the value so a title containing spaces, quotes, or
 `;` cannot break out of its argument:
 
@@ -26,5 +26,17 @@ helper** — it shell-quotes the value so a title containing spaces, quotes, or
 command_template: 'notify-send {{ .Payload.title | shq }} {{ .Payload.url | shq }}'
 ```
 
-Failed runs keep bounded stdout/stderr diagnostics on the durable command
-record, readable from the activity view.
+```
+targets: [session]
+command_template: 'zed {{ .Session.Path | shq }}'
+```
+
+## Where a failure shows up
+
+On an `item` target the run is a durable command, and failures keep bounded
+stdout/stderr diagnostics on that record, readable from the activity view.
+
+A `session` or `window` run is deliberately not durable — it is a manual
+operation against live local state, so it must stay repeatable and must not
+replay after a restart. There is no record to hold its streams, so its failure
+reason carries the tail of stderr instead, in the jobs list.
