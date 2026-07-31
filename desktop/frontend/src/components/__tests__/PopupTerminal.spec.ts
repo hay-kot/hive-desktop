@@ -195,6 +195,41 @@ describe('PopupTerminal', () => {
     expect(xterm.FakeTerminal.instances).toHaveLength(1)
   })
 
+  // One pop-up is open at a time (ADR 0048), so asking for lazygit while a
+  // shell is up is a request to see lazygit — not to be handed the shell back.
+  it('replaces the live terminal when a different launch is asked for', async () => {
+    const { client } = await mountPanel()
+    const popup = usePopupTerminal()
+
+    popup.show({ sessionSlug: 'hive-abc' })
+    await flushPromises()
+    expect(client.open).toHaveBeenCalledTimes(1)
+
+    popup.show({ launcher: 'lazygit', sessionSlug: 'hive-abc' })
+    await flushPromises()
+
+    expect(client.open).toHaveBeenCalledTimes(2)
+    expect(client.open).toHaveBeenLastCalledWith({ launcher: 'lazygit', sessionSlug: 'hive-abc' })
+    expect(client.close).toHaveBeenCalledWith('t1')
+  })
+
+  // The shell's own behaviour is unchanged by launchers existing: the same
+  // request twice is the same terminal, hidden and brought back.
+  it('returns to the live terminal when the same launch is asked for again', async () => {
+    const { client } = await mountPanel()
+    const popup = usePopupTerminal()
+
+    popup.show({ launcher: 'lazygit', sessionSlug: 'hive-abc' })
+    await flushPromises()
+    popup.hide()
+    await flushPromises()
+    popup.show({ launcher: 'lazygit', sessionSlug: 'hive-abc' })
+    await flushPromises()
+
+    expect(client.open).toHaveBeenCalledTimes(1)
+    expect(client.close).not.toHaveBeenCalled()
+  })
+
   // Popping up a terminal you cannot type into is not popping up a terminal.
   it('focuses the pane once it is actually on screen', async () => {
     await mountPanel()

@@ -41,3 +41,18 @@ func (s *ActionsService) ReorderActions(ctx context.Context, ids []string) error
 func (s *ActionsService) DeleteAction(ctx context.Context, id string) error {
 	return s.actions.Delete(ctx, id)
 }
+
+// The launchers are the other list in actions.yml, so ListActions already
+// carries them and only the writes need methods of their own.
+
+func (s *ActionsService) CreateLauncher(ctx context.Context, l actions.Launcher) (actions.Launcher, error) {
+	return s.actions.CreateLauncher(ctx, l)
+}
+
+func (s *ActionsService) UpdateLauncher(ctx context.Context, id string, l actions.Launcher) (actions.Launcher, error) {
+	return s.actions.UpdateLauncher(ctx, id, l)
+}
+
+func (s *ActionsService) DeleteLauncher(ctx context.Context, id string) error {
+	return s.actions.DeleteLauncher(ctx, id)
+}

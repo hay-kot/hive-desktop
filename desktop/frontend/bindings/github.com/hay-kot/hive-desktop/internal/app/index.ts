@@ -3,6 +3,7 @@
 
 export type {
     Integration,
+    PopupLauncher,
     SkillEntry,
     SkillTarget,
     SkillsCatalog,

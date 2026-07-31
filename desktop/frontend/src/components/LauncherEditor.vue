@@ -1,0 +1,97 @@
+<script setup lang="ts">
+import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import IconTerminal from '~icons/lucide/terminal'
+import IconX from '~icons/lucide/x'
+import BaseButton from './BaseButton.vue'
+import DrawerSheet from './DrawerSheet.vue'
+import { SelectField, TextField } from '../pipeline/fields'
+import { launcherIconOptions } from '../lib/launcherIcons'
+import { formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { launcherCommandID } from '../keybindings/catalog'
+import type { Launcher } from '../composables/useActionsSettings'
+
+const props = defineProps<{ launcher: Launcher; isNew: boolean; busy?: boolean; error?: string | null; returnFocusTo?: HTMLElement | null }>()
+const emit = defineEmits<{ save: []; cancel: [] }>()
+const idRef = ref<{ focus: () => void } | null>(null)
+const labelRef = ref<{ focus: () => void } | null>(null)
+const closeRef = ref<HTMLButtonElement | null>(null)
+const validationError = ref<string | null>(null)
+
+const kb = useKeybindings()
+const iconOptions = [{ value: '', label: 'Terminal (default)' }, ...launcherIconOptions.map((o) => ({ value: o.value, label: o.label }))]
+
+// The chord, if there is one. A launcher is unbound until someone binds it, so
+// this is the pointer to where that is done rather than a second place to do it.
+function shortcut(): string {
+  return formatCombo(kb.bindings.value[launcherCommandID(props.launcher.id)]?.[0] ?? '')
+}
+
+function save(): void {
+  if (!props.launcher.id.trim() || !props.launcher.label.trim() || !props.launcher.command.trim()) {
+    validationError.value = 'ID, label and command are required.'
+    return
+  }
+  validationError.value = null
+  emit('save')
+}
+function cancel(): void { if (!props.busy) emit('cancel') }
+
+let trigger: HTMLElement | null = null
+onMounted(async () => {
+  trigger = props.returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
+  await nextTick()
+  if (props.isNew && idRef.value) idRef.value.focus()
+  else if (labelRef.value) labelRef.value.focus()
+  else closeRef.value?.focus()
+})
+onUnmounted(() => {
+  void nextTick(() => { if (trigger?.isConnected) trigger.focus() })
+})
+</script>
+
+<template>
+  <DrawerSheet
+    :ariaLabel="isNew ? 'New launcher' : 'Edit launcher'"
+    testid="launcher-editor"
+    :default-size="480"
+    @close="cancel"
+  >
+    <template #header>
+      <div class="flex items-center gap-3">
+        <span class="flex size-[38px] items-center justify-center rounded-[10px] bg-accent text-accent-contrast"><IconTerminal class="size-[18px]" /></span>
+        <div class="min-w-0 flex-1">
+          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ isNew ? 'New launcher' : 'Edit launcher' }}</div>
+          <div class="truncate font-mono text-[12px] text-text-3">{{ isNew ? 'Open the pop-up terminal into a program' : launcher.id }}</div>
+        </div>
+        <button ref="closeRef" class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy" @click="cancel"><IconX class="size-4" /></button>
+      </div>
+    </template>
+
+    <div class="grid gap-3">
+      <TextField ref="idRef" v-model="launcher.id" label="ID" :disabled="!isNew" testid="launcher-id" />
+      <TextField ref="labelRef" v-model="launcher.label" label="Label" testid="launcher-label" />
+      <TextField v-model="launcher.command" label="Command" monospace testid="launcher-command" />
+      <TextField v-model="launcher.cwd" label="Working directory (optional)" placeholder="the session you are looking at" testid="launcher-cwd" />
+      <SelectField label="Icon" :model-value="launcher.icon ?? ''" :options="iconOptions" testid="launcher-icon" @update:model-value="launcher.icon = $event" />
+
+      <p class="text-[11.5px] leading-relaxed text-text-3">
+        Runs through a login shell, so your PATH and aliases resolve it. Leave the
+        working directory empty to open in the checkout of the session you are
+        looking at.
+      </p>
+      <p class="text-[11.5px] leading-relaxed text-text-3" data-testid="launcher-shortcut">
+        <template v-if="shortcut()">Bound to <kbd class="rounded border border-card px-1 py-0.5 font-mono">{{ shortcut() }}</kbd> — rebind it in Settings ▸ Keybindings.</template>
+        <template v-else>Unbound. Give it a shortcut under <code>launcher.{{ launcher.id || 'id' }}</code> in Settings ▸ Keybindings.</template>
+      </p>
+
+      <p v-if="validationError || error" class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="launcher-editor-error">{{ validationError || error }}</p>
+    </div>
+
+    <template #footer>
+      <div class="flex justify-end gap-2.5">
+        <BaseButton variant="secondary" size="sm" :busy="busy" @click="cancel">Cancel</BaseButton>
+        <BaseButton size="sm" :busy="busy" data-testid="launcher-save" @click="save">{{ busy ? 'Saving…' : 'Save' }}</BaseButton>
+      </div>
+    </template>
+  </DrawerSheet>
+</template>

@@ -50,12 +50,12 @@ func TestLoadActions_MultiActionFile(t *testing.T) {
 	dir := t.TempDir()
 	path := writeActionsFile(t, dir, "actions.yml", multiActionYAML)
 
-	got, err := LoadActions(path)
+	got, err := LoadCatalog(path)
 	require.NoError(t, err)
-	require.Len(t, got, 3)
+	require.Len(t, got.Actions, 3)
 
-	byID := make(map[string]Action, len(got))
-	for _, a := range got {
+	byID := make(map[string]Action, len(got.Actions))
+	for _, a := range got.Actions {
 		byID[a.ID] = a
 	}
 
@@ -79,7 +79,7 @@ func TestLoadActions_MultiActionFile(t *testing.T) {
 }
 
 func TestLoadActions_MissingFile_IsEmptySetNotError(t *testing.T) {
-	got, err := LoadActions(filepath.Join(t.TempDir(), "nope.yml"))
+	got, err := LoadCatalog(filepath.Join(t.TempDir(), "nope.yml"))
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -88,7 +88,7 @@ func TestLoadActions_EmptyFile_IsEmptySetNotError(t *testing.T) {
 	dir := t.TempDir()
 	path := writeActionsFile(t, dir, "actions.yml", "")
 
-	got, err := LoadActions(path)
+	got, err := LoadCatalog(path)
 	require.NoError(t, err)
 	assert.Empty(t, got)
 }
@@ -98,7 +98,7 @@ func TestLoadActions_VersionMismatch_IsError(t *testing.T) {
 	path := writeActionsFile(t, dir, "actions.yml", `version: 2
 actions: []
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "version")
 }
@@ -109,7 +109,7 @@ func TestLoadActions_UnknownTopLevelField_IsError(t *testing.T) {
 bogus: true
 actions: []
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 }
 
@@ -126,7 +126,7 @@ actions:
     type: shell
     command_template: "true"
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "duplicate")
 }
@@ -140,7 +140,7 @@ actions:
     type: shell
     command_template: "true"
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "slug")
 }
@@ -153,7 +153,7 @@ actions:
     type: shell
     command_template: "true"
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "label")
 }
@@ -168,7 +168,7 @@ actions:
     prompt_template: "Review {{ .Payload.title }}"
     post: "comment"
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "post")
 }
@@ -181,7 +181,7 @@ actions:
     label: X
     type: launch-session
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "prompt_template")
 }
@@ -205,15 +205,15 @@ func TestLoadActions_InjectedSetMigratesThroughRealLoader(t *testing.T) {
 	dir := t.TempDir()
 	path := writeActionsFile(t, dir, "actions.yml", multiActionYAML)
 
-	got, err := LoadActions(path)
+	got, err := LoadCatalog(path)
 	require.NoError(t, err)
-	require.Len(t, got, 3)
+	require.Len(t, got.Actions, 3)
 }
 
 func TestLoadActions_CorruptFileErrors(t *testing.T) {
 	dir := t.TempDir()
 	path := writeActionsFile(t, dir, "actions.yml", "not: [unterminated")
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 }
 
@@ -225,7 +225,7 @@ func TestLoadActions_CurrentFileIsNotRewritten(t *testing.T) {
 	before, err := os.ReadFile(path)
 	require.NoError(t, err)
 
-	_, err = LoadActions(path)
+	_, err = LoadCatalog(path)
 	require.NoError(t, err)
 
 	after, err := os.ReadFile(path)
@@ -243,7 +243,7 @@ actions:
     command_template: "true"
     timeout: 30
 `)
-	_, err := LoadActions(path)
+	_, err := LoadCatalog(path)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bare number")
 }

@@ -9,11 +9,13 @@ import (
 
 const defaultActionsYAML = `version: 1
 
-# This is your action catalog: the buttons on an item's detail pane and the
-# targets a flow action node can fire. Every action has a type —
-# launch-session, shell, publish-message, or clipboard — and its templates are
-# rendered over the triggering item with Go text/template. This starter set
-# demonstrates each; edit or delete anything here to fit your workflow.
+# This file holds two lists. "actions" is your action catalog: the buttons on an
+# item's detail pane and the targets a flow action node can fire. Every action
+# has a type — launch-session, shell, publish-message, or clipboard — and its
+# templates are rendered over the triggering item with Go text/template.
+# "launchers" is at the bottom, and opens a terminal rather than running
+# something for you. This starter set demonstrates each; edit or delete anything
+# here to fit your workflow.
 #
 # GitHub items expose {{ .Payload.repo }}, {{ .Payload.num }},
 # {{ .Payload.title }}, {{ .Payload.author }}, {{ .Payload.url }},
@@ -118,6 +120,19 @@ actions:
     message_template: |
       {{ .Payload.title }} — {{ .Payload.repo }} #{{ .Payload.num }}
       {{ .Payload.url }}
+
+# Launchers are the other list in this file, and they are not actions: a
+# launcher opens the pop-up terminal straight into a program, in the checkout of
+# the session you are looking at, and quitting the program closes the pop-up.
+# Each one shows up in the command palette and is bindable under launcher.<id> —
+# add "launcher.lazygit: [alt+g]" under keybindings in settings.yaml to give
+# this one a shortcut. The command runs through a login shell, so your own PATH
+# and aliases resolve it.
+launchers:
+  - id: lazygit
+    label: lazygit
+    icon: git-branch
+    command: lazygit
 `
 
 // SeedDefaultsIfMissing installs the exact starter catalog only if path does

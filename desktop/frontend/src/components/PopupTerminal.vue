@@ -22,7 +22,7 @@ import '@xterm/xterm/css/xterm.css'
 // panel is a view of the terminal, not the terminal's lifetime — so the only
 // things that end it are the process exiting, End, and quitting Hive.
 
-const { visible, checking, available, reason, client, request, hide, ready } = usePopupTerminal()
+const { visible, checking, available, reason, client, request, launchSeq, hide, ready } = usePopupTerminal()
 const { px: fontSizePx } = useTerminalFont()
 const { theme } = useTheme()
 
@@ -50,6 +50,9 @@ let resizeTimer: ReturnType<typeof setTimeout> | undefined
 // An atlas renderer is live on the pane. False after a claim that did not
 // survive, which is what makes the next reveal retry it (ADR 0045).
 let rendered = false
+// The launch the pane on screen belongs to. Behind launchSeq means someone has
+// asked for a different terminal since, and the pane is showing the wrong one.
+let renderedSeq = -1
 // Where focus was when the pop-up took it, so dismissing the panel puts the
 // caller back where they were rather than on the document body.
 let focusReturn: HTMLElement | null = null
@@ -88,6 +91,7 @@ async function openTerminal(): Promise<void> {
 
   status.value = 'opening'
   error.value = ''
+  renderedSeq = launchSeq.value
   try {
     // Before the Terminal is constructed, not after: xterm measures its cell on
     // open and never re-measures, and the atlas renderer caches the glyphs that
@@ -283,8 +287,10 @@ async function reveal(): Promise<void> {
   if (!available.value || !visible.value) return
   await nextTick()
   // Asking for the pop-up is asking for a terminal, so a panel with none live
-  // opens one rather than showing an empty box with a button in it.
-  if (status.value !== 'live') {
+  // opens one rather than showing an empty box with a button in it. A live one
+  // that belongs to an earlier launch is replaced: the caller asked for a
+  // different terminal, and one pop-up is open at a time (ADR 0048).
+  if (status.value !== 'live' || renderedSeq !== launchSeq.value) {
     if (status.value !== 'opening') await openTerminal()
     return
   }
@@ -294,7 +300,10 @@ async function reveal(): Promise<void> {
   term.value?.focus()
 }
 
-watch(visible, (open) => {
+// launchSeq is watched beside visible because a launcher invoked while the
+// panel is already up changes what was asked for without changing whether the
+// panel is on screen, and reveal is what notices.
+watch([visible, launchSeq], ([open]) => {
   if (open) void reveal()
   else restoreFocus()
 })

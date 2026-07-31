@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 )
 
@@ -17,16 +19,28 @@ type terminalDirectory interface {
 }
 
 // OpenPopupTerminal is one launch. The directory is resolved in order —
-// SessionSlug's checkout, then Dir, then the user's home — so a caller with a
-// session in hand does not have to know where it lives, and one with neither
-// still gets a shell somewhere sensible rather than wherever the app happened
-// to be started from.
+// Launcher's own cwd, SessionSlug's checkout, then Dir, then the user's home —
+// so a caller with a session in hand does not have to know where it lives, and
+// one with neither still gets a shell somewhere sensible rather than wherever
+// the app happened to be started from.
 type OpenPopupTerminal struct {
+	// Launcher is a configured launcher's id, and supplies the command line and
+	// optionally the directory. The caller sends the id rather than the command
+	// so what a launcher runs is the catalog's answer and not the client's.
+	Launcher    string
 	SessionSlug string
 	Dir         string
 	Command     string
 	Cols        int
 	Rows        int
+}
+
+// PopupLauncher is one configured launcher, as much of it as a menu needs.
+// What it runs is deliberately absent: a caller invokes it by id.
+type PopupLauncher struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Icon  string `json:"icon"`
 }
 
 // PopupTerminalsService opens ephemeral terminals: a shell, or a command run
@@ -36,10 +50,11 @@ type OpenPopupTerminal struct {
 type PopupTerminalsService struct {
 	manager   *ptyterm.Manager
 	directory terminalDirectory
+	catalog   *actions.ActionStore
 }
 
-func newPopupTerminalsService(manager *ptyterm.Manager, directory terminalDirectory) *PopupTerminalsService {
-	return &PopupTerminalsService{manager: manager, directory: directory}
+func newPopupTerminalsService(manager *ptyterm.Manager, directory terminalDirectory, catalog *actions.ActionStore) *PopupTerminalsService {
+	return &PopupTerminalsService{manager: manager, directory: directory, catalog: catalog}
 }
 
 // Available reports build and platform support. There is no external program to
@@ -48,8 +63,24 @@ func (s *PopupTerminalsService) Available(ctx context.Context) error {
 	return popupError(s.manager.Available(ctx), "pop-up terminals need macOS or Linux and a desktop build.")
 }
 
+// Launchers returns the configured launchers in file order.
+func (s *PopupTerminalsService) Launchers(context.Context) ([]PopupLauncher, error) {
+	out := make([]PopupLauncher, 0)
+	if s.catalog == nil {
+		return out, nil
+	}
+	for _, l := range s.catalog.Launchers() {
+		out = append(out, PopupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon})
+	}
+	return out, nil
+}
+
 // Open launches a terminal and returns it.
 func (s *PopupTerminalsService) Open(ctx context.Context, req OpenPopupTerminal) (ptyterm.Terminal, error) {
+	req, err := s.applyLauncher(req)
+	if err != nil {
+		return ptyterm.Terminal{}, err
+	}
 	dir, err := s.resolveDir(ctx, req)
 	if err != nil {
 		return ptyterm.Terminal{}, err
@@ -64,6 +95,33 @@ func (s *PopupTerminalsService) Open(ctx context.Context, req OpenPopupTerminal)
 		return ptyterm.Terminal{}, popupError(err, "opening a terminal in %q", dir)
 	}
 	return term, nil
+}
+
+// applyLauncher folds a named launcher into the launch spec it stands for — a
+// launcher is that spec with config in front of it and nothing more (ADR 0049).
+// A configured cwd wins over the session's checkout, which is what pins a
+// launcher to one directory; without one the launcher follows the session.
+func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupTerminal, error) {
+	id := strings.TrimSpace(req.Launcher)
+	if id == "" {
+		return req, nil
+	}
+	if strings.TrimSpace(req.Command) != "" {
+		return req, Errorf(KindInvalid, "a launcher brings its own command, so %q cannot also be given one", id)
+	}
+	if s.catalog == nil {
+		return req, Errorf(KindUnavailable, "launchers are unavailable")
+	}
+	launcher, ok := s.catalog.Launcher(id)
+	if !ok {
+		return req, Errorf(KindNotFound, "unknown launcher %q", id)
+	}
+	req.Command = launcher.Command
+	if launcher.Cwd != "" {
+		req.SessionSlug = ""
+		req.Dir = launcher.Cwd
+	}
+	return req, nil
 }
 
 // Close ends a terminal and every process in it, and reports whether there was
@@ -109,13 +167,27 @@ func (s *PopupTerminalsService) resolveDir(ctx context.Context, req OpenPopupTer
 		return s.directory.SessionDirectory(ctx, slug)
 	}
 	if dir := strings.TrimSpace(req.Dir); dir != "" {
-		return dir, nil
+		return expandHome(dir)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", Wrap(err, KindInternal, "finding a directory to open a terminal in")
 	}
 	return home, nil
+}
+
+// expandHome resolves a leading `~`, which nothing else does: chdir takes a
+// path, not a shell word, so a launcher configured with `cwd: ~/src` would
+// otherwise fail on a directory that plainly exists.
+func expandHome(dir string) (string, error) {
+	if dir != "~" && !strings.HasPrefix(dir, "~/") {
+		return dir, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", Wrap(err, KindInternal, "expanding %q", dir)
+	}
+	return filepath.Join(home, strings.TrimPrefix(dir, "~")), nil
 }
 
 // popupError classifies a ptyterm failure by sentinel rather than by message.

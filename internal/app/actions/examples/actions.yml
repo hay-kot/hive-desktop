@@ -78,3 +78,13 @@ actions:
     text_template: |
       amtool silence add alertname={{ .Payload.title | shq }} \
         --duration {{ .Inputs.window }} --comment {{ .Inputs.reason | shq }}
+launchers:
+  - id: lazygit
+    label: lazygit
+    icon: git-branch
+    command: lazygit
+  - id: dotfiles
+    label: Edit dotfiles
+    icon: folder
+    cwd: ~/.dotfiles
+    command: $EDITOR .

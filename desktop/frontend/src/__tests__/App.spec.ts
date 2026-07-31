@@ -5,6 +5,9 @@ import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
+import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
+import { resetLaunchersForTests } from '../composables/useLaunchers'
+import { useKeybindings } from '../composables/useKeybindings'
 import { applicationSettingsSections, createAppRouter } from '../router'
 
 const mocks = vi.hoisted(() => ({
@@ -64,6 +67,10 @@ const mocks = vi.hoisted(() => ({
   TerminalAvailable: vi.fn(),
   TerminalEndpoint: vi.fn(),
   TerminalModeEnabled: vi.fn(),
+  // popupterminalservice
+  PopupAvailable: vi.fn(),
+  PopupEndpoint: vi.fn(),
+  PopupLaunchers: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -156,6 +163,12 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   Enabled: mocks.TerminalModeEnabled,
 }))
 
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/popupterminalservice', () => ({
+  Available: mocks.PopupAvailable,
+  Endpoint: mocks.PopupEndpoint,
+  Launchers: mocks.PopupLaunchers,
+}))
+
 const flow = {
   id: 'personal',
   name: 'Personal',
@@ -190,6 +203,11 @@ describe('App', () => {
     // useNotificationSettings is a module singleton too — reset it so a test's
     // resolved permission state cannot leak into the next test's first-run walk.
     resetNotificationSettingsForTests()
+    // The pop-up panel state and the launcher commands are module singletons
+    // too, and a launcher registered by one test would stay bindable in the next.
+    resetPopupTerminalForTests()
+    resetLaunchersForTests()
+    useKeybindings().clearAll()
     vi.clearAllMocks()
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
@@ -226,6 +244,9 @@ describe('App', () => {
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
     mocks.TerminalModeEnabled.mockResolvedValue(true)
+    mocks.PopupAvailable.mockResolvedValue({ available: true, reason: '' })
+    mocks.PopupEndpoint.mockResolvedValue({ httpBaseURL: '', wsURL: '', token: '' })
+    mocks.PopupLaunchers.mockResolvedValue([])
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -401,6 +422,31 @@ describe('App', () => {
     expect(ids).not.toContain('feed:new')
     expect(ids).not.toContain('feed:edit:desktop')
     expect(ids).not.toContain('feed:edit-config')
+
+    wrapper.unmount()
+  })
+
+  // A launcher is a line of actions.yml that has to become both a palette row
+  // and a chord of its own — this is where those two meet the app.
+  it('offers a configured launcher in the palette and opens it from its own chord', async () => {
+    mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch' }])
+    const wrapper = await mountApp()
+
+    const { results, query } = useCommandPalette()
+    query.value = ''
+    expect(results.value.map((cmd) => cmd.id)).toContain('launcher.lazygit')
+
+    useKeybindings().addBinding('launcher.lazygit', 'alt+g')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
+
+    const popup = usePopupTerminal()
+    expect(popup.visible.value).toBe(true)
+    expect(popup.request.value).toEqual({ launcher: 'lazygit', sessionSlug: undefined })
+
+    // The chord that opened it puts it away, so quitting the program is not the
+    // only way out.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
+    expect(popup.visible.value).toBe(false)
 
     wrapper.unmount()
   })
@@ -1138,17 +1184,47 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('lets a focused terminal keep every key, shortcuts included', async () => {
+  it('lets a focused terminal keep every key a pane can use', async () => {
     const wrapper = await mountApp()
     const { open: paletteOpen } = useCommandPalette()
 
     const pane = document.createElement('div')
     pane.setAttribute('data-terminal-input-scope', '')
     document.body.append(pane)
+
+    // Ctrl+K is readline's kill-to-end-of-line, and `mod+k` cannot tell it from
+    // ⌘K — so the pane keeps it even though it resolves to the palette.
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+    // A bare navigation key is the pane's outright.
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+    await flushPromises()
+    expect(paletteOpen.value).toBe(false)
+
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // The palette is how you get back out of a pane, so it is the exception to
+  // the rule above — on the modifiers a terminal never wants.
+  it('opens the palette over a focused terminal on Cmd, and on Ctrl+Shift', async () => {
+    const wrapper = await mountApp()
+    const { open: paletteOpen } = useCommandPalette()
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+
     pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
     await flushPromises()
+    expect(paletteOpen.value).toBe(true)
 
-    expect(paletteOpen.value).toBe(false)
+    paletteOpen.value = false
+    await flushPromises()
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, shiftKey: true, bubbles: true }))
+    await flushPromises()
+    expect(paletteOpen.value).toBe(true)
+
+    paletteOpen.value = false
     pane.remove()
     wrapper.unmount()
   })
