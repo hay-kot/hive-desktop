@@ -202,6 +202,14 @@ const flow = {
   wires: [{ from: 'src', to: 'desktop' }],
 }
 
+function inboxItems() {
+  return [1, 2].map((n) => ({
+    id: n, profileId: 'personal', sourceKind: 'github', sourceScope: '', externalId: `pr-${n}`,
+    title: n === 1 ? 'First' : 'Second', url: '', payload: { kind: 'PR', repo: 'acme/app', num: n, author: 'hay' },
+    revision: 1, unread: false, lifecycle: 'active', firstSeenAt: 1, lastEventAt: 2,
+  }))
+}
+
 async function mountAppWithRouter() {
   const router = createAppRouter(createMemoryHistory())
   await router.push('/')
@@ -647,6 +655,105 @@ describe('App', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p' }))
     await flushPromises()
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('reopens the collapsed preview when a row is picked, including the row already selected', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-pane"] h1').text()).toBe('Second')
+
+    // Picking the row that is already selected reopens too — the click is the
+    // request to read it, not a selection change.
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-pane"] h1').text()).toBe('Second')
+
+    wrapper.unmount()
+  })
+
+  it('navigates the feed by keyboard silently, and reopens the preview on the row it activates', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="feed-item"]')[1]!.classes()).toContain('selected')
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('keydown.enter')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="detail-pane"] h1').text()).toBe('Second')
+
+    wrapper.unmount()
+  })
+
+  it('leaves the collapsed preview shut for row controls and the list header menus', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    mocks.MarkInboxItemUnread.mockImplementation(async (id: number, revision: number, unread: boolean) =>
+      ({ ...inboxItems().find((item) => item.id === id)!, revision: revision + 1, unread }))
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+
+    const row = () => wrapper.findAll('[data-testid="feed-item"]')[1]!
+    await row().get('[data-testid="row-archive"]').trigger('click')
+    await flushPromises()
+    expect(mocks.ToggleInboxItemArchived).toHaveBeenCalledWith(2, 1)
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await row().get('[data-testid="row-menu-toggle"]').trigger('click')
+    await flushPromises()
+    await row().get('[data-testid="menu-toggle-read"]').trigger('click')
+    await flushPromises()
+    expect(mocks.MarkInboxItemUnread).toHaveBeenCalledWith(2, 1, true)
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="view-menu-toggle"]').trigger('click')
+    await wrapper.get('[data-testid="view-sort-oldest"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('persists the reopen as the remembered last state', async () => {
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    const wrapper = await mountApp()
+
+    await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('hive.panel.detailpane.collapsed')).toBe('true')
+
+    await wrapper.findAll('[data-testid="feed-item"]')[0]!.trigger('click')
+    await flushPromises()
+    expect(localStorage.getItem('hive.panel.detailpane.collapsed')).toBe('false')
+
+    wrapper.unmount()
+  })
+
+  it('starts collapsed when that is the persisted last state', async () => {
+    localStorage.setItem('hive.panel.detailpane.collapsed', 'true')
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
     wrapper.unmount()
   })
