@@ -39,7 +39,7 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
 // shown as a pulsing amber dot. sidebarCollapsed drives the panel-toggle glyph;
-// canToggleSidebar hides the toggle in views with no feed sidebar (settings,
+// canToggleSidebar disables the toggle in views with no left panel (settings,
 // flows, onboarding). previewCollapsed/canTogglePreview are the same pair for
 // the detail preview pane. updateAvailable renders a click-to-install chip in
 // the right cluster, independent of profileName so it can show during

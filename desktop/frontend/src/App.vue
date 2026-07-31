@@ -686,11 +686,10 @@ function setMode(next: 'hub' | 'terminal'): void {
 }
 
 // ── Layout chrome ─────────────────────────────────────────────────────────────
-// The feed sidebar and the detail preview both collapse to reclaim horizontal
-// space (handy in split screens); each choice is persisted. Their toggles only
-// appear in the feed view — the one place those panels render — so they never
-// dangle over settings or flows.
-const sidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
+// Each mode remembers its own left panel while the feed detail preview remains
+// feed-only. The title-bar toggle follows whichever mode owns the current panel.
+const feedSidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
+const terminalSidebarCollapsed = useStorage('hive.panel.terminal.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
   !onboardingActive.value && !terminalActive.value &&
@@ -698,9 +697,14 @@ const feedViewActive = computed(() =>
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
 )
+const sidebarCollapsed = computed(() =>
+  terminalActive.value ? terminalSidebarCollapsed.value : feedSidebarCollapsed.value,
+)
+const canToggleSidebar = computed(() => terminalActive.value || feedViewActive.value)
 
 function toggleSidebar(): void {
-  sidebarCollapsed.value = !sidebarCollapsed.value
+  const collapsed = terminalActive.value ? terminalSidebarCollapsed : feedSidebarCollapsed
+  collapsed.value = !collapsed.value
 }
 
 function togglePreview(): void {
@@ -1010,7 +1014,7 @@ onUnmounted(() => {
         :can-go-back="canGoBack"
         :can-go-forward="canGoForward"
         :sidebar-collapsed="sidebarCollapsed"
-        :can-toggle-sidebar="feedViewActive"
+        :can-toggle-sidebar="canToggleSidebar"
         :preview-collapsed="previewCollapsed"
         :can-toggle-preview="feedViewActive"
         @set-mode="setMode"
@@ -1049,7 +1053,7 @@ onUnmounted(() => {
       <!-- Terminal mode takes the whole frame under the title bar, spaces rail
            included: nothing in it is workspace-scoped, and the always-live mode
            toggle is the way back. -->
-      <TerminalMode v-else-if="terminalActive" />
+      <TerminalMode v-else-if="terminalActive" :sidebar-collapsed="terminalSidebarCollapsed" />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is
            what keeps the user from being stranded in the flows canvas — the
@@ -1092,7 +1096,7 @@ onUnmounted(() => {
         <ActivityView v-else-if="activityActive" @close="closeSettings" />
         <template v-else>
           <SideBar
-            v-if="activeProfile && !sidebarCollapsed"
+            v-if="activeProfile && !feedSidebarCollapsed"
             :profile="activeProfile"
             :selection="selection"
             :flows-dirty="session.dirty.value"

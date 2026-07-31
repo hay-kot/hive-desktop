@@ -50,6 +50,10 @@ import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.c
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
+defineProps<{
+  sidebarCollapsed?: boolean
+}>()
+
 const { checking, available, reason, client } = useTerminalAvailability()
 
 // Switching sessions must not blank the pane, so a switch no longer detaches:
@@ -708,6 +712,7 @@ onBeforeUnmount(() => {
            A pooled session's windows are its live tab set; the rest render
            only with "Always show windows" on, from a one-shot listing. -->
       <aside
+        v-if="!sidebarCollapsed"
         class="relative flex shrink-0 flex-col border-r border-border bg-sidebar"
         :style="{ width: sidebarWidth + 'px' }"
         data-testid="terminal-session-sidebar"
