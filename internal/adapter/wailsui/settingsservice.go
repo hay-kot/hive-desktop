@@ -54,6 +54,10 @@ type AppearanceSettings struct {
 	// persisted — the frontend owns the defaults and heals anything else.
 	TerminalFontWeight     int `json:"terminalFontWeight"`
 	TerminalFontWeightBold int `json:"terminalFontWeightBold"`
+	// TerminalLineHeight multiplies the cell height; TerminalLetterSpacing
+	// widens the cell by whole device pixels. Zero means nothing persisted.
+	TerminalLineHeight    float64 `json:"terminalLineHeight"`
+	TerminalLetterSpacing int     `json:"terminalLetterSpacing"`
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
@@ -104,6 +108,8 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		TerminalFontFamily:     current.TerminalFontFamily,
 		TerminalFontWeight:     current.TerminalFontWeight,
 		TerminalFontWeightBold: current.TerminalFontWeightBold,
+		TerminalLineHeight:     current.TerminalLineHeight,
+		TerminalLetterSpacing:  current.TerminalLetterSpacing,
 		TerminalShowWindows:    current.TerminalShowWindows,
 		TerminalPoolSize:       current.TerminalPoolSize,
 	}, nil
@@ -135,6 +141,14 @@ func (s *SettingsService) SetTerminalFontFamily(ctx context.Context, family stri
 
 func (s *SettingsService) SetTerminalFontWeights(ctx context.Context, weight, weightBold int) error {
 	return s.settings.SetTerminalFontWeights(ctx, weight, weightBold)
+}
+
+func (s *SettingsService) SetTerminalLineHeight(ctx context.Context, lineHeight float64) error {
+	return s.settings.SetTerminalLineHeight(ctx, lineHeight)
+}
+
+func (s *SettingsService) SetTerminalLetterSpacing(ctx context.Context, spacing int) error {
+	return s.settings.SetTerminalLetterSpacing(ctx, spacing)
 }
 
 func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool) error {

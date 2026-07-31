@@ -1,11 +1,9 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
 import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
-import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
+import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
 import {
@@ -17,11 +15,12 @@ import {
   type WindowState,
 } from '../lib/terminalClient'
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
-import { useTerminalFont } from './useTerminalFont'
+import { terminalCellMetrics, useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
 /**
@@ -151,8 +150,8 @@ const TAIL_SLACK_ROWS = 5
 
 // The pane box belongs to the app window, not to a session, so one remembered
 // vote serves every session — including one being attached for the first time.
-// It is keyed by font size because the cell metrics, and so the vote, change
-// with the preset.
+// It is keyed by every typography setting that moves the cell, because a vote
+// counted against one set of cell metrics is wrong under another.
 const VOTE_KEY = 'hive.terminal.vote'
 // tmux's own bound on a client dimension. A stored value outside it would fail
 // the attach, and the session would land on the error overlay instead.
@@ -160,11 +159,11 @@ const MAX_DIMENSION = 1000
 
 let nextTabUID = 1
 
-function rememberedVote(fontPx: number): TerminalSize | null {
+function rememberedVote(metrics: string): TerminalSize | null {
   try {
     const stored = JSON.parse(localStorage.getItem(VOTE_KEY) ?? 'null') as
-      { cols?: number; rows?: number; fontPx?: number } | null
-    if (!stored || stored.fontPx !== fontPx) return null
+      { cols?: number; rows?: number; metrics?: string } | null
+    if (!stored || stored.metrics !== metrics) return null
     if (!validDimension(stored.cols) || !validDimension(stored.rows)) return null
     return { cols: stored.cols, rows: stored.rows }
   } catch {
@@ -173,9 +172,9 @@ function rememberedVote(fontPx: number): TerminalSize | null {
   }
 }
 
-function rememberVote(size: TerminalSize, fontPx: number): void {
+function rememberVote(size: TerminalSize, metrics: string): void {
   try {
-    localStorage.setItem(VOTE_KEY, JSON.stringify({ ...size, fontPx }))
+    localStorage.setItem(VOTE_KEY, JSON.stringify({ ...size, metrics }))
   } catch {
     // storage denied; the vote is re-measured next attach either way
   }
@@ -201,13 +200,20 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   let socket: WebSocket | null = null
   let disposed = false
 
-  const { px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold } = useTerminalFont()
+  const {
+    px: fontSizePx,
+    family: fontFamily,
+    weight: fontWeight,
+    weightBold: fontWeightBold,
+    lineHeight,
+    letterSpacing,
+  } = useTerminalFont()
 
   // The last size this client voted for: a request, never the size anything
   // renders at. It opens at the last measured vote, and null — nothing measured
   // and nothing remembered — is a real state rather than a placeholder, because
   // tmux obeys the attach vote and would resize the session to it.
-  let vote: TerminalSize | null = rememberedVote(fontSizePx.value)
+  let vote: TerminalSize | null = rememberedVote(terminalCellMetrics())
   let resizeTimer: ReturnType<typeof setTimeout> | undefined
   let constraintTimer: ReturnType<typeof setTimeout> | undefined
   let constraintDismissed = false
@@ -226,20 +232,26 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     })
     // New cell metrics change how many cells fit the same box, so the vote
     // must re-run; the grid itself stays at tmux's size until tmux answers.
-    // Weight and family move the advance width as much as size does, so all
-    // four re-vote — and the faces have to be resident before xterm re-measures
-    // against them, or it measures the outgoing font (ADR 0038).
-    watch([fontSizePx, fontFamily, fontWeight, fontWeightBold], async ([px, family, weight, weightBold]) => {
-      await loadTerminalFaces(family, px, weight, weightBold)
-      if (disposed) return
-      for (const tab of tabs.value) {
-        tab.term.options.fontFamily = terminalFontStack(family)
-        tab.term.options.fontSize = px
-        tab.term.options.fontWeight = weight
-        tab.term.options.fontWeightBold = weightBold
-      }
-      scheduleVote()
-    })
+    // Weight and family move the advance width as much as size does, and
+    // spacing moves the cell without touching the glyph, so all six re-vote —
+    // and the faces have to be resident before xterm re-measures against them,
+    // or it measures the outgoing font (ADR 0038).
+    watch(
+      [fontSizePx, fontFamily, fontWeight, fontWeightBold, lineHeight, letterSpacing],
+      async ([px, family, weight, weightBold, height, spacing]) => {
+        await loadTerminalFaces(family, px, weight, weightBold)
+        if (disposed) return
+        for (const tab of tabs.value) {
+          tab.term.options.fontFamily = terminalFontStack(family)
+          tab.term.options.fontSize = px
+          tab.term.options.fontWeight = weight
+          tab.term.options.fontWeightBold = weightBold
+          tab.term.options.lineHeight = height
+          tab.term.options.letterSpacing = spacing
+        }
+        scheduleVote()
+      },
+    )
   })
 
   function findTab(windowId: string): TerminalWindowTab | undefined {
@@ -247,15 +259,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   function createTab(state: WindowState): TerminalWindowTab {
-    // lineHeight and letterSpacing are unset on purpose: every renderer
-    // quantises both to whole device pixels, so neither can move the cell onto
-    // a cleaner boundary, and a lineHeight above 1 pads the glyph away from the
-    // cell edge box drawing has to meet. ADR 0038.
     const term = markRaw(new Terminal({
       fontFamily: terminalFontStack(fontFamily.value),
       fontSize: fontSizePx.value,
       fontWeight: fontWeight.value,
       fontWeightBold: fontWeightBold.value,
+      lineHeight: lineHeight.value,
+      letterSpacing: letterSpacing.value,
       linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
@@ -470,7 +480,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     scheduleConstraintCheck()
     if (vote && proposed.cols === vote.cols && proposed.rows === vote.rows) return
     vote = { cols: proposed.cols, rows: proposed.rows }
-    rememberVote(vote, fontSizePx.value)
+    rememberVote(vote, terminalCellMetrics())
     void client.resize(slug, vote.cols, vote.rows).catch((e: unknown) => {
       actionError.value = message(e, 'Could not resize the terminal.')
     })
@@ -806,50 +816,14 @@ function message(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback
 }
 
-// xterm's DOM renderer paints box drawing from the font's own glyphs and
-// underlines as text-decoration on per-cell inline-block spans, so neither can
-// join across cells at any font size or device pixel ratio. An atlas renderer
-// strokes both to the cell's own device-pixel bounds, so one is loaded wherever
-// a context for it exists, and the DOM renderer is only ever the last resort.
-// ADR 0038.
+// A failed claim leaves state.rendered false, which is what makes showRenderer
+// try again the next time the pane is shown (ADR 0045).
 function loadRenderer(state: TabRuntime, term: Terminal): void {
-  const webgl = loadRendererAddon(state, term, () => new WebglAddon())
-  if (!webgl) {
-    state.rendered = claimCanvas(state, term)
-    return
-  }
-  state.rendered = true
-  // Fires only when the browser did not restore the context on its own. The
-  // addon puts the DOM renderer back as it goes, so claim the canvas instead.
-  webgl.onContextLoss(() => {
-    webgl.dispose()
-    state.rendered = claimCanvas(state, term)
-  })
-}
-
-// The canvas claim is the whole of what stands between a lost context and the
-// renderer #131 is about, so a failed one is recorded rather than swallowed:
-// showRenderer tries again the next time the pane is shown.
-function claimCanvas(state: TabRuntime, term: Terminal): boolean {
-  return loadRendererAddon(state, term, () => new CanvasAddon()) !== undefined
-}
-
-function loadRendererAddon<T extends ITerminalAddon>(
-  state: TabRuntime,
-  term: Terminal,
-  create: () => T,
-): T | undefined {
-  try {
-    const addon = create()
-    term.loadAddon(addon)
-    // Disposed with the tab and ahead of the Terminal: xterm disposes its core
-    // before its addons, and this one restores a renderer on the way out.
-    state.disposers.push(addon)
-    return addon
-  } catch (error) {
-    console.warn('Terminal renderer unavailable, falling back', error)
-    return undefined
-  }
+  claimAtlasRenderer(
+    term,
+    (addon) => state.disposers.push(addon),
+    (rendered) => { state.rendered = rendered },
+  )
 }
 
 // Re-exported so the pane's own tests keep reaching it through the composable

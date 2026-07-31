@@ -74,6 +74,8 @@ type AppearanceSettings struct {
 	TerminalFontFamily     string
 	TerminalFontWeight     int
 	TerminalFontWeightBold int
+	TerminalLineHeight     float64
+	TerminalLetterSpacing  int
 	TerminalShowWindows    bool
 	TerminalPoolSize       int
 }
@@ -89,6 +91,8 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		TerminalFontFamily:     cfg.Appearance.TerminalFontFamily,
 		TerminalFontWeight:     cfg.Appearance.TerminalFontWeight,
 		TerminalFontWeightBold: cfg.Appearance.TerminalFontWeightBold,
+		TerminalLineHeight:     cfg.Appearance.TerminalLineHeight,
+		TerminalLetterSpacing:  cfg.Appearance.TerminalLetterSpacing,
 		TerminalShowWindows:    cfg.Appearance.TerminalShowWindows,
 		TerminalPoolSize:       cfg.Appearance.TerminalPoolSize,
 	}, nil
@@ -125,6 +129,22 @@ func (s *SettingsService) SetTerminalFontWeights(_ context.Context, weight, weig
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.TerminalFontWeight = weight
 		current.Appearance.TerminalFontWeightBold = weightBold
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalLineHeight(_ context.Context, lineHeight float64) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalLineHeight = lineHeight
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalLetterSpacing(_ context.Context, spacing int) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalLetterSpacing = spacing
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

@@ -2,7 +2,7 @@
 // Application-wide settings, opened from the persistent profile rail.
 // Only settings backed by real behavior or explicitly marked future
 // integrations belong here.
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, defineAsyncComponent, ref, watch, type Component } from 'vue'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconPalette from '~icons/lucide/palette'
 import IconPlug from '~icons/lucide/plug'
@@ -41,14 +41,20 @@ import {
   setTerminalFontSize,
   setTerminalFontWeight,
   setTerminalFontWeightBold,
+  setTerminalLetterSpacing,
+  setTerminalLineHeight,
   terminalFontSizeLabels,
   terminalFontSizePx,
   terminalFontSizes,
   terminalFontWeightLabels,
   terminalFontWeights,
+  terminalLetterSpacings,
+  terminalLineHeights,
   useTerminalFont,
   type TerminalFontSize,
   type TerminalFontWeight,
+  type TerminalLetterSpacing,
+  type TerminalLineHeight,
 } from '../composables/useTerminalFont'
 import { TERMINAL_FONT } from '../lib/terminalFaces'
 import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
@@ -57,6 +63,11 @@ import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
 import { applicationSettingsSections, type ApplicationSettingsSection } from '../router'
+
+// Async so xterm and its addons stay on the terminal chunk. SettingsView is a
+// static import in App.vue, so a direct one would pull them into the main
+// bundle for everyone who opens any settings pane.
+const TerminalPreview = defineAsyncComponent(() => import('./settings/TerminalPreview.vue'))
 
 const props = withDefaults(defineProps<{
   activeCategory: ApplicationSettingsSection
@@ -87,6 +98,8 @@ const {
   installedFamilies: terminalFontFamilies,
   weight: terminalFontWeight,
   weightBold: terminalFontWeightBold,
+  lineHeight: terminalLineHeight,
+  letterSpacing: terminalLetterSpacing,
 } = useTerminalFont()
 const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
   value,
@@ -103,6 +116,14 @@ const terminalFontFamilyOptions = computed(() => [
 const terminalFontWeightOptions = terminalFontWeights.map((value) => ({
   value: String(value),
   label: terminalFontWeightLabels[value],
+}))
+const terminalLineHeightOptions = terminalLineHeights.map((value) => ({
+  value: String(value),
+  label: value.toFixed(1),
+}))
+const terminalLetterSpacingOptions = terminalLetterSpacings.map((value) => ({
+  value: String(value),
+  label: value === 0 ? 'None' : `+${value}`,
 }))
 const { showWindows: terminalShowWindows } = useTerminalShowWindows()
 const { poolSize: terminalPoolSize } = useTerminalPoolSize()
@@ -209,6 +230,14 @@ function onTerminalFontWeightBoldChange(value: string): void {
   setTerminalFontWeightBold(Number(value) as TerminalFontWeight)
 }
 
+function onTerminalLineHeightChange(value: string): void {
+  setTerminalLineHeight(Number(value) as TerminalLineHeight)
+}
+
+function onTerminalLetterSpacingChange(value: string): void {
+  setTerminalLetterSpacing(Number(value) as TerminalLetterSpacing)
+}
+
 // Scanning every font on the machine is not worth doing until this pane is the
 // one on screen.
 watch(
@@ -290,6 +319,23 @@ watch(
               testid="settings-terminal-font-weight-bold"
               @update:model-value="onTerminalFontWeightBoldChange"
             />
+            <SettingsSegmented
+              :model-value="String(terminalLineHeight)"
+              label="Line height"
+              :options="terminalLineHeightOptions"
+              hint="Multiplies the row height. Taller rows are easier to scan; each one costs a row of grid in the same pane."
+              testid="settings-terminal-line-height"
+              @update:model-value="onTerminalLineHeightChange"
+            />
+            <SettingsSegmented
+              :model-value="String(terminalLetterSpacing)"
+              label="Letter spacing"
+              :options="terminalLetterSpacingOptions"
+              hint="Extra tracking in device pixels — half a point per step on a Retina display. Wider cells fit fewer columns."
+              testid="settings-terminal-letter-spacing"
+              @update:model-value="onTerminalLetterSpacingChange"
+            />
+            <TerminalPreview />
             <AppSwitch
               :model-value="terminalShowWindows"
               label="Always show windows"

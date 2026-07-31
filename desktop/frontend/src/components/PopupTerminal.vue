@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { WebglAddon } from '@xterm/addon-webgl'
-import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
+import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
 import IconPower from '~icons/lucide/power'
@@ -15,6 +13,7 @@ import { useTheme } from '../composables/useTheme'
 import { xtermTheme } from '../lib/terminalTheme'
 import { decodeFrame, encodeInputFrames, type PopupTerminalState } from '../lib/popupTerminalClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
+import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import '@xterm/xterm/css/xterm.css'
 
 // The floating pop-up terminal: one PTY this process owns, rendered over
@@ -23,7 +22,14 @@ import '@xterm/xterm/css/xterm.css'
 // things that end it are the process exiting, End, and quitting Hive.
 
 const { visible, checking, available, reason, client, request, launchSeq, hide, ready } = usePopupTerminal()
-const { px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold } = useTerminalFont()
+const {
+  px: fontSizePx,
+  family: fontFamily,
+  weight: fontWeight,
+  weightBold: fontWeightBold,
+  lineHeight,
+  letterSpacing,
+} = useTerminalFont()
 const { theme } = useTheme()
 
 const MIN_WIDTH = 380
@@ -122,13 +128,13 @@ async function openTerminal(): Promise<void> {
 function mountTerminal(state: PopupTerminalState): boolean {
   if (!host.value || !client.value) return false
 
-  // lineHeight and letterSpacing are unset for the same reason as the session
-  // panes: an atlas renderer quantises both to whole device pixels (ADR 0038).
   const created = markRaw(new Terminal({
     fontFamily: terminalFontStack(fontFamily.value),
     fontSize: fontSizePx.value,
     fontWeight: fontWeight.value,
     fontWeightBold: fontWeightBold.value,
+    lineHeight: lineHeight.value,
+    letterSpacing: letterSpacing.value,
     scrollback: 5000,
     theme: xtermTheme(),
     linkHandler,
@@ -244,40 +250,10 @@ function openLink(uri: string): void {
 
 const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 
-// xterm's DOM renderer cannot join box drawing across cells, so an atlas
-// renderer is loaded wherever a context for it exists (ADR 0038). A failed
-// canvas claim is recorded rather than swallowed so the next reveal retries it,
-// which is the invariant ADR 0045 asks of every path that claims a renderer —
-// without it a pane sits on the DOM renderer permanently and silently.
+// A failed claim leaves `rendered` false, which is what makes the next reveal
+// retry it rather than leaving the pane on the DOM renderer (ADR 0045).
 function loadRenderer(target: Terminal): void {
-  const webgl = loadAddon(target, () => new WebglAddon())
-  if (!webgl) {
-    rendered = claimCanvas(target)
-    return
-  }
-  rendered = true
-  // Fires only when the browser did not restore the context on its own. The
-  // addon puts the DOM renderer back as it goes, so claim the canvas instead.
-  webgl.onContextLoss(() => {
-    webgl.dispose()
-    rendered = claimCanvas(target)
-  })
-}
-
-function claimCanvas(target: Terminal): boolean {
-  return loadAddon(target, () => new CanvasAddon()) !== undefined
-}
-
-function loadAddon<T extends ITerminalAddon>(target: Terminal, create: () => T): T | undefined {
-  try {
-    const addon = create()
-    target.loadAddon(addon)
-    disposers.push(addon)
-    return addon
-  } catch (failure) {
-    console.warn('Terminal renderer unavailable, falling back', failure)
-    return undefined
-  }
+  claimAtlasRenderer(target, (addon) => disposers.push(addon), (claimed) => { rendered = claimed })
 }
 
 // What being shown means: a terminal, focused, in the box the panel opens at.
@@ -314,15 +290,20 @@ watch(theme, () => { if (term.value) term.value.options.theme = xtermTheme() })
 // The faces have to be resident before xterm re-measures its cell against them,
 // or it measures the outgoing font and the atlas caches glyphs at the wrong
 // metrics (ADR 0038).
-watch([fontSizePx, fontFamily, fontWeight, fontWeightBold], async ([px, family, weight, weightBold]) => {
-  await loadTerminalFaces(family, px, weight, weightBold)
-  if (!term.value) return
-  term.value.options.fontFamily = terminalFontStack(family)
-  term.value.options.fontSize = px
-  term.value.options.fontWeight = weight
-  term.value.options.fontWeightBold = weightBold
-  scheduleFit()
-})
+watch(
+  [fontSizePx, fontFamily, fontWeight, fontWeightBold, lineHeight, letterSpacing],
+  async ([px, family, weight, weightBold, height, spacing]) => {
+    await loadTerminalFaces(family, px, weight, weightBold)
+    if (!term.value) return
+    term.value.options.fontFamily = terminalFontStack(family)
+    term.value.options.fontSize = px
+    term.value.options.fontWeight = weight
+    term.value.options.fontWeightBold = weightBold
+    term.value.options.lineHeight = height
+    term.value.options.letterSpacing = spacing
+    scheduleFit()
+  },
+)
 
 // Only what was focused outside the panel is worth returning to; a re-reveal
 // while the pane already has focus must not record the pane itself.

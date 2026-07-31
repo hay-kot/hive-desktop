@@ -5,6 +5,8 @@ import {
   SetTerminalFontFamily as PersistTerminalFontFamily,
   SetTerminalFontSize as PersistTerminalFontSize,
   SetTerminalFontWeights as PersistTerminalFontWeights,
+  SetTerminalLetterSpacing as PersistTerminalLetterSpacing,
+  SetTerminalLineHeight as PersistTerminalLineHeight,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { TERMINAL_FONT } from '../lib/terminalFaces'
 
@@ -57,12 +59,37 @@ export const terminalFontWeightLabels: Record<TerminalFontWeight, string> = {
 export const defaultTerminalFontWeight: TerminalFontWeight = 350
 export const defaultTerminalFontWeightBold: TerminalFontWeight = 700
 
+// Multiplies the cell height. Box drawing still meets the cell edges above 1:
+// the atlas strokes a custom glyph across the padded cell and offsets it by
+// exactly what the renderer centres the char box by, so the two cancel
+// (ADR 0051).
+export const terminalLineHeights = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] as const
+export type TerminalLineHeight = (typeof terminalLineHeights)[number]
+
+// Widens the cell by whole *device* pixels — xterm adds this to the device
+// char width and rounds it, so on a 2x display a step is half a CSS pixel and
+// a fractional setting would quantise to nothing.
+export const terminalLetterSpacings = [0, 1, 2, 3] as const
+export type TerminalLetterSpacing = (typeof terminalLetterSpacings)[number]
+
+export const defaultTerminalLineHeight: TerminalLineHeight = 1.2
+// Must stay 0: it doubles as the "nothing persisted" value in settings.yaml.
+export const defaultTerminalLetterSpacing: TerminalLetterSpacing = 0
+
 function isTerminalFontSize(value: string | null): value is TerminalFontSize {
   return terminalFontSizes.includes(value as TerminalFontSize)
 }
 
 function isTerminalFontWeight(value: number | null): value is TerminalFontWeight {
   return terminalFontWeights.includes(value as TerminalFontWeight)
+}
+
+function isTerminalLineHeight(value: number | null): value is TerminalLineHeight {
+  return terminalLineHeights.includes(value as TerminalLineHeight)
+}
+
+function isTerminalLetterSpacing(value: number | null): value is TerminalLetterSpacing {
+  return terminalLetterSpacings.includes(value as TerminalLetterSpacing)
 }
 
 // Module singletons like useTheme's currentTheme, shared by SettingsView's
@@ -75,6 +102,8 @@ const currentSize: Ref<TerminalFontSize> = ref(defaultTerminalFontSize)
 const currentFamily: Ref<string> = ref('')
 const currentWeight: Ref<TerminalFontWeight> = ref(defaultTerminalFontWeight)
 const currentWeightBold: Ref<TerminalFontWeight> = ref(defaultTerminalFontWeightBold)
+const currentLineHeight: Ref<TerminalLineHeight> = ref(defaultTerminalLineHeight)
+const currentLetterSpacing: Ref<TerminalLetterSpacing> = ref(defaultTerminalLetterSpacing)
 const installedFamilies: Ref<string[]> = ref([])
 
 let hydrated = false
@@ -95,6 +124,12 @@ async function hydrate(): Promise<void> {
     }
     if (isTerminalFontWeight(settings.terminalFontWeightBold)) {
       currentWeightBold.value = settings.terminalFontWeightBold
+    }
+    if (isTerminalLineHeight(settings.terminalLineHeight)) {
+      currentLineHeight.value = settings.terminalLineHeight
+    }
+    if (isTerminalLetterSpacing(settings.terminalLetterSpacing)) {
+      currentLetterSpacing.value = settings.terminalLetterSpacing
     }
   } catch (error) {
     // An unavailable binding keeps the defaults; nothing to heal.
@@ -177,6 +212,32 @@ export function setTerminalFontWeightBold(next: TerminalFontWeight): void {
   persist(() => PersistTerminalFontWeights(currentWeight.value, next))
 }
 
+export function setTerminalLineHeight(next: TerminalLineHeight): void {
+  currentLineHeight.value = next
+  persist(() => PersistTerminalLineHeight(next))
+}
+
+export function setTerminalLetterSpacing(next: TerminalLetterSpacing): void {
+  currentLetterSpacing.value = next
+  persist(() => PersistTerminalLetterSpacing(next))
+}
+
+/**
+ * Every typography value that moves a cell's width or height, as one
+ * comparable key. A size vote is only counted in the metrics it was measured
+ * against, so a remembered one is keyed by this.
+ */
+export function terminalCellMetrics(): string {
+  return [
+    terminalFontSizePx[currentSize.value],
+    currentFamily.value,
+    currentWeight.value,
+    currentWeightBold.value,
+    currentLineHeight.value,
+    currentLetterSpacing.value,
+  ].join('|')
+}
+
 export function useTerminalFont(): {
   size: Ref<TerminalFontSize>
   px: ComputedRef<number>
@@ -186,6 +247,8 @@ export function useTerminalFont(): {
   installedFamilies: Ref<string[]>
   weight: Ref<TerminalFontWeight>
   weightBold: Ref<TerminalFontWeight>
+  lineHeight: Ref<TerminalLineHeight>
+  letterSpacing: Ref<TerminalLetterSpacing>
 } {
   if (!hydrated) {
     hydrated = true
@@ -199,6 +262,8 @@ export function useTerminalFont(): {
     installedFamilies,
     weight: currentWeight,
     weightBold: currentWeightBold,
+    lineHeight: currentLineHeight,
+    letterSpacing: currentLetterSpacing,
   }
 }
 
@@ -207,6 +272,8 @@ export function resetTerminalFontForTests(): void {
   currentFamily.value = ''
   currentWeight.value = defaultTerminalFontWeight
   currentWeightBold.value = defaultTerminalFontWeightBold
+  currentLineHeight.value = defaultTerminalLineHeight
+  currentLetterSpacing.value = defaultTerminalLetterSpacing
   installedFamilies.value = []
   fontsRequested = false
   hydrated = false
