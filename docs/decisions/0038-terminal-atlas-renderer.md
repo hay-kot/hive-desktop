@@ -1,6 +1,8 @@
 # 0038 — Terminal panes render through an atlas renderer, not xterm's DOM renderer
 
-- **Status:** accepted
+- **Status:** accepted (decision 1's *timing* — a renderer per pane at mount —
+  amended by [0045](0045-terminal-renderer-claimed-on-activation.md), which
+  claims one when a window is first shown; the atlas-over-DOM substance stands)
 - **Date:** 2026-07-29
 
 ## Context
@@ -29,8 +31,18 @@ The atlas renderers have the opposite construction: `device.cell.width` is
 `floor(charWidth × dpr)` and `device.cell.height` is `floor(ceil(charHeight ×
 dpr) × lineHeight)`, both whole device pixels, so cells tile the canvas with no
 accumulated drift at any font size or device pixel ratio. `tryDrawCustomChar`
-strokes box drawing to those bounds, and the atlas draws underlines
-*deliberately past* the cell edge so they join across adjacent cells.
+strokes box drawing to those bounds, and a single underline is stroked from the
+cell's left edge to its right — so underlines join because the cells tile
+exactly, not because anything overdraws. Only the curly style extends past the
+edge (half a cell each side, clipped back to the cell); relying on overdraw for
+the plain underline would be relying on something the atlas does not do.
+
+Two things this does *not* fix, both verified against a build carrying it.
+Underlines under an OSC 8 hyperlink still break, because xterm forces
+`underlineStyle` to dashed for any cell with a `urlId` and discards the
+application's own style — a hyperlink convention, not a metrics fault, and not
+reachable from any `Terminal` option. Plain underlines elsewhere, including a
+60-cell run, come out solid.
 
 ## Decision
 

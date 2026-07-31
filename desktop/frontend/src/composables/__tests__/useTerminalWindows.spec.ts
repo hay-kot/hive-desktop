@@ -1,6 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useTerminalWindows } from '../useTerminalWindows'
+import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWindows'
 import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
@@ -107,13 +107,27 @@ const xterm = vi.hoisted(() => {
     }
   }
 
-  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon }
+  class FakeWebLinksAddon {
+    static instances: FakeWebLinksAddon[] = []
+    dispose = vi.fn()
+    activate = vi.fn()
+
+    constructor(readonly handler: (event: MouseEvent, uri: string) => void) {
+      FakeWebLinksAddon.instances.push(this)
+    }
+  }
+
+  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeWebLinksAddon }
 })
+
+const wails = vi.hoisted(() => ({ OpenURL: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
+vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: xterm.FakeWebLinksAddon }))
+vi.mock('@wailsio/runtime', () => ({ Browser: { OpenURL: wails.OpenURL } }))
 
 const encoder = new TextEncoder()
 
@@ -242,12 +256,15 @@ describe('useTerminalWindows', () => {
   beforeEach(() => {
     sockets = []
     loadedFaces = []
+    resetTerminalFacesForTests()
     xterm.FakeTerminal.instances = []
     xterm.FakeFitAddon.instances = []
     xterm.FakeWebglAddon.instances = []
     xterm.FakeCanvasAddon.instances = []
     xterm.FakeWebglAddon.unavailable = false
     xterm.FakeCanvasAddon.unavailable = false
+    xterm.FakeWebLinksAddon.instances = []
+    wails.OpenURL.mockClear()
     FakeResizeObserver.instances = []
     // The remembered vote outlives a composable on purpose, so each test states
     // its own starting memory rather than inheriting the last one's.
@@ -319,6 +336,35 @@ describe('useTerminalWindows', () => {
 
     socket.onmessage?.({ data: windowFrame('closed', '@3', { name: 'tail' }) })
     expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
+  })
+
+  // A reconcile reports the deactivated window too, in tmux index order — so
+  // selecting a lower-indexed window ends on the one that just lost the flag.
+  // Following it would hand the selection straight back.
+  it('ignores an active-changed for a window tmux says is not active', async () => {
+    const { session, socket } = await attached()
+
+    socket.onmessage?.({ data: windowFrame('active-changed', '@2', { name: 'shell', active: true }) })
+    expect(session.activeWindowId.value).toBe('@2')
+
+    socket.onmessage?.({ data: windowFrame('active-changed', '@1', { name: 'agent', active: true }) })
+    socket.onmessage?.({ data: windowFrame('active-changed', '@2', { name: 'shell', active: false }) })
+
+    expect(session.activeWindowId.value).toBe('@1')
+    expect(session.tabs.value.map((tab) => tab.active)).toEqual([true, false])
+  })
+
+  // The webview answers neither half of xterm's default OSC 8 activation, so
+  // every link kind is routed out to the OS browser instead.
+  it('opens both hyperlink kinds through the system browser', async () => {
+    const { session } = await attached()
+
+    const handler = session.tabs.value[0].term.options.linkHandler as { activate: (event: MouseEvent, uri: string) => void }
+    handler.activate(new MouseEvent('click'), 'https://example.test/osc8')
+    expect(wails.OpenURL).toHaveBeenCalledWith('https://example.test/osc8')
+
+    xterm.FakeWebLinksAddon.instances[0].handler(new MouseEvent('click'), 'https://example.test/bare')
+    expect(wails.OpenURL).toHaveBeenCalledWith('https://example.test/bare')
   })
 
   // Every client attached to a window renders the same grid, so the size a tab
@@ -427,6 +473,42 @@ describe('useTerminalWindows', () => {
 
     expect(xterm.FakeWebglAddon.instances[0].dispose).toHaveBeenCalledTimes(1)
     expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
+  })
+
+  // Every pooled session mounts a pane per window, so claiming a context at
+  // mount spends one per background tab and walks the page past WebKit's
+  // limit — where the context it costs is some other pane's. ADR 0045.
+  it('claims a renderer for the window on screen, and for the rest on activation', async () => {
+    const { session } = await attached()
+
+    session.attachTab('@1', paneHost())
+    session.attachTab('@2', paneHost())
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
+
+    await session.select('@2')
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(2)
+  })
+
+  // The canvas claim is all that stands between a lost context and the DOM
+  // renderer, so a failed one must not strand the pane there for good.
+  it('retries the renderer on the next activation when the canvas claim failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { session } = await attached()
+    session.attachTab('@1', paneHost())
+    session.attachTab('@2', paneHost())
+
+    xterm.FakeCanvasAddon.unavailable = true
+    xterm.FakeWebglAddon.instances[0].loseContext()
+    expect(xterm.FakeCanvasAddon.instances).toHaveLength(0)
+
+    xterm.FakeCanvasAddon.unavailable = false
+    await session.select('@2')
+    await session.select('@1')
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(3)
+    warn.mockRestore()
   })
 
   // xterm disposes its core before its addons, and a renderer addon restores a

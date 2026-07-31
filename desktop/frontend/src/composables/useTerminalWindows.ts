@@ -1,8 +1,10 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
+import { Browser } from '@wailsio/runtime'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { Terminal, type IDisposable, type ITerminalAddon } from '@xterm/xterm'
+import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
 import '../assets/fonts/jetbrains-mono-nerd.css'
@@ -99,10 +101,24 @@ const CONSTRAINT_SETTLE_MS = 750
 // window between a Terminal opening and this one resolving.
 const TERMINAL_FONT = "'JetBrainsMono Nerd Font'"
 
+// A link has to leave the webview: it hosts one document for the app's whole
+// lifetime, and xterm's own default for an OSC 8 hyperlink — confirm() then
+// window.open() — is answered by neither, so a click on one does nothing at
+// all. WebLinksAddon covers the bare URLs xterm does not linkify on its own.
+function openLink(uri: string): void {
+  void Browser.OpenURL(uri).catch(() => {})
+}
+
+const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
+
 interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
   disposers: IDisposable[]
+  // An atlas renderer is live on this terminal. False after a context loss the
+  // canvas claim did not survive, which is what makes the next activation
+  // retry instead of leaving the pane on the DOM renderer. ADR 0045.
+  rendered?: boolean
 }
 
 // The pane box belongs to the app window, not to a session, so one remembered
@@ -196,11 +212,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const term = markRaw(new Terminal({
       fontFamily: `${TERMINAL_FONT}, 'IBM Plex Mono', ui-monospace, monospace`,
       fontSize: fontSizePx.value,
+      linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
+    term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
@@ -243,6 +261,19 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function setActive(windowId: string): void {
     activeWindowId.value = windowId
     for (const tab of tabs.value) tab.active = tab.windowId === windowId
+    showRenderer(windowId)
+  }
+
+  // A GL context is claimed when a window is first shown, not when its pane
+  // mounts. Mounting covers every window of every pooled session, which spends
+  // a context per background tab and pushes WebKit past its per-page limit on
+  // each attach — and the pane it then kills is somebody else's. ADR 0045.
+  function showRenderer(windowId: string): void {
+    const state = runtime.get(windowId)
+    const tab = findTab(windowId)
+    // No host yet means the pane has not mounted; attachTab claims it there.
+    if (!state?.host || !tab || state.rendered) return
+    loadRenderer(state, tab.term)
   }
 
   function attachTab(windowId: string, host: HTMLElement): void {
@@ -251,14 +282,16 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!tab || !state || state.host) return
     state.host = host
     tab.term.open(host)
-    // After open(), never before: an unopened Terminal defers addon activation
-    // to its own open(), which would throw a missing-context error out of there
-    // rather than out of the load, past the fallback below.
-    loadRenderer(state, tab.term)
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
-    if (tab.windowId === activeWindowId.value) tab.term.focus()
+    if (tab.windowId === activeWindowId.value) {
+      // After open(), never before: an unopened Terminal defers addon
+      // activation to its own open(), which would throw a missing-context
+      // error out of there rather than out of the load, past the fallback.
+      showRenderer(windowId)
+      tab.term.focus()
+    }
     scheduleVote()
   }
 
@@ -378,8 +411,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         if (tab) tab.name = state.name
         break
       }
+      // The kind reports "this window's active flag or pane changed", not
+      // "this window is now the session's", and a reconcile emits one for the
+      // window that just *lost* the flag as well — in tmux index order, so
+      // selecting a lower-indexed window lands the deactivated one last.
+      // Following that would put the selection back where it came from.
       case 'active-changed':
-        if (findTab(windowId)) setActive(windowId)
+        if (state.active && findTab(windowId)) setActive(windowId)
         break
       case 'resized':
         break
@@ -566,15 +604,23 @@ function message(error: unknown, fallback: string): string {
 function loadRenderer(state: TabRuntime, term: Terminal): void {
   const webgl = loadRendererAddon(state, term, () => new WebglAddon())
   if (!webgl) {
-    loadRendererAddon(state, term, () => new CanvasAddon())
+    state.rendered = claimCanvas(state, term)
     return
   }
+  state.rendered = true
   // Fires only when the browser did not restore the context on its own. The
   // addon puts the DOM renderer back as it goes, so claim the canvas instead.
   webgl.onContextLoss(() => {
     webgl.dispose()
-    loadRendererAddon(state, term, () => new CanvasAddon())
+    state.rendered = claimCanvas(state, term)
   })
+}
+
+// The canvas claim is the whole of what stands between a lost context and the
+// renderer #131 is about, so a failed one is recorded rather than swallowed:
+// showRenderer tries again the next time the pane is shown.
+function claimCanvas(state: TabRuntime, term: Terminal): boolean {
+  return loadRendererAddon(state, term, () => new CanvasAddon()) !== undefined
 }
 
 function loadRendererAddon<T extends ITerminalAddon>(
@@ -595,11 +641,24 @@ function loadRendererAddon<T extends ITerminalAddon>(
   }
 }
 
+// Kept per size because document.fonts.load re-resolves on every call — 12ms
+// to 47ms measured, even for a face already resident — and every attach awaits
+// it before it may so much as ask for the session.
+const faceLoads = new Map<number, Promise<void>>()
+
 // xterm measures its cell when a Terminal opens and never re-measures when a
 // face arrives later, and an atlas renderer caches the glyphs it rasterised
 // from whatever was resident — so bold has to be here too, not just regular.
-async function loadTerminalFaces(px: number): Promise<void> {
-  await Promise.all([`${px}px`, `bold ${px}px`].map(
+function loadTerminalFaces(px: number): Promise<void> {
+  const loaded = faceLoads.get(px)
+  if (loaded) return loaded
+  const pending = Promise.all([`${px}px`, `bold ${px}px`].map(
     (font) => document.fonts?.load(`${font} ${TERMINAL_FONT}`).catch(() => {}),
-  ))
+  )).then(() => {})
+  faceLoads.set(px, pending)
+  return pending
+}
+
+export function resetTerminalFacesForTests(): void {
+  faceLoads.clear()
 }
