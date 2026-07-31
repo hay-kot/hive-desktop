@@ -14,6 +14,11 @@ import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
 const xterm = vi.hoisted(() => {
+  interface FakeLine {
+    isWrapped: boolean
+    getCell: (column: number) => { getChars: () => string; getWidth: () => number } | undefined
+  }
+
   class FakeTerminal {
     cols = 80
     rows = 24
@@ -23,15 +28,38 @@ const xterm = vi.hoisted(() => {
     open = vi.fn()
     loadAddon = vi.fn((addon: { activate?: (term: FakeTerminal) => void }) => addon.activate?.(this))
     dispose = vi.fn()
-    resize = vi.fn((cols: number, rows: number) => { this.cols = cols; this.rows = rows })
+    resizeEffect?: (term: FakeTerminal) => void
+    resize = vi.fn((cols: number, rows: number) => {
+      this.cols = cols
+      this.rows = rows
+      this.resizeEffect?.(this)
+    })
     onDataDisposed = false
+    private lines = new Map<number, FakeLine>()
     buffer = {
-      active: { viewportY: 0, baseY: 0 },
+      active: {
+        type: 'normal' as 'normal' | 'alternate',
+        cursorY: 0,
+        viewportY: 0,
+        baseY: 0,
+        length: 0,
+        getLine: (line: number) => this.lines.get(line),
+      },
       onBufferChange: (handler: () => void) => {
         this.bufferHandlers.push(handler)
         return { dispose: () => {} }
       },
     }
+    markers: { line: number; dispose: ReturnType<typeof vi.fn> }[] = []
+    registerMarker = vi.fn((cursorYOffset = 0) => {
+      const marker = {
+        line: this.buffer.active.baseY + this.buffer.active.cursorY + cursorYOffset,
+        dispose: vi.fn(() => { marker.line = -1 }),
+      }
+      this.markers.push(marker)
+      return marker
+    })
+    scrollToLine = vi.fn((line: number) => { this.buffer.active.viewportY = Math.min(line, this.buffer.active.baseY) })
     scrollToBottom = vi.fn(() => {
       this.buffer.active.viewportY = this.buffer.active.baseY
       for (const handler of this.scrollHandlers) handler()
@@ -73,6 +101,15 @@ const xterm = vi.hoisted(() => {
       this.buffer.active.baseY = baseY
       for (const handler of this.scrollHandlers) handler()
     }
+
+    setLine(line: number, isWrapped: boolean): void {
+      this.lines.set(line, {
+        isWrapped,
+        getCell: () => ({ getChars: () => 'x', getWidth: () => 1 }),
+      })
+    }
+
+    clearLines(): void { this.lines.clear() }
 
     switchBuffer(): void {
       for (const handler of this.bufferHandlers) handler()
@@ -454,6 +491,78 @@ describe('useTerminalWindows', () => {
 
     expect(session.tabs.value[1].term.resize).toHaveBeenLastCalledWith(80, 24)
     expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(213, 55)
+  })
+
+  it('keeps a viewport following the live tail pinned through reflow', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 120
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 180
+      term.buffer.active.viewportY = 60
+    }
+    term.scrollToBottom.mockClear()
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.scrollToBottom).toHaveBeenCalledTimes(1)
+    expect(term.resize.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(term.scrollToBottom.mock.invocationCallOrder[0])
+    expect(term.buffer.active.viewportY).toBe(180)
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  it('keeps a logical-line anchor through reflow and refreshes the tail fallback', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 40
+    term.buffer.active.cursorY = 3
+    term.setLine(39, false)
+    term.setLine(40, true)
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 160
+      term.buffer.active.viewportY = 100
+      term.clearLines()
+      term.setLine(50, false)
+      term.setLine(51, true)
+      term.setLine(52, true)
+      term.setLine(53, true)
+      term.markers[0].line = 50
+    }
+    term.scrollToBottom.mockClear()
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.registerMarker).toHaveBeenCalledWith(-84)
+    expect(term.scrollToLine).toHaveBeenCalledWith(52)
+    expect(term.scrollToBottom).not.toHaveBeenCalled()
+    expect(term.markers[0].dispose).toHaveBeenCalledTimes(1)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+  })
+
+  it('falls back to the oldest surviving row when the anchored line is fully trimmed', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 40
+    term.buffer.active.cursorY = 3
+    term.buffer.active.length = 42
+    term.setLine(39, false)
+    term.setLine(40, true)
+    term.setLine(41, false)
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 100
+      term.buffer.active.viewportY = 50
+      term.markers[0].line = -1
+      term.markers[1].line = 0
+    }
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.scrollToLine).toHaveBeenCalledWith(0)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
   })
 
   it('takes the size off any window event, not just the resized one', async () => {
@@ -1000,7 +1109,14 @@ describe('useTerminalWindows', () => {
 
     // Entering the alternate screen (a full-screen TUI) has no scrollback and
     // fires no scroll event, so the buffer switch is what clears the flag.
-    term.buffer.active = { viewportY: 0, baseY: 0 }
+    term.buffer.active = {
+      type: 'alternate',
+      cursorY: 0,
+      viewportY: 0,
+      baseY: 0,
+      length: 0,
+      getLine: () => undefined,
+    }
     term.switchBuffer()
     expect(session.tabs.value[0].scrolledUp).toBe(false)
   })
