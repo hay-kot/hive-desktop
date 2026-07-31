@@ -53,12 +53,33 @@ function cssColor(style: CSSStyleDeclaration | null, name: string, fallback: str
   return style.getPropertyValue(name).trim() || fallback
 }
 
+function documentStyle(): CSSStyleDeclaration | null {
+  return typeof getComputedStyle === 'function' && typeof document !== 'undefined'
+    ? getComputedStyle(document.documentElement)
+    : null
+}
+
+/**
+ * The two colours search highlighting paints with: every match, then the one
+ * the viewport is on. xterm parses a decoration colour itself rather than
+ * handing it to CSS and accepts `#RRGGBB` alone, so a theme that spells one any
+ * other way falls back rather than losing the highlight.
+ */
+export function searchHighlightColors(): { match: string; active: string } {
+  const style = documentStyle()
+  return {
+    match: hexOrFallback(cssColor(style, '--hv-term-bright-black', ''), FALLBACK.brightBlack!),
+    active: hexOrFallback(cssColor(style, '--hv-term-yellow', ''), FALLBACK.yellow!),
+  }
+}
+
+function hexOrFallback(color: string, fallback: string): string {
+  return /^#[0-9a-f]{6}$/i.test(color) ? color : fallback
+}
+
 /** The xterm palette for the theme currently applied to the document. */
 export function xtermTheme(): ITheme {
-  const style =
-    typeof getComputedStyle === 'function' && typeof document !== 'undefined'
-      ? getComputedStyle(document.documentElement)
-      : null
+  const style = documentStyle()
   const background = cssColor(style, '--hv-app', FALLBACK.background!)
   const theme: ITheme = {
     background,

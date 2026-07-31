@@ -30,6 +30,7 @@ const xterm = vi.hoisted(() => {
     private handlers: ((data: string) => void)[] = []
     private scrollHandlers: (() => void)[] = []
     private bufferHandlers: (() => void)[] = []
+    private keyHandler?: (event: KeyboardEvent) => boolean
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
@@ -44,6 +45,14 @@ const xterm = vi.hoisted(() => {
     onScroll(handler: () => void) {
       this.scrollHandlers.push(handler)
       return { dispose: () => {} }
+    }
+
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.keyHandler = handler
+    }
+
+    press(event: Partial<KeyboardEvent>): boolean {
+      return this.keyHandler?.({ type: 'keydown', ...event } as KeyboardEvent) ?? true
     }
 
     type(data: string): void {
@@ -117,13 +126,41 @@ const xterm = vi.hoisted(() => {
     }
   }
 
-  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeWebLinksAddon }
+  // The real addon reports hit counts through onDidChangeResults, so the fake
+  // has to be driven the same way: a find only produces a count if it fires.
+  class FakeSearchAddon {
+    static instances: FakeSearchAddon[] = []
+    static results: { resultIndex: number; resultCount: number } = { resultIndex: 0, resultCount: 1 }
+    dispose = vi.fn()
+    activate = vi.fn()
+    clearDecorations = vi.fn()
+    findNext = vi.fn((term: string, options?: unknown) => this.record('next', term, options))
+    findPrevious = vi.fn((term: string, options?: unknown) => this.record('previous', term, options))
+    calls: { mode: string; term: string; options?: unknown }[] = []
+    private resultHandlers: ((results: { resultIndex: number; resultCount: number }) => void)[] = []
+
+    constructor() { FakeSearchAddon.instances.push(this) }
+
+    onDidChangeResults(handler: (results: { resultIndex: number; resultCount: number }) => void) {
+      this.resultHandlers.push(handler)
+      return { dispose: () => {} }
+    }
+
+    private record(mode: string, term: string, options?: unknown): boolean {
+      this.calls.push({ mode, term, options })
+      for (const handler of this.resultHandlers) handler(FakeSearchAddon.results)
+      return true
+    }
+  }
+
+  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeSearchAddon, FakeWebLinksAddon }
 })
 
 const wails = vi.hoisted(() => ({ OpenURL: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }))
+vi.mock('@xterm/addon-search', () => ({ SearchAddon: xterm.FakeSearchAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: xterm.FakeWebLinksAddon }))
@@ -261,6 +298,8 @@ describe('useTerminalWindows', () => {
     xterm.FakeFitAddon.instances = []
     xterm.FakeWebglAddon.instances = []
     xterm.FakeCanvasAddon.instances = []
+    xterm.FakeSearchAddon.instances = []
+    xterm.FakeSearchAddon.results = { resultIndex: 0, resultCount: 1 }
     xterm.FakeWebglAddon.unavailable = false
     xterm.FakeCanvasAddon.unavailable = false
     xterm.FakeWebLinksAddon.instances = []
@@ -892,5 +931,60 @@ describe('useTerminalWindows', () => {
 
     expect(session.actionError.value).toBe('tmux refused')
     expect(session.status.value).toBe('live')
+  })
+
+  it('searches the active window and reports the hit it is on', async () => {
+    const { session } = await attached()
+    xterm.FakeSearchAddon.results = { resultIndex: 2, resultCount: 9 }
+
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    expect(session.search.value.open).toBe(true)
+    // resultIndex is 0-based; the bar counts from 1.
+    expect(session.search.value).toMatchObject({ query: 'panic', matches: 9, index: 3 })
+    const finder = xterm.FakeSearchAddon.instances[0]
+    expect(finder.calls.at(-1)).toMatchObject({ mode: 'next', term: 'panic' })
+
+    session.findPrevious()
+    expect(finder.calls.at(-1)).toMatchObject({ mode: 'previous', term: 'panic' })
+  })
+
+  // A hit count is only true of the buffer it was counted in, so carrying one
+  // across tabs would put a number on the new window that never matched it.
+  it('re-runs the search against the window it switches to', async () => {
+    const { session } = await attached()
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    await session.select('@2')
+
+    const [first, second] = xterm.FakeSearchAddon.instances
+    expect(first.clearDecorations).toHaveBeenCalled()
+    expect(second.calls.at(-1)).toMatchObject({ term: 'panic' })
+  })
+
+  it('opens the find bar from the pane and keeps the combo off the wire', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: 'f', ctrlKey: true })).toBe(true)
+    expect(session.search.value.open).toBe(false)
+
+    expect(term.press({ key: 'f', metaKey: true })).toBe(false)
+    expect(session.search.value.open).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  it('drops the query and the highlights when the bar closes', async () => {
+    const { session } = await attached()
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    session.closeSearch()
+
+    expect(session.search.value).toEqual({ open: false, query: '', matches: 0, index: 0 })
+    expect(xterm.FakeSearchAddon.instances[0].clearDecorations).toHaveBeenCalled()
+    expect(xterm.FakeTerminal.instances[0].focus).toHaveBeenCalled()
   })
 })

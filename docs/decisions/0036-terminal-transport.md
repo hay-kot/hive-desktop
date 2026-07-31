@@ -79,6 +79,11 @@ deliberately unauthenticated: the loopback bind is the boundary.
    twice. Closing the window would need a marker protocol tmux does not offer;
    duplicated bytes at attach are preferable to a missing region.
 
+   **Superseded in part by [ADR 0046](0046-terminal-first-paint-carries-scrollback.md):**
+   what a snapshot *contains* is now bounded scrollback, a full-height screen
+   and a cursor restore. The accepted duplication and the buffer-and-replay
+   ordering are unchanged.
+
 ## Consequences
 
 - The app has a **second driving transport with a wire format of its own**.
@@ -99,6 +104,6 @@ deliberately unauthenticated: the loopback bind is the boundary.
   bind remains the outer boundary. Any future surface that hands the token out
   is a new decision.
 - Deferred without changing the transport: pane splits (v1 renders each window's
-  active pane, and the output frame already carries the pane id),
-  full-history/alternate-screen/cursor restore on attach, and any pause-mode
-  based partial resync.
+  active pane, and the output frame already carries the pane id) and any
+  pause-mode based partial resync. Full history, alternate-screen handling and
+  cursor restore on attach were the other three, and ADR 0046 built them.

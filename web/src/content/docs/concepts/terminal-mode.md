@@ -107,11 +107,26 @@ Two related effects come from the same rule:
   so a window you haven't opened yet learns its size at the moment you select
   it.
 
-## First paint is the screen, not the history
+## Scrollback and finding things in it
 
-Attaching draws each window's **visible screen**. Scrollback is not replayed, so
-the app starts with an empty buffer even when the session has hours of history
-behind it; read it in tmux's own copy mode (`prefix + [`) for now.
+Attaching replays each window's **scrollback**, up to 2000 lines, and then its
+visible screen — so a session that has been working for hours opens with what it
+did before you got there, not just the last screenful. Scroll up as you would in
+any terminal; the **Scroll to bottom** pill takes you back to the live tail.
+
+2000 lines is tmux's own default `history-limit`, so unless you have raised that
+in your `tmux.conf` this is the entire history tmux is keeping. If you have
+raised it, the app replays the most recent 2000 lines and the rest stays
+reachable in tmux's copy mode (`prefix + [`).
+
+**Find in a window** with `⌘F` (`Ctrl+Shift+F` on Linux and Windows), or the
+magnifier in the tab strip. It searches the window you are looking at, scrollback
+included — `Enter` and `Shift+Enter` step through the matches, `Esc` closes the
+bar. A plain `Ctrl+F` is left alone on purpose: it is readline's forward-char and
+belongs to whatever is running in the pane.
+
+Switching tabs re-runs the search against that window, because a match count only
+ever describes one window's buffer.
 
 ## Known rough edges
 
