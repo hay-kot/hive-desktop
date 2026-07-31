@@ -23,6 +23,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
+	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
@@ -93,6 +94,7 @@ type App struct {
 	Skills       *SkillsService
 	Report       *ReportService
 	Terminals    *TerminalsService
+	PtyTerminals *PtyTerminalsService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -153,6 +155,11 @@ type App struct {
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR 0036).
 	terminals *tmuxcc.Manager
+
+	// ptyTerminals owns the process-managed sessions the tmux backend is being
+	// compared against (ADR 0045). Its sessions are this process's children, so
+	// unlike tmux's they end with Close.
+	ptyTerminals *ptyterm.Manager
 
 	// tmux is the one place the tmux binary is discovered, shared by the
 	// terminal's control clients and Hive's session spawning (ADR 0039).
@@ -263,6 +270,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path})
+	a.ptyTerminals = ptyterm.NewManager(ptyterm.ManagerOptions{Environ: a.execEnv.Environ})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
@@ -324,6 +332,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
+	a.PtyTerminals = newPtyTerminalsService(a.ptyTerminals, a.Sessions)
 
 	return a, nil
 }
@@ -438,6 +447,13 @@ func (a *App) Close() error {
 	if a.terminals != nil {
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
 		_ = a.terminals.Stop(stopCtx)
+		cancel()
+	}
+	// The PTY sessions are this process's children rather than another server's,
+	// so this is not just a detach: whatever is running in them ends here.
+	if a.ptyTerminals != nil {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		_ = a.ptyTerminals.Stop(stopCtx)
 		cancel()
 	}
 

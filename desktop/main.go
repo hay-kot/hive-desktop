@@ -148,6 +148,12 @@ func main() {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 		}
+		// The process-managed backend's stream, mounted beside it so the two can
+		// be compared in one run (ADR 0045).
+		if path, handler := httpapi.PtyTerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+			terminal.PtyStreamPath = path
+			logger.Info().Str("path", path).Msg("pty terminal WebSocket stream mounted")
+		}
 	}
 	// pprof shares the same server when enabled (ADR 0023).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {

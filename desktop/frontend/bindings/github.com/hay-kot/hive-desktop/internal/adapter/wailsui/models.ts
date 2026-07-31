@@ -234,20 +234,25 @@ export interface SystemInfo {
 /**
  * TerminalAvailability is the frontend's only gate on terminal mode. Reason is
  * user-facing prose: no tmux, tmux too old, a server build, or no loopback
- * server to carry the transport.
+ * server to carry the transport. PtyAvailable is a second axis rather than part
+ * of Available: the process-managed backend needs no tmux, so a machine without
+ * one can still open a terminal on it.
  */
 export interface TerminalAvailability {
     "available": boolean;
     "reason": string;
+    "ptyAvailable": boolean;
 }
 
 /**
  * TerminalEndpoint bootstraps the webview: control actions go to HTTPBaseURL
- * with the bearer token, the data plane opens WSURL.
+ * with the bearer token, the data plane opens WSURL — or PtyWSURL for the
+ * process-managed backend, which is empty when that one is not mounted.
  */
 export interface TerminalEndpoint {
     "httpBaseURL": string;
     "wsURL": string;
+    "ptyWSURL": string;
     "token": string;
 }
 

@@ -53,6 +53,8 @@ func newTerminalHarness(t *testing.T) *terminalHarness {
 	mux.Handle(PathPrefix, New(core, zerolog.Nop(), testToken, origins).Handler())
 	streamPath, stream := TerminalStreamHandler(core, testToken, origins, zerolog.Nop())
 	mux.Handle(streamPath, stream)
+	ptyStreamPath, ptyStream := PtyTerminalStreamHandler(core, testToken, origins, zerolog.Nop())
+	mux.Handle(ptyStreamPath, ptyStream)
 
 	h := &terminalHarness{core: core, server: httptest.NewServer(mux)}
 	t.Cleanup(func() {

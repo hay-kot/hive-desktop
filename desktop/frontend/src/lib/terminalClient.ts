@@ -61,19 +61,21 @@ export class TerminalRequestError extends Error {
 
 export interface TerminalClient {
   /**
-   * cols/rows are the opening size vote; 0x0 attaches without setting one.
-   * Attaching never spawns: a session that is not running rejects with a
-   * `not_found` TerminalRequestError, and start() is what creates it.
+   * cols/rows are the opening size; 0x0 attaches without setting one. On the
+   * tmux backend it is a vote among every attached client, on the pty backend
+   * it is applied outright. Attaching never spawns: a session that is not
+   * running rejects with a `not_found` TerminalRequestError, and start() is
+   * what creates it.
    */
   attach(slug: string, cols: number, rows: number): Promise<{ windows: WindowState[] }>
-  /** Spawns the tmux session behind a slug, or reports it was already running. */
+  /** Spawns the session behind a slug, or reports it was already running. */
   start(slug: string): Promise<{ started: boolean }>
   /**
-   * Kills the tmux session behind a slug — the terminal only; the hive session
+   * Kills the session behind a slug — the terminal only; the hive session
    * and its checkout are untouched. A slug with no session answers killed:false.
    */
   kill(slug: string): Promise<{ killed: boolean }>
-  /** Lists a session's windows without attaching; a slug with no tmux session behind it answers with none. */
+  /** Lists a session's windows without attaching; a slug with no session behind it answers with none. */
   listWindows(slug: string): Promise<{ windows: WindowState[] }>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
@@ -92,9 +94,24 @@ export async function getTerminalEndpoint(): Promise<TerminalEndpoint> {
   return await Endpoint()
 }
 
-export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient {
+/**
+ * Which backend a client addresses. Both speak this exact interface and these
+ * exact frames; the difference is what holds the session on the far side —
+ * a tmux server that outlives the app, or this process's own PTYs (ADR 0045).
+ */
+export type TerminalEngine = 'tmux' | 'pty'
+
+const ENGINE_PATHS: Record<TerminalEngine, string> = {
+  tmux: '/api/terminal',
+  pty: '/api/terminal/pty',
+}
+
+export function createTerminalClient(endpoint: TerminalEndpoint, engine: TerminalEngine = 'tmux'): TerminalClient {
+  const base = ENGINE_PATHS[engine]
+  const wsURL = engine === 'pty' ? endpoint.ptyWSURL : endpoint.wsURL
+
   async function post<T>(path: string, body: unknown): Promise<T | null> {
-    const response = await fetch(endpoint.httpBaseURL + path, {
+    const response = await fetch(endpoint.httpBaseURL + base + path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${endpoint.token}` },
       body: JSON.stringify(body),
@@ -106,32 +123,32 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
 
   return {
     async attach(slug, cols, rows) {
-      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/attach', { slug, cols, rows })
+      const body = await post<{ windows: Partial<WindowState>[] | null }>('/attach', { slug, cols, rows })
       return { windows: (body?.windows ?? []).map(toWindowState) }
     },
     async start(slug) {
-      const body = await post<{ started: boolean }>('/api/terminal/start', { slug })
+      const body = await post<{ started: boolean }>('/start', { slug })
       return { started: !!body?.started }
     },
     async kill(slug) {
-      const body = await post<{ killed: boolean }>('/api/terminal/kill', { slug })
+      const body = await post<{ killed: boolean }>('/kill', { slug })
       return { killed: !!body?.killed }
     },
     async listWindows(slug) {
-      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/list', { slug })
+      const body = await post<{ windows: Partial<WindowState>[] | null }>('/windows/list', { slug })
       return { windows: (body?.windows ?? []).map(toWindowState) }
     },
-    async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
+    async resize(slug, cols, rows) { await post('/resize', { slug, cols, rows }) },
     async newWindow(slug) {
-      const body = await post<{ windowId: string }>('/api/terminal/windows/new', { slug })
+      const body = await post<{ windowId: string }>('/windows/new', { slug })
       return { windowId: body?.windowId ?? '' }
     },
-    async closeWindow(slug, windowId) { await post('/api/terminal/windows/close', { slug, windowId }) },
-    async renameWindow(slug, windowId, name) { await post('/api/terminal/windows/rename', { slug, windowId, name }) },
-    async selectWindow(slug, windowId) { await post('/api/terminal/windows/select', { slug, windowId }) },
-    async detach(slug) { await post('/api/terminal/detach', { slug }) },
+    async closeWindow(slug, windowId) { await post('/windows/close', { slug, windowId }) },
+    async renameWindow(slug, windowId, name) { await post('/windows/rename', { slug, windowId, name }) },
+    async selectWindow(slug, windowId) { await post('/windows/select', { slug, windowId }) },
+    async detach(slug) { await post('/detach', { slug }) },
     openStream(slug) {
-      const socket = new WebSocket(streamURL(endpoint, slug))
+      const socket = new WebSocket(streamURL(wsURL, endpoint.token, slug))
       socket.binaryType = 'arraybuffer'
       return socket
     },
@@ -142,10 +159,10 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
  * Builds the data-plane URL. The bearer token cannot ride a header on a browser
  * handshake, so it goes in the query string the server also accepts.
  */
-function streamURL(endpoint: TerminalEndpoint, slug: string): string {
-  const url = new URL(endpoint.wsURL)
+function streamURL(wsURL: string, token: string, slug: string): string {
+  const url = new URL(wsURL)
   url.searchParams.set('slug', slug)
-  url.searchParams.set('token', endpoint.token)
+  url.searchParams.set('token', token)
   url.searchParams.set('v', TERMINAL_WIRE_VERSION)
   return url.toString()
 }

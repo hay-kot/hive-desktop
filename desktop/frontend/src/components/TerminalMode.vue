@@ -39,14 +39,14 @@ import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
 import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useWailsEvent } from '../composables/useWailsEvent'
-import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
+import { getTerminalEndpoint, type TerminalEngine, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
-const { checking, available, reason, client } = useTerminalAvailability()
+const { checking, available, reason, ptyAvailable, engine, client, openTransport, useEngine } = useTerminalAvailability()
 
 // Switching sessions must not blank the pane, so a switch no longer detaches:
 // the last few attaches stay live in this pool — control client, stream and
@@ -382,9 +382,10 @@ async function probe(): Promise<void> {
     const availability = await Available()
     available.value = availability.available
     reason.value = availability.reason
+    ptyAvailable.value = availability.ptyAvailable
     if (!availability.available) return
     if (!client.value) {
-      client.value = createTerminalClient(await getTerminalEndpoint())
+      openTransport(await getTerminalEndpoint())
       await reloadSessions()
       restoreLastSession()
     }
@@ -509,7 +510,7 @@ async function startSession(slug: string): Promise<void> {
 function requestKill(row: TerminalSessionRow): void {
   confirmation.request({
     title: 'Kill this terminal?',
-    description: `The tmux session behind ${row.name} is killed, stopping the agent and anything else running in it. Its checkout and its work are untouched, and you can start it again from here.`,
+    description: `The ${engine} session behind ${row.name} is killed, stopping the agent and anything else running in it. Its checkout and its work are untouched, and you can start it again from here.`,
     confirmLabel: 'Kill',
     onConfirm: () => killSession(row.slug),
   })
@@ -523,6 +524,25 @@ async function killSession(slug: string): Promise<void> {
   if (slug === activeSlug.value) void pool.get(slug)?.reconnect()
   else dropSession(slug)
   if (showAllWindows.value) void refreshListings(client.value, attachable.value)
+}
+
+const ENGINE_OPTIONS: { id: TerminalEngine, label: string, title: string }[] = [
+  { id: 'tmux', label: 'tmux', title: 'tmux control mode. Sessions live in the tmux server, so they survive Hive restarting and are shared with any terminal attached to them.' },
+  { id: 'pty', label: 'pty', title: 'Process-managed. Hive owns the shells directly — no multiplexer, no size negotiation — but the sessions end when Hive exits.' },
+]
+
+// Switching backends releases every attach: window ids, sessions and streams
+// belong to one engine, and nothing the old client opened means anything to the
+// new one. What was running is left running — this drops the view of it, not
+// the sessions themselves.
+function switchEngine(next: TerminalEngine): void {
+  if (next === engine.value || !client.value) return
+  const slug = activeSlug.value
+  for (const pooledSlug of [...pool.keys()]) dropSession(pooledSlug)
+  detachSession()
+  useEngine(next)
+  void reloadSessions()
+  if (slug) openSession(slug)
 }
 
 function openSession(slug: string): void {
@@ -673,6 +693,30 @@ onBeforeUnmount(() => {
               @close="sidebarMenuOpen = false"
               @select="onSidebarMenuSelect"
             />
+          </div>
+        </div>
+        <!-- The backend switch (ADR 0045). It renders only while both engines
+             are mounted, because it is a comparison control rather than a
+             setting: there is nothing to choose between when one is missing. -->
+        <div
+          v-if="ptyAvailable"
+          class="flex h-8 shrink-0 items-center gap-2 border-b border-border px-3"
+          data-testid="terminal-engine-switch"
+        >
+          <span class="font-mono text-[11px] uppercase tracking-[.08em] text-text-4">Engine</span>
+          <div class="ml-auto flex gap-0.5 rounded-[7px] bg-chip p-0.5" role="radiogroup" aria-label="Terminal backend">
+            <button
+              v-for="option in ENGINE_OPTIONS"
+              :key="option.id"
+              type="button"
+              role="radio"
+              class="cursor-pointer rounded-[5px] px-2 py-0.5 font-mono text-[11.5px]"
+              :class="engine === option.id ? 'bg-app text-text' : 'text-text-3 hover:text-text'"
+              :data-testid="`terminal-engine-${option.id}`"
+              :aria-checked="engine === option.id"
+              :title="option.title"
+              @click="switchEngine(option.id)"
+            >{{ option.label }}</button>
           </div>
         </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4">
@@ -948,7 +992,11 @@ onBeforeUnmount(() => {
             >
               <IconTerminal class="size-6 text-text-4" />
               <div class="text-[13.5px] font-semibold">Session not started</div>
-              <p class="max-w-[420px] text-xs leading-relaxed text-text-3">
+              <p v-if="engine === 'pty'" class="max-w-[420px] text-xs leading-relaxed text-text-3">
+                No terminal is running for <span class="font-mono text-text-2">{{ activeSlug }}</span> yet.
+                Starting it opens one shell in this session's checkout. It runs no agent command, and it ends when Hive exits.
+              </p>
+              <p v-else class="max-w-[420px] text-xs leading-relaxed text-text-3">
                 No terminal is running for <span class="font-mono text-text-2">{{ activeSlug }}</span> yet.
                 Starting it opens this session's configured windows and runs its agent command.
               </p>

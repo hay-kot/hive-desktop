@@ -10,26 +10,33 @@ import (
 )
 
 // TerminalTransport is what the terminal needs that the core does not hold: the
-// per-run bearer token and the path its WebSocket is mounted at. Both are
-// composed in main.go and handed here (ADR 0036).
+// per-run bearer token and the paths its WebSockets are mounted at. All are
+// composed in main.go and handed here (ADR 0036). PtyStreamPath is the
+// process-managed backend's stream, empty when it is not mounted (ADR 0045).
 type TerminalTransport struct {
-	Token      string
-	StreamPath string
+	Token         string
+	StreamPath    string
+	PtyStreamPath string
 }
 
 // TerminalAvailability is the frontend's only gate on terminal mode. Reason is
 // user-facing prose: no tmux, tmux too old, a server build, or no loopback
-// server to carry the transport.
+// server to carry the transport. PtyAvailable is a second axis rather than part
+// of Available: the process-managed backend needs no tmux, so a machine without
+// one can still open a terminal on it.
 type TerminalAvailability struct {
-	Available bool   `json:"available"`
-	Reason    string `json:"reason"`
+	Available    bool   `json:"available"`
+	Reason       string `json:"reason"`
+	PtyAvailable bool   `json:"ptyAvailable"`
 }
 
 // TerminalEndpoint bootstraps the webview: control actions go to HTTPBaseURL
-// with the bearer token, the data plane opens WSURL.
+// with the bearer token, the data plane opens WSURL — or PtyWSURL for the
+// process-managed backend, which is empty when that one is not mounted.
 type TerminalEndpoint struct {
 	HTTPBaseURL string `json:"httpBaseURL"`
 	WSURL       string `json:"wsURL"`
+	PtyWSURL    string `json:"ptyWSURL"`
 	Token       string `json:"token"`
 }
 
@@ -37,13 +44,14 @@ type TerminalEndpoint struct {
 // data path itself never crosses the Wails bridge.
 type TerminalService struct {
 	terminals *app.TerminalsService
+	pty       *app.PtyTerminalsService
 	webhooks  *app.WebhookService
 	transport TerminalTransport
 	enabled   bool
 }
 
-func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookService, transport TerminalTransport, enabled bool) *TerminalService {
-	return &TerminalService{terminals: terminals, webhooks: webhooks, transport: transport, enabled: enabled}
+func NewTerminalService(terminals *app.TerminalsService, pty *app.PtyTerminalsService, webhooks *app.WebhookService, transport TerminalTransport, enabled bool) *TerminalService {
+	return &TerminalService{terminals: terminals, pty: pty, webhooks: webhooks, transport: transport, enabled: enabled}
 }
 
 // Enabled reports the experimental.terminal opt-in (ADR 0037). The frontend
@@ -58,13 +66,15 @@ func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
 	if !s.enabled {
 		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ System, then relaunch Hive."}
 	}
+	endpoint, endpointErr := s.Endpoint(ctx)
+	pty := endpointErr == nil && endpoint.PtyWSURL != "" && s.pty.Available(ctx) == nil
 	if err := s.terminals.Available(ctx); err != nil {
-		return TerminalAvailability{Reason: reasonFor(err)}
+		return TerminalAvailability{Reason: reasonFor(err), PtyAvailable: pty}
 	}
-	if _, err := s.Endpoint(ctx); err != nil {
-		return TerminalAvailability{Reason: reasonFor(err)}
+	if endpointErr != nil {
+		return TerminalAvailability{Reason: reasonFor(endpointErr), PtyAvailable: pty}
 	}
-	return TerminalAvailability{Available: true}
+	return TerminalAvailability{Available: true, PtyAvailable: pty}
 }
 
 // Endpoint reports where the terminal server is reachable, or KindUnavailable
@@ -78,11 +88,15 @@ func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error
 		return TerminalEndpoint{}, app.Errorf(app.KindUnavailable, "The local HTTP server is not running, so the terminal has nothing to connect to. Check http.enabled in settings.yaml.")
 	}
 	authority := net.JoinHostPort(s.webhooks.Host(), strconv.Itoa(port))
-	return TerminalEndpoint{
+	endpoint := TerminalEndpoint{
 		HTTPBaseURL: "http://" + authority,
 		WSURL:       "ws://" + authority + s.transport.StreamPath,
 		Token:       s.transport.Token,
-	}, nil
+	}
+	if s.transport.PtyStreamPath != "" {
+		endpoint.PtyWSURL = "ws://" + authority + s.transport.PtyStreamPath
+	}
+	return endpoint, nil
 }
 
 // reasonFor takes the user-facing message off a core error; anything else is

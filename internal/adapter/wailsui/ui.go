@@ -159,7 +159,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewPromptsService(core.Prompts)),
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
-		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
+		application.NewService(NewTerminalService(core.Terminals, core.PtyTerminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

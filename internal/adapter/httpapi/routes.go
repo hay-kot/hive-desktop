@@ -70,6 +70,7 @@ func (ctrl *Controller) operations() []Op {
 	// index and OpenAPI document never advertise a surface that cannot work.
 	if ctrl.terminalToken != "" {
 		ops = append(ops, ctrl.terminalOperations()...)
+		ops = append(ops, ctrl.ptyTerminalOperations()...)
 	}
 	return ops
 }
@@ -178,6 +179,78 @@ func (ctrl *Controller) baseOperations() []Op {
 			Errors: []ErrResp{{Status: 404, When: "no such flow or node"}},
 		},
 	}
+}
+
+// ptyTerminalOperations is the process-managed backend: the same operations as
+// terminalOperations against sessions this process owns rather than tmux, so a
+// client swaps one prefix for the other and nothing else (ADR 0045). They ride
+// the same bearer token and CORS policy by sitting under the terminal prefix.
+func (ctrl *Controller) ptyTerminalOperations() []Op {
+	return []Op{
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "attach", Summary: "Attach to a process-managed session and return its windows. Attaching never spawns: a slug with no session answers 404, and " + PtyTerminalPathPrefix + "start is what creates it. cols/rows size the session outright rather than voting — nothing else is attached to these PTYs — and 0x0 leaves the size alone. The data plane is a WebSocket served at " + PtyTerminalStreamPath + ", carrying the same frames as the tmux stream.",
+			Request: terminalAttachRequest{}, Response: terminalAttachResponse{}, Handler: ctrl.PtyTerminalAttach,
+			Errors: ptyTerminalErrors("the slug names no running process-managed session"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "start", Summary: "Open a process-managed session for a slug: one login shell in the hive session's checkout, owned by this process. It runs no agent command — unlike the tmux backend there is no spawn configuration behind it — and it does not survive the app exiting.",
+			Request: terminalSlugRequest{}, Response: terminalStartResponse{}, Handler: ctrl.PtyTerminalStart,
+			Errors: ptyTerminalErrors("no hive session carries that slug",
+				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a shell in"}),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "kill", Summary: "End a process-managed session and every process in it, and report whether there was one to kill. The hive session, its checkout and its record are untouched.",
+			Request: terminalSlugRequest{}, Response: terminalKillResponse{}, Handler: ctrl.PtyTerminalKill,
+			Errors: ptyTerminalErrors(""),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "resize", Summary: "Set the size of every window in the session. This is applied, not voted on: one client renders these PTYs, so the size asked for is the size the processes are told.",
+			Request: terminalSizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.PtyTerminalResize,
+			Errors: ptyTerminalErrors("the slug names no running process-managed session"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "windows/new", Summary: "Spawn another shell in the session and return its window id.",
+			Request: terminalSlugRequest{}, Response: terminalNewWindowResponse{}, Handler: ctrl.PtyTerminalNewWindow,
+			Errors: ptyTerminalErrors("the slug names no running process-managed session"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "windows/close", Summary: "Hang up one window of the session. Closing the last one ends the session.",
+			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.PtyTerminalCloseWindow,
+			Errors: ptyTerminalErrors("the slug names no such session or window"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "windows/rename", Summary: "Rename one window. The name is this app's own label: no program inside the PTY can set it, and nothing outside the process can read it.",
+			Request: terminalRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.PtyTerminalRenameWindow,
+			Errors: ptyTerminalErrors("the slug names no such session or window"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "windows/select", Summary: "Make one window the session's active window.",
+			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.PtyTerminalSelectWindow,
+			Errors: ptyTerminalErrors("the slug names no such session or window"),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "windows/list", Summary: "List a session's windows without attaching. A slug with no session answers with none rather than an error.",
+			Request: terminalSlugRequest{}, Response: terminalWindowsResponse{}, Handler: ctrl.PtyTerminalListWindows,
+			Errors: ptyTerminalErrors(""),
+		},
+		{
+			Method: "POST", Path: PtyTerminalPathPrefix + "detach", Summary: "Release nothing. A process-managed session outlives every transport that streams it; this exists so one client interface serves both backends.",
+			Request: terminalSlugRequest{}, Status: http.StatusNoContent, Handler: ctrl.PtyTerminalDetach,
+			Errors: ptyTerminalErrors(""),
+		},
+	}
+}
+
+// ptyTerminalErrors is terminalErrors with the unavailable reason that fits
+// this backend: there is no program to install, so a 503 here is the build or
+// the platform and nothing a user can act on.
+func ptyTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
+	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
+	if notFound != "" {
+		errs = append(errs, ErrResp{Status: 404, When: notFound})
+	}
+	errs = append(errs, extra...)
+	return append(errs, ErrResp{Status: 503, When: "process-managed terminals are unavailable: an unsupported platform or a server build"})
 }
 
 func (ctrl *Controller) terminalOperations() []Op {

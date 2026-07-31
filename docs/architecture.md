@@ -817,6 +817,31 @@ session:
   compares its vote against the granted size and names the constraint; nothing
   re-votes to win the size back from the other client.
 
+#### The process-managed backend (experiment)
+
+`internal/app/ptyterm` is a second backend under the same surface: a PTY and a
+login shell per tab, owned by this process, with no multiplexer (ADR 0045). It
+exists to price what tmux costs, so **the two are deliberately interchangeable
+above the engine** — same event kinds, same wire frames, same request bodies,
+same `TerminalClient` interface, and `/api/terminal/pty/…` mirroring
+`/api/terminal/…` operation for operation under the same prefix, token and CORS
+policy. `cmd/termbench` drives both `Manager`s below HTTP and below xterm; ADR
+0045 carries the numbers.
+
+Three things differ, and each is a rule rather than a detail:
+
+- **A pty session dies with the app.** It is this process's child, so `App.Close`
+  ends it. There is no detach, no reattach across a restart, and nothing else
+  can attach to it.
+- **Size is applied, not negotiated.** One client renders these PTYs, so the
+  vote/grant rules above — and the size-constraint banner — belong to tmux alone.
+- **Replay is a byte ring, not `capture-pane`.** It restores scrollback tmux
+  cannot, and it can begin mid-escape-sequence, which tmux never does.
+
+Both are experimental and one of them will be deleted rather than abstracted
+over — do not add a shared interface across them, and do not extend one without
+deciding whether the other needs the same.
+
 On the frontend, a pane **always loads an atlas renderer** — WebGL, falling back
 to 2D canvas — after `term.open()` and never before, because only an atlas
 renderer strokes box drawing and underlines to the cell's device-pixel bounds;

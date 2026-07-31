@@ -41,6 +41,10 @@ run = "go run ./cmd/vendorhive"
 description = "Run the dev GitHub proxy + event simulator (see cmd/devserver). Point instances at it with HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE."
 run = "go run ./cmd/devserver --config cmd/devserver/devserver.yaml"
 
+[tasks.termbench]
+description = "Measure the tmux and process-managed terminal backends against each other (see cmd/termbench, ADR 0045)"
+run = "go run ./cmd/termbench"
+
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
 # The file list appears twice on purpose. `sources` must be a literal array:

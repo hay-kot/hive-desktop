@@ -14,6 +14,7 @@ const encoder = new TextEncoder()
 const endpoint = {
   httpBaseURL: 'http://127.0.0.1:58006',
   wsURL: 'ws://127.0.0.1:58006/api/terminal/stream',
+  ptyWSURL: 'ws://127.0.0.1:58006/api/terminal/pty/stream',
   token: 'tok-123',
 }
 
@@ -193,5 +194,58 @@ describe('createTerminalClient', () => {
 
     expect(socket.binaryType).toBe('arraybuffer')
     expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/stream?slug=hive-abc&token=tok-123&v=1')
+  })
+})
+
+// The engine is the only thing that differs between the two clients: same
+// interface, same bodies, same frames, a different prefix and stream. A
+// divergence here is the comparison measuring the transport rather than the
+// backend (ADR 0045).
+describe('createTerminalClient on the pty engine', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    globalThis.fetch = fetchMock as unknown as typeof fetch
+  })
+
+  it('posts the same bodies under the pty prefix', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { windows: [{ windowId: 'w1', name: 'zsh', active: true, width: 120, height: 40 }] }))
+
+    const result = await createTerminalClient(endpoint, 'pty').attach('hive-abc', 120, 40)
+
+    expect(result.windows).toEqual([{ windowId: 'w1', name: 'zsh', active: true, width: 120, height: 40 }])
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/pty/attach')
+    expect(init.headers.Authorization).toBe('Bearer tok-123')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', cols: 120, rows: 40 })
+  })
+
+  it('routes every control path under the pty prefix', async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+    const client = createTerminalClient(endpoint, 'pty')
+
+    await client.resize('hive-abc', 100, 30)
+    await client.closeWindow('hive-abc', 'w2')
+    await client.detach('hive-abc')
+
+    expect(fetchMock.mock.calls.map((call) => call[0])).toEqual([
+      'http://127.0.0.1:58006/api/terminal/pty/resize',
+      'http://127.0.0.1:58006/api/terminal/pty/windows/close',
+      'http://127.0.0.1:58006/api/terminal/pty/detach',
+    ])
+  })
+
+  it('opens the pty stream rather than the tmux one', () => {
+    const created: string[] = []
+    class FakeSocket {
+      binaryType = 'blob'
+      constructor(url: string) { created.push(url) }
+    }
+    globalThis.WebSocket = FakeSocket as unknown as typeof WebSocket
+
+    createTerminalClient(endpoint, 'pty').openStream('hive-abc')
+
+    expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/pty/stream?slug=hive-abc&token=tok-123&v=1')
   })
 })
