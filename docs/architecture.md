@@ -738,6 +738,21 @@ them is the constraint (ADR 0036):
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
+**A first paint is a pane's scrollback, its screen at exactly the window's
+height, and its cursor** (ADR 0046) — three tmux commands per pane, replayed
+as one byte stream into a fresh emulator. Two invariants hold it together and
+both are easy to break by accident. The screen must be written at the full
+window height, because an emulator pins its viewport to the last rows it was
+written and a short screen seats the pane's row 0 partway down it — every
+cursor-addressed redraw an alternate-screen program makes then lands that many
+rows off. And the cursor must be read *after* the paint gate's mark, because
+output produced between the read and the captures is corrected by the replay
+that follows, while output produced before the mark is discarded and never is.
+History is bounded at tmux's own default `history-limit` so an unconfigured
+tmux replays all of it and a configured one cannot make attach cost unbounded.
+`-J` joins wrapped rows in the history only: a joined screen row re-wraps into
+more rows than it was captured from and breaks the height.
+
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircle from '~icons/lucide/circle'
 import IconCircleAlert from '~icons/lucide/circle-alert'
@@ -17,6 +18,7 @@ import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
+import IconSearch from '~icons/lucide/search'
 import IconTerminal from '~icons/lucide/terminal'
 import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
@@ -359,6 +361,24 @@ const startError = ref('')
 const sessionError = computed(() => visible.value?.error.value ?? '')
 const actionError = computed(() => visible.value?.actionError.value ?? '')
 const sizeConstraint = computed(() => visible.value?.sizeConstraint.value ?? null)
+
+const search = computed(() => visible.value?.search.value ?? { open: false, query: '', matches: 0, index: 0 })
+const searchInput = ref<HTMLInputElement | null>(null)
+
+// The find bar opens from inside the pane (the terminal owns its keys), so the
+// focus move is driven by the state rather than by the handler that set it.
+watch(() => search.value.open, async (open) => {
+  if (!open) return
+  await nextTick()
+  searchInput.value?.select()
+})
+
+function searchLabel(): string {
+  if (!search.value.query) return ''
+  if (search.value.matches < 0) return 'many'
+  if (!search.value.matches) return 'no results'
+  return `${search.value.index}/${search.value.matches}`
+}
 
 // Every pooled session's panes stay mounted: a Terminal binds to one element
 // for its lifetime, and an incoming session's first paint has to land while
@@ -883,6 +903,17 @@ onBeforeUnmount(() => {
                 title="New window"
                 @click="visible?.newWindow()"
               ><IconPlus class="size-3.5" /></button>
+              <!-- The shortcut only reaches a focused pane, so the bar needs a
+                   way in from the chrome as well. -->
+              <button
+                type="button"
+                class="flex w-9 shrink-0 cursor-pointer items-center justify-center border-r border-border text-text-3 hover:bg-chip hover:text-text"
+                :class="search.open ? 'bg-chip text-text' : ''"
+                data-testid="terminal-search-open"
+                aria-label="Find in window"
+                title="Find in window"
+                @click="visible?.openSearch()"
+              ><IconSearch class="size-3.5" /></button>
             </div>
           </div>
 
@@ -932,15 +963,64 @@ onBeforeUnmount(() => {
           <template v-if="visible">
             <div v-if="!tabs.length && status !== 'ended'" class="flex flex-1 items-center justify-center font-mono text-xs text-text-4">Attaching…</div>
 
+            <!-- Floated over the pane rather than placed above it: a bar in the
+                 flex column would shrink the pane's box, and the box is what
+                 this client votes tmux's window size from — opening a find bar
+                 would reflow the session for every client attached to it. -->
+            <div
+              v-if="search.open && status !== 'ended'"
+              class="absolute right-5 top-3 z-10 flex items-center gap-1 rounded-md border border-strong bg-raised/95 py-1 pl-2 pr-1 shadow-lg"
+              data-testid="terminal-search"
+            >
+              <IconSearch class="size-3 shrink-0 text-text-4" />
+              <input
+                ref="searchInput"
+                :value="search.query"
+                type="text"
+                placeholder="Find"
+                spellcheck="false"
+                class="w-44 bg-transparent text-[11.5px] text-text outline-none placeholder:text-text-4"
+                data-testid="terminal-search-input"
+                @input="visible?.setSearchQuery(($event.target as HTMLInputElement).value)"
+                @keydown.enter.exact.prevent="visible?.findNext()"
+                @keydown.enter.shift.prevent="visible?.findPrevious()"
+                @keydown.esc.prevent="visible?.closeSearch()"
+              >
+              <span class="min-w-[54px] shrink-0 text-right font-mono text-[10.5px] text-text-4" data-testid="terminal-search-count">{{ searchLabel() }}</span>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Previous match"
+                data-testid="terminal-search-prev"
+                @click="visible?.findPrevious()"
+              ><IconChevronUp class="size-3" /></button>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Next match"
+                data-testid="terminal-search-next"
+                @click="visible?.findNext()"
+              ><IconChevronDown class="size-3" /></button>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Close find"
+                data-testid="terminal-search-close"
+                @click="visible?.closeSearch()"
+              ><IconX class="size-3" /></button>
+            </div>
+
             <!-- New output keeps landing below the fold while the viewport is
                  scrolled up; this is the way back to the live tail. -->
-            <button
-              v-if="activeScrolledUp && status !== 'ended'"
-              type="button"
-              class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
-              data-testid="terminal-scroll-to-bottom"
-              @click="visible?.scrollToBottom()"
-            ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            <Transition name="tail-pill">
+              <button
+                v-if="activeScrolledUp && status !== 'ended'"
+                type="button"
+                class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
+                data-testid="terminal-scroll-to-bottom"
+                @click="visible?.scrollToBottom()"
+              ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            </Transition>
 
             <!-- Selecting a session never starts it: starting runs the
                  session's own agent command, so it is offered here and taken
@@ -1052,9 +1132,18 @@ onBeforeUnmount(() => {
 .tree-enter-from, .tree-leave-to { opacity: 0; transform: translateY(-4px); }
 .tree-leave-active { position: absolute; left: 0; right: 0; }
 .tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .15s ease; }
+/* The pill pops rather than fades in: it appears over live output, and motion
+   is what separates it from the text moving behind it. Overshooting the scale
+   on the way in is the whole effect; leaving is a plain shrink, because an
+   affordance on its way out should not ask for attention. */
+.tail-pill-enter-active { transition: opacity .12s ease, transform .18s cubic-bezier(.2, 1.5, .4, 1); }
+.tail-pill-leave-active { transition: opacity .1s ease, transform .1s ease; }
+.tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
+
 @media (prefers-reduced-motion: reduce) {
   .tree-enter-active, .tree-leave-active, .tree-move,
-  .tree-expand-enter-active, .tree-expand-leave-active { transition: none; }
+  .tree-expand-enter-active, .tree-expand-leave-active,
+  .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
 }
 
 /* The shared slot keeps session names aligned while swapping liveness for actions. */

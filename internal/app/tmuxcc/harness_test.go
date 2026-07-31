@@ -39,6 +39,8 @@ type fakeTmux struct {
 	commands  []string
 	windows   []string
 	captures  map[string][]string
+	histories map[string][]string
+	cursors   map[string]string
 	failures  map[string]string
 	onCommand func(cmd string)
 	closed    bool
@@ -49,15 +51,17 @@ func newFakeTmux(t *testing.T, slug string) *fakeTmux {
 	stdinR, stdinW := io.Pipe()
 	stdoutR, stdoutW := io.Pipe()
 	f := &fakeTmux{
-		t:        t,
-		slug:     slug,
-		stdinR:   stdinR,
-		stdinW:   stdinW,
-		stdoutR:  stdoutR,
-		stdoutW:  stdoutW,
-		done:     make(chan struct{}),
-		captures: map[string][]string{},
-		failures: map[string]string{},
+		t:         t,
+		slug:      slug,
+		stdinR:    stdinR,
+		stdinW:    stdinW,
+		stdoutR:   stdoutR,
+		stdoutW:   stdoutW,
+		done:      make(chan struct{}),
+		captures:  map[string][]string{},
+		histories: map[string][]string{},
+		cursors:   map[string]string{},
+		failures:  map[string]string{},
 	}
 	t.Cleanup(f.closeStreams)
 	return f
@@ -147,9 +151,23 @@ func (f *fakeTmux) respond(cmd string) {
 		f.reply(windows, false)
 	case strings.HasPrefix(cmd, "capture-pane"):
 		f.mu.Lock()
+		// -E -1 ends the capture on the last history row, which is how a first
+		// paint asks for scrollback rather than the visible screen.
 		lines := f.captures[argAfter(cmd, "-t")]
+		if strings.Contains(cmd, "-E -1") {
+			lines = f.histories[argAfter(cmd, "-t")]
+		}
 		f.mu.Unlock()
 		f.reply(lines, false)
+	case strings.HasPrefix(cmd, "display-message"):
+		f.mu.Lock()
+		reported, ok := f.cursors[argAfter(cmd, "-t")]
+		f.mu.Unlock()
+		if !ok {
+			f.reply(nil, false)
+			return
+		}
+		f.reply([]string{reported}, false)
 	case strings.HasPrefix(cmd, "new-window"):
 		f.reply([]string{"@9"}, false)
 	default:
@@ -210,10 +228,24 @@ func (f *fakeTmux) setOnCommand(hook func(cmd string)) {
 	f.onCommand = hook
 }
 
+// setCapture sets a pane's visible screen. It is the only capture most tests
+// need; setHistory and setCursor cover the rest of a first paint.
 func (f *fakeTmux) setCapture(pane string, lines ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.captures[pane] = lines
+}
+
+func (f *fakeTmux) setHistory(pane string, lines ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.histories[pane] = lines
+}
+
+func (f *fakeTmux) setCursor(pane string, row, col int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.cursors[pane] = fmt.Sprintf("%d %d", row, col)
 }
 
 func (f *fakeTmux) sentCommands() []string {

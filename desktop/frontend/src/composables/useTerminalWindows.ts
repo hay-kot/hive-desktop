@@ -2,6 +2,7 @@ import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
@@ -16,7 +17,7 @@ import {
   type WindowEventKind,
   type WindowState,
 } from '../lib/terminalClient'
-import { xtermTheme } from '../lib/terminalTheme'
+import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
@@ -62,6 +63,19 @@ export interface TerminalWindowTab {
   fit: FitAddon
 }
 
+/**
+ * The find bar, which searches one window at a time: the active tab's buffer,
+ * scrollback included. `matches` is -1 when there are more than the addon will
+ * highlight, and `index` is the 1-based position of the current match, 0 for
+ * none.
+ */
+export interface TerminalSearch {
+  open: boolean
+  query: string
+  matches: number
+  index: number
+}
+
 export interface UseTerminalWindows {
   tabs: Ref<TerminalWindowTab[]>
   activeWindowId: Ref<string>
@@ -75,6 +89,12 @@ export interface UseTerminalWindows {
   actionError: Ref<string | null>
   sizeConstraint: Ref<TerminalSizeConstraint | null>
   dismissSizeConstraint: () => void
+  search: Ref<TerminalSearch>
+  openSearch: () => void
+  closeSearch: () => void
+  setSearchQuery: (query: string) => void
+  findNext: () => void
+  findPrevious: () => void
   start: () => Promise<void>
   reconnect: () => Promise<void>
   select: (windowId: string) => Promise<void>
@@ -114,12 +134,19 @@ const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
+  finder: SearchAddon
   disposers: IDisposable[]
   // An atlas renderer is live on this terminal. False after a context loss the
   // canvas claim did not survive, which is what makes the next activation
   // retry instead of leaving the pane on the DOM renderer. ADR 0045.
   rendered?: boolean
 }
+
+// How far off the live tail the viewport has to be before the way back is
+// offered. One wheel notch is about three rows, so a nudge — or the row of
+// drift a trackpad leaves behind — does not flash a pill at anyone; a scroll
+// meant as a scroll does.
+const TAIL_SLACK_ROWS = 5
 
 // The pane box belongs to the app window, not to a session, so one remembered
 // vote serves every session — including one being attached for the first time.
@@ -166,6 +193,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
   const sizeConstraint = ref<TerminalSizeConstraint | null>(null)
+  const search = ref<TerminalSearch>({ open: false, query: '', matches: 0, index: 0 })
 
   const runtime = new Map<string, TabRuntime>()
   const scope = effectScope(true)
@@ -191,6 +219,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     watch(theme, () => {
       const palette = xtermTheme()
       for (const tab of tabs.value) tab.term.options.theme = palette
+      // A decoration keeps the colour it was drawn with, so live highlights
+      // would stay in the old theme until the next keystroke.
+      if (search.value.open) runSearch('incremental')
     })
     // New cell metrics change how many cells fit the same box, so the vote
     // must re-run; the grid itself stays at tmux's size until tmux answers.
@@ -215,21 +246,43 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
+      // registerDecoration is still proposed API, and every find highlights
+      // through it — without this the first findNext throws and search is dead.
+      allowProposedApi: true,
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
     term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
+    const finder = markRaw(new SearchAddon())
+    term.loadAddon(finder)
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type !== 'keydown' || !isSearchCombo(event)) return true
+      openSearch()
+      return false
+    })
     runtime.set(state.windowId, {
+      finder,
       disposers: [
+        finder,
         term.onData((data: string) => sendInput(state.windowId, data)),
-        // onScroll covers user scrolling and the auto-pin on new output;
-        // onBufferChange covers entering the alternate screen, which has no
-        // scrollback and fires no scroll event on the way in.
+        // onScroll covers what output does to the buffer — the auto-pin to the
+        // tail, and a trim moving it — but *not* the user scrolling: xterm's
+        // viewport syncs the buffer from its own DOM scroll handler and
+        // suppresses the event to avoid feeding itself. attachTab listens to
+        // that DOM scroll for the other half.
         term.onScroll(() => refreshScrolledUp(state.windowId)),
+        // Entering the alternate screen has no scrollback and fires no scroll
+        // event on the way in.
         term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
+        // Fires as output lands too, not just on a new query: a match count is
+        // only true of the buffer it was counted in.
+        finder.onDidChangeResults(({ resultIndex, resultCount }) => {
+          if (activeWindowId.value !== state.windowId) return
+          search.value = { ...search.value, matches: resultCount, index: resultIndex + 1 }
+        }),
       ],
     })
     return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
@@ -241,7 +294,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const tab = findTab(windowId)
     if (!tab) return
     const buffer = tab.term.buffer.active
-    tab.scrolledUp = buffer.viewportY < buffer.baseY
+    tab.scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -259,9 +312,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   function setActive(windowId: string): void {
+    if (activeWindowId.value !== windowId) clearHighlights()
     activeWindowId.value = windowId
     for (const tab of tabs.value) tab.active = tab.windowId === windowId
     showRenderer(windowId)
+    // A search belongs to the buffer it ran against, so switching tabs re-runs
+    // it rather than carrying the old window's hit count onto the new one.
+    if (search.value.open) runSearch('incremental')
   }
 
   // A GL context is claimed when a window is first shown, not when its pane
@@ -276,6 +333,56 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     loadRenderer(state, tab.term)
   }
 
+  // ─── Find ────────────────────────────────────────────────────────────────
+  // One bar over one window: the active tab's buffer, scrollback included.
+
+  function openSearch(): void {
+    search.value = { ...search.value, open: true }
+    runSearch('incremental')
+  }
+
+  function closeSearch(): void {
+    clearHighlights()
+    search.value = { open: false, query: '', matches: 0, index: 0 }
+    focusActive()
+  }
+
+  function setSearchQuery(query: string): void {
+    search.value = { ...search.value, query }
+    runSearch('incremental')
+  }
+
+  function findNext(): void { runSearch('next') }
+  function findPrevious(): void { runSearch('previous') }
+
+  // 'incremental' keeps the viewport on the match it is already showing while
+  // the query is still being typed; the other two are the user stepping.
+  function runSearch(mode: 'incremental' | 'next' | 'previous'): void {
+    const finder = runtime.get(activeWindowId.value)?.finder
+    if (!finder) return
+    if (!search.value.query) {
+      finder.clearDecorations()
+      search.value = { ...search.value, matches: 0, index: 0 }
+      return
+    }
+    const highlight = searchHighlightColors()
+    const options: ISearchOptions = {
+      incremental: mode === 'incremental',
+      decorations: {
+        matchBackground: highlight.match,
+        matchOverviewRuler: highlight.match,
+        activeMatchBackground: highlight.active,
+        activeMatchColorOverviewRuler: highlight.active,
+      },
+    }
+    if (mode === 'previous') finder.findPrevious(search.value.query, options)
+    else finder.findNext(search.value.query, options)
+  }
+
+  function clearHighlights(): void {
+    for (const state of runtime.values()) state.finder.clearDecorations()
+  }
+
   function attachTab(windowId: string, host: HTMLElement): void {
     const tab = findTab(windowId)
     const state = runtime.get(windowId)
@@ -285,6 +392,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
+    watchViewportScroll(state, windowId, host)
     if (tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon
       // activation to its own open(), which would throw a missing-context
@@ -293,6 +401,21 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       tab.term.focus()
     }
     scheduleVote()
+  }
+
+  // The only signal that the user scrolled. xterm's own onScroll is suppressed
+  // on this path — the viewport reads its DOM scrollTop, syncs the buffer, and
+  // swallows the event so it cannot feed itself — so a wheel, a trackpad or a
+  // dragged scrollbar moves the viewport off the tail silently, and nothing
+  // would ever offer the way back. The element only exists after open(), and
+  // xterm's own listener is registered inside it, so ours runs second and reads
+  // a buffer already synced.
+  function watchViewportScroll(state: TabRuntime, windowId: string, host: HTMLElement): void {
+    const viewport = host.querySelector('.xterm-viewport')
+    if (!viewport) return
+    const onScroll = (): void => refreshScrolledUp(windowId)
+    viewport.addEventListener('scroll', onScroll, { passive: true })
+    state.disposers.push({ dispose: () => viewport.removeEventListener('scroll', onScroll) })
   }
 
   function scheduleVote(): void {
@@ -587,8 +710,18 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   return {
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
+    search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
     start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
+}
+
+// Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
+// emulator settled on, and for the reason they settled on it: a bare Ctrl+F is
+// readline's forward-char and belongs to the pane, not to us.
+function isSearchCombo(event: KeyboardEvent): boolean {
+  if (event.key !== 'f' && event.key !== 'F') return false
+  if (event.ctrlKey) return event.shiftKey && !event.metaKey
+  return event.metaKey && !event.altKey
 }
 
 function message(error: unknown, fallback: string): string {

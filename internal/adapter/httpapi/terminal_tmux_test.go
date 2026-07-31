@@ -671,3 +671,75 @@ func settleGoroutines(t *testing.T) {
 		baseline = current
 	}
 }
+
+// trailingCursor matches the cursor position a first paint ends with.
+var trailingCursor = regexp.MustCompile(`\x1b\[(\d+);(\d+)H$`)
+
+// paintedRows splits a first paint into the rows it wrote and the cursor it
+// ended on, which is the shape every alignment claim below is made against.
+func paintedRows(t *testing.T, painted string) ([]string, string) {
+	t.Helper()
+	cursor := trailingCursor.FindString(painted)
+	require.NotEmpty(t, cursor, "a first paint ends by restoring tmux's cursor: %q", painted)
+	return strings.Split(strings.TrimSuffix(painted, cursor), "\r\n"), cursor
+}
+
+// scrollPane fills a pane past its own height so the early lines are in tmux's
+// history rather than on the visible screen, and returns a line that is.
+func scrollPane(f *tmuxFixture, target string) string {
+	f.t.Helper()
+	f.tmux("send-keys", "-t", target, `for i in $(seq 1 80); do echo "scrollback-$i"; done`, "Enter")
+	f.awaitPane(target, "scrollback-80")
+	return "scrollback-1"
+}
+
+// The whole point of attaching to a session that has been running for hours is
+// seeing what it did before you got there. First paint carries tmux's own
+// scrollback so the tab opens with history behind it, not just the screen.
+func TestTmuxFirstPaintReplaysScrollback(t *testing.T) {
+	tmux := startTmux(t, "hive-scrollback")
+	h := newTerminalHarness(t)
+
+	scrolledAway := scrollPane(tmux, tmux.slug)
+	require.NotContains(t, tmux.tmux("capture-pane", "-p", "-t", tmux.slug), scrolledAway,
+		"the fixture only proves anything if that line really has left the screen")
+
+	h.attach(t, tmux.slug)
+	conn := h.dial(t, tmux.slug)
+	frame := readUntil(t, conn, "the first paint", func(f []byte) bool { return outputContains(t, f, scrolledAway) })
+
+	_, _, data, err := decodeOutputFrame(frame)
+	require.NoError(t, err)
+	rows, _ := paintedRows(t, string(data))
+	require.Greater(t, len(rows), 40, "history is painted above the screen, so the paint outgrows the grid")
+	require.Contains(t, strings.Join(rows[:len(rows)-40], "\r\n"), scrolledAway,
+		"a line that scrolled away is painted into the scrollback, not into the screen")
+}
+
+// A pane whose program is on the alternate screen still has scrollback in
+// tmux's normal buffer, and the paint has to carry both: the history above, and
+// the alternate screen filling the grid exactly. Painted short, the emulator
+// would seat the pane's top row partway down its viewport, and every
+// cursor-addressed redraw the program made afterwards would land rows off.
+func TestTmuxFirstPaintAlignsAnAlternateScreenPane(t *testing.T) {
+	tmux := startTmux(t, "hive-altscreen")
+	h := newTerminalHarness(t)
+
+	scrolledAway := scrollPane(tmux, tmux.slug)
+	tmux.tmux("send-keys", "-t", tmux.slug, `printf '\033[?1049h\033[H\033[2JALT-TOP-ROW\n'`, "Enter")
+	tmux.awaitPane(tmux.slug, "ALT-TOP-ROW")
+
+	h.attach(t, tmux.slug)
+	conn := h.dial(t, tmux.slug)
+	frame := readUntil(t, conn, "the first paint", func(f []byte) bool { return outputContains(t, f, "ALT-TOP-ROW") })
+
+	_, _, data, err := decodeOutputFrame(frame)
+	require.NoError(t, err)
+	rows, _ := paintedRows(t, string(data))
+	require.Greater(t, len(rows), 40)
+
+	screen := rows[len(rows)-40:]
+	assert.Contains(t, screen[0], "ALT-TOP-ROW", "the alternate screen's own first row is the grid's first row")
+	assert.Contains(t, strings.Join(rows[:len(rows)-40], "\r\n"), scrolledAway,
+		"the normal buffer's history is still reachable above an alternate screen")
+}
