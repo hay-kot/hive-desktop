@@ -17,6 +17,7 @@ import {
   type WindowState,
 } from '../lib/terminalClient'
 import { loadTerminalFaces, TERMINAL_FONT_STACK, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
@@ -255,9 +256,16 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
     term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
-      if (event.type !== 'keydown' || !isSearchCombo(event)) return true
-      openSearch()
-      return false
+      if (event.type !== 'keydown') return true
+      if (isSearchCombo(event)) {
+        openSearch()
+        return false
+      }
+      // The palette fires from App.vue's window listener, which runs after this
+      // one. Returning false only stops xterm from *also* sending the chord to
+      // the pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
+      if (isPaletteEscape(event)) return false
+      return true
     })
     runtime.set(state.windowId, {
       finder,
@@ -714,6 +722,12 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 // Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
 // emulator settled on, and for the reason they settled on it: a bare Ctrl+F is
 // readline's forward-char and belongs to the pane, not to us.
+// The command palette is reachable from inside a pane (App.vue), so the pane
+// must not consume its chord as well.
+function isPaletteEscape(event: KeyboardEvent): boolean {
+  return useKeybindings().resolve(terminalEscapeCombo(event) ?? '') === 'palette.toggle'
+}
+
 function isSearchCombo(event: KeyboardEvent): boolean {
   if (event.key !== 'f' && event.key !== 'F') return false
   if (event.ctrlKey) return event.shiftKey && !event.metaKey

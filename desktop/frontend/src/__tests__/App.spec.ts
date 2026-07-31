@@ -1184,17 +1184,47 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('lets a focused terminal keep every key, shortcuts included', async () => {
+  it('lets a focused terminal keep every key a pane can use', async () => {
     const wrapper = await mountApp()
     const { open: paletteOpen } = useCommandPalette()
 
     const pane = document.createElement('div')
     pane.setAttribute('data-terminal-input-scope', '')
     document.body.append(pane)
+
+    // Ctrl+K is readline's kill-to-end-of-line, and `mod+k` cannot tell it from
+    // ⌘K — so the pane keeps it even though it resolves to the palette.
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }))
+    // A bare navigation key is the pane's outright.
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'j', bubbles: true }))
+    await flushPromises()
+    expect(paletteOpen.value).toBe(false)
+
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // The palette is how you get back out of a pane, so it is the exception to
+  // the rule above — on the modifiers a terminal never wants.
+  it('opens the palette over a focused terminal on Cmd, and on Ctrl+Shift', async () => {
+    const wrapper = await mountApp()
+    const { open: paletteOpen } = useCommandPalette()
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+
     pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
     await flushPromises()
+    expect(paletteOpen.value).toBe(true)
 
-    expect(paletteOpen.value).toBe(false)
+    paletteOpen.value = false
+    await flushPromises()
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, shiftKey: true, bubbles: true }))
+    await flushPromises()
+    expect(paletteOpen.value).toBe(true)
+
+    paletteOpen.value = false
     pane.remove()
     wrapper.unmount()
   })

@@ -912,6 +912,15 @@ Three rules govern it, and each is a consequence of that:
   toggle opens a terminal outright, returns to a running one, and hands focus
   back where it came from on the way out. Anything that adds a step between the
   shortcut and a prompt is working against what this is for.
+- **A focused pane keeps every key it can use, and three things get one back.**
+  The pop-up toggle and any launcher chord, because the combo that opens one has
+  to close it; and the command palette, because it is the way back out of a
+  pane. The palette is the only one gated on modifiers rather than on the
+  binding alone — `terminalEscapeCombo` claims Command chords, and Ctrl+Shift
+  where there is no Command, dropping that Shift so one configured `mod+k`
+  matches on both. A bare Ctrl+K is readline's kill-to-end-of-line and stays
+  with the pane. Anything else added here has to answer why a pane may not have
+  the key.
 - **The panel's box is derived from the window, never stored.** Centred, a fixed
   fraction of it, following a resize; not draggable and not resizable for now.
   Restoring either means answering how a remembered box stays honest against a

@@ -34,6 +34,15 @@ const KEY_SYMBOLS: Record<string, string> = {
   tab: 'Tab', delete: 'Del', plus: '+',
 }
 
+// The punctuation event.code names, mapped to the character the same physical
+// key produces unmodified — the spelling the rest of this module uses.
+const PUNCTUATION_CODES: Record<string, string> = {
+  Backquote: '`', Minus: '-', Equal: '=', BracketLeft: '[', BracketRight: ']',
+  Backslash: '\\', Semicolon: ';', Quote: "'", Comma: ',', Period: '.', Slash: '/',
+}
+
+const NAMED_CODES = /^(Arrow(Up|Down|Left|Right)|Enter|Escape|Tab|Backspace|Delete|Space|Home|End|PageUp|PageDown)$/
+
 // ─── Pure helpers (exported for tests) ─────────────────────────────────────────
 
 /** Meta/Ctrl → `mod`, Alt/Option → `alt`; anything else is not a modifier. */
@@ -83,15 +92,42 @@ export function canonicalizeCombo(combo: string): string {
   return [...ordered, key].join('+')
 }
 
+/** The base key an event.key names, or null when it is not a bindable key. */
+function keyBase(e: KeyboardEvent): string | null {
+  const rawKey = e.key
+  if (!rawKey || IGNORED_KEYS.has(rawKey)) return null
+  return normalizeKey(rawKey) || null
+}
+
+/**
+ * The base key an event.code names, or null for a code this module has no
+ * spelling for. Only used for alt combos — see comboFromEvent.
+ */
+function baseFromCode(code: string): string | null {
+  if (/^Key[A-Z]$/.test(code)) return code.slice(3).toLowerCase()
+  if (/^Digit[0-9]$/.test(code)) return code.slice(5)
+  if (NAMED_CODES.test(code)) return code.toLowerCase()
+  return PUNCTUATION_CODES[code] ?? null
+}
+
 /**
  * Canonical combo for a keydown, or null when the event is not a bindable
  * keystroke (lone modifier, IME composition, unidentified key).
  */
 export function comboFromEvent(e: KeyboardEvent): string | null {
   if (e.isComposing || e.keyCode === 229) return null
-  const rawKey = e.key
-  if (!rawKey || IGNORED_KEYS.has(rawKey)) return null
-  const base = normalizeKey(rawKey)
+  // An alt combo takes its base from the physical key, not the character. On
+  // macOS Option composes: Option+G emits `©`, so reading event.key would make
+  // the combo `alt+©` and no binding a user would think to write could match
+  // it — and Option+E emits `Dead`, which keyBase drops outright. The cost is
+  // that alt binds by position, so a non-QWERTY layout gets the key where `g`
+  // sits on QWERTY; the alternative is alt bindings that cannot be spelled at
+  // all. Every other modifier still reads the character, which is what makes
+  // `?` (Shift+/) a combo rather than `shift+/`.
+  //
+  // A modifier held alone still falls through: its code (`AltLeft`) is not one
+  // baseFromCode spells, so keyBase answers and IGNORED_KEYS rejects it.
+  const base = (e.altKey && e.code ? baseFromCode(e.code) : null) ?? keyBase(e)
   if (!base) return null
 
   const mods = new Set<string>()
@@ -101,6 +137,31 @@ export function comboFromEvent(e: KeyboardEvent): string | null {
 
   const ordered = MODIFIER_ORDER.filter((m) => mods.has(m))
   return [...ordered, base].join('+')
+}
+
+/**
+ * The combo to resolve when a terminal pane has focus, or null when the pane
+ * should keep the keystroke.
+ *
+ * A pane owns every key it can use, so only modifiers a terminal never wants
+ * qualify: Cmd on macOS, Ctrl+Shift elsewhere. comboFromEvent cannot make that
+ * call on its own — it collapses Meta and Ctrl into one `mod` token, so `mod+k`
+ * cannot tell ⌘K from Ctrl+K, and Ctrl+K is readline's kill-to-end-of-line.
+ * Same split useTerminalWindows' isSearchCombo makes for ⌘F, for the same
+ * reason.
+ *
+ * The Shift is dropped from the Ctrl form before resolving: on a platform
+ * without Cmd, Ctrl+Shift is how a terminal emulator spells an app chord
+ * (Ctrl+Shift+C is ⌘C), so it stands in for Cmd rather than being part of the
+ * combo — which is what lets one configured `mod+k` match on both platforms.
+ */
+export function terminalEscapeCombo(e: KeyboardEvent): string | null {
+  const escapes = e.ctrlKey ? e.shiftKey && !e.metaKey : e.metaKey && !e.altKey
+  if (!escapes) return null
+  const combo = comboFromEvent(e)
+  if (!combo) return null
+  if (!e.ctrlKey) return combo
+  return canonicalizeCombo(combo.split('+').filter((token) => token !== 'shift').join('+'))
 }
 
 function detectMac(): boolean {

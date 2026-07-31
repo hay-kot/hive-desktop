@@ -40,7 +40,7 @@ import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { useLaunchers } from './composables/useLaunchers'
 import { useWailsEvent } from './composables/useWailsEvent'
-import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
+import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
 import { commands as bindableCommands, launcherActionID } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
@@ -908,16 +908,25 @@ useCommands(computed(() => {
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
 function onGlobalKeydown(e: KeyboardEvent): void {
-  // The pop-up's own shortcuts are the exception to the rule below: the combo
-  // that opens one has to be able to close it, and by then a terminal has
-  // focus. A launcher's chord is one of these for the same reason — quitting
-  // lazygit is not the only way you should be able to put it away. An overlay
-  // still suppresses them, the same as every other global command.
+  // The exceptions to the rule below, which hands a focused terminal every key.
+  // The combo that opens a pop-up has to be able to close it, and by then a
+  // terminal has focus; a launcher's chord is one of those for the same reason.
+  // The palette is the third, because it is how you get back out of a pane. An
+  // overlay still suppresses all of them, as it does every global command.
   if (!kb.recording.value && !anyOverlayOpen.value) {
     const id = kb.resolve(comboFromEvent(e) ?? '')
     if (id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)) {
       e.preventDefault()
       runCommand(id)
+      return
+    }
+    // The palette is the way back out of a pane, so it fires over one too — but
+    // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
+    // answers. A bare Ctrl+K stays with the pane; it is readline's
+    // kill-to-end-of-line.
+    if (isTerminalTarget(e.target) && kb.resolve(terminalEscapeCombo(e) ?? '') === 'palette.toggle') {
+      e.preventDefault()
+      togglePalette()
       return
     }
   }

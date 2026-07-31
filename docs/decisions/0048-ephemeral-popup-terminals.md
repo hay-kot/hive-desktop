@@ -57,12 +57,17 @@ and inheriting tmux's terms: availability that depends on a discovered binary
 
 5. **Getting in and out is the feature.** The toggle opens a shell immediately —
    no start affordance, no picker, nothing between the shortcut and a prompt —
-   and it is the only shortcut allowed to fire while a terminal has focus,
-   because the combo that opens it must be able to close it. Escape is never
+   and it is allowed to fire while a terminal has focus, which almost nothing
+   is, because the combo that opens it must be able to close it. Escape is never
    bound to dismiss: it belongs to whatever is running in the pane. Dismissing
    it returns focus to whatever held it before, because the pop-up is reached
    for mid-task and leaving focus on the body would cost the keystroke that
    dismissed it.
+
+   *This said "the only shortcut" when it was written. ADR 0049 added launcher
+   chords for the same reason, and the command palette joined them because it is
+   how you get back out of a pane — see architecture.md ▸ Pop-up terminals for
+   the rule as it now stands.*
 
    **The panel's box is derived from the window and nothing else** — centred, at
    a fixed fraction of it, following a window resize. It cannot be dragged or
