@@ -133,6 +133,29 @@ func (b *broker) unsubscribe(gen uint64) {
 	b.cond.Broadcast()
 }
 
+// reset releases the current subscriber and drops the undelivered backlog. It
+// is what a repaint runs first: the snapshot it is about to publish supersedes
+// every byte the backlog holds, and a subscriber still draining that backlog
+// would consume the snapshot instead of the one that asked for it. A closing
+// broker is left alone — its backlog is the last thing a live subscriber will
+// ever read.
+func (b *broker) reset() {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	if b.sub != nil {
+		close(b.sub.stop)
+		b.sub = nil
+		b.gen++
+	}
+	b.buf = nil
+	b.bytes = 0
+	b.mu.Unlock()
+	b.cond.Broadcast()
+}
+
 // close drains what a live subscriber can still take and closes its channel.
 // This is how a WebSocket write pump learns the client is gone.
 func (b *broker) close() {

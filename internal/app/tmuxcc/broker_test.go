@@ -216,6 +216,34 @@ func TestBrokerReplacementSubscriberSeesEveryUndeliveredEvent(t *testing.T) {
 	}
 }
 
+// The repaint behind a re-attach publishes a snapshot of everything the
+// backlog holds, so both have to go: a subscriber left draining would take the
+// snapshot with it, and the backlog would replay pre-snapshot bytes into the
+// emulator the snapshot is drawn for.
+func TestBrokerResetDropsTheBacklogAndItsSubscriber(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(0, nil)
+	dropped, _ := b.subscribe()
+	b.publish(outputEvent("@1", "stale"))
+
+	b.reset()
+	require.Zero(t, b.depth())
+
+	b.publish(outputEvent("@1", "painted"))
+	ch, unsubscribe := b.subscribe()
+	defer unsubscribe()
+	require.Equal(t, []byte("painted"), requireOutput(t, receive(t, ch)).Data,
+		"the next subscriber opens on the snapshot, not on what preceded it")
+
+	select {
+	case _, open := <-dropped:
+		require.False(t, open, "the subscriber the repaint is not for is released")
+	case <-time.After(2 * time.Second):
+		t.Fatal("the dropped channel stayed open")
+	}
+}
+
 // A pump parked on a subscriber that stopped reading cannot be woken by
 // Cond.Broadcast, so close has to reach it another way — otherwise a stalled
 // WebSocket peer leaks the pump past client teardown.
