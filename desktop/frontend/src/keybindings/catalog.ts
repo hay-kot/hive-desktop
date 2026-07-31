@@ -10,6 +10,7 @@ import IconMinus from '~icons/lucide/minus'
 import IconPanelRight from '~icons/lucide/panel-right'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSquarePlus from '~icons/lucide/square-plus'
+import IconTerminal from '~icons/lucide/terminal'
 
 // The single declarative source of truth for *bindable* commands — the stable
 // app actions a user can rebind from Settings ▸ Keybindings and that also seed
@@ -135,6 +136,15 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['session', 'create', 'hive', 'agent', 'launch', 'new'],
     icon: IconSquarePlus,
     defaultCombos: ['mod+shift+n'],
+    context: 'global',
+  },
+  {
+    id: 'terminal.popup.toggle',
+    title: 'Terminal pop-up',
+    group: 'General',
+    keywords: ['terminal', 'shell', 'popup', 'console', 'run', 'command', 'lazygit'],
+    icon: IconTerminal,
+    defaultCombos: ['mod+`'],
     context: 'global',
   },
   {

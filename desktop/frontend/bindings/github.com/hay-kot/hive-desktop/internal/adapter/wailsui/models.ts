@@ -190,6 +190,26 @@ export interface PathInfo {
     "overridden": boolean;
 }
 
+/**
+ * PopupTerminalAvailability gates the pop-up terminal. Unlike terminal mode it
+ * does not depend on tmux — there is no program to discover — so a machine
+ * without one still gets a pop-up shell.
+ */
+export interface PopupTerminalAvailability {
+    "available": boolean;
+    "reason": string;
+}
+
+/**
+ * PopupTerminalEndpoint bootstraps the webview: control actions go to
+ * HTTPBaseURL with the bearer token, the data plane opens WSURL.
+ */
+export interface PopupTerminalEndpoint {
+    "httpBaseURL": string;
+    "wsURL": string;
+    "token": string;
+}
+
 export interface ReportInput {
     "description": string;
     "contact": string;

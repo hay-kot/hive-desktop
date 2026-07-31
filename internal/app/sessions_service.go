@@ -285,6 +285,27 @@ func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) err
 	return nil
 }
 
+// SessionDirectory answers the checkout a slug's terminal should open in. A
+// session with no checkout left is a conflict rather than an empty path, so a
+// terminal is never opened somewhere the caller did not ask for.
+func (s *SessionsService) SessionDirectory(ctx context.Context, slug string) (string, error) {
+	if s.manager == nil {
+		return "", Errorf(KindUnavailable, "reading sessions is unavailable")
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return "", Errorf(KindInvalid, "session slug is required")
+	}
+	detail, err := s.detailBySlug(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	if detail.State != dispatch.SessionStateActive {
+		return "", Errorf(KindConflict, "session %q is %s, so there is no checkout left to open a terminal in", detail.Name, detail.State)
+	}
+	return detail.Path, nil
+}
+
 // detailBySlug reads the session a tmux session name belongs to. The listing is
 // what maps a slug to an id; nothing queries hive by slug.
 func (s *SessionsService) detailBySlug(ctx context.Context, slug string) (dispatch.SessionDetail, error) {

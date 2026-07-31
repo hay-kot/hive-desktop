@@ -37,6 +37,7 @@ import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
+import { usePopupTerminal } from './composables/usePopupTerminal'
 import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
 import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
@@ -65,6 +66,9 @@ const DevView = devMode ? defineAsyncComponent(() => import('./components/DevVie
 // Async so xterm.js stays out of the initial bundle: terminal mode is opt-in
 // and the hub must not pay for it at startup.
 const TerminalMode = defineAsyncComponent(() => import('./components/TerminalMode.vue'))
+// Same reason, and mounted only once the pop-up is first asked for — after
+// which it stays mounted, because hiding it must not end the shell inside it.
+const PopupTerminal = defineAsyncComponent(() => import('./components/PopupTerminal.vue'))
 
 const {
   status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
@@ -722,6 +726,19 @@ const {
 } = useNewSession()
 const kb = useKeybindings()
 
+// The pop-up terminal opens in the checkout of whichever session is on screen,
+// and in the user's home when none is (ADR 0048). The panel is mounted on first
+// use and stays mounted: hiding it is a view change, not the end of the shell.
+const popupTerminal = usePopupTerminal()
+const popupTerminalMounted = ref(false)
+const popupTerminalSlug = computed(() =>
+  (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
+
+function togglePopupTerminal(): void {
+  popupTerminalMounted.value = true
+  popupTerminal.toggle({ sessionSlug: popupTerminalSlug.value || undefined })
+}
+
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
 // implementation and the palette can show its live shortcut.
@@ -738,6 +755,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
+  'terminal.popup.toggle': togglePopupTerminal,
   'session.new': openNewSession,
   'window.hide': hideWindow,
 }
@@ -858,6 +876,15 @@ useCommands(computed(() => {
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
 function onGlobalKeydown(e: KeyboardEvent): void {
+  // The pop-up's own shortcut is the exception to the rule below: the combo
+  // that opens it has to be able to close it, and by then a terminal has focus.
+  // An overlay still suppresses it, the same as every other global command.
+  if (!kb.recording.value && !anyOverlayOpen.value && kb.resolve(comboFromEvent(e) ?? '') === 'terminal.popup.toggle') {
+    e.preventDefault()
+    togglePopupTerminal()
+    return
+  }
+
   // A focused terminal owns every key, modifiers included, so tmux prefixes
   // reach the pane instead of firing a Hive shortcut.
   if (isTerminalTarget(e.target)) return
@@ -1171,6 +1198,7 @@ onUnmounted(() => {
       @cancel="markWorkspaceReadOpen = false"
     />
     <ToastStack :toasts="toasts" @dismiss="dismissToast" @clear-all="clearToasts" />
+    <PopupTerminal v-if="popupTerminalMounted" />
     <CommandPalette />
     <ReportProblemDialog v-if="reportDialogOpen" @close="reportDialogOpen = false" />
     <NewProfileModal
