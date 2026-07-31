@@ -13,6 +13,9 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as actions$0 from "../../app/actions/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
@@ -32,6 +35,14 @@ export function CreateSession(req: dispatch$0.CreateSessionRequest): $Cancellabl
  */
 export function DeleteSession(id: string): $CancellablePromise<number> {
     return $Call.ByID(3432643808, id);
+}
+
+/**
+ * InvokeTerminalAction runs an action against a terminal target as a
+ * background job and returns the job id; its outcome surfaces in the jobs UI.
+ */
+export function InvokeTerminalAction(actionID: string, target: dispatch$0.TerminalTarget, inputs: { [_ in string]?: string } | null): $CancellablePromise<number> {
+    return $Call.ByID(1725694937, actionID, target, inputs);
 }
 
 /**
@@ -67,6 +78,15 @@ export function RenameSession(id: string, name: string): $CancellablePromise<dis
 }
 
 /**
+ * RenderTerminalClipboardAction returns the text a clipboard action renders
+ * for a terminal target. The frontend writes it through the native Wails
+ * clipboard; the core produces the text and never touches the clipboard.
+ */
+export function RenderTerminalClipboardAction(actionID: string, target: dispatch$0.TerminalTarget, inputs: { [_ in string]?: string } | null): $CancellablePromise<string> {
+    return $Call.ByID(1669017381, actionID, target, inputs);
+}
+
+/**
  * SessionDetail reads one session in full, for the detail view.
  */
 export function SessionDetail(id: string): $CancellablePromise<dispatch$0.SessionDetail> {
@@ -91,4 +111,13 @@ export function SessionRisk(id: string): $CancellablePromise<dispatch$0.SessionR
  */
 export function SessionStatuses(): $CancellablePromise<$models.SessionStatusSnapshot> {
     return $Call.ByID(1334914099);
+}
+
+/**
+ * TerminalActionViews returns the configured actions the terminal offers on
+ * one of its surfaces — "session" for a session row, "window" for a window
+ * row.
+ */
+export function TerminalActionViews(target: string): $CancellablePromise<actions$0.View[] | null> {
+    return $Call.ByID(1700509317, target);
 }

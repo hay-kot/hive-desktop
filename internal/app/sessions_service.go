@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
@@ -54,17 +56,33 @@ type sessionJobRunner interface {
 }
 
 // SessionsService is the desktop's session surface: the New Session form's
-// launch path, and read plus lifecycle management of the sessions that exist.
+// launch path, read plus lifecycle management of the sessions that exist, and
+// the configured actions a terminal session or window offers.
 type SessionsService struct {
-	launcher sessionLauncher
-	manager  sessionManager
-	statuses sessionStatusSource
-	tmux     sessionTmux
-	jobs     sessionJobRunner
+	launcher   sessionLauncher
+	manager    sessionManager
+	statuses   sessionStatusSource
+	tmux       sessionTmux
+	jobs       sessionJobRunner
+	catalog    *actions.ActionStore
+	dispatcher *dispatch.Dispatcher
+	recorder   activity.Recorder
 }
 
-func newSessionsService(launcher sessionLauncher, manager sessionManager, statuses sessionStatusSource, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
-	return &SessionsService{launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs}
+func newSessionsService(
+	launcher sessionLauncher,
+	manager sessionManager,
+	statuses sessionStatusSource,
+	tmux sessionTmux,
+	jobs sessionJobRunner,
+	catalog *actions.ActionStore,
+	dispatcher *dispatch.Dispatcher,
+	recorder activity.Recorder,
+) *SessionsService {
+	return &SessionsService{
+		launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs,
+		catalog: catalog, dispatcher: dispatcher, recorder: recorder,
+	}
 }
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
@@ -265,6 +283,27 @@ func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) err
 		return Wrap(err, KindInternal, "starting the terminal session for %q", detail.Name)
 	}
 	return nil
+}
+
+// SessionDirectory answers the checkout a slug's terminal should open in. A
+// session with no checkout left is a conflict rather than an empty path, so a
+// terminal is never opened somewhere the caller did not ask for.
+func (s *SessionsService) SessionDirectory(ctx context.Context, slug string) (string, error) {
+	if s.manager == nil {
+		return "", Errorf(KindUnavailable, "reading sessions is unavailable")
+	}
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		return "", Errorf(KindInvalid, "session slug is required")
+	}
+	detail, err := s.detailBySlug(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	if detail.State != dispatch.SessionStateActive {
+		return "", Errorf(KindConflict, "session %q is %s, so there is no checkout left to open a terminal in", detail.Name, detail.State)
+	}
+	return detail.Path, nil
 }
 
 // detailBySlug reads the session a tmux session name belongs to. The listing is

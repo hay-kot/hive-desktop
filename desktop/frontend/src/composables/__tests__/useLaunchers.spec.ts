@@ -1,0 +1,76 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+const service = vi.hoisted(() => ({ Launchers: vi.fn() }))
+
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/popupterminalservice', () => ({
+  Launchers: service.Launchers,
+}))
+
+beforeEach(() => {
+  service.Launchers.mockReset()
+  vi.resetModules()
+})
+
+describe('useLaunchers', () => {
+  it('turns each configured launcher into a bindable command', async () => {
+    service.Launchers.mockResolvedValue([
+      { id: 'lazygit', label: 'lazygit', icon: 'git-branch' },
+      { id: 'btop', label: '', icon: '' },
+    ])
+    const { useLaunchers } = await import('../useLaunchers')
+    const { commands } = await import('../../keybindings/catalog')
+
+    await useLaunchers().refresh()
+
+    const launchers = commands.value.filter((command) => command.group === 'Launchers')
+    expect(launchers.map((command) => [command.id, command.title])).toEqual([
+      ['launcher.lazygit', 'lazygit'],
+      // A launcher with no label falls back to its id rather than an empty row.
+      ['launcher.btop', 'btop'],
+    ])
+    // Unbound until the user says otherwise: config must not claim a chord.
+    expect(launchers.every((command) => command.defaultCombos.length === 0)).toBe(true)
+  })
+
+  it('replaces the previous set rather than accumulating', async () => {
+    service.Launchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: '' }])
+    const { useLaunchers } = await import('../useLaunchers')
+    const { commands } = await import('../../keybindings/catalog')
+    await useLaunchers().refresh()
+
+    service.Launchers.mockResolvedValue([{ id: 'btop', label: 'btop', icon: '' }])
+    await useLaunchers().refresh()
+
+    expect(commands.value.filter((command) => command.group === 'Launchers').map((c) => c.id))
+      .toEqual(['launcher.btop'])
+  })
+
+  // Losing every launcher shortcut over one failed read is worse than serving
+  // the set from a moment ago.
+  it('keeps the registered launchers when the catalog cannot be read', async () => {
+    service.Launchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: '' }])
+    const { useLaunchers } = await import('../useLaunchers')
+    const { commands } = await import('../../keybindings/catalog')
+    await useLaunchers().refresh()
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    service.Launchers.mockRejectedValue(new Error('unavailable'))
+    await useLaunchers().refresh()
+
+    expect(warn).toHaveBeenCalled()
+    expect(commands.value.filter((command) => command.group === 'Launchers').map((c) => c.id))
+      .toEqual(['launcher.lazygit'])
+    warn.mockRestore()
+  })
+
+  // A null crossing the Wails bridge is an empty catalog, not a failure.
+  it('reads a null answer as no launchers', async () => {
+    service.Launchers.mockResolvedValue(null)
+    const { useLaunchers } = await import('../useLaunchers')
+    const { commands } = await import('../../keybindings/catalog')
+
+    await useLaunchers().refresh()
+
+    expect(commands.value.some((command) => command.group === 'Launchers')).toBe(false)
+  })
+})

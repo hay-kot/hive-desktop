@@ -21,6 +21,19 @@ export interface AppearanceSettings {
     "terminalFontSize": string;
 
     /**
+     * TerminalFontFamily is an installed monospace family for the terminal
+     * alone; empty is the bundled face.
+     */
+    "terminalFontFamily": string;
+
+    /**
+     * The CSS weights normal and bold cells draw at. Zero means nothing
+     * persisted — the frontend owns the defaults and heals anything else.
+     */
+    "terminalFontWeight": number;
+    "terminalFontWeightBold": number;
+
+    /**
      * TerminalShowWindows lists every active session's tmux windows in the
      * terminal sidebar, not just the attached session's. Ships on.
      */
@@ -188,6 +201,26 @@ export interface PathInfo {
      * meaningful for the data and config directories; always false otherwise.
      */
     "overridden": boolean;
+}
+
+/**
+ * PopupTerminalAvailability gates the pop-up terminal. Unlike terminal mode it
+ * does not depend on tmux — there is no program to discover — so a machine
+ * without one still gets a pop-up shell.
+ */
+export interface PopupTerminalAvailability {
+    "available": boolean;
+    "reason": string;
+}
+
+/**
+ * PopupTerminalEndpoint bootstraps the webview: control actions go to
+ * HTTPBaseURL with the bearer token, the data plane opens WSURL.
+ */
+export interface PopupTerminalEndpoint {
+    "httpBaseURL": string;
+    "wsURL": string;
+    "token": string;
 }
 
 export interface ReportInput {

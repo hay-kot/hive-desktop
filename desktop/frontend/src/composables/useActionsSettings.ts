@@ -1,9 +1,12 @@
 import { onMounted, ref } from 'vue'
-import { CreateAction, DeleteAction, ListActions, ReorderActions, UpdateAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice'
-import type { EditableAction } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
+import {
+  CreateAction, CreateLauncher, DeleteAction, DeleteLauncher,
+  ListActions, ReorderActions, UpdateAction, UpdateLauncher,
+} from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice'
+import type { EditableAction, Launcher } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import { useWailsEvent } from './useWailsEvent'
 
-export type { EditableAction }
+export type { EditableAction, Launcher }
 export type ActionType = EditableAction['type']
 
 function message(error: unknown, fallback: string): string {
@@ -13,8 +16,13 @@ function message(error: unknown, fallback: string): string {
 // Wails mutation notifications and fsnotify can both report the same write.
 // One queued read is enough; the generation prevents an older Promise from
 // replacing a catalog requested after it began.
+//
+// Launchers ride the same read and the same wake: they are the other list in
+// actions.yml, so a second composable would mean a second reload race over one
+// file for no gain.
 export function useActionsSettings() {
   const actions = ref<EditableAction[]>([])
+  const launchers = ref<Launcher[]>([])
   const loading = ref(false)
   const error = ref<string | null>(null)
   let generation = 0
@@ -30,6 +38,7 @@ export function useActionsSettings() {
       const catalog = await ListActions()
       if (token === generation) {
         actions.value = catalog?.actions ?? []
+        launchers.value = catalog?.launchers ?? []
         error.value = catalog?.error || null
       }
     } catch (err) {
@@ -77,6 +86,20 @@ export function useActionsSettings() {
       return false
     }
   }
+  async function createLauncher(launcher: Launcher): Promise<Launcher | null> {
+    try { const result = await CreateLauncher(launcher); await reload(); return result } catch (err) { error.value = message(err, 'Could not create launcher.'); return null }
+  }
+  async function updateLauncher(id: string, launcher: Launcher): Promise<Launcher | null> {
+    try { const result = await UpdateLauncher(id, launcher); await reload(); return result } catch (err) { error.value = message(err, 'Could not update launcher.'); return null }
+  }
+  async function removeLauncher(id: string): Promise<boolean> {
+    try { await DeleteLauncher(id); await reload(); return true } catch (err) { error.value = message(err, 'Could not delete launcher.'); return false }
+  }
+
   onMounted(() => { void reload(); useWailsEvent('actions:updated', wake) })
-  return { actions, loading, error, reload, create, update, remove, reorder }
+  return {
+    actions, launchers, loading, error, reload,
+    create, update, remove, reorder,
+    createLauncher, updateLauncher, removeLauncher,
+  }
 }

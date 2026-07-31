@@ -1,10 +1,24 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ISearchOptions } from '@xterm/addon-search'
 import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWindows'
-import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
+import {
+  defaultTerminalFontWeight,
+  defaultTerminalFontWeightBold,
+  setTerminalFontFamily,
+  setTerminalFontSize,
+  setTerminalFontWeight,
+  terminalFontSizePx,
+} from '../useTerminalFont'
+import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
 const xterm = vi.hoisted(() => {
+  interface FakeLine {
+    isWrapped: boolean
+    getCell: (column: number) => { getChars: () => string; getWidth: () => number } | undefined
+  }
+
   class FakeTerminal {
     cols = 80
     rows = 24
@@ -12,17 +26,40 @@ const xterm = vi.hoisted(() => {
     write = vi.fn()
     focus = vi.fn()
     open = vi.fn()
-    loadAddon = vi.fn()
+    loadAddon = vi.fn((addon: { activate?: (term: FakeTerminal) => void }) => addon.activate?.(this))
     dispose = vi.fn()
-    resize = vi.fn((cols: number, rows: number) => { this.cols = cols; this.rows = rows })
+    resizeEffect?: (term: FakeTerminal) => void
+    resize = vi.fn((cols: number, rows: number) => {
+      this.cols = cols
+      this.rows = rows
+      this.resizeEffect?.(this)
+    })
     onDataDisposed = false
+    private lines = new Map<number, FakeLine>()
     buffer = {
-      active: { viewportY: 0, baseY: 0 },
+      active: {
+        type: 'normal' as 'normal' | 'alternate',
+        cursorY: 0,
+        viewportY: 0,
+        baseY: 0,
+        length: 0,
+        getLine: (line: number) => this.lines.get(line),
+      },
       onBufferChange: (handler: () => void) => {
         this.bufferHandlers.push(handler)
         return { dispose: () => {} }
       },
     }
+    markers: { line: number; dispose: ReturnType<typeof vi.fn> }[] = []
+    registerMarker = vi.fn((cursorYOffset = 0) => {
+      const marker = {
+        line: this.buffer.active.baseY + this.buffer.active.cursorY + cursorYOffset,
+        dispose: vi.fn(() => { marker.line = -1 }),
+      }
+      this.markers.push(marker)
+      return marker
+    })
+    scrollToLine = vi.fn((line: number) => { this.buffer.active.viewportY = Math.min(line, this.buffer.active.baseY) })
     scrollToBottom = vi.fn(() => {
       this.buffer.active.viewportY = this.buffer.active.baseY
       for (const handler of this.scrollHandlers) handler()
@@ -30,6 +67,7 @@ const xterm = vi.hoisted(() => {
     private handlers: ((data: string) => void)[] = []
     private scrollHandlers: (() => void)[] = []
     private bufferHandlers: (() => void)[] = []
+    private keyHandler?: (event: KeyboardEvent) => boolean
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }
@@ -46,6 +84,14 @@ const xterm = vi.hoisted(() => {
       return { dispose: () => {} }
     }
 
+    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+      this.keyHandler = handler
+    }
+
+    press(event: Partial<KeyboardEvent>): boolean {
+      return this.keyHandler?.({ type: 'keydown', ...event } as KeyboardEvent) ?? true
+    }
+
     type(data: string): void {
       for (const handler of this.handlers) handler(data)
     }
@@ -55,6 +101,15 @@ const xterm = vi.hoisted(() => {
       this.buffer.active.baseY = baseY
       for (const handler of this.scrollHandlers) handler()
     }
+
+    setLine(line: number, isWrapped: boolean): void {
+      this.lines.set(line, {
+        isWrapped,
+        getCell: () => ({ getChars: () => 'x', getWidth: () => 1 }),
+      })
+    }
+
+    clearLines(): void { this.lines.clear() }
 
     switchBuffer(): void {
       for (const handler of this.bufferHandlers) handler()
@@ -117,13 +172,49 @@ const xterm = vi.hoisted(() => {
     }
   }
 
-  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeWebLinksAddon }
+  // The real addon reports hit counts through onDidChangeResults, so the fake
+  // has to be driven the same way: a find only produces a count if it fires.
+  // It also reproduces the one way a find fails outright — highlighting goes
+  // through Terminal.registerDecoration, which is proposed API and throws on a
+  // terminal that did not opt in, so a search that highlights is dead without
+  // it and no assertion about the results would ever be reached.
+  class FakeSearchAddon {
+    static instances: FakeSearchAddon[] = []
+    static results: { resultIndex: number; resultCount: number } = { resultIndex: 0, resultCount: 1 }
+    dispose = vi.fn()
+    activate = vi.fn((term: FakeTerminal) => { this.proposedApi = term.options.allowProposedApi === true })
+    clearDecorations = vi.fn()
+    findNext = vi.fn((term: string, options?: ISearchOptions) => this.record('next', term, options))
+    findPrevious = vi.fn((term: string, options?: ISearchOptions) => this.record('previous', term, options))
+    calls: { mode: string; term: string; options?: ISearchOptions }[] = []
+    private proposedApi = false
+    private resultHandlers: ((results: { resultIndex: number; resultCount: number }) => void)[] = []
+
+    constructor() { FakeSearchAddon.instances.push(this) }
+
+    onDidChangeResults(handler: (results: { resultIndex: number; resultCount: number }) => void) {
+      this.resultHandlers.push(handler)
+      return { dispose: () => {} }
+    }
+
+    private record(mode: string, term: string, options?: ISearchOptions): boolean {
+      if (options?.decorations && !this.proposedApi) {
+        throw new Error('You must set the allowProposedApi option to true to use proposed API')
+      }
+      this.calls.push({ mode, term, options })
+      for (const handler of this.resultHandlers) handler(FakeSearchAddon.results)
+      return true
+    }
+  }
+
+  return { FakeTerminal, FakeFitAddon, FakeWebglAddon, FakeCanvasAddon, FakeSearchAddon, FakeWebLinksAddon }
 })
 
 const wails = vi.hoisted(() => ({ OpenURL: vi.fn(() => Promise.resolve()) }))
 
 vi.mock('@xterm/xterm', () => ({ Terminal: xterm.FakeTerminal }))
 vi.mock('@xterm/addon-fit', () => ({ FitAddon: xterm.FakeFitAddon }))
+vi.mock('@xterm/addon-search', () => ({ SearchAddon: xterm.FakeSearchAddon }))
 vi.mock('@xterm/addon-webgl', () => ({ WebglAddon: xterm.FakeWebglAddon }))
 vi.mock('@xterm/addon-canvas', () => ({ CanvasAddon: xterm.FakeCanvasAddon }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: xterm.FakeWebLinksAddon }))
@@ -195,8 +286,14 @@ function open(client: MockedClient) {
 // happy-dom lays nothing out, so a plain div measures 0×0 — which the
 // composable rightly refuses to vote from. A pane meant to be visible
 // stubs its box.
+// term.open() builds .xterm-viewport inside the host and the composable hangs
+// its scroll listener off it. The fake Terminal opens nothing, so the host has
+// to stand in for what xterm would have put there.
 function paneHost(): HTMLElement {
   const host = document.createElement('div')
+  const viewport = document.createElement('div')
+  viewport.className = 'xterm-viewport'
+  host.appendChild(viewport)
   Object.defineProperties(host, {
     clientWidth: { value: 800 },
     clientHeight: { value: 600 },
@@ -261,6 +358,8 @@ describe('useTerminalWindows', () => {
     xterm.FakeFitAddon.instances = []
     xterm.FakeWebglAddon.instances = []
     xterm.FakeCanvasAddon.instances = []
+    xterm.FakeSearchAddon.instances = []
+    xterm.FakeSearchAddon.results = { resultIndex: 0, resultCount: 1 }
     xterm.FakeWebglAddon.unavailable = false
     xterm.FakeCanvasAddon.unavailable = false
     xterm.FakeWebLinksAddon.instances = []
@@ -302,6 +401,24 @@ describe('useTerminalWindows', () => {
     expect(session.tabs.value[0].term.write).not.toHaveBeenCalled()
     const written = (session.tabs.value[1].term.write as ReturnType<typeof vi.fn>).mock.calls[0][0]
     expect(new TextDecoder().decode(written)).toBe('from the shell')
+  })
+
+  it('coalesces a synchronized redraw split across tmux output frames', async () => {
+    const { client, session, socket } = await attached()
+    const term = session.tabs.value[0].term
+    const write = term.write as ReturnType<typeof vi.fn>
+    const resizeCalls = (term.resize as ReturnType<typeof vi.fn>).mock.calls.length
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', '\x1b[?2026h\x1b[2Kworking') })
+    expect(write).not.toHaveBeenCalled()
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', '\r\n\x1b[2K> prompt\x1b[?2026l') })
+
+    expect(write).toHaveBeenCalledTimes(1)
+    expect(new TextDecoder().decode(write.mock.calls[0][0]))
+      .toBe('\x1b[?2026h\x1b[2Kworking\r\n\x1b[2K> prompt\x1b[?2026l')
+    expect(term.resize).toHaveBeenCalledTimes(resizeCalls)
+    expect(client.resize).not.toHaveBeenCalled()
   })
 
   // 'live' only says the socket opened; the first-paint capture is still in
@@ -392,6 +509,78 @@ describe('useTerminalWindows', () => {
 
     expect(session.tabs.value[1].term.resize).toHaveBeenLastCalledWith(80, 24)
     expect(session.tabs.value[0].term.resize).toHaveBeenLastCalledWith(213, 55)
+  })
+
+  it('keeps a viewport following the live tail pinned through reflow', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 120
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 180
+      term.buffer.active.viewportY = 60
+    }
+    term.scrollToBottom.mockClear()
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.scrollToBottom).toHaveBeenCalledTimes(1)
+    expect(term.resize.mock.invocationCallOrder.at(-1))
+      .toBeLessThan(term.scrollToBottom.mock.invocationCallOrder[0])
+    expect(term.buffer.active.viewportY).toBe(180)
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  it('keeps a logical-line anchor through reflow and refreshes the tail fallback', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 40
+    term.buffer.active.cursorY = 3
+    term.setLine(39, false)
+    term.setLine(40, true)
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 160
+      term.buffer.active.viewportY = 100
+      term.clearLines()
+      term.setLine(50, false)
+      term.setLine(51, true)
+      term.setLine(52, true)
+      term.setLine(53, true)
+      term.markers[0].line = 50
+    }
+    term.scrollToBottom.mockClear()
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.registerMarker).toHaveBeenCalledWith(-84)
+    expect(term.scrollToLine).toHaveBeenCalledWith(52)
+    expect(term.scrollToBottom).not.toHaveBeenCalled()
+    expect(term.markers[0].dispose).toHaveBeenCalledTimes(1)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+  })
+
+  it('falls back to the oldest surviving row when the anchored line is fully trimmed', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    term.buffer.active.baseY = 120
+    term.buffer.active.viewportY = 40
+    term.buffer.active.cursorY = 3
+    term.buffer.active.length = 42
+    term.setLine(39, false)
+    term.setLine(40, true)
+    term.setLine(41, false)
+    term.resizeEffect = () => {
+      term.buffer.active.baseY = 100
+      term.buffer.active.viewportY = 50
+      term.markers[0].line = -1
+      term.markers[1].line = 0
+    }
+
+    socket.onmessage?.({ data: windowFrame('resized', '@1', { name: 'agent', active: true, width: 100, height: 30 }) })
+
+    expect(term.scrollToLine).toHaveBeenCalledWith(0)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
   })
 
   it('takes the size off any window event, not just the resized one', async () => {
@@ -528,15 +717,22 @@ describe('useTerminalWindows', () => {
 
   // An atlas renderer caches the glyphs it rasterised, so a face that arrives
   // after the first paint stays wrong; xterm never re-measures on a font load.
-  it('preloads the regular and bold faces before it attaches', async () => {
+  // Both weights and the italic of each: xterm measures its cell once on open
+  // and the atlas caches whatever was resident, so a face arriving later stays
+  // wrong until the atlas is cleared. ADR 0038.
+  it('preloads every face a pane can draw with before it attaches', async () => {
     const { client } = await attached()
 
+    const stack = terminalFontStack('')
+    const px = terminalFontSizePx.medium
     expect(loadedFaces).toEqual([
-      `${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
-      `bold ${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
+      `${defaultTerminalFontWeight} ${px}px ${stack}`,
+      `italic ${defaultTerminalFontWeight} ${px}px ${stack}`,
+      `${defaultTerminalFontWeightBold} ${px}px ${stack}`,
+      `italic ${defaultTerminalFontWeightBold} ${px}px ${stack}`,
     ])
     const load = (document.fonts.load as ReturnType<typeof vi.fn>)
-    expect(load.mock.invocationCallOrder[1])
+    expect(load.mock.invocationCallOrder.at(-1))
       .toBeLessThan(client.attach.mock.invocationCallOrder[0])
   })
 
@@ -621,6 +817,71 @@ describe('useTerminalWindows', () => {
 
     // currentSize is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
+    await flushPromises()
+  })
+
+  // #181: normal cells were locked to whatever the renderer drew, with no way
+  // to ask for a lighter face.
+  it('opens every terminal at the configured font weights', async () => {
+    await attached()
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontWeight).toBe(defaultTerminalFontWeight)
+      expect(term.options.fontWeightBold).toBe(defaultTerminalFontWeightBold)
+    }
+  })
+
+  // Weight moves the advance width the same way size does, so the grid has to
+  // be re-voted for — and the face has to be resident before xterm re-measures
+  // against it, or it measures the outgoing one.
+  it('applies a font weight to every open terminal and re-votes', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', paneHost())
+    await vi.advanceTimersByTimeAsync(100)
+    client.resize.mockClear()
+    loadedFaces.length = 0
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
+
+    setTerminalFontWeight(700)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(100)
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontWeight).toBe(700)
+    }
+    expect(loadedFaces).toContain(`700 ${terminalFontSizePx.medium}px ${terminalFontStack('')}`)
+    expect(client.resize).toHaveBeenCalledWith('hive-abc', 100, 30)
+
+    setTerminalFontWeight(defaultTerminalFontWeight)
+    await flushPromises()
+  })
+
+  // A chosen family leads the stack and the bundled face backs it, so a font
+  // the OS reports but the webview cannot resolve degrades to the shipped one
+  // rather than to whatever `monospace` happens to be.
+  it('applies a font family to every open terminal, keeping the bundled face as fallback', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', paneHost())
+    await vi.advanceTimersByTimeAsync(100)
+
+    setTerminalFontFamily('Menlo')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(100)
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontFamily).toBe(terminalFontStack('Menlo'))
+      expect(term.options.fontFamily).toContain(TERMINAL_FONT)
+    }
+
+    setTerminalFontFamily(TERMINAL_FONT)
     await flushPromises()
   })
 
@@ -866,9 +1127,30 @@ describe('useTerminalWindows', () => {
 
     // Entering the alternate screen (a full-screen TUI) has no scrollback and
     // fires no scroll event, so the buffer switch is what clears the flag.
-    term.buffer.active = { viewportY: 0, baseY: 0 }
+    term.buffer.active = {
+      type: 'alternate',
+      cursorY: 0,
+      viewportY: 0,
+      baseY: 0,
+      length: 0,
+      getLine: () => undefined,
+    }
     term.switchBuffer()
     expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  // A wheel notch is about three rows. Offering the way back the moment the
+  // viewport moves at all would put a pill on screen for a nudge, and take it
+  // away again before it finished appearing.
+  it('waits for a scroll worth calling a scroll before offering the way back', async () => {
+    const { session } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    term.scrollTo(96, 100)
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+
+    term.scrollTo(94, 100)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
   })
 
   it('scrolls the active window back to the tail and refocuses it', async () => {
@@ -892,5 +1174,81 @@ describe('useTerminalWindows', () => {
 
     expect(session.actionError.value).toBe('tmux refused')
     expect(session.status.value).toBe('live')
+  })
+
+  // xterm suppresses onScroll for a wheel, a trackpad and a dragged scrollbar:
+  // its viewport syncs the buffer from the DOM scroll and swallows the event.
+  // Without the DOM listener nothing notices the viewport leaving the tail on an
+  // idle session, and the way back is never offered.
+  it('offers the way back to the tail when the user scrolls, which xterm does not announce', async () => {
+    const { session } = await attached()
+    const host = paneHost()
+    session.attachTab('@1', host)
+    const term = xterm.FakeTerminal.instances[0]
+    const viewport = host.querySelector('.xterm-viewport')!
+
+    term.buffer.active.viewportY = 40
+    term.buffer.active.baseY = 120
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+
+    term.buffer.active.viewportY = 120
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  it('searches the active window and reports the hit it is on', async () => {
+    const { session } = await attached()
+    xterm.FakeSearchAddon.results = { resultIndex: 2, resultCount: 9 }
+
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    expect(session.search.value.open).toBe(true)
+    // resultIndex is 0-based; the bar counts from 1.
+    expect(session.search.value).toMatchObject({ query: 'panic', matches: 9, index: 3 })
+    const finder = xterm.FakeSearchAddon.instances[0]
+    expect(finder.calls.at(-1)).toMatchObject({ mode: 'next', term: 'panic' })
+
+    session.findPrevious()
+    expect(finder.calls.at(-1)).toMatchObject({ mode: 'previous', term: 'panic' })
+  })
+
+  // A hit count is only true of the buffer it was counted in, so carrying one
+  // across tabs would put a number on the new window that never matched it.
+  it('re-runs the search against the window it switches to', async () => {
+    const { session } = await attached()
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    await session.select('@2')
+
+    const [first, second] = xterm.FakeSearchAddon.instances
+    expect(first.clearDecorations).toHaveBeenCalled()
+    expect(second.calls.at(-1)).toMatchObject({ term: 'panic' })
+  })
+
+  it('opens the find bar from the pane and keeps the combo off the wire', async () => {
+    const { session, socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: 'f', ctrlKey: true })).toBe(true)
+    expect(session.search.value.open).toBe(false)
+
+    expect(term.press({ key: 'f', metaKey: true })).toBe(false)
+    expect(session.search.value.open).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  it('drops the query and the highlights when the bar closes', async () => {
+    const { session } = await attached()
+    session.openSearch()
+    session.setSearchQuery('panic')
+
+    session.closeSearch()
+
+    expect(session.search.value).toEqual({ open: false, query: '', matches: 0, index: 0 })
+    expect(xterm.FakeSearchAddon.instances[0].clearDecorations).toHaveBeenCalled()
+    expect(xterm.FakeTerminal.instances[0].focus).toHaveBeenCalled()
   })
 })

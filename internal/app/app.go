@@ -23,6 +23,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
+	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
@@ -94,6 +95,8 @@ type App struct {
 	Report       *ReportService
 	Terminals    *TerminalsService
 
+	PopupTerminals *PopupTerminalsService
+
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
 	// driving adapter may still hold directly: an app-owned type (not
@@ -136,9 +139,14 @@ type App struct {
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager was evaluated and declined
 	// for now — see the note on Close.
-	producer    *ingest.Producer
-	engine      *runtime.Engine
-	outputs     *dispatch.Worker
+	producer *ingest.Producer
+	engine   *runtime.Engine
+	outputs  *dispatch.Worker
+	// dispatcher is shared with the worker rather than private to it: a
+	// terminal action runs the same executors without a durable command
+	// behind it, and a second dispatcher would be a second executor map to
+	// keep in step.
+	dispatcher  *dispatch.Dispatcher
 	retention   *ingest.Maintenance
 	webhook     *webhook.Listener
 	webhookHost string
@@ -153,6 +161,10 @@ type App struct {
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR 0036).
 	terminals *tmuxcc.Manager
+
+	// popupTerminals owns the ephemeral terminals a pop-up opens (ADR 0048).
+	// They are this process's children, so unlike tmux's they end with Close.
+	popupTerminals *ptyterm.Manager
 
 	// tmux is the one place the tmux binary is discovered, shared by the
 	// terminal's control clients and Hive's session spawning (ADR 0039).
@@ -263,6 +275,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path})
+	a.popupTerminals = ptyterm.NewManager(ptyterm.ManagerOptions{Environ: a.execEnv.Environ})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
@@ -301,7 +314,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore)
+	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore, a.actionStore, a.dispatcher, a.activityStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
@@ -324,6 +337,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
+	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 
 	return a, nil
 }
@@ -438,6 +452,14 @@ func (a *App) Close() error {
 	if a.terminals != nil {
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
 		_ = a.terminals.Stop(stopCtx)
+		cancel()
+	}
+	// The pop-up terminals are this process's children rather than another
+	// server's, so this is not just a detach: whatever is running in them ends
+	// here.
+	if a.popupTerminals != nil {
+		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+		_ = a.popupTerminals.Stop(stopCtx)
 		cancel()
 	}
 
@@ -678,8 +700,8 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
-	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
+	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
+	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
 	worker.SetRecorder(a.activityStore)
 	worker.SetJobRecorder(a.jobStore)
 	return worker

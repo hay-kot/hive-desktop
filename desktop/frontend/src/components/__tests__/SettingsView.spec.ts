@@ -3,21 +3,34 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
-import { setTerminalFontSize } from '../../composables/useTerminalFont'
+import {
+  defaultTerminalFontWeight,
+  defaultTerminalFontWeightBold,
+  setTerminalFontSize,
+  setTerminalFontWeight,
+  setTerminalFontWeightBold,
+} from '../../composables/useTerminalFont'
+import { TERMINAL_FONT } from '../../lib/terminalFaces'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { setTerminalPoolSize } from '../../composables/useTerminalPoolSize'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 
 const setTerminalShowWindowsBinding = vi.hoisted(() => vi.fn())
 const setTerminalPoolSizeBinding = vi.hoisted(() => vi.fn())
+const setTerminalFontFamilyBinding = vi.hoisted(() => vi.fn())
+const setTerminalFontWeightsBinding = vi.hoisted(() => vi.fn())
+const monospaceFontsBinding = vi.hoisted(() => vi.fn().mockResolvedValue(['Fira Code', 'Menlo']))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
+  MonospaceFonts: monospaceFontsBinding,
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  SetTerminalFontFamily: setTerminalFontFamilyBinding,
+  SetTerminalFontWeights: setTerminalFontWeightsBinding,
   SetTerminalShowWindows: setTerminalShowWindowsBinding,
   SetTerminalPoolSize: setTerminalPoolSizeBinding,
 }))
@@ -118,6 +131,55 @@ describe('SettingsView', () => {
 
     // The size is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
+  })
+
+  // #181: the terminal shipped with no weight control at all, so normal cells
+  // rendered at whatever the atlas drew.
+  it('reflects and changes the terminal font weight', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    expect(wrapper.find(`[data-testid="settings-terminal-font-weight-${defaultTerminalFontWeight}"]`)
+      .attributes('aria-selected')).toBe('true')
+
+    await wrapper.find('[data-testid="settings-terminal-font-weight-400"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="settings-terminal-font-weight-400"]').attributes('aria-selected')).toBe('true')
+    expect(setTerminalFontWeightsBinding).toHaveBeenCalledWith(400, defaultTerminalFontWeightBold)
+
+    setTerminalFontWeight(defaultTerminalFontWeight)
+  })
+
+  // Both weights go through one setter: written separately, a caller could land
+  // a normal weight above the bold one.
+  it('persists both weights when only the bold one changes', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+    setTerminalFontWeightsBinding.mockClear()
+
+    await wrapper.find('[data-testid="settings-terminal-font-weight-bold-600"]').trigger('click')
+    await flushPromises()
+
+    expect(setTerminalFontWeightsBinding).toHaveBeenCalledWith(defaultTerminalFontWeight, 600)
+
+    setTerminalFontWeightBold(defaultTerminalFontWeightBold)
+  })
+
+  // The scan is what the webview cannot do for itself, and the bundled face
+  // leads the list whether or not it is also installed system-wide.
+  it('offers the installed monospace families with the bundled face first', async () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="settings-terminal-font-family-select"]').trigger('click')
+    await flushPromises()
+
+    const labels = Array.from(document.querySelectorAll('[role="option"]'))
+    expect(monospaceFontsBinding).toHaveBeenCalled()
+    expect(labels.map((el) => el.textContent?.trim())).toEqual([
+      `${TERMINAL_FONT} · bundled`,
+      'Fira Code',
+      'Menlo',
+    ])
   })
 
   it('reflects and toggles the terminal window listing', async () => {

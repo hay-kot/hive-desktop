@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { Catalog, Render } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice'
 import type { Prompt } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/prompts/models'
-import { commandCatalog } from '../keybindings/catalog'
+import { commands } from '../keybindings/catalog'
 
 // The frontend never builds prompt text. Every prompt — the settings catalog
 // and the context-scoped ones offered from an editor — is assembled by
@@ -18,7 +18,7 @@ import { commandCatalog } from '../keybindings/catalog'
 /** The bindable command list, reduced to the fields the prompt renders. */
 function promptInput() {
   return {
-    commands: commandCatalog.map((command) => ({
+    commands: commands.value.map((command) => ({
       id: command.id,
       title: command.title,
       group: command.group,

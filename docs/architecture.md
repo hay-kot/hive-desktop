@@ -267,6 +267,8 @@ internal/
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
       js/                         # goja implementation
       testdata/parity/            # the engine's own regression fixtures
+    fonts/                        # the installed-monospace-family scan the
+                                  #   terminal's font picker reads (ADR 0050)
     icons/                        # curated feed glyph set — a leaf, shared by
                                   #   flow's feed node and the webhook connector
     sources/                      # connector registry
@@ -299,6 +301,9 @@ internal/
                                   #   slug, fan-out broker — no transport, no UI
     tmuxbin/                      # where the tmux binary is: paths.tmux, then
                                   #   PATH, then package prefixes (ADR 0039)
+    ptyterm/                      # ephemeral terminals: a PTY and the process on
+                                  #   the far end, id-keyed, dying with the app —
+                                  #   what the pop-up runs on (ADR 0048)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
                                   #   process's, then those prefixes (ADR 0041)
@@ -358,7 +363,7 @@ has per-type config.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043) |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043, ADR 0047). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration. A thing that does not dispatch at all is not an action type: the pop-up launchers are their own list in the same file, with their own struct and no envelope (ADR 0049) |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
@@ -746,6 +751,31 @@ them is the constraint (ADR 0036):
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
+**A first paint is a pane's scrollback, its screen at exactly the window's
+height, and its cursor** (ADR 0046) — three tmux commands per pane, replayed
+as one byte stream into a fresh emulator. Two invariants hold it together and
+both are easy to break by accident. The screen must be written at the full
+window height, because an emulator pins its viewport to the last rows it was
+written and a short screen seats the pane's row 0 partway down it — every
+cursor-addressed redraw an alternate-screen program makes then lands that many
+rows off. And the cursor must be read *after* the paint gate's mark, because
+output produced between the read and the captures is corrected by the replay
+that follows, while output produced before the mark is discarded and never is.
+History is bounded at tmux's own default `history-limit` so an unconfigured
+tmux replays all of it and a configured one cannot make attach cost unbounded.
+`-J` joins wrapped rows in the history only: a joined screen row re-wraps into
+more rows than it was captured from and breaks the height.
+
+**Every attach leaves a first paint on the stream, including one onto a client
+that is already live.** A transport-only drop — a stalled write, a reloaded
+webview — takes the emulator and leaves the control client attached, and what
+that stream already delivered is not in the broker's backlog to replay, so an
+attach that answered from memory would hand a fresh emulator a session it can
+only render the future of. The repaint resets the broker first: the snapshot
+supersedes every undelivered byte, and a subscriber still draining the dropped
+stream would otherwise consume the snapshot meant for its replacement. The size
+vote is a fresh attach's alone — a live client keeps the one it already cast.
+
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a
@@ -784,6 +814,29 @@ destructive is gated on `SessionRisk`, whose payload names the uncommitted or
 unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
 
+**The user's own operations on a session are `actions.yml` entries, not a second
+config** (ADR 0047). An action declares its surfaces in `targets:` — `item`
+(the default, and what every pre-terminal action means), `session`, `window` —
+and `SessionsService` owns the three methods behind them: `TerminalActionViews`,
+`InvokeTerminalAction`, `RenderTerminalClipboardAction`. Three rules are
+load-bearing:
+
+- **The caller sends identity, the core resolves the rest.**
+  `dispatch.TerminalTarget` is a slug and an optional tmux window id;
+  `.Session.Path`, `.Session.Repo` and the rest come from the session record at
+  invocation time, so nothing lets a client choose the path a command runs in.
+  `OutputData.Session`/`.Window` are nil on the item path, which is what makes a
+  template reading the wrong surface fail rather than render blank.
+- **A terminal action enqueues no `output_command`.** The durable command's
+  `UNIQUE (action_id, key)` exists to stop an already-run action from re-firing,
+  and a manual operation against live local state must stay repeatable and must
+  not replay after a restart. It runs through the same `Dispatcher` — now built
+  by `App` and shared with the output worker — inside `jobs.Track`, and the tail
+  of stderr goes into the job's failure reason because there is no durable row
+  holding its streams.
+- **`launch-session` is refused on a terminal target**, in `validateActions` via
+  `TerminalCapable`, so the refusal lands when the catalog is authored.
+
 **Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
 0039). A desktop launch inherits no shell `$PATH`, so the resolver checks
 `paths.tmux`, then `$PATH`, then the prefixes package managers install
@@ -804,10 +857,14 @@ through the same unavailable-with-a-reason state.
 
 The reader goroutine always drains tmux's stdout, because command replies share
 that pipe with notifications; notification dispatch and broker publish are
-therefore non-blocking. The broker's per-session buffer is bounded **by bytes**
-and overflow is **fatal**: the client is torn down and the frontend re-attaches,
-which re-runs first paint. There is no partial resync, no drop-oldest (it
-corrupts emulator state), and no tmux `pause-after`.
+therefore non-blocking. The broker's per-session buffer is bounded **by bytes
+and by event count** — only output is worth bytes, so the count is what bounds a
+backlog of window events — and overflow is **fatal**: the client is torn down and
+the frontend re-attaches, which re-runs first paint. There is no partial resync,
+no drop-oldest (it corrupts emulator state), and no tmux `pause-after`. Both
+bounds admit **only droppable events**, and only a droppable event may trip one:
+a lifecycle event that tripped the bound would be discarded by the same branch
+that drops for overflow, ending the stream with nothing saying why.
 
 **Size is a negotiation this app is only one voice in.** Every client attached
 to a session renders the same grid per window, and tmux's `window-size` option
@@ -842,6 +899,61 @@ device pixels, so neither can tune a cell onto a cleaner boundary and a
 `lineHeight` above 1 pads the glyph off the edge box drawing has to reach; and
 the addon majors are pinned to the xterm core major, since they reach into
 `Terminal._core` for private services.
+
+#### Pop-up terminals
+
+`internal/app/ptyterm` is the *other* terminal backend, and the rule for which
+one serves a request is the session: **a terminal that belongs to a hive session
+is tmux's; a terminal that belongs to a moment is this one's** (ADR 0048). It
+owns a PTY and the process on the far end directly — no multiplexer, no
+discovered binary, no negotiation — and every terminal it opens dies with the
+app.
+
+Three rules govern it, and each is a consequence of that:
+
+- **A pop-up is addressed by an id this process mints**, never by a slug.
+  Nothing else can attach to it and nothing outlives the run, so there is no
+  registry to keep in step with hive.
+- **A launch is a directory and a shell command line.** The directory resolves
+  launcher cwd → session checkout → explicit path → home; the command runs
+  through a login shell so the user's own PATH and aliases resolve it (ADR
+  0041), and empty means an interactive shell. A named launcher is that spec
+  with config in front of it — add the config, not another launch path.
+- **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
+  (ADR 0049). It is deliberately *not* an action: every surface in the `targets`
+  vocabulary dispatches and a pop-up does not, so it shares the file — one
+  loader, one watcher, one last-good reload — and none of the action envelope.
+  Its `command` and `cwd` are used as written rather than rendered, because a
+  login shell in the working directory is the only context a launcher needs.
+  Each one is a bindable command, `launcher.<id>`, unbound by default; a launch
+  that differs from the live one replaces it, since one pop-up is open at a
+  time.
+- **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
+  covered by that prefix's bearer token and CORS policy. Its stream carries one
+  terminal per socket, so its frames carry no window or pane ids and are not the
+  tmux stream's.
+- **Hiding the panel keeps the shell; exiting the shell takes the panel.** The
+  toggle opens a terminal outright, returns to a running one, and hands focus
+  back where it came from on the way out. Anything that adds a step between the
+  shortcut and a prompt is working against what this is for.
+- **A focused pane keeps every key it can use, and three things get one back.**
+  The pop-up toggle and any launcher chord, because the combo that opens one has
+  to close it; and the command palette, because it is the way back out of a
+  pane. The palette is the only one gated on modifiers rather than on the
+  binding alone — `terminalEscapeCombo` claims Command chords, and Ctrl+Shift
+  where there is no Command, dropping that Shift so one configured `mod+k`
+  matches on both. A bare Ctrl+K is readline's kill-to-end-of-line and stays
+  with the pane. Anything else added here has to answer why a pane may not have
+  the key.
+- **The panel's box is derived from the window, never stored.** Centred, a fixed
+  fraction of it, following a resize; not draggable and not resizable for now.
+  Restoring either means answering how a remembered box stays honest against a
+  window that changed since — a stored one that does not is a bug that presents
+  as the pop-up ignoring its own setting.
+
+Do not build a shared interface across the two backends, and do not extend one
+because the other has something: they answer different questions, and the
+overlap in vocabulary is a coincidence of both being terminals.
 
 ## Execution model
 

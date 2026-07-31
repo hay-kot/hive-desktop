@@ -149,10 +149,17 @@ func main() {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}
 	terminal := wailsui.TerminalTransport{}
+	popupTerminal := wailsui.PopupTerminalTransport{}
 	if terminalToken != "" {
 		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
+		}
+		// The pop-up terminal's own stream. It carries one terminal per socket
+		// rather than a session's window set (ADR 0045).
+		if path, handler := httpapi.PopupTerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}
+			logger.Info().Str("path", path).Msg("popup terminal WebSocket stream mounted")
 		}
 	}
 	// pprof shares the same server when enabled (ADR 0023).
@@ -167,6 +174,7 @@ func main() {
 		TrayIconLinux:   trayIconLinux,
 		Build:           wailsui.Build{Version: version, Commit: commit, Date: date},
 		Terminal:        terminal,
+		PopupTerminal:   popupTerminal,
 		TerminalEnabled: cfg.Experimental.Terminal,
 		AutoUpdate:      cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {

@@ -83,6 +83,37 @@ func (s *ActionsService) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+// The launchers half of actions.yml. It is served by this service rather than
+// one of its own because it is the same file, the same store and the same wake
+// on change — the launchers are simply the other list in it (ADR 0049). List
+// answers for both, so there is no LaunchersList here.
+
+func (s *ActionsService) CreateLauncher(_ context.Context, l actions.Launcher) (actions.Launcher, error) {
+	out, err := s.catalog.CreateLauncher(l)
+	if err != nil {
+		return out, Wrap(err, KindInvalid, "creating launcher %q", l.ID)
+	}
+	s.wake()
+	return out, nil
+}
+
+func (s *ActionsService) UpdateLauncher(_ context.Context, id string, l actions.Launcher) (actions.Launcher, error) {
+	out, err := s.catalog.UpdateLauncher(id, l)
+	if err != nil {
+		return out, Wrap(err, KindInvalid, "updating launcher %q", id)
+	}
+	s.wake()
+	return out, nil
+}
+
+func (s *ActionsService) DeleteLauncher(_ context.Context, id string) error {
+	if err := s.catalog.DeleteLauncher(id); err != nil {
+		return Wrap(err, KindInvalid, "deleting launcher %q", id)
+	}
+	s.wake()
+	return nil
+}
+
 // ActivityService owns the user-facing audit log.
 type ActivityService struct{ store *activity.Store }
 

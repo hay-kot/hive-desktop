@@ -30,6 +30,15 @@ const (
 
 	// The window name goes last: it is the only field that can contain spaces.
 	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_name}"
+
+	// The pane's cursor as an emulator addresses it: 0-based row, then column.
+	cursorFormat = "#{cursor_y} #{cursor_x}"
+
+	// historyLines bounds the scrollback a first paint replays. It is tmux's own
+	// default history-limit, so on an unconfigured tmux it is the whole history
+	// rather than a bound anyone runs into, and it costs a few hundred KB per
+	// window against an 8 MiB broker.
+	historyLines = 2000
 )
 
 var (
@@ -143,7 +152,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		handshake:    make(chan struct{}),
 		attached:     make(chan struct{}),
 	}
-	c.events = newBroker(opts.BufferBytes, func() { c.teardown("overflow") })
+	c.events = newBroker(backlogBounds{bytes: opts.BufferBytes}, func() { c.teardown("overflow") })
 	c.paint = newPaintGate(c.emitOutput)
 
 	c.proc = opts.newProcess(opts)
@@ -308,7 +317,7 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 		if w.ActivePane == "" {
 			continue
 		}
-		if err := c.firstPaint(ctx, w.ActivePane); err != nil {
+		if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
 			return err
 		}
 	}
@@ -316,23 +325,95 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 	return nil
 }
 
+// Repaint re-runs the first paint for every window, so a caller re-attaching to
+// a live client is handed the same paintable stream a fresh attach would be. A
+// transport-only drop — a stalled write, a webview reload — leaves this client
+// attached while taking the emulator that rendered it, and what the dropped
+// stream already delivered is not in the backlog to replay: without a fresh
+// snapshot the new panes open blank against a session that never stopped.
+//
+// The broker is reset first, which is what makes the snapshot the caller's:
+// see broker.reset. The captures are bounded like an attach's own, because the
+// manager runs this under the lock every other attach queues behind.
+func (c *Client) Repaint(ctx context.Context) error {
+	paintCtx, cancel := context.WithTimeout(ctx, attachTimeout)
+	defer cancel()
+
+	c.events.reset()
+	for _, w := range c.Windows() {
+		if w.ActivePane == "" {
+			continue
+		}
+		if err := c.firstPaint(paintCtx, w.ActivePane, w.Height); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // firstPaint snapshots a pane and replays the live output that arrived while
 // the snapshot was in flight. Every path releases the pane: one left held
 // buffers its output forever.
-func (c *Client) firstPaint(ctx context.Context, pane string) error {
+func (c *Client) firstPaint(ctx context.Context, pane string, rows int) error {
 	c.paint.mark(pane)
-	lines, err := c.gw.Send(ctx, "capture-pane -pe -J -t "+pane)
+	painted, err := c.snapshot(ctx, pane, rows)
 	if err != nil {
-		var cmdErr *CommandError
-		if !errors.As(err, &cmdErr) {
-			c.paint.release(pane, nil)
-			return err
-		}
-		c.log.Warn().Err(err).Str("pane", pane).Msg("first paint skipped")
-		lines = nil
+		c.paint.release(pane, nil)
+		return err
 	}
-	c.paint.release(pane, screenBytes(lines))
+	c.paint.release(pane, painted)
 	return nil
+}
+
+// snapshot renders a pane as the byte stream an emulator replays into an empty
+// grid: bounded scrollback, then the visible screen at exactly the grid's
+// height, then the cursor.
+//
+// The height is what makes this safe for a pane whose program is on the
+// alternate screen. An emulator pins its viewport to the last rows it was
+// written, so a screen written short would seat the pane's top row somewhere
+// down the viewport, and every cursor-addressed redraw the program made after
+// that would land rows away from where it aimed.
+//
+// The cursor is read first, and after the mark rather than before it: output
+// tmux produces between the two is absent from the cursor but present in the
+// replay that follows the snapshot, which redraws it and carries the cursor
+// where it belongs. Read before the mark, that output would be discarded as
+// already snapshotted and nothing would ever correct the position.
+func (c *Client) snapshot(ctx context.Context, pane string, rows int) ([]byte, error) {
+	cursor, err := c.snapshotCmd(ctx, pane, `display-message -p -t `+pane+` "`+cursorFormat+`"`)
+	if err != nil {
+		return nil, err
+	}
+	// -J on the history and not on the screen: a scrollback row is worth
+	// rejoining to the logical line it was wrapped from, so searching and
+	// selecting it read as one line, but a joined screen row would re-wrap into
+	// more rows than it was captured from and break the height above.
+	history, err := c.snapshotCmd(ctx, pane, fmt.Sprintf("capture-pane -pe -J -S -%d -E -1 -t %s", historyLines, pane))
+	if err != nil {
+		return nil, err
+	}
+	screen, err := c.snapshotCmd(ctx, pane, "capture-pane -pe -S 0 -t "+pane)
+	if err != nil {
+		return nil, err
+	}
+	return snapshotBytes(history, screen, rows, parseCursor(cursor)), nil
+}
+
+// snapshotCmd runs one snapshot command. A tmux-side failure — a pane that
+// closed mid-attach is the usual one — yields no lines, so the rest of the
+// snapshot still paints; only a broken control stream is an error.
+func (c *Client) snapshotCmd(ctx context.Context, pane, cmd string) ([]string, error) {
+	lines, err := c.gw.Send(ctx, cmd)
+	if err == nil {
+		return lines, nil
+	}
+	var cmdErr *CommandError
+	if !errors.As(err, &cmdErr) {
+		return nil, err
+	}
+	c.log.Warn().Err(err).Str("pane", pane).Str("command", cmd).Msg("snapshot command skipped")
+	return nil, nil
 }
 
 func (c *Client) listWindows(ctx context.Context) ([]Window, error) {
@@ -385,24 +466,24 @@ func (c *Client) runReconcile(ctx context.Context) {
 		return
 	}
 
-	var unpainted []string
+	var unpainted []Window
 	for _, w := range windows {
 		if w.ActivePane != "" && c.paint.hold(w.ActivePane) {
-			unpainted = append(unpainted, w.ActivePane)
+			unpainted = append(unpainted, w)
 		}
 	}
 	for _, ev := range c.ctrl.reconcile(windows) {
 		c.publish(ev)
 	}
-	for i, pane := range unpainted {
-		if err := c.firstPaint(ctx, pane); err != nil {
+	for i, w := range unpainted {
+		if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
 			if ctx.Err() == nil {
-				c.log.Warn().Err(err).Str("pane", pane).Msg("first paint failed")
+				c.log.Warn().Err(err).Str("pane", w.ActivePane).Msg("first paint failed")
 			}
 			// hold took the gate for the whole batch; a pane this loop never
 			// reaches would buffer its output for the life of the client.
 			for _, unreached := range unpainted[i+1:] {
-				c.paint.discard(unreached)
+				c.paint.discard(unreached.ActivePane)
 			}
 			return
 		}
@@ -627,64 +708,61 @@ func parseWindowLine(line string) (Window, bool) {
 	return w, true
 }
 
-// screenBytes turns a capture-pane reply into what an emulator expects: CRLF
-// between rows, no trailing newline.
-//
-// The capture is the whole visible screen, blank rows included, so a fresh
-// window's prompt would land on the last row under a screenful of blanks. They
-// are trimmed instead and the cursor ends after the last written row (iTerm2
-// trims the same way).
-func screenBytes(lines []string) []byte {
-	for len(lines) > 0 && isBlankRow(lines[len(lines)-1]) {
-		lines = lines[:len(lines)-1]
-	}
-	if len(lines) == 0 {
+// snapshotBytes joins a captured pane into one replay: history rows, then
+// exactly rows screen rows, then the cursor. Nothing homes or clears first —
+// writing history-plus-a-full-screen scrolls the history out of the viewport on
+// its own, which leaves the screen occupying the viewport exactly and the
+// history reachable above it as scrollback.
+func snapshotBytes(history, screen []string, rows int, cur cursor) []byte {
+	screen = fitRows(screen, rows)
+	if len(history)+len(screen) == 0 {
 		return nil
 	}
-	return []byte(strings.Join(lines, "\r\n"))
+	lines := make([]string, 0, len(history)+len(screen))
+	lines = append(lines, history...)
+	lines = append(lines, screen...)
+
+	out := []byte(strings.Join(lines, "\r\n"))
+	if cur.reported {
+		out = fmt.Appendf(out, "\x1b[%d;%dH", cur.row+1, cur.col+1)
+	}
+	return out
 }
 
-// isBlankRow reports whether a captured row renders as nothing. capture-pane -J
-// keeps trailing spaces and -e writes the attributes as escape sequences, so a
-// visually empty row is rarely an empty string.
-func isBlankRow(line string) bool {
-	for i := 0; i < len(line); i++ {
-		switch c := line[i]; {
-		case c == 0x1b:
-			i += escapeLen(line[i:]) - 1
-		case c != ' ' && c != '\t':
-			return false
-		}
-	}
-	return true
-}
-
-// escapeLen measures one escape sequence from its ESC: a CSI runs to its final
-// byte in @-~, an OSC to BEL or ST, and anything else is two bytes.
-func escapeLen(s string) int {
-	if len(s) < 2 {
-		return len(s)
-	}
-	switch s[1] {
-	case '[':
-		for i := 2; i < len(s); i++ {
-			if s[i] >= '@' && s[i] <= '~' {
-				return i + 1
-			}
-		}
-	case ']':
-		for i := 2; i < len(s); i++ {
-			if s[i] == 0x07 {
-				return i + 1
-			}
-			if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '\\' {
-				return i + 2
-			}
-		}
+// fitRows holds a captured screen to the grid it is replayed into. tmux answers
+// a visible-screen capture with one line per row, so this is normally a no-op;
+// a short reply pads at the bottom and a long one keeps the bottom, because the
+// bottom of a screen is the live end of it either way.
+func fitRows(screen []string, rows int) []string {
+	switch {
+	case rows <= 0 || len(screen) == rows:
+		return screen
+	case len(screen) > rows:
+		return screen[len(screen)-rows:]
 	default:
-		return 2
+		padded := make([]string, rows)
+		copy(padded, screen)
+		return padded
 	}
-	return len(s)
+}
+
+// cursor is a pane's cursor as tmux reports it: 0-based row and column within
+// the visible screen. An unreported cursor leaves the replay's own end position
+// standing rather than guessing at one.
+type cursor struct {
+	row, col int
+	reported bool
+}
+
+func parseCursor(lines []string) cursor {
+	if len(lines) == 0 {
+		return cursor{}
+	}
+	row, col, found := strings.Cut(strings.TrimSpace(lines[0]), " ")
+	if !found || !isDigits([]byte(row)) || !isDigits([]byte(col)) {
+		return cursor{}
+	}
+	return cursor{row: atoi([]byte(row)), col: atoi([]byte(col)), reported: true}
 }
 
 // quoteArgument single-quotes a tmux command argument. A newline would break

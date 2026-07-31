@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
+import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircle from '~icons/lucide/circle'
 import IconCircleAlert from '~icons/lucide/circle-alert'
@@ -17,9 +18,11 @@ import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
+import IconSearch from '~icons/lucide/search'
 import IconTerminal from '~icons/lucide/terminal'
 import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
+import ActionInputsDialog from './ActionInputsDialog.vue'
 import AppMenu from './AppMenu.vue'
 import BaseButton from './BaseButton.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
@@ -28,6 +31,7 @@ import SessionDetailDialog from './SessionDetailDialog.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
+import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
@@ -186,9 +190,30 @@ function windowIndicator(sessionID: string, windowID: string): StatusIndicator |
   return status ? windowActivityIndicator(status) : null
 }
 
+// The configured actions from actions.yml that declare a terminal target. They
+// land in the session row's menu under its own operations, and are the whole
+// contents of a window row's menu — so a window row grows one only when there
+// is something to put in it.
+const {
+  load: loadTerminalActions,
+  sessionEntries: sessionActionEntries,
+  windowEntries: windowActionEntries,
+  hasWindowActions,
+  select: selectTerminalAction,
+  pendingInputs: actionInputs,
+  inputsBusy: actionInputsBusy,
+  inputsError: actionInputsError,
+  cancelInputs: cancelActionInputs,
+  submitInputs: submitActionInputs,
+} = useTerminalActions()
+useWailsEvent('actions:updated', () => { void loadTerminalActions() })
+
 const openRowMenu = ref('')
 const rowMenuFlip = ref(false)
 const rowMenuToggles = new Map<string, HTMLElement>()
+const openWindowMenu = ref('')
+const windowMenuFlip = ref(false)
+const windowMenuToggles = new Map<string, HTMLElement>()
 const sidebarMenuOpen = ref(false)
 const sidebarMenuToggle = ref<HTMLElement | null>(null)
 const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
@@ -217,16 +242,51 @@ function setRowMenuToggle(id: string, el: unknown): void {
   else rowMenuToggles.delete(id)
 }
 
+function setWindowMenuToggle(id: string, el: unknown): void {
+  if (el instanceof HTMLElement) windowMenuToggles.set(id, el)
+  else windowMenuToggles.delete(id)
+}
+
 // The sidebar is a scroll container, so an overflowing menu is clipped rather
 // than allowed to hang outside it: open upward near the bottom of the window.
+function menuFlipsUp(toggle: HTMLElement | undefined): boolean {
+  const rect = toggle?.getBoundingClientRect()
+  return rect != null && window.innerHeight - rect.bottom < 200 && rect.top > 200
+}
+
 function toggleRowMenu(row: TerminalSessionRow, event?: MouseEvent): void {
   if (openRowMenu.value === row.id && !event) {
     openRowMenu.value = ''
     return
   }
-  const rect = (event?.currentTarget instanceof HTMLElement ? event.currentTarget : rowMenuToggles.get(row.id))?.getBoundingClientRect()
-  rowMenuFlip.value = rect != null && window.innerHeight - rect.bottom < 200 && rect.top > 200
+  openWindowMenu.value = ''
+  rowMenuFlip.value = menuFlipsUp(event?.currentTarget instanceof HTMLElement ? event.currentTarget : rowMenuToggles.get(row.id))
   openRowMenu.value = row.id
+}
+
+function windowMenuKey(row: TerminalSessionRow, windowId: string): string {
+  return `${row.slug} ${windowId}`
+}
+
+function toggleWindowMenu(row: TerminalSessionRow, windowId: string, event?: MouseEvent): void {
+  if (!hasWindowActions.value) return
+  const key = windowMenuKey(row, windowId)
+  if (openWindowMenu.value === key && !event) {
+    openWindowMenu.value = ''
+    return
+  }
+  openRowMenu.value = ''
+  windowMenuFlip.value = menuFlipsUp(event?.currentTarget instanceof HTMLElement ? event.currentTarget : windowMenuToggles.get(key))
+  openWindowMenu.value = key
+}
+
+function runSessionAction(row: TerminalSessionRow, entryID: string): void {
+  void selectTerminalAction('session', entryID, { slug: row.slug, windowId: '' })
+}
+
+function runWindowAction(row: TerminalSessionRow, windowId: string, entryID: string): void {
+  openWindowMenu.value = ''
+  void selectTerminalAction('window', entryID, { slug: row.slug, windowId })
 }
 
 function onSidebarMenuSelect(id: string): void {
@@ -359,6 +419,24 @@ const startError = ref('')
 const sessionError = computed(() => visible.value?.error.value ?? '')
 const actionError = computed(() => visible.value?.actionError.value ?? '')
 const sizeConstraint = computed(() => visible.value?.sizeConstraint.value ?? null)
+
+const search = computed(() => visible.value?.search.value ?? { open: false, query: '', matches: 0, index: 0 })
+const searchInput = ref<HTMLInputElement | null>(null)
+
+// The find bar opens from inside the pane (the terminal owns its keys), so the
+// focus move is driven by the state rather than by the handler that set it.
+watch(() => search.value.open, async (open) => {
+  if (!open) return
+  await nextTick()
+  searchInput.value?.select()
+})
+
+function searchLabel(): string {
+  if (!search.value.query) return ''
+  if (search.value.matches < 0) return 'many'
+  if (!search.value.matches) return 'no results'
+  return `${search.value.index}/${search.value.matches}`
+}
 
 // Every pooled session's panes stay mounted: a Terminal binds to one element
 // for its lifetime, and an incoming session's first paint has to land while
@@ -593,6 +671,7 @@ onMounted(() => {
   void probe()
   startStatusPolling()
   prefetchNewSession()
+  void loadTerminalActions()
 })
 onBeforeUnmount(() => {
   clearTimeout(holdTimer)
@@ -761,8 +840,10 @@ onBeforeUnmount(() => {
                         <SessionRowMenu
                           v-if="openRowMenu === row.id"
                           :session="row"
+                          :extra="sessionActionEntries"
                           :flip="rowMenuFlip"
                           :ignore="[rowMenuToggles.get(row.id) ?? null]"
+                          @extra="runSessionAction(row, $event)"
                           @close="openRowMenu = ''"
                           @start="startSession(row.slug)"
                           @kill="requestKill(row)"
@@ -776,30 +857,68 @@ onBeforeUnmount(() => {
                     <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
                       <div v-if="windowRowsFor(row).length" class="relative flex flex-col pb-1">
                         <TransitionGroup name="tree">
-                          <button
+                          <!-- Not a <button>, for the same reason the session
+                               row above is not: its own menu toggle is one. -->
+                          <div
                             v-for="(win, index) in windowRowsFor(row)"
                             :key="win.windowId"
-                            type="button"
                             class="window-row"
-                            :class="{ 'window-row-last': index === windowRowsFor(row).length - 1, 'window-row-active': win.active }"
+                            :class="{
+                              'window-row-last': index === windowRowsFor(row).length - 1,
+                              'window-row-active': win.active,
+                              'has-menu': hasWindowActions,
+                              'menu-open': openWindowMenu === windowMenuKey(row, win.windowId),
+                            }"
+                            role="button"
+                            tabindex="0"
                             :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
                             :data-window-id="win.windowId"
                             :data-active="win.live ? win.active : undefined"
                             @click="openTreeWindow(row, win)"
+                            @keydown.enter.self.prevent="openTreeWindow(row, win)"
+                            @keydown.space.self.prevent="openTreeWindow(row, win)"
+                            @contextmenu.prevent="toggleWindowMenu(row, win.windowId, $event)"
                           >
                             <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
-                            <span
-                              v-if="win.indicator"
-                              class="window-status"
-                              :class="win.indicator.color"
-                              :title="win.indicator.label"
-                              data-testid="terminal-window-status"
-                              :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
-                            >
-                              <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
-                              <span class="sr-only">{{ win.indicator.label }}</span>
-                            </span>
-                          </button>
+                            <div class="window-trailing" data-testid="terminal-window-trailing" @click.stop>
+                              <span
+                                v-if="win.indicator"
+                                class="window-status"
+                                :class="win.indicator.color"
+                                :title="win.indicator.label"
+                                data-testid="terminal-window-status"
+                                :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                              >
+                                <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
+                                <span class="sr-only">{{ win.indicator.label }}</span>
+                              </span>
+                              <!-- A window row has no operations of its own, so
+                                   the toggle exists only once a configured
+                                   action targets one. -->
+                              <button
+                                v-if="hasWindowActions"
+                                :ref="(el) => setWindowMenuToggle(windowMenuKey(row, win.windowId), el)"
+                                type="button"
+                                class="row-action"
+                                title="Window actions"
+                                aria-label="Window actions"
+                                aria-haspopup="menu"
+                                :aria-expanded="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                data-testid="terminal-window-menu-toggle"
+                                @click="toggleWindowMenu(row, win.windowId)"
+                              ><IconEllipsisVertical class="size-3" /></button>
+                              <AppMenu
+                                v-if="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                :entries="windowActionEntries"
+                                :flip="windowMenuFlip"
+                                width="min(230px, 100%)"
+                                :ignore="[windowMenuToggles.get(windowMenuKey(row, win.windowId)) ?? null]"
+                                testid="terminal-window-menu"
+                                @select="runWindowAction(row, win.windowId, $event)"
+                                @close="openWindowMenu = ''"
+                              />
+                            </div>
+                          </div>
                         </TransitionGroup>
                       </div>
                     </Transition>
@@ -883,6 +1002,17 @@ onBeforeUnmount(() => {
                 title="New window"
                 @click="visible?.newWindow()"
               ><IconPlus class="size-3.5" /></button>
+              <!-- The shortcut only reaches a focused pane, so the bar needs a
+                   way in from the chrome as well. -->
+              <button
+                type="button"
+                class="flex w-9 shrink-0 cursor-pointer items-center justify-center border-r border-border text-text-3 hover:bg-chip hover:text-text"
+                :class="search.open ? 'bg-chip text-text' : ''"
+                data-testid="terminal-search-open"
+                aria-label="Find in window"
+                title="Find in window"
+                @click="visible?.openSearch()"
+              ><IconSearch class="size-3.5" /></button>
             </div>
           </div>
 
@@ -932,15 +1062,64 @@ onBeforeUnmount(() => {
           <template v-if="visible">
             <div v-if="!tabs.length && status !== 'ended'" class="flex flex-1 items-center justify-center font-mono text-xs text-text-4">Attaching…</div>
 
+            <!-- Floated over the pane rather than placed above it: a bar in the
+                 flex column would shrink the pane's box, and the box is what
+                 this client votes tmux's window size from — opening a find bar
+                 would reflow the session for every client attached to it. -->
+            <div
+              v-if="search.open && status !== 'ended'"
+              class="absolute right-5 top-3 z-10 flex items-center gap-1 rounded-md border border-strong bg-raised/95 py-1 pl-2 pr-1 shadow-lg"
+              data-testid="terminal-search"
+            >
+              <IconSearch class="size-3 shrink-0 text-text-4" />
+              <input
+                ref="searchInput"
+                :value="search.query"
+                type="text"
+                placeholder="Find"
+                spellcheck="false"
+                class="w-44 bg-transparent text-[11.5px] text-text outline-none placeholder:text-text-4"
+                data-testid="terminal-search-input"
+                @input="visible?.setSearchQuery(($event.target as HTMLInputElement).value)"
+                @keydown.enter.exact.prevent="visible?.findNext()"
+                @keydown.enter.shift.prevent="visible?.findPrevious()"
+                @keydown.esc.prevent="visible?.closeSearch()"
+              >
+              <span class="min-w-[54px] shrink-0 text-right font-mono text-[10.5px] text-text-4" data-testid="terminal-search-count">{{ searchLabel() }}</span>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Previous match"
+                data-testid="terminal-search-prev"
+                @click="visible?.findPrevious()"
+              ><IconChevronUp class="size-3" /></button>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Next match"
+                data-testid="terminal-search-next"
+                @click="visible?.findNext()"
+              ><IconChevronDown class="size-3" /></button>
+              <button
+                type="button"
+                class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                aria-label="Close find"
+                data-testid="terminal-search-close"
+                @click="visible?.closeSearch()"
+              ><IconX class="size-3" /></button>
+            </div>
+
             <!-- New output keeps landing below the fold while the viewport is
                  scrolled up; this is the way back to the live tail. -->
-            <button
-              v-if="activeScrolledUp && status !== 'ended'"
-              type="button"
-              class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
-              data-testid="terminal-scroll-to-bottom"
-              @click="visible?.scrollToBottom()"
-            ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            <Transition name="tail-pill">
+              <button
+                v-if="activeScrolledUp && status !== 'ended'"
+                type="button"
+                class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
+                data-testid="terminal-scroll-to-bottom"
+                @click="visible?.scrollToBottom()"
+              ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            </Transition>
 
             <!-- Selecting a session never starts it: starting runs the
                  session's own agent command, so it is offered here and taken
@@ -1002,6 +1181,15 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
+    <ActionInputsDialog
+      v-if="actionInputs"
+      :action-label="actionInputs.action.label"
+      :inputs="actionInputs.action.inputs ?? []"
+      :busy="actionInputsBusy"
+      :error="actionInputsError"
+      @close="cancelActionInputs"
+      @submit="submitActionInputs"
+    />
     <SessionDetailDialog v-if="sessionDetail" :detail="sessionDetail" @close="closeSessionDetail" />
     <SessionRenameDialog
       v-if="renaming"
@@ -1036,8 +1224,8 @@ onBeforeUnmount(() => {
    its font size, so stacked rows would show a gap where the TUI's cell grid
    shows an unbroken line. ::before is the vertical, stopped at the elbow on the
    last row; ::after is the tick into the name. */
-.window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; padding-left: 40px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
-.window-row:hover { background: var(--color-chip); }
+.window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; gap: 8px; padding-left: 40px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
+.window-row:hover, .window-row.menu-open { background: var(--color-chip); }
 .window-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .window-row-active { font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
 .window-row::before { content: ''; position: absolute; left: 26px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
@@ -1052,18 +1240,33 @@ onBeforeUnmount(() => {
 .tree-enter-from, .tree-leave-to { opacity: 0; transform: translateY(-4px); }
 .tree-leave-active { position: absolute; left: 0; right: 0; }
 .tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .15s ease; }
+/* The pill pops rather than fades in: it appears over live output, and motion
+   is what separates it from the text moving behind it. Overshooting the scale
+   on the way in is the whole effect; leaving is a plain shrink, because an
+   affordance on its way out should not ask for attention. */
+.tail-pill-enter-active { transition: opacity .12s ease, transform .18s cubic-bezier(.2, 1.5, .4, 1); }
+.tail-pill-leave-active { transition: opacity .1s ease, transform .1s ease; }
+.tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
+
 @media (prefers-reduced-motion: reduce) {
   .tree-enter-active, .tree-leave-active, .tree-move,
-  .tree-expand-enter-active, .tree-expand-leave-active { transition: none; }
+  .tree-expand-enter-active, .tree-expand-leave-active,
+  .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
 }
 
-/* The shared slot keeps session names aligned while swapping liveness for actions. */
-.row-trailing { display: grid; width: 18px; height: 18px; flex: none; align-self: center; }
-.row-status, .row-action { grid-area: 1 / 1; }
+/* The shared slot keeps session and window names aligned while swapping the
+   status glyph for the row's menu. A window row only carries a menu once
+   something targets a window, and .has-menu is what says so — without it the
+   status keeps the whole slot, and its tooltip with it. */
+.row-trailing, .window-trailing { display: grid; width: 18px; height: 18px; flex: none; align-self: center; }
+.row-status, .window-status, .row-action { grid-area: 1 / 1; }
 .row-status, .window-status { display: flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; }
-.row-status { pointer-events: none; }
+.row-status, .window-row.has-menu .window-status { pointer-events: none; }
 .row-action { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover, .row-action[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
-.session-row:hover .row-action, .row-action:focus-visible, .session-row.menu-open .row-action { opacity: 1; }
+.session-row:hover .row-action, .window-row:hover .row-action, .row-action:focus-visible,
+.session-row.menu-open .row-action, .window-row.menu-open .row-action { opacity: 1; }
 .session-row:hover .row-status, .session-row.menu-open .row-status, .row-trailing:focus-within .row-status { opacity: 0; }
+.window-row.has-menu:hover .window-status, .window-row.menu-open .window-status,
+.window-trailing:focus-within .window-status { opacity: 0; }
 </style>

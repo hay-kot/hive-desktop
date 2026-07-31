@@ -23,6 +23,17 @@ var docsFS embed.FS
 //go:embed examples/actions.yml
 var exampleFS embed.FS
 
+// launcherDoc documents the `launchers:` list. It sits outside docs/ because
+// that directory is strictly one file per registered action type — a bijection
+// TestActionDocsCoverEveryRegisteredType enforces — and a launcher is not an
+// action type. The actions prompt renders it as a section of its own.
+//
+//go:embed launchers.md
+var launcherDoc string
+
+// LauncherDoc returns the markdown documenting the launchers list.
+func LauncherDoc() string { return launcherDoc }
+
 // ExampleYAML is the canonical actions.yml document: one entry per registered
 // action type, exercising the fields each one cares about.
 //

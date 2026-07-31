@@ -17,6 +17,15 @@ spawn agents automatically.
 - `agent` — a non-default agent profile (e.g. `claude`, `aider`). Omit for the
   launcher's default.
 
+## Item target only
+
+A launch-session action creates a *new* session, so it cannot declare
+`targets: [session]` or `targets: [window]` — the terminal's row menus have no
+New Session form to collect the interactive variant's repository and name, and
+the headless variant's `repo_template` renders over a feed item's payload,
+which a terminal target carries none of. Declaring one is rejected when the
+catalog is parsed.
+
 ## Templates
 
 `prompt_template` and `repo_template` are Go `text/template` strings rendered

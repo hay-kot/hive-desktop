@@ -137,10 +137,13 @@ func (m *Manager) Available(ctx context.Context) error {
 	return nil
 }
 
-// Attach opens, or returns the windows of, the client for slug. A second
-// attach for a live slug reuses it; after a client exits its slug is free
-// again and a re-attach starts fresh. cols/rows of 0x0 attach unsized —
-// see Options.unsized.
+// Attach opens, or returns the windows of, the client for slug, and either way
+// leaves a first paint on its stream: a caller attaches to render, and the one
+// re-attaching over a transport that dropped has nothing else to render from.
+// A second attach for a live slug therefore reuses the client and repaints it,
+// keeping the size it already voted — the vote belongs to a fresh attach. After
+// a client exits its slug is free again and a re-attach starts fresh. cols/rows
+// of 0x0 attach unsized — see Options.unsized.
 func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Window, error) {
 	if err := m.Available(ctx); err != nil {
 		return nil, err
@@ -157,6 +160,9 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 
 	if mc, ok := m.managed(slug); ok {
 		if _, dead := mc.client.exited(); !dead {
+			if err := mc.client.Repaint(ctx); err != nil {
+				return nil, err
+			}
 			return mc.client.Windows(), nil
 		}
 		m.remove(slug, mc.gen)

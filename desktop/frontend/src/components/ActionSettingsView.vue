@@ -33,7 +33,7 @@ const editorTrigger = ref<HTMLElement | null>(null)
 const saving = ref(false)
 const confirmation = useConfirmation()
 const isNew = computed(() => !editing.value || !actions.value.some((action) => action.id === editing.value?.id))
-function blank(): EditableAction { return { id: '', label: '', type: 'launch-session', showInDetail: true, appliesTo: [], launch: { promptTemplate: '', repoTemplate: '' } } }
+function blank(): EditableAction { return { id: '', label: '', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: [], launch: { promptTemplate: '', repoTemplate: '' } } }
 function setEditorTrigger(event: MouseEvent): void { editorTrigger.value = event.currentTarget instanceof HTMLElement ? event.currentTarget : null }
 function createNew(event: MouseEvent): void { setEditorTrigger(event); editing.value = blank() }
 function edit(action: EditableAction, event: MouseEvent): void { setEditorTrigger(event); editing.value = JSON.parse(JSON.stringify(action)) as EditableAction }

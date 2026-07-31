@@ -25,20 +25,22 @@ type ActionUsageChecker interface {
 	Usage(ctx context.Context, actionID string) (ActionUsage, error)
 }
 
-// ActionStore retains its last-good snapshot if a disk reload or mutation
+// ActionStore owns actions.yml — both of the lists in it, the actions and the
+// launchers — and retains its last-good snapshot if a disk reload or mutation
 // candidate is invalid. All mutations re-read disk while holding this lock.
 //
-// actions.yml's sequence order is the catalog's presentation order, so the
-// snapshot keeps the parsed slice as-is and indexes it separately for lookup
-// by id; nothing re-sorts on the way out.
+// Each sequence's order is that list's presentation order, so the snapshot
+// keeps the parsed slices as-is and indexes them separately for lookup by id;
+// nothing re-sorts on the way out.
 type ActionStore struct {
-	path    string
-	mu      sync.Mutex
-	loaded  bool
-	actions []Action
-	index   map[string]Action
-	err     error
-	usage   ActionUsageChecker
+	path      string
+	mu        sync.Mutex
+	loaded    bool
+	actions   []Action
+	index     map[string]Action
+	launchers []Launcher
+	err       error
+	usage     ActionUsageChecker
 }
 
 func NewActionStore(path string) *ActionStore { return &ActionStore{path: path} }
@@ -79,6 +81,26 @@ func actionAppliesTo(action Action, kind string) bool {
 	return false
 }
 
+// Launchers returns the configured launchers in file order.
+func (s *ActionStore) Launchers() []Launcher {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	return append(make([]Launcher, 0, len(s.launchers)), s.launchers...)
+}
+
+func (s *ActionStore) Launcher(id string) (Launcher, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+	for _, l := range s.launchers {
+		if l.ID == id {
+			return l, true
+		}
+	}
+	return Launcher{}, false
+}
+
 func (s *ActionStore) Get(id string) (Action, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -95,14 +117,15 @@ func (s *ActionStore) Err() error {
 }
 func (s *ActionStore) Reload() error { s.mu.Lock(); defer s.mu.Unlock(); return s.reloadLocked() }
 func (s *ActionStore) reloadLocked() error {
-	loaded, err := LoadActions(s.path)
+	catalog, err := LoadCatalog(s.path)
 	s.loaded = true
 	if err != nil {
 		s.err = err
 		return err
 	}
-	s.actions = loaded
-	s.index = byID(loaded)
+	s.actions = catalog.Actions
+	s.index = byID(catalog.Actions)
+	s.launchers = catalog.Launchers
 	s.err = nil
 	return nil
 }
@@ -132,6 +155,7 @@ func (s *ActionStore) ListEditable() EditableCatalog {
 		out = append(out, e)
 	}
 	catalog.Actions = out
+	catalog.Launchers = append(make([]Launcher, 0, len(s.launchers)), s.launchers...)
 	if s.err != nil {
 		catalog.Error = s.err.Error()
 	}
@@ -224,11 +248,11 @@ func (s *ActionStore) Delete(ctx context.Context, id string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	doc, list, err := s.latestDocumentLocked()
+	doc, list, err := s.latestDocumentLocked("actions")
 	if err != nil {
 		return err
 	}
-	i := findActionNode(list, id)
+	i := findNodeByID(list, id)
 	if i < 0 {
 		return fmt.Errorf("action %q not found", id)
 	}
@@ -244,7 +268,7 @@ func (s *ActionStore) Delete(ctx context.Context, id string) error {
 func (s *ActionStore) Reorder(ids []string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	doc, list, err := s.latestDocumentLocked()
+	doc, list, err := s.latestDocumentLocked("actions")
 	if err != nil {
 		return err
 	}
@@ -258,7 +282,7 @@ func (s *ActionStore) Reorder(ids []string) error {
 			return fmt.Errorf("reorder actions: action %q listed twice", id)
 		}
 		seen[id] = true
-		i := findActionNode(list, id)
+		i := findNodeByID(list, id)
 		if i < 0 {
 			return fmt.Errorf("reorder actions: action %q not found", id)
 		}
@@ -269,6 +293,80 @@ func (s *ActionStore) Reorder(ids []string) error {
 	}
 	list.Content = ordered
 	return s.writeDocumentLocked(doc)
+}
+
+// CreateLauncher and UpdateLauncher write one launcher into the `launchers:`
+// list, through the same read-latest → edit-node → validate → atomic-write path
+// action CRUD takes, so a hand edit that arrived since is never clobbered.
+func (s *ActionStore) CreateLauncher(l Launcher) (Launcher, error) {
+	return s.mutateLauncher("create", l.ID, l)
+}
+
+func (s *ActionStore) UpdateLauncher(id string, l Launcher) (Launcher, error) {
+	if id != l.ID {
+		return Launcher{}, fmt.Errorf("launcher id is immutable")
+	}
+	return s.mutateLauncher("update", id, l)
+}
+
+// DeleteLauncher needs no usage preflight, unlike an action: nothing references
+// a launcher but a keybinding, and a binding for an id that is gone simply
+// stops resolving.
+func (s *ActionStore) DeleteLauncher(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, list, err := s.latestDocumentLocked("launchers")
+	if err != nil {
+		return err
+	}
+	i := findNodeByID(list, id)
+	if i < 0 {
+		return fmt.Errorf("launcher %q not found", id)
+	}
+	list.Content = append(list.Content[:i], list.Content[i+1:]...)
+	return s.writeDocumentLocked(doc)
+}
+
+func (s *ActionStore) mutateLauncher(mode, id string, l Launcher) (Launcher, error) {
+	if err := l.Validate(); err != nil {
+		return Launcher{}, err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	doc, list, err := s.latestDocumentLocked("launchers")
+	if err != nil {
+		return Launcher{}, err
+	}
+	i := findNodeByID(list, id)
+	switch {
+	case mode == "create" && i >= 0:
+		return Launcher{}, fmt.Errorf("launcher %q already exists", id)
+	case mode == "create":
+		list.Content = append(list.Content, launcherNode(l))
+	case i < 0:
+		return Launcher{}, fmt.Errorf("launcher %q not found", id)
+	default:
+		list.Content[i] = launcherNode(l)
+	}
+	if err := s.writeDocumentLocked(doc); err != nil {
+		return Launcher{}, err
+	}
+	return l, nil
+}
+
+func launcherNode(l Launcher) *yaml.Node {
+	n := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	add := func(k, v string) { n.Content = append(n.Content, scalar(k), scalar(v)) }
+	add("id", l.ID)
+	add("label", l.Label)
+	add("command", l.Command)
+	if l.Cwd != "" {
+		add("cwd", l.Cwd)
+	}
+	if l.Icon != "" {
+		add("icon", l.Icon)
+	}
+	return n
 }
 
 func sameNodes(a, b []*yaml.Node) bool {
@@ -284,11 +382,11 @@ func sameNodes(a, b []*yaml.Node) bool {
 }
 
 func (s *ActionStore) mutateLocked(mode, id string, a Action) (EditableAction, error) {
-	doc, list, err := s.latestDocumentLocked()
+	doc, list, err := s.latestDocumentLocked("actions")
 	if err != nil {
 		return EditableAction{}, err
 	}
-	i := findActionNode(list, id)
+	i := findNodeByID(list, id)
 	if mode == "create" {
 		if i >= 0 {
 			return EditableAction{}, fmt.Errorf("action %q already exists", id)
@@ -315,20 +413,21 @@ func (s *ActionStore) mutateLocked(mode, id string, a Action) (EditableAction, e
 }
 
 // latestDocumentLocked rejects invalid latest disk bytes before altering disk
-// or memory. Empty present files are valid and become a new v1 document.
-func (s *ActionStore) latestDocumentLocked() (*yaml.Node, *yaml.Node, error) {
+// or memory, and answers the document's writable sequence under key ("actions"
+// or "launchers"). Empty present files are valid and become a new v1 document.
+func (s *ActionStore) latestDocumentLocked(key string) (*yaml.Node, *yaml.Node, error) {
 	data, err := os.ReadFile(s.path)
 	if err != nil && !os.IsNotExist(err) {
 		return nil, nil, fmt.Errorf("read actions %q: %w", s.path, err)
 	}
 	if err == nil {
-		if _, err := parseActions(data); err != nil {
+		if _, err := parseCatalog(data); err != nil {
 			return nil, nil, fmt.Errorf("actions file changed to invalid content: %w", err)
 		}
 	}
 	if os.IsNotExist(err) || len(strings.TrimSpace(string(data))) == 0 {
 		doc := newDocument()
-		return doc, doc.Content[0].Content[3], nil
+		return doc, normalizeSequence(doc.Content[0], key), nil
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
@@ -338,15 +437,17 @@ func (s *ActionStore) latestDocumentLocked() (*yaml.Node, *yaml.Node, error) {
 	if root.Kind != yaml.MappingNode {
 		return nil, nil, fmt.Errorf("actions: valid document has invalid root")
 	}
-	return &doc, normalizeActionsSequence(root), nil
+	return &doc, normalizeSequence(root, key), nil
 }
 
-// normalizeActionsSequence makes the optional/null actions field writable.
-// LoadActions accepts both shapes as an empty catalog, so CRUD must too. It
-// changes only that field, retaining all unrelated mapping keys and comments.
-func normalizeActionsSequence(root *yaml.Node) *yaml.Node {
+// normalizeSequence makes an optional/null/absent top-level list field
+// writable. LoadCatalog accepts all three shapes as an empty list, so CRUD must
+// too. It changes only that field, retaining all unrelated mapping keys and
+// comments — which is what lets a hand-authored file keep its comments through
+// an edit made in the app.
+func normalizeSequence(root *yaml.Node, key string) *yaml.Node {
 	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value != "actions" {
+		if root.Content[i].Value != key {
 			continue
 		}
 		if root.Content[i+1].Kind == yaml.SequenceNode {
@@ -364,17 +465,17 @@ func normalizeActionsSequence(root *yaml.Node) *yaml.Node {
 		return list
 	}
 	list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-	root.Content = append(root.Content, scalar("actions"), list)
+	root.Content = append(root.Content, scalar(key), list)
 	return list
 }
 
 func newDocument() *yaml.Node {
 	root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	root.Content = []*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"}, {Kind: yaml.ScalarNode, Tag: "!!int", Value: "1"}, {Kind: yaml.ScalarNode, Tag: "!!str", Value: "actions"}, {Kind: yaml.SequenceNode, Tag: "!!seq"}}
+	root.Content = []*yaml.Node{{Kind: yaml.ScalarNode, Tag: "!!str", Value: "version"}, {Kind: yaml.ScalarNode, Tag: "!!int", Value: "1"}}
 	return &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{root}}
 }
 
-func findActionNode(list *yaml.Node, id string) int {
+func findNodeByID(list *yaml.Node, id string) int {
 	for i, n := range list.Content {
 		for j := 0; j+1 < len(n.Content); j += 2 {
 			if n.Content[j].Value == "id" && n.Content[j+1].Value == id {
@@ -390,7 +491,7 @@ func (s *ActionStore) writeDocumentLocked(doc *yaml.Node) error {
 	if err != nil {
 		return fmt.Errorf("encode actions: %w", err)
 	}
-	if _, err := parseActions(data); err != nil {
+	if _, err := parseCatalog(data); err != nil {
 		return fmt.Errorf("validate action change: %w", err)
 	}
 	if err := atomicWrite(s.path, data); err != nil {
@@ -425,6 +526,13 @@ func actionNode(a Action) (*yaml.Node, error) {
 	add("type", a.Type)
 	if a.ShowInDetail {
 		n.Content = append(n.Content, scalar("show_in_detail"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
+	}
+	if len(a.Targets) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, v := range a.Targets {
+			seq.Content = append(seq.Content, scalar(v))
+		}
+		n.Content = append(n.Content, scalar("targets"), seq)
 	}
 	if len(a.AppliesTo) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}

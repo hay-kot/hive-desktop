@@ -85,6 +85,14 @@ type NotificationSettings struct {
 type Appearance struct {
 	Theme            string `yaml:"theme,omitempty"              env:"HIVE_DESKTOP_APPEARANCE_THEME"`
 	TerminalFontSize string `yaml:"terminal_font_size,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE"`
+	// TerminalFontFamily names an installed monospace family for the terminal
+	// only, leaving the rest of the UI alone. Empty is the bundled face.
+	TerminalFontFamily string `yaml:"terminal_font_family,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY"`
+	// TerminalFontWeight is the CSS weight normal cells draw at, and
+	// TerminalFontWeightBold the weight a bold cell draws at. Zero means
+	// nothing persisted; the frontend owns the defaults and the valid set.
+	TerminalFontWeight     int `yaml:"terminal_font_weight,omitempty"      env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT"`
+	TerminalFontWeightBold int `yaml:"terminal_font_weight_bold,omitempty" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD"`
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`

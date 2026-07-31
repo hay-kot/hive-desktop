@@ -21,12 +21,15 @@ import (
 // same renderer the executors use (missingkey=error) over the two payload
 // shapes a pr/issue action can be invoked against.
 func TestDefaultActionsYAMLParsesValidatesAndRenders(t *testing.T) {
-	parsed, err := parseActions([]byte(defaultActionsYAML))
+	parsed, err := parseCatalog([]byte(defaultActionsYAML))
 	require.NoError(t, err)
-	require.NotEmpty(t, parsed)
+	require.NotEmpty(t, parsed.Actions)
+	// The other list in the file: a starter catalog that demonstrates every
+	// action type but no launcher would leave the palette empty on first run.
+	require.NotEmpty(t, parsed.Launchers)
 
-	seen := make(map[string]bool, len(parsed))
-	for _, a := range parsed {
+	seen := make(map[string]bool, len(parsed.Actions))
+	for _, a := range parsed.Actions {
 		seen[a.Type] = true
 	}
 	for _, actionType := range Types() {
@@ -57,7 +60,7 @@ func TestDefaultActionsYAMLParsesValidatesAndRenders(t *testing.T) {
 		}
 	}
 
-	for _, a := range parsed {
+	for _, a := range parsed.Actions {
 		switch c := a.Config.(type) {
 		case *LaunchSessionConfig:
 			render(t, a.ID+".prompt_template", c.PromptTemplate)

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
@@ -88,4 +89,24 @@ func (s *SessionService) RecycleSession(ctx context.Context, id string) (int64, 
 // background job and returns the job id.
 func (s *SessionService) PruneSessions(ctx context.Context) (int64, error) {
 	return s.sessions.PruneSessions(ctx)
+}
+
+// TerminalActionViews returns the configured actions the terminal offers on
+// one of its surfaces — "session" for a session row, "window" for a window
+// row.
+func (s *SessionService) TerminalActionViews(ctx context.Context, target string) ([]actions.View, error) {
+	return s.sessions.TerminalActionViews(ctx, target)
+}
+
+// InvokeTerminalAction runs an action against a terminal target as a
+// background job and returns the job id; its outcome surfaces in the jobs UI.
+func (s *SessionService) InvokeTerminalAction(ctx context.Context, actionID string, target dispatch.TerminalTarget, inputs map[string]string) (int64, error) {
+	return s.sessions.InvokeTerminalAction(ctx, actionID, target, inputs)
+}
+
+// RenderTerminalClipboardAction returns the text a clipboard action renders
+// for a terminal target. The frontend writes it through the native Wails
+// clipboard; the core produces the text and never touches the clipboard.
+func (s *SessionService) RenderTerminalClipboardAction(ctx context.Context, actionID string, target dispatch.TerminalTarget, inputs map[string]string) (string, error) {
+	return s.sessions.RenderTerminalClipboardAction(ctx, actionID, target, inputs)
 }

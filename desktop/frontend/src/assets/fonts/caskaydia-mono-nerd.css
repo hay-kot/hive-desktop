@@ -1,0 +1,99 @@
+/*
+ * CaskaydiaMono Nerd Font v3.4.0 — Cascadia Mono (OFL-1.1, (c) 2019 Microsoft
+ * Corporation) patched with Nerd Fonts glyphs
+ * (https://github.com/ryanoasis/nerd-fonts, OFL-1.1). Vendored for the terminal
+ * surface: agent TUIs render powerline and devicon glyphs that no system font
+ * covers.
+ *
+ * Cascadia *Mono* rather than Cascadia *Code*: same design, ligatures removed.
+ *
+ * Five weights, not two, because the weight setting has to mean something on
+ * the shipped font. CSS matches a requested weight to the nearest declared face
+ * and never synthesizes a lighter one, so a family carrying only 400 and 700
+ * would render "Light" and "Regular" identically. WOFF2 is what pays for them:
+ * these ten faces are smaller than the four TTFs they replaced.
+ *
+ * SemiLight (350) is the default and is here in place of ExtraLight (200):
+ * Light reads too thin at 13-14px on a dark background and Regular is what
+ * #181 was filed about, so the useful range is narrow and 200 sits outside it.
+ */
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-LightItalic.woff2') format('woff2');
+  font-weight: 300;
+  font-style: italic;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-SemiLight.woff2') format('woff2');
+  font-weight: 350;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-SemiLightItalic.woff2') format('woff2');
+  font-weight: 350;
+  font-style: italic;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-Italic.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-SemiBoldItalic.woff2') format('woff2');
+  font-weight: 600;
+  font-style: italic;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: 'CaskaydiaMono Nerd Font';
+  src: url('./CaskaydiaMonoNerdFont-BoldItalic.woff2') format('woff2');
+  font-weight: 700;
+  font-style: italic;
+  font-display: block;
+}

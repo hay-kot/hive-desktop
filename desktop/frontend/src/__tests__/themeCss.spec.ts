@@ -16,6 +16,22 @@ for (const match of css.matchAll(/\[data-theme="([a-z-]+)"\]\s*\{([^}]*)\}/g)) {
   blocks.set(match[1], tokens)
 }
 
+function value(theme: string, token: string): string | undefined {
+  const block = css.match(new RegExp(`\\[data-theme="${theme}"\\]\\s*\\{([^}]*)\\}`))
+  return block?.[1].match(new RegExp(`${token}:\\s*(#[0-9a-f]{6})`, 'i'))?.[1]
+}
+
+function luminance(hex: string): number {
+  const channels = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+  const [r, g, b] = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4))
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
 describe('theme CSS', () => {
   it('defines a block for every registered theme and registers every block', () => {
     expect([...blocks.keys()].sort()).toEqual([...themes].sort())
@@ -33,6 +49,27 @@ describe('theme CSS', () => {
       const exempt = theme === 'midnight' ? /^--hv-term-/ : /^$/
       const missing = required.filter((token) => !tokens.has(token) && !exempt.test(token))
       expect(missing, `theme "${theme}"`).toEqual([])
+    }
+  })
+
+  // A dark theme that leaves unstyled output on --hv-text lands near 16:1,
+  // which is glare across a full screen of monospace — the drift #181 ended up
+  // being about. The ceiling only applies to dark themes: dark-on-light wants
+  // all the contrast it can get, which is why black on white is the norm.
+  it('keeps terminal foreground contrast in the legible band for every theme', () => {
+    for (const theme of blocks.keys()) {
+      const background = value(theme, '--hv-app')
+      // Terminal foreground falls through to --hv-text where a theme sets
+      // none, which is what the light themes rely on.
+      const foreground = value(theme, '--hv-term-foreground') ?? value(theme, '--hv-text')
+      expect(background, `theme "${theme}" --hv-app`).toBeDefined()
+      expect(foreground, `theme "${theme}" foreground`).toBeDefined()
+
+      const ratio = contrast(foreground!, background!)
+      expect(ratio, `theme "${theme}" is below AAA`).toBeGreaterThanOrEqual(7)
+      if (luminance(background!) < 0.5) {
+        expect(ratio, `theme "${theme}" is glare-bright for a terminal`).toBeLessThanOrEqual(13)
+      }
     }
   })
 })

@@ -10,6 +10,7 @@ import * as IntegrationsService from "./integrationsservice.js";
 import * as JobService from "./jobservice.js";
 import * as NotificationService from "./notificationservice.js";
 import * as PipelineService from "./pipelineservice.js";
+import * as PopupTerminalService from "./popupterminalservice.js";
 import * as PromptsService from "./promptsservice.js";
 import * as ReportService from "./reportservice.js";
 import * as SessionService from "./sessionservice.js";
@@ -30,6 +31,7 @@ export {
     JobService,
     NotificationService,
     PipelineService,
+    PopupTerminalService,
     PromptsService,
     ReportService,
     SessionService,
@@ -55,6 +57,8 @@ export type {
     NotificationToast,
     NotifyInput,
     PathInfo,
+    PopupTerminalAvailability,
+    PopupTerminalEndpoint,
     ReportInput,
     ReportPreview,
     ReportResult,

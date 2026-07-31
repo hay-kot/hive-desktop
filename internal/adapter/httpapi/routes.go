@@ -70,8 +70,55 @@ func (ctrl *Controller) operations() []Op {
 	// index and OpenAPI document never advertise a surface that cannot work.
 	if ctrl.terminalToken != "" {
 		ops = append(ops, ctrl.terminalOperations()...)
+		ops = append(ops, ctrl.popupTerminalOperations()...)
 	}
 	return ops
+}
+
+// popupTerminalOperations is the ephemeral surface: terminals this process owns
+// outright, opened on demand and addressed by an id it mints (ADR 0048). They
+// ride the terminal bearer token and CORS policy by sitting under its prefix.
+func (ctrl *Controller) popupTerminalOperations() []Op {
+	return []Op{
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "open", Summary: "Open an ephemeral terminal and return it. The directory is resolved in order — the launcher's own cwd, sessionSlug's checkout, then dir (a leading ~ is expanded), then the user's home. command is a shell command line run through a login shell, so a user's aliases, functions and PATH resolve it; empty opens an interactive shell. launcher names a configured launcher (the launchers list in actions.yml) to open instead, and brings its own command. The terminal is this process's child: it has no name outside this run, nothing else can attach to it, and it ends when it is closed or when Hive exits. The data plane is a WebSocket served at " + PopupTerminalStreamPath + ", outside this operations table.",
+			Request: popupOpenRequest{}, Response: popupTerminal{}, Handler: ctrl.PopupTerminalOpen,
+			Errors: popupTerminalErrors("no hive session carries that slug, or no launcher carries that id",
+				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
+		},
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "launchers", Summary: "List the configured launchers — the launchers list in actions.yml — in file order. What each one runs is deliberately absent: open it by id.",
+			Response: popupLauncherListResponse{}, Handler: ctrl.PopupTerminalLaunchers,
+			Errors: popupTerminalErrors(""),
+		},
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "close", Summary: "End a terminal and every process in it, and report whether there was one to close. An id whose process already exited answers closed=false rather than failing: an exited terminal is dropped, not kept.",
+			Request: popupIDRequest{}, Response: popupCloseResponse{}, Handler: ctrl.PopupTerminalClose,
+			Errors: popupTerminalErrors(""),
+		},
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "list", Summary: "List the open terminals, oldest first. Terminals whose process has exited are absent.",
+			Response: popupListResponse{}, Handler: ctrl.PopupTerminalList,
+			Errors: popupTerminalErrors(""),
+		},
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "resize", Summary: "Set a terminal's size. This is applied, not voted on: one client renders the PTY, so the size asked for is the size the process is told.",
+			Request: popupSizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.PopupTerminalResize,
+			Errors: popupTerminalErrors("no open terminal carries that id"),
+		},
+	}
+}
+
+// popupTerminalErrors is terminalErrors with the unavailable reason that fits
+// this surface: there is no program to install, so a 503 here is the build or
+// the platform and nothing a user can act on.
+func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
+	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
+	if notFound != "" {
+		errs = append(errs, ErrResp{Status: 404, When: notFound})
+	}
+	errs = append(errs, extra...)
+	return append(errs, ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"})
 }
 
 func (ctrl *Controller) baseOperations() []Op {

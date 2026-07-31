@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/fonts"
 )
 
 // SettingsService exposes user-tunable settings to the frontend. The JSON
@@ -12,10 +13,11 @@ import (
 // maps.
 type SettingsService struct {
 	settings *app.SettingsService
+	fonts    *fonts.Lister
 }
 
 func NewSettingsService(s *app.SettingsService) *SettingsService {
-	return &SettingsService{settings: s}
+	return &SettingsService{settings: s, fonts: fonts.NewLister()}
 }
 
 // GithubSettings is the GitHub integration's editable configuration. Seconds
@@ -45,6 +47,13 @@ type AppearanceSettings struct {
 	// TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
 	// pixel count — the frontend owns the mapping.
 	TerminalFontSize string `json:"terminalFontSize"`
+	// TerminalFontFamily is an installed monospace family for the terminal
+	// alone; empty is the bundled face.
+	TerminalFontFamily string `json:"terminalFontFamily"`
+	// The CSS weights normal and bold cells draw at. Zero means nothing
+	// persisted — the frontend owns the defaults and heals anything else.
+	TerminalFontWeight     int `json:"terminalFontWeight"`
+	TerminalFontWeightBold int `json:"terminalFontWeightBold"`
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
@@ -90,11 +99,24 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		return AppearanceSettings{}, err
 	}
 	return AppearanceSettings{
-		Theme:               current.Theme,
-		TerminalFontSize:    current.TerminalFontSize,
-		TerminalShowWindows: current.TerminalShowWindows,
-		TerminalPoolSize:    current.TerminalPoolSize,
+		Theme:                  current.Theme,
+		TerminalFontSize:       current.TerminalFontSize,
+		TerminalFontFamily:     current.TerminalFontFamily,
+		TerminalFontWeight:     current.TerminalFontWeight,
+		TerminalFontWeightBold: current.TerminalFontWeightBold,
+		TerminalShowWindows:    current.TerminalShowWindows,
+		TerminalPoolSize:       current.TerminalPoolSize,
 	}, nil
+}
+
+// MonospaceFonts lists the monospace families installed on this machine, for
+// the terminal's font picker. The webview cannot enumerate them itself —
+// queryLocalFonts is Chromium-only and macOS runs on WKWebView.
+//
+// The scan is cached for the process, so a font installed while the app runs
+// appears on the next launch.
+func (s *SettingsService) MonospaceFonts(context.Context) ([]string, error) {
+	return s.fonts.Monospace(), nil
 }
 
 // The appearance setters are per-field so the theme picker and the terminal
@@ -105,6 +127,14 @@ func (s *SettingsService) SetTheme(ctx context.Context, theme string) error {
 
 func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {
 	return s.settings.SetTerminalFontSize(ctx, size)
+}
+
+func (s *SettingsService) SetTerminalFontFamily(ctx context.Context, family string) error {
+	return s.settings.SetTerminalFontFamily(ctx, family)
+}
+
+func (s *SettingsService) SetTerminalFontWeights(ctx context.Context, weight, weightBold int) error {
+	return s.settings.SetTerminalFontWeights(ctx, weight, weightBold)
 }
 
 func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool) error {

@@ -2,12 +2,12 @@ import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
-import '../assets/fonts/jetbrains-mono-nerd.css'
 import {
   decodeFrame,
   encodeInputFrames,
@@ -16,13 +16,17 @@ import {
   type WindowEventKind,
   type WindowState,
 } from '../lib/terminalClient'
-import { xtermTheme } from '../lib/terminalTheme'
+import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { TerminalOutputWriter } from '../lib/terminalOutput'
+import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
+import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
+import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
 import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
 /**
- * 'ended' is terminal: the control client is gone and the only way forward is
- * reconnect(), which re-attaches from scratch.
+ * 'ended' is terminal: this view has no stream any more — whether or not the
+ * control client behind it survived — and the only way forward is reconnect().
  */
 export type TerminalStatus = 'connecting' | 'live' | 'ended'
 
@@ -62,6 +66,19 @@ export interface TerminalWindowTab {
   fit: FitAddon
 }
 
+/**
+ * The find bar, which searches one window at a time: the active tab's buffer,
+ * scrollback included. `matches` is -1 when there are more than the addon will
+ * highlight, and `index` is the 1-based position of the current match, 0 for
+ * none.
+ */
+export interface TerminalSearch {
+  open: boolean
+  query: string
+  matches: number
+  index: number
+}
+
 export interface UseTerminalWindows {
   tabs: Ref<TerminalWindowTab[]>
   activeWindowId: Ref<string>
@@ -75,6 +92,12 @@ export interface UseTerminalWindows {
   actionError: Ref<string | null>
   sizeConstraint: Ref<TerminalSizeConstraint | null>
   dismissSizeConstraint: () => void
+  search: Ref<TerminalSearch>
+  openSearch: () => void
+  closeSearch: () => void
+  setSearchQuery: (query: string) => void
+  findNext: () => void
+  findPrevious: () => void
   start: () => Promise<void>
   reconnect: () => Promise<void>
   select: (windowId: string) => Promise<void>
@@ -97,10 +120,6 @@ const RESIZE_DEBOUNCE_MS = 80
 // well inside this; an unanswered vote means something else decided the size.
 const CONSTRAINT_SETTLE_MS = 750
 
-// The face xterm measures its cell from. The rest of the stack only covers the
-// window between a Terminal opening and this one resolving.
-const TERMINAL_FONT = "'JetBrainsMono Nerd Font'"
-
 // A link has to leave the webview: it hosts one document for the app's whole
 // lifetime, and xterm's own default for an OSC 8 hyperlink — confirm() then
 // window.open() — is answered by neither, so a click on one does nothing at
@@ -114,12 +133,20 @@ const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
+  finder: SearchAddon
+  output: TerminalOutputWriter
   disposers: IDisposable[]
   // An atlas renderer is live on this terminal. False after a context loss the
   // canvas claim did not survive, which is what makes the next activation
   // retry instead of leaving the pane on the DOM renderer. ADR 0045.
   rendered?: boolean
 }
+
+// How far off the live tail the viewport has to be before the way back is
+// offered. One wheel notch is about three rows, so a nudge — or the row of
+// drift a trackpad leaves behind — does not flash a pill at anyone; a scroll
+// meant as a scroll does.
+const TAIL_SLACK_ROWS = 5
 
 // The pane box belongs to the app window, not to a session, so one remembered
 // vote serves every session — including one being attached for the first time.
@@ -166,13 +193,14 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
   const sizeConstraint = ref<TerminalSizeConstraint | null>(null)
+  const search = ref<TerminalSearch>({ open: false, query: '', matches: 0, index: 0 })
 
   const runtime = new Map<string, TabRuntime>()
   const scope = effectScope(true)
   let socket: WebSocket | null = null
   let disposed = false
 
-  const { px: fontSizePx } = useTerminalFont()
+  const { px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold } = useTerminalFont()
 
   // The last size this client voted for: a request, never the size anything
   // renders at. It opens at the last measured vote, and null — nothing measured
@@ -191,11 +219,24 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     watch(theme, () => {
       const palette = xtermTheme()
       for (const tab of tabs.value) tab.term.options.theme = palette
+      // A decoration keeps the colour it was drawn with, so live highlights
+      // would stay in the old theme until the next keystroke.
+      if (search.value.open) runSearch('incremental')
     })
     // New cell metrics change how many cells fit the same box, so the vote
     // must re-run; the grid itself stays at tmux's size until tmux answers.
-    watch(fontSizePx, (px) => {
-      for (const tab of tabs.value) tab.term.options.fontSize = px
+    // Weight and family move the advance width as much as size does, so all
+    // four re-vote — and the faces have to be resident before xterm re-measures
+    // against them, or it measures the outgoing font (ADR 0038).
+    watch([fontSizePx, fontFamily, fontWeight, fontWeightBold], async ([px, family, weight, weightBold]) => {
+      await loadTerminalFaces(family, px, weight, weightBold)
+      if (disposed) return
+      for (const tab of tabs.value) {
+        tab.term.options.fontFamily = terminalFontStack(family)
+        tab.term.options.fontSize = px
+        tab.term.options.fontWeight = weight
+        tab.term.options.fontWeightBold = weightBold
+      }
       scheduleVote()
     })
   })
@@ -210,26 +251,63 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // a cleaner boundary, and a lineHeight above 1 pads the glyph away from the
     // cell edge box drawing has to meet. ADR 0038.
     const term = markRaw(new Terminal({
-      fontFamily: `${TERMINAL_FONT}, 'IBM Plex Mono', ui-monospace, monospace`,
+      fontFamily: terminalFontStack(fontFamily.value),
       fontSize: fontSizePx.value,
+      fontWeight: fontWeight.value,
+      fontWeightBold: fontWeightBold.value,
       linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
+      // registerDecoration is still proposed API, and every find highlights
+      // through it — without this the first findNext throws and search is dead.
+      allowProposedApi: true,
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
     term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
+    const finder = markRaw(new SearchAddon())
+    term.loadAddon(finder)
+    const output = markRaw(new TerminalOutputWriter((data) => {
+      if (painted.value) term.write(data)
+      else term.write(data, () => { painted.value = true })
+    }))
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
+    term.attachCustomKeyEventHandler((event: KeyboardEvent) => {
+      if (event.type !== 'keydown') return true
+      if (isSearchCombo(event)) {
+        openSearch()
+        return false
+      }
+      // The palette fires from App.vue's window listener, which runs after this
+      // one. Returning false only stops xterm from *also* sending the chord to
+      // the pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
+      if (isPaletteEscape(event)) return false
+      return true
+    })
     runtime.set(state.windowId, {
+      finder,
+      output,
       disposers: [
+        finder,
+        { dispose: () => output.dispose() },
         term.onData((data: string) => sendInput(state.windowId, data)),
-        // onScroll covers user scrolling and the auto-pin on new output;
-        // onBufferChange covers entering the alternate screen, which has no
-        // scrollback and fires no scroll event on the way in.
+        // onScroll covers what output does to the buffer — the auto-pin to the
+        // tail, and a trim moving it — but *not* the user scrolling: xterm's
+        // viewport syncs the buffer from its own DOM scroll handler and
+        // suppresses the event to avoid feeding itself. attachTab listens to
+        // that DOM scroll for the other half.
         term.onScroll(() => refreshScrolledUp(state.windowId)),
+        // Entering the alternate screen has no scrollback and fires no scroll
+        // event on the way in.
         term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
+        // Fires as output lands too, not just on a new query: a match count is
+        // only true of the buffer it was counted in.
+        finder.onDidChangeResults(({ resultIndex, resultCount }) => {
+          if (activeWindowId.value !== state.windowId) return
+          search.value = { ...search.value, matches: resultCount, index: resultIndex + 1 }
+        }),
       ],
     })
     return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
@@ -241,7 +319,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const tab = findTab(windowId)
     if (!tab) return
     const buffer = tab.term.buffer.active
-    tab.scrolledUp = buffer.viewportY < buffer.baseY
+    tab.scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -250,7 +328,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function applySize(tab: TerminalWindowTab, width: number, height: number): void {
     if (!width || !height) return
     if (tab.term.cols === width && tab.term.rows === height) return
-    tab.term.resize(width, height)
+    resizeTerminalPreservingViewport(tab.term, width, height)
+    refreshScrolledUp(tab.windowId)
   }
 
   function sendInput(windowId: string, data: string): void {
@@ -259,9 +338,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   }
 
   function setActive(windowId: string): void {
+    if (activeWindowId.value !== windowId) clearHighlights()
     activeWindowId.value = windowId
     for (const tab of tabs.value) tab.active = tab.windowId === windowId
     showRenderer(windowId)
+    // A search belongs to the buffer it ran against, so switching tabs re-runs
+    // it rather than carrying the old window's hit count onto the new one.
+    if (search.value.open) runSearch('incremental')
   }
 
   // A GL context is claimed when a window is first shown, not when its pane
@@ -276,6 +359,56 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     loadRenderer(state, tab.term)
   }
 
+  // ─── Find ────────────────────────────────────────────────────────────────
+  // One bar over one window: the active tab's buffer, scrollback included.
+
+  function openSearch(): void {
+    search.value = { ...search.value, open: true }
+    runSearch('incremental')
+  }
+
+  function closeSearch(): void {
+    clearHighlights()
+    search.value = { open: false, query: '', matches: 0, index: 0 }
+    focusActive()
+  }
+
+  function setSearchQuery(query: string): void {
+    search.value = { ...search.value, query }
+    runSearch('incremental')
+  }
+
+  function findNext(): void { runSearch('next') }
+  function findPrevious(): void { runSearch('previous') }
+
+  // 'incremental' keeps the viewport on the match it is already showing while
+  // the query is still being typed; the other two are the user stepping.
+  function runSearch(mode: 'incremental' | 'next' | 'previous'): void {
+    const finder = runtime.get(activeWindowId.value)?.finder
+    if (!finder) return
+    if (!search.value.query) {
+      finder.clearDecorations()
+      search.value = { ...search.value, matches: 0, index: 0 }
+      return
+    }
+    const highlight = searchHighlightColors()
+    const options: ISearchOptions = {
+      incremental: mode === 'incremental',
+      decorations: {
+        matchBackground: highlight.match,
+        matchOverviewRuler: highlight.match,
+        activeMatchBackground: highlight.active,
+        activeMatchColorOverviewRuler: highlight.active,
+      },
+    }
+    if (mode === 'previous') finder.findPrevious(search.value.query, options)
+    else finder.findNext(search.value.query, options)
+  }
+
+  function clearHighlights(): void {
+    for (const state of runtime.values()) state.finder.clearDecorations()
+  }
+
   function attachTab(windowId: string, host: HTMLElement): void {
     const tab = findTab(windowId)
     const state = runtime.get(windowId)
@@ -285,6 +418,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
+    watchViewportScroll(state, windowId, host)
     if (tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon
       // activation to its own open(), which would throw a missing-context
@@ -293,6 +427,21 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       tab.term.focus()
     }
     scheduleVote()
+  }
+
+  // The only signal that the user scrolled. xterm's own onScroll is suppressed
+  // on this path — the viewport reads its DOM scrollTop, syncs the buffer, and
+  // swallows the event so it cannot feed itself — so a wheel, a trackpad or a
+  // dragged scrollbar moves the viewport off the tail silently, and nothing
+  // would ever offer the way back. The element only exists after open(), and
+  // xterm's own listener is registered inside it, so ours runs second and reads
+  // a buffer already synced.
+  function watchViewportScroll(state: TabRuntime, windowId: string, host: HTMLElement): void {
+    const viewport = host.querySelector('.xterm-viewport')
+    if (!viewport) return
+    const onScroll = (): void => refreshScrolledUp(windowId)
+    viewport.addEventListener('scroll', onScroll, { passive: true })
+    state.disposers.push({ dispose: () => viewport.removeEventListener('scroll', onScroll) })
   }
 
   function scheduleVote(): void {
@@ -369,12 +518,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
     switch (frame.type) {
       case 'output': {
-        const tab = findTab(frame.windowId)
-        if (!tab) break
-        // The callback fires once xterm has processed the chunk, which is the
-        // earliest moment this attach has a screen worth revealing.
-        if (painted.value) tab.term.write(frame.data)
-        else tab.term.write(frame.data, () => { painted.value = true })
+        runtime.get(frame.windowId)?.output.write(frame.data)
         break
       }
       case 'window':
@@ -491,7 +635,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     error.value = null
     actionError.value = null
     try {
-      await loadTerminalFaces(fontSizePx.value)
+      await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
       // 0x0 sets no client size at all: tmux ignores a control client until it
       // sets one, so the session keeps the size its other clients gave it.
       const { windows } = await client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0)
@@ -511,9 +655,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     }
   }
 
-  // Reconnect always builds new terminals. After an overflow the backend tears
-  // its client down and re-attaches with a fresh capture, so a reused terminal
-  // would paint that capture over a stale screen.
+  // Reconnect always builds new terminals. What the attach behind it guarantees
+  // is a snapshot to open on, not a fresh control client: the backend captures
+  // the panes again whether or not its client survived the drop, and a reused
+  // terminal would paint that capture over a stale screen.
   async function reconnect(): Promise<void> {
     closeSocket()
     disposeTabs()
@@ -587,8 +732,24 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   return {
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
+    search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
     start, reconnect, select, newWindow, closeWindow, rename, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }
+}
+
+// Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
+// emulator settled on, and for the reason they settled on it: a bare Ctrl+F is
+// readline's forward-char and belongs to the pane, not to us.
+// The command palette is reachable from inside a pane (App.vue), so the pane
+// must not consume its chord as well.
+function isPaletteEscape(event: KeyboardEvent): boolean {
+  return useKeybindings().resolve(terminalEscapeCombo(event) ?? '') === 'palette.toggle'
+}
+
+function isSearchCombo(event: KeyboardEvent): boolean {
+  if (event.key !== 'f' && event.key !== 'F') return false
+  if (event.ctrlKey) return event.shiftKey && !event.metaKey
+  return event.metaKey && !event.altKey
 }
 
 function message(error: unknown, fallback: string): string {
@@ -641,24 +802,6 @@ function loadRendererAddon<T extends ITerminalAddon>(
   }
 }
 
-// Kept per size because document.fonts.load re-resolves on every call — 12ms
-// to 47ms measured, even for a face already resident — and every attach awaits
-// it before it may so much as ask for the session.
-const faceLoads = new Map<number, Promise<void>>()
-
-// xterm measures its cell when a Terminal opens and never re-measures when a
-// face arrives later, and an atlas renderer caches the glyphs it rasterised
-// from whatever was resident — so bold has to be here too, not just regular.
-function loadTerminalFaces(px: number): Promise<void> {
-  const loaded = faceLoads.get(px)
-  if (loaded) return loaded
-  const pending = Promise.all([`${px}px`, `bold ${px}px`].map(
-    (font) => document.fonts?.load(`${font} ${TERMINAL_FONT}`).catch(() => {}),
-  )).then(() => {})
-  faceLoads.set(px, pending)
-  return pending
-}
-
-export function resetTerminalFacesForTests(): void {
-  faceLoads.clear()
-}
+// Re-exported so the pane's own tests keep reaching it through the composable
+// they exercise.
+export { resetTerminalFacesForTests }

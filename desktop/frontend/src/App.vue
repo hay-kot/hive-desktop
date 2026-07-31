@@ -37,8 +37,11 @@ import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
-import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
-import { commandCatalog } from './keybindings/catalog'
+import { usePopupTerminal } from './composables/usePopupTerminal'
+import { useLaunchers } from './composables/useLaunchers'
+import { useWailsEvent } from './composables/useWailsEvent'
+import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
+import { commands as bindableCommands, launcherActionID } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -65,6 +68,9 @@ const DevView = devMode ? defineAsyncComponent(() => import('./components/DevVie
 // Async so xterm.js stays out of the initial bundle: terminal mode is opt-in
 // and the hub must not pay for it at startup.
 const TerminalMode = defineAsyncComponent(() => import('./components/TerminalMode.vue'))
+// Same reason, and mounted only once the pop-up is first asked for — after
+// which it stays mounted, because hiding it must not end the shell inside it.
+const PopupTerminal = defineAsyncComponent(() => import('./components/PopupTerminal.vue'))
 
 const {
   status: githubStatus, connected: githubConnected, deviceFlow, card: connectCard, error: connectError, busy: connectBusy,
@@ -722,6 +728,35 @@ const {
 } = useNewSession()
 const kb = useKeybindings()
 
+// The pop-up terminal opens in the checkout of whichever session is on screen,
+// and in the user's home when none is (ADR 0048). The panel is mounted on first
+// use and stays mounted: hiding it is a view change, not the end of the shell.
+const popupTerminal = usePopupTerminal()
+const popupTerminalMounted = ref(false)
+const popupTerminalSlug = computed(() =>
+  (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
+
+function togglePopupTerminal(): void {
+  popupTerminalMounted.value = true
+  popupTerminal.toggle({ sessionSlug: popupTerminalSlug.value || undefined })
+}
+
+// A launcher is the pop-up opened straight into a program. It follows the
+// session on screen exactly as the bare shell does — that is what makes one
+// chord mean "lazygit here" wherever you are — unless the launcher pins itself
+// to a directory, which the core decides from the catalog.
+function toggleLauncher(actionID: string): void {
+  popupTerminalMounted.value = true
+  popupTerminal.toggle({ launcher: actionID, sessionSlug: popupTerminalSlug.value || undefined })
+}
+
+// The launchers are read here rather than by the panel: they are commands in
+// the palette and the keymap whether or not a pop-up has ever been opened, so
+// they have to be known before the first one is invoked.
+const launchers = useLaunchers()
+onMounted(() => { void launchers.refresh() })
+useWailsEvent('actions:updated', () => { void launchers.refresh() })
+
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
 // implementation and the palette can show its live shortcut.
@@ -738,10 +773,24 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
+  'terminal.popup.toggle': togglePopupTerminal,
   'session.new': openNewSession,
   'window.hide': hideWindow,
 }
-const catalogById = new Map(commandCatalog.map((command) => [command.id, command]))
+
+// Resolves a command id to its implementation. Launchers are not in runMap:
+// they come from actions.yml, so there is one implementation parameterised by
+// the action id rather than an entry per launcher.
+function runCommand(id: string): void {
+  const launcher = launcherActionID(id)
+  if (launcher !== null) {
+    toggleLauncher(launcher)
+    return
+  }
+  void runMap[id]?.()
+}
+
+const catalogById = computed(() => new Map(bindableCommands.value.map((command) => [command.id, command])))
 
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
@@ -758,8 +807,9 @@ const anyOverlayOpen = computed(() =>
 useCommands(computed(() => {
   const cmds: Command[] = []
 
-  // Bindable app commands (nav, refresh, …) with their live shortcut hint.
-  for (const command of commandCatalog) {
+  // Bindable app commands (nav, refresh, …) and the configured launchers, each
+  // with its live shortcut hint.
+  for (const command of bindableCommands.value) {
     if (command.paletteHidden) continue
     cmds.push({
       id: command.id,
@@ -768,7 +818,7 @@ useCommands(computed(() => {
       keywords: command.keywords,
       icon: command.icon,
       hint: formatCombo(kb.bindings.value[command.id]?.[0] ?? ''),
-      run: () => runMap[command.id]?.(),
+      run: () => runCommand(command.id),
     })
   }
 
@@ -858,6 +908,29 @@ useCommands(computed(() => {
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
 function onGlobalKeydown(e: KeyboardEvent): void {
+  // The exceptions to the rule below, which hands a focused terminal every key.
+  // The combo that opens a pop-up has to be able to close it, and by then a
+  // terminal has focus; a launcher's chord is one of those for the same reason.
+  // The palette is the third, because it is how you get back out of a pane. An
+  // overlay still suppresses all of them, as it does every global command.
+  if (!kb.recording.value && !anyOverlayOpen.value) {
+    const id = kb.resolve(comboFromEvent(e) ?? '')
+    if (id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)) {
+      e.preventDefault()
+      runCommand(id)
+      return
+    }
+    // The palette is the way back out of a pane, so it fires over one too — but
+    // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
+    // answers. A bare Ctrl+K stays with the pane; it is readline's
+    // kill-to-end-of-line.
+    if (isTerminalTarget(e.target) && kb.resolve(terminalEscapeCombo(e) ?? '') === 'palette.toggle') {
+      e.preventDefault()
+      togglePalette()
+      return
+    }
+  }
+
   // A focused terminal owns every key, modifiers included, so tmux prefixes
   // reach the pane instead of firing a Hive shortcut.
   if (isTerminalTarget(e.target)) return
@@ -872,7 +945,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (!combo) return
   const id = kb.resolve(combo)
   if (!id) return
-  const command = catalogById.get(id)
+  const command = catalogById.value.get(id)
   if (!command) return
 
   const mods = combo.split('+')
@@ -883,7 +956,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (command.context === 'feed' && !feedNavActive.value) return
 
   e.preventDefault()
-  void runMap[id]?.()
+  runCommand(id)
 }
 
 function isHistoryMouseButton(e: MouseEvent): boolean {
@@ -1171,6 +1244,7 @@ onUnmounted(() => {
       @cancel="markWorkspaceReadOpen = false"
     />
     <ToastStack :toasts="toasts" @dismiss="dismissToast" @clear-all="clearToasts" />
+    <PopupTerminal v-if="popupTerminalMounted" />
     <CommandPalette />
     <ReportProblemDialog v-if="reportDialogOpen" @close="reportDialogOpen = false" />
     <NewProfileModal

@@ -8,6 +8,21 @@ import (
 // defaultBufferBytes bounds the per-session backlog of undelivered output.
 const defaultBufferBytes = 8 << 20
 
+// defaultBufferEvents bounds the same backlog by count, because only Output is
+// charged bytes: a low-output session whose windows rename or change active pane
+// in a loop, left with no subscriber, would otherwise grow it without limit and
+// trip nothing. An event costs more than its payload — the boxed value, the
+// struct, the slice slot — so 64k of them is the same order of memory as the
+// byte bound, not the zero they measure.
+const defaultBufferEvents = 1 << 16
+
+// backlogBounds is what the backlog refuses to grow past. Both are checked; a
+// zero field takes its default.
+type backlogBounds struct {
+	bytes  int
+	events int
+}
+
 // subscriberQueue is zero deliberately: an event leaves the accounted backlog
 // only once a subscriber has taken it, so replacing a subscriber cannot strand
 // events in the channel it is closing. A re-Subscribe — the WebSocket reconnect
@@ -30,24 +45,25 @@ type subscription struct {
 }
 
 // broker fans one client's event stream out to at most one subscriber. The
-// reader goroutine calls publish, which never blocks: events queue in a
-// byte-bounded backlog that a pump goroutine drains into the subscriber's
-// channel. With no subscriber the backlog is what replays first-paint to a
-// WebSocket that connects after Attach.
+// reader goroutine calls publish, which never blocks: events queue in a bounded
+// backlog that a pump goroutine drains into the subscriber's channel. With no
+// subscriber the backlog is what replays first-paint to a WebSocket that
+// connects after Attach.
 //
 // A terminal byte stream cannot drop-oldest without corrupting the emulator,
 // so exceeding the bound is fatal: onOverflow tears the client down and the
 // frontend re-attaches for a clean resync.
 type broker struct {
-	mu       sync.Mutex
-	cond     *sync.Cond
-	buf      []Event
-	bytes    int
-	max      int
-	sub      *subscription
-	gen      uint64
-	closed   bool
-	overflow bool
+	mu        sync.Mutex
+	cond      *sync.Cond
+	buf       []Event
+	bytes     int
+	maxBytes  int
+	maxEvents int
+	sub       *subscription
+	gen       uint64
+	closed    bool
+	overflow  bool
 
 	// done releases a pump parked on a subscriber that stopped reading:
 	// sync.Cond cannot wake a goroutine blocked on a channel send.
@@ -57,18 +73,28 @@ type broker struct {
 	overflowOnce sync.Once
 }
 
-func newBroker(maxBytes int, onOverflow func()) *broker {
-	if maxBytes <= 0 {
-		maxBytes = defaultBufferBytes
+func newBroker(bounds backlogBounds, onOverflow func()) *broker {
+	if bounds.bytes <= 0 {
+		bounds.bytes = defaultBufferBytes
 	}
-	b := &broker{max: maxBytes, onOverflow: onOverflow, done: make(chan struct{})}
+	if bounds.events <= 0 {
+		bounds.events = defaultBufferEvents
+	}
+	b := &broker{
+		maxBytes:   bounds.bytes,
+		maxEvents:  bounds.events,
+		onOverflow: onOverflow,
+		done:       make(chan struct{}),
+	}
 	b.cond = sync.NewCond(&b.mu)
 	return b
 }
 
-// publish appends ev to the backlog. Only Output counts against the byte
-// bound — lifecycle and window events must still reach the subscriber while
-// the client is being torn down for overflow.
+// publish appends ev to the backlog. Only a droppable event is bounded, and the
+// exemption governs both sides of the bound: an event that can trip overflow is
+// also an event the overflowed broker discards, so a bounded lifecycle event
+// would become the trigger and then be thrown away — ending the stream with
+// nothing saying why.
 func (b *broker) publish(ev Event) {
 	b.mu.Lock()
 	if b.closed {
@@ -76,24 +102,35 @@ func (b *broker) publish(ev Event) {
 		return
 	}
 	size := eventBytes(ev)
-	if b.overflow && size > 0 {
-		b.mu.Unlock()
-		return
-	}
-	if b.bytes+size > b.max && size > 0 {
-		b.overflow = true
-		b.mu.Unlock()
-		b.overflowOnce.Do(func() {
-			if b.onOverflow != nil {
-				go b.onOverflow()
-			}
-		})
-		return
+	if droppable(ev) {
+		if b.overflow {
+			b.mu.Unlock()
+			return
+		}
+		if b.bytes+size > b.maxBytes || len(b.buf) >= b.maxEvents {
+			b.overflow = true
+			b.mu.Unlock()
+			b.overflowOnce.Do(func() {
+				if b.onOverflow != nil {
+					go b.onOverflow()
+				}
+			})
+			return
+		}
 	}
 	b.buf = append(b.buf, ev)
 	b.bytes += size
 	b.mu.Unlock()
 	b.cond.Broadcast()
+}
+
+// droppable reports whether losing ev is recoverable. Overflow tears the client
+// down and the frontend re-attaches, which repaints every screen and re-lists
+// the windows; nothing replays the lifecycle event that says why the stream
+// ended.
+func droppable(ev Event) bool {
+	_, lifecycle := ev.(LifecycleChanged)
+	return !lifecycle
 }
 
 // depth reports the buffered output bytes awaiting delivery.
@@ -133,6 +170,29 @@ func (b *broker) unsubscribe(gen uint64) {
 	b.cond.Broadcast()
 }
 
+// reset releases the current subscriber and drops the undelivered backlog. It
+// is what a repaint runs first: the snapshot it is about to publish supersedes
+// every byte the backlog holds, and a subscriber still draining that backlog
+// would consume the snapshot instead of the one that asked for it. A closing
+// broker is left alone — its backlog is the last thing a live subscriber will
+// ever read.
+func (b *broker) reset() {
+	b.mu.Lock()
+	if b.closed {
+		b.mu.Unlock()
+		return
+	}
+	if b.sub != nil {
+		close(b.sub.stop)
+		b.sub = nil
+		b.gen++
+	}
+	b.buf = nil
+	b.bytes = 0
+	b.mu.Unlock()
+	b.cond.Broadcast()
+}
+
 // close drains what a live subscriber can still take and closes its channel.
 // This is how a WebSocket write pump learns the client is gone.
 func (b *broker) close() {
@@ -165,9 +225,10 @@ func (b *broker) pump(sub *subscription) {
 		b.mu.Unlock()
 
 		switch {
-		case closing && eventBytes(ev) > 0:
-			// Undelivered output is output the re-attach's first paint redraws
-			// anyway, so a closing broker never parks on it.
+		case closing && droppable(ev):
+			// The re-attach's first paint and window listing produce all of this
+			// again, so a closing broker never parks on it — and never spends the
+			// final-delivery budget the lifecycle event behind it needs.
 			select {
 			case sub.ch <- ev:
 			default:

@@ -21,8 +21,12 @@ tasks:
     sources:
       - package.json
       - package-lock.json
+    # task's fingerprint globber discards directory matches, so a `generates`
+    # entry naming node_modules resolves to zero files and the task is never up
+    # to date — npm ci then re-runs on every dev rebuild, deleting node_modules
+    # under whatever is reading it (#120). The hidden lockfile is a real file.
     generates:
-      - node_modules
+      - node_modules/.package-lock.json
     preconditions:
       - sh: npm version
         msg: "Looks like npm isn't installed. Npm is part of the Node installer: https://nodejs.org/en/download/"

@@ -10,24 +10,33 @@ import (
 // desktop clients. Exactly one config branch must be set and it must match
 // Type; callers cannot send an untyped executable blob.
 type EditableAction struct {
-	ID           string                   `json:"id"`
-	Label        string                   `json:"label"`
-	Type         string                   `json:"type"`
-	ShowInDetail bool                     `json:"showInDetail"`
-	AppliesTo    []string                 `json:"appliesTo"`
-	Inputs       []InputSpec              `json:"inputs,omitempty"`
-	Launch       *EditableLaunchConfig    `json:"launch,omitempty"`
-	Shell        *EditableShellConfig     `json:"shell,omitempty"`
-	Message      *EditableMessageConfig   `json:"message,omitempty"`
-	Clipboard    *EditableClipboardConfig `json:"clipboard,omitempty"`
+	ID           string `json:"id"`
+	Label        string `json:"label"`
+	Type         string `json:"type"`
+	ShowInDetail bool   `json:"showInDetail"`
+	// Targets is always explicit on the wire — an action that declares none
+	// is an item action, and the editor renders a checked box rather than an
+	// empty one it would have to explain.
+	Targets   []string                 `json:"targets"`
+	AppliesTo []string                 `json:"appliesTo"`
+	Inputs    []InputSpec              `json:"inputs,omitempty"`
+	Launch    *EditableLaunchConfig    `json:"launch,omitempty"`
+	Shell     *EditableShellConfig     `json:"shell,omitempty"`
+	Message   *EditableMessageConfig   `json:"message,omitempty"`
+	Clipboard *EditableClipboardConfig `json:"clipboard,omitempty"`
 }
 
 // EditableCatalog returns the effective last-good catalog and any error from
 // parsing the latest file. It lets the settings UI remain useful while making
 // a hand-edited malformed actions.yml visible to the user.
+//
+// Launchers ride along rather than getting a read of their own: they are the
+// other list in the same file, so one parse answers for both and a single
+// Error describes whatever is wrong with it.
 type EditableCatalog struct {
-	Actions []EditableAction `json:"actions"`
-	Error   string           `json:"error"`
+	Actions   []EditableAction `json:"actions"`
+	Launchers []Launcher       `json:"launchers"`
+	Error     string           `json:"error"`
 }
 
 type EditableLaunchConfig struct {
@@ -53,7 +62,7 @@ type EditableClipboardConfig struct {
 }
 
 func editableFromAction(a Action) (EditableAction, error) {
-	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, AppliesTo: append([]string(nil), a.AppliesTo...), Inputs: cloneInputs(a.Inputs)}
+	out := EditableAction{ID: a.ID, Label: a.Label, Type: a.Type, ShowInDetail: a.ShowInDetail, Targets: effectiveTargets(a), AppliesTo: append([]string(nil), a.AppliesTo...), Inputs: cloneInputs(a.Inputs)}
 	switch c := a.Config.(type) {
 	case *LaunchSessionConfig:
 		out.Launch = &EditableLaunchConfig{PromptTemplate: c.PromptTemplate, Agent: c.Agent, RepoTemplate: c.RepoTemplate}
@@ -94,7 +103,7 @@ func actionFromEditable(e EditableAction) (Action, error) {
 	if branches != 1 {
 		return Action{}, fmt.Errorf("action %q: exactly one matching config branch is required", e.ID)
 	}
-	a := Action{ID: e.ID, Label: e.Label, Type: e.Type, ShowInDetail: e.ShowInDetail, AppliesTo: append([]string(nil), e.AppliesTo...), Inputs: normalizeInputs(cloneInputs(e.Inputs))}
+	a := Action{ID: e.ID, Label: e.Label, Type: e.Type, ShowInDetail: e.ShowInDetail, Targets: normalizeTargets(e.Targets), AppliesTo: append([]string(nil), e.AppliesTo...), Inputs: normalizeInputs(cloneInputs(e.Inputs))}
 	switch e.Type {
 	case "launch-session":
 		if e.Launch == nil {
@@ -131,6 +140,15 @@ func actionFromEditable(e EditableAction) (Action, error) {
 		return Action{}, err
 	}
 	return a, nil
+}
+
+// effectiveTargets spells out what an empty declaration means, so the editor
+// and any other reader of the catalog never has to know the default.
+func effectiveTargets(a Action) []string {
+	if len(a.Targets) == 0 {
+		return []string{TargetItem}
+	}
+	return append([]string(nil), a.Targets...)
 }
 
 func cloneEnv(env map[string]string) map[string]string {
