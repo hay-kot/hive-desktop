@@ -2,6 +2,8 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
+import IconAArrowDown from '~icons/lucide/a-arrow-down'
+import IconAArrowUp from '~icons/lucide/a-arrow-up'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
@@ -17,6 +19,7 @@ import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
 import IconSearch from '~icons/lucide/search'
 import IconTerminal from '~icons/lucide/terminal'
@@ -33,6 +36,13 @@ import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
 import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
+import {
+  resetTerminalFontSize,
+  stepTerminalFontSize,
+  terminalFontSizeLabels,
+  terminalFontSizeState,
+  useTerminalFont,
+} from '../composables/useTerminalFont'
 import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
@@ -223,6 +233,31 @@ const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
   icon: IconTrash,
   testid: 'terminal-sessions-prune',
 }])
+
+// The pane's own overflow menu: style tuning while looking at the terminal
+// rather than a trip to Settings. Text size writes through the appearance
+// setting, so this and Settings ▸ Appearance ▸ Terminal are one preference and
+// a nudge here is durable. Later style options join this menu.
+const { size: fontSize } = useTerminalFont()
+const viewMenuOpen = ref(false)
+const viewMenuToggle = ref<HTMLElement | null>(null)
+const viewMenuEntries = computed<MenuEntry[]>(() => {
+  const ladder = terminalFontSizeState(fontSize.value)
+  return [
+    { kind: 'label', text: `Text size · ${terminalFontSizeLabels[fontSize.value]}` },
+    { kind: 'action', id: 'text-size-decrease', label: 'Decrease', icon: IconAArrowDown, disabled: !ladder.canDecrease, testid: 'terminal-text-size-decrease' },
+    { kind: 'action', id: 'text-size-increase', label: 'Increase', icon: IconAArrowUp, disabled: !ladder.canIncrease, testid: 'terminal-text-size-increase' },
+    { kind: 'action', id: 'text-size-reset', label: 'Reset', icon: IconRotateCcw, disabled: ladder.isDefault, testid: 'terminal-text-size-reset' },
+  ]
+})
+
+// Stays open on select, unlike the row menus: a size is arrived at by nudging,
+// and reopening the menu between notches would make that unusable.
+function onViewMenuSelect(id: string): void {
+  if (id === 'text-size-decrease') stepTerminalFontSize(-1)
+  else if (id === 'text-size-increase') stepTerminalFontSize(1)
+  else if (id === 'text-size-reset') resetTerminalFontSize()
+}
 
 const {
   confirmation,
@@ -1013,6 +1048,29 @@ onBeforeUnmount(() => {
                 title="Find in window"
                 @click="visible?.openSearch()"
               ><IconSearch class="size-3.5" /></button>
+            </div>
+            <!-- Pinned outside the tab strip's scroll box so a session with
+                 many windows cannot scroll it out of reach. -->
+            <div class="relative ml-auto flex shrink-0 items-stretch">
+              <button
+                ref="viewMenuToggle"
+                type="button"
+                class="flex w-9 cursor-pointer items-center justify-center text-text-3 hover:bg-chip hover:text-text"
+                data-testid="terminal-view-menu-toggle"
+                aria-label="Terminal options"
+                title="Terminal options"
+                aria-haspopup="menu"
+                :aria-expanded="viewMenuOpen"
+                @click="viewMenuOpen = !viewMenuOpen"
+              ><IconEllipsis class="size-3.5" /></button>
+              <AppMenu
+                v-if="viewMenuOpen"
+                :entries="viewMenuEntries"
+                :ignore="[viewMenuToggle]"
+                testid="terminal-view-menu"
+                @close="viewMenuOpen = false"
+                @select="onViewMenuSelect"
+              />
             </div>
           </div>
 

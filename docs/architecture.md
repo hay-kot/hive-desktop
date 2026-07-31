@@ -762,6 +762,12 @@ attach keeps the outgoing screen until the incoming one has painted, so a
 switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
+**Terminal style is one preference wherever it is changed.** The pane's own ⋯
+menu steps text size through the same `appearance.terminal_font_size` setting
+Settings writes, so an adjustment made while looking at the terminal is durable
+and there is no second store to reconcile. A style option added to that menu
+takes the same route.
+
 Live terminal status is a separate pull projection from session lifecycle
 state: `SessionSummary.State` remains active/recycled/corrupted, while
 `SessionsService.SessionStatuses` reports whether each tmux session is running
