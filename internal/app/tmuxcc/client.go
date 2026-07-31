@@ -53,6 +53,9 @@ var (
 	ErrUnknownWindow = errors.New("tmuxcc: unknown window")
 	// ErrInvalidName is returned for a window name tmux could not carry.
 	ErrInvalidName = errors.New("tmuxcc: invalid window name")
+	// ErrInvalidPosition is returned for a move to a position outside the
+	// session's window order.
+	ErrInvalidPosition = errors.New("tmuxcc: invalid window position")
 )
 
 // Options configures one attach.
@@ -120,6 +123,7 @@ type Client struct {
 	mu         sync.Mutex
 	exitReason string
 	tornDown   bool
+	relinking  map[string]int
 
 	closeOnce    sync.Once
 	teardownOnce sync.Once
@@ -151,6 +155,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		reconcileReq: make(chan struct{}, 1),
 		handshake:    make(chan struct{}),
 		attached:     make(chan struct{}),
+		relinking:    map[string]int{},
 	}
 	c.events = newBroker(backlogBounds{bytes: opts.BufferBytes}, func() { c.teardown("overflow") })
 	c.paint = newPaintGate(c.emitOutput)
@@ -267,6 +272,114 @@ func (c *Client) RenameWindow(ctx context.Context, windowID, name string) error 
 	}
 	_, err = c.gw.Send(ctx, "rename-window -t "+windowID+" "+quoted)
 	return err
+}
+
+// MoveWindow moves windowID to position in the session's window order and
+// answers with the order tmux settled on. position indexes the resulting order,
+// which is what a drop on a tab strip means; the reply is authoritative because
+// the order is tmux session state and every other client attached sees the move.
+//
+// Two tmux behaviours are load-bearing. A move is an unlink and a relink, so
+// tmux announces the window being moved as closed even though it is still there
+// — suppressed here, or the tab would be torn down and rebuilt blank. And tmux
+// selects whatever it moves unless told not to, while -d on the window that is
+// already selected deselects it: the flag has to follow the moved window, or the
+// active window changes under a reorder that was never about selection.
+func (c *Client) MoveWindow(ctx context.Context, windowID string, position int) ([]Window, error) {
+	windows := c.ctrl.Windows()
+	from := windowIndex(windows, windowID)
+	if from < 0 {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownWindow, windowID)
+	}
+	if position < 0 || position >= len(windows) {
+		return nil, fmt.Errorf("%w: %d outside 0..%d", ErrInvalidPosition, position, len(windows)-1)
+	}
+	// A move onto its own position reorders nothing but still costs tmux a whole
+	// index shift, so it never reaches the server.
+	if position == from {
+		return windows, nil
+	}
+
+	c.holdRelink(windowID)
+	defer c.releaseRelink(windowID)
+
+	if _, err := c.gw.Send(ctx, moveWindowCommand(windows, from, position)); err != nil {
+		return nil, err
+	}
+	// An insert shifts every index from the target up and leaves a hole where the
+	// window came from, so unrenumbered a session's indices drift apart under
+	// repeated reordering — and an index is how tmux's own key bindings and every
+	// other attached client address a window.
+	if _, err := c.gw.Send(ctx, "move-window -r"); err != nil {
+		return nil, err
+	}
+	return c.resync(ctx)
+}
+
+func windowIndex(windows []Window, windowID string) int {
+	for i, w := range windows {
+		if w.ID == windowID {
+			return i
+		}
+	}
+	return -1
+}
+
+// moveWindowCommand expresses a destination index as the insertion tmux takes.
+// The anchor is a window id rather than an index because the move renumbers the
+// very indices it would have been read from.
+func moveWindowCommand(windows []Window, from, to int) string {
+	rest := make([]string, 0, len(windows)-1)
+	for i, w := range windows {
+		if i != from {
+			rest = append(rest, w.ID)
+		}
+	}
+
+	cmd := "move-window "
+	if !windows[from].Active {
+		cmd += "-d "
+	}
+	if to == 0 {
+		return cmd + "-b -s " + windows[from].ID + " -t " + rest[0]
+	}
+	return cmd + "-a -s " + windows[from].ID + " -t " + rest[to-1]
+}
+
+// resync folds an authoritative list-windows into the window set and publishes
+// what changed. tmux flushes a command's notifications before it answers the
+// next one, so the snapshot this reads is the last word on what the command did.
+func (c *Client) resync(ctx context.Context) ([]Window, error) {
+	windows, err := c.listWindows(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, ev := range c.ctrl.reconcile(windows) {
+		c.publish(ev)
+	}
+	return c.ctrl.Windows(), nil
+}
+
+func (c *Client) holdRelink(windowID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.relinking[windowID]++
+}
+
+func (c *Client) releaseRelink(windowID string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.relinking[windowID] <= 1 {
+		delete(c.relinking, windowID)
+		return
+	}
+	c.relinking[windowID]--
+}
+
+func (c *Client) relinkHeld(windowID string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.relinking[windowID] > 0
 }
 
 // Close detaches and waits for the process to exit. Idempotent.
@@ -527,6 +640,11 @@ func (c *Client) onNotification(n Notification) {
 	case SessionChanged:
 		c.handshakeOnce.Do(func() { close(c.handshake) })
 	case WindowCloseNotification:
+		// The unlink half of a move this client is running: the window is still
+		// there, and MoveWindow's own resync is what reports where it went.
+		if c.relinkHeld(v.Window) {
+			return
+		}
 		// Ahead of the controller forgetting the window, which is what still
 		// resolves the pane here.
 		if w, ok := c.ctrl.byID(v.Window); ok && w.ActivePane != "" {

@@ -1,9 +1,10 @@
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type DOMWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
+import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
+  SetTerminalFontSize: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -35,6 +37,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  SetTerminalFontSize: mocks.SetTerminalFontSize,
   SetTerminalShowWindows: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
 }))
@@ -92,6 +95,7 @@ function fakeSession() {
     newWindow: vi.fn().mockResolvedValue(undefined),
     closeWindow: vi.fn().mockResolvedValue(undefined),
     rename: vi.fn().mockResolvedValue(undefined),
+    moveWindow: vi.fn().mockResolvedValue(undefined),
     attachTab: vi.fn(),
     disposeTab: vi.fn(),
     focusActive: vi.fn(),
@@ -128,6 +132,7 @@ describe('TerminalMode', () => {
     vi.clearAllMocks()
     localStorage.clear()
     resetTerminalAvailabilityForTests()
+    resetTerminalFontForTests()
     resetTerminalSessionsForTests()
     resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
@@ -686,14 +691,50 @@ describe('TerminalMode', () => {
     expect(session.closeWindow).toHaveBeenCalledWith('@2')
 
     const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-    await tabs[1].find('button').trigger('click')
+    await tabs[1].trigger('mousedown')
     expect(session.select).toHaveBeenCalledWith('@2')
 
-    await tabs[1].find('button').trigger('dblclick')
+    await tabs[1].trigger('dblclick')
     const input = wrapper.get('[data-testid="terminal-rename-input"]')
     await input.setValue('build')
     await input.trigger('keydown.enter')
     expect(session.rename).toHaveBeenCalledWith('@2', 'build')
+  })
+
+  // The whole tab answers, and it answers to both halves of the press: the
+  // label used to be the only target and it is the height of its own text, a
+  // press that drifts 3px on a drag source is delivered as a drag with no click
+  // at all, and mousedown's own default action takes focus off the pane after
+  // the press has put it there.
+  it('selects from the press and again from the click, and not from its close button', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+    await tabs[1].trigger('mousedown')
+    expect(session.select).toHaveBeenCalledWith('@2')
+
+    // The click reclaims the pane; select() on the active window is the refocus.
+    session.select.mockClear()
+    await tabs[1].trigger('click')
+    expect(session.select).toHaveBeenCalledWith('@2')
+
+    // Closing a window is not selecting it first, on either half of the press.
+    session.select.mockClear()
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('mousedown')
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+    expect(session.closeWindow).toHaveBeenCalledWith('@1')
+    expect(session.select).not.toHaveBeenCalled()
+
+    // Nor is a secondary button.
+    await tabs[0].trigger('mousedown', { button: 2 })
+    expect(session.select).not.toHaveBeenCalled()
+
+    // Nor is a press inside the rename field, which would blur it and commit.
+    await tabs[0].trigger('dblclick')
+    await wrapper.get('[data-testid="terminal-rename-input"]').trigger('mousedown')
+    expect(session.select).not.toHaveBeenCalled()
   })
 
   it('scopes every pane so the terminal owns its keys', async () => {
@@ -953,6 +994,290 @@ describe('TerminalMode', () => {
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
     expect(router.currentRoute.value.params.slug ?? '').toBe('')
     expect(storedRestore()).toEqual({ slug: '', window: '' })
+  })
+
+  describe('reordering tabs', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    // happy-dom lays nothing out, so the drop edge has to be stated: a tab
+    // 150px wide starting at x, and a pointer somewhere in it.
+    function box(tab: DOMWrapper<Element>, left: number): void {
+      (tab.element as HTMLElement).getBoundingClientRect = () =>
+        ({ left, width: 150, right: left + 150, top: 0, bottom: 30, height: 30, x: left, y: 0 }) as DOMRect
+    }
+
+    async function drag(wrapper: Awaited<ReturnType<typeof attached>>['wrapper'], from: number, onto: number, clientX: number) {
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      box(tabs[onto], onto * 150)
+      await tabs[from].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[onto].trigger('dragover', { dataTransfer: new DataTransfer(), clientX })
+      await tabs[onto].trigger('drop')
+    }
+
+    it('drops a tab into the gap the pointer is nearest', async () => {
+      const { wrapper, session } = await attached()
+
+      // Past the middle of the second tab: after it, which is the end.
+      await drag(wrapper, 0, 1, 250)
+
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+    })
+
+    it('drops before the tab when the pointer is on its leading half', async () => {
+      const { wrapper, session } = await attached()
+
+      await drag(wrapper, 1, 0, 20)
+
+      expect(session.moveWindow).toHaveBeenCalledWith('@2', 0)
+    })
+
+    it('marks the gap it would drop into, and clears it when the drag ends', async () => {
+      const { wrapper } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      box(tabs[1], 150)
+
+      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientX: 160 })
+      expect(tabs[1].classes()).toContain('drop-before')
+      expect(tabs[0].classes()).toContain('opacity-40')
+
+      await tabs[0].trigger('dragend')
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].classes()).not.toContain('drop-before')
+    })
+
+    // The strip and the sidebar's window well read the same list, so the order
+    // cannot disagree between them.
+    it('renders the tab strip and the sidebar tree in the order the tabs carry', async () => {
+      const { wrapper, session } = await attached()
+      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
+
+      session.tabs.value = [session.tabs.value[1], session.tabs.value[0]]
+      await flushPromises()
+
+      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['shell', 'agent'])
+      expect(wrapper.findAll('[data-testid="terminal-window-row"]').map((row) => row.attributes('data-window-id')))
+        .toEqual(['@2', '@1'])
+    })
+
+    it('leaves a tab being renamed undraggable so its text can be selected', async () => {
+      const { wrapper } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      expect(tabs[1].attributes('draggable')).toBe('true')
+
+      await tabs[1].trigger('dblclick')
+
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].attributes('draggable')).toBe('false')
+    })
+
+    // A tab dropped where it already is has not moved: both of its own edges
+    // name the gap it fills, and reading either as an insertion put it last.
+    it('does not move a tab dropped back onto itself', async () => {
+      const { wrapper, session } = await attached()
+
+      await drag(wrapper, 0, 0, 20)
+
+      expect(session.moveWindow).not.toHaveBeenCalled()
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[0].classes()).not.toContain('drop-after')
+    })
+
+    // The click a tab hands focus back to the pane on is the one a drag eats.
+    it('puts focus back in the pane when a tab drag ends', async () => {
+      const { wrapper, session } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+
+      // Attaching focuses the pane on its own; this is about the drag.
+      session.focusActive.mockClear()
+      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[0].trigger('dragend')
+      expect(session.focusActive).toHaveBeenCalled()
+
+      // The sidebar is not the pane's own strip, so a drag there leaves focus
+      // where the user put it.
+      session.focusActive.mockClear()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[0].trigger('dragend')
+      expect(session.focusActive).not.toHaveBeenCalled()
+    })
+  })
+
+  // The sidebar's window well reorders the same order the strip does, so the
+  // two cannot disagree — and a window can only land in the session it left.
+  describe('reordering windows in the sidebar', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    // happy-dom lays nothing out, so the drop edge has to be stated: a row 28px
+    // tall at top, and a pointer somewhere in it.
+    function box(slot: DOMWrapper<Element>, top: number): void {
+      (slot.element as HTMLElement).getBoundingClientRect = () =>
+        ({ left: 0, width: 220, right: 220, top, bottom: top + 28, height: 28, x: 0, y: top }) as DOMRect
+    }
+
+    it('drops a window into the gap the pointer is nearest', async () => {
+      const { wrapper, session } = await attached()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      box(slots[1], 28)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      // Past the middle of the second row: after it, which is the end.
+      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 50 })
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].classes()).toContain('drop-after')
+
+      await slots[1].trigger('drop')
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+    })
+
+    // Both surfaces draw the same windows, so an unscoped mark would light up a
+    // tab for a drag happening in the tree.
+    it('marks only the surface the drag is in', async () => {
+      const { wrapper } = await attached()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      box(slots[1], 28)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 50 })
+
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      expect(tabs[1].classes()).not.toContain('drop-after')
+      expect(tabs[0].classes()).not.toContain('opacity-40')
+    })
+
+    it('refuses a window dragged into another session', async () => {
+      const { wrapper, session } = await attached()
+      // Both sessions pooled, so both subtrees carry live rows.
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"]').trigger('click')
+      await flushPromises()
+
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      expect(slots).toHaveLength(4)
+      box(slots[2], 100)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[2].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 120 })
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[2].classes()).not.toContain('drop-after')
+
+      await slots[2].trigger('drop')
+      expect(session.moveWindow).not.toHaveBeenCalled()
+    })
+
+    // Moving a window is a control-client operation, so a session that is only
+    // listed has nothing to move it with.
+    it('leaves a listed window undraggable', async () => {
+      mocks.createTerminalClient.mockReturnValue({
+        listWindows: vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
+          ? { windows: [{ windowId: '@7', name: 'agent', active: true, width: 0, height: 0 }] }
+          : { windows: [] })),
+      })
+      const { wrapper } = await attached()
+
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(1)
+      expect(slots[0].attributes('draggable')).toBe('false')
+      expect(slots[1].attributes('draggable')).toBe('true')
+    })
+  })
+
+  describe('terminal overflow menu', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    async function openMenu(wrapper: Awaited<ReturnType<typeof attached>>['wrapper']) {
+      await wrapper.get('[data-testid="terminal-view-menu-toggle"]').trigger('click')
+      return wrapper.get('[data-testid="terminal-view-menu"]')
+    }
+
+    it('opens from the tab strip and names the size it is on', async () => {
+      const { wrapper } = await attached()
+
+      const toggle = wrapper.get('[data-testid="terminal-view-menu-toggle"]')
+      expect(toggle.attributes('aria-label')).toBe('Terminal options')
+      expect(toggle.attributes('aria-haspopup')).toBe('menu')
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(wrapper.find('[data-testid="terminal-view-menu"]').exists()).toBe(false)
+
+      const menu = await openMenu(wrapper)
+
+      expect(toggle.attributes('aria-expanded')).toBe('true')
+      expect(menu.attributes('role')).toBe('menu')
+      expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual([
+        'Decrease', 'Increase', 'Reset',
+      ])
+      expect(menu.text()).toContain('Text size · Medium')
+      wrapper.unmount()
+    })
+
+    // Nothing to tune with no pane on screen.
+    it('is absent until a session is attached', async () => {
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.find('[data-testid="terminal-view-menu-toggle"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('steps the size through the appearance setting, one preset per click', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+
+      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
+      await flushPromises()
+      expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith('large')
+      // The menu stays open so the next notch is one click away.
+      expect(wrapper.get('[data-testid="terminal-view-menu"]').text()).toContain('Text size · Large')
+
+      await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
+      wrapper.unmount()
+    })
+
+    it('offers no step past the end of the ladder', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+
+      for (let step = 0; step < 2; step++) {
+        await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
+      }
+      await flushPromises()
+
+      expect(menu.text()).toContain('Text size · Small')
+      expect(menu.get('[data-testid="terminal-text-size-decrease"]').attributes('disabled')).toBeDefined()
+      expect(menu.get('[data-testid="terminal-text-size-increase"]').attributes('disabled')).toBeUndefined()
+      // Two moves, not three: the third click had nowhere to go.
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['small'])
+      wrapper.unmount()
+    })
+
+    it('resets to the default size, and offers nothing to reset once there', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeDefined()
+
+      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
+      await flushPromises()
+      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeUndefined()
+
+      await menu.get('[data-testid="terminal-text-size-reset"]').trigger('click')
+      await flushPromises()
+
+      expect(menu.text()).toContain('Text size · Medium')
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
+      wrapper.unmount()
+    })
   })
 
   describe('configured terminal actions', () => {

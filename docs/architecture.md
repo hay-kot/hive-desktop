@@ -782,6 +782,39 @@ attach keeps the outgoing screen until the incoming one has painted, so a
 switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
+**Terminal style is one preference wherever it is changed.** The pane's own ⋯
+menu steps text size through the same `appearance.terminal_font_size` setting
+Settings writes, so an adjustment made while looking at the terminal is durable
+and there is no second store to reconcile. A style option added to that menu
+takes the same route.
+
+**Window order is tmux's, and a reorder is a move rather than a swap.**
+`POST /api/terminal/windows/move` takes a window id and the index it ends up at,
+because a tab strip means a destination and not a neighbour; the core reads the
+current order and picks the tmux insertion that expresses it, anchored on a
+window id since the move renumbers the very indices an anchor would be read
+from. Three rules hold it together and each answers something tmux does:
+
+- **The answer is a window set, not an acknowledgement.** The order is session
+  state every attached client shares, so the move replies with what tmux settled
+  on and the strip renders that rather than the order it asked for. The tab
+  strip and the sidebar's window well are two views of that one order and either
+  can drag it, so neither holds an arrangement of its own.
+- **A move is an unlink and a relink**, so tmux announces the window it moved as
+  closed. `tmuxcc` suppresses that close for the window in flight — acting on it
+  tears the tab and its terminal down, and the reconcile behind it can only
+  rebuild them blank.
+- **`-d` follows the moved window.** tmux selects whatever it moves, and `-d` on
+  the window that is already selected deselects it, so the flag is passed exactly
+  when the moved window is not the active one. Either flag fixed loses the
+  selection in one of the two cases, and a reorder is not a selection.
+
+Indices are renumbered after the insert (`move-window -r`), because an insert
+leaves a hole where the window came from and an index is what tmux's own key
+bindings and every other attached client address a window by. The controller's
+window order comes from `list-windows` and nothing else: a reorder changes no
+window, so a set that keeps discovery order would never notice one.
+
 Live terminal status is a separate pull projection from session lifecycle
 state: `SessionSummary.State` remains active/recycled/corrupted, while
 `SessionsService.SessionStatuses` reports whether each tmux session is running

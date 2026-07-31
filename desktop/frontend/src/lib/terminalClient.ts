@@ -79,6 +79,14 @@ export interface TerminalClient {
   newWindow(slug: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
   renameWindow(slug: string, windowId: string, name: string): Promise<void>
+  /**
+   * Moves a window to `position` in the session's window order — a 0-based
+   * index into the resulting order, the way a drop on a tab strip means one —
+   * and answers with the order tmux settled on. The order is tmux session
+   * state, so the reply is authoritative and every other attached client sees
+   * the move too.
+   */
+  moveWindow(slug: string, windowId: string, position: number): Promise<{ windows: WindowState[] }>
   selectWindow(slug: string, windowId: string): Promise<void>
   detach(slug: string): Promise<void>
   openStream(slug: string): WebSocket
@@ -128,6 +136,10 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
     },
     async closeWindow(slug, windowId) { await post('/api/terminal/windows/close', { slug, windowId }) },
     async renameWindow(slug, windowId, name) { await post('/api/terminal/windows/rename', { slug, windowId, name }) },
+    async moveWindow(slug, windowId, position) {
+      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/move', { slug, windowId, position })
+      return { windows: (body?.windows ?? []).map(toWindowState) }
+    },
     async selectWindow(slug, windowId) { await post('/api/terminal/windows/select', { slug, windowId }) },
     async detach(slug) { await post('/api/terminal/detach', { slug }) },
     openStream(slug) {

@@ -8,6 +8,8 @@ import { resetNotificationSettingsForTests } from '../composables/useNotificatio
 import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
 import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { useKeybindings } from '../composables/useKeybindings'
+import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
+import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { applicationSettingsSections, createAppRouter } from '../router'
 
 const mocks = vi.hoisted(() => ({
@@ -216,6 +218,8 @@ describe('App', () => {
     resetPopupTerminalForTests()
     resetLaunchersForTests()
     useKeybindings().clearAll()
+    resetTerminalAvailabilityForTests()
+    resetTerminalSessionsForTests()
     vi.clearAllMocks()
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
@@ -255,6 +259,8 @@ describe('App', () => {
     mocks.PopupAvailable.mockResolvedValue({ available: true, reason: '' })
     mocks.PopupEndpoint.mockResolvedValue({ httpBaseURL: '', wsURL: '', token: '' })
     mocks.PopupLaunchers.mockResolvedValue([])
+    mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
+    mocks.TerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -507,10 +513,12 @@ describe('App', () => {
     await wrapper.find('[data-testid="titlebar-toggle-sidebar"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(false)
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('true')
 
     await wrapper.find('[data-testid="titlebar-toggle-sidebar"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('false')
 
     wrapper.unmount()
   })
@@ -1145,8 +1153,10 @@ describe('App', () => {
     // The toggle is never gated on availability; the reason shows up inside.
     expect(wrapper.get('[data-testid="terminal-unavailable-reason"]').text()).toBe('tmux is not installed.')
     expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(false)
-    // The feed panels are gone, so their title-bar toggles must not dangle.
-    expect(wrapper.get('[data-testid="titlebar-toggle-sidebar"]').attributes('disabled')).toBeDefined()
+    // Terminal owns a left panel too, so its toggle stays live; the feed-only
+    // preview remains unavailable.
+    expect(wrapper.get('[data-testid="titlebar-toggle-sidebar"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="titlebar-toggle-preview"]').attributes('disabled')).toBeDefined()
 
     await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
     await flushPromises()
@@ -1154,6 +1164,39 @@ describe('App', () => {
     expect(router.currentRoute.value.name).toBe('feed')
     expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('restores and toggles the terminal sidebar independently of the feed sidebar', async () => {
+    localStorage.setItem('hive.panel.sidebar.collapsed', 'false')
+    localStorage.setItem('hive.panel.terminal.sidebar.collapsed', 'true')
+    mocks.TerminalAvailable.mockResolvedValue({ available: true, reason: '' })
+    const { wrapper } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await flushPromises()
+
+    const toggle = wrapper.get('[data-testid="titlebar-toggle-sidebar"]')
+    expect(toggle.attributes('disabled')).toBeUndefined()
+    expect(toggle.attributes('aria-label')).toBe('Show sidebar')
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+    expect(localStorage.getItem('hive.panel.terminal.sidebar.collapsed')).toBe('false')
+
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(false)
+    expect(localStorage.getItem('hive.panel.terminal.sidebar.collapsed')).toBe('true')
+
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
+    expect(localStorage.getItem('hive.panel.sidebar.collapsed')).toBe('false')
 
     wrapper.unmount()
   })
