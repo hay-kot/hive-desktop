@@ -18,6 +18,7 @@ import {
 } from '../lib/terminalClient'
 import { loadTerminalFaces, TERMINAL_FONT_STACK, resetTerminalFacesForTests } from '../lib/terminalFaces'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
+import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
 import { useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
 
@@ -299,7 +300,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function applySize(tab: TerminalWindowTab, width: number, height: number): void {
     if (!width || !height) return
     if (tab.term.cols === width && tab.term.rows === height) return
-    tab.term.resize(width, height)
+    resizeTerminalPreservingViewport(tab.term, width, height)
+    refreshScrolledUp(tab.windowId)
   }
 
   function sendInput(windowId: string, data: string): void {
