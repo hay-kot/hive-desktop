@@ -705,6 +705,15 @@ function togglePreview(): void {
   previewCollapsed.value = !previewCollapsed.value
 }
 
+// Picking a row is an explicit request to read it, so it opens a collapsed
+// pane — otherwise the selection changes with nothing on screen to show for it.
+// Only the row's primary select action lands here: keyboard navigation calls
+// selectItem directly, and the row's own controls stop the click.
+async function selectItemFromRow(id: number): Promise<void> {
+  previewCollapsed.value = false
+  await selectItem(id)
+}
+
 // We draw our own hidden-inset title bar, so the native double-click-to-zoom
 // gesture has to be re-implemented. Guarded for the non-Wails test/browser
 // context, matching hideWindow's posture.
@@ -1105,7 +1114,7 @@ onUnmounted(() => {
               :load-error="loadError"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
-              @select="selectItem"
+              @select="selectItemFromRow"
               @update:search="(value) => (search = value)"
               @set-sort="setFeedSort"
               @set-unread="navigateUnreadFilter"
