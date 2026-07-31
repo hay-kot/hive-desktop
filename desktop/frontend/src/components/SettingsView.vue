@@ -12,6 +12,7 @@ import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconSettings from '~icons/lucide/settings'
 import IconSparkles from '~icons/lucide/sparkles'
+import AppSelect from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
@@ -29,11 +30,27 @@ import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
+import SettingsField from './settings/SettingsField.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
-import { setTerminalFontSize, terminalFontSizeLabels, terminalFontSizePx, terminalFontSizes, useTerminalFont, type TerminalFontSize } from '../composables/useTerminalFont'
+import {
+  loadInstalledMonospaceFonts,
+  setTerminalFontFamily,
+  setTerminalFontSize,
+  setTerminalFontWeight,
+  setTerminalFontWeightBold,
+  terminalFontSizeLabels,
+  terminalFontSizePx,
+  terminalFontSizes,
+  terminalFontWeightLabels,
+  terminalFontWeights,
+  useTerminalFont,
+  type TerminalFontSize,
+  type TerminalFontWeight,
+} from '../composables/useTerminalFont'
+import { TERMINAL_FONT } from '../lib/terminalFaces'
 import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
@@ -64,10 +81,28 @@ const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const { theme } = useTheme()
 const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
-const { size: terminalFontSize } = useTerminalFont()
+const {
+  size: terminalFontSize,
+  selectedFamily: terminalFontFamily,
+  installedFamilies: terminalFontFamilies,
+  weight: terminalFontWeight,
+  weightBold: terminalFontWeightBold,
+} = useTerminalFont()
 const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
   value,
   label: `${terminalFontSizeLabels[value]} · ${terminalFontSizePx[value]}px`,
+}))
+// The bundled face leads the list whether or not it is also installed
+// system-wide, so the shipped default is always the first thing offered.
+const terminalFontFamilyOptions = computed(() => [
+  { value: TERMINAL_FONT, label: `${TERMINAL_FONT} · bundled` },
+  ...terminalFontFamilies.value
+    .filter((family) => family !== TERMINAL_FONT)
+    .map((family) => ({ value: family, label: family })),
+])
+const terminalFontWeightOptions = terminalFontWeights.map((value) => ({
+  value: String(value),
+  label: terminalFontWeightLabels[value],
 }))
 const { showWindows: terminalShowWindows } = useTerminalShowWindows()
 const { poolSize: terminalPoolSize } = useTerminalPoolSize()
@@ -161,6 +196,26 @@ function onTerminalFontSizeChange(value: string): void {
 function onTerminalPoolSizeChange(value: string): void {
   setTerminalPoolSize(Number(value))
 }
+
+function onTerminalFontFamilyChange(value: string): void {
+  setTerminalFontFamily(value)
+}
+
+function onTerminalFontWeightChange(value: string): void {
+  setTerminalFontWeight(Number(value) as TerminalFontWeight)
+}
+
+function onTerminalFontWeightBoldChange(value: string): void {
+  setTerminalFontWeightBold(Number(value) as TerminalFontWeight)
+}
+
+// Scanning every font on the machine is not worth doing until this pane is the
+// one on screen.
+watch(
+  () => props.activeCategory,
+  (category) => { if (category === 'appearance') loadInstalledMonospaceFonts() },
+  { immediate: true },
+)
 </script>
 
 <template>
@@ -196,6 +251,21 @@ function onTerminalPoolSizeChange(value: string): void {
         />
         <SettingsSection title="Terminal">
           <div class="mt-3 space-y-4">
+            <SettingsField
+              label="Font"
+              hint="Monospace families installed on this machine. The bundled face carries the powerline and devicon glyphs agent TUIs draw with; a system font may not."
+              testid="settings-terminal-font-family"
+            >
+              <AppSelect
+                :model-value="terminalFontFamily"
+                :options="terminalFontFamilyOptions"
+                searchable
+                search-placeholder="Search fonts"
+                aria-label="Terminal font"
+                testid="settings-terminal-font-family-select"
+                @update:model-value="onTerminalFontFamilyChange"
+              />
+            </SettingsField>
             <SettingsSegmented
               :model-value="terminalFontSize"
               label="Font size"
@@ -203,6 +273,22 @@ function onTerminalPoolSizeChange(value: string): void {
               hint="Applies immediately to open terminals; tmux re-fits their grid."
               testid="settings-terminal-font-size"
               @update:model-value="onTerminalFontSizeChange"
+            />
+            <SettingsSegmented
+              :model-value="String(terminalFontWeight)"
+              label="Font weight"
+              :options="terminalFontWeightOptions"
+              hint="The weight normal text draws at. A family that ships fewer weights renders the nearest one it has."
+              testid="settings-terminal-font-weight"
+              @update:model-value="onTerminalFontWeightChange"
+            />
+            <SettingsSegmented
+              :model-value="String(terminalFontWeightBold)"
+              label="Bold weight"
+              :options="terminalFontWeightOptions"
+              hint="The weight bold text draws at."
+              testid="settings-terminal-font-weight-bold"
+              @update:model-value="onTerminalFontWeightBoldChange"
             />
             <AppSwitch
               :model-value="terminalShowWindows"

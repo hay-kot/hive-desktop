@@ -32,6 +32,18 @@ export function KeybindingSettings(): $CancellablePromise<$models.KeybindingSett
     return $Call.ByID(3547481147);
 }
 
+/**
+ * MonospaceFonts lists the monospace families installed on this machine, for
+ * the terminal's font picker. The webview cannot enumerate them itself —
+ * queryLocalFonts is Chromium-only and macOS runs on WKWebView.
+ * 
+ * The scan is cached for the process, so a font installed while the app runs
+ * appears on the next launch.
+ */
+export function MonospaceFonts(): $CancellablePromise<string[] | null> {
+    return $Call.ByID(2340474665);
+}
+
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
     return $Call.ByID(256290300);
 }
@@ -57,8 +69,16 @@ export function SetNotificationSettings($in: $models.NotificationSettings): $Can
     return $Call.ByID(460333036, $in);
 }
 
+export function SetTerminalFontFamily(family: string): $CancellablePromise<void> {
+    return $Call.ByID(2359069387, family);
+}
+
 export function SetTerminalFontSize(size: string): $CancellablePromise<void> {
     return $Call.ByID(736291786, size);
+}
+
+export function SetTerminalFontWeights(weight: number, weightBold: number): $CancellablePromise<void> {
+    return $Call.ByID(749037916, weight, weightBold);
 }
 
 export function SetTerminalPoolSize(size: number): $CancellablePromise<void> {

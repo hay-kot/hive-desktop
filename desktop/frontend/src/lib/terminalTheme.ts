@@ -26,7 +26,7 @@ const ANSI_VARS = {
 // The dark theme's values, for contexts with no styled document.
 const FALLBACK: ITheme = {
   background: '#101318',
-  foreground: '#e9edf4',
+  foreground: '#c4c8cf',
   cursor: '#f5b23f',
   cursorAccent: '#101318',
   selectionBackground: 'rgba(245, 178, 63, 0.35)',
@@ -83,7 +83,12 @@ export function xtermTheme(): ITheme {
   const background = cssColor(style, '--hv-app', FALLBACK.background!)
   const theme: ITheme = {
     background,
-    foreground: cssColor(style, '--hv-text', FALLBACK.foreground!),
+    // --hv-text is the fallback, not the value: it is tuned for small UI labels
+    // on panels and lands near 16:1 against the app background, which is glare
+    // across a full screen of monospace. A dark theme overrides it with a
+    // softer foreground; a light theme deliberately does not, because its ANSI
+    // white is a pale grey that would vanish on white.
+    foreground: cssColor(style, '--hv-term-foreground', cssColor(style, '--hv-text', FALLBACK.foreground!)),
     cursor: cssColor(style, '--hv-accent', FALLBACK.cursor!),
     cursorAccent: background,
     // --hv-selection is tuned for a 10% overlay on app chrome; a terminal

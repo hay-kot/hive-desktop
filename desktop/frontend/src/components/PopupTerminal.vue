@@ -14,7 +14,7 @@ import { useTerminalFont } from '../composables/useTerminalFont'
 import { useTheme } from '../composables/useTheme'
 import { xtermTheme } from '../lib/terminalTheme'
 import { decodeFrame, encodeInputFrames, type PopupTerminalState } from '../lib/popupTerminalClient'
-import { loadTerminalFaces, TERMINAL_FONT_STACK } from '../lib/terminalFaces'
+import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import '@xterm/xterm/css/xterm.css'
 
 // The floating pop-up terminal: one PTY this process owns, rendered over
@@ -23,7 +23,7 @@ import '@xterm/xterm/css/xterm.css'
 // things that end it are the process exiting, End, and quitting Hive.
 
 const { visible, checking, available, reason, client, request, launchSeq, hide, ready } = usePopupTerminal()
-const { px: fontSizePx } = useTerminalFont()
+const { px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold } = useTerminalFont()
 const { theme } = useTheme()
 
 const MIN_WIDTH = 380
@@ -97,7 +97,7 @@ async function openTerminal(): Promise<void> {
     // open and never re-measures, and the atlas renderer caches the glyphs that
     // were resident — a pane opened ahead of the face shows tofu where every
     // Nerd Font icon in a TUI should be.
-    await loadTerminalFaces(fontSizePx.value)
+    await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
     const opened = await client.value.open(request.value)
     terminal.value = opened
     await nextTick()
@@ -125,8 +125,10 @@ function mountTerminal(state: PopupTerminalState): boolean {
   // lineHeight and letterSpacing are unset for the same reason as the session
   // panes: an atlas renderer quantises both to whole device pixels (ADR 0038).
   const created = markRaw(new Terminal({
-    fontFamily: TERMINAL_FONT_STACK,
+    fontFamily: terminalFontStack(fontFamily.value),
     fontSize: fontSizePx.value,
+    fontWeight: fontWeight.value,
+    fontWeightBold: fontWeightBold.value,
     scrollback: 5000,
     theme: xtermTheme(),
     linkHandler,
@@ -309,9 +311,16 @@ watch([visible, launchSeq], ([open]) => {
 })
 
 watch(theme, () => { if (term.value) term.value.options.theme = xtermTheme() })
-watch(fontSizePx, (px) => {
+// The faces have to be resident before xterm re-measures its cell against them,
+// or it measures the outgoing font and the atlas caches glyphs at the wrong
+// metrics (ADR 0038).
+watch([fontSizePx, fontFamily, fontWeight, fontWeightBold], async ([px, family, weight, weightBold]) => {
+  await loadTerminalFaces(family, px, weight, weightBold)
   if (!term.value) return
+  term.value.options.fontFamily = terminalFontStack(family)
   term.value.options.fontSize = px
+  term.value.options.fontWeight = weight
+  term.value.options.fontWeightBold = weightBold
   scheduleFit()
 })
 

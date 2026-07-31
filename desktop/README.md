@@ -166,6 +166,9 @@ notifications:
 appearance:
   theme: ""
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
+  terminal_font_family: "" # any installed monospace family; empty is the bundled Nerd Font (ADR 0050)
+  terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350
+  terminal_font_weight_bold: 0 # the weight bold cells draw at; 0 means the default, 700
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
   terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR 0042)
 http:

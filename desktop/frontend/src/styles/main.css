@@ -119,6 +119,14 @@
      paints to a canvas and cannot read CSS variables; not Tailwind tokens.
      Midnight inherits this set from :root, the same way it inherits
      severity-*. */
+
+  /* Unstyled terminal output, and deliberately not --hv-text. That colour is
+     tuned for small UI labels on panels and lands near 16:1 against --hv-app,
+     which is glare over a full screen of monospace; established terminal
+     schemes sit around 8-12:1. A theme that omits this falls back to
+     --hv-text, which is what the light themes want — their ANSI white is a
+     pale grey that would vanish on a white background. */
+  --hv-term-foreground: #c4c8cf;
   --hv-term-black: #1b2029;
   --hv-term-red: #ef7183;
   --hv-term-green: #8fd67f;
@@ -262,6 +270,11 @@
   --hv-code-string: #9ece6a;
   --hv-code-comment: #4a5480;
 
+  /* The one terminal colour midnight sets: it inherits the rest of the ANSI
+     palette from :root, but that foreground is a neutral grey and this theme
+     is the bluest of the set. */
+  --hv-term-foreground: #c3c9db;
+
   /* Flows canvas surface chrome — a dark recess relative to --hv-app. */
   --hv-canvas: #08090f;
   --hv-canvas-dot: #1c2238;
@@ -299,7 +312,9 @@
   --hv-code-string: #b8bb26;
   --hv-code-comment: #928374;
 
-  /* The canonical gruvbox-dark terminal palette. */
+  /* The canonical gruvbox-dark terminal palette. fg1, not the fg0 --hv-text
+     carries: fg0 is gruvbox's high-contrast variant, fg1 its body text. */
+  --hv-term-foreground: #ebdbb2;
   --hv-term-black: #282828;
   --hv-term-red: #cc241d;
   --hv-term-green: #98971a;
@@ -360,6 +375,7 @@
   --hv-code-string: #b4e97e;
   --hv-code-comment: #565f89;
 
+  --hv-term-foreground: #c2c9d8;
   --hv-term-black: #1b2029;
   --hv-term-red: #f2778f;
   --hv-term-green: #9fd96a;
@@ -466,6 +482,8 @@
   --hv-code-string: #98c379;
   --hv-code-comment: #5c6370;
 
+  /* One Dark's own foreground. */
+  --hv-term-foreground: #abb2bf;
   --hv-term-black: #282c34;
   --hv-term-red: #e06c75;
   --hv-term-green: #98c379;
@@ -784,6 +802,9 @@
   --hv-code-string: #a3be8c;
   --hv-code-comment: #616e88;
 
+  /* Nord4, Nord's text colour — --hv-text carries Nord6, the brightest snow
+     shade, which is a surface colour upstream rather than a text one. */
+  --hv-term-foreground: #d8dee9;
   --hv-term-black: #3b4252;
   --hv-term-red: #bf616a;
   --hv-term-green: #a3be8c;

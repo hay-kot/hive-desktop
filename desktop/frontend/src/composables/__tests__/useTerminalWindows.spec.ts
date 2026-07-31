@@ -2,7 +2,15 @@ import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ISearchOptions } from '@xterm/addon-search'
 import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWindows'
-import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
+import {
+  defaultTerminalFontWeight,
+  defaultTerminalFontWeightBold,
+  setTerminalFontFamily,
+  setTerminalFontSize,
+  setTerminalFontWeight,
+  terminalFontSizePx,
+} from '../useTerminalFont'
+import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
 const xterm = vi.hoisted(() => {
@@ -582,15 +590,22 @@ describe('useTerminalWindows', () => {
 
   // An atlas renderer caches the glyphs it rasterised, so a face that arrives
   // after the first paint stays wrong; xterm never re-measures on a font load.
-  it('preloads the regular and bold faces before it attaches', async () => {
+  // Both weights and the italic of each: xterm measures its cell once on open
+  // and the atlas caches whatever was resident, so a face arriving later stays
+  // wrong until the atlas is cleared. ADR 0038.
+  it('preloads every face a pane can draw with before it attaches', async () => {
     const { client } = await attached()
 
+    const stack = terminalFontStack('')
+    const px = terminalFontSizePx.medium
     expect(loadedFaces).toEqual([
-      `${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
-      `bold ${terminalFontSizePx.medium}px 'JetBrainsMono Nerd Font'`,
+      `${defaultTerminalFontWeight} ${px}px ${stack}`,
+      `italic ${defaultTerminalFontWeight} ${px}px ${stack}`,
+      `${defaultTerminalFontWeightBold} ${px}px ${stack}`,
+      `italic ${defaultTerminalFontWeightBold} ${px}px ${stack}`,
     ])
     const load = (document.fonts.load as ReturnType<typeof vi.fn>)
-    expect(load.mock.invocationCallOrder[1])
+    expect(load.mock.invocationCallOrder.at(-1))
       .toBeLessThan(client.attach.mock.invocationCallOrder[0])
   })
 
@@ -675,6 +690,71 @@ describe('useTerminalWindows', () => {
 
     // currentSize is a module singleton; put the default back for later tests.
     setTerminalFontSize('medium')
+    await flushPromises()
+  })
+
+  // #181: normal cells were locked to whatever the renderer drew, with no way
+  // to ask for a lighter face.
+  it('opens every terminal at the configured font weights', async () => {
+    await attached()
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontWeight).toBe(defaultTerminalFontWeight)
+      expect(term.options.fontWeightBold).toBe(defaultTerminalFontWeightBold)
+    }
+  })
+
+  // Weight moves the advance width the same way size does, so the grid has to
+  // be re-voted for — and the face has to be resident before xterm re-measures
+  // against it, or it measures the outgoing one.
+  it('applies a font weight to every open terminal and re-votes', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', paneHost())
+    await vi.advanceTimersByTimeAsync(100)
+    client.resize.mockClear()
+    loadedFaces.length = 0
+    xterm.FakeFitAddon.instances[0].proposed = { cols: 100, rows: 30 }
+
+    setTerminalFontWeight(700)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(100)
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontWeight).toBe(700)
+    }
+    expect(loadedFaces).toContain(`700 ${terminalFontSizePx.medium}px ${terminalFontStack('')}`)
+    expect(client.resize).toHaveBeenCalledWith('hive-abc', 100, 30)
+
+    setTerminalFontWeight(defaultTerminalFontWeight)
+    await flushPromises()
+  })
+
+  // A chosen family leads the stack and the bundled face backs it, so a font
+  // the OS reports but the webview cannot resolve degrades to the shipped one
+  // rather than to whatever `monospace` happens to be.
+  it('applies a font family to every open terminal, keeping the bundled face as fallback', async () => {
+    vi.useFakeTimers()
+    const client = fakeClient()
+    const session = open(client)
+    await session.start()
+    await flushPromises()
+    session.attachTab('@1', paneHost())
+    await vi.advanceTimersByTimeAsync(100)
+
+    setTerminalFontFamily('Menlo')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(100)
+
+    for (const term of xterm.FakeTerminal.instances) {
+      expect(term.options.fontFamily).toBe(terminalFontStack('Menlo'))
+      expect(term.options.fontFamily).toContain(TERMINAL_FONT)
+    }
+
+    setTerminalFontFamily(TERMINAL_FONT)
     await flushPromises()
   })
 

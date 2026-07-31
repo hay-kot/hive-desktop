@@ -260,7 +260,7 @@ more expensive, which is the whole reason it is being done now.
   polling: {interval: 5m}
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
-  appearance: {theme: "", terminal_font_size: "", terminal_show_windows: true, terminal_pool_size: 3}   # terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_show_windows lists every session's windows in the terminal sidebar; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR 0042)
+  appearance: {theme: "", terminal_font_size: "", terminal_font_family: "", terminal_font_weight: 0, terminal_font_weight_bold: 0, terminal_show_windows: true, terminal_pool_size: 3}   # terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_font_family: an installed monospace family, "" = the bundled face; terminal_font_weight/_bold: 300/350/400/600/700, 0 = the defaults 350/700 (ADR 0050); terminal_show_windows lists every session's windows in the terminal sidebar; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR 0042)
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
   paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
@@ -360,6 +360,9 @@ persisted by UI writes.
 | `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
 | `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE` | Terminal font size preset (`small`/`medium`/`large`/`xl`/`xxl`); empty means medium |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY` | Terminal font family — any installed monospace family; empty is the bundled CaskaydiaMono Nerd Font (ADR 0050) |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT` | Weight normal terminal text draws at (`300`/`350`/`400`/`600`/`700`); `0` means the default, 350 |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD` | Weight bold terminal text draws at; `0` means the default, 700 |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS` | List every active session's windows in the terminal sidebar, not just the attached one's; on by default |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE` | Sessions the terminal view keeps attached for instant switching (1-6, ADR 0042); values outside the range read as the default, 3 |
 | `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
