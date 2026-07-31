@@ -426,6 +426,13 @@ func actionNode(a Action) (*yaml.Node, error) {
 	if a.ShowInDetail {
 		n.Content = append(n.Content, scalar("show_in_detail"), &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!bool", Value: "true"})
 	}
+	if len(a.Targets) > 0 {
+		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, v := range a.Targets {
+			seq.Content = append(seq.Content, scalar(v))
+		}
+		n.Content = append(n.Content, scalar("targets"), seq)
+	}
 	if len(a.AppliesTo) > 0 {
 		seq := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
 		for _, v := range a.AppliesTo {

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
@@ -24,14 +24,35 @@ const typeOptions = [
   { value: 'publish-message', label: 'Publish message' },
   { value: 'clipboard', label: 'Copy to clipboard' },
 ]
+
+// Which surfaces offer this action. A launch-session action creates a new
+// session, so the terminal's row menus — which have no New Session form — are
+// not among them; the backend refuses the combination outright.
+const targetOptions = [
+  { value: 'item', label: 'Feed item' },
+  { value: 'session', label: 'Terminal session' },
+  { value: 'window', label: 'Terminal window' },
+]
+const terminalTargetsAllowed = computed(() => props.action.type !== 'launch-session')
+function hasTarget(value: string): boolean { return (props.action.targets ?? []).includes(value) }
+function setTarget(value: string, on: boolean): void {
+  const next = (props.action.targets ?? []).filter((target) => target !== value)
+  if (on) next.push(value)
+  // An action offered nowhere is unreachable rather than merely quiet, so the
+  // item surface is what an emptied set falls back to.
+  props.action.targets = next.length ? targetOptions.map((option) => option.value).filter((option) => next.includes(option)) : ['item']
+}
+
 function setType(value: string): void {
   props.action.type = value
   props.action.launch = undefined
   props.action.shell = undefined
   props.action.message = undefined
   props.action.clipboard = undefined
-  if (value === 'launch-session') props.action.launch = { promptTemplate: '', repoTemplate: '' }
-  else if (value === 'shell') props.action.shell = { commandTemplate: '' }
+  if (value === 'launch-session') {
+    props.action.launch = { promptTemplate: '', repoTemplate: '' }
+    props.action.targets = ['item']
+  } else if (value === 'shell') props.action.shell = { commandTemplate: '' }
   else if (value === 'publish-message') props.action.message = { topic: '', messageTemplate: '' }
   else if (value === 'clipboard') props.action.clipboard = { textTemplate: '' }
 }
@@ -67,8 +88,25 @@ onUnmounted(() => {
       <TextField ref="idRef" v-model="action.id" label="ID" :disabled="!isNew" testid="action-id" />
       <TextField ref="labelRef" v-model="action.label" label="Label" testid="action-label" />
       <SelectField label="Type" :model-value="action.type" :options="typeOptions" testid="action-type" @update:model-value="setType" />
-      <AppCheckbox v-model="action.showInDetail" label="Show manual button in detail pane" testid="action-show-in-detail" />
-      <AppliesToField ref="appliesField" :model-value="action.appliesTo" :known-types="knownTypes" @update:model-value="action.appliesTo = $event" />
+      <div class="grid gap-1.5" data-testid="action-targets">
+        <span class="text-[12px] font-medium text-text-2">Offer on</span>
+        <AppCheckbox
+          v-for="option in targetOptions"
+          :key="option.value"
+          :model-value="hasTarget(option.value)"
+          :label="option.label"
+          :disabled="option.value !== 'item' && !terminalTargetsAllowed"
+          :testid="`action-target-${option.value}`"
+          @update:model-value="setTarget(option.value, $event)"
+        />
+        <p v-if="!terminalTargetsAllowed" class="text-[11.5px] text-text-3">
+          A launch-session action creates a new session, so it is offered on feed items only.
+        </p>
+      </div>
+      <template v-if="hasTarget('item')">
+        <AppCheckbox v-model="action.showInDetail" label="Show manual button in detail pane" testid="action-show-in-detail" />
+        <AppliesToField ref="appliesField" :model-value="action.appliesTo" :known-types="knownTypes" @update:model-value="action.appliesTo = $event" />
+      </template>
       <template v-if="action.launch">
         <TextareaField v-model="action.launch.promptTemplate" label="Prompt template" :rows="4" monospace testid="action-launch-prompt" />
         <TextField v-model="action.launch.repoTemplate" label="Repository template" testid="action-launch-repo" />

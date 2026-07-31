@@ -13,8 +13,8 @@ vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
 import { useActionsSettings } from '../useActionsSettings'
 
-const oldCatalog = { actions: [{ id: 'old', label: 'Old', type: 'shell', showInDetail: true, appliesTo: [], shell: { commandTemplate: 'true' } }], error: '' }
-const newCatalog = { actions: [{ id: 'new', label: 'New', type: 'launch-session', showInDetail: true, appliesTo: [], launch: { promptTemplate: 'go' } }], error: '' }
+const oldCatalog = { actions: [{ id: 'old', label: 'Old', type: 'shell', showInDetail: true, targets: ['item'], appliesTo: [], shell: { commandTemplate: 'true' } }], error: '' }
+const newCatalog = { actions: [{ id: 'new', label: 'New', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: [], launch: { promptTemplate: 'go' } }], error: '' }
 
 function deferred<T>() {
   let resolve!: (value: T) => void

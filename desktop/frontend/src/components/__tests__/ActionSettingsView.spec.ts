@@ -7,10 +7,10 @@ const mocks = vi.hoisted(() => ({ ListActions: vi.fn(), CreateAction: vi.fn(), U
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/actionsservice', () => ({ ListActions: mocks.ListActions, CreateAction: mocks.CreateAction, UpdateAction: mocks.UpdateAction, DeleteAction: mocks.DeleteAction, ReorderActions: mocks.ReorderActions }))
 vi.mock('@wailsio/runtime', () => ({ Events: { On: mocks.On } }))
 
-const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }
+const launch: EditableAction = { id: 'review', label: 'Review', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: ['pr'], launch: { promptTemplate: 'Review {{ .Payload }}', repoTemplate: 'https://repo', agent: 'codex' } }
 function mountSettings(actions: EditableAction[] = [launch]) { mocks.ListActions.mockResolvedValue({ actions, error: '' }); mocks.On.mockReturnValue(() => {}); return mount(ActionSettingsView, { attachTo: document.body }) }
 function editor<T extends HTMLElement>(id: string): T { return document.querySelector<T>(`[data-testid="${id}"]`)! }
-function shell(id: string): EditableAction { return { id, label: id.toUpperCase(), type: 'shell', showInDetail: true, appliesTo: [], shell: { commandTemplate: 'true' } } }
+function shell(id: string): EditableAction { return { id, label: id.toUpperCase(), type: 'shell', showInDetail: true, targets: ['item'], appliesTo: [], shell: { commandTemplate: 'true' } } }
 function rowIds(wrapper: VueWrapper): string[] { return wrapper.findAll('[data-testid^="action-row-"]').map((row) => row.attributes('data-testid')!.replace('action-row-', '')) }
 async function setValue(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string): Promise<void> { element.value = value; element.dispatchEvent(new Event('input', { bubbles: true })); element.dispatchEvent(new Event('change', { bubbles: true })); await flushPromises() }
 
@@ -50,6 +50,34 @@ describe('ActionSettingsView', () => {
     wrapper.unmount()
   })
 
+  it('declares which surfaces offer an action, and hides the item-only fields when none do', async () => {
+    mocks.CreateAction.mockResolvedValue({ id: 'zed', label: 'Zed', type: 'shell' })
+    const wrapper = mountSettings([]); await flushPromises()
+    await wrapper.get('[data-testid="action-create"]').trigger('click')
+    await setValue(editor<HTMLInputElement>('action-id'), 'zed'); await setValue(editor<HTMLInputElement>('action-label'), 'Zed')
+    editor<HTMLButtonElement>('action-type').click(); await flushPromises()
+    editor<HTMLButtonElement>('action-type-option-shell').click(); await flushPromises()
+    await setValue(editor<HTMLTextAreaElement>('action-shell-command'), 'zed .')
+
+    editor<HTMLInputElement>('action-target-session').click(); await flushPromises()
+    editor<HTMLInputElement>('action-target-item').click(); await flushPromises()
+    // applies_to and the detail-pane toggle refine the item surface only, so
+    // they go with it.
+    expect(document.querySelector('[data-testid="action-show-in-detail"]')).toBeNull()
+
+    editor<HTMLButtonElement>('action-save').click(); await flushPromises()
+    expect(mocks.CreateAction).toHaveBeenCalledWith(expect.objectContaining({ id: 'zed', targets: ['session'] }))
+    wrapper.unmount()
+  })
+
+  it('refuses terminal targets for a launch-session action, which creates a session of its own', async () => {
+    const wrapper = mountSettings([]); await flushPromises()
+    await wrapper.get('[data-testid="action-create"]').trigger('click')
+    expect(editor<HTMLInputElement>('action-target-session').disabled).toBe(true)
+    expect(editor<HTMLInputElement>('action-target-window').disabled).toBe(true)
+    wrapper.unmount()
+  })
+
   it('focuses the ID for new actions, the label for existing actions, traps Tab, and restores the trigger on close', async () => {
     const wrapper = mountSettings(); await flushPromises()
     const editButton = wrapper.get('[data-testid="action-row-review"] button')
@@ -85,7 +113,7 @@ describe('ActionSettingsView', () => {
     expect(editor<HTMLButtonElement>('action-save').disabled).toBe(true)
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await flushPromises()
     expect(document.querySelector('[data-testid="action-editor"]')).not.toBeNull()
-    resolveCreate({ id: 'run', label: 'Run', type: 'launch-session', showInDetail: true, appliesTo: [] })
+    resolveCreate({ id: 'run', label: 'Run', type: 'launch-session', showInDetail: true, targets: ['item'], appliesTo: [] })
     await flushPromises()
     wrapper.unmount()
   })
@@ -130,7 +158,7 @@ describe('ActionSettingsView', () => {
 
   it('keeps deletion confirmation open with backend errors and allows cancel', async () => {
     mocks.DeleteAction.mockRejectedValue(new Error('flow-a blocks deletion'))
-    const wrapper = mountSettings([{ id: 'event', label: 'Event', type: 'publish-message', showInDetail: false, appliesTo: [], message: { topic: 'updates', messageTemplate: 'hello' } }]); await flushPromises()
+    const wrapper = mountSettings([{ id: 'event', label: 'Event', type: 'publish-message', showInDetail: false, targets: ['item'], appliesTo: [], message: { topic: 'updates', messageTemplate: 'hello' } }]); await flushPromises()
     await wrapper.get('[data-testid="action-row-event"] button:last-child').trigger('click')
     editor<HTMLButtonElement>('confirmation-dialog-confirm').click(); await flushPromises()
     expect(editor('confirmation-dialog-error').textContent).toContain('flow-a blocks deletion')

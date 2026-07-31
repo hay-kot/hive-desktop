@@ -32,6 +32,22 @@ actions:
     env:
       EDITOR: code
     command_template: '$EDITOR --goto {{ .Payload.repo | shq }}'
+  - id: open-session-in-zed
+    label: Open in Zed
+    type: shell
+    targets: [session]
+    command_template: 'zed {{ .Session.Path | shq }}'
+  - id: run-tests
+    label: Run tests
+    type: shell
+    targets: [session]
+    timeout: "10m"
+    command_template: 'mise run test'
+  - id: interrupt-window
+    label: Interrupt agent
+    type: shell
+    targets: [window]
+    command_template: 'tmux send-keys -t {{ printf "%s:%s" .Session.Slug .Window.ID | shq }} C-c'
   - id: notify-oncall
     label: Notify oncall
     type: publish-message

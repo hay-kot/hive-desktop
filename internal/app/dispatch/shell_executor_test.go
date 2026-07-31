@@ -80,6 +80,44 @@ func TestShellExecutor_RespectsCwd(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// A terminal action runs in the session's own checkout, which is what makes
+// `mise run test` a complete action rather than one that has to say where.
+func TestShellExecutor_TerminalTargetDefaultsToTheSessionCheckout(t *testing.T) {
+	dir := t.TempDir()
+
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
+	action := actions.Action{
+		ID:     "touch-file",
+		Type:   "shell",
+		Config: &actions.ShellConfig{CommandTemplate: "touch marker.txt"},
+	}
+
+	_, err := exec.Execute(t.Context(), action, OutputData{Session: &SessionTarget{Path: dir}}, ActionInvocationInput{})
+	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(dir, "marker.txt"))
+	require.NoError(t, err)
+}
+
+func TestShellExecutor_ConfiguredCwdWinsOverTheSessionCheckout(t *testing.T) {
+	session, configured := t.TempDir(), t.TempDir()
+
+	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
+	action := actions.Action{
+		ID:     "touch-file",
+		Type:   "shell",
+		Config: &actions.ShellConfig{CommandTemplate: "touch marker.txt", Cwd: configured},
+	}
+
+	_, err := exec.Execute(t.Context(), action, OutputData{Session: &SessionTarget{Path: session}}, ActionInvocationInput{})
+	require.NoError(t, err)
+
+	_, err = os.Stat(filepath.Join(configured, "marker.txt"))
+	require.NoError(t, err)
+	_, err = os.Stat(filepath.Join(session, "marker.txt"))
+	require.Error(t, err)
+}
+
 func TestShellExecutor_TimeoutKillsSlowCommand(t *testing.T) {
 	exec := NewShellExecutor(zerolog.Nop(), hostEnvironment{})
 	action := actions.Action{

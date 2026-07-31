@@ -20,6 +20,10 @@ const mocks = vi.hoisted(() => ({
   DeleteSession: vi.fn(),
   RecycleSession: vi.fn(),
   PruneSessions: vi.fn(),
+  TerminalActionViews: vi.fn(),
+  InvokeTerminalAction: vi.fn(),
+  RenderTerminalClipboardAction: vi.fn(),
+  SetClipboardText: vi.fn(),
   getTerminalEndpoint: vi.fn(),
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
@@ -43,6 +47,9 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   DeleteSession: mocks.DeleteSession,
   RecycleSession: mocks.RecycleSession,
   PruneSessions: mocks.PruneSessions,
+  TerminalActionViews: mocks.TerminalActionViews,
+  InvokeTerminalAction: mocks.InvokeTerminalAction,
+  RenderTerminalClipboardAction: mocks.RenderTerminalClipboardAction,
 }))
 vi.mock('../../lib/terminalClient', () => ({
   getTerminalEndpoint: mocks.getTerminalEndpoint,
@@ -56,6 +63,7 @@ vi.mock('../../composables/useNewSession', () => ({
 }))
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: vi.fn().mockReturnValue(() => {}) },
+  Clipboard: { SetText: mocks.SetClipboardText },
 }))
 
 function fakeSession() {
@@ -132,6 +140,7 @@ describe('TerminalMode', () => {
     ])
     mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 60_000 })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
+    mocks.TerminalActionViews.mockResolvedValue([])
   })
 
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
@@ -944,5 +953,90 @@ describe('TerminalMode', () => {
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
     expect(router.currentRoute.value.params.slug ?? '').toBe('')
     expect(storedRestore()).toEqual({ slug: '', window: '' })
+  })
+
+  describe('configured terminal actions', () => {
+    const openInZed = { id: 'open-in-zed', label: 'Open in Zed', type: 'shell', showInDetail: false, requiresSessionInput: false }
+    const interrupt = { id: 'interrupt', label: 'Interrupt', type: 'shell', showInDetail: false, requiresSessionInput: false }
+
+    function offer(session: unknown[], window: unknown[] = []) {
+      mocks.TerminalActionViews.mockImplementation(async (target: string) => (target === 'session' ? session : window))
+    }
+
+    it('offers session-targeted actions in the session row menu and runs one against its slug', async () => {
+      offer([openInZed])
+      const { wrapper } = await mountAvailable()
+
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"] [data-testid="terminal-session-menu-toggle"]').trigger('click')
+      await wrapper.get('[data-testid="terminal-action-open-in-zed"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.InvokeTerminalAction).toHaveBeenCalledWith('open-in-zed', { slug: 'hive-fix-parser', windowId: '' }, {})
+      wrapper.unmount()
+    })
+
+    it('gives a window row its own menu, carrying the window id', async () => {
+      offer([], [interrupt])
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      const window = wrapper.get('[data-testid="terminal-window-row"][data-window-id="@2"]')
+      await window.get('[data-testid="terminal-window-menu-toggle"]').trigger('click')
+      await window.get('[data-testid="terminal-action-interrupt"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.InvokeTerminalAction).toHaveBeenCalledWith('interrupt', { slug: 'hive-fix-parser', windowId: '@2' }, {})
+      wrapper.unmount()
+    })
+
+    // A window row has no operations of its own, so an empty menu would be an
+    // affordance that does nothing.
+    it('grows no window menu when nothing targets a window', async () => {
+      offer([openInZed])
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="terminal-window-menu-toggle"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('collects declared inputs before running', async () => {
+      offer([{ ...openInZed, inputs: [{ name: 'branch', label: 'Branch', type: 'text', required: true, default: '', placeholder: '', options: [] }] }])
+      const { wrapper } = await mountAvailable()
+
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"] [data-testid="terminal-session-menu-toggle"]').trigger('click')
+      await wrapper.get('[data-testid="terminal-action-open-in-zed"]').trigger('click')
+      await flushPromises()
+      expect(mocks.InvokeTerminalAction).not.toHaveBeenCalled()
+
+      const field = document.querySelector<HTMLInputElement>('[data-testid="action-inputs-dialog"] input')!
+      field.value = 'main'
+      field.dispatchEvent(new Event('input'))
+      await flushPromises()
+      document.querySelector<HTMLButtonElement>('[data-testid="action-inputs-submit"]')!.click()
+      await flushPromises()
+
+      expect(mocks.InvokeTerminalAction).toHaveBeenCalledWith('open-in-zed', { slug: 'hive-fix-parser', windowId: '' }, { branch: 'main' })
+      wrapper.unmount()
+    })
+
+    // Text is not a side effect: a clipboard action renders and copies rather
+    // than starting a job, the same split the detail pane makes.
+    it('copies a clipboard action instead of running it', async () => {
+      offer([{ id: 'copy-path', label: 'Copy path', type: 'clipboard', showInDetail: false, requiresSessionInput: false }])
+      mocks.RenderTerminalClipboardAction.mockResolvedValue('/work/hive-fix-parser')
+      const { wrapper } = await mountAvailable()
+
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"] [data-testid="terminal-session-menu-toggle"]').trigger('click')
+      await wrapper.get('[data-testid="terminal-action-copy-path"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.RenderTerminalClipboardAction).toHaveBeenCalledWith('copy-path', { slug: 'hive-fix-parser', windowId: '' }, {})
+      expect(mocks.SetClipboardText).toHaveBeenCalledWith('/work/hive-fix-parser')
+      expect(mocks.InvokeTerminalAction).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
   })
 })

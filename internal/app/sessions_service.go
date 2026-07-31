@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 )
 
@@ -54,17 +56,33 @@ type sessionJobRunner interface {
 }
 
 // SessionsService is the desktop's session surface: the New Session form's
-// launch path, and read plus lifecycle management of the sessions that exist.
+// launch path, read plus lifecycle management of the sessions that exist, and
+// the configured actions a terminal session or window offers.
 type SessionsService struct {
-	launcher sessionLauncher
-	manager  sessionManager
-	statuses sessionStatusSource
-	tmux     sessionTmux
-	jobs     sessionJobRunner
+	launcher   sessionLauncher
+	manager    sessionManager
+	statuses   sessionStatusSource
+	tmux       sessionTmux
+	jobs       sessionJobRunner
+	catalog    *actions.ActionStore
+	dispatcher *dispatch.Dispatcher
+	recorder   activity.Recorder
 }
 
-func newSessionsService(launcher sessionLauncher, manager sessionManager, statuses sessionStatusSource, tmux sessionTmux, jobs sessionJobRunner) *SessionsService {
-	return &SessionsService{launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs}
+func newSessionsService(
+	launcher sessionLauncher,
+	manager sessionManager,
+	statuses sessionStatusSource,
+	tmux sessionTmux,
+	jobs sessionJobRunner,
+	catalog *actions.ActionStore,
+	dispatcher *dispatch.Dispatcher,
+	recorder activity.Recorder,
+) *SessionsService {
+	return &SessionsService{
+		launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs,
+		catalog: catalog, dispatcher: dispatcher, recorder: recorder,
+	}
 }
 
 // SessionLaunchOptions supplies the configured repository and agent choices the

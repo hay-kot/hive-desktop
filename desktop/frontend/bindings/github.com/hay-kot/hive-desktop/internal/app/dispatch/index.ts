@@ -17,5 +17,6 @@ export type {
     SessionRisk,
     SessionStatus,
     SessionSummary,
-    SessionWindowStatus
+    SessionWindowStatus,
+    TerminalTarget
 } from "./models.js";

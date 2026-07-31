@@ -358,7 +358,7 @@ has per-type config.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043) |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043, ADR 0047). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
@@ -790,6 +790,29 @@ output command holds, and it has no business holding a delete. Delete, recycle a
 destructive is gated on `SessionRisk`, whose payload names the uncommitted or
 unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
+
+**The user's own operations on a session are `actions.yml` entries, not a second
+config** (ADR 0047). An action declares its surfaces in `targets:` — `item`
+(the default, and what every pre-terminal action means), `session`, `window` —
+and `SessionsService` owns the three methods behind them: `TerminalActionViews`,
+`InvokeTerminalAction`, `RenderTerminalClipboardAction`. Three rules are
+load-bearing:
+
+- **The caller sends identity, the core resolves the rest.**
+  `dispatch.TerminalTarget` is a slug and an optional tmux window id;
+  `.Session.Path`, `.Session.Repo` and the rest come from the session record at
+  invocation time, so nothing lets a client choose the path a command runs in.
+  `OutputData.Session`/`.Window` are nil on the item path, which is what makes a
+  template reading the wrong surface fail rather than render blank.
+- **A terminal action enqueues no `output_command`.** The durable command's
+  `UNIQUE (action_id, key)` exists to stop an already-run action from re-firing,
+  and a manual operation against live local state must stay repeatable and must
+  not replay after a restart. It runs through the same `Dispatcher` — now built
+  by `App` and shared with the output worker — inside `jobs.Track`, and the tail
+  of stderr goes into the job's failure reason because there is no durable row
+  holding its streams.
+- **`launch-session` is refused on a terminal target**, in `validateActions` via
+  `TerminalCapable`, so the refusal lands when the catalog is authored.
 
 **Which tmux runs is `internal/app/tmuxbin`'s answer, not `$PATH`'s** (ADR
 0039). A desktop launch inherits no shell `$PATH`, so the resolver checks

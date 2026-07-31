@@ -7,7 +7,9 @@ script, a `curl` to an internal service.
 ## Fields
 
 - `command_template` (required) — the command line to run.
-- `cwd` — working directory; defaults to the desktop process's own.
+- `cwd` — working directory. On a `session` or `window` target it defaults to
+  the session's checkout, so `mise run test` is a complete action; on an `item`
+  target it defaults to the desktop process's own. Setting it wins either way.
 - `timeout` — a duration string like `"30s"` bounding the run. Must be quoted:
   a bare number is a hard error, not seconds. Omit for no deadline beyond the
   invoking context's.

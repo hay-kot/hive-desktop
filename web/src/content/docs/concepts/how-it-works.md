@@ -38,16 +38,19 @@ you can archive, unarchive, or mark items unread right from the feed.
 
 ## Actions
 
-An **action** is a named, reusable command defined in `actions.yml`. Three
+An **action** is a named, reusable command defined in `actions.yml`. Four
 types:
 
 - **`launch-session`** — start an agent / coding session (e.g. clone a repo and
   hand a PR to an agent).
 - **`shell`** — run a shell command.
 - **`publish-message`** — publish to a message topic.
+- **`clipboard`** — render text and put it on the clipboard.
 
 Actions run from an item's **…** menu, or automatically when a flow routes an
-item into an **action** node.
+item into an **action** node. An action can also say it belongs to a terminal
+session or one of its windows instead, with `targets` — see
+[Terminal mode](/docs/concepts/terminal-mode).
 
 ## Notifications
 

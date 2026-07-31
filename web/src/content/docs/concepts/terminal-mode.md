@@ -63,6 +63,60 @@ one click away.
 That is what separates it from the two below it in the menu — **Recycle** resets
 the checkout, and **Delete** removes the session and its directory.
 
+## Your own commands on a session or a window
+
+Anything you would otherwise do by finding the checkout yourself — open it in
+your editor, reveal it in Finder, run the test task, send a key to the agent's
+window — can be an entry in that ⋯ menu. They are ordinary entries in
+`actions.yml`, the same file the feed's actions live in, and an action says
+where it is offered with `targets`:
+
+```yaml
+- id: open-in-zed
+  label: Open in Zed
+  type: shell
+  targets: [session]
+  command_template: 'zed {{ .Session.Path | shq }}'
+
+- id: run-tests
+  label: Run tests
+  type: shell
+  targets: [session]
+  timeout: "10m"
+  command_template: 'mise run test'
+
+- id: interrupt
+  label: Interrupt agent
+  type: shell
+  targets: [window]
+  command_template: 'tmux send-keys -t {{ printf "%s:%s" .Session.Slug .Window.ID | shq }} C-c'
+```
+
+`targets: [session]` puts the entry in a session row's ⋯ menu;
+`targets: [window]` gives a window row a menu of its own — one appears only once
+something targets a window. Omitting `targets` means the feed, which is what
+every action you already have means.
+
+The session you clicked is what the templates render over:
+
+| | |
+| --- | --- |
+| `{{ .Session.Path }}` | the checkout on disk |
+| `{{ .Session.Slug }}` | the session's slug, which is also its tmux session name |
+| `{{ .Session.Name }}`, `{{ .Session.Repo }}`, `{{ .Session.Branch }}` | its name, remote, and worktree branch |
+| `{{ .Window.ID }}` | the tmux window id — on a `window` action only |
+
+A **shell** action started this way runs in the session's checkout unless you
+set `cwd`, so `mise run test` needs nothing else. It runs as a background job:
+the jobs list is where it reports finishing or failing, and a failure carries
+the end of its error output. A **clipboard** action is copied on the click
+instead — `text_template: '{{ .Session.Path }}'` is a one-line "copy this
+session's path".
+
+The one type that cannot target a session or window is **launch-session**: it
+creates a *new* session, which is what the feed and the New Session form are
+for.
+
 ## It is a real attach, not a copy
 
 Hive attaches as another tmux client, exactly as `tmux attach` in a terminal

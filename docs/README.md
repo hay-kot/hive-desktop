@@ -54,6 +54,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0044](decisions/0044-terminal-start-is-an-offered-action.md) | A session's terminal is started and killed on purpose, never as a side effect of attaching |
 | [0045](decisions/0045-terminal-renderer-claimed-on-activation.md) | A terminal pane claims its atlas renderer on activation, not on mount |
 | [0046](decisions/0046-terminal-first-paint-carries-scrollback.md) | First paint carries bounded scrollback and restores the cursor |
+| [0047](decisions/0047-actions-target-terminal-sessions-and-windows.md) | An action declares which surfaces it targets; a terminal action runs without a durable command |
 
 ## References
 

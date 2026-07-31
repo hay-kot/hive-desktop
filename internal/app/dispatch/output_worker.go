@@ -35,6 +35,13 @@ type OutputData struct {
 	// referencing an undeclared one is a render error (missingkey=error
 	// fires on nil maps too), never a blank.
 	Inputs map[string]string
+	// Session and Window are the terminal target the action was invoked
+	// against, reachable as `.Session.<field>` and `.Window.<field>`. Both are
+	// nil for a feed-item invocation and Window is nil for a session one, so a
+	// template that reads the wrong surface's data fails loudly rather than
+	// rendering a blank command.
+	Session *SessionTarget
+	Window  *WindowTarget
 	// CreatedAt is when the command was enqueued (Unix milliseconds), so an
 	// executor whose side effect is time-sensitive can tell a fresh command
 	// from one that waited out an app restart. Zero when unknown.

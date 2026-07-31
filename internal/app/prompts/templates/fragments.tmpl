@@ -26,16 +26,30 @@ Rules for every file above:
 {{define "template-data"}}
 ## Template data
 
-Every `*_template` field is a Go `text/template` rendered over the item that
-triggered the action:
+Every `*_template` field is a Go `text/template` rendered over whatever the
+action was invoked against. **Which values exist depends on the target**, so a
+template that reads the wrong target's data fails the run rather than rendering
+a blank command.
+
+On the `item` target — a feed item, in the detail pane or from a flow `action`
+node:
 
 - `{{"{{ .Payload.<field> }}"}}` — the item's payload. GitHub items carry `repo`, `title`, `url`, `num`, `author`, `body`, `labels`, and `state`; webhook items carry whatever was POSTed.
 - `{{"{{ .Key }}"}}` — the item's stable identity, e.g. `colonyops/hive#2841`.
 - `{{"{{ .Raw }}"}}` — the payload as raw JSON.
-- `{{"{{ .Inputs.<name> }}"}}` — a value the user typed or chose when running the action, for each input the action declares. Undeclared names are a render error, so declare what you reference.
 
-A field that does not exist renders empty rather than failing, so guard
-anything you depend on.
+On the `session` and `window` targets — a terminal session row, or a window row
+inside it:
+
+- `{{"{{ .Session.Path }}"}}` — the session's checkout on disk. This is also the default working directory of a `shell` action run from a terminal target, so a command that just works in the checkout does not have to name it.
+- `{{"{{ .Session.Slug }}"}}` — the session's slug, which is also its tmux session name.
+- `{{"{{ .Session.Name }}"}}`, `{{"{{ .Session.ID }}"}}`, `{{"{{ .Session.Repo }}"}}`, `{{"{{ .Session.Branch }}"}}` — the session's name, hive id, remote, and worktree branch (blank for a session that is not a worktree).
+- `{{"{{ .Window.ID }}"}}` — the tmux window id, on the `window` target only. Addressed as `{{"{{ .Session.Slug }}"}}:{{"{{ .Window.ID }}"}}` in a tmux command. There is no window name: the id survives a rename and the name does not.
+- `{{"{{ .Key }}"}}` — the session's slug.
+
+On every target:
+
+- `{{"{{ .Inputs.<name> }}"}}` — a value the user typed or chose when running the action, for each input the action declares. Undeclared names are a render error, so declare what you reference.
 {{end}}
 
 {{define "task"}}
