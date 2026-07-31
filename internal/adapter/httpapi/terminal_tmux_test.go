@@ -285,6 +285,39 @@ func TestTmuxAttachReportsASessionThatIsNotRunning(t *testing.T) {
 	_ = start.Body.Close()
 }
 
+// A stream that drops without a detach — a stalled write, a reloaded webview —
+// leaves the control client attached to a session that never stopped. Reconnect
+// re-attaches onto that live client and builds fresh emulators, so the attach
+// owes it a first paint: what the dropped socket already rendered is gone from
+// the backlog, and everything the pane shows was written before the new stream
+// existed.
+func TestTmuxReattachAfterATransportDropRepaints(t *testing.T) {
+	tmux := startTmux(t, "hive-redrop")
+	h := newTerminalHarness(t)
+	h.attach(t, tmux.slug)
+
+	conn := h.dial(t, tmux.slug)
+	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
+
+	tmux.tmux("send-keys", "-t", tmux.slug, "echo HIVE_BEFORE_DROP", "Enter")
+	tmux.awaitPane(tmux.slug, "HIVE_BEFORE_DROP")
+	readUntil(t, conn, "the marker on the live stream", func(f []byte) bool {
+		return outputContains(t, f, "HIVE_BEFORE_DROP")
+	})
+
+	// No detach: the control client outlives this socket, which is the whole
+	// point of the case.
+	require.NoError(t, conn.CloseNow())
+
+	reattached := h.attach(t, tmux.slug)
+	require.Len(t, reattached.Windows, 1)
+
+	resumed := h.dial(t, tmux.slug)
+	readUntil(t, resumed, "the pane repainted onto the new stream", func(f []byte) bool {
+		return outputContains(t, f, "HIVE_BEFORE_DROP")
+	})
+}
+
 // Killing is the terminal's lifecycle alone: tmux loses the session, and the
 // attach that follows is the not-running answer the start panel is built on.
 func TestTmuxKillEndsTheSession(t *testing.T) {

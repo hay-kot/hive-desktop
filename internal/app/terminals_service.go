@@ -35,10 +35,13 @@ func (s *TerminalsService) Available(ctx context.Context) error {
 	return terminalError(s.manager.Available(ctx), "Terminal sessions need tmux 3.2 or newer. Hive searches PATH and the usual install prefixes; set paths.tmux in settings.yaml if yours is elsewhere.")
 }
 
-// Attach opens, or returns the windows of, the control client for slug. cols
-// and rows are the caller's opening size vote; 0x0 attaches without setting a
-// client size at all, which leaves the session at the size its other clients
-// gave it until the first Resize.
+// Attach opens, or returns the windows of, the control client for slug, and
+// leaves a first paint on its stream either way: a control client that outlived
+// the transport rendering it is repainted rather than handed back with nothing
+// to draw. cols and rows are the caller's opening size vote, read only when the
+// attach opens a client; 0x0 attaches without setting a client size at all,
+// which leaves the session at the size its other clients gave it until the
+// first Resize.
 //
 // A slug tmux is not running is a KindNotFound the caller is expected to answer
 // with Start — attaching never spawns on its own, because spawning runs the

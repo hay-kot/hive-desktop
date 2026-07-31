@@ -758,6 +758,16 @@ tmux replays all of it and a configured one cannot make attach cost unbounded.
 `-J` joins wrapped rows in the history only: a joined screen row re-wraps into
 more rows than it was captured from and breaks the height.
 
+**Every attach leaves a first paint on the stream, including one onto a client
+that is already live.** A transport-only drop — a stalled write, a reloaded
+webview — takes the emulator and leaves the control client attached, and what
+that stream already delivered is not in the broker's backlog to replay, so an
+attach that answered from memory would hand a fresh emulator a session it can
+only render the future of. The repaint resets the broker first: the snapshot
+supersedes every undelivered byte, and a subscriber still draining the dropped
+stream would otherwise consume the snapshot meant for its replacement. The size
+vote is a fresh attach's alone — a live client keeps the one it already cast.
+
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a
@@ -839,10 +849,14 @@ through the same unavailable-with-a-reason state.
 
 The reader goroutine always drains tmux's stdout, because command replies share
 that pipe with notifications; notification dispatch and broker publish are
-therefore non-blocking. The broker's per-session buffer is bounded **by bytes**
-and overflow is **fatal**: the client is torn down and the frontend re-attaches,
-which re-runs first paint. There is no partial resync, no drop-oldest (it
-corrupts emulator state), and no tmux `pause-after`.
+therefore non-blocking. The broker's per-session buffer is bounded **by bytes
+and by event count** — only output is worth bytes, so the count is what bounds a
+backlog of window events — and overflow is **fatal**: the client is torn down and
+the frontend re-attaches, which re-runs first paint. There is no partial resync,
+no drop-oldest (it corrupts emulator state), and no tmux `pause-after`. Both
+bounds admit **only droppable events**, and only a droppable event may trip one:
+a lifecycle event that tripped the bound would be discarded by the same branch
+that drops for overflow, ending the stream with nothing saying why.
 
 **Size is a negotiation this app is only one voice in.** Every client attached
 to a session renders the same grid per window, and tmux's `window-size` option
