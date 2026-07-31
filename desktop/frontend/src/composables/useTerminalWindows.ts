@@ -1,8 +1,10 @@
 import { effectScope, markRaw, nextTick, ref, watch, type Ref } from 'vue'
+import { Browser } from '@wailsio/runtime'
 import { CanvasAddon } from '@xterm/addon-canvas'
 import { FitAddon } from '@xterm/addon-fit'
+import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
-import { Terminal, type IDisposable, type ITerminalAddon } from '@xterm/xterm'
+import { Terminal, type IDisposable, type ILinkHandler, type ITerminalAddon } from '@xterm/xterm'
 // Rides the async terminal chunk on purpose: ~10MB of glyphs nobody pays for
 // until they open Terminal mode.
 import '../assets/fonts/jetbrains-mono-nerd.css'
@@ -98,6 +100,16 @@ const CONSTRAINT_SETTLE_MS = 750
 // The face xterm measures its cell from. The rest of the stack only covers the
 // window between a Terminal opening and this one resolving.
 const TERMINAL_FONT = "'JetBrainsMono Nerd Font'"
+
+// A link has to leave the webview: it hosts one document for the app's whole
+// lifetime, and xterm's own default for an OSC 8 hyperlink — confirm() then
+// window.open() — is answered by neither, so a click on one does nothing at
+// all. WebLinksAddon covers the bare URLs xterm does not linkify on its own.
+function openLink(uri: string): void {
+  void Browser.OpenURL(uri).catch(() => {})
+}
+
+const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 
 interface TabRuntime {
   host?: HTMLElement
@@ -196,11 +208,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const term = markRaw(new Terminal({
       fontFamily: `${TERMINAL_FONT}, 'IBM Plex Mono', ui-monospace, monospace`,
       fontSize: fontSizePx.value,
+      linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
+    term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
@@ -378,8 +392,13 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         if (tab) tab.name = state.name
         break
       }
+      // The kind reports "this window's active flag or pane changed", not
+      // "this window is now the session's", and a reconcile emits one for the
+      // window that just *lost* the flag as well — in tmux index order, so
+      // selecting a lower-indexed window lands the deactivated one last.
+      // Following that would put the selection back where it came from.
       case 'active-changed':
-        if (findTab(windowId)) setActive(windowId)
+        if (state.active && findTab(windowId)) setActive(windowId)
         break
       case 'resized':
         break
