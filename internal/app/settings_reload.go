@@ -22,7 +22,7 @@ var settingsReload = map[string]string{
 	"version":          "",
 	"polling.interval": "",
 	"updates.enabled":  "",
-	"updates.channel":  "the update engine is handed its channel once, when it is initialized",
+	"updates.channel":  "",
 
 	"notifications.enabled":  "",
 	"notifications.delivery": "",
@@ -36,7 +36,7 @@ var settingsReload = map[string]string{
 	"http.host":    "the loopback HTTP server binds once, and the API and stream mounts are attached before it starts",
 	"http.port":    "the loopback HTTP server binds once, and the API and stream mounts are attached before it starts",
 
-	"skills.auto_update": "installed skills are re-synced once, at startup",
+	"skills.auto_update": "",
 	"skills.targets":     "",
 	"paths.tmux":         "",
 
@@ -44,7 +44,7 @@ var settingsReload = map[string]string{
 
 	"development.mocks.mode":         "mock mode decides which objects exist and re-resolves the path snapshot",
 	"development.instance.id":        "the instance label is read when the development instance is prepared",
-	"development.github.api_base":    "the GitHub client is built once, with its API base",
+	"development.github.api_base":    "",
 	"development.vite.host":          "the dev launcher bridges Vite and Wails addresses before Go starts",
 	"development.vite.port":          "the dev launcher bridges Vite and Wails addresses before Go starts",
 	"development.wails.host":         "the dev launcher bridges Vite and Wails addresses before Go starts",
@@ -121,6 +121,15 @@ func (a *App) applySettingsField(field string, next settings.Settings) {
 		a.Settings.applyPolling(next.Polling.Interval.Duration())
 	case "paths.tmux":
 		a.tmux.SetOverride(next.Paths.Tmux)
+	case "development.github.api_base":
+		a.github.SetAPIBase(next.GitHubAPIBase())
+		if a.fetchers != nil {
+			a.fetchers.InvalidateAll()
+		}
+	case "skills.auto_update":
+		if next.Skills.AutoUpdate && a.mock == "" {
+			go a.syncInstalledSkills()
+		}
 	}
 }
 

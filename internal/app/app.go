@@ -117,8 +117,11 @@ type App struct {
 	flowStore     *flow.FlowStore
 	activityStore *activity.Store
 	jobStore      *jobs.Store
-	fetchers      *ghsource.Fetchers
-	credentials   credentials.Store
+	// github is the owned client template (ADR 0015), retained so a reload
+	// can swap development.github.api_base without a relaunch.
+	github      *ghclient.Client
+	fetchers    *ghsource.Fetchers
+	credentials credentials.Store
 
 	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
@@ -233,6 +236,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		gitHubOpts = append(gitHubOpts, ghclient.WithAPIBase(apiBase))
 	}
 	gitHubClient := ghclient.NewClient(gitHubOpts...)
+	a.github = gitHubClient
 
 	if cfg.MockMode == "" {
 		a.fetchers = ghsource.NewFetchers(gitHubClient, a.credentials, cfg.Logger)

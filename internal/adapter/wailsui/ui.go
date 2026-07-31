@@ -148,8 +148,8 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 }
 
 // settingsReloadHook adopts a reloaded settings.yaml into the state this side
-// of the app holds. The update ticker is all of it; everything else the
-// frontend re-reads for itself on settings:updated.
+// of the app holds. The update ticker and release channel are all of it;
+// everything else the frontend re-reads for itself on settings:updated.
 //
 // It takes no context, and is built outside Subscribe's for that reason: the
 // ticker's lifetime is the app's, not the reload event's — see
@@ -157,8 +157,17 @@ func (u *UI) Mount(ctx context.Context, core *app.App, opts MountOptions) {
 // driven port that reads settings outside a call.
 func (u *UI) settingsReloadHook(settings *app.SettingsService) func(changed []string) {
 	return func(changed []string) {
-		if slices.Contains(changed, "updates.enabled") {
-			u.updater.applyEnabled(settings.Updates(context.Background()).Enabled)
+		channelChanged := slices.Contains(changed, "updates.channel")
+		enabledChanged := slices.Contains(changed, "updates.enabled")
+		if !channelChanged && !enabledChanged {
+			return
+		}
+		next := settings.Updates(context.Background())
+		if channelChanged {
+			u.updater.SetChannel(next.Channel)
+		}
+		if enabledChanged {
+			u.updater.applyEnabled(next.Enabled)
 		}
 	}
 }
@@ -253,7 +262,7 @@ func (u *UI) attachUpdater(opts MountOptions) {
 		u.logger.Warn().Err(err).Msg("desktop auto-update unavailable; updater init failed")
 		return
 	}
-	u.updater.Attach(u.app.Updater)
+	u.updater.Attach(u.app.Updater, provider, channel)
 }
 
 func (u *UI) buildWindow() {

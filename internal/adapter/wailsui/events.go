@@ -73,12 +73,10 @@ func registerEvents() struct{} {
 // Subscribe wires every core event to its Wails wake-up signal and returns a
 // cancel that tears every subscription down.
 //
-// Every subscription uses events.Coalesce, with one exception:
-// notification.raised uses events.Buffer, because a toast is not state the
-// frontend re-reads on wake-up — it is the message itself, so coalescing it
-// would mean a notification arriving right behind a busier one is simply
-// never seen. Every other subscriber only needs the latest state, and a busy
-// webview must never hold up the producer goroutine that published.
+// Every subscription that carries a wake-up signal uses events.Coalesce,
+// except settings.updated and notification.raised. Settings updates preserve
+// each changed-field delta so adapter-owned state is adopted before its wake-up;
+// notifications preserve their payload because a toast cannot be re-read.
 //
 // This is where the core's typed payload is deliberately degraded. Wails
 // events are wake-up signals by design — an adapter that needs the delta gets
@@ -123,7 +121,7 @@ func Subscribe(ctx context.Context, bus *events.Bus, hooks SubscribeHooks) (canc
 				hooks.FlowsUpdated()
 			}
 		}),
-		events.Subscribe(ctx, bus, "wailsui.settings", events.Coalesce(), func(_ context.Context, e events.SettingsUpdated) {
+		events.Subscribe(ctx, bus, "wailsui.settings", events.Buffer(1), func(_ context.Context, e events.SettingsUpdated) {
 			// Adopt before waking the frontend: the System screen re-reads the
 			// updater's state on settings:updated, and it must not read it back
 			// before this side has applied the reload to it.

@@ -19,6 +19,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hay-kot/appkit/httpclient"
@@ -37,9 +38,13 @@ const (
 // Client is a GitHub REST v3 / GraphQL client. The zero value is not usable;
 // construct with NewClient.
 type Client struct {
-	api  *httpclient.Client
-	auth *httpclient.Client
-	errs sourcehttp.Errors
+	// api is shared by every WithTokenCopy clone, so a base swap reaches
+	// request-scoped copies made after it; in-flight requests keep the base
+	// they started with.
+	api    *atomic.Pointer[httpclient.Client]
+	auth   *httpclient.Client
+	errs   sourcehttp.Errors
+	logger zerolog.Logger
 	// token is read per request through bearer, so WithTokenCopy stays a
 	// plain struct copy that shares api/auth and their connection pools.
 	token string
@@ -80,16 +85,10 @@ func NewClient(opts ...Option) *Client {
 		opt(&o)
 	}
 
+	api := &atomic.Pointer[httpclient.Client]{}
+	api.Store(newAPIClient(o.apiBase, o.logger))
 	return &Client{
-		api: sourcehttp.New(sourcehttp.Config{
-			Name:    sourceName,
-			BaseURL: o.apiBase,
-			Logger:  o.logger,
-		},
-			httpclient.Header("Accept", "application/vnd.github+json"),
-			httpclient.Header("X-GitHub-Api-Version", apiVersion),
-			httpclient.JSONContent(),
-		),
+		api: api,
 		auth: sourcehttp.New(sourcehttp.Config{
 			Name:    sourceName + "-auth",
 			BaseURL: o.authBase,
@@ -97,9 +96,35 @@ func NewClient(opts ...Option) *Client {
 		},
 			httpclient.Header("Accept", "application/json"),
 		),
-		errs:  sourcehttp.Errors{Name: sourceName, Forbidden: forbiddenIsRateLimit},
-		token: o.token,
+		errs:   sourcehttp.Errors{Name: sourceName, Forbidden: forbiddenIsRateLimit},
+		logger: o.logger,
+		token:  o.token,
 	}
+}
+
+func newAPIClient(base string, logger zerolog.Logger) *httpclient.Client {
+	return sourcehttp.New(sourcehttp.Config{
+		Name:    sourceName,
+		BaseURL: apiBase(base),
+		Logger:  logger,
+	},
+		httpclient.Header("Accept", "application/vnd.github+json"),
+		httpclient.Header("X-GitHub-Api-Version", apiVersion),
+		httpclient.JSONContent(),
+	)
+}
+
+func apiBase(base string) string {
+	if base == "" {
+		return defaultAPIBase
+	}
+	return base
+}
+
+// SetAPIBase swaps the REST base the next request-scoped copy uses; ""
+// restores the default api.github.com.
+func (c *Client) SetAPIBase(base string) {
+	c.api.Store(newAPIClient(base, c.logger))
 }
 
 // bearer resolves the token off the receiver, so a clone authenticates as
@@ -306,7 +331,8 @@ func (c *Client) postGraphQL(ctx context.Context, query string, variables map[st
 		return c.errs.Errorf("encode graphql request: %w", err)
 	}
 
-	resp, err := c.api.Post(ctx, "/graphql", bytes.NewReader(payload), c.bearer())
+	api := c.api.Load()
+	resp, err := api.Post(ctx, "/graphql", bytes.NewReader(payload), c.bearer())
 	if err != nil {
 		return c.errs.Unreachable(err)
 	}
@@ -374,7 +400,8 @@ func (c *Client) getJSONConditional(ctx context.Context, path string, params url
 		endpoint += "?" + params.Encode()
 	}
 
-	resp, err := c.api.Get(ctx, endpoint, c.bearer(), sourcehttp.Conditional(prev))
+	api := c.api.Load()
+	resp, err := api.Get(ctx, endpoint, c.bearer(), sourcehttp.Conditional(prev))
 	if err != nil {
 		return condMeta{}, c.errs.Unreachable(err)
 	}

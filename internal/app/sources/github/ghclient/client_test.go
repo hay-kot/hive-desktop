@@ -2,10 +2,13 @@ package ghclient
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -31,6 +34,98 @@ func TestUserValidatesToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "hayden", user.Login)
 	assert.Equal(t, "Hayden", user.Name)
+}
+
+func TestSetAPIBaseSwapsSharedClient(t *testing.T) {
+	one, oneHits := newUserServer(t, "one")
+	two, twoHits := newUserServer(t, "two")
+	client := NewClient(WithAPIBase(one.URL))
+	before := client.WithTokenCopy("before")
+
+	user, err := before.User(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, "one", user.Login)
+
+	client.SetAPIBase(two.URL)
+	for _, copy := range []*Client{client, before, client.WithTokenCopy("after")} {
+		user, err = copy.User(t.Context())
+		require.NoError(t, err)
+		require.Equal(t, "two", user.Login)
+	}
+	require.Equal(t, int32(1), oneHits.Load())
+	require.Equal(t, int32(3), twoHits.Load())
+
+	beforeDefault := client.api.Load()
+	client.SetAPIBase("")
+	require.NotSame(t, beforeDefault, client.api.Load())
+	require.Equal(t, defaultAPIBase, apiBase(""))
+}
+
+func TestSetAPIBaseAndRequestsConcurrent(t *testing.T) {
+	one, _ := newUserServer(t, "one")
+	two, _ := newUserServer(t, "two")
+	client := NewClient(WithAPIBase(one.URL))
+	copy := client.WithTokenCopy("token")
+
+	start := make(chan struct{})
+	errs := make(chan error, 300)
+	var wg sync.WaitGroup
+	ctx := t.Context()
+	wg.Go(func() {
+		<-start
+		for i := range 100 {
+			if i%2 == 0 {
+				client.SetAPIBase(one.URL)
+			} else {
+				client.SetAPIBase(two.URL)
+			}
+		}
+	})
+	for range 4 {
+		wg.Go(func() {
+			<-start
+			for range 50 {
+				user, err := copy.User(ctx)
+				if err != nil {
+					errs <- err
+					continue
+				}
+				if user.Login != "one" && user.Login != "two" {
+					errs <- fmt.Errorf("unexpected user %q", user.Login)
+				}
+				user, err = client.WithTokenCopy("next").User(ctx)
+				if err != nil {
+					errs <- err
+					continue
+				}
+				if user.Login != "one" && user.Login != "two" {
+					errs <- fmt.Errorf("unexpected user %q", user.Login)
+				}
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
+}
+
+func newUserServer(t *testing.T, login string) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	hits := &atomic.Int32{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		if r.URL.Path != "/user" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprintf(w, `{"login":%q}`, login)
+	}))
+	t.Cleanup(server.Close)
+	return server, hits
 }
 
 func TestUserUnauthorized(t *testing.T) {

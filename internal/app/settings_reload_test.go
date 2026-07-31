@@ -2,6 +2,9 @@ package app
 
 import (
 	"context"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -78,6 +81,53 @@ func TestReloadSettingsAdoptsLiveFieldsAndPublishes(t *testing.T) {
 	// override that just arrived, rather than for the one it started with.
 	_, err = core.tmux.Path()
 	require.ErrorContains(t, err, "paths.tmux")
+}
+
+func TestReloadSettingsAppliesGitHubAPIBase(t *testing.T) {
+	t.Setenv(settings.EnvGitHubAPIBase, "")
+	core := newReloadTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/user" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"login":"reload"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	writeSettings(t, core, fmt.Sprintf("development:\n  github:\n    api_base: %q\n", server.URL))
+	result, err := core.ReloadSettings(t.Context())
+	require.NoError(t, err)
+	require.Contains(t, result.Changed, "development.github.api_base")
+	assert.NotContains(t, fields(result.RestartPending), "development.github.api_base")
+
+	user, err := core.github.WithTokenCopy("token").User(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "reload", user.Login)
+}
+
+func TestReloadSettingsKeepsPhaseTwoFieldsOutOfRestartPending(t *testing.T) {
+	t.Setenv(settings.EnvGitHubAPIBase, "")
+	core := newReloadTestApp(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"login":"reload"}`))
+	}))
+	t.Cleanup(server.Close)
+
+	writeSettings(t, core, fmt.Sprintf("updates:\n  channel: beta\nskills:\n  auto_update: true\ndevelopment:\n  github:\n    api_base: %q\n", server.URL))
+	result, err := core.ReloadSettings(t.Context())
+	require.NoError(t, err)
+	assert.NotContains(t, fields(result.RestartPending), "updates.channel")
+	assert.NotContains(t, fields(result.RestartPending), "skills.auto_update")
+	assert.NotContains(t, fields(result.RestartPending), "development.github.api_base")
+}
+
+func fields(pending []RestartPendingField) []string {
+	result := make([]string, 0, len(pending))
+	for _, field := range pending {
+		result = append(result, field.Field)
+	}
+	return result
 }
 
 func TestReloadSettingsIsQuietWhenNothingChanged(t *testing.T) {

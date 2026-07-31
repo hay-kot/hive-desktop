@@ -75,6 +75,23 @@ func silenceEmits(t *testing.T) {
 // process-environment override: the value handed in, echoed back.
 func acceptWriteEnabled(enabled bool) (bool, error) { return enabled, nil }
 
+type recordingChannelSwapper struct {
+	mu      sync.Mutex
+	channel string
+}
+
+func (s *recordingChannelSwapper) SetChannel(channel string) {
+	s.mu.Lock()
+	s.channel = channel
+	s.mu.Unlock()
+}
+
+func (s *recordingChannelSwapper) currentChannel() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.channel
+}
+
 // storeWriteEnabled builds a settings writer backed by a real store, the same
 // shape app.SettingsService.SetUpdatesEnabled has in production, for the one
 // test that checks SetEnabled's persistence rather than just its ticker
@@ -104,7 +121,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 		Notes:   "new stuff",
 	}}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
@@ -119,7 +136,7 @@ func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{rel: nil}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	info, err := s.CheckNow(t.Context())
 	require.NoError(t, err)
@@ -131,10 +148,22 @@ func TestUpdaterServiceCheckNowError(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{checkErr: errors.New("boom")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	_, err := s.CheckNow(t.Context())
 	require.Error(t, err)
+}
+
+func TestUpdaterServiceSetChannelUsesBuildChannelForEmpty(t *testing.T) {
+	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
+	s.SetChannel(settings.ChannelBeta)
+
+	channels := &recordingChannelSwapper{}
+	s.Attach(&fakeEngine{}, channels, settings.ChannelBeta)
+	s.SetChannel("")
+	require.Equal(t, settings.ChannelBeta, channels.currentChannel())
+	s.SetChannel(settings.ChannelStable)
+	require.Equal(t, settings.ChannelStable, channels.currentChannel())
 }
 
 func TestUpdaterServiceDevGate(t *testing.T) {
@@ -163,7 +192,7 @@ func TestUpdaterServiceTickerLifecycle(t *testing.T) {
 		t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 		engine := &fakeEngine{rel: nil}
 		s := NewUpdaterService("1.2.3", false, time.Minute, acceptWriteEnabled, zerolog.Nop())
-		s.Attach(engine)
+		s.Attach(engine, nil, "")
 
 		// Enabling checks immediately (initial check) then on each tick.
 		require.NoError(t, s.SetEnabled(true))
@@ -187,7 +216,7 @@ func TestUpdaterServiceInstallUpdate(t *testing.T) {
 	silenceEmits(t)
 	engine := &fakeEngine{}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	require.NoError(t, s.InstallUpdate(t.Context()))
 	engine.mu.Lock()
@@ -201,7 +230,7 @@ func TestUpdaterServiceInstallUpdateLogsDownloadFailure(t *testing.T) {
 	var logs bytes.Buffer
 	engine := &fakeEngine{installErr: errors.New("checksum mismatch")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.New(&logs))
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 	s.available = &UpdateInfo{LatestVersion: "1.3.0"}
 
 	err := s.InstallUpdate(t.Context())
@@ -217,7 +246,7 @@ func TestUpdaterServiceInstallUpdateLogsRestartFailure(t *testing.T) {
 	var logs bytes.Buffer
 	engine := &fakeEngine{restartErr: errors.New("helper failed")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.New(&logs))
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	err := s.InstallUpdate(t.Context())
 	require.ErrorContains(t, err, "helper failed")
@@ -246,7 +275,7 @@ func TestUpdaterServiceInstallUpdateRejectsReadOnlyInstallBeforeDownload(t *test
 
 	engine := &fakeEngine{}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	err := s.InstallUpdate(t.Context())
 	require.ErrorIs(t, err, errUpdateReadOnlyInstall)
@@ -264,7 +293,7 @@ func TestUpdaterServiceInstallUpdateRestoresTMPDIROnFailure(t *testing.T) {
 
 	engine := &fakeEngine{installErr: errors.New("boom")}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	require.ErrorContains(t, s.InstallUpdate(t.Context()), "boom")
 	require.Equal(t, "/sentinel", os.Getenv("TMPDIR"), "a failed download must still restore TMPDIR")
@@ -299,7 +328,7 @@ func TestUpdaterServiceInstallUpdateIgnoresConcurrentRequests(t *testing.T) {
 	silenceEmits(t)
 	engine := &blockingEngine{started: make(chan struct{}), release: make(chan struct{})}
 	s := NewUpdaterService("1.2.3", false, time.Hour, acceptWriteEnabled, zerolog.Nop())
-	s.Attach(engine)
+	s.Attach(engine, nil, "")
 
 	done := make(chan error, 1)
 	go func() { done <- s.InstallUpdate(context.Background()) }()

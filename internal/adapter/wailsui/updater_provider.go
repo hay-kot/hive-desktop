@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/mod/semver"
@@ -36,7 +37,9 @@ const artifactURLKey = "manifest.artifact.url"
 // (decisions 0003/0004; schema in docs/distribution.md). The provider holds no
 // credentials and never lists the bucket.
 type manifestProvider struct {
-	base    string // fronting domain, no trailing slash
+	base string // fronting domain, no trailing slash
+
+	mu      sync.RWMutex
 	channel string // one of settings.ChannelStable/ChannelBeta/ChannelDev
 	client  *http.Client
 }
@@ -53,12 +56,27 @@ func NewManifestProvider(base, channel string) *manifestProvider {
 // Name implements updater.Provider.
 func (p *manifestProvider) Name() string { return "manifest" }
 
+// SetChannel swaps the channel the next Check polls. Guarded: Check runs on
+// the poll goroutine while a reload can call this from the bus goroutine.
+func (p *manifestProvider) SetChannel(channel string) {
+	p.mu.Lock()
+	p.channel = channel
+	p.mu.Unlock()
+}
+
+func (p *manifestProvider) currentChannel() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.channel
+}
+
 // Check implements updater.Provider. It fetches the channel manifest and
 // returns a Release when the manifest's version is newer than the running
 // version. Returns (nil, nil) when up to date or when the channel has no
 // published release yet.
 func (p *manifestProvider) Check(ctx context.Context, req updater.CheckRequest) (*updater.Release, error) {
-	m, err := p.fetchManifest(ctx)
+	channel := p.currentChannel()
+	m, err := p.fetchManifest(ctx, channel)
 	if err != nil {
 		return nil, err
 	}
@@ -67,8 +85,8 @@ func (p *manifestProvider) Check(ctx context.Context, req updater.CheckRequest) 
 	}
 	// Defense-in-depth per decision 0004: the manifest states which channel it
 	// was written for; a mismatch means a misrouted publish or a swapped file.
-	if m.Channel != p.channel {
-		return nil, fmt.Errorf("desktop updater: manifest channel %q does not match configured channel %q", m.Channel, p.channel)
+	if m.Channel != channel {
+		return nil, fmt.Errorf("desktop updater: manifest channel %q does not match configured channel %q", m.Channel, channel)
 	}
 
 	latest := canonicalSemver(m.Version)
@@ -163,8 +181,8 @@ func (p *manifestProvider) Download(ctx context.Context, rel *updater.Release, d
 
 // fetchManifest GETs the channel's latest.json. A 404 means the channel has no
 // published release yet and yields (nil, nil).
-func (p *manifestProvider) fetchManifest(ctx context.Context) (*channelManifest, error) {
-	endpoint := p.base + "/desktop/channels/" + p.channel + "/latest.json"
+func (p *manifestProvider) fetchManifest(ctx context.Context, channel string) (*channelManifest, error) {
+	endpoint := p.base + "/desktop/channels/" + channel + "/latest.json"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err

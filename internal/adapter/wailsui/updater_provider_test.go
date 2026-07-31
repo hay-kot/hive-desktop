@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -46,10 +48,14 @@ func newManifestServer(t *testing.T, channel string, manifestJSON func(base stri
 // stableManifest returns a well-formed stable-channel manifest for version
 // whose artifact URL and sha256 match the server's zip body.
 func stableManifest(zipBody []byte, version string) func(base string) string {
+	return manifestForChannel(settings.ChannelStable, zipBody, version)
+}
+
+func manifestForChannel(channel string, zipBody []byte, version string) func(base string) string {
 	sum := sha256.Sum256(zipBody)
 	return func(base string) string {
 		return fmt.Sprintf(`{
-  "channel": "stable",
+  "channel": %q,
   "version": %q,
   "pub_date": "2026-08-01T00:00:00Z",
   "platforms": {
@@ -59,7 +65,7 @@ func stableManifest(zipBody []byte, version string) func(base string) string {
       "size": %d
     }
   }
-}`, version, base, version, version, hex.EncodeToString(sum[:]), len(zipBody))
+}`, channel, version, base, version, version, hex.EncodeToString(sum[:]), len(zipBody))
 	}
 }
 
@@ -237,6 +243,79 @@ func TestManifestProviderDownloadMissingMetadata(t *testing.T) {
 	p := NewManifestProvider("https://example.invalid", settings.ChannelStable)
 	err := p.Download(context.Background(), &updater.Release{}, &bytes.Buffer{}, nil)
 	require.Error(t, err)
+}
+
+func TestManifestProviderSetChannelUsesNextChannel(t *testing.T) {
+	ms := newManifestServer(t, settings.ChannelBeta, manifestForChannel(settings.ChannelBeta, []byte("PK\\x03\\x04 fake zip"), "1.4.0"))
+	p := NewManifestProvider(ms.URL, settings.ChannelStable)
+	p.SetChannel(settings.ChannelBeta)
+
+	rel, err := p.Check(t.Context(), darwinCheck("1.3.0"))
+	require.NoError(t, err)
+	require.NotNil(t, rel)
+	require.Equal(t, settings.ChannelBeta, rel.Channel)
+}
+
+func TestManifestProviderCheckSnapshotsChannel(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/desktop/channels/stable/latest.json" {
+			http.NotFound(w, r)
+			return
+		}
+		close(started)
+		<-release
+		_, _ = fmt.Fprint(w, manifestForChannel(settings.ChannelStable, []byte("zip"), "1.4.0")(server.URL))
+	}))
+	t.Cleanup(server.Close)
+
+	p := NewManifestProvider(server.URL, settings.ChannelStable)
+	result := make(chan error, 1)
+	go func() {
+		_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+		result <- err
+	}()
+	<-started
+	p.SetChannel(settings.ChannelBeta)
+	close(release)
+	require.NoError(t, <-result)
+}
+
+func TestManifestProviderCheckAndSetChannelConcurrent(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := strings.Split(r.URL.Path, "/")
+		channel := parts[len(parts)-2]
+		_, _ = fmt.Fprint(w, manifestForChannel(channel, []byte("zip"), "1.4.0")(server.URL))
+	}))
+	t.Cleanup(server.Close)
+
+	p := NewManifestProvider(server.URL, settings.ChannelStable)
+	errs := make(chan error, 200)
+	var wg sync.WaitGroup
+	for i := range 100 {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+			if i%2 == 0 {
+				p.SetChannel(settings.ChannelStable)
+				return
+			}
+			p.SetChannel(settings.ChannelBeta)
+		}(i)
+		go func() {
+			defer wg.Done()
+			_, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		require.NoError(t, err)
+	}
 }
 
 func TestPlatformKey(t *testing.T) {

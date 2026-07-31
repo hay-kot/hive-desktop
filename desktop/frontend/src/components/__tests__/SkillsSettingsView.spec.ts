@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   SetTargetDir: vi.fn(),
   SetAutoUpdate: vi.fn(),
   SetText: vi.fn(),
+  On: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/skillsservice', () => ({
@@ -23,6 +24,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
+  Events: { On: mocks.On },
 }))
 
 function skill(id: string) {
@@ -66,6 +68,7 @@ beforeEach(() => {
   mocks.SetTargetDir.mockResolvedValue(catalog())
   mocks.SetAutoUpdate.mockResolvedValue(catalog())
   mocks.SetText.mockResolvedValue(undefined)
+  mocks.On.mockReturnValue(() => {})
 })
 
 async function mountView() {

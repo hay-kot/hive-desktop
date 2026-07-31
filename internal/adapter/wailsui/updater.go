@@ -24,6 +24,8 @@ type updaterEngine interface {
 	Restart(ctx context.Context) error
 }
 
+type channelSwapper interface{ SetChannel(channel string) }
+
 // UpdateInfo is the frontend-facing view of the last check result plus the
 // current auto-update toggle state, so a single Status() call seeds both the
 // title-bar chip and the settings switch.
@@ -50,12 +52,14 @@ type UpdaterService struct {
 	// which is what every real caller passes).
 	writeEnabled func(bool) (bool, error)
 
-	mu        sync.Mutex
-	engine    updaterEngine
-	enabled   bool
-	available *UpdateInfo
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	mu           sync.Mutex
+	engine       updaterEngine
+	channels     channelSwapper
+	buildChannel string
+	enabled      bool
+	available    *UpdateInfo
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
 
 	// installMu serializes InstallUpdate: the TMPDIR save/restore pair in
 	// prepareUpdateStaging is process-global and must not interleave.
@@ -89,13 +93,15 @@ func NewUpdaterService(currentVersion string, enabled bool, interval time.Durati
 // JSON-marshalable, and the frontend has no business starting the poll loop.
 //
 //wails:ignore
-func (s *UpdaterService) Attach(engine updaterEngine) {
+func (s *UpdaterService) Attach(engine updaterEngine, channels channelSwapper, buildChannel string) {
 	// A hard-killed update leaves its staging directory beside the binary;
 	// sweep at startup too, not only before the next install, so it does not
 	// sit there indefinitely when the user never updates again.
 	sweepStaleStagingBesideExecutable(currentGOOS())
 	s.mu.Lock()
 	s.engine = engine
+	s.channels = channels
+	s.buildChannel = buildChannel
 	start := s.enabled && s.engine != nil
 	if start {
 		s.startLoopLocked()
@@ -126,6 +132,25 @@ func (s *UpdaterService) SetEnabled(enabled bool) error {
 	}
 	s.applyEnabled(effective)
 	return nil
+}
+
+// SetChannel is the updates.channel apply half: swap the provider's channel,
+// preserving empty-means-the-build's-own-channel (docs/decisions/0004). No
+// forced check — the next scheduled poll uses it.
+//
+//wails:ignore
+func (s *UpdaterService) SetChannel(channel string) {
+	s.mu.Lock()
+	channels := s.channels
+	buildChannel := s.buildChannel
+	s.mu.Unlock()
+	if channels == nil {
+		return
+	}
+	if channel == "" {
+		channel = buildChannel
+	}
+	channels.SetChannel(channel)
 }
 
 // applyEnabled starts or stops the ticker for a value that is already

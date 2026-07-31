@@ -13,6 +13,7 @@ import type {
   SkillsTargetResult,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/models'
 import { commandCatalog } from '../keybindings/catalog'
+import { useWailsEvent } from './useWailsEvent'
 
 // The Skills settings surface installs the paste-ready prompts as agent skills.
 // Management is per agent, all-or-nothing: install every skill to an agent or
@@ -58,6 +59,10 @@ export function useSkills() {
       loading.value = false
     }
   }
+
+  useWailsEvent('settings:updated', () => {
+    void refresh()
+  })
 
   async function run<T extends { catalog: SkillsCatalog }>(key: string, op: () => Promise<T>): Promise<T | null> {
     busy.value = key
