@@ -1,6 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useTerminalWindows } from '../useTerminalWindows'
+import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWindows'
 import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 
@@ -256,6 +256,7 @@ describe('useTerminalWindows', () => {
   beforeEach(() => {
     sockets = []
     loadedFaces = []
+    resetTerminalFacesForTests()
     xterm.FakeTerminal.instances = []
     xterm.FakeFitAddon.instances = []
     xterm.FakeWebglAddon.instances = []

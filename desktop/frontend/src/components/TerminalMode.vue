@@ -253,7 +253,11 @@ function toggleGroup(key: string): void {
 // session list or the attached slug changes.
 const { showWindows: showAllWindows } = useTerminalShowWindows()
 const { listings: sessionWindows, refresh: refreshListings } = useTerminalWindowListings()
-watch([showAllWindows, attachable, activeSlug, client], () => {
+// Not keyed on the attached slug: attaching to one session cannot change
+// another's window list, and the attached one's own tabs come from its live
+// client. Sweeping every session on every switch was pure cost on the path
+// the switch itself was waiting on.
+watch([showAllWindows, attachable, client], () => {
   const transport = client.value
   if (!showAllWindows.value || !transport) return
   void refreshListings(transport, attachable.value)
