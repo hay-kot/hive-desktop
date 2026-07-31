@@ -54,3 +54,10 @@ surface, and the terminal's transport is already composed per run in
   setting, and `experimental.terminal` is one row of it — with the reason above
   as its explanation. A future ships-dark flag gets the same hint by classifying
   itself, not by writing a comparison.
+
+  **Update (2026-07-30):** the Wails service surface is live: its always-
+  registered `Enabled` gate swaps with the setting. The loopback HTTP surface
+  keeps route absence: off still has no `/api/terminal/*` operations, stream
+  mount, or OpenAPI advertisement. The bearer token is minted per enable, and
+  a flip applies live through ADR 0042's listener restart rather than being
+  read once at startup.

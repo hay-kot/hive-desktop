@@ -40,6 +40,7 @@ type UI struct {
 	window        *application.WebviewWindow
 	tray          *ProfileTray
 	updater       *UpdaterService
+	terminal      *TerminalService
 	cancelEvents  func()
 }
 
@@ -172,7 +173,16 @@ func (u *UI) settingsReloadHook(settings *app.SettingsService) func(changed []st
 	}
 }
 
+// SetTerminalState hands a rebuilt terminal gate and transport to the bound
+// TerminalService. Called by the composition root's rebuild-mounts hook.
+func (u *UI) SetTerminalState(enabled bool, transport TerminalTransport) {
+	if u.terminal != nil {
+		u.terminal.SetState(enabled, transport)
+	}
+}
+
 func (u *UI) options(core *app.App, opts MountOptions) application.Options {
+	u.terminal = NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)
 	services := []application.Service{
 		application.NewService(NewGitHubService(core.GitHub)),
 		application.NewService(NewGrafanaService(core.Grafana)),
@@ -189,7 +199,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewPromptsService(core.Prompts)),
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
-		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
+		application.NewService(u.terminal),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

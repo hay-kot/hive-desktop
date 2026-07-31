@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"strconv"
+	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 )
@@ -38,6 +39,8 @@ type TerminalEndpoint struct {
 type TerminalService struct {
 	terminals *app.TerminalsService
 	webhooks  *app.WebhookService
+
+	mu        sync.RWMutex
 	transport TerminalTransport
 	enabled   bool
 }
@@ -46,17 +49,35 @@ func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookSe
 	return &TerminalService{terminals: terminals, webhooks: webhooks, transport: transport, enabled: enabled}
 }
 
+// SetState swaps the gate and transport a terminal flip produced; Enabled,
+// Available and Endpoint read under the lock. The service itself stays
+// registered at application.New — only its state moves (ADR 0037 update).
+//
+//wails:ignore
+func (s *TerminalService) SetState(enabled bool, transport TerminalTransport) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.enabled, s.transport = enabled, transport
+}
+
 // Enabled reports the experimental.terminal opt-in (ADR 0037). The frontend
 // renders the way into terminal mode only when it is on; availability stays a
 // separate axis, because an enabled-but-unavailable terminal explains itself
 // inside the mode instead of hiding the way in.
-func (s *TerminalService) Enabled(ctx context.Context) bool { return s.enabled }
+func (s *TerminalService) Enabled(context.Context) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.enabled
+}
 
 // Available answers even when the loopback server is down, which is why it
 // composes tmux availability with the transport's own reachability.
 func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
-	if !s.enabled {
-		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ System, then relaunch Hive."}
+	s.mu.RLock()
+	enabled := s.enabled
+	s.mu.RUnlock()
+	if !enabled {
+		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ System."}
 	}
 	if err := s.terminals.Available(ctx); err != nil {
 		return TerminalAvailability{Reason: reasonFor(err)}
@@ -70,7 +91,10 @@ func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
 // Endpoint reports where the terminal server is reachable, or KindUnavailable
 // while the loopback server is unbound or HTTP is disabled.
 func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error) {
-	if s.transport.Token == "" || s.transport.StreamPath == "" {
+	s.mu.RLock()
+	transport := s.transport
+	s.mu.RUnlock()
+	if transport.Token == "" || transport.StreamPath == "" {
 		return TerminalEndpoint{}, app.Errorf(app.KindUnavailable, "The terminal transport is not mounted in this build.")
 	}
 	running, port := s.webhooks.Endpoint(ctx)
@@ -80,8 +104,8 @@ func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error
 	authority := net.JoinHostPort(s.webhooks.Host(), strconv.Itoa(port))
 	return TerminalEndpoint{
 		HTTPBaseURL: "http://" + authority,
-		WSURL:       "ws://" + authority + s.transport.StreamPath,
-		Token:       s.transport.Token,
+		WSURL:       "ws://" + authority + transport.StreamPath,
+		Token:       transport.Token,
 	}, nil
 }
 

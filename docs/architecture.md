@@ -739,8 +739,8 @@ them is the constraint (ADR 0036):
   [Data-plane mount](#named-patterns).
 - **`adapter/wailsui.TerminalService`** — `Enabled`, `Available` and `Endpoint`,
   the frontend's only gate and bootstrap. `Enabled` reports the
-  `experimental.terminal` opt-in (ADR 0037) — off means the Hub|Terminal toggle
-  never renders. `Available` must answer while the loopback
+  `experimental.terminal` opt-in live (ADR 0037) — off means the Hub|Terminal
+  toggle never renders. `Available` must answer while the loopback
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.

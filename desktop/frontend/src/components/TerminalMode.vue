@@ -134,6 +134,7 @@ const { size: sidebarWidth, startResize, step } = useResizablePanel({
 // creation runs as a job, and jobs:updated is the wake-up that fires when one
 // finishes. Extra reloads are harmless — the list is small.
 useWailsEvent('jobs:updated', () => { void reloadSessions() })
+useWailsEvent('settings:updated', () => { void probe() })
 
 const tabs = computed<TerminalWindowTab[]>(() => session.value?.tabs.value ?? [])
 const activeWindowId = computed(() => session.value?.activeWindowId.value ?? '')

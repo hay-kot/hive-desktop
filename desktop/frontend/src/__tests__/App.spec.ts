@@ -1074,6 +1074,27 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  it('re-reads terminal enablement on settings:updated', async () => {
+    const wrapper = await mountApp()
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(true)
+
+    const settingsUpdated = mocks.On.mock.calls
+      .filter(([event]) => event === 'settings:updated')
+      .map(([, handler]) => handler as (event: { data: string }) => void)
+    expect(settingsUpdated).not.toHaveLength(0)
+
+    mocks.TerminalModeEnabled.mockResolvedValue(false)
+    settingsUpdated.forEach((handler) => handler({ data: 'changed' }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+
+    mocks.TerminalModeEnabled.mockResolvedValue(true)
+    settingsUpdated.forEach((handler) => handler({ data: 'changed' }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('swaps the whole hub for terminal mode and back from the title-bar toggle', async () => {
     mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
     const { wrapper, router } = await mountAppWithRouter()

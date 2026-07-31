@@ -146,12 +146,13 @@ type App struct {
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager was evaluated and declined
 	// for now — see the note on Close.
-	producer  *ingest.Producer
-	engine    *runtime.Engine
-	outputs   *dispatch.Worker
-	retention *ingest.Maintenance
-	webhook   *webhook.Listener
-	applyMu   sync.Mutex
+	producer      *ingest.Producer
+	engine        *runtime.Engine
+	outputs       *dispatch.Worker
+	retention     *ingest.Maintenance
+	webhook       *webhook.Listener
+	applyMu       sync.Mutex
+	rebuildMounts func(settings.Settings)
 
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
@@ -325,7 +326,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
-	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
+	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.applyTerminalMode)
 	a.System = newSystemService(cfg.Paths)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.applyHTTPSettings)
 	a.GitHub = newGitHubService(a.gitHubConnection)
@@ -719,6 +720,61 @@ func (a *App) MountAPI(prefix string, h http.Handler) bool {
 	}
 	a.webhook.MountAPI(prefix, h)
 	return true
+}
+
+// UnmountAPI removes a loopback API mount. The route disappears when the
+// listener next starts; false means no listener exists.
+func (a *App) UnmountAPI(prefix string) bool {
+	if a.webhook == nil {
+		return false
+	}
+	a.webhook.UnmountAPI(prefix)
+	return true
+}
+
+// SetRebuildMounts registers the composition root's loopback route-set
+// builder, called by the apply path (before the listener restarts) when a
+// changed field alters which routes exist — today only experimental.terminal.
+// The core cannot build the handlers itself: httpapi is an adapter and
+// depguard forbids the import. Register before Start.
+func (a *App) SetRebuildMounts(rebuild func(next settings.Settings)) {
+	a.rebuildMounts = rebuild
+}
+
+// applyTerminalMode is the experimental.terminal apply half; like
+// applyHTTPSettings it schedules its reconcile under applyMu — the flip
+// restarts the listener serving the reload endpoint (Implementation Approach
+// rule 3). The reconcile detaches terminal streams, rebuilds the route set,
+// then restarts a running listener; rebuilt mounts otherwise wait for Start.
+func (a *App) applyTerminalMode(settings.Settings) {
+	go a.reconcileTerminalMode()
+}
+
+func (a *App) reconcileTerminalMode() {
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	if a.ctx.Err() != nil {
+		return
+	}
+
+	next := a.settingsStore.Current()
+	running := a.webhook != nil && a.webhook.Running()
+	if running {
+		a.stopListenerForRestart()
+	}
+	if a.rebuildMounts != nil {
+		a.rebuildMounts(next)
+	}
+	if running && next.HTTP.Enabled {
+		a.webhook.SetAddr(next.HTTP.Host, next.HTTP.Port)
+		if err := a.webhook.Start(context.WithoutCancel(a.ctx)); err != nil {
+			a.logger.Warn().Err(err).Int("port", next.HTTP.Port).Msg("webhook listener unavailable")
+		} else {
+			a.Webhooks.clearStartError()
+			a.persistAllocatedHTTPPort()
+		}
+	}
+	a.Events.Publish(a.ctx, events.SettingsUpdated{Changed: []string{"experimental.terminal"}})
 }
 
 // buildEngine wires the flow engine over the store and the live flow set. It

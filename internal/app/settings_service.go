@@ -16,16 +16,17 @@ import (
 // Every setter is load-modify-save so unrelated fields survive; writing a
 // fresh single-field Settings would clobber them.
 type SettingsService struct {
-	store    *settings.Store
-	producer *ingest.Producer
-	fetchers *ghsource.Fetchers
+	store         *settings.Store
+	producer      *ingest.Producer
+	fetchers      *ghsource.Fetchers
+	applyTerminal func(settings.Settings)
 }
 
 // newSettingsService builds the service. producer and fetchers are nil in
 // mock mode, where persistence still works and there is simply nothing live
 // to apply a change to.
-func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
-	return &SettingsService{store: store, producer: producer, fetchers: fetchers}
+func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers, applyTerminal func(settings.Settings)) *SettingsService {
+	return &SettingsService{store: store, producer: producer, fetchers: fetchers, applyTerminal: applyTerminal}
 }
 
 // NewSettingsService builds a settings-only view of the core's settings
@@ -35,7 +36,7 @@ func newSettingsService(store *settings.Store, producer *ingest.Producer, fetche
 // needs, so it cannot wait for core.Settings to exist. Nothing built this way
 // calls SetGithub, so a nil producer and fetchers cost it nothing.
 func NewSettingsService(store *settings.Store) *SettingsService {
-	return newSettingsService(store, nil, nil)
+	return newSettingsService(store, nil, nil, nil)
 }
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.
@@ -94,8 +95,7 @@ func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) er
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// ExperimentalSettings are the ships-dark opt-ins (ADR 0037). Each flag is
-// read once at startup, so a persisted change applies on the next launch.
+// ExperimentalSettings are the ships-dark opt-ins (ADR 0037).
 type ExperimentalSettings struct {
 	Terminal bool
 }
@@ -104,17 +104,20 @@ func (s *SettingsService) Experimental(context.Context) ExperimentalSettings {
 	return ExperimentalSettings{Terminal: s.store.Current().Experimental.Terminal}
 }
 
-// SetExperimentalTerminal persists the opt-in and returns the effective value
-// after any process environment override is reapplied. The surfaces it gates
-// are mounted at composition time, so the running app is unchanged until the
-// next launch.
+// SetExperimentalTerminal persists the opt-in, applies it to the running app,
+// and returns the effective value after any process environment override is
+// reapplied.
 func (s *SettingsService) SetExperimentalTerminal(_ context.Context, enabled bool) (bool, error) {
+	previous := s.store.Current().Experimental.Terminal
 	effective, err := s.store.Update(func(current *settings.Settings) error {
 		current.Experimental.Terminal = enabled
 		return nil
 	})
 	if err != nil {
 		return false, Wrap(err, KindInternal, "saving settings")
+	}
+	if s.applyTerminal != nil && previous != effective.Experimental.Terminal {
+		s.applyTerminal(effective)
 	}
 	return effective.Experimental.Terminal, nil
 }

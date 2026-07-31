@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/rs/zerolog"
+
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
@@ -110,34 +112,7 @@ func main() {
 	}
 	ui.SeedMock(core)
 
-	// The terminal surface is the one part of the API that authenticates, so its
-	// token and CORS allowlist are minted here and handed to the two adapters
-	// that need them — the core carries neither (ADR 0036). Terminal mode ships
-	// dark behind experimental.terminal (ADR 0037): when off, no token is minted
-	// and neither terminal surface — the control-plane routes or the stream
-	// mount — exists on the loopback server.
-	terminalToken := ""
-	var origins []string
-	if cfg.Experimental.Terminal {
-		terminalToken, err = httpapi.MintTerminalToken()
-		if err != nil {
-			log.Fatal(err)
-		}
-		origins = webviewOrigins()
-	}
-
-	// The agent HTTP API shares the loopback HTTP server with the webhook
-	// listener (ADR 0021); mount it before Start whenever that server is up.
-	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, terminalToken, origins).Handler()) {
-		logger.Info().Msg("agent HTTP API mounted at /api/")
-	}
-	terminal := wailsui.TerminalTransport{}
-	if terminalToken != "" {
-		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
-			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
-			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
-		}
-	}
+	terminalEnabled, terminal := applyLoopbackMounts(core, logger, cfg)
 	// pprof shares the same server when enabled (ADR 0023).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
@@ -150,7 +125,7 @@ func main() {
 		TrayIconLinux:   trayIconLinux,
 		Build:           wailsui.Build{Version: version, Commit: commit, Date: date},
 		Terminal:        terminal,
-		TerminalEnabled: cfg.Experimental.Terminal,
+		TerminalEnabled: terminalEnabled,
 		AutoUpdate:      cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {
 			if cfg.Updates.Channel == "" {
@@ -158,6 +133,9 @@ func main() {
 			}
 			return cfg.Updates.Channel
 		},
+	})
+	core.SetRebuildMounts(func(next settings.Settings) {
+		ui.SetTerminalState(applyLoopbackMounts(core, logger, next))
 	})
 
 	// Background work starts after the adapter is mounted: the flows watcher
@@ -180,6 +158,42 @@ func main() {
 		log.Fatal(err)
 	}
 	shutdown()
+}
+
+// applyLoopbackMounts rebuilds the loopback route set for cfg: mints a fresh
+// terminal token iff terminal is enabled (per-enable, not per-run), rebuilds
+// httpapi.New(core, logger, token, origins).Handler() and mounts it at
+// httpapi.PathPrefix (same-prefix replace), mounts
+// httpapi.TerminalStreamHandler when on and core.UnmountAPI(streamPath) when
+// off. Returns the gate and transport the Wails side seeds and swaps from.
+func applyLoopbackMounts(core *app.App, logger zerolog.Logger, cfg settings.Settings) (enabled bool, transport wailsui.TerminalTransport) {
+	enabled = cfg.Experimental.Terminal
+	terminalToken := ""
+	var origins []string
+	if enabled {
+		var err error
+		terminalToken, err = httpapi.MintTerminalToken()
+		if err != nil {
+			logger.Error().Err(err).Msg("failed to mint terminal token")
+			enabled = false
+		} else {
+			origins = webviewOrigins()
+		}
+	}
+
+	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, terminalToken, origins).Handler()) {
+		logger.Info().Msg("agent HTTP API mounted at /api/")
+	}
+	if !enabled {
+		core.UnmountAPI(httpapi.TerminalStreamPath)
+		return enabled, transport
+	}
+	path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger)
+	if core.MountAPI(path, handler) {
+		transport = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
+		logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
+	}
+	return enabled, transport
 }
 
 // webviewOrigins is the CORS allowlist for the terminal surface: the packaged

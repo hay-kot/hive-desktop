@@ -179,6 +179,14 @@ func (l *Listener) MountAPI(prefix string, h http.Handler) {
 	l.mounts[prefix] = h
 }
 
+// UnmountAPI removes a prefix so route absence holds after the next restart —
+// how terminal-off takes the stream mount away (ADR 0037).
+func (l *Listener) UnmountAPI(prefix string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.mounts, prefix)
+}
+
 // Handler returns the listener's route handler. Exposed (rather than only
 // being installed by Start) so tests can drive deliveries through httptest
 // without binding a real port.

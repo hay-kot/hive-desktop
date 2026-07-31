@@ -40,7 +40,7 @@ var settingsReload = map[string]string{
 	"skills.targets":     "",
 	"paths.tmux":         "",
 
-	"experimental.terminal": "terminal mode's Wails service, bearer token and routes are all fixed at composition (ADR 0037)",
+	"experimental.terminal": "",
 
 	"development.mocks.mode":         "mock mode decides which objects exist and re-resolves the path snapshot",
 	"development.instance.id":        "the instance label is read when the development instance is prepared",
@@ -159,6 +159,8 @@ func (a *App) applySettingsField(field string, next settings.Settings) {
 		}
 	case "http.enabled", "http.host", "http.port":
 		a.applyHTTPSettings(next)
+	case "experimental.terminal":
+		a.applyTerminalMode(next)
 	}
 }
 

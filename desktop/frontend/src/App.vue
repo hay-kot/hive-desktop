@@ -36,6 +36,7 @@ import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
+import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
 import { commandCatalog } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
@@ -666,11 +667,20 @@ watch(() => route.fullPath, (path) => {
 // separate axis — an enabled-but-unavailable terminal explains itself inside
 // the mode.
 const terminalEnabled = ref(false)
-onMounted(() => {
-  void TerminalModeEnabled().then((enabled) => { terminalEnabled.value = enabled }).catch((error) => {
+let terminalEnablementGeneration = 0
+async function refreshTerminalMode(): Promise<void> {
+  const generation = ++terminalEnablementGeneration
+  try {
+    const enabled = await TerminalModeEnabled()
+    if (generation !== terminalEnablementGeneration) return
+    terminalEnabled.value = enabled
+    if (!enabled && mode.value === 'terminal') void router.push(lastHubPath || { name: 'feed' })
+  } catch (error) {
     console.debug('Terminal enablement unavailable', error)
-  })
-})
+  }
+}
+onMounted(() => { void refreshTerminalMode() })
+useWailsEvent('settings:updated', () => { void refreshTerminalMode() })
 
 function setMode(next: 'hub' | 'terminal'): void {
   if (next === mode.value) return

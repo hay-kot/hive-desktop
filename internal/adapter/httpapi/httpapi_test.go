@@ -693,9 +693,7 @@ func TestSettingsReload(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	assert.ElementsMatch(t, []string{"polling.interval", "experimental.terminal"}, body.Changed)
-	require.Len(t, body.RestartPending, 1)
-	assert.Equal(t, "experimental.terminal", body.RestartPending[0].Field)
-	assert.NotEmpty(t, body.RestartPending[0].Reason)
+	assert.Empty(t, body.RestartPending)
 }
 
 func TestSettingsStatusReportsLoadState(t *testing.T) {

@@ -186,27 +186,15 @@ func TestSettingsStatusReportsLoadErrorAndRestartPending(t *testing.T) {
 	assert.Equal(t, "development.mocks.mode", status.RestartPending[0].Field)
 }
 
-func TestRestartPendingReportsOnlyStartupFields(t *testing.T) {
+func TestRestartPendingExcludesTerminalMode(t *testing.T) {
 	core := newReloadTestApp(t)
 	require.Empty(t, core.RestartPending(t.Context()))
 
-	// experimental.terminal is mounted at composition (ADR 0037); the poll
-	// interval beside it is adopted immediately and must not be reported.
 	writeSettings(t, core, "polling:\n  interval: 9m\nexperimental:\n  terminal: true\n")
 	result, err := core.ReloadSettings(t.Context())
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"polling.interval", "experimental.terminal"}, result.Changed)
-
-	pending := core.RestartPending(t.Context())
-	require.Len(t, pending, 1)
-	assert.Equal(t, "experimental.terminal", pending[0].Field)
-	assert.Equal(t, "false", pending[0].Running)
-	assert.Equal(t, "true", pending[0].Persisted)
-	assert.NotEmpty(t, pending[0].Reason)
-
-	// It stays pending after the change stops being new: what matters is that
-	// this process is not running it, not that it changed just now.
-	assert.Len(t, core.RestartPending(t.Context()), 1)
+	assert.NotContains(t, fields(core.RestartPending(t.Context())), "experimental.terminal")
 }
 
 func TestRestartPendingExcludesHTTPFields(t *testing.T) {
@@ -296,6 +284,50 @@ func TestReloadSettingsEnvOverridePinsListener(t *testing.T) {
 	assert.Empty(t, result.Changed, "the environment override keeps the desired listener address unchanged")
 	assert.Equal(t, bound, core.webhook.Port())
 	assert.True(t, core.webhook.Running())
+}
+
+func TestTerminalModeReconcileRebuildsLiveLoopbackRoutes(t *testing.T) {
+	t.Setenv(settings.EnvHTTPPort, "0")
+	core := newReloadTestApp(t)
+	var rebuilt int
+	core.SetRebuildMounts(func(next settings.Settings) {
+		rebuilt++
+		if next.Experimental.Terminal {
+			core.MountAPI("/api/terminal-marker/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+			return
+		}
+		core.UnmountAPI("/api/terminal-marker/")
+	})
+	require.NoError(t, core.Start(t.Context()))
+	require.True(t, core.webhook.Running())
+
+	_, err := core.settingsStore.Update(func(next *settings.Settings) error {
+		next.Experimental.Terminal = true
+		return nil
+	})
+	require.NoError(t, err)
+	core.reconcileTerminalMode()
+	require.Equal(t, 1, rebuilt)
+	endpoint := fmt.Sprintf("http://127.0.0.1:%d/api/terminal-marker/", core.webhook.Port())
+	response, err := http.Get(endpoint)
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	require.Equal(t, http.StatusNoContent, response.StatusCode)
+
+	_, err = core.settingsStore.Update(func(next *settings.Settings) error {
+		next.Experimental.Terminal = false
+		return nil
+	})
+	require.NoError(t, err)
+	core.reconcileTerminalMode()
+	require.Equal(t, 2, rebuilt)
+	endpoint = fmt.Sprintf("http://127.0.0.1:%d/api/terminal-marker/", core.webhook.Port())
+	response, err = http.Get(endpoint)
+	require.NoError(t, err)
+	_ = response.Body.Close()
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
 }
 
 func TestReloadSettingsMockLaneWithoutListenerIsNoop(t *testing.T) {

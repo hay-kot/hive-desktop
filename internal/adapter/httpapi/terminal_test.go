@@ -87,6 +87,30 @@ func (h *terminalHarness) streamURL(slug, token, version string) string {
 	return "ws" + h.server.URL[len("http"):] + TerminalStreamPath + "?" + query.Encode()
 }
 
+func TestTerminalControllerMintsRoutesPerToken(t *testing.T) {
+	h := newTerminalHarness(t)
+	newToken := "new-terminal-token"
+	server := httptest.NewServer(New(h.core, zerolog.Nop(), newToken, []string{testOrigin}).Handler())
+	t.Cleanup(server.Close)
+
+	post := func(token string) int {
+		t.Helper()
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, server.URL+"/api/terminal/detach", bytes.NewBufferString(`{"slug":"not-attached"}`))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+token)
+		response, err := server.Client().Do(req)
+		require.NoError(t, err)
+		defer func() { _ = response.Body.Close() }()
+		return response.StatusCode
+	}
+	assert.Equal(t, http.StatusUnauthorized, post(testToken))
+	assert.Equal(t, http.StatusNoContent, post(newToken))
+
+	for _, op := range New(h.core, zerolog.Nop(), "", nil).operations() {
+		assert.NotContains(t, op.Path, TerminalPathPrefix)
+	}
+}
+
 func TestTerminalControlPlaneRequiresTheBearerToken(t *testing.T) {
 	h := newTerminalHarness(t)
 

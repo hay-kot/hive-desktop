@@ -52,18 +52,10 @@ export function useSystemSettings() {
   const checkingUpdate = ref(false)
   const checkedOnce = ref(false)
 
-  // The experimental.terminal opt-in (ADR 0037) is read once at startup, so the
-  // switch shows the persisted value and the backend reports whether this run
-  // is already on it.
   const experimentalTerminal = ref(false)
-  const terminalRestartPending = computed(() => pendingField('experimental.terminal') !== undefined)
-  // A moved data or config directory is the other startup-only choice on this
-  // screen; both arrive as bootstrap.* rows of the same list.
+  // A moved data or config directory is the startup-only choice on this
+  // screen; it arrives as a bootstrap.* row of the same list.
   const restartRequired = computed(() => pending.value.length > 0)
-
-  function pendingField(field: string): RestartPendingField | undefined {
-    return pending.value.find((entry) => entry.field === field)
-  }
 
   // A Go slice crosses the bridge as null when it is empty, so every read of
   // the pending list normalizes before it lands in the ref — the rest of this
@@ -96,11 +88,6 @@ export function useSystemSettings() {
     void refresh()
   })
 
-  // setExperimentalTerminal persists the opt-in; the running app is unchanged
-  // until relaunch, which is what terminalRestartPending surfaces. The stored
-  // value comes from the reply so a process env override cannot drift the
-  // switch from what the backend resolved, and the pending list is re-read
-  // because only the backend knows whether this run already mounted it.
   async function setExperimentalTerminal(value: boolean): Promise<void> {
     const previous = experimentalTerminal.value
     experimentalTerminal.value = value
@@ -210,7 +197,6 @@ export function useSystemSettings() {
     checkingUpdate,
     checkedOnce,
     experimentalTerminal,
-    terminalRestartPending,
     setExperimentalTerminal,
     setAutoUpdate,
     checkForUpdates,

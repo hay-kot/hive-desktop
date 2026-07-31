@@ -40,7 +40,7 @@ func TestNewSettingsServiceReadsNotifications(t *testing.T) {
 
 func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 
 	err := service.SetGithub(t.Context(), GithubSettings{PollInterval: settings.MinPollInterval - time.Second})
 	require.Error(t, err)
@@ -49,7 +49,7 @@ func TestSettingsServiceSetGithubSettingsRejectsBelowFloor(t *testing.T) {
 
 func TestSettingsServiceNotificationSettings(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 
 	require.Equal(t, NotificationSettings{Enabled: true, Delivery: settings.DeliveryAuto, Sound: true},
 		service.Notifications(t.Context()))
@@ -57,7 +57,7 @@ func TestSettingsServiceNotificationSettings(t *testing.T) {
 
 func TestSettingsServiceSetNotificationSettingsHealsUnknownDelivery(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 
 	require.NoError(t, service.SetNotifications(t.Context(), NotificationSettings{
 		Enabled: true, Delivery: "banner", Sound: true,
@@ -74,7 +74,7 @@ func TestSettingsServiceSetNotificationSettingsPreservesUnrelatedFields(t *testi
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 	want := NotificationSettings{Enabled: false, Delivery: settings.DeliveryApp, Sound: false}
 	require.NoError(t, service.SetNotifications(t.Context(), want))
 
@@ -94,7 +94,7 @@ func TestSettingsServiceSetGithubSettingsPreservesAutoUpdate(t *testing.T) {
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 	require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 
 	got, err := settings.LoadSettings()
@@ -146,7 +146,7 @@ func TestSettingsServiceSetGithubSettingsPersistsAndApplies(t *testing.T) {
 		t.Cleanup(func() { _ = db.Close() })
 		source := &settingsServiceSource{}
 		producer := ingest.NewProducer(db, settingsServiceSources{source}, time.Hour, nil, zerolog.Nop())
-		service := newSettingsService(settings.NewStore(settings.SettingsPath()), producer, fetchers)
+		service := newSettingsService(settings.NewStore(settings.SettingsPath()), producer, fetchers, nil)
 
 		require.NoError(t, service.SetGithub(t.Context(), GithubSettings{PollInterval: 2 * time.Minute}))
 		saved, err := settings.LoadSettings()
@@ -171,7 +171,8 @@ func TestSettingsServiceSetExperimentalTerminalPersists(t *testing.T) {
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	applied := make(chan settings.Settings, 1)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, func(next settings.Settings) { applied <- next })
 
 	effective, err := service.SetExperimentalTerminal(t.Context(), true)
 	require.NoError(t, err)
@@ -183,16 +184,28 @@ func TestSettingsServiceSetExperimentalTerminalPersists(t *testing.T) {
 	require.False(t, got.Updates.Enabled, "the opt-in must not clobber unrelated fields")
 
 	require.True(t, service.Experimental(t.Context()).Terminal)
+	select {
+	case next := <-applied:
+		require.True(t, next.Experimental.Terminal)
+	default:
+		t.Fatal("terminal apply was not scheduled")
+	}
 }
 
 func TestSettingsServiceSetExperimentalTerminalReportsEnvOverride(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL", "false")
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	applied := make(chan settings.Settings, 1)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, func(next settings.Settings) { applied <- next })
 
 	effective, err := service.SetExperimentalTerminal(t.Context(), true)
 	require.NoError(t, err)
 	require.False(t, effective, "the process override wins over the persisted value")
+	select {
+	case <-applied:
+		t.Fatal("an unchanged effective value must not restart the listener")
+	default:
+	}
 
 	persisted, err := settings.NewStore(settings.SettingsPath()).Persisted()
 	require.NoError(t, err)
@@ -201,7 +214,7 @@ func TestSettingsServiceSetExperimentalTerminalReportsEnvOverride(t *testing.T) 
 
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 
 	got := service.Appearance(t.Context())
 	require.Empty(t, got.Theme)
@@ -214,7 +227,7 @@ func TestSettingsServiceSetAppearanceSettingsPreservesUnrelatedFields(t *testing
 	cfg.Updates.Enabled = false
 	require.NoError(t, settings.SaveSettings(cfg))
 
-	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil, nil)
 	require.NoError(t, service.SetTheme(t.Context(), "midnight"))
 	require.NoError(t, service.SetTerminalFontSize(t.Context(), "large"))
 

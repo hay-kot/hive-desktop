@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
+  On: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -43,7 +44,7 @@ vi.mock('../../composables/useNewSession', () => ({
   useNewSession: () => ({ openBlank: mocks.openBlank, prefetch: vi.fn() }),
 }))
 vi.mock('@wailsio/runtime', () => ({
-  Events: { On: vi.fn().mockReturnValue(() => {}) },
+  Events: { On: mocks.On },
 }))
 
 function fakeSession() {
@@ -104,6 +105,7 @@ describe('TerminalMode', () => {
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
     ])
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
+    mocks.On.mockReturnValue(() => {})
   })
 
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
@@ -130,6 +132,18 @@ describe('TerminalMode', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
+  })
+
+  it('re-probes terminal availability on settings:updated', async () => {
+    await mountAt()
+    expect(mocks.Available).toHaveBeenCalledOnce()
+
+    const settingsUpdated = mocks.On.mock.calls.find(([event]) => event === 'settings:updated')?.[1] as (() => void) | undefined
+    expect(settingsUpdated).toBeDefined()
+    settingsUpdated?.()
+    await flushPromises()
+    expect(mocks.Available).toHaveBeenCalledTimes(2)
+    expect(mocks.getTerminalEndpoint).toHaveBeenCalledTimes(2)
   })
 
   it('groups sessions by repo in the sidebar and attaches to the one picked', async () => {

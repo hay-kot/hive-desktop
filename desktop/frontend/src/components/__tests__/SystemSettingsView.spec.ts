@@ -236,21 +236,6 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-update-uptodate"]').exists()).toBe(true)
   })
 
-  it('restart hint mirrors RestartPending', async () => {
-    mocks.Info.mockResolvedValue(info())
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
-
-    wrapper.unmount()
-    mocks.RestartPending.mockResolvedValue([pendingField('experimental.terminal')])
-    const pendingWrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(pendingWrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
-  })
-
   it('switch reflects the persisted value and turning it off persists false', async () => {
     mocks.Info.mockResolvedValue(info())
     mocks.ExperimentalSettings.mockResolvedValue({ terminal: true })
