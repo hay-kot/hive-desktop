@@ -1,6 +1,8 @@
 # 0038 — Terminal panes render through an atlas renderer, not xterm's DOM renderer
 
-- **Status:** accepted
+- **Status:** accepted (decision 1's *timing* — a renderer per pane at mount —
+  amended by [0045](0045-terminal-renderer-claimed-on-activation.md), which
+  claims one when a window is first shown; the atlas-over-DOM substance stands)
 - **Date:** 2026-07-29
 
 ## Context

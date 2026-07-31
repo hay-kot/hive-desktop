@@ -817,17 +817,23 @@ session:
   compares its vote against the granted size and names the constraint; nothing
   re-votes to win the size back from the other client.
 
-On the frontend, a pane **always loads an atlas renderer** — WebGL, falling back
-to 2D canvas — after `term.open()` and never before, because only an atlas
-renderer strokes box drawing and underlines to the cell's device-pixel bounds;
-xterm's DOM renderer cannot join either across cells at any size or device pixel
-ratio. Three rules follow and are the ones to keep (ADR 0038): the DOM renderer
-is a logged degradation path, not a supported one; **do not set `lineHeight` or
-`letterSpacing`** — every renderer quantises both to whole device pixels, so
-neither can tune a cell onto a cleaner boundary and a `lineHeight` above 1 pads
-the glyph off the edge box drawing has to reach; and the addon majors are pinned
-to the xterm core major, since they reach into `Terminal._core` for private
-services.
+On the frontend, a pane on screen **always renders through an atlas renderer** —
+WebGL, falling back to 2D canvas — because only an atlas renderer strokes box
+drawing and underlines to the cell's device-pixel bounds; xterm's DOM renderer
+cannot join either across cells at any size or device pixel ratio. Four rules
+follow and are the ones to keep (ADRs 0038, 0045): the renderer is claimed after
+`term.open()` and never before, and **when the window is first shown rather than
+when its pane mounts** — the pool mounts a pane per window of every attached
+session, and claiming at mount spends a GL context per background tab and walks
+the page past WebKit's per-page limit, where the context it costs is another
+session's pane; a pane that ends up on the DOM renderer is a logged degradation
+path, not a supported one, and a failed canvas claim is recorded so the next
+activation retries rather than stranding the pane there; **do not set
+`lineHeight` or `letterSpacing`** — every renderer quantises both to whole
+device pixels, so neither can tune a cell onto a cleaner boundary and a
+`lineHeight` above 1 pads the glyph off the edge box drawing has to reach; and
+the addon majors are pinned to the xterm core major, since they reach into
+`Terminal._core` for private services.
 
 ## Execution model
 

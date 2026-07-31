@@ -475,6 +475,42 @@ describe('useTerminalWindows', () => {
     expect(xterm.FakeCanvasAddon.instances).toHaveLength(1)
   })
 
+  // Every pooled session mounts a pane per window, so claiming a context at
+  // mount spends one per background tab and walks the page past WebKit's
+  // limit — where the context it costs is some other pane's. ADR 0045.
+  it('claims a renderer for the window on screen, and for the rest on activation', async () => {
+    const { session } = await attached()
+
+    session.attachTab('@1', paneHost())
+    session.attachTab('@2', paneHost())
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(1)
+
+    await session.select('@2')
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(2)
+  })
+
+  // The canvas claim is all that stands between a lost context and the DOM
+  // renderer, so a failed one must not strand the pane there for good.
+  it('retries the renderer on the next activation when the canvas claim failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { session } = await attached()
+    session.attachTab('@1', paneHost())
+    session.attachTab('@2', paneHost())
+
+    xterm.FakeCanvasAddon.unavailable = true
+    xterm.FakeWebglAddon.instances[0].loseContext()
+    expect(xterm.FakeCanvasAddon.instances).toHaveLength(0)
+
+    xterm.FakeCanvasAddon.unavailable = false
+    await session.select('@2')
+    await session.select('@1')
+
+    expect(xterm.FakeWebglAddon.instances).toHaveLength(3)
+    warn.mockRestore()
+  })
+
   // xterm disposes its core before its addons, and a renderer addon restores a
   // renderer as it goes, so it has to be disposed while the core is still up.
   it('disposes the renderer addon ahead of the terminal it renders', async () => {

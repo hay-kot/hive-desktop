@@ -115,6 +115,10 @@ interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
   disposers: IDisposable[]
+  // An atlas renderer is live on this terminal. False after a context loss the
+  // canvas claim did not survive, which is what makes the next activation
+  // retry instead of leaving the pane on the DOM renderer. ADR 0045.
+  rendered?: boolean
 }
 
 // The pane box belongs to the app window, not to a session, so one remembered
@@ -257,6 +261,19 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   function setActive(windowId: string): void {
     activeWindowId.value = windowId
     for (const tab of tabs.value) tab.active = tab.windowId === windowId
+    showRenderer(windowId)
+  }
+
+  // A GL context is claimed when a window is first shown, not when its pane
+  // mounts. Mounting covers every window of every pooled session, which spends
+  // a context per background tab and pushes WebKit past its per-page limit on
+  // each attach — and the pane it then kills is somebody else's. ADR 0045.
+  function showRenderer(windowId: string): void {
+    const state = runtime.get(windowId)
+    const tab = findTab(windowId)
+    // No host yet means the pane has not mounted; attachTab claims it there.
+    if (!state?.host || !tab || state.rendered) return
+    loadRenderer(state, tab.term)
   }
 
   function attachTab(windowId: string, host: HTMLElement): void {
@@ -265,14 +282,16 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!tab || !state || state.host) return
     state.host = host
     tab.term.open(host)
-    // After open(), never before: an unopened Terminal defers addon activation
-    // to its own open(), which would throw a missing-context error out of there
-    // rather than out of the load, past the fallback below.
-    loadRenderer(state, tab.term)
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
-    if (tab.windowId === activeWindowId.value) tab.term.focus()
+    if (tab.windowId === activeWindowId.value) {
+      // After open(), never before: an unopened Terminal defers addon
+      // activation to its own open(), which would throw a missing-context
+      // error out of there rather than out of the load, past the fallback.
+      showRenderer(windowId)
+      tab.term.focus()
+    }
     scheduleVote()
   }
 
@@ -585,15 +604,23 @@ function message(error: unknown, fallback: string): string {
 function loadRenderer(state: TabRuntime, term: Terminal): void {
   const webgl = loadRendererAddon(state, term, () => new WebglAddon())
   if (!webgl) {
-    loadRendererAddon(state, term, () => new CanvasAddon())
+    state.rendered = claimCanvas(state, term)
     return
   }
+  state.rendered = true
   // Fires only when the browser did not restore the context on its own. The
   // addon puts the DOM renderer back as it goes, so claim the canvas instead.
   webgl.onContextLoss(() => {
     webgl.dispose()
-    loadRendererAddon(state, term, () => new CanvasAddon())
+    state.rendered = claimCanvas(state, term)
   })
+}
+
+// The canvas claim is the whole of what stands between a lost context and the
+// renderer #131 is about, so a failed one is recorded rather than swallowed:
+// showRenderer tries again the next time the pane is shown.
+function claimCanvas(state: TabRuntime, term: Terminal): boolean {
+  return loadRendererAddon(state, term, () => new CanvasAddon()) !== undefined
 }
 
 function loadRendererAddon<T extends ITerminalAddon>(
