@@ -21,11 +21,31 @@ func requireOutput(t *testing.T, ev Event) Output {
 	return out
 }
 
+func windowEvent(window, name string) WindowChanged {
+	return WindowChanged{Kind: WindowRenamed, Window: Window{ID: window, Name: name}}
+}
+
 func requireLifecycle(t *testing.T, ev Event) LifecycleChanged {
 	t.Helper()
 	lc, ok := ev.(LifecycleChanged)
 	require.True(t, ok, "expected LifecycleChanged, got %#v", ev)
 	return lc
+}
+
+func requireWindow(t *testing.T, ev Event) WindowChanged {
+	t.Helper()
+	wc, ok := ev.(WindowChanged)
+	require.True(t, ok, "expected WindowChanged, got %#v", ev)
+	return wc
+}
+
+// hasOverflowed reads the flag publish sets, which the onOverflow callback
+// trails: asserting a broker did *not* overflow cannot wait on a channel that is
+// never closed.
+func hasOverflowed(b *broker) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.overflow
 }
 
 func receive(t *testing.T, ch <-chan Event) Event {
@@ -45,7 +65,7 @@ func receive(t *testing.T, ch <-chan Event) Event {
 func TestBrokerReplaysBacklogOnSubscribe(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	b.publish(outputEvent("@1", "first"))
 	b.publish(outputEvent("@1", "second"))
 	require.Equal(t, len("firstsecond"), b.depth())
@@ -60,7 +80,7 @@ func TestBrokerReplaysBacklogOnSubscribe(t *testing.T) {
 func TestBrokerSubscribeReplacesPrevious(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	first, _ := b.subscribe()
 	second, unsubscribe := b.subscribe()
 	defer unsubscribe()
@@ -81,7 +101,7 @@ func TestBrokerSubscribeReplacesPrevious(t *testing.T) {
 func TestBrokerStaleUnsubscribeIsInert(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	_, staleUnsubscribe := b.subscribe()
 	current, unsubscribe := b.subscribe()
 	defer unsubscribe()
@@ -95,7 +115,7 @@ func TestBrokerStaleUnsubscribeIsInert(t *testing.T) {
 func TestBrokerUnsubscribeClosesChannel(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	ch, unsubscribe := b.subscribe()
 	unsubscribe()
 
@@ -113,7 +133,7 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 	t.Parallel()
 
 	overflowed := make(chan struct{})
-	b := newBroker(64, func() { close(overflowed) })
+	b := newBroker(backlogBounds{bytes: 64}, func() { close(overflowed) })
 
 	b.publish(outputEvent("@1", "0123456789"))
 	b.publish(outputEvent("@1", string(make([]byte, 128))))
@@ -136,6 +156,60 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 		requireLifecycle(t, receive(t, ch)))
 }
 
+// Only Output is charged bytes, so a session that renames windows or switches
+// panes in a loop with nobody subscribed is invisible to the byte bound. The
+// count bound is what keeps that backlog finite.
+func TestBrokerOverflowsOnEventCount(t *testing.T) {
+	t.Parallel()
+
+	overflowed := make(chan struct{})
+	b := newBroker(backlogBounds{events: 4}, func() { close(overflowed) })
+
+	for range 5 {
+		b.publish(windowEvent("@1", "renamed"))
+	}
+
+	select {
+	case <-overflowed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the count bound never reported overflow")
+	}
+	require.Zero(t, b.depth(), "a window event is still worth no bytes")
+
+	// The fifth was dropped rather than buffered, and the teardown reason still
+	// gets in behind the four that fit.
+	ch, unsubscribe := b.subscribe()
+	defer unsubscribe()
+	b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "overflow"})
+
+	for range 4 {
+		require.Equal(t, WindowRenamed, requireWindow(t, receive(t, ch)).Kind)
+	}
+	require.Equal(t, LifecycleExited, requireLifecycle(t, receive(t, ch)).Kind)
+}
+
+// A backlog sitting exactly on the count bound must still admit a lifecycle
+// event. Bounding one would make it the event that trips overflow, and the same
+// branch would then discard it — the stream would end with nothing saying why.
+func TestBrokerLifecycleNeverTripsTheCountBound(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(backlogBounds{events: 4}, nil)
+
+	for range 4 {
+		b.publish(windowEvent("@1", "renamed"))
+	}
+	b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "detached"})
+	require.False(t, hasOverflowed(b), "the lifecycle event became the overflow trigger")
+
+	ch, unsubscribe := b.subscribe()
+	defer unsubscribe()
+	for range 4 {
+		requireWindow(t, receive(t, ch))
+	}
+	require.Equal(t, "detached", requireLifecycle(t, receive(t, ch)).Message)
+}
+
 // Overflow closes the broker with the subscriber behind — by definition, since
 // a subscriber that could keep up is what would have kept the backlog small.
 // The exit reason still has to arrive, or the frontend sees a bare socket close
@@ -143,7 +217,7 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 func TestBrokerCloseDeliversLifecycleToADrainingSubscriber(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	ch, unsubscribe := b.subscribe()
 	defer unsubscribe()
 
@@ -168,7 +242,7 @@ func TestBrokerCloseDeliversLifecycleToADrainingSubscriber(t *testing.T) {
 func TestBrokerCloseDrainsThenClosesChannel(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	ch, unsubscribe := b.subscribe()
 	defer unsubscribe()
 
@@ -190,7 +264,7 @@ func TestBrokerCloseDrainsThenClosesChannel(t *testing.T) {
 func TestBrokerReplacementSubscriberSeesEveryUndeliveredEvent(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	stalled, _ := b.subscribe()
 
 	const count = 8
@@ -223,7 +297,7 @@ func TestBrokerCloseFreesAPumpParkedOnAStalledSubscriber(t *testing.T) {
 	// Deliberately not parallel: it counts this package's live goroutines.
 	before := clientGoroutines()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	ch, _ := b.subscribe()
 	for range 8 {
 		b.publish(outputEvent("@1", "x"))
@@ -269,7 +343,7 @@ func clientGoroutines() int {
 func TestBrokerPublishNeverBlocks(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(1<<20, nil)
+	b := newBroker(backlogBounds{bytes: 1 << 20}, nil)
 	_, unsubscribe := b.subscribe()
 	defer unsubscribe()
 

@@ -837,10 +837,14 @@ through the same unavailable-with-a-reason state.
 
 The reader goroutine always drains tmux's stdout, because command replies share
 that pipe with notifications; notification dispatch and broker publish are
-therefore non-blocking. The broker's per-session buffer is bounded **by bytes**
-and overflow is **fatal**: the client is torn down and the frontend re-attaches,
-which re-runs first paint. There is no partial resync, no drop-oldest (it
-corrupts emulator state), and no tmux `pause-after`.
+therefore non-blocking. The broker's per-session buffer is bounded **by bytes
+and by event count** — only output is worth bytes, so the count is what bounds a
+backlog of window events — and overflow is **fatal**: the client is torn down and
+the frontend re-attaches, which re-runs first paint. There is no partial resync,
+no drop-oldest (it corrupts emulator state), and no tmux `pause-after`. Both
+bounds admit **only droppable events**, and only a droppable event may trip one:
+a lifecycle event that tripped the bound would be discarded by the same branch
+that drops for overflow, ending the stream with nothing saying why.
 
 **Size is a negotiation this app is only one voice in.** Every client attached
 to a session renders the same grid per window, and tmux's `window-size` option
