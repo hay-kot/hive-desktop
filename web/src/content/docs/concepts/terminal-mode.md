@@ -182,6 +182,22 @@ belongs to whatever is running in the pane.
 Switching tabs re-runs the search against that window, because a match count only
 ever describes one window's buffer.
 
+## Changing the text size
+
+The **⋯** menu at the end of the tab strip carries **Decrease**, **Increase**,
+and **Reset** for the terminal's text size, so a pane that is too small to read
+is fixed where you are looking at it. It steps through the same five presets as
+Settings ▸ Appearance ▸ Terminal — 12px to 18px — and the menu stays open, so
+walking to the size you want is a run of clicks rather than a run of trips.
+
+Both controls write the same setting, `appearance.terminal_font_size`, so a
+nudge here applies to every open terminal at once and is still there next
+launch. **Reset** goes back to Medium, the default.
+
+New cell metrics mean a different number of cells fit the pane, so a change
+re-votes the window size — with the same rule as above about who wins that
+vote.
+
 ## Known rough edges
 
 It is off by default for a reason:

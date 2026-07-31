@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { createMemoryHistory } from 'vue-router'
 import TerminalMode from '../TerminalMode.vue'
 import { resetTerminalAvailabilityForTests } from '../../composables/useTerminalAvailability'
+import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   createTerminalClient: vi.fn(),
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
+  SetTerminalFontSize: vi.fn(),
 }))
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -35,6 +37,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  SetTerminalFontSize: mocks.SetTerminalFontSize,
   SetTerminalShowWindows: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
 }))
@@ -128,6 +131,7 @@ describe('TerminalMode', () => {
     vi.clearAllMocks()
     localStorage.clear()
     resetTerminalAvailabilityForTests()
+    resetTerminalFontForTests()
     resetTerminalSessionsForTests()
     resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
@@ -953,6 +957,97 @@ describe('TerminalMode', () => {
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
     expect(router.currentRoute.value.params.slug ?? '').toBe('')
     expect(storedRestore()).toEqual({ slug: '', window: '' })
+  })
+
+  describe('terminal overflow menu', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    async function openMenu(wrapper: Awaited<ReturnType<typeof attached>>['wrapper']) {
+      await wrapper.get('[data-testid="terminal-view-menu-toggle"]').trigger('click')
+      return wrapper.get('[data-testid="terminal-view-menu"]')
+    }
+
+    it('opens from the tab strip and names the size it is on', async () => {
+      const { wrapper } = await attached()
+
+      const toggle = wrapper.get('[data-testid="terminal-view-menu-toggle"]')
+      expect(toggle.attributes('aria-label')).toBe('Terminal options')
+      expect(toggle.attributes('aria-haspopup')).toBe('menu')
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(wrapper.find('[data-testid="terminal-view-menu"]').exists()).toBe(false)
+
+      const menu = await openMenu(wrapper)
+
+      expect(toggle.attributes('aria-expanded')).toBe('true')
+      expect(menu.attributes('role')).toBe('menu')
+      expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual(['Decrease', 'Increase', 'Reset'])
+      expect(menu.text()).toContain('Text size · Medium')
+      wrapper.unmount()
+    })
+
+    // Nothing to tune with no pane on screen.
+    it('is absent until a session is attached', async () => {
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.find('[data-testid="terminal-view-menu-toggle"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('steps the size through the appearance setting, one preset per click', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+
+      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
+      await flushPromises()
+      expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith('large')
+      // The menu stays open so the next notch is one click away.
+      expect(wrapper.get('[data-testid="terminal-view-menu"]').text()).toContain('Text size · Large')
+
+      await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
+      wrapper.unmount()
+    })
+
+    it('offers no step past the end of the ladder', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+
+      for (let step = 0; step < 2; step++) {
+        await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
+      }
+      await flushPromises()
+
+      expect(menu.text()).toContain('Text size · Small')
+      expect(menu.get('[data-testid="terminal-text-size-decrease"]').attributes('disabled')).toBeDefined()
+      expect(menu.get('[data-testid="terminal-text-size-increase"]').attributes('disabled')).toBeUndefined()
+      // Two moves, not three: the third click had nowhere to go.
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['small'])
+      wrapper.unmount()
+    })
+
+    it('resets to the default size, and offers nothing to reset once there', async () => {
+      const { wrapper } = await attached()
+      const menu = await openMenu(wrapper)
+      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeDefined()
+
+      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
+      await flushPromises()
+      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeUndefined()
+
+      await menu.get('[data-testid="terminal-text-size-reset"]').trigger('click')
+      await flushPromises()
+
+      expect(menu.text()).toContain('Text size · Medium')
+      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
+      wrapper.unmount()
+    })
   })
 
   describe('configured terminal actions', () => {

@@ -16,6 +16,12 @@ export interface MenuActionEntry {
   iconColor?: string
   /** Right-aligned shortcut hint, already formatted for display. */
   kbd?: string
+  /**
+   * Inert: the operation exists but has nowhere to go right now (a text size
+   * already at the end of its ladder). It stays listed rather than
+   * disappearing, so the menu's shape does not shift under the pointer.
+   */
+  disabled?: boolean
   testid?: string
 }
 
