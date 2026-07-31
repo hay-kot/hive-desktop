@@ -28,6 +28,11 @@ describe('ProfileSettingsView', () => {
     expect(wrapper.emitted('delete')).toHaveLength(1)
   })
 
+  it('is where the source count is shown, now that the sidebar header omits it', () => {
+    const wrapper = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
+    expect(wrapper.get('[data-testid="profile-settings-sources"]').text()).toBe('2 sources')
+  })
+
   it('edits and submits the profile name', async () => {
     const wrapper = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
     const input = wrapper.get('[data-testid="profile-settings-name"]')
