@@ -219,18 +219,17 @@ function deleteFolder(folder: FeedFolder): void {
 
 <template>
   <aside class="hive-scroll relative flex shrink-0 flex-col overflow-y-auto border-r border-border bg-sidebar" :style="{ width: size + 'px' }">
-    <div class="profile-header border-b border-border px-4 pb-3 pt-4" data-testid="sidebar-profile-header">
-      <div class="flex items-center gap-2">
-        <div class="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-.01em]" data-testid="sidebar-profile-name">{{ profile.name }}</div>
-        <button
-          class="settings-button flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
-          title="Profile settings"
-          aria-label="Profile settings"
-          data-testid="sidebar-open-settings"
-          @click="emit('open-settings')"
-        ><IconSettings class="size-3.5" /></button>
-      </div>
-      <div class="mt-1 text-xs text-text-3">{{ profile.sourceSummary }}</div>
+    <!-- The height matches the feed list's search bar beside it, so the two
+         panes divide on the same line. -->
+    <div class="flex h-[46px] shrink-0 items-center gap-2 border-b border-border px-4" data-testid="sidebar-profile-header">
+      <div class="min-w-0 flex-1 truncate text-[15px] font-semibold tracking-[-.01em]" data-testid="sidebar-profile-name">{{ profile.name }}</div>
+      <button
+        class="settings-button flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-text-3 hover:bg-chip hover:text-text"
+        title="Profile settings"
+        aria-label="Profile settings"
+        data-testid="sidebar-open-settings"
+        @click="emit('open-settings')"
+      ><IconSettings class="size-3.5" /></button>
     </div>
 
     <section class="px-2.5 pb-1.5 pt-3" data-testid="sidebar-feeds">

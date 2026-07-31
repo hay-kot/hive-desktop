@@ -158,7 +158,7 @@ async function onImageChange(event: Event): Promise<void> {
             >{{ props.renaming ? 'Saving…' : 'Save' }}</BaseButton>
           </div>
           <p v-if="props.renameError" class="mt-2 text-xs text-severity-error" data-testid="profile-settings-rename-error">{{ props.renameError }}</p>
-          <div class="mt-3 border-t border-border pt-3 text-xs text-text-3">{{ props.profile.sourceSummary }}</div>
+          <div class="mt-3 border-t border-border pt-3 text-xs text-text-3" data-testid="profile-settings-sources">{{ props.profile.sourceSummary }}</div>
           <div class="mt-4 flex items-start justify-between gap-5 border-t border-border pt-4">
             <div>
               <div class="text-[13px] font-medium text-text">Profile polling</div>
