@@ -17,10 +17,29 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// The surfaces an action can be offered on. An action names them in
+// `targets:`; declaring none means TargetItem, which is what every action
+// written before the terminal surfaces existed means.
+//
+// `applies_to` and `show_in_detail` refine the item surface only: a terminal
+// target has no item kind to match against, and its presence in `targets` is
+// already the decision to offer it.
+const (
+	// TargetItem is a feed item — the detail pane and the item action menu.
+	TargetItem = "item"
+	// TargetSession is a terminal session's row menu.
+	TargetSession = "session"
+	// TargetWindow is a terminal window's row menu, inside its session.
+	TargetWindow = "window"
+)
+
+var targetNames = map[string]bool{TargetItem: true, TargetSession: true, TargetWindow: true}
 
 // View is the complete action contract exposed to the desktop frontend. It
 // deliberately excludes executable configuration: the frontend can present
@@ -47,10 +66,13 @@ type Action struct {
 	// Type is the action kind discriminator: "launch-session", "shell",
 	// "publish-message", or "clipboard".
 	Type string
+	// Targets are the surfaces this action is offered on: TargetItem,
+	// TargetSession, TargetWindow. Empty means TargetItem alone.
+	Targets []string
 	// AppliesTo restricts which feed item kinds this action is offered for in
 	// the detail pane; empty means "any kind". It plays no role in flow
 	// `action` nodes, which target one specific action id explicitly
-	// regardless of kind.
+	// regardless of kind, nor in the terminal targets, which have no item.
 	AppliesTo []string
 	// ShowInDetail controls whether this action is offered in the detail pane.
 	// Flow action nodes remain eligible regardless of this presentation flag.
@@ -104,6 +126,7 @@ type actionHeader struct {
 	ID           string      `yaml:"id"`
 	Label        string      `yaml:"label"`
 	Type         string      `yaml:"type"`
+	Targets      []string    `yaml:"targets"`
 	AppliesTo    []string    `yaml:"applies_to"`
 	ShowInDetail bool        `yaml:"show_in_detail"`
 	Inputs       []InputSpec `yaml:"inputs"`
@@ -117,6 +140,7 @@ var reservedActionKeys = map[string]bool{
 	"id":             true,
 	"label":          true,
 	"type":           true,
+	"targets":        true,
 	"applies_to":     true,
 	"show_in_detail": true,
 	"inputs":         true,
@@ -161,6 +185,7 @@ func (a *Action) UnmarshalYAML(value *yaml.Node) error {
 	a.ID = header.ID
 	a.Label = header.Label
 	a.Type = header.Type
+	a.Targets = normalizeTargets(header.Targets)
 	a.AppliesTo = header.AppliesTo
 	a.ShowInDetail = header.ShowInDetail
 	a.Inputs = normalizeInputs(header.Inputs)
@@ -197,6 +222,57 @@ func nodeKindName(kind yaml.Kind) string {
 		return "alias"
 	default:
 		return "unknown"
+	}
+}
+
+// normalizeTargets lowercases and trims the declared surfaces at the decode
+// boundary, so validation and HasTarget compare against the vocabulary
+// exactly once. A declaration of TargetItem alone collapses to the empty
+// default, which is the same thing and keeps it out of the YAML writer.
+func normalizeTargets(targets []string) []string {
+	if len(targets) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(targets))
+	for _, target := range targets {
+		out = append(out, strings.ToLower(strings.TrimSpace(target)))
+	}
+	if len(out) == 1 && out[0] == TargetItem {
+		return nil
+	}
+	return out
+}
+
+// HasTarget reports whether this action is offered on target.
+func (a Action) HasTarget(target string) bool {
+	if len(a.Targets) == 0 {
+		return target == TargetItem
+	}
+	return slices.Contains(a.Targets, target)
+}
+
+// TargetsTerminal reports whether this action is offered on either terminal
+// surface.
+func (a Action) TargetsTerminal() bool {
+	return a.HasTarget(TargetSession) || a.HasTarget(TargetWindow)
+}
+
+// TerminalCapable reports whether this action's type can run against a
+// terminal target at all. It sits beside HeadlessCapable because it answers
+// the same shape of question — which surfaces a type is executable on — and
+// validateActions refuses a declaration that contradicts it, so the refusal
+// lands when the catalog is authored rather than when the menu entry is
+// clicked.
+func (a Action) TerminalCapable() bool {
+	switch a.Config.(type) {
+	case *LaunchSessionConfig:
+		// Launching creates a *new* session. Its interactive variant needs the
+		// New Session form the terminal surface does not have, and its headless
+		// variant's repo_template renders over a feed item's payload, which a
+		// terminal target carries none of.
+		return false
+	default:
+		return true
 	}
 }
 

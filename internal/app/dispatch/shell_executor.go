@@ -69,9 +69,7 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	}
 	cmd := exec.CommandContext(runCtx, "sh", "-c", command)
 	cmd.WaitDelay = shellKillGrace
-	if cfg.Cwd != "" {
-		cmd.Dir = cfg.Cwd
-	}
+	cmd.Dir = shellWorkingDir(cfg, data)
 	env := e.env.Environ(runCtx)
 	for k, v := range cfg.Env {
 		env = append(env, k+"="+v)
@@ -88,6 +86,21 @@ func (e *ShellExecutor) Execute(ctx context.Context, action actions.Action, data
 	result := ExecutionResult{Attempted: true, Log: ExecutionLog{Stdout: stdout.String(), Stderr: stderr.String()}}
 	e.logger.Info().Str("action_id", action.ID).Msg("shell action: command executed")
 	return result, nil
+}
+
+// shellWorkingDir resolves the directory the command runs in. A configured
+// cwd always wins; a terminal invocation otherwise runs in the session's own
+// checkout, which is what makes `mise run test` a complete action rather than
+// one that has to restate where the session lives. An empty result leaves
+// cmd.Dir unset, which is the desktop process's own cwd.
+func shellWorkingDir(cfg *actions.ShellConfig, data OutputData) string {
+	if cfg.Cwd != "" {
+		return cfg.Cwd
+	}
+	if data.Session != nil {
+		return data.Session.Path
+	}
+	return ""
 }
 
 // boundedExecutionWriter drains every write while retaining only a bounded

@@ -11,6 +11,13 @@ export interface EditableAction {
     "label": string;
     "type": string;
     "showInDetail": boolean;
+
+    /**
+     * Targets is always explicit on the wire — an action that declares none
+     * is an item action, and the editor renders a checked box rather than an
+     * empty one it would have to explain.
+     */
+    "targets": string[] | null;
     "appliesTo": string[] | null;
     "inputs"?: InputSpec[] | null;
     "launch"?: EditableLaunchConfig | null;

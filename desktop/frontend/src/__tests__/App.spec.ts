@@ -109,6 +109,9 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   SessionLaunchOptions: mocks.SessionLaunchOptions,
   CreateSession: mocks.CreateSession,
+  ListSessions: vi.fn().mockResolvedValue([]),
+  SessionStatuses: vi.fn().mockResolvedValue({ items: [], pollIntervalMs: 60_000 }),
+  TerminalActionViews: vi.fn().mockResolvedValue([]),
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/githubservice', () => ({

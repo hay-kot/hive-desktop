@@ -136,7 +136,7 @@ var definitions = []definition{
 	{
 		id:          "actions",
 		title:       "Actions",
-		description: "Define the actions a feed item or flow node can trigger — launching an agent session, running a shell command, or publishing a message.",
+		description: "Define the actions a feed item, a terminal session or window, or a flow node can trigger — launching an agent session, running a shell command, publishing a message, or copying text to the clipboard.",
 		target:      func(env Env) string { return env.ActionsPath },
 		listed:      true,
 		data:        actionsData,

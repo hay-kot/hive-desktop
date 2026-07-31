@@ -14,6 +14,7 @@ another agent or process that is listening on a topic.
 
 ## Templates
 
-`message_template` is a Go `text/template` rendered over the triggering
-message, with the payload at `.Payload` — e.g.
-`{{ .Payload.title }} ({{ .Payload.url }})`.
+`message_template` is a Go `text/template` rendered over the target's data (see
+"Template data" above). On an `item` target the payload is at `.Payload` — e.g.
+`{{ .Payload.title }} ({{ .Payload.url }})`; on a `session` or `window` target
+the session is at `.Session` — e.g. `{{ .Session.Name }} needs a look`.

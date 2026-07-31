@@ -97,9 +97,33 @@ func validateActions(actionList []Action) error {
 		if a.Config == nil {
 			return fmt.Errorf("action %q: no config decoded", a.ID)
 		}
+		if err := validateTargets(a); err != nil {
+			return fmt.Errorf("action %q: %w", a.ID, err)
+		}
 		if err := a.Config.Validate(); err != nil {
 			return fmt.Errorf("action %q (%s): %w", a.ID, a.Type, err)
 		}
+	}
+	return nil
+}
+
+// validateTargets checks the declared surface set against the vocabulary and
+// against what the action's type can actually run on, so a terminal target on
+// a type that cannot serve one is refused when the catalog is authored rather
+// than when its menu entry is clicked.
+func validateTargets(a Action) error {
+	seen := make(map[string]bool, len(a.Targets))
+	for _, target := range a.Targets {
+		if !targetNames[target] {
+			return fmt.Errorf("unknown target %q (expected %s, %s or %s)", target, TargetItem, TargetSession, TargetWindow)
+		}
+		if seen[target] {
+			return fmt.Errorf("duplicate target %q", target)
+		}
+		seen[target] = true
+	}
+	if a.TargetsTerminal() && !a.TerminalCapable() {
+		return fmt.Errorf("type %q cannot run against a terminal session or window", a.Type)
 	}
 	return nil
 }

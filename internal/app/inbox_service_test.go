@@ -18,15 +18,20 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
+// recordingActionExecutor captures the context an action was dispatched with —
+// what its templates would have rendered over — and returns whatever outcome
+// the test staged.
 type recordingActionExecutor struct {
-	calls int
-	data  dispatch.OutputData
+	calls  int
+	data   dispatch.OutputData
+	result dispatch.ExecutionResult
+	err    error
 }
 
 func (e *recordingActionExecutor) Execute(_ context.Context, _ actions.Action, data dispatch.OutputData, _ dispatch.ActionInvocationInput) (dispatch.ExecutionResult, error) {
 	e.calls++
 	e.data = data
-	return dispatch.ExecutionResult{}, nil
+	return e.result, e.err
 }
 
 type recordingSessionLauncher struct {

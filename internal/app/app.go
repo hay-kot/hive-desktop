@@ -136,9 +136,14 @@ type App struct {
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager was evaluated and declined
 	// for now — see the note on Close.
-	producer    *ingest.Producer
-	engine      *runtime.Engine
-	outputs     *dispatch.Worker
+	producer *ingest.Producer
+	engine   *runtime.Engine
+	outputs  *dispatch.Worker
+	// dispatcher is shared with the worker rather than private to it: a
+	// terminal action runs the same executors without a durable command
+	// behind it, and a second dispatcher would be a second executor map to
+	// keep in step.
+	dispatcher  *dispatch.Dispatcher
 	retention   *ingest.Maintenance
 	webhook     *webhook.Listener
 	webhookHost string
@@ -301,7 +306,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore)
+	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore, a.actionStore, a.dispatcher, a.activityStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
@@ -678,8 +683,8 @@ func (a *App) buildProducer(logger zerolog.Logger) *ingest.Producer {
 // resolves those ids from the live flow set and everything else from the
 // authored catalog.
 func (a *App) buildOutputWorker(cfg Config) *dispatch.Worker {
-	dispatcher := dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
-	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
+	a.dispatcher = dispatch.NewDispatcher(outputExecutors(a.launcher, a.publisher, a.observedNotifier(cfg.Notifier), cfg.Gate, a.Store, a.execEnv, cfg.Logger))
+	worker := dispatch.NewWorker(a.Store, dispatch.NewFlowNotifyActions(a.flowStore, a.actionStore), a.dispatcher, dispatch.DefaultOutputWorkerInterval, cfg.Logger)
 	worker.SetRecorder(a.activityStore)
 	worker.SetJobRecorder(a.jobStore)
 	return worker

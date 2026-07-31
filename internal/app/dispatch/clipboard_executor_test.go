@@ -18,13 +18,29 @@ func TestClipboardExecutor_RendersTextAsOutcome(t *testing.T) {
 	out, err := NewClipboardExecutor().Execute(
 		t.Context(),
 		clipboardAction("gh pr checkout {{ .Payload.num }} -R {{ .Payload.repo }}"),
-		OutputData{Key: "pr-9", Raw: json.RawMessage(`{"num":9,"repo":"acme/app"}`)},
+		OutputData{Key: "pr-9", Payload: map[string]any{"num": 9, "repo": "acme/app"}, Raw: json.RawMessage(`{"num":9,"repo":"acme/app"}`)},
 		ActionInvocationInput{},
 	)
 	require.NoError(t, err)
 	require.NotNil(t, out.Outcome)
 	require.NotNil(t, out.Outcome.Clipboard)
 	assert.Equal(t, "gh pr checkout 9 -R acme/app", out.Outcome.Clipboard.Text)
+}
+
+// A terminal invocation carries no item payload at all, so the executor has to
+// render over whatever context the caller assembled rather than one it rebuilds
+// from the item's raw bytes.
+func TestClipboardExecutor_RendersTerminalTargetData(t *testing.T) {
+	out, err := NewClipboardExecutor().Execute(
+		t.Context(),
+		clipboardAction("cd {{ .Session.Path | shq }}"),
+		OutputData{Key: "fix-login", Session: &SessionTarget{Slug: "fix-login", Path: "/w/fix login"}},
+		ActionInvocationInput{},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, out.Outcome)
+	require.NotNil(t, out.Outcome.Clipboard)
+	assert.Equal(t, "cd '/w/fix login'", out.Outcome.Clipboard.Text)
 }
 
 func TestRenderClipboardText_ShqIsAvailable(t *testing.T) {
