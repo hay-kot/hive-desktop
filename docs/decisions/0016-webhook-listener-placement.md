@@ -81,3 +81,7 @@ Concretely:
   the `forbidigo` exclusion `.golangci.yml` carried for
   `internal/app/sources/webhook/` (a package-wide allowance, only ever needed
   for this one call site) is no longer load-bearing.
+
+## Update
+
+The listener is no longer the `stopOnce` template; ADR 0042 records its restartable lifecycle.

@@ -49,6 +49,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0039](decisions/0039-tmux-discovery.md) | Discover the tmux binary instead of trusting $PATH |
 | [0040](decisions/0040-session-rename-keeps-slug-and-tmux-in-step.md) | A session rename renames its tmux session, keeping slug and tmux name in step |
 | [0041](decisions/0041-settings-runtime-reload.md) | settings.yaml reloads at runtime, with a last-good snapshot and one restart-pending answer |
+| [0042](decisions/0042-loopback-listener-lifecycle.md) | Loopback listener lifecycle: restartable listener with scheduled live reconciliation |
 
 ## References
 

@@ -595,9 +595,8 @@ so a new setting is a decision rather than an omission. `App.RestartPending` is
 the single answer built from it — the persisted settings diffed against what
 this process mounted, filtered to the startup-only set, plus the bootstrap
 directory overrides compared against the injected `Paths`. Everything that
-surfaces a "restart needed" hint (the terminal opt-in, `WebhookState.RestartRequired`,
-the System settings banner) is a filter over that list. Do not write a second
-comparison.
+surfaces a "restart needed" hint (the terminal opt-in and the System settings
+banner) is a filter over that list. Do not write a second comparison.
 
 `settings.yaml`, `flows/*.yaml`, and `actions.yml` each carry a top-level
 `version:` and are migrated forward in place at startup by
@@ -657,9 +656,10 @@ leak. Plugs also guarantees no startup order, which the engine's
 install-before-appenders constraint needs expressed, not worked around.
 Until appkit offers signal opt-out and ordered start, the standing pattern
 is **App-owned lifecycle**: every subsystem exposes an idempotent,
-context-taking `Stop` behind a `stopOnce` (the webhook listener is the
-template — ADR 0016), `App.Start` starts them in dependency order, and
-`App.Close` unwinds them in reverse. `main` holds none of it.
+context-taking `Stop`; `stopOnce` is one implementation, while the restartable
+webhook listener uses state-based idempotence (ADR 0042). `App.Start` starts
+them in dependency order, and `App.Close` unwinds them in reverse. `main`
+holds none of it.
 
 `development.pprof` is typed and defaulted off. The endpoint has no lifecycle
 of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
@@ -932,9 +932,10 @@ ADR 0010.
 7. **New extension types register in the registry** and declare a config
    schema. No per-type branching in shared code.
 8. **New background work joins the App-owned lifecycle**: an idempotent,
-   context-taking `Stop` behind a `stopOnce`, started in `App.Start`, unwound
-   in `App.Close`. No teardown branches in `main`. Plugs remains the target
-   once appkit unblocks it — see [Background lifecycle](#background-lifecycle).
+   context-taking `Stop`, started in `App.Start`, unwound in `App.Close`.
+   `stopOnce` is one implementation; the restartable listener is another
+   (ADR 0042). No teardown branches in `main`. Plugs remains the target once
+   appkit unblocks it — see [Background lifecycle](#background-lifecycle).
 9. **Never edit `internal/hivecore/`.** Land the change upstream and re-vendor.
 
 ## Migration path

@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 	"sync"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
@@ -23,32 +22,28 @@ type WebhookService struct {
 	db       *store.DB
 	listener *webhook.Listener
 	marks    *sourcemark.Store
-	host     string
-	port     int
-	// restartPending is App.RestartPending. The listener's own "restart needed"
-	// hint is one row of that answer rather than a second comparison of its own.
-	restartPending func() []RestartPendingField
+	// applyHTTP is App.applyHTTPSettings — SetState's scheduled apply half.
+	// Nil in tests that only exercise persistence.
+	applyHTTP func(settings.Settings)
 
 	mu       sync.Mutex
 	startErr error
 }
 
-func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, marks *sourcemark.Store, host string, port int, restartPending func() []RestartPendingField) *WebhookService {
-	return &WebhookService{
-		settings:       settingsStore,
-		db:             db,
-		listener:       listener,
-		marks:          marks,
-		host:           host,
-		port:           port,
-		restartPending: restartPending,
-	}
+func newWebhookService(settingsStore *settings.Store, db *store.DB, listener *webhook.Listener, marks *sourcemark.Store, applyHTTP func(settings.Settings)) *WebhookService {
+	return &WebhookService{settings: settingsStore, db: db, listener: listener, marks: marks, applyHTTP: applyHTTP}
 }
 
 func (s *WebhookService) setStartError(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.startErr = err
+}
+
+func (s *WebhookService) clearStartError() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.startErr = nil
 }
 
 // WebhookState joins the persisted configuration with this session's running
@@ -68,10 +63,6 @@ type WebhookState struct {
 	BoundHost  string
 	BoundPort  int
 	StartError string
-	// RestartRequired reports that the persisted http section differs from the
-	// one this process bound. It is App.RestartPending filtered to http.*, not a
-	// comparison of its own.
-	RestartRequired bool
 }
 
 // Endpoint reports the listener's live state and the port endpoints are
@@ -80,15 +71,15 @@ func (s *WebhookService) Endpoint(context.Context) (running bool, port int) {
 	if s.listener != nil && s.listener.Running() {
 		return true, s.listener.Port()
 	}
-	return false, s.port
+	return false, s.settings.Current().HTTP.Port
 }
 
-// Host reports the actual bound host when running, else the startup host.
+// Host reports the actual bound host when running, else the configured host.
 func (s *WebhookService) Host() string {
 	if s.listener != nil && s.listener.Running() {
 		return s.listener.Host()
 	}
-	return s.host
+	return s.settings.Current().HTTP.Host
 }
 
 // State returns the persisted configuration alongside the listener's state.
@@ -104,33 +95,27 @@ func (s *WebhookService) State(context.Context) WebhookState {
 	}
 	if s.listener != nil {
 		state.Running = s.listener.Running()
-		state.BoundHost = s.listener.Host()
+		if state.Running {
+			state.BoundHost = s.listener.Host()
+			state.BoundPort = s.listener.Port()
+		}
 		if err := s.listener.StartError(); err != nil {
 			state.StartError = err.Error()
 		}
 	}
-	s.mu.Lock()
-	if s.startErr != nil {
-		state.StartError = s.startErr.Error()
-	}
-	s.mu.Unlock()
-	if state.Running {
-		state.BoundPort = s.listener.Port()
-	}
-	if s.restartPending != nil {
-		for _, pending := range s.restartPending() {
-			if strings.HasPrefix(pending.Field, "http.") {
-				state.RestartRequired = true
-				break
-			}
+	if state.StartError == "" {
+		s.mu.Lock()
+		if s.startErr != nil {
+			state.StartError = s.startErr.Error()
 		}
+		s.mu.Unlock()
 	}
 	return state
 }
 
-// SetState persists the enable toggle and port. Neither is applied to the
-// running listener: both are startup-time decisions, and State reports the
-// pending restart.
+// SetState persists the http section, then schedules the apply — the
+// persist/apply split (ADR 0041) with ADR 0042's scheduled reconcile, so the
+// Wails call returns before the restart runs.
 func (s *WebhookService) SetState(_ context.Context, enabled bool, host string, port int) error {
 	_, err := s.settings.Update(func(current *settings.Settings) error {
 		current.HTTP.Enabled = enabled
@@ -141,10 +126,16 @@ func (s *WebhookService) SetState(_ context.Context, enabled bool, host string, 
 		}
 		return nil
 	})
-	if err == nil || KindOf(err) == KindInvalid {
-		return err
+	if err != nil {
+		if KindOf(err) == KindInvalid {
+			return err
+		}
+		return Wrap(err, KindInternal, "saving settings")
 	}
-	return Wrap(err, KindInternal, "saving settings")
+	if s.applyHTTP != nil {
+		s.applyHTTP(s.settings.Current())
+	}
+	return nil
 }
 
 // GeneratePort returns a fresh random port from the generation range without

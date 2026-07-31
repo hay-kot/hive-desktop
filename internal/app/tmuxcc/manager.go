@@ -283,6 +283,33 @@ func (m *Manager) Detach(ctx context.Context, slug string) error {
 	return err
 }
 
+// DetachAll closes every attached client but leaves the manager able to
+// attach again — the quiesce for a listener restart or a terminal disable,
+// where Stop is the app-lifetime teardown. tmux sessions survive; each
+// subscriber's channel closes, which unwinds a hijacked WebSocket stream
+// end-to-end.
+func (m *Manager) DetachAll(ctx context.Context) error {
+	m.attachMu.Lock()
+	defer m.attachMu.Unlock()
+
+	m.mu.Lock()
+	clients := make([]*managedClient, 0, len(m.clients))
+	for _, mc := range m.clients {
+		clients = append(clients, mc)
+	}
+	m.clients = map[string]*managedClient{}
+	m.mu.Unlock()
+
+	var first error
+	for _, mc := range clients {
+		if err := mc.client.Close(ctx); err != nil && first == nil {
+			first = err
+		}
+		mc.cancel()
+	}
+	return first
+}
+
 // Stop closes every client, joins their readers, and cancels the app-lifetime
 // context. Idempotent.
 func (m *Manager) Stop(ctx context.Context) error {

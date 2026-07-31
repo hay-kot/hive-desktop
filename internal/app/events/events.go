@@ -45,7 +45,9 @@ type ActionsUpdated struct{ Count int }
 // SettingsUpdated reports that settings.yaml was re-read and the process
 // adopted what it could. Changed names the fields that differ from the snapshot
 // previously in service, dotted ("polling.interval"), so a consumer can ignore
-// a section it does not render. A reload that fails validation publishes
+// a section it does not render. After listener convergence, its reconcile also
+// publishes this event so consumers re-read live listener state; Changed then
+// names the http fields it serves. A reload that fails validation publishes
 // nothing at all: the running values stay in service.
 type SettingsUpdated struct{ Changed []string }
 

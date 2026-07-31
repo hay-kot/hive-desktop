@@ -65,7 +65,6 @@ beforeEach(() => {
     boundPort: 24831,
     baseUrl: 'http://127.0.0.1:24831/hooks/',
     startError: '',
-    restartRequired: false,
   })
 })
 
@@ -230,34 +229,11 @@ describe('SettingsView', () => {
       boundPort: 0,
       baseUrl: 'http://127.0.0.1:24831/hooks/',
       startError: '',
-      restartRequired: false,
     })
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()
 
     expect(wrapper.find('[data-testid="integration-webhook-status"]').text()).toBe('Disabled')
-  })
-
-  it('a saved change the listener has not applied outranks what it is doing', async () => {
-    // Disabled in settings but still bound: this session is running on
-    // borrowed time, and the card must say so rather than "Running".
-    webhookSettings.mockResolvedValue({
-      enabled: false,
-      port: 24831,
-      portMin: 20000,
-      portMax: 32767,
-      portOverridden: false,
-      running: true,
-      boundHost: '127.0.0.1',
-      boundPort: 24831,
-      baseUrl: 'http://127.0.0.1:24831/hooks/',
-      startError: '',
-      restartRequired: true,
-    })
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="integration-webhook-status"]').text()).toBe('Restart needed')
   })
 
   it('reports a bind failure on the webhook card', async () => {
@@ -272,7 +248,6 @@ describe('SettingsView', () => {
       boundPort: 0,
       baseUrl: 'http://127.0.0.1:24831/hooks/',
       startError: 'webhook listener: address already in use',
-      restartRequired: true,
     })
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()

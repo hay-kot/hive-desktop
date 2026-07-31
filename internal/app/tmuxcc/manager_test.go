@@ -170,6 +170,28 @@ func TestManagerSubscribeRequiresAnAttachedClient(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotAttached)
 }
 
+func TestManagerDetachAllClosesClientsAndRemainsAttachable(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	m := newTestManager(t, f, ManagerOptions{})
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+	ch, unsubscribe, err := m.Subscribe("hive-demo")
+	require.NoError(t, err)
+	defer unsubscribe()
+
+	require.NoError(t, m.DetachAll(t.Context()))
+	for range ch {
+	}
+	_, attached := m.Client("hive-demo")
+	require.False(t, attached)
+	m.mu.Lock()
+	require.False(t, m.stopped)
+	m.mu.Unlock()
+}
+
 func TestManagerDetachFreesTheSlug(t *testing.T) {
 	t.Parallel()
 

@@ -82,6 +82,8 @@ Startup-only, and why:
 | `development.debug.pause_*` | Read when the store opens. |
 | `development.vite.*` / `wails.*`, `development.instance.id` | The dev launcher bridges these before Go starts. |
 
+> **Update:** `http.*`, `updates.channel`, `skills.auto_update`, and `development.github.api_base` now apply live; ADR 0042 records the listener lifecycle.
+
 **`App.RestartPending` is the one restart-pending answer.** It diffs the
 persisted settings against a `mounted` snapshot — what this process started with
 — filtered to the startup-only set, and appends the bootstrap `data_dir` /

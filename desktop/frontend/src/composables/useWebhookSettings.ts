@@ -39,8 +39,7 @@ async function refresh(): Promise<void> {
   return refreshInFlight
 }
 
-// save persists and then re-reads: the backend is what decides whether the new
-// configuration leaves a restart pending, so the reply is not assumed here.
+// save persists and then re-reads the listener's live state.
 async function save(next: { enabled: boolean; port: number }): Promise<boolean> {
   if (!settings.value) return false
   error.value = ''

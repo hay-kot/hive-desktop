@@ -54,25 +54,21 @@ type WebhookSettings struct {
 	BoundPort  int    `json:"boundPort"`
 	BaseURL    string `json:"baseUrl"`
 	StartError string `json:"startError"`
-	// RestartRequired reports that the persisted http section differs from the
-	// one this process bound; the listener is built at startup.
-	RestartRequired bool `json:"restartRequired"`
 }
 
 func (s *WebhookService) Settings(ctx context.Context) WebhookSettings {
 	state := s.webhooks.State(ctx)
 	view := WebhookSettings{
-		Enabled:         state.Enabled,
-		Host:            state.Host,
-		Port:            state.Port,
-		PortMin:         state.PortMin,
-		PortMax:         state.PortMax,
-		PortOverridden:  state.PortOverridden,
-		Running:         state.Running,
-		BoundHost:       state.BoundHost,
-		BoundPort:       state.BoundPort,
-		StartError:      state.StartError,
-		RestartRequired: state.RestartRequired,
+		Enabled:        state.Enabled,
+		Host:           state.Host,
+		Port:           state.Port,
+		PortMin:        state.PortMin,
+		PortMax:        state.PortMax,
+		PortOverridden: state.PortOverridden,
+		Running:        state.Running,
+		BoundHost:      state.BoundHost,
+		BoundPort:      state.BoundPort,
+		StartError:     state.StartError,
 	}
 	view.BaseURL = app.WebhookBaseURLAt(state.Host, state.Port)
 	if view.Running {

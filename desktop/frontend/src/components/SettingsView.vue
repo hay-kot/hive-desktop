@@ -72,10 +72,7 @@ const webhookSettingsOpen = ref(false)
 const { settings: webhook, refresh: refreshWebhook } = useWebhookSettings()
 const webhookStatus = computed(() => {
   if (!webhook.value) return { label: 'Local', tone: 'neutral' as const }
-  // A saved change the listener has not picked up yet outranks what it is
-  // currently doing — otherwise disabling it would still read "Running".
   if (webhook.value.startError) return { label: 'Port in use', tone: 'danger' as const }
-  if (webhook.value.restartRequired) return { label: 'Restart needed', tone: 'neutral' as const }
   if (webhook.value.running) return { label: 'Running', tone: 'success' as const }
   return { label: 'Disabled', tone: 'neutral' as const }
 })

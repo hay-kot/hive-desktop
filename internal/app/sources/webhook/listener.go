@@ -48,95 +48,121 @@ type Listener struct {
 	logger     zerolog.Logger
 	recorder   activity.Recorder
 
+	mu       sync.Mutex
 	host     string
 	port     int
 	server   *http.Server
 	listener net.Listener
 	startErr error
-
-	mounts []mount
-
-	stopOnce sync.Once
-}
-
-type mount struct {
-	prefix  string
-	handler http.Handler
+	mounts   map[string]http.Handler
 }
 
 // NewListener builds a listener bound to host:port at Start. Configuration
 // validation limits host to loopback. onAppended fires after a delivery
 // appends event-log rows so the core can wake the flow engine.
 func NewListener(db *store.DB, instances Instances, host string, port int, onAppended func(nextOffset int64), logger zerolog.Logger) *Listener {
-	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger}
+	return &Listener{db: db, instances: instances, host: host, port: port, onAppended: onAppended, logger: logger, mounts: make(map[string]http.Handler)}
 }
 
 // SetRecorder attaches an activity recorder so ingest failures surface in the
 // Activity view. Set once at wiring time, before Start.
 func (l *Listener) SetRecorder(r activity.Recorder) { l.recorder = r }
 
-// Start binds the configured loopback host and serves in a goroutine. A bind failure (port in
-// use) is returned to the caller, which logs and continues — a busy webhook
-// port must never take the desktop app down with it — and is retained for
-// StartError so settings can surface it instead of leaving it in the log.
+// Start binds and serves. Errors when already running. It resets StartError and
+// rebuilds the mux from the current mounts on every call, so Start after Stop
+// rebinds and re-serves.
 func (l *Listener) Start(ctx context.Context) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.listener != nil {
+		return fmt.Errorf("webhook listener already running")
+	}
+
+	l.startErr = nil
 	var lc net.ListenConfig
 	ln, err := lc.Listen(ctx, "tcp", net.JoinHostPort(l.host, strconv.Itoa(l.port)))
 	if err != nil {
 		l.startErr = fmt.Errorf("webhook listener: %w", err)
 		return l.startErr
 	}
+	server := &http.Server{Handler: l.handlerLocked(), ReadHeaderTimeout: 5 * time.Second}
 	l.listener = ln
-	l.server = &http.Server{Handler: l.Handler(), ReadHeaderTimeout: 5 * time.Second}
+	l.server = server
+	host, port := l.host, listenerPort(ln)
 	go func() {
-		if err := l.server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			l.logger.Error().Err(err).Msg("webhook listener stopped unexpectedly")
 		}
 	}()
-	l.logger.Info().Str("host", l.host).Int("port", l.Port()).Msg("webhook listener started")
+	l.logger.Info().Str("host", host).Int("port", port).Msg("webhook listener started")
 	return nil
 }
 
-// Stop gracefully shuts the server down, letting in-flight ingests finish
-// until ctx is done. Idempotent: a second call, or a call when Start was
-// never invoked or never bound, is a no-op that returns nil.
-//
-// It takes ctx rather than owning a timeout itself so the caller supplies the
-// shutdown budget — app.go's plugs.Plugin wrapper derives one with
-// context.WithoutCancel, since by the time a plugin's cleanup runs its own
-// ctx is already Done. Whether a shutdown error is fatal is that caller's
-// policy to decide, the same way Start's bind error is: this method only
-// reports, it does not judge.
+// Stop gracefully shuts down, letting in-flight ingests finish until ctx is
+// done; on a drain timeout it force-Closes so the port actually frees for a
+// rebind. Idempotent by state: not running is a nil no-op. After Stop,
+// Running reports false and a later Start rebinds.
 func (l *Listener) Stop(ctx context.Context) error {
-	var err error
-	l.stopOnce.Do(func() {
-		if l.server == nil {
-			return
-		}
-		err = l.server.Shutdown(ctx)
-	})
+	l.mu.Lock()
+	server := l.server
+	if server == nil {
+		l.mu.Unlock()
+		return nil
+	}
+	l.server = nil
+	l.listener = nil
+	l.mu.Unlock()
+
+	err := server.Shutdown(ctx)
+	if err != nil {
+		_ = server.Close()
+	}
 	return err
 }
 
+// SetAddr changes the address the next Start binds. It does not touch a
+// running server; restart policy lives in the caller.
+func (l *Listener) SetAddr(host string, port int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.host, l.port = host, port
+}
+
 // Running reports whether Start succeeded and the listener is bound.
-func (l *Listener) Running() bool { return l.listener != nil }
+func (l *Listener) Running() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.listener != nil
+}
 
 // StartError returns why Start failed to bind, or nil if it never failed.
-func (l *Listener) StartError() error { return l.startErr }
+func (l *Listener) StartError() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.startErr
+}
 
 // Port returns the bound TCP port once Running, else the configured port.
-// They differ only when the listener was constructed with port 0 (tests).
 func (l *Listener) Port() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.listener != nil {
-		if addr, ok := l.listener.Addr().(*net.TCPAddr); ok {
-			return addr.Port
-		}
+		return listenerPort(l.listener)
 	}
 	return l.port
 }
 
+func listenerPort(listener net.Listener) int {
+	if addr, ok := listener.Addr().(*net.TCPAddr); ok {
+		return addr.Port
+	}
+	return 0
+}
+
 // Host returns the actual bound address once running, else the configured host.
 func (l *Listener) Host() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
 	if l.listener != nil {
 		if addr, ok := l.listener.Addr().(*net.TCPAddr); ok {
 			return addr.IP.String()
@@ -145,25 +171,28 @@ func (l *Listener) Host() string {
 	return l.host
 }
 
-// MountAPI mounts an additional handler at prefix so a driving adapter can
-// share the loopback port. Call it before Start: Handler() is built once there,
-// so a later mount is silently dropped.
+// MountAPI mounts (or replaces) a handler at prefix. Callable any time; a
+// mount added while running takes effect at the next restart.
 func (l *Listener) MountAPI(prefix string, h http.Handler) {
-	if l.server != nil {
-		l.logger.Warn().Str("prefix", prefix).Msg("MountAPI called after Start; handler will not be served")
-		return
-	}
-	l.mounts = append(l.mounts, mount{prefix: prefix, handler: h})
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.mounts[prefix] = h
 }
 
 // Handler returns the listener's route handler. Exposed (rather than only
 // being installed by Start) so tests can drive deliveries through httptest
 // without binding a real port.
 func (l *Listener) Handler() http.Handler {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.handlerLocked()
+}
+
+func (l *Listener) handlerLocked() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc(PathPrefix, l.handleHook)
-	for _, m := range l.mounts {
-		mux.Handle(m.prefix, m.handler)
+	for prefix, handler := range l.mounts {
+		mux.Handle(prefix, handler)
 	}
 	return mux
 }

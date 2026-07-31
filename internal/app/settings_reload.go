@@ -32,9 +32,9 @@ var settingsReload = map[string]string{
 	"appearance.terminal_font_size": "",
 	"keybindings":                   "",
 
-	"http.enabled": "the loopback HTTP server binds once, and the API and stream mounts are attached before it starts",
-	"http.host":    "the loopback HTTP server binds once, and the API and stream mounts are attached before it starts",
-	"http.port":    "the loopback HTTP server binds once, and the API and stream mounts are attached before it starts",
+	"http.enabled": "",
+	"http.host":    "",
+	"http.port":    "",
 
 	"skills.auto_update": "",
 	"skills.targets":     "",
@@ -103,6 +103,7 @@ func (a *App) ReloadSettings(ctx context.Context) (SettingsReload, error) {
 	changed := make([]string, 0, len(changes))
 	for _, change := range changes {
 		changed = append(changed, change.Field)
+		//nolint:contextcheck // listener reconcile uses the app lifetime so HTTP reload handlers can return before draining.
 		a.applySettingsField(change.Field, next)
 	}
 
@@ -130,6 +131,8 @@ func (a *App) applySettingsField(field string, next settings.Settings) {
 		if next.Skills.AutoUpdate && a.mock == "" {
 			go a.syncInstalledSkills()
 		}
+	case "http.enabled", "http.host", "http.port":
+		a.applyHTTPSettings(next)
 	}
 }
 
@@ -187,19 +190,9 @@ func (a *App) pendingPathOverrides() []RestartPendingField {
 }
 
 // mountedSettings is what this process is actually running with for every
-// startup-only field — the snapshot taken before the subsystems were built,
-// with the allocated HTTP port folded in once the listener binds one.
+// startup-only field — the snapshot taken before the subsystems were built.
 func (a *App) mountedSettings() settings.Settings {
 	a.mountedMu.Lock()
 	defer a.mountedMu.Unlock()
 	return a.mounted
-}
-
-// setMountedHTTPPort records the port the listener actually bound. Without it,
-// an automatic port (http.port: 0) written back to settings.yaml by Start would
-// read as a pending restart against the zero it was configured with.
-func (a *App) setMountedHTTPPort(port int) {
-	a.mountedMu.Lock()
-	defer a.mountedMu.Unlock()
-	a.mounted.HTTP.Port = port
 }

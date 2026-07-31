@@ -1,8 +1,6 @@
 <script setup lang="ts">
-// Local webhook listener settings. Both controls here are startup-time
-// decisions — the listener binds a port and serves flow-declared routes — so
-// the drawer's job is to persist them and be honest about the pending
-// restart rather than to pretend they applied live.
+// Local webhook listener settings persist configuration and apply it to the
+// running listener.
 import { computed, onMounted, ref, watch } from 'vue'
 import IconWebhook from '~icons/lucide/webhook'
 import IconRefresh from '~icons/lucide/refresh-cw'
@@ -37,14 +35,6 @@ const portHint = computed(() => overridden.value
   : `Use 0 to allocate a port when the listener is enabled, or choose a stable port. Generated candidates come from ${settings.value?.portMin ?? 20000}–${settings.value?.portMax ?? 32767}.`)
 
 const baseUrl = computed(() => settings.value?.baseUrl ?? '')
-const dirty = computed(() => {
-  if (!settings.value) return false
-  return enabled.value !== settings.value.enabled || (portValid.value && parsedPort.value !== settings.value.port)
-})
-// A restart is pending when the saved configuration differs from the running
-// listener, or when the draft has unsaved changes that will need one.
-const restartPending = computed(() => settings.value?.restartRequired === true || dirty.value)
-
 const status = computed(() => {
   const value = settings.value
   if (!value) return { tone: 'neutral', label: 'Unknown', detail: '' }
@@ -116,7 +106,7 @@ onMounted(() => void refresh())
       <AppSwitch
         v-model="enabled"
         label="Enable webhook listener"
-        :hint="`Serves flow-declared /hooks/ routes on ${settings?.host ?? '127.0.0.1'}. Takes effect after restarting Hive.`"
+        :hint="`Serves flow-declared /hooks/ routes on ${settings?.host ?? '127.0.0.1'}.`"
         testid="webhook-settings-enabled"
       />
 
@@ -158,12 +148,6 @@ onMounted(() => void refresh())
           </BaseButton>
         </div>
       </SettingsField>
-
-      <p
-        v-if="restartPending"
-        class="rounded-lg border border-border bg-severity-info-tint px-3 py-2.5 text-[12px] leading-relaxed text-text-2"
-        data-testid="webhook-settings-restart-note"
-      >Restart Hive to apply the listener's enabled state and port.</p>
 
       <p v-if="error" class="rounded-md border border-severity-error/40 bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="webhook-settings-error">{{ error }}</p>
     </div>

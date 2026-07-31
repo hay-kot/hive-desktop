@@ -306,10 +306,4 @@ export interface WebhookSettings {
     "boundPort": number;
     "baseUrl": string;
     "startError": string;
-
-    /**
-     * RestartRequired reports that the persisted http section differs from the
-     * one this process bound; the listener is built at startup.
-     */
-    "restartRequired": boolean;
 }

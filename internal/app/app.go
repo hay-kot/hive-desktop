@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,6 +53,10 @@ import (
 // There is no Settings value: the store is the single source of the current
 // settings, and a copy handed in beside it would be a second one that a reload
 // could not reach.
+type terminalDetacher interface {
+	DetachAll(context.Context) error
+}
+
 type Config struct {
 	SettingsStore *settings.Store
 	Paths         settings.Paths
@@ -141,13 +146,12 @@ type App struct {
 	// Background subsystems, owned here so main.go stops holding them.
 	// Uniform lifecycle through a plugs manager was evaluated and declined
 	// for now — see the note on Close.
-	producer    *ingest.Producer
-	engine      *runtime.Engine
-	outputs     *dispatch.Worker
-	retention   *ingest.Maintenance
-	webhook     *webhook.Listener
-	webhookHost string
-	webhookPort int
+	producer  *ingest.Producer
+	engine    *runtime.Engine
+	outputs   *dispatch.Worker
+	retention *ingest.Maintenance
+	webhook   *webhook.Listener
+	applyMu   sync.Mutex
 
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
@@ -157,7 +161,8 @@ type App struct {
 
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR 0036).
-	terminals *tmuxcc.Manager
+	terminals       *tmuxcc.Manager
+	terminalDrainer terminalDetacher
 
 	// tmux is the one place the tmux binary is discovered, shared by the
 	// terminal's control clients and Hive's session spawning (ADR 0039).
@@ -273,6 +278,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path})
+	a.terminalDrainer = a.terminals
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
@@ -321,8 +327,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort,
-		func() []RestartPendingField { return a.RestartPending(a.ctx) })
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.applyHTTPSettings)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
@@ -368,23 +373,12 @@ func (a *App) Start(ctx context.Context) error {
 	if a.producer != nil {
 		a.producer.Start(ctx)
 	}
-	if a.webhook != nil {
+	if a.webhook != nil && a.settingsStore.Current().HTTP.Enabled {
 		if err := a.webhook.Start(ctx); err != nil {
-			a.Webhooks.setStartError(err)
-			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
-		} else if a.webhookPort == 0 && !a.mountedSettings().EnvironmentOverridden(settings.EnvHTTPPort) {
-			// The allocated port is what this process is running, so record it as
-			// mounted before persisting it: otherwise the write-back reads back as
-			// a pending restart against the zero it was configured with.
-			a.setMountedHTTPPort(a.webhook.Port())
-			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
-				persisted.HTTP.Port = a.webhook.Port()
-				return nil
-			})
-			if err != nil {
-				a.Webhooks.setStartError(fmt.Errorf("persist allocated webhook port: %w", err))
-				a.logger.Warn().Err(err).Msg("persist allocated webhook port")
-			}
+			a.logger.Warn().Err(err).Int("port", a.webhook.Port()).Msg("webhook listener unavailable")
+		} else {
+			a.Webhooks.clearStartError()
+			a.persistAllocatedHTTPPort()
 		}
 	}
 	// Re-sync already-installed agent skills so a moved config path or a new node
@@ -395,6 +389,110 @@ func (a *App) Start(ctx context.Context) error {
 		go a.syncInstalledSkills()
 	}
 	return nil
+}
+
+// applyHTTPSettings is the http.* apply half: it schedules
+// reconcileHTTPSettings on a goroutine and returns. The restart cannot run
+// inline — the reload endpoint is served by the listener being restarted, so
+// the response must be written before the quiesce begins.
+func (a *App) applyHTTPSettings(settings.Settings) {
+	go a.reconcileHTTPSettings()
+}
+
+// reconcileHTTPSettings is the synchronous inner apply, run under applyMu;
+// tests drive this seam directly. It re-reads desired state from the store so
+// a stale schedule converges on the latest values.
+func (a *App) reconcileHTTPSettings() {
+	a.applyMu.Lock()
+	defer a.applyMu.Unlock()
+	if a.ctx.Err() != nil || a.webhook == nil {
+		return
+	}
+
+	desired := a.settingsStore.Current().HTTP
+	if !desired.Enabled {
+		if a.webhook.Running() {
+			a.stopListenerForRestart()
+			a.Events.Publish(a.ctx, events.SettingsUpdated{Changed: []string{"http.enabled"}})
+		}
+		return
+	}
+
+	if a.webhook.Running() && sameListenerAddress(desired.Host, desired.Port, a.webhook) {
+		return
+	}
+	if a.webhook.Running() {
+		a.stopListenerForRestart()
+	}
+	a.webhook.SetAddr(desired.Host, desired.Port)
+	if err := a.webhook.Start(context.WithoutCancel(a.ctx)); err != nil {
+		a.logger.Warn().Err(err).Int("port", desired.Port).Msg("webhook listener unavailable")
+		a.Events.Publish(a.ctx, events.SettingsUpdated{Changed: []string{"http.enabled", "http.host", "http.port"}})
+		return
+	}
+	a.Webhooks.clearStartError()
+	a.persistAllocatedHTTPPort()
+	a.Events.Publish(a.ctx, events.SettingsUpdated{Changed: []string{"http.enabled", "http.host", "http.port"}})
+}
+
+func sameListenerAddress(host string, port int, listener *webhook.Listener) bool {
+	if port != 0 && listener.Port() != port {
+		return false
+	}
+	bound := listener.Host()
+	if host == bound {
+		return true
+	}
+	if host == "localhost" {
+		return net.ParseIP(bound) != nil && net.ParseIP(bound).IsLoopback()
+	}
+	want, got := net.ParseIP(host), net.ParseIP(bound)
+	return want != nil && got != nil && want.Equal(got)
+}
+
+// stopListenerForRestart is the shared quiesce, used by reconcile paths and
+// Close: detach terminal streams first (hijacked WebSockets are invisible to
+// Shutdown), then a 3s graceful drain off context.WithoutCancel(a.ctx),
+// force-Close on timeout.
+func (a *App) stopListenerForRestart() {
+	stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
+	defer cancel()
+	if a.terminalDrainer != nil {
+		if err := a.terminalDrainer.DetachAll(stopCtx); err != nil {
+			a.logger.Warn().Err(err).Msg("detach terminal streams")
+		}
+	}
+	if a.webhook != nil {
+		if err := a.webhook.Stop(stopCtx); err != nil {
+			a.logger.Warn().Err(err).Msg("webhook listener shutdown")
+		}
+	}
+}
+
+// persistAllocatedHTTPPort writes the bound port back to settings.yaml when
+// the configured port was 0 and no env override is in force. Safe from the
+// reconcile path: the write-back cannot retrigger the reload that caused it
+// (ADR 0041).
+func (a *App) persistAllocatedHTTPPort() {
+	if a.webhook == nil || !a.webhook.Running() {
+		return
+	}
+	current := a.settingsStore.Current()
+	if current.HTTP.Port != 0 || current.EnvironmentOverridden(settings.EnvHTTPPort) {
+		return
+	}
+	port := a.webhook.Port()
+	_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
+		persisted.HTTP.Port = port
+		return nil
+	})
+	if err != nil {
+		a.Webhooks.setStartError(fmt.Errorf("persist allocated webhook port: %w", err))
+		a.logger.Warn().Err(err).Msg("persist allocated webhook port")
+		return
+	}
+	a.webhook.SetAddr(current.HTTP.Host, port)
+	a.Webhooks.clearStartError()
 }
 
 func (a *App) syncInstalledSkills() {
@@ -450,31 +548,15 @@ func (a *App) HiveConn() *sql.DB {
 func (a *App) Close() error {
 	a.cancel()
 
-	// Before the webhook listener: a terminal WebSocket has hijacked its
-	// connection, which http.Server.Shutdown neither tracks nor closes, so the
-	// socket has to be brought down by closing the streams behind it first
-	// (ADR 0036). The context is a fresh one for the same reason Shutdown's is.
 	if a.terminals != nil {
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
 		_ = a.terminals.Stop(stopCtx)
 		cancel()
 	}
 
-	if a.webhook != nil {
-		// A fresh, un-cancelled context for the graceful drain: a.ctx may
-		// already be cancelled by the line above, and handing a Done context
-		// to Shutdown would mean "stop now" instead of "you have this long
-		// to drain." WithoutCancel keeps this a context derived from a.ctx
-		// rather than a bare root, without inheriting a deadline that may
-		// have already passed.
-		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
-		// A shutdown failure only warns, matching Start's own bind-failure
-		// policy: a slow or stuck drain must never fail Close outright.
-		if err := a.webhook.Stop(stopCtx); err != nil {
-			a.logger.Warn().Err(err).Msg("webhook listener shutdown")
-		}
-		cancel()
-	}
+	a.applyMu.Lock()
+	a.stopListenerForRestart()
+	a.applyMu.Unlock()
 	if a.producer != nil {
 		a.producer.Stop()
 	}
@@ -629,7 +711,8 @@ func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 }
 
 // MountAPI mounts h onto the loopback webhook listener at prefix so the HTTP API
-// shares its port. It reports false when no listener exists. Call before Start.
+// shares its port. It reports false when no listener exists. It is callable at
+// any time; a mount added while running takes effect at the next restart.
 func (a *App) MountAPI(prefix string, h http.Handler) bool {
 	if a.webhook == nil {
 		return false
@@ -777,16 +860,11 @@ func (f systemNotifierFunc) Notify(ctx context.Context, n dispatch.SystemNotific
 // port override, keeping parallel e2e lanes isolated.
 func (a *App) openWebhook(_ context.Context, cfg Config) {
 	current := a.settingsStore.Current()
-	a.webhookHost = current.HTTP.Host
-	a.webhookPort = current.HTTP.Port
-	if !current.HTTP.Enabled {
-		return
-	}
 	if cfg.MockMode != "" && !current.EnvironmentOverridden(settings.EnvHTTPPort) {
 		return
 	}
 
-	a.webhook = webhook.NewListener(a.Store, a.sources.PushInstances, a.webhookHost, a.webhookPort, a.PublishLogAppended, cfg.Logger)
+	a.webhook = webhook.NewListener(a.Store, a.sources.PushInstances, current.HTTP.Host, current.HTTP.Port, a.PublishLogAppended, cfg.Logger)
 	a.webhook.SetRecorder(a.activityStore)
 }
 

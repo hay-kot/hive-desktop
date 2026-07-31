@@ -1,8 +1,10 @@
 package webhook
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,6 +276,131 @@ func TestWebhookListenerStartStop(t *testing.T) {
 	payload, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusAccepted, resp.StatusCode, string(payload))
+}
+
+func TestWebhookListenerStopDrainsStateReadingHandlerWithoutHoldingStateLock(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	handlerStarted := make(chan struct{})
+	allowStateRead := make(chan struct{})
+	listener.MountAPI("/api/status", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		close(handlerStarted)
+		<-allowStateRead
+		_ = listener.Running()
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	require.NoError(t, listener.Start(t.Context()))
+
+	requestDone := make(chan error, 1)
+	port := listener.Port()
+	go func() {
+		response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/status", port))
+		if err != nil {
+			requestDone <- err
+			return
+		}
+		defer func() { _ = response.Body.Close() }()
+		if response.StatusCode != http.StatusNoContent {
+			requestDone <- fmt.Errorf("status handler returned %s", response.Status)
+			return
+		}
+		requestDone <- nil
+	}()
+	<-handlerStarted
+
+	stopDone := make(chan struct{})
+	var stopErr error
+	started := time.Now()
+	go func() {
+		stopErr = listener.Stop(context.WithoutCancel(t.Context()))
+		close(stopDone)
+	}()
+
+	require.Eventually(t, func() bool {
+		connection, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 10*time.Millisecond)
+		if err != nil {
+			return true
+		}
+		_ = connection.Close()
+		return false
+	}, time.Second, 5*time.Millisecond, "Shutdown must have started draining before the handler reads listener state")
+	close(allowStateRead)
+	<-stopDone
+
+	require.NoError(t, stopErr)
+	assert.Less(t, time.Since(started), 500*time.Millisecond, "Stop must not spend the drain budget blocked on listener state")
+	require.NoError(t, <-requestDone)
+}
+
+func TestWebhookListenerMountAddedWhileRunningServesAfterRestart(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	require.NoError(t, listener.Start(t.Context()))
+	port := listener.Port()
+
+	response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/new", port))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+	_ = response.Body.Close()
+
+	listener.MountAPI("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	response, err = http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/new", port))
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, response.StatusCode)
+	_ = response.Body.Close()
+
+	require.NoError(t, listener.Stop(t.Context()))
+	require.NoError(t, listener.Start(t.Context()))
+	t.Cleanup(func() { _ = listener.Stop(t.Context()) })
+	response, err = http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/new", listener.Port()))
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+}
+
+func TestWebhookListenerRestartsAndRebuildsMounts(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances(webhookInstance(t, "triage", "hook", "ci", "")))
+	listener.MountAPI("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusTeapot) }))
+	require.NoError(t, listener.Start(t.Context()))
+	require.NoError(t, listener.Stop(t.Context()))
+	require.False(t, listener.Running())
+
+	listener.MountAPI("/api/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
+	listener.SetAddr("127.0.0.1", 0)
+	require.NoError(t, listener.Start(t.Context()))
+	t.Cleanup(func() { _ = listener.Stop(t.Context()) })
+	require.True(t, listener.Running())
+	require.NotEqual(t, 0, listener.Port())
+
+	response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/api/ping", listener.Port()))
+	require.NoError(t, err)
+	defer func() { _ = response.Body.Close() }()
+	assert.Equal(t, http.StatusNoContent, response.StatusCode)
+}
+
+func TestWebhookListenerStopTimeoutForceClosesForRebind(t *testing.T) {
+	listener, _, _ := newWebhookTestListener(t, fakeInstances())
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	listener.MountAPI("/slow", http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(entered)
+		<-release
+	}))
+	require.NoError(t, listener.Start(t.Context()))
+	port := listener.Port()
+	go func() {
+		response, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/slow", port))
+		if err == nil {
+			_ = response.Body.Close()
+		}
+	}()
+	<-entered
+
+	stopCtx, cancel := context.WithTimeout(t.Context(), 10*time.Millisecond)
+	defer cancel()
+	require.Error(t, listener.Stop(stopCtx))
+	listener.SetAddr("127.0.0.1", port)
+	require.NoError(t, listener.Start(t.Context()))
+	close(release)
+	t.Cleanup(func() { _ = listener.Stop(t.Context()) })
 }
 
 func TestWebhookListenerStopWithoutStartIsNoop(t *testing.T) {

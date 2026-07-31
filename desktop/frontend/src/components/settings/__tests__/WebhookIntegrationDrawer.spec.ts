@@ -25,7 +25,6 @@ function settings(overrides: Record<string, unknown> = {}) {
     boundPort: 24831,
     baseUrl: 'http://127.0.0.1:24831/hooks/',
     startError: '',
-    restartRequired: false,
     ...overrides,
   }
 }
@@ -51,7 +50,6 @@ describe('WebhookIntegrationDrawer', () => {
     expect(wrapper.get('[data-testid="webhook-settings-status"]').text()).toContain('127.0.0.1:24831')
     expect(wrapper.get('[data-testid="webhook-settings-base-url-value"]').text()).toBe('http://127.0.0.1:24831/hooks/')
     expect((wrapper.get('[data-testid="webhook-settings-port-input"]').element as HTMLInputElement).value).toBe('24831')
-    expect(wrapper.find('[data-testid="webhook-settings-restart-note"]').exists()).toBe(false)
   })
 
   it('surfaces a bind failure rather than leaving it in the log', async () => {
@@ -61,14 +59,11 @@ describe('WebhookIntegrationDrawer', () => {
     expect(wrapper.get('[data-testid="webhook-settings-status"]').text()).toContain('address already in use')
   })
 
-  it('persists the port and enabled state, then flags the pending restart', async () => {
+  it('persists the port and enabled state, then re-reads the live state', async () => {
     const wrapper = await open()
 
     await wrapper.get('[data-testid="webhook-settings-port-input"]').setValue('27100')
-    // A pending change is a restart the user has not taken yet.
-    expect(wrapper.find('[data-testid="webhook-settings-restart-note"]').exists()).toBe(true)
-
-    getSettings.mockResolvedValue(settings({ port: 27100, restartRequired: true }))
+    getSettings.mockResolvedValue(settings({ port: 27100, boundPort: 27100 }))
     await wrapper.get('[data-testid="webhook-settings-save"]').trigger('click')
     await flushPromises()
 
@@ -80,7 +75,7 @@ describe('WebhookIntegrationDrawer', () => {
     const wrapper = await open()
 
     await wrapper.get('[data-testid="webhook-settings-enabled"]').trigger('click')
-    getSettings.mockResolvedValue(settings({ enabled: false, restartRequired: true }))
+    getSettings.mockResolvedValue(settings({ enabled: false, running: false, boundPort: 0 }))
     await wrapper.get('[data-testid="webhook-settings-save"]').trigger('click')
     await flushPromises()
 
