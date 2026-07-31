@@ -35,6 +35,33 @@ func TestSettingsReloadClassifiesEverySchemaField(t *testing.T) {
 	}
 }
 
+// The relaunch set is exactly the permanent dev/bootstrap residue; everything
+// user-facing is adopted live. A new non-"" classification fails here on
+// purpose — adding one back is a decision, not a default.
+func TestSettingsReloadRelaunchSetIsOnlyTheStartupResidue(t *testing.T) {
+	expected := []string{
+		"development.debug.pause_commit",
+		"development.debug.pause_ingest",
+		"development.instance.id",
+		"development.mocks.mode",
+		"development.pprof.enabled",
+		"development.vite.host",
+		"development.vite.port",
+		"development.wails.host",
+		"development.wails.port",
+	}
+
+	actual := make([]string, 0, len(settingsReload))
+	for field, reason := range settingsReload {
+		if reason != "" {
+			actual = append(actual, field)
+		}
+	}
+	slices.Sort(actual)
+
+	assert.Equal(t, expected, actual)
+}
+
 func newReloadTestApp(t *testing.T) *App {
 	t.Helper()
 	root := t.TempDir()

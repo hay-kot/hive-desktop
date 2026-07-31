@@ -554,7 +554,7 @@ orphaned blobs are left in place rather than reference-counted.
 `notifications`, `appearance`, `http`, `keybindings`, `skills`,
 `experimental`, and
 `development` sections. `experimental` holds ships-dark feature opt-ins
-(ADR 0037), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
+(ADR 0037), defaulting to off; the terminal flip applies live (ADR 0042). Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof

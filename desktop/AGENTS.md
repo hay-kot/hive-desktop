@@ -264,7 +264,7 @@ more expensive, which is the whole reason it is being done now.
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
   paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
-  experimental: {terminal: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR 0037)
+  experimental: {terminal: false}   # ships-dark opt-ins; terminal mode applies live (ADRs 0037, 0042)
   development:
     mocks: {mode: live}
     instance: {id: ""}
@@ -374,7 +374,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR 0039); empty searches `$PATH` then the usual package-manager prefixes |
-| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, read at startup |
+| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, changes apply live (ADR 0042) |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
 | `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
