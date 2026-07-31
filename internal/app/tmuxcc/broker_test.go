@@ -297,7 +297,7 @@ func TestBrokerReplacementSubscriberSeesEveryUndeliveredEvent(t *testing.T) {
 func TestBrokerResetDropsTheBacklogAndItsSubscriber(t *testing.T) {
 	t.Parallel()
 
-	b := newBroker(0, nil)
+	b := newBroker(backlogBounds{}, nil)
 	dropped, _ := b.subscribe()
 	b.publish(outputEvent("@1", "stale"))
 
