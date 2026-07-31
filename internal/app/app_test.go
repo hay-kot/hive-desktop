@@ -1,6 +1,10 @@
 package app
 
 import (
+	"bytes"
+	"context"
+	"errors"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -11,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // TestAppLifecycle is the cheapest proof that the wiring package main used to
@@ -24,6 +29,41 @@ import (
 //
 // go.uber.org/goleak would say this more precisely; it is not in go.mod and
 // one assertion does not justify a dependency.
+type startupCompactorStub struct {
+	result store.CompactionResult
+	err    error
+	called bool
+}
+
+func (s *startupCompactorStub) Compact(context.Context, store.CompactionPolicy) (store.CompactionResult, error) {
+	s.called = true
+	return s.result, s.err
+}
+
+func TestStartupCompactionFailureDoesNotPreventStartup(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "desktop-pipeline.db")
+	require.NoError(t, os.WriteFile(path, []byte("database"), 0o600))
+	var logs bytes.Buffer
+	compactor := &startupCompactorStub{err: errors.New("vacuum unavailable")}
+
+	compactPipelineStoreAtStartup(t.Context(), compactor, path, zerolog.New(&logs))
+
+	assert.True(t, compactor.called)
+	assert.Contains(t, logs.String(), "pipeline compaction failed; startup continuing")
+	assert.Contains(t, logs.String(), "vacuum unavailable")
+}
+
+func TestStartupCompactionContinuesWhenFileSizeCannotBeMeasured(t *testing.T) {
+	var logs bytes.Buffer
+	compactor := &startupCompactorStub{}
+
+	compactPipelineStoreAtStartup(t.Context(), compactor, filepath.Join(t.TempDir(), "missing.db"), zerolog.New(&logs))
+
+	assert.True(t, compactor.called)
+	assert.Contains(t, logs.String(), "measure size before maintenance")
+	assert.Contains(t, logs.String(), "measure size after maintenance")
+}
+
 func TestAppLifecycle(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))

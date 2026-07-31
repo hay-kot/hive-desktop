@@ -81,6 +81,12 @@ archived items, and trims each item’s event history. The default policy keeps
 2,000 terminal jobs, archived items for 90 days, 500 events per item, and the
 newest 3 source snapshots per topic.
 
+After opening and migrating the pipeline store, but before sharing it with any
+writer, startup checks SQLite's freelist. It runs a full `VACUUM` only when at
+least 20 percent and 16 MiB of the file are reclaimable, then checkpoints the
+compact image from WAL into the main file. This maintenance is best-effort:
+measurement or compaction failures are logged and startup continues.
+
 ## Observation ingestion
 
 `pipeline.Producer` reloads enabled sources on each tick. A GitHub source uses
