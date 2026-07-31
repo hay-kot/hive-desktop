@@ -7,6 +7,7 @@ import IconKeyboard from '~icons/lucide/keyboard'
 import IconPalette from '~icons/lucide/palette'
 import IconPlug from '~icons/lucide/plug'
 import IconPlay from '~icons/lucide/play'
+import IconTerminal from '~icons/lucide/terminal'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconSettings from '~icons/lucide/settings'
@@ -16,6 +17,7 @@ import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
+import LauncherSettingsView from './LauncherSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
 import SkillsSettingsView from './SkillsSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
@@ -52,6 +54,7 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
+  launchers: { label: 'Launchers', title: 'Launchers', icon: IconTerminal },
   skills: { label: 'Skills', title: 'Skills', icon: IconSparkles },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
@@ -223,6 +226,7 @@ function onTerminalPoolSizeChange(value: string): void {
       <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
 
       <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
+      <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
 
       <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
 

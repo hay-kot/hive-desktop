@@ -12,15 +12,15 @@ import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
 import EmptyState from './settings/EmptyState.vue'
 import SettingsSection from './settings/SettingsSection.vue'
-import { commandCatalog } from '../keybindings/catalog'
+import { commands } from '../keybindings/catalog'
 import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
 
 const kb = useKeybindings()
 const filter = ref('')
 const capturingId = ref<string | null>(null)
 
-const catalogById = new Map(commandCatalog.map((command) => [command.id, command]))
-const titleFor = (id: string) => catalogById.get(id)?.title ?? id
+const catalogById = computed(() => new Map(commands.value.map((command) => [command.id, command])))
+const titleFor = (id: string) => catalogById.value.get(id)?.title ?? id
 
 interface Row { id: string; title: string; combos: string[]; overridden: boolean }
 interface Group { group: string; rows: Row[] }
@@ -28,7 +28,7 @@ interface Group { group: string; rows: Row[] }
 const groups = computed<Group[]>(() => {
   const query = filter.value.trim().toLowerCase()
   const byGroup = new Map<string, Row[]>()
-  for (const command of commandCatalog) {
+  for (const command of commands.value) {
     const combos = kb.bindings.value[command.id] ?? []
     if (query) {
       const haystack = [command.title, command.group, ...(command.keywords ?? []), ...combos.map((c) => formatCombo(c))]

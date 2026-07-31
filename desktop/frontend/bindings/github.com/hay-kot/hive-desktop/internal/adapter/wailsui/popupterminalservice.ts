@@ -14,6 +14,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as app$0 from "../../app/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -30,4 +34,15 @@ export function Available(): $CancellablePromise<$models.PopupTerminalAvailabili
  */
 export function Endpoint(): $CancellablePromise<$models.PopupTerminalEndpoint> {
     return $Call.ByID(1537852312);
+}
+
+/**
+ * Launchers reports the configured launchers — the launchers list in
+ * actions.yml — for the command palette and the keybindings editor. It crosses
+ * the bridge rather than the HTTP surface because it is read on every
+ * actions:updated whether or not a pop-up has ever been opened, and because
+ * what it answers is config, not terminal.
+ */
+export function Launchers(): $CancellablePromise<app$0.PopupLauncher[] | null> {
+    return $Call.ByID(3692978410);
 }

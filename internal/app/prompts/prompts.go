@@ -312,8 +312,9 @@ func actionsData(Env, Input) (map[string]any, error) {
 		docs = append(docs, nodeTypeDoc{Type: actionType, Doc: strings.TrimSpace(doc)})
 	}
 	return map[string]any{
-		"Types":   docs,
-		"Example": strings.TrimSpace(actions.ExampleYAML()),
+		"Types":       docs,
+		"LauncherDoc": strings.TrimSpace(actions.LauncherDoc()),
+		"Example":     strings.TrimSpace(actions.ExampleYAML()),
 	}, nil
 }
 

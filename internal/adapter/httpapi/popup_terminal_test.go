@@ -164,6 +164,40 @@ func TestPopupTerminalOpensAndEchoesOverTheWire(t *testing.T) {
 	assert.True(t, closeBody.Closed)
 }
 
+// A launcher is opened by id, and the command it runs comes back from the
+// catalog rather than from the caller — which is the whole reason the wire
+// carries an id at all.
+func TestPopupTerminalOpensAConfiguredLauncher(t *testing.T) {
+	h := newTerminalHarness(t)
+
+	listed := h.post(t, PopupTerminalPathPrefix+"launchers", testToken, struct{}{})
+	defer func() { _ = listed.Body.Close() }()
+	require.Equal(t, http.StatusOK, listed.StatusCode)
+
+	var launchers popupLauncherListResponse
+	require.NoError(t, json.NewDecoder(listed.Body).Decode(&launchers))
+	require.Contains(t, launchers.Launchers, popupLauncher{ID: "lazygit", Label: "lazygit", Icon: "git-branch"},
+		"the seeded catalog demonstrates a launcher")
+
+	dir := t.TempDir()
+	opened := h.post(t, PopupTerminalPathPrefix+"open", testToken, map[string]any{"launcher": "lazygit", "dir": dir})
+	defer func() { _ = opened.Body.Close() }()
+	require.Equal(t, http.StatusOK, opened.StatusCode)
+
+	var term popupTerminal
+	require.NoError(t, json.NewDecoder(opened.Body).Decode(&term))
+	assert.Equal(t, "lazygit", term.Command)
+	assert.Equal(t, dir, term.Dir)
+
+	conflict := h.post(t, PopupTerminalPathPrefix+"open", testToken, map[string]any{"launcher": "lazygit", "command": "rm -rf /"})
+	defer func() { _ = conflict.Body.Close() }()
+	assert.Equal(t, http.StatusBadRequest, conflict.StatusCode, "a launcher brings its own command")
+
+	unknown := h.post(t, PopupTerminalPathPrefix+"open", testToken, map[string]any{"launcher": "no-such-launcher"})
+	defer func() { _ = unknown.Body.Close() }()
+	assert.Equal(t, http.StatusNotFound, unknown.StatusCode)
+}
+
 // One socket carries one terminal, so an output frame is a tag and the bytes —
 // no ids to parse and nothing for the renderer to decode before writing.
 func TestPopupFramesCarryNoIDs(t *testing.T) {

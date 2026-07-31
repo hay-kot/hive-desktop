@@ -62,6 +62,15 @@ func (s *PopupTerminalService) Available(ctx context.Context) PopupTerminalAvail
 	return PopupTerminalAvailability{Available: true}
 }
 
+// Launchers reports the configured launchers — the launchers list in
+// actions.yml — for the command palette and the keybindings editor. It crosses
+// the bridge rather than the HTTP surface because it is read on every
+// actions:updated whether or not a pop-up has ever been opened, and because
+// what it answers is config, not terminal.
+func (s *PopupTerminalService) Launchers(ctx context.Context) ([]app.PopupLauncher, error) {
+	return s.terminals.Launchers(ctx)
+}
+
 // Endpoint reports where the pop-up's surface is reachable, or KindUnavailable
 // when this run has no loopback server or no token to reach it with.
 func (s *PopupTerminalService) Endpoint(ctx context.Context) (PopupTerminalEndpoint, error) {

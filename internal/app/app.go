@@ -337,7 +337,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
-	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions)
+	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 
 	return a, nil
 }

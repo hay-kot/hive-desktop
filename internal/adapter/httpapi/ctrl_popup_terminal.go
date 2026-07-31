@@ -24,6 +24,10 @@ const (
 )
 
 type popupOpenRequest struct {
+	// Launcher names a configured launcher to open, supplying the command and —
+	// when it configures one — the directory. Sending the id rather than the
+	// command is what keeps a launcher's definition the catalog's answer.
+	Launcher string `json:"launcher"`
 	// SessionSlug opens the terminal in that hive session's checkout. It wins
 	// over Dir; with neither, the terminal opens in the user's home directory.
 	SessionSlug string `json:"sessionSlug"`
@@ -41,6 +45,18 @@ func (b popupOpenRequest) Validate() error {
 		criterio.Run("dir", b.Dir, criterio.StrMax(maxPopupDir)),
 		criterio.Run("command", b.Command, criterio.StrMax(maxPopupCommand)),
 	)
+}
+
+// popupLauncher is one configured launcher. What it runs is absent by design:
+// a caller opens it by id.
+type popupLauncher struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Icon  string `json:"icon"`
+}
+
+type popupLauncherListResponse struct {
+	Launchers []popupLauncher `json:"launchers"`
 }
 
 type popupIDRequest struct {
@@ -103,6 +119,7 @@ func (ctrl *Controller) PopupTerminalOpen(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	term, err := ctrl.core.PopupTerminals.Open(r.Context(), app.OpenPopupTerminal{
+		Launcher:    body.Launcher,
 		SessionSlug: body.SessionSlug,
 		Dir:         body.Dir,
 		Command:     body.Command,
@@ -113,6 +130,22 @@ func (ctrl *Controller) PopupTerminalOpen(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	return server.JSON(w, http.StatusOK, toPopupTerminal(term))
+}
+
+// PopupTerminalLaunchers answers the configured launchers, in catalog order.
+func (ctrl *Controller) PopupTerminalLaunchers(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	launchers, err := ctrl.core.PopupTerminals.Launchers(r.Context())
+	if err != nil {
+		return err
+	}
+	out := make([]popupLauncher, 0, len(launchers))
+	for _, l := range launchers {
+		out = append(out, popupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon})
+	}
+	return server.JSON(w, http.StatusOK, popupLauncherListResponse{Launchers: out})
 }
 
 // PopupTerminalClose ends a terminal and every process in it.

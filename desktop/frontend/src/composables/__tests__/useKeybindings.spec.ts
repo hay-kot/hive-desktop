@@ -170,9 +170,56 @@ describe('effective keymap', () => {
   })
 })
 
+describe('launcher commands', () => {
+  // A launcher is a terminal-popup action, so it joins the catalog only once
+  // actions.yml has been read — which is after settings.yaml has.
+  it('binds a launcher registered after the overrides were read', async () => {
+    seedStoredOverrides({ 'launcher.lazygit': ['alt+g'] })
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    const { setLauncherCommands } = await import('../../keybindings/catalog')
+    initializeKeybindings()
+    await vi.waitFor(() => expect(settings.get).toHaveBeenCalled())
+
+    const kb = useKeybindings()
+    expect(kb.resolve('alt+g')).toBeNull()
+
+    setLauncherCommands([
+      { id: 'launcher.lazygit', title: 'lazygit', group: 'Launchers', defaultCombos: [], context: 'global' },
+    ])
+    expect(kb.resolve('alt+g')).toBe('launcher.lazygit')
+  })
+
+  // Persisting drops whatever the override map does not hold, so a launcher
+  // binding erased at load would be erased from settings.yaml by the next
+  // unrelated rebind.
+  it('keeps a launcher override through a rebind made before its catalog loaded', async () => {
+    seedStoredOverrides({ 'launcher.lazygit': ['alt+g'] })
+    const { useKeybindings, initializeKeybindings } = await import('../useKeybindings')
+    initializeKeybindings()
+    await vi.waitFor(() => expect(settings.get).toHaveBeenCalled())
+
+    useKeybindings().addBinding('feed.next', 'g')
+    await vi.waitFor(() => expect(lastPersisted()).toEqual({
+      'launcher.lazygit': ['alt+g'],
+      'feed.next': ['j', 'arrowdown', 'g'],
+    }))
+  })
+
+  // Catalog order is what resolves a shared combo, and launchers come last, so
+  // a config file cannot take a built-in shortcut away from the app.
+  it('does not let a launcher shadow a built-in combo', async () => {
+    const { useKeybindings } = await import('../useKeybindings')
+    const { setLauncherCommands } = await import('../../keybindings/catalog')
+    setLauncherCommands([
+      { id: 'launcher.thief', title: 'Thief', group: 'Launchers', defaultCombos: ['mod+k'], context: 'global' },
+    ])
+    expect(useKeybindings().resolve('mod+k')).toBe('palette.toggle')
+  })
+})
+
 describe('override storage sanitization', () => {
   // settings.yaml is hand-editable, so anything can arrive here.
-  it('drops unknown ids, non-arrays, and non-string combos on load', async () => {
+  it('drops non-arrays and non-string combos on load, and never binds an unknown id', async () => {
     seedStoredOverrides({
       'feed.next': ['g'],
       'unknown.id': ['x'],
@@ -186,7 +233,9 @@ describe('override storage sanitization', () => {
     const kb = useKeybindings()
     expect(kb.bindings.value['feed.refresh']).toEqual(['r']) // 123 dropped, dupe collapsed
     expect(kb.bindings.value['feed.prev']).toEqual(['k', 'arrowup']) // invalid → default
-    expect(kb.resolve('x')).toBeNull() // unknown id never bound
+    // Kept in the override map — it may be a launcher whose catalog has not
+    // arrived — but it resolves to nothing until something claims the id.
+    expect(kb.resolve('x')).toBeNull()
   })
 
   it('falls back to defaults for a malformed or non-object section', async () => {

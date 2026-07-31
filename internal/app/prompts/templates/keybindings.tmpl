@@ -41,7 +41,13 @@ flag it. Commands in different contexts may share a combo safely.
 | --- | --- | --- | --- | --- |
 {{range .Commands}}| `{{.ID}}` | {{.Title}} | {{.Group}} | {{.Context}} | {{if .DefaultCombos}}{{range $i, $c := .DefaultCombos}}{{if $i}}, {{end}}`{{$c}}`{{end}}{{else}}(unbound){{end}} |
 {{end}}
-Only these ids are bindable. Anything else in the app — switching profiles,
-selecting a feed, jumping to a node — is data rather than a command and cannot
-be bound.
+Beyond these, every **launcher** — an entry in the `launchers` list of
+{{.Env.ActionsPath}} — is bindable under `launcher.<launcher-id>`, unbound
+until you bind it. A launcher with `id: lazygit` is bound with
+`launcher.lazygit: [alt+g]`, and the chord opens the pop-up terminal straight
+into that program, in the checkout of the session on screen. Any launcher
+already configured appears in the table above.
+
+Nothing else in the app is bindable — switching profiles, selecting a feed,
+jumping to a node is data rather than a command.
 {{template "task" .}}

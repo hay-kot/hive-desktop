@@ -12,17 +12,20 @@ import type {
   SkillsSyncResult,
   SkillsTargetResult,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/models'
-import { commandCatalog } from '../keybindings/catalog'
+import { commands } from '../keybindings/catalog'
 
 // The Skills settings surface installs the paste-ready prompts as agent skills.
 // Management is per agent, all-or-nothing: install every skill to an agent or
 // remove them all. Like usePrompts it supplies the one fact Go cannot know — the
 // bindable command catalog the keyboard-shortcuts skill renders from — and is
 // otherwise transport, updating the same reactive catalog on every call.
+//
+// The catalog it sends includes the user's own launchers, so the shortcuts
+// skill an agent reads lists the launcher ids it can actually bind.
 
 function promptInput() {
   return {
-    commands: commandCatalog.map((command) => ({
+    commands: commands.value.map((command) => ({
       id: command.id,
       title: command.title,
       group: command.group,

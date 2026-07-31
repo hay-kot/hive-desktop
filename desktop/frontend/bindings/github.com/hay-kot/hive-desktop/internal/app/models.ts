@@ -36,6 +36,16 @@ export interface Integration {
 }
 
 /**
+ * PopupLauncher is one configured launcher, as much of it as a menu needs.
+ * What it runs is deliberately absent: a caller invokes it by id.
+ */
+export interface PopupLauncher {
+    "id": string;
+    "label": string;
+    "icon": string;
+}
+
+/**
  * SkillEntry is one installable skill, shown as an informational list entry with
  * its preview text. The install state is per agent, not per skill, so it lives on
  * SkillTarget rather than here.

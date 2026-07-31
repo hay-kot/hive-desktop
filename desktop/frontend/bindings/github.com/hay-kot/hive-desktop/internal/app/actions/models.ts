@@ -30,9 +30,14 @@ export interface EditableAction {
  * EditableCatalog returns the effective last-good catalog and any error from
  * parsing the latest file. It lets the settings UI remain useful while making
  * a hand-edited malformed actions.yml visible to the user.
+ * 
+ * Launchers ride along rather than getting a read of their own: they are the
+ * other list in the same file, so one parse answers for both and a single
+ * Error describes whatever is wrong with it.
  */
 export interface EditableCatalog {
     "actions": EditableAction[] | null;
+    "launchers": Launcher[] | null;
     "error": string;
 }
 
@@ -102,6 +107,52 @@ export interface InputSpec {
      * Options is the closed value set of a select input.
      */
     "options": string[] | null;
+}
+
+/**
+ * Launcher is a named command that opens in the pop-up terminal (ADR 0048),
+ * reached from the command palette or a keybinding of its own.
+ * 
+ * It shares actions.yml with the action catalog — one file, one loader, one
+ * watcher, one place a user edits — but it is not an action and does not
+ * pretend to be one: it never reaches the dispatcher, has no executor, no exit
+ * status and no job, and none of the action envelope (`targets`, `applies_to`,
+ * `show_in_detail`, `inputs`) means anything to it (ADR 0049).
+ * 
+ * Neither Command nor Cwd is a template. There is no triggering item to render
+ * over, and none is needed: the command runs through a login shell in the
+ * working directory, so a user's PATH, aliases, functions and $PWD already
+ * resolve it.
+ */
+export interface Launcher {
+    /**
+     * ID names the launcher, and is what its bindable command id is built from
+     * — `launcher.<id>` in settings.yaml's keybindings.
+     */
+    "id": string;
+
+    /**
+     * Label is the human-readable name shown in the command palette.
+     */
+    "label": string;
+
+    /**
+     * Command is the shell command line the terminal opens into.
+     */
+    "command": string;
+
+    /**
+     * Cwd pins the launcher to one directory. Empty means the checkout of the
+     * session on screen, then the user's home — the pop-up's own resolution
+     * order — which is what makes a launcher follow the session you are in.
+     */
+    "cwd"?: string;
+
+    /**
+     * Icon is the glyph the command palette shows, from the launcher set in
+     * internal/app/icons. Empty means the terminal glyph.
+     */
+    "icon"?: string;
 }
 
 /**

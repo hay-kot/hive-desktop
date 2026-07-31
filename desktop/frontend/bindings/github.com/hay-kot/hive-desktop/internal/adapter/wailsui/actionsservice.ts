@@ -18,8 +18,16 @@ export function CreateAction(a: actions$0.EditableAction): $CancellablePromise<a
     return $Call.ByID(1408174538, a);
 }
 
+export function CreateLauncher(l: actions$0.Launcher): $CancellablePromise<actions$0.Launcher> {
+    return $Call.ByID(3044189440, l);
+}
+
 export function DeleteAction(id: string): $CancellablePromise<void> {
     return $Call.ByID(1950457013, id);
+}
+
+export function DeleteLauncher(id: string): $CancellablePromise<void> {
+    return $Call.ByID(3346266471, id);
 }
 
 export function GetAction(id: string): $CancellablePromise<actions$0.EditableAction> {
@@ -40,4 +48,8 @@ export function ReorderActions(ids: string[] | null): $CancellablePromise<void> 
 
 export function UpdateAction(id: string, a: actions$0.EditableAction): $CancellablePromise<actions$0.EditableAction> {
     return $Call.ByID(1928360735, id, a);
+}
+
+export function UpdateLauncher(id: string, l: actions$0.Launcher): $CancellablePromise<actions$0.Launcher> {
+    return $Call.ByID(3714129585, id, l);
 }

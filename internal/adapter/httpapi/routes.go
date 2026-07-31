@@ -81,10 +81,15 @@ func (ctrl *Controller) operations() []Op {
 func (ctrl *Controller) popupTerminalOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: PopupTerminalPathPrefix + "open", Summary: "Open an ephemeral terminal and return it. The directory is resolved in order — sessionSlug's checkout, then dir, then the user's home. command is a shell command line run through a login shell, so a user's aliases, functions and PATH resolve it; empty opens an interactive shell. The terminal is this process's child: it has no name outside this run, nothing else can attach to it, and it ends when it is closed or when Hive exits. The data plane is a WebSocket served at " + PopupTerminalStreamPath + ", outside this operations table.",
+			Method: "POST", Path: PopupTerminalPathPrefix + "open", Summary: "Open an ephemeral terminal and return it. The directory is resolved in order — the launcher's own cwd, sessionSlug's checkout, then dir (a leading ~ is expanded), then the user's home. command is a shell command line run through a login shell, so a user's aliases, functions and PATH resolve it; empty opens an interactive shell. launcher names a configured launcher (the launchers list in actions.yml) to open instead, and brings its own command. The terminal is this process's child: it has no name outside this run, nothing else can attach to it, and it ends when it is closed or when Hive exits. The data plane is a WebSocket served at " + PopupTerminalStreamPath + ", outside this operations table.",
 			Request: popupOpenRequest{}, Response: popupTerminal{}, Handler: ctrl.PopupTerminalOpen,
-			Errors: popupTerminalErrors("no hive session carries that slug",
+			Errors: popupTerminalErrors("no hive session carries that slug, or no launcher carries that id",
 				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
+		},
+		{
+			Method: "POST", Path: PopupTerminalPathPrefix + "launchers", Summary: "List the configured launchers — the launchers list in actions.yml — in file order. What each one runs is deliberately absent: open it by id.",
+			Response: popupLauncherListResponse{}, Handler: ctrl.PopupTerminalLaunchers,
+			Errors: popupTerminalErrors(""),
 		},
 		{
 			Method: "POST", Path: PopupTerminalPathPrefix + "close", Summary: "End a terminal and every process in it, and report whether there was one to close. An id whose process already exited answers closed=false rather than failing: an exited terminal is dropped, not kept.",

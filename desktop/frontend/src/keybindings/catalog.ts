@@ -1,4 +1,4 @@
-import type { Component } from 'vue'
+import { computed, ref, type Component, type ComputedRef } from 'vue'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconArrowUp from '~icons/lucide/arrow-up'
 import IconBug from '~icons/lucide/bug'
@@ -17,6 +17,12 @@ import IconTerminal from '~icons/lucide/terminal'
 // the command palette. Dynamic palette entries (switch profile, select feed,
 // jump to node) are data, not commands, and are NOT bindable, so they live in
 // App.vue's palette registration rather than here.
+//
+// Launchers are the one exception, and they are commands rather than data: a
+// `terminal-popup` action exists to be reached by a chord of its own, so each
+// one contributes a `launcher.<action-id>` command through setLauncherCommands
+// below. Read `commands` — not `commandCatalog` — anywhere the answer has to
+// include them.
 //
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
 // only run when the feed is actually on screen; `global` commands run anywhere.
@@ -166,3 +172,37 @@ export const commandCatalog: BindableCommand[] = [
     context: 'global',
   },
 ]
+
+// The namespace a launcher's bindable command id lives in — `launcher.lazygit`
+// for the action `lazygit`. It is what a user writes in settings.yaml, so it is
+// as much a part of the config contract as the action id itself.
+const LAUNCHER_PREFIX = 'launcher.'
+
+export function launcherCommandID(actionID: string): string {
+  return LAUNCHER_PREFIX + actionID
+}
+
+/** The action id behind a launcher command, or null for any other command. */
+export function launcherActionID(commandID: string): string | null {
+  return commandID.startsWith(LAUNCHER_PREFIX) ? commandID.slice(LAUNCHER_PREFIX.length) : null
+}
+
+const launcherCommands = ref<BindableCommand[]>([])
+
+/**
+ * Replaces the launcher commands, which change whenever actions.yml does.
+ * Called by useLaunchers; everything else reads `commands`.
+ */
+export function setLauncherCommands(next: BindableCommand[]): void {
+  launcherCommands.value = next
+}
+
+/**
+ * Every bindable command: the static catalog above followed by the configured
+ * launchers. Launchers come last so a combo they share with a built-in resolves
+ * to the built-in — a config file must not be able to take `mod+k` away from
+ * the palette.
+ */
+export const commands: ComputedRef<BindableCommand[]> = computed(
+  () => [...commandCatalog, ...launcherCommands.value],
+)

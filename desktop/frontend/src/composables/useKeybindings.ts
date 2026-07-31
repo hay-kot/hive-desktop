@@ -3,7 +3,7 @@ import {
   KeybindingSettings as GetKeybindingSettings,
   SetKeybindingSettings,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
-import { commandCatalog } from '../keybindings/catalog'
+import { commands } from '../keybindings/catalog'
 
 // The frontend keybinding layer. Pure normalization (comboFromEvent /
 // formatCombo) is separate from the effective keymap so both are unit-testable
@@ -14,9 +14,9 @@ import { commandCatalog } from '../keybindings/catalog'
 
 type Overrides = Record<string, string[]>
 
-const KNOWN_IDS = new Set(commandCatalog.map((c) => c.id))
-const DEFAULT_COMBOS: Record<string, string[]> = Object.fromEntries(
-  commandCatalog.map((c) => [c.id, c.defaultCombos]),
+const knownIDs = computed(() => new Set(commands.value.map((c) => c.id)))
+const defaultCombos = computed<Record<string, string[]>>(
+  () => Object.fromEntries(commands.value.map((c) => [c.id, c.defaultCombos])),
 )
 
 const MODIFIER_ORDER = ['mod', 'ctrl', 'alt', 'shift'] as const
@@ -134,11 +134,15 @@ function capitalize(value: string): string {
 
 // ─── Persisted overrides (module singleton) ────────────────────────────────────
 
+// An unknown id is kept, not dropped. Launcher commands come from actions.yml
+// and are not known until the catalog has loaded, which is after this runs —
+// dropping them here would erase a user's launcher bindings from settings.yaml
+// on their next rebind. An id that stays unknown simply never resolves.
 function sanitizeOverrides(value: unknown): Overrides {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
   const out: Overrides = {}
   for (const [id, combos] of Object.entries(value as Record<string, unknown>)) {
-    if (!KNOWN_IDS.has(id) || !Array.isArray(combos)) continue
+    if (!Array.isArray(combos)) continue
     const clean: string[] = []
     for (const combo of combos) {
       if (typeof combo !== 'string') continue
@@ -215,9 +219,9 @@ const recording = ref(false)
 
 const effectiveBindings = computed<Record<string, string[]>>(() => {
   const result: Record<string, string[]> = {}
-  for (const command of commandCatalog) {
+  for (const command of commands.value) {
     const override = overrides.value[command.id]
-    result[command.id] = override !== undefined ? override : DEFAULT_COMBOS[command.id]
+    result[command.id] = override !== undefined ? override : defaultCombos.value[command.id]
   }
   return result
 })
@@ -226,7 +230,7 @@ const effectiveBindings = computed<Record<string, string[]>>(() => {
 // commands share a combo (the conflict is surfaced in the settings UI).
 const reverseMap = computed<Map<string, string>>(() => {
   const map = new Map<string, string>()
-  for (const command of commandCatalog) {
+  for (const command of commands.value) {
     for (const combo of effectiveBindings.value[command.id]) {
       if (!map.has(combo)) map.set(combo, command.id)
     }
@@ -248,7 +252,7 @@ function setCombos(id: string, combos: string[]): void {
 
 function addBinding(id: string, combo: string): void {
   const canon = canonicalizeCombo(combo)
-  if (!canon || !KNOWN_IDS.has(id)) return
+  if (!canon || !knownIDs.value.has(id)) return
   const current = combosFor(id)
   if (current.includes(canon)) return
   setCombos(id, [...current, canon])
@@ -278,7 +282,7 @@ function conflicts(combo: string, excludeId?: string): string[] {
   const canon = canonicalizeCombo(combo)
   if (!canon) return []
   const ids: string[] = []
-  for (const command of commandCatalog) {
+  for (const command of commands.value) {
     if (command.id === excludeId) continue
     if (effectiveBindings.value[command.id].includes(canon)) ids.push(command.id)
   }

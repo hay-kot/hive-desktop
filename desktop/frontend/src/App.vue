@@ -38,8 +38,10 @@ import { useCommands, useCommandPalette, type Command } from './composables/useC
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
+import { useLaunchers } from './composables/useLaunchers'
+import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, useKeybindings } from './composables/useKeybindings'
-import { commandCatalog } from './keybindings/catalog'
+import { commands as bindableCommands, launcherActionID } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -739,6 +741,22 @@ function togglePopupTerminal(): void {
   popupTerminal.toggle({ sessionSlug: popupTerminalSlug.value || undefined })
 }
 
+// A launcher is the pop-up opened straight into a program. It follows the
+// session on screen exactly as the bare shell does — that is what makes one
+// chord mean "lazygit here" wherever you are — unless the launcher pins itself
+// to a directory, which the core decides from the catalog.
+function toggleLauncher(actionID: string): void {
+  popupTerminalMounted.value = true
+  popupTerminal.toggle({ launcher: actionID, sessionSlug: popupTerminalSlug.value || undefined })
+}
+
+// The launchers are read here rather than by the panel: they are commands in
+// the palette and the keymap whether or not a pop-up has ever been opened, so
+// they have to be known before the first one is invoked.
+const launchers = useLaunchers()
+onMounted(() => { void launchers.refresh() })
+useWailsEvent('actions:updated', () => { void launchers.refresh() })
+
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
 // implementation and the palette can show its live shortcut.
@@ -759,7 +777,20 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'session.new': openNewSession,
   'window.hide': hideWindow,
 }
-const catalogById = new Map(commandCatalog.map((command) => [command.id, command]))
+
+// Resolves a command id to its implementation. Launchers are not in runMap:
+// they come from actions.yml, so there is one implementation parameterised by
+// the action id rather than an entry per launcher.
+function runCommand(id: string): void {
+  const launcher = launcherActionID(id)
+  if (launcher !== null) {
+    toggleLauncher(launcher)
+    return
+  }
+  void runMap[id]?.()
+}
+
+const catalogById = computed(() => new Map(bindableCommands.value.map((command) => [command.id, command])))
 
 // The feed only accepts bare navigation keys when it is actually the on-screen
 // view (matches the condition under which <FeedList> renders below).
@@ -776,8 +807,9 @@ const anyOverlayOpen = computed(() =>
 useCommands(computed(() => {
   const cmds: Command[] = []
 
-  // Bindable app commands (nav, refresh, …) with their live shortcut hint.
-  for (const command of commandCatalog) {
+  // Bindable app commands (nav, refresh, …) and the configured launchers, each
+  // with its live shortcut hint.
+  for (const command of bindableCommands.value) {
     if (command.paletteHidden) continue
     cmds.push({
       id: command.id,
@@ -786,7 +818,7 @@ useCommands(computed(() => {
       keywords: command.keywords,
       icon: command.icon,
       hint: formatCombo(kb.bindings.value[command.id]?.[0] ?? ''),
-      run: () => runMap[command.id]?.(),
+      run: () => runCommand(command.id),
     })
   }
 
@@ -876,13 +908,18 @@ useCommands(computed(() => {
 // only fire on the feed; overlays suppress everything but the palette toggle.
 
 function onGlobalKeydown(e: KeyboardEvent): void {
-  // The pop-up's own shortcut is the exception to the rule below: the combo
-  // that opens it has to be able to close it, and by then a terminal has focus.
-  // An overlay still suppresses it, the same as every other global command.
-  if (!kb.recording.value && !anyOverlayOpen.value && kb.resolve(comboFromEvent(e) ?? '') === 'terminal.popup.toggle') {
-    e.preventDefault()
-    togglePopupTerminal()
-    return
+  // The pop-up's own shortcuts are the exception to the rule below: the combo
+  // that opens one has to be able to close it, and by then a terminal has
+  // focus. A launcher's chord is one of these for the same reason — quitting
+  // lazygit is not the only way you should be able to put it away. An overlay
+  // still suppresses them, the same as every other global command.
+  if (!kb.recording.value && !anyOverlayOpen.value) {
+    const id = kb.resolve(comboFromEvent(e) ?? '')
+    if (id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)) {
+      e.preventDefault()
+      runCommand(id)
+      return
+    }
   }
 
   // A focused terminal owns every key, modifiers included, so tmux prefixes
@@ -899,7 +936,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (!combo) return
   const id = kb.resolve(combo)
   if (!id) return
-  const command = catalogById.get(id)
+  const command = catalogById.value.get(id)
   if (!command) return
 
   const mods = combo.split('+')
@@ -910,7 +947,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (command.context === 'feed' && !feedNavActive.value) return
 
   e.preventDefault()
-  void runMap[id]?.()
+  runCommand(id)
 }
 
 function isHistoryMouseButton(e: MouseEvent): boolean {

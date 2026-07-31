@@ -32,9 +32,38 @@ var feed = map[string]bool{
 	"clock":            true,
 }
 
+// launcher is the scoped set of glyphs a pop-up terminal launcher may carry in
+// the command palette. It is its own set rather than a share of feed's: these
+// name programs and tasks, not the kinds of thing a feed carries. It must stay
+// in sync with desktop/frontend/src/lib/launcherIcons.ts.
+var launcher = map[string]bool{
+	"terminal":      true,
+	"git-branch":    true,
+	"git-compare":   true,
+	"folder":        true,
+	"file-text":     true,
+	"search":        true,
+	"database":      true,
+	"gauge":         true,
+	"activity":      true,
+	"flask-conical": true,
+	"hammer":        true,
+	"container":     true,
+	"cloud":         true,
+	"bug":           true,
+	"zap":           true,
+	"package":       true,
+}
+
 // ValidFeed reports whether name is a supported feed glyph. The empty string
 // means "use the default" and is always allowed, so callers can validate an
 // optional field without special-casing it.
 func ValidFeed(name string) bool {
 	return name == "" || feed[name]
+}
+
+// ValidLauncher reports whether name is a supported launcher glyph, on the same
+// terms as ValidFeed.
+func ValidLauncher(name string) bool {
+	return name == "" || launcher[name]
 }

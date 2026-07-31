@@ -34,8 +34,13 @@ export interface PopupTerminalState {
   rows: number
 }
 
-/** What a launch asks for. An empty command opens an interactive shell. */
+/**
+ * What a launch asks for. An empty command opens an interactive shell.
+ * `launcher` is a configured terminal-popup action id and brings its own
+ * command — what it runs is the core's answer, never sent from here.
+ */
 export interface PopupTerminalRequest {
+  launcher?: string
   sessionSlug?: string
   dir?: string
   command?: string

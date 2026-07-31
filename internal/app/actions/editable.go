@@ -29,9 +29,14 @@ type EditableAction struct {
 // EditableCatalog returns the effective last-good catalog and any error from
 // parsing the latest file. It lets the settings UI remain useful while making
 // a hand-edited malformed actions.yml visible to the user.
+//
+// Launchers ride along rather than getting a read of their own: they are the
+// other list in the same file, so one parse answers for both and a single
+// Error describes whatever is wrong with it.
 type EditableCatalog struct {
-	Actions []EditableAction `json:"actions"`
-	Error   string           `json:"error"`
+	Actions   []EditableAction `json:"actions"`
+	Launchers []Launcher       `json:"launchers"`
+	Error     string           `json:"error"`
 }
 
 type EditableLaunchConfig struct {

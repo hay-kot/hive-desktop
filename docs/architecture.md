@@ -361,7 +361,7 @@ has per-type config.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043, ADR 0047). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043, ADR 0047). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration. A thing that does not dispatch at all is not an action type: the pop-up launchers are their own list in the same file, with their own struct and no envelope (ADR 0049) |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
@@ -891,10 +891,19 @@ Three rules govern it, and each is a consequence of that:
   Nothing else can attach to it and nothing outlives the run, so there is no
   registry to keep in step with hive.
 - **A launch is a directory and a shell command line.** The directory resolves
-  session checkout → explicit path → home; the command runs through a login
-  shell so the user's own PATH and aliases resolve it (ADR 0041), and empty
-  means an interactive shell. A named launcher is that spec with config in front
-  of it — add the config, not another launch path.
+  launcher cwd → session checkout → explicit path → home; the command runs
+  through a login shell so the user's own PATH and aliases resolve it (ADR
+  0041), and empty means an interactive shell. A named launcher is that spec
+  with config in front of it — add the config, not another launch path.
+- **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
+  (ADR 0049). It is deliberately *not* an action: every surface in the `targets`
+  vocabulary dispatches and a pop-up does not, so it shares the file — one
+  loader, one watcher, one last-good reload — and none of the action envelope.
+  Its `command` and `cwd` are used as written rather than rendered, because a
+  login shell in the working directory is the only context a launcher needs.
+  Each one is a bindable command, `launcher.<id>`, unbound by default; a launch
+  that differs from the live one replaces it, since one pop-up is open at a
+  time.
 - **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
   covered by that prefix's bearer token and CORS policy. Its stream carries one
   terminal per socket, so its frames carry no window or pane ids and are not the

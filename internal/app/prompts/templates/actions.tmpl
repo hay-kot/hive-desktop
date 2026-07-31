@@ -2,10 +2,12 @@ Define Hive Desktop actions.
 {{template "app" .}}
 Write the actions to {{.Env.ActionsPath}}.
 
-An action is something the app can trigger on your behalf. It shows up in three
-places: as a button in the detail pane when a feed item is selected, in the
-row menus of terminal mode's sessions and windows, and as the target of a flow
-`action` node, which fires it automatically for every message routed there.
+The file holds two lists. An **action** is something the app can trigger on your
+behalf: it shows up as a button in the detail pane when a feed item is selected,
+in the row menus of terminal mode's sessions and windows, and as the target of a
+flow `action` node, which fires it automatically for every message routed there.
+A **launcher** opens the pop-up terminal into a program and is documented under
+"Launchers" below.
 {{template "yaml-strict" .}}
 ## Top-level schema
 
@@ -19,11 +21,16 @@ row menus of terminal mode's sessions and windows, and as the target of a flow
   - `show_in_detail` — whether the detail pane offers it as a manual button. It too refines the `item` target only. Flow `action` nodes can target the action either way.
   - `inputs` — optional list of values collected from the user when the action is run, each `{name, label, type, required, default, placeholder, options}`. `name` must be a template identifier (letters, digits, underscores) because it is read as `{{"{{ .Inputs.<name> }}"}}`; `type` is `text` (default), `multiline`, or `select`; `options` is required for — and only valid on — a `select`, and a `default` must be one of them. An action with a required input that has no default can only be run by a person — from the detail pane or a terminal row menu; a flow `action` node cannot fire it, because there is nobody to ask.
   - plus that type's own fields, **flattened at the same level** — not nested under a `config:` key.
+- `launchers` — the other list, in palette order. A launcher is not an action and carries none of the keys above beyond `id` and `label`; see "Launchers" below for its schema.
 {{template "template-data" .}}
 ## Action types
 {{range .Types}}
 {{section 3 .Type .Doc}}
 {{end}}
+## Launchers
+
+{{.LauncherDoc}}
+
 ## Worked example
 
 A complete, valid actions.yml demonstrating every type:

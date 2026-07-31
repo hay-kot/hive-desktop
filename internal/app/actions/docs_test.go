@@ -32,14 +32,15 @@ func TestActionDocsCoverEveryRegisteredType(t *testing.T) {
 // TestExampleYAMLIsValid keeps the actions prompt's worked example honest: the
 // bytes an agent is shown as a model document have to load cleanly.
 func TestExampleYAMLIsValid(t *testing.T) {
-	parsed, err := parseActions([]byte(ExampleYAML()))
+	parsed, err := parseCatalog([]byte(ExampleYAML()))
 	require.NoError(t, err)
-	require.NotEmpty(t, parsed)
+	require.NotEmpty(t, parsed.Actions)
+	require.NotEmpty(t, parsed.Launchers, "the example does not demonstrate the launchers list")
 
 	// Every registered type should appear, so the example never silently stops
 	// demonstrating a type that was added later.
-	seen := make(map[string]bool, len(parsed))
-	for _, action := range parsed {
+	seen := make(map[string]bool, len(parsed.Actions))
+	for _, action := range parsed.Actions {
 		seen[action.Type] = true
 	}
 	for _, actionType := range Types() {
