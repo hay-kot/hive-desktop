@@ -1,12 +1,15 @@
 <script setup lang="ts">
-import { onUnmounted, ref } from 'vue'
+import { computed, onUnmounted, ref } from 'vue'
 import IconBell from '~icons/lucide/bell'
 import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice'
 import { useNotificationSettings } from '../composables/useNotificationSettings'
 import { notifySeverityMapping, useNotify, type NotifySeverity } from '../composables/useNotify'
 import { useToasts } from '../composables/useToasts'
+import AppCheckbox from './AppCheckbox.vue'
 import AppSelect from './AppSelect.vue'
+import BaseButton from './BaseButton.vue'
 import BaseCard from './BaseCard.vue'
+import SettingsField from './settings/SettingsField.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
@@ -16,15 +19,56 @@ const emit = defineEmits<{ close: [] }>()
 
 type NotificationTestChannel = 'auto' | 'force-toast' | 'force-system'
 
-const severityOptions = (['info', 'success', 'warning', 'error'] as const).map((value) => ({ value, label: value }))
-const channelOptions = (['auto', 'force-toast', 'force-system'] as const).map((value) => ({ value, label: value }))
+type ResultTone = 'ok' | 'warn' | 'error' | 'muted'
+interface TestResult {
+  tone: ResultTone
+  text: string
+}
+
+const severityOptions: Array<{ value: NotifySeverity; label: string }> = [
+  { value: 'info', label: 'Info' },
+  { value: 'success', label: 'Success' },
+  { value: 'warning', label: 'Warning' },
+  { value: 'error', label: 'Error' },
+]
+
+const channelOptions: Array<{ value: NotificationTestChannel; label: string; hint: string }> = [
+  {
+    value: 'auto',
+    label: 'Follow app settings',
+    hint: 'Records in Activity, then follows your delivery preference, window focus and OS permission.',
+  },
+  {
+    value: 'force-toast',
+    label: 'Force an in-app toast',
+    hint: 'Shows a toast right now, bypassing settings, focus and Activity.',
+  },
+  {
+    value: 'force-system',
+    label: 'Force a system banner',
+    hint: 'Asks the OS for a banner right now, bypassing settings, focus and Activity.',
+  },
+]
+
+const resultToneClass: Record<ResultTone, string> = {
+  ok: 'text-severity-success',
+  warn: 'text-severity-warning',
+  error: 'text-severity-error',
+  muted: 'text-text-3',
+}
+
+const delaySeconds = 3
 
 const severity = ref<NotifySeverity>('info')
 const channel = ref<NotificationTestChannel>('auto')
 const delay = ref(false)
-let pendingTimeout: ReturnType<typeof setTimeout> | undefined
+const remaining = ref(0)
+const result = ref<TestResult | null>(null)
+const pending = computed(() => remaining.value > 0)
 
-const { notify } = useNotify()
+let ticker: ReturnType<typeof setInterval> | undefined
+let sequence = 0
+
 const { showToast } = useToasts()
 const { notificationSound } = useNotificationSettings()
 
@@ -42,54 +86,121 @@ function testBody(selectedChannel: NotificationTestChannel): string {
   }
 }
 
-function reportFailure(target: string, error: unknown): void {
-  console.warn(`[dev-view] ${target} notification test failed`, error)
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
-function dispatchTest(selectedChannel = channel.value, selectedSeverity = severity.value): void {
-  pendingTimeout = undefined
+// useNotify picks between a toast, an OS banner and Activity-only from settings
+// and focus, and returns none of that. Wrapping the two seams it already takes
+// as injectable dependencies reports where the notification actually went
+// without re-deriving that decision here, where it would drift.
+async function deliverAuto(selectedSeverity: NotifySeverity, body: string): Promise<TestResult> {
+  const surfaced: Array<'toast' | 'banner'> = []
+  let bannerError: unknown
+
+  const { notify } = useNotify({
+    showToast: (message, options) => {
+      surfaced.push('toast')
+      return showToast(message, options)
+    },
+    osNotify: async (input) => {
+      surfaced.push('banner')
+      try {
+        await NotifyNative(input)
+      } catch (error) {
+        bannerError = error
+        throw error
+      }
+    },
+  })
+
+  try {
+    await notify({ title: testTitle, body, severity: selectedSeverity, category: 'system', source: 'dev-view' })
+  } catch (error) {
+    return { tone: 'error', text: `Notification failed: ${errorText(error)}` }
+  }
+
+  switch (surfaced.at(-1)) {
+    case 'banner':
+      return { tone: 'ok', text: 'Recorded in Activity and shown as a system banner.' }
+    case 'toast':
+      return bannerError === undefined
+        ? { tone: 'ok', text: 'Recorded in Activity and shown as an in-app toast.' }
+        : { tone: 'warn', text: `Recorded in Activity. The system banner failed (${errorText(bannerError)}), so it fell back to an in-app toast.` }
+    default:
+      return { tone: 'muted', text: 'Recorded in Activity only — notifications are switched off, so nothing surfaced.' }
+  }
+}
+
+async function deliver(selectedChannel: NotificationTestChannel, selectedSeverity: NotifySeverity): Promise<TestResult> {
   const body = testBody(selectedChannel)
 
-  if (selectedChannel === 'auto') {
-    void notify({ title: testTitle, body, severity: selectedSeverity, category: 'system', source: 'dev-view' })
-      .catch((error: unknown) => reportFailure('auto', error))
-    return
-  }
+  if (selectedChannel === 'auto') return deliverAuto(selectedSeverity, body)
 
   if (selectedChannel === 'force-toast') {
-    showToast(testTitle, { body, severity: notifySeverityMapping[selectedSeverity].toast })
-    return
+    const id = showToast(testTitle, { body, severity: notifySeverityMapping[selectedSeverity].toast })
+    return { tone: 'ok', text: `Toast #${id} shown in-app. Nothing was recorded in Activity.` }
   }
 
-  void NotifyNative({
-    title: testTitle,
-    subtitle: testSubtitle,
-    body,
-    severity: selectedSeverity,
-    sound: notificationSound.value,
-    data: { source: 'dev-view', channel: 'force-system', severity: selectedSeverity },
-  }).catch((error: unknown) => reportFailure('system', error))
+  try {
+    await NotifyNative({
+      title: testTitle,
+      subtitle: testSubtitle,
+      body,
+      severity: selectedSeverity,
+      sound: notificationSound.value,
+      data: { source: 'dev-view', channel: 'force-system', severity: selectedSeverity },
+    })
+    return { tone: 'ok', text: 'The OS accepted a system banner. Nothing was recorded in Activity.' }
+  } catch (error) {
+    return { tone: 'error', text: `System banner failed: ${errorText(error)}` }
+  }
+}
+
+async function dispatchTest(selectedChannel: NotificationTestChannel, selectedSeverity: NotifySeverity): Promise<void> {
+  const token = ++sequence
+  result.value = { tone: 'muted', text: 'Sending…' }
+  const outcome = await deliver(selectedChannel, selectedSeverity)
+  // A newer send owns the result line by the time a slower one resolves.
+  if (token !== sequence) return
+  result.value = outcome
+}
+
+function stopCountdown(): void {
+  if (ticker !== undefined) clearInterval(ticker)
+  ticker = undefined
+  remaining.value = 0
+}
+
+function cancelPending(): void {
+  if (!pending.value) return
+  stopCountdown()
+  result.value = { tone: 'muted', text: 'Scheduled test cancelled.' }
 }
 
 function sendTest(): void {
-  if (pendingTimeout !== undefined) {
-    clearTimeout(pendingTimeout)
-    pendingTimeout = undefined
-  }
+  stopCountdown()
 
   const selectedChannel = channel.value
   const selectedSeverity = severity.value
-  if (delay.value) {
-    pendingTimeout = setTimeout(() => dispatchTest(selectedChannel, selectedSeverity), 3000)
+  if (!delay.value) {
+    void dispatchTest(selectedChannel, selectedSeverity)
     return
   }
 
-  dispatchTest(selectedChannel, selectedSeverity)
+  // One ticker drives both the countdown and the send, so the number on screen
+  // is the time actually left rather than a second clock beside it.
+  result.value = null
+  remaining.value = delaySeconds
+  ticker = setInterval(() => {
+    remaining.value -= 1
+    if (remaining.value > 0) return
+    stopCountdown()
+    void dispatchTest(selectedChannel, selectedSeverity)
+  }, 1000)
 }
 
-onUnmounted(() => {
-  if (pendingTimeout !== undefined) clearTimeout(pendingTimeout)
-})
+onUnmounted(stopCountdown)
 
 // The header no longer carries a close button, so Escape is the way out.
 useEscapeToClose(() => emit('close'))
@@ -110,48 +221,80 @@ useEscapeToClose(() => emit('close'))
           title="Notifications"
           description="Exercise notification delivery while developing Hive."
         >
-          <BaseCard class="mt-4 rounded-lg border border-border bg-raised" data-testid="dev-notification-test">
+          <BaseCard class="mt-4 items-start rounded-lg border border-border bg-raised" data-testid="dev-notification-test">
             <template #icon>
               <span class="flex size-9 items-center justify-center rounded-lg bg-severity-info-tint text-severity-info"><IconBell class="size-4" /></span>
             </template>
-            <div class="min-w-0 flex-1">
+            <div class="@container/notify-test min-w-0 flex-1" data-testid="dev-notification-form">
               <div class="text-[13.5px] font-semibold text-text">Test notification</div>
-              <div class="mt-0.5 text-xs text-text-3">Choose a delivery path and severity.</div>
-            </div>
-            <template #actions>
-              <div class="flex shrink-0 items-center gap-2">
-                <AppSelect
-                  size="sm"
-                  class="w-[92px] font-medium"
-                  :model-value="severity"
-                  :options="severityOptions"
-                  testid="dev-notification-severity"
-                  aria-label="Notification severity"
-                  @update:model-value="severity = $event as NotifySeverity"
-                />
-                <AppSelect
-                  size="sm"
-                  class="w-[124px] font-medium"
-                  :model-value="channel"
-                  :options="channelOptions"
-                  testid="dev-notification-channel"
-                  aria-label="Notification channel"
-                  @update:model-value="channel = $event as NotificationTestChannel"
-                />
-                <label class="flex cursor-pointer items-center gap-1.5 text-[11px] font-medium text-text-2">
-                  <input v-model="delay" data-testid="dev-notification-delay" type="checkbox" class="size-3.5 accent-accent" />
-                  delay 3s
-                </label>
-                <button
-                  data-testid="dev-notification-send"
-                  type="button"
-                  class="cursor-pointer rounded-md bg-accent px-3 py-1.5 text-[11px] font-semibold text-accent-contrast hover:bg-accent-hover"
-                  @click="sendTest"
-                >
-                  Test notification
-                </button>
+              <div class="mt-0.5 text-xs text-text-3">Send one through a delivery path and see where it lands.</div>
+
+              <div class="mt-4 grid grid-cols-1 gap-4 @[420px]/notify-test:grid-cols-2" data-testid="dev-notification-fields">
+                <SettingsField label="Severity" hint="Sets the toast accent and the banner's severity." testid="dev-notification-severity-field">
+                  <AppSelect
+                    size="sm"
+                    class="w-full font-medium"
+                    :model-value="severity"
+                    :options="severityOptions"
+                    testid="dev-notification-severity"
+                    aria-label="Notification severity"
+                    @update:model-value="severity = $event as NotifySeverity"
+                  />
+                </SettingsField>
+
+                <SettingsField label="Timing">
+                  <AppCheckbox
+                    :model-value="delay"
+                    label="Delay 3 seconds"
+                    hint="Long enough to click away, so the send lands while Hive is unfocused."
+                    testid="dev-notification-delay"
+                    @update:model-value="delay = $event"
+                  />
+                </SettingsField>
               </div>
-            </template>
+
+              <div class="mt-4">
+                <div class="mb-1.5 text-[12.5px] text-text-2">Delivery channel</div>
+                <div
+                  class="flex flex-col gap-2"
+                  role="radiogroup"
+                  aria-label="Delivery channel"
+                  data-testid="dev-notification-channel"
+                >
+                  <label v-for="option in channelOptions" :key="option.value" class="flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="radio"
+                      class="mt-0.5 accent-accent"
+                      name="dev-notification-channel"
+                      :value="option.value"
+                      :checked="channel === option.value"
+                      :data-testid="`dev-notification-channel-${option.value}`"
+                      @change="channel = option.value"
+                    >
+                    <span>
+                      <span class="block text-[12.5px] text-text">{{ option.label }}</span>
+                      <span class="block text-[12px] text-text-3">{{ option.hint }}</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="mt-4 flex flex-col items-stretch gap-2 @[420px]/notify-test:flex-row @[420px]/notify-test:items-center" data-testid="dev-notification-actions">
+                <BaseButton size="sm" data-testid="dev-notification-send" @click="sendTest">Send test notification</BaseButton>
+                <div class="min-w-0 text-xs leading-relaxed" role="status" aria-live="polite">
+                  <span v-if="pending" class="flex items-center gap-2 text-text-2" data-testid="dev-notification-pending">
+                    <span>Sending in {{ remaining }}s…</span>
+                    <button
+                      type="button"
+                      class="cursor-pointer rounded-md border border-border px-2 py-0.5 text-[11px] font-medium text-text-2 hover:bg-chip hover:text-text"
+                      data-testid="dev-notification-cancel"
+                      @click="cancelPending"
+                    >Cancel</button>
+                  </span>
+                  <span v-else-if="result" :class="resultToneClass[result.tone]" data-testid="dev-notification-result">{{ result.text }}</span>
+                </div>
+              </div>
+            </div>
           </BaseCard>
         </SettingsSection>
       </SettingsPage>
