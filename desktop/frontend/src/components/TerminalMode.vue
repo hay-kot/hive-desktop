@@ -5,8 +5,6 @@ import { useStorage } from '@vueuse/core'
 import IconAArrowDown from '~icons/lucide/a-arrow-down'
 import IconAArrowUp from '~icons/lucide/a-arrow-up'
 import IconArrowDown from '~icons/lucide/arrow-down'
-import IconArrowLeft from '~icons/lucide/arrow-left'
-import IconArrowRight from '~icons/lucide/arrow-right'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -50,7 +48,6 @@ import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
-import { formatCombo } from '../composables/useKeybindings'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
@@ -83,7 +80,11 @@ const current = computed(() => (activeSlug.value ? pool.get(activeSlug.value) ??
 // outgoing session holds the pane until the incoming one has painted — or
 // ended, or the hold cap fired — so a switch never shows a blank grid.
 const displayed = shallowRef<UseTerminalWindows | null>(null)
+const displayedSlug = ref('')
 const visible = computed(() => displayed.value ?? current.value)
+// Which session the strip's windows belong to, which is not always the selected
+// one: a reorder started during a hold must reach the session on screen.
+const visibleSlug = computed(() => (displayed.value ? displayedSlug.value : activeSlug.value))
 
 const renamingId = ref('')
 const renameDraft = ref('')
@@ -112,6 +113,8 @@ watch([current, () => current.value?.painted.value, () => current.value?.status.
 function reveal(incoming: UseTerminalWindows): void {
   revealed.add(incoming)
   displayed.value = incoming
+  // Only ever the selected session reaches here, so activeSlug is its key.
+  displayedSlug.value = activeSlug.value
   void nextTick(() => {
     if (displayed.value === incoming) incoming.focusActive()
   })
@@ -250,31 +253,20 @@ const viewMenuOpen = ref(false)
 const viewMenuToggle = ref<HTMLElement | null>(null)
 const viewMenuEntries = computed<MenuEntry[]>(() => {
   const ladder = terminalFontSizeState(fontSize.value)
-  const index = activeTabIndex.value
   return [
     { kind: 'label', text: `Text size · ${terminalFontSizeLabels[fontSize.value]}` },
     { kind: 'action', id: 'text-size-decrease', label: 'Decrease', icon: IconAArrowDown, disabled: !ladder.canDecrease, testid: 'terminal-text-size-decrease' },
     { kind: 'action', id: 'text-size-increase', label: 'Increase', icon: IconAArrowUp, disabled: !ladder.canIncrease, testid: 'terminal-text-size-increase' },
     { kind: 'action', id: 'text-size-reset', label: 'Reset', icon: IconRotateCcw, disabled: ladder.isDefault, testid: 'terminal-text-size-reset' },
-    { kind: 'separator' },
-    // The reachable-without-a-pointer half of drag reordering, and where the
-    // shortcut the tabs answer to is advertised. It moves the tab in view,
-    // because that is the one the menu is anchored to.
-    { kind: 'label', text: 'Tab order' },
-    { kind: 'action', id: 'tab-move-left', label: 'Move tab left', icon: IconArrowLeft, kbd: formatCombo('alt+arrowleft'), disabled: index <= 0, testid: 'terminal-tab-move-left' },
-    { kind: 'action', id: 'tab-move-right', label: 'Move tab right', icon: IconArrowRight, kbd: formatCombo('alt+arrowright'), disabled: index < 0 || index >= tabs.value.length - 1, testid: 'terminal-tab-move-right' },
   ]
 })
 
 // Stays open on select, unlike the row menus: a size is arrived at by nudging,
-// and reopening the menu between notches would make that unusable. A tab walks
-// along the strip the same way.
+// and reopening the menu between notches would make that unusable.
 function onViewMenuSelect(id: string): void {
   if (id === 'text-size-decrease') stepTerminalFontSize(-1)
   else if (id === 'text-size-increase') stepTerminalFontSize(1)
   else if (id === 'text-size-reset') resetTerminalFontSize()
-  else if (id === 'tab-move-left') stepTab(activeWindowId.value, -1)
-  else if (id === 'tab-move-right') stepTab(activeWindowId.value, 1)
 }
 
 const {
@@ -709,7 +701,26 @@ function closeSession(): void {
   if (routeSlug.value) void router.replace({ name: 'terminal' })
 }
 
+// A tab answers to the press and again to the click, and both mean the same
+// thing: this is the window I am typing into.
+//
+// The press is what selects. The tab is a drag source, and a press that drifts
+// past the 3px drag threshold starts a drag and dispatches no click at all, so
+// a tab that only answered clicks dropped them often enough to read as dead.
+//
+// The click is what lands focus in the pane. mousedown's default action moves
+// DOM focus onto whatever was pressed and runs *after* this handler, so focus
+// taken on the press is taken straight back off; by click it has already run.
+// select() on the window that is already active is exactly "focus the pane".
+function onTabPress(event: MouseEvent, tab: TerminalWindowTab): void {
+  if (event.button !== 0 || renamingId.value === tab.windowId) return
+  void visible.value?.select(tab.windowId)
+}
+
+// The rename field sits inside the tab, so a double-click meant for its text
+// arrives here as well; restarting the rename would discard what was typed.
 function startRename(tab: TerminalWindowTab): void {
+  if (renamingId.value === tab.windowId) return
   renamingId.value = tab.windowId
   renameDraft.value = tab.name
 }
@@ -722,70 +733,98 @@ function commitRename(): void {
   if (name) void visible.value?.rename(windowId, name)
 }
 
-// ── tab reordering ──────────────────────────────────────────────────────────
-// Native HTML5 DnD, the same shape the hub sidebar uses; the dragged window is
-// tracked here because dataTransfer cannot be read during dragover, and the
-// hovered edge drives the insertion marker.
-const TERMINAL_TAB_DRAG_MIME = 'application/x-hive-terminal-tab'
-const draggingWindowId = ref('')
-const dropTarget = ref<{ windowId: string; after: boolean } | null>(null)
+// ── window reordering ───────────────────────────────────────────────────────
+// The tab strip and the sidebar's window well are two views of one session's
+// window order, so one drag model serves both: a window carries the slug it
+// came from and can only land back in that session. Both surfaces show the same
+// windows, so each mark names the surface it belongs to — a drag through the
+// sidebar must not light up the strip's tabs. Native HTML5 DnD, the same shape
+// the hub sidebar uses; the dragged window is tracked here because dataTransfer
+// cannot be read during dragover, and the hovered edge drives the marker.
+type WindowSurface = 'strip' | 'tree'
+const WINDOW_DRAG_MIME = 'application/x-hive-terminal-window'
+const draggingWindow = ref<{ surface: WindowSurface; slug: string; windowId: string } | null>(null)
+const dropTarget = ref<{ surface: WindowSurface; slug: string; windowId: string; after: boolean } | null>(null)
 
-function onTabDragStart(event: DragEvent, tab: TerminalWindowTab): void {
-  draggingWindowId.value = tab.windowId
+function onWindowDragStart(event: DragEvent, surface: WindowSurface, slug: string, windowId: string): void {
+  draggingWindow.value = { surface, slug, windowId }
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData(TERMINAL_TAB_DRAG_MIME, tab.windowId)
+    event.dataTransfer.setData(WINDOW_DRAG_MIME, windowId)
   }
 }
 
-function onTabDragOver(event: DragEvent, tab: TerminalWindowTab): void {
-  if (!draggingWindowId.value) return
+// The surface also says which way it runs: a tab is entered by its left or
+// right half, a sidebar row by its top or bottom.
+function onWindowDragOver(event: DragEvent, surface: WindowSurface, slug: string, windowId: string): void {
+  const dragged = draggingWindow.value
+  if (!dragged) return
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  // Order is a property of one session, and both edges of the dragged window
+  // name the gap it already fills — neither is a move, so neither marks one.
+  // Without the second half the drop reads as an insertion past every other
+  // window and sends it to the end.
+  if (dragged.slug !== slug || dragged.windowId === windowId) {
+    dropTarget.value = null
+    return
+  }
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  dropTarget.value = { windowId: tab.windowId, after: event.clientX > rect.left + rect.width / 2 }
+  const after = surface === 'strip'
+    ? event.clientX > rect.left + rect.width / 2
+    : event.clientY > rect.top + rect.height / 2
+  dropTarget.value = { surface, slug, windowId, after }
 }
 
-function onTabDrop(): void {
+function onWindowDrop(): void {
   const target = dropTarget.value
-  const windowId = draggingWindowId.value
-  onTabDragEnd()
-  if (!target || !windowId) return
-  void visible.value?.moveWindow(windowId, dropPosition(windowId, target))
+  const dragged = draggingWindow.value
+  onWindowDragEnd()
+  if (!target || !dragged) return
+  const session = pool.get(dragged.slug)
+  if (!session) return
+  void session.moveWindow(dragged.windowId, dropPosition(windowOrder(dragged.slug), dragged.windowId, target))
 }
 
-function onTabDragEnd(): void {
-  draggingWindowId.value = ''
+function onWindowDragEnd(): void {
+  // A drag swallows the click the strip hands focus back to the pane on, and a
+  // tab the user just dragged is still a tab they reached for.
+  if (draggingWindow.value?.surface === 'strip') visible.value?.focusActive()
+  draggingWindow.value = null
   dropTarget.value = null
+}
+
+// The order both surfaces reorder against. A window is only movable while its
+// session holds a control client, which is exactly when the sidebar renders its
+// live tabs rather than a cached listing — so a pooled session is the whole
+// precondition, in the tree as much as in the strip.
+function windowOrder(slug: string): string[] {
+  return pool.get(slug)?.tabs.value.map((tab) => tab.windowId) ?? []
 }
 
 // The drop edge names a gap between windows; the API takes the index the moved
 // window ends up at, which is that gap once the window is out of the list.
-function dropPosition(windowId: string, target: { windowId: string; after: boolean }): number {
-  const rest = tabs.value.filter((tab) => tab.windowId !== windowId)
-  const anchor = rest.findIndex((tab) => tab.windowId === target.windowId)
+function dropPosition(order: string[], windowId: string, target: { windowId: string; after: boolean }): number {
+  const rest = order.filter((id) => id !== windowId)
+  const anchor = rest.indexOf(target.windowId)
   if (anchor < 0) return rest.length
   return target.after ? anchor + 1 : anchor
 }
 
-function showDropBefore(windowId: string): boolean {
-  return !!dropTarget.value && !dropTarget.value.after && dropTarget.value.windowId === windowId
+// Dimmed where the drag started, marked where the pointer is: the same window
+// is drawn in both surfaces, and only the one being used should change.
+function draggingWindowRow(surface: WindowSurface, slug: string, windowId: string): boolean {
+  const dragged = draggingWindow.value
+  return !!dragged && dragged.surface === surface && dragged.slug === slug && dragged.windowId === windowId
 }
 
-function showDropAfter(windowId: string): boolean {
-  return !!dropTarget.value && dropTarget.value.after && dropTarget.value.windowId === windowId
+function showDropBefore(surface: WindowSurface, slug: string, windowId: string): boolean {
+  const target = dropTarget.value
+  return !!target && !target.after && target.surface === surface && target.slug === slug && target.windowId === windowId
 }
 
-const activeTabIndex = computed(() => tabs.value.findIndex((tab) => tab.windowId === activeWindowId.value))
-
-// The keyboard half, and the one the overflow menu advertises: a focused tab
-// steps along the strip and keeps focus, so a reorder never needs a pointer.
-// The ends hold rather than wrap, like the text-size ladder above.
-function stepTab(windowId: string, delta: number): void {
-  const from = tabs.value.findIndex((tab) => tab.windowId === windowId)
-  if (from < 0) return
-  const to = from + delta
-  if (to < 0 || to >= tabs.value.length) return
-  void visible.value?.moveWindow(windowId, to)
+function showDropAfter(surface: WindowSurface, slug: string, windowId: string): boolean {
+  const target = dropTarget.value
+  return !!target && target.after && target.surface === surface && target.slug === slug && target.windowId === windowId
 }
 
 onMounted(() => {
@@ -979,66 +1018,86 @@ onBeforeUnmount(() => {
                     <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
                       <div v-if="windowRowsFor(row).length" class="relative flex flex-col pb-1">
                         <TransitionGroup name="tree">
-                          <!-- Not a <button>, for the same reason the session
-                               row above is not: its own menu toggle is one. -->
+                          <!-- The slot carries the drag and its insertion
+                               marker: the row's own ::before and ::after draw
+                               the tree connector. Draggable only while the
+                               session is attached, which is the whole
+                               precondition for moving one of its windows. -->
                           <div
                             v-for="(win, index) in windowRowsFor(row)"
                             :key="win.windowId"
-                            class="window-row"
+                            class="window-slot"
                             :class="{
-                              'window-row-last': index === windowRowsFor(row).length - 1,
-                              'window-row-active': win.active,
-                              'has-menu': hasWindowActions,
-                              'menu-open': openWindowMenu === windowMenuKey(row, win.windowId),
+                              'opacity-40': draggingWindowRow('tree', row.slug, win.windowId),
+                              'drop-before': showDropBefore('tree', row.slug, win.windowId),
+                              'drop-after': showDropAfter('tree', row.slug, win.windowId),
                             }"
-                            role="button"
-                            tabindex="0"
-                            :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
-                            :data-window-id="win.windowId"
-                            :data-active="win.live ? win.active : undefined"
-                            @click="openTreeWindow(row, win)"
-                            @keydown.enter.self.prevent="openTreeWindow(row, win)"
-                            @keydown.space.self.prevent="openTreeWindow(row, win)"
-                            @contextmenu.prevent="toggleWindowMenu(row, win.windowId, $event)"
+                            :draggable="win.live"
+                            data-testid="terminal-window-slot"
+                            @dragstart="onWindowDragStart($event, 'tree', row.slug, win.windowId)"
+                            @dragover.prevent="onWindowDragOver($event, 'tree', row.slug, win.windowId)"
+                            @drop.prevent="onWindowDrop"
+                            @dragend="onWindowDragEnd"
                           >
-                            <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
-                            <div class="window-trailing" data-testid="terminal-window-trailing" @click.stop>
-                              <span
-                                v-if="win.indicator"
-                                class="window-status"
-                                :class="win.indicator.color"
-                                :title="win.indicator.label"
-                                data-testid="terminal-window-status"
-                                :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
-                              >
-                                <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
-                                <span class="sr-only">{{ win.indicator.label }}</span>
-                              </span>
-                              <!-- A window row has no operations of its own, so
-                                   the toggle exists only once a configured
-                                   action targets one. -->
-                              <button
-                                v-if="hasWindowActions"
-                                :ref="(el) => setWindowMenuToggle(windowMenuKey(row, win.windowId), el)"
-                                type="button"
-                                class="row-action"
-                                title="Window actions"
-                                aria-label="Window actions"
-                                aria-haspopup="menu"
-                                :aria-expanded="openWindowMenu === windowMenuKey(row, win.windowId)"
-                                data-testid="terminal-window-menu-toggle"
-                                @click="toggleWindowMenu(row, win.windowId)"
-                              ><IconEllipsisVertical class="size-3" /></button>
-                              <AppMenu
-                                v-if="openWindowMenu === windowMenuKey(row, win.windowId)"
-                                :entries="windowActionEntries"
-                                :flip="windowMenuFlip"
-                                width="min(230px, 100%)"
-                                :ignore="[windowMenuToggles.get(windowMenuKey(row, win.windowId)) ?? null]"
-                                testid="terminal-window-menu"
-                                @select="runWindowAction(row, win.windowId, $event)"
-                                @close="openWindowMenu = ''"
-                              />
+                            <!-- Not a <button>, for the same reason the session
+                                 row above is not: its own menu toggle is one. -->
+                            <div
+                              class="window-row"
+                              :class="{
+                                'window-row-last': index === windowRowsFor(row).length - 1,
+                                'window-row-active': win.active,
+                                'has-menu': hasWindowActions,
+                                'menu-open': openWindowMenu === windowMenuKey(row, win.windowId),
+                              }"
+                              role="button"
+                              tabindex="0"
+                              :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
+                              :data-window-id="win.windowId"
+                              :data-active="win.live ? win.active : undefined"
+                              @click="openTreeWindow(row, win)"
+                              @keydown.enter.self.prevent="openTreeWindow(row, win)"
+                              @keydown.space.self.prevent="openTreeWindow(row, win)"
+                              @contextmenu.prevent="toggleWindowMenu(row, win.windowId, $event)"
+                            >
+                              <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
+                              <div class="window-trailing" data-testid="terminal-window-trailing" @click.stop>
+                                <span
+                                  v-if="win.indicator"
+                                  class="window-status"
+                                  :class="win.indicator.color"
+                                  :title="win.indicator.label"
+                                  data-testid="terminal-window-status"
+                                  :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                                >
+                                  <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
+                                  <span class="sr-only">{{ win.indicator.label }}</span>
+                                </span>
+                                <!-- A window row has no operations of its own,
+                                     so the toggle exists only once a configured
+                                     action targets one. -->
+                                <button
+                                  v-if="hasWindowActions"
+                                  :ref="(el) => setWindowMenuToggle(windowMenuKey(row, win.windowId), el)"
+                                  type="button"
+                                  class="row-action"
+                                  title="Window actions"
+                                  aria-label="Window actions"
+                                  aria-haspopup="menu"
+                                  :aria-expanded="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                  data-testid="terminal-window-menu-toggle"
+                                  @click="toggleWindowMenu(row, win.windowId)"
+                                ><IconEllipsisVertical class="size-3" /></button>
+                                <AppMenu
+                                  v-if="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                  :entries="windowActionEntries"
+                                  :flip="windowMenuFlip"
+                                  width="min(230px, 100%)"
+                                  :ignore="[windowMenuToggles.get(windowMenuKey(row, win.windowId)) ?? null]"
+                                  testid="terminal-window-menu"
+                                  @select="runWindowAction(row, win.windowId, $event)"
+                                  @close="openWindowMenu = ''"
+                                />
+                              </div>
                             </div>
                           </div>
                         </TransitionGroup>
@@ -1069,56 +1128,66 @@ onBeforeUnmount(() => {
         <template v-if="visible && !notStarted">
           <div class="flex h-9 shrink-0 items-stretch border-b border-border bg-raised">
             <div class="hive-scroll flex min-w-0 items-stretch overflow-x-auto">
-              <!-- Draggable only while it is not being renamed: a drag on the
-                   name field would take the tab instead of selecting text. -->
-              <div
-                v-for="tab in tabs"
-                :key="tab.uid"
-                class="tab relative flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
-                :class="{
-                  'bg-app shadow-[inset_0_1px_0_var(--color-accent)]': tab.windowId === activeWindowId,
-                  'hover:bg-chip': tab.windowId !== activeWindowId,
-                  'opacity-40': draggingWindowId === tab.windowId,
-                  'drop-before': showDropBefore(tab.windowId),
-                  'drop-after': showDropAfter(tab.windowId),
-                }"
-                :draggable="renamingId !== tab.windowId"
-                data-testid="terminal-tab"
-                :data-window-id="tab.windowId"
-                :data-active="tab.windowId === activeWindowId"
-                @dragstart="onTabDragStart($event, tab)"
-                @dragover.prevent="onTabDragOver($event, tab)"
-                @drop.prevent="onTabDrop"
-                @dragend="onTabDragEnd"
-              >
-                <input
-                  v-if="renamingId === tab.windowId"
-                  v-model="renameDraft"
-                  class="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text outline-none"
-                  data-testid="terminal-rename-input"
-                  autofocus
-                  @keydown.enter="commitRename"
-                  @keydown.esc="renamingId = ''"
-                  @blur="commitRename"
-                >
-                <button
-                  v-else
-                  type="button"
-                  class="min-w-0 flex-1 cursor-pointer truncate text-left font-mono text-[12.5px]"
-                  :class="tab.windowId === activeWindowId ? 'font-medium text-text' : 'text-text-2'"
-                  @click="visible?.select(tab.windowId)"
+              <!-- The whole tab is the target and it selects on press: a label
+                   the size of its own text left most of the tab dead, and a
+                   press that drifts 3px on a drag source is delivered as a drag
+                   with no click at all — the two ways a click on a tab went
+                   missing. Draggable only while it is not being renamed: a drag
+                   on the name field would take the tab instead of selecting
+                   text. -->
+              <TransitionGroup name="tab">
+                <div
+                  v-for="tab in tabs"
+                  :key="tab.uid"
+                  class="tab relative flex w-[150px] shrink-0 cursor-pointer items-center gap-2 border-r border-border px-3"
+                  :class="{
+                    'bg-app shadow-[inset_0_1px_0_var(--color-accent)]': tab.windowId === activeWindowId,
+                    'hover:bg-chip': tab.windowId !== activeWindowId,
+                    'opacity-40': draggingWindowRow('strip', visibleSlug, tab.windowId),
+                    'drop-before': showDropBefore('strip', visibleSlug, tab.windowId),
+                    'drop-after': showDropAfter('strip', visibleSlug, tab.windowId),
+                  }"
+                  :draggable="renamingId !== tab.windowId"
+                  role="button"
+                  tabindex="0"
+                  data-testid="terminal-tab"
+                  :data-window-id="tab.windowId"
+                  :data-active="tab.windowId === activeWindowId"
+                  @mousedown="onTabPress($event, tab)"
+                  @click="onTabPress($event, tab)"
                   @dblclick="startRename(tab)"
-                  @keydown.alt.left.prevent="stepTab(tab.windowId, -1)"
-                  @keydown.alt.right.prevent="stepTab(tab.windowId, 1)"
-                >{{ tab.name || tab.windowId }}</button>
-                <button
-                  type="button"
-                  class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
-                  data-testid="terminal-close-window"
-                  :aria-label="`Close ${tab.name || tab.windowId}`"
-                  @click="visible?.closeWindow(tab.windowId)"
-                ><IconX class="size-3" /></button>
-              </div>
+                  @keydown.enter.self.prevent="visible?.select(tab.windowId)"
+                  @keydown.space.self.prevent="visible?.select(tab.windowId)"
+                  @dragstart="onWindowDragStart($event, 'strip', visibleSlug, tab.windowId)"
+                  @dragover.prevent="onWindowDragOver($event, 'strip', visibleSlug, tab.windowId)"
+                  @drop.prevent="onWindowDrop"
+                  @dragend="onWindowDragEnd"
+                >
+                  <input
+                    v-if="renamingId === tab.windowId"
+                    v-model="renameDraft"
+                    class="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text outline-none"
+                    data-testid="terminal-rename-input"
+                    autofocus
+                    @keydown.enter="commitRename"
+                    @keydown.esc="renamingId = ''"
+                    @blur="commitRename"
+                  >
+                  <span
+                    v-else
+                    class="min-w-0 flex-1 truncate font-mono text-[12.5px]"
+                    :class="tab.windowId === activeWindowId ? 'font-medium text-text' : 'text-text-2'"
+                  >{{ tab.name || tab.windowId }}</span>
+                  <button
+                    type="button"
+                    class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+                    data-testid="terminal-close-window"
+                    :aria-label="`Close ${tab.name || tab.windowId}`"
+                    @mousedown.stop
+                    @click.stop="visible?.closeWindow(tab.windowId)"
+                  ><IconX class="size-3" /></button>
+                </div>
+              </TransitionGroup>
               <!-- Inert stand-ins from the cached listing while the attach is
                    in flight; the live tabs replace them in place. -->
               <div
@@ -1400,6 +1469,17 @@ onBeforeUnmount(() => {
 }
 .tab.drop-before::before { left: 0; }
 .tab.drop-after::after { right: 0; }
+.tab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+/* A reordered tab travels to its new place instead of appearing in it, the same
+   FLIP the sidebar tree moves through. Only the move: a tab set swaps whole on
+   a session switch, and fading that in and out would be motion about nothing. */
+.tab-move { transition: transform .15s ease; }
+
+/* The window well's insertion marker, on the slot because the row's own
+   ::before and ::after are the tree connector. Inset like the hub sidebar's. */
+.window-slot { position: relative; }
+.window-slot.drop-before { box-shadow: inset 0 2px 0 0 var(--color-accent); }
+.window-slot.drop-after { box-shadow: inset 0 -2px 0 0 var(--color-accent); }
 
 /* Tree motion, fast enough to read as instant: rows fade/slide over 150ms, a
    leaving row drops out of flow so its neighbors glide up through .tree-move
@@ -1418,7 +1498,7 @@ onBeforeUnmount(() => {
 .tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
 
 @media (prefers-reduced-motion: reduce) {
-  .tree-enter-active, .tree-leave-active, .tree-move,
+  .tree-enter-active, .tree-leave-active, .tree-move, .tab-move,
   .tree-expand-enter-active, .tree-expand-leave-active,
   .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
 }

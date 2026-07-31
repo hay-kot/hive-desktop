@@ -691,14 +691,50 @@ describe('TerminalMode', () => {
     expect(session.closeWindow).toHaveBeenCalledWith('@2')
 
     const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-    await tabs[1].find('button').trigger('click')
+    await tabs[1].trigger('mousedown')
     expect(session.select).toHaveBeenCalledWith('@2')
 
-    await tabs[1].find('button').trigger('dblclick')
+    await tabs[1].trigger('dblclick')
     const input = wrapper.get('[data-testid="terminal-rename-input"]')
     await input.setValue('build')
     await input.trigger('keydown.enter')
     expect(session.rename).toHaveBeenCalledWith('@2', 'build')
+  })
+
+  // The whole tab answers, and it answers to both halves of the press: the
+  // label used to be the only target and it is the height of its own text, a
+  // press that drifts 3px on a drag source is delivered as a drag with no click
+  // at all, and mousedown's own default action takes focus off the pane after
+  // the press has put it there.
+  it('selects from the press and again from the click, and not from its close button', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+    await tabs[1].trigger('mousedown')
+    expect(session.select).toHaveBeenCalledWith('@2')
+
+    // The click reclaims the pane; select() on the active window is the refocus.
+    session.select.mockClear()
+    await tabs[1].trigger('click')
+    expect(session.select).toHaveBeenCalledWith('@2')
+
+    // Closing a window is not selecting it first, on either half of the press.
+    session.select.mockClear()
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('mousedown')
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+    expect(session.closeWindow).toHaveBeenCalledWith('@1')
+    expect(session.select).not.toHaveBeenCalled()
+
+    // Nor is a secondary button.
+    await tabs[0].trigger('mousedown', { button: 2 })
+    expect(session.select).not.toHaveBeenCalled()
+
+    // Nor is a press inside the rename field, which would blur it and commit.
+    await tabs[0].trigger('dblclick')
+    await wrapper.get('[data-testid="terminal-rename-input"]').trigger('mousedown')
+    expect(session.select).not.toHaveBeenCalled()
   })
 
   it('scopes every pane so the terminal owns its keys', async () => {
@@ -1014,36 +1050,6 @@ describe('TerminalMode', () => {
       expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].classes()).not.toContain('drop-before')
     })
 
-    it('steps a focused tab along the strip from the keyboard', async () => {
-      const { wrapper, session } = await attached()
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-
-      await tabs[0].find('button').trigger('keydown', { key: 'ArrowRight', altKey: true })
-      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
-
-      // The ends hold: there is nowhere left of the first tab to go.
-      session.moveWindow.mockClear()
-      await tabs[0].find('button').trigger('keydown', { key: 'ArrowLeft', altKey: true })
-      expect(session.moveWindow).not.toHaveBeenCalled()
-
-      // A bare arrow is not a reorder; the modifier is what makes it one.
-      await tabs[0].find('button').trigger('keydown', { key: 'ArrowRight' })
-      expect(session.moveWindow).not.toHaveBeenCalled()
-    })
-
-    it('moves the tab in view from the overflow menu, and stops at the ends', async () => {
-      const { wrapper, session } = await attached()
-      await wrapper.get('[data-testid="terminal-view-menu-toggle"]').trigger('click')
-      const menu = wrapper.get('[data-testid="terminal-view-menu"]')
-
-      // The active window is the first tab, so only one direction is open.
-      expect(menu.get('[data-testid="terminal-tab-move-left"]').attributes('disabled')).toBeDefined()
-      expect(menu.get('[data-testid="terminal-tab-move-right"]').attributes('disabled')).toBeUndefined()
-
-      await menu.get('[data-testid="terminal-tab-move-right"]').trigger('click')
-      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
-    })
-
     // The strip and the sidebar's window well read the same list, so the order
     // cannot disagree between them.
     it('renders the tab strip and the sidebar tree in the order the tabs carry', async () => {
@@ -1063,9 +1069,121 @@ describe('TerminalMode', () => {
       const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
       expect(tabs[1].attributes('draggable')).toBe('true')
 
-      await tabs[1].find('button').trigger('dblclick')
+      await tabs[1].trigger('dblclick')
 
       expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].attributes('draggable')).toBe('false')
+    })
+
+    // A tab dropped where it already is has not moved: both of its own edges
+    // name the gap it fills, and reading either as an insertion put it last.
+    it('does not move a tab dropped back onto itself', async () => {
+      const { wrapper, session } = await attached()
+
+      await drag(wrapper, 0, 0, 20)
+
+      expect(session.moveWindow).not.toHaveBeenCalled()
+      expect(wrapper.findAll('[data-testid="terminal-tab"]')[0].classes()).not.toContain('drop-after')
+    })
+
+    // The click a tab hands focus back to the pane on is the one a drag eats.
+    it('puts focus back in the pane when a tab drag ends', async () => {
+      const { wrapper, session } = await attached()
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+
+      // Attaching focuses the pane on its own; this is about the drag.
+      session.focusActive.mockClear()
+      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await tabs[0].trigger('dragend')
+      expect(session.focusActive).toHaveBeenCalled()
+
+      // The sidebar is not the pane's own strip, so a drag there leaves focus
+      // where the user put it.
+      session.focusActive.mockClear()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[0].trigger('dragend')
+      expect(session.focusActive).not.toHaveBeenCalled()
+    })
+  })
+
+  // The sidebar's window well reorders the same order the strip does, so the
+  // two cannot disagree — and a window can only land in the session it left.
+  describe('reordering windows in the sidebar', () => {
+    async function attached() {
+      const mounted = await mountAvailable()
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    // happy-dom lays nothing out, so the drop edge has to be stated: a row 28px
+    // tall at top, and a pointer somewhere in it.
+    function box(slot: DOMWrapper<Element>, top: number): void {
+      (slot.element as HTMLElement).getBoundingClientRect = () =>
+        ({ left: 0, width: 220, right: 220, top, bottom: top + 28, height: 28, x: 0, y: top }) as DOMRect
+    }
+
+    it('drops a window into the gap the pointer is nearest', async () => {
+      const { wrapper, session } = await attached()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      box(slots[1], 28)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      // Past the middle of the second row: after it, which is the end.
+      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 50 })
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].classes()).toContain('drop-after')
+
+      await slots[1].trigger('drop')
+      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
+    })
+
+    // Both surfaces draw the same windows, so an unscoped mark would light up a
+    // tab for a drag happening in the tree.
+    it('marks only the surface the drag is in', async () => {
+      const { wrapper } = await attached()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      box(slots[1], 28)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 50 })
+
+      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
+      expect(tabs[1].classes()).not.toContain('drop-after')
+      expect(tabs[0].classes()).not.toContain('opacity-40')
+    })
+
+    it('refuses a window dragged into another session', async () => {
+      const { wrapper, session } = await attached()
+      // Both sessions pooled, so both subtrees carry live rows.
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"]').trigger('click')
+      await flushPromises()
+
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      expect(slots).toHaveLength(4)
+      box(slots[2], 100)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[2].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 120 })
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[2].classes()).not.toContain('drop-after')
+
+      await slots[2].trigger('drop')
+      expect(session.moveWindow).not.toHaveBeenCalled()
+    })
+
+    // Moving a window is a control-client operation, so a session that is only
+    // listed has nothing to move it with.
+    it('leaves a listed window undraggable', async () => {
+      mocks.createTerminalClient.mockReturnValue({
+        listWindows: vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
+          ? { windows: [{ windowId: '@7', name: 'agent', active: true, width: 0, height: 0 }] }
+          : { windows: [] })),
+      })
+      const { wrapper } = await attached()
+
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(1)
+      expect(slots[0].attributes('draggable')).toBe('false')
+      expect(slots[1].attributes('draggable')).toBe('true')
     })
   })
 
@@ -1096,7 +1214,7 @@ describe('TerminalMode', () => {
       expect(toggle.attributes('aria-expanded')).toBe('true')
       expect(menu.attributes('role')).toBe('menu')
       expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual([
-        'Decrease', 'Increase', 'Reset', 'Move tab leftAlt+←', 'Move tab rightAlt+→',
+        'Decrease', 'Increase', 'Reset',
       ])
       expect(menu.text()).toContain('Text size · Medium')
       wrapper.unmount()

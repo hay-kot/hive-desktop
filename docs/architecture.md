@@ -779,7 +779,9 @@ from. Three rules hold it together and each answers something tmux does:
 
 - **The answer is a window set, not an acknowledgement.** The order is session
   state every attached client shares, so the move replies with what tmux settled
-  on and the strip renders that rather than the order it asked for.
+  on and the strip renders that rather than the order it asked for. The tab
+  strip and the sidebar's window well are two views of that one order and either
+  can drag it, so neither holds an arrangement of its own.
 - **A move is an unlink and a relink**, so tmux announces the window it moved as
   closed. `tmuxcc` suppresses that close for the window in flight — acting on it
   tears the tab and its terminal down, and the reconcile behind it can only
