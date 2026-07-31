@@ -1,5 +1,6 @@
 import { flushPromises } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ISearchOptions } from '@xterm/addon-search'
 import { resetTerminalFacesForTests, useTerminalWindows } from '../useTerminalWindows'
 import { setTerminalFontSize, terminalFontSizePx } from '../useTerminalFont'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
@@ -12,7 +13,7 @@ const xterm = vi.hoisted(() => {
     write = vi.fn()
     focus = vi.fn()
     open = vi.fn()
-    loadAddon = vi.fn()
+    loadAddon = vi.fn((addon: { activate?: (term: FakeTerminal) => void }) => addon.activate?.(this))
     dispose = vi.fn()
     resize = vi.fn((cols: number, rows: number) => { this.cols = cols; this.rows = rows })
     onDataDisposed = false
@@ -128,15 +129,20 @@ const xterm = vi.hoisted(() => {
 
   // The real addon reports hit counts through onDidChangeResults, so the fake
   // has to be driven the same way: a find only produces a count if it fires.
+  // It also reproduces the one way a find fails outright — highlighting goes
+  // through Terminal.registerDecoration, which is proposed API and throws on a
+  // terminal that did not opt in, so a search that highlights is dead without
+  // it and no assertion about the results would ever be reached.
   class FakeSearchAddon {
     static instances: FakeSearchAddon[] = []
     static results: { resultIndex: number; resultCount: number } = { resultIndex: 0, resultCount: 1 }
     dispose = vi.fn()
-    activate = vi.fn()
+    activate = vi.fn((term: FakeTerminal) => { this.proposedApi = term.options.allowProposedApi === true })
     clearDecorations = vi.fn()
-    findNext = vi.fn((term: string, options?: unknown) => this.record('next', term, options))
-    findPrevious = vi.fn((term: string, options?: unknown) => this.record('previous', term, options))
-    calls: { mode: string; term: string; options?: unknown }[] = []
+    findNext = vi.fn((term: string, options?: ISearchOptions) => this.record('next', term, options))
+    findPrevious = vi.fn((term: string, options?: ISearchOptions) => this.record('previous', term, options))
+    calls: { mode: string; term: string; options?: ISearchOptions }[] = []
+    private proposedApi = false
     private resultHandlers: ((results: { resultIndex: number; resultCount: number }) => void)[] = []
 
     constructor() { FakeSearchAddon.instances.push(this) }
@@ -146,7 +152,10 @@ const xterm = vi.hoisted(() => {
       return { dispose: () => {} }
     }
 
-    private record(mode: string, term: string, options?: unknown): boolean {
+    private record(mode: string, term: string, options?: ISearchOptions): boolean {
+      if (options?.decorations && !this.proposedApi) {
+        throw new Error('You must set the allowProposedApi option to true to use proposed API')
+      }
       this.calls.push({ mode, term, options })
       for (const handler of this.resultHandlers) handler(FakeSearchAddon.results)
       return true

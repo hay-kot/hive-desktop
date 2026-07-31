@@ -246,6 +246,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
+      // registerDecoration is still proposed API, and every find highlights
+      // through it — without this the first findNext throws and search is dead.
+      allowProposedApi: true,
     }))
     const fit = markRaw(new FitAddon())
     term.loadAddon(fit)
