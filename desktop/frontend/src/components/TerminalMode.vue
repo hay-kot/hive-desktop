@@ -1012,13 +1012,15 @@ onBeforeUnmount(() => {
 
             <!-- New output keeps landing below the fold while the viewport is
                  scrolled up; this is the way back to the live tail. -->
-            <button
-              v-if="activeScrolledUp && status !== 'ended'"
-              type="button"
-              class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
-              data-testid="terminal-scroll-to-bottom"
-              @click="visible?.scrollToBottom()"
-            ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            <Transition name="tail-pill">
+              <button
+                v-if="activeScrolledUp && status !== 'ended'"
+                type="button"
+                class="absolute bottom-3 right-5 z-10 flex cursor-pointer items-center gap-1.5 rounded-full border border-strong bg-raised/95 px-3 py-1.5 text-[11.5px] text-text-2 shadow-lg hover:text-text"
+                data-testid="terminal-scroll-to-bottom"
+                @click="visible?.scrollToBottom()"
+              ><IconArrowDown class="size-3" />Scroll to bottom</button>
+            </Transition>
 
             <!-- Selecting a session never starts it: starting runs the
                  session's own agent command, so it is offered here and taken
@@ -1130,9 +1132,18 @@ onBeforeUnmount(() => {
 .tree-enter-from, .tree-leave-to { opacity: 0; transform: translateY(-4px); }
 .tree-leave-active { position: absolute; left: 0; right: 0; }
 .tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .15s ease; }
+/* The pill pops rather than fades in: it appears over live output, and motion
+   is what separates it from the text moving behind it. Overshooting the scale
+   on the way in is the whole effect; leaving is a plain shrink, because an
+   affordance on its way out should not ask for attention. */
+.tail-pill-enter-active { transition: opacity .12s ease, transform .18s cubic-bezier(.2, 1.5, .4, 1); }
+.tail-pill-leave-active { transition: opacity .1s ease, transform .1s ease; }
+.tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
+
 @media (prefers-reduced-motion: reduce) {
   .tree-enter-active, .tree-leave-active, .tree-move,
-  .tree-expand-enter-active, .tree-expand-leave-active { transition: none; }
+  .tree-expand-enter-active, .tree-expand-leave-active,
+  .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
 }
 
 /* The shared slot keeps session names aligned while swapping liveness for actions. */

@@ -232,8 +232,14 @@ function open(client: MockedClient) {
 // happy-dom lays nothing out, so a plain div measures 0×0 — which the
 // composable rightly refuses to vote from. A pane meant to be visible
 // stubs its box.
+// term.open() builds .xterm-viewport inside the host and the composable hangs
+// its scroll listener off it. The fake Terminal opens nothing, so the host has
+// to stand in for what xterm would have put there.
 function paneHost(): HTMLElement {
   const host = document.createElement('div')
+  const viewport = document.createElement('div')
+  viewport.className = 'xterm-viewport'
+  host.appendChild(viewport)
   Object.defineProperties(host, {
     clientWidth: { value: 800 },
     clientHeight: { value: 600 },
@@ -910,6 +916,20 @@ describe('useTerminalWindows', () => {
     expect(session.tabs.value[0].scrolledUp).toBe(false)
   })
 
+  // A wheel notch is about three rows. Offering the way back the moment the
+  // viewport moves at all would put a pill on screen for a nudge, and take it
+  // away again before it finished appearing.
+  it('waits for a scroll worth calling a scroll before offering the way back', async () => {
+    const { session } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    term.scrollTo(96, 100)
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
+
+    term.scrollTo(94, 100)
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+  })
+
   it('scrolls the active window back to the tail and refocuses it', async () => {
     const { session } = await attached()
     const term = xterm.FakeTerminal.instances[0]
@@ -931,6 +951,27 @@ describe('useTerminalWindows', () => {
 
     expect(session.actionError.value).toBe('tmux refused')
     expect(session.status.value).toBe('live')
+  })
+
+  // xterm suppresses onScroll for a wheel, a trackpad and a dragged scrollbar:
+  // its viewport syncs the buffer from the DOM scroll and swallows the event.
+  // Without the DOM listener nothing notices the viewport leaving the tail on an
+  // idle session, and the way back is never offered.
+  it('offers the way back to the tail when the user scrolls, which xterm does not announce', async () => {
+    const { session } = await attached()
+    const host = paneHost()
+    session.attachTab('@1', host)
+    const term = xterm.FakeTerminal.instances[0]
+    const viewport = host.querySelector('.xterm-viewport')!
+
+    term.buffer.active.viewportY = 40
+    term.buffer.active.baseY = 120
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(session.tabs.value[0].scrolledUp).toBe(true)
+
+    term.buffer.active.viewportY = 120
+    viewport.dispatchEvent(new Event('scroll'))
+    expect(session.tabs.value[0].scrolledUp).toBe(false)
   })
 
   it('searches the active window and reports the hit it is on', async () => {

@@ -142,6 +142,12 @@ interface TabRuntime {
   rendered?: boolean
 }
 
+// How far off the live tail the viewport has to be before the way back is
+// offered. One wheel notch is about three rows, so a nudge — or the row of
+// drift a trackpad leaves behind — does not flash a pill at anyone; a scroll
+// meant as a scroll does.
+const TAIL_SLACK_ROWS = 5
+
 // The pane box belongs to the app window, not to a session, so one remembered
 // vote serves every session — including one being attached for the first time.
 // It is keyed by font size because the cell metrics, and so the vote, change
@@ -259,10 +265,14 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       disposers: [
         finder,
         term.onData((data: string) => sendInput(state.windowId, data)),
-        // onScroll covers user scrolling and the auto-pin on new output;
-        // onBufferChange covers entering the alternate screen, which has no
-        // scrollback and fires no scroll event on the way in.
+        // onScroll covers what output does to the buffer — the auto-pin to the
+        // tail, and a trim moving it — but *not* the user scrolling: xterm's
+        // viewport syncs the buffer from its own DOM scroll handler and
+        // suppresses the event to avoid feeding itself. attachTab listens to
+        // that DOM scroll for the other half.
         term.onScroll(() => refreshScrolledUp(state.windowId)),
+        // Entering the alternate screen has no scrollback and fires no scroll
+        // event on the way in.
         term.buffer.onBufferChange(() => refreshScrolledUp(state.windowId)),
         // Fires as output lands too, not just on a new query: a match count is
         // only true of the buffer it was counted in.
@@ -281,7 +291,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const tab = findTab(windowId)
     if (!tab) return
     const buffer = tab.term.buffer.active
-    tab.scrolledUp = buffer.viewportY < buffer.baseY
+    tab.scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -379,6 +389,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     const observer = new ResizeObserver(() => scheduleVote())
     observer.observe(host)
     state.observer = observer
+    watchViewportScroll(state, windowId, host)
     if (tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon
       // activation to its own open(), which would throw a missing-context
@@ -387,6 +398,21 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       tab.term.focus()
     }
     scheduleVote()
+  }
+
+  // The only signal that the user scrolled. xterm's own onScroll is suppressed
+  // on this path — the viewport reads its DOM scrollTop, syncs the buffer, and
+  // swallows the event so it cannot feed itself — so a wheel, a trackpad or a
+  // dragged scrollbar moves the viewport off the tail silently, and nothing
+  // would ever offer the way back. The element only exists after open(), and
+  // xterm's own listener is registered inside it, so ours runs second and reads
+  // a buffer already synced.
+  function watchViewportScroll(state: TabRuntime, windowId: string, host: HTMLElement): void {
+    const viewport = host.querySelector('.xterm-viewport')
+    if (!viewport) return
+    const onScroll = (): void => refreshScrolledUp(windowId)
+    viewport.addEventListener('scroll', onScroll, { passive: true })
+    state.disposers.push({ dispose: () => viewport.removeEventListener('scroll', onScroll) })
   }
 
   function scheduleVote(): void {
