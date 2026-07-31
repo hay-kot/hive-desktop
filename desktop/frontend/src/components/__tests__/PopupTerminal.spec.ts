@@ -2,6 +2,13 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import PopupTerminal from '../PopupTerminal.vue'
 import { resetPopupTerminalForTests, usePopupTerminal } from '../../composables/usePopupTerminal'
+import {
+  defaultTerminalFontWeight,
+  defaultTerminalFontWeightBold,
+  setTerminalFontFamily,
+  setTerminalFontWeight,
+} from '../../composables/useTerminalFont'
+import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 
 const xterm = vi.hoisted(() => {
   class FakeTerminal {
@@ -77,9 +84,12 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   Available: mocks.Available,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
+  MonospaceFonts: vi.fn().mockResolvedValue([]),
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  SetTerminalFontFamily: vi.fn(),
+  SetTerminalFontWeights: vi.fn(),
 }))
 vi.mock('../../lib/terminalFaces', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/terminalFaces')>()),
@@ -260,6 +270,49 @@ describe('PopupTerminal', () => {
 
     expect(xterm.FakeTerminal.instances).toHaveLength(1)
     expect(xterm.FakeTerminal.instances[0].options.fontFamily).toContain('Nerd Font')
+  })
+
+  // A launcher opens through the same path a bare shell does, so it has to
+  // carry the same typography — a pop-up that ignored the font settings would
+  // be the one terminal surface that does.
+  it('opens a launcher pop-up with the configured font', async () => {
+    await mountPanel()
+    setTerminalFontFamily('Menlo')
+    setTerminalFontWeight(400)
+    await flushPromises()
+
+    usePopupTerminal().show({ launcher: 'lazygit', sessionSlug: 'hive-abc' })
+    await flushPromises()
+
+    const opened = xterm.FakeTerminal.instances.at(-1)!
+    expect(opened.options.fontFamily).toBe(terminalFontStack('Menlo'))
+    expect(opened.options.fontWeight).toBe(400)
+    expect(opened.options.fontWeightBold).toBe(defaultTerminalFontWeightBold)
+    // The faces have to be resident before the Terminal is constructed: xterm
+    // measures its cell on open and never re-measures (ADR 0038).
+    expect(mocks.loadTerminalFaces).toHaveBeenCalledWith('Menlo', expect.any(Number), 400, defaultTerminalFontWeightBold)
+
+    setTerminalFontFamily(TERMINAL_FONT)
+    setTerminalFontWeight(defaultTerminalFontWeight)
+    await flushPromises()
+  })
+
+  it('applies a font change to the pop-up already on screen', async () => {
+    await mountPanel()
+    usePopupTerminal().show()
+    await flushPromises()
+    const live = xterm.FakeTerminal.instances.at(-1)!
+
+    setTerminalFontWeight(700)
+    await flushPromises()
+
+    expect(live.options.fontWeight).toBe(700)
+    // Reopening is what would lose the scrollback, so the change has to land on
+    // the terminal that is already up.
+    expect(xterm.FakeTerminal.instances.at(-1)).toBe(live)
+
+    setTerminalFontWeight(defaultTerminalFontWeight)
+    await flushPromises()
   })
 
   it('writes output to the pane and keystrokes to the socket', async () => {
