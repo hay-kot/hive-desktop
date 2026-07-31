@@ -152,7 +152,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		handshake:    make(chan struct{}),
 		attached:     make(chan struct{}),
 	}
-	c.events = newBroker(opts.BufferBytes, func() { c.teardown("overflow") })
+	c.events = newBroker(backlogBounds{bytes: opts.BufferBytes}, func() { c.teardown("overflow") })
 	c.paint = newPaintGate(c.emitOutput)
 
 	c.proc = opts.newProcess(opts)
