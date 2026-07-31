@@ -267,6 +267,8 @@ internal/
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
       js/                         # goja implementation
       testdata/parity/            # the engine's own regression fixtures
+    fonts/                        # the installed-monospace-family scan the
+                                  #   terminal's font picker reads (ADR 0050)
     icons/                        # curated feed glyph set — a leaf, shared by
                                   #   flow's feed node and the webhook connector
     sources/                      # connector registry

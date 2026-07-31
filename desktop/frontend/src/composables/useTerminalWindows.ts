@@ -16,7 +16,7 @@ import {
   type WindowEventKind,
   type WindowState,
 } from '../lib/terminalClient'
-import { loadTerminalFaces, TERMINAL_FONT_STACK, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
 import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { useTerminalFont } from './useTerminalFont'
@@ -197,7 +197,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   let socket: WebSocket | null = null
   let disposed = false
 
-  const { px: fontSizePx } = useTerminalFont()
+  const { px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold } = useTerminalFont()
 
   // The last size this client voted for: a request, never the size anything
   // renders at. It opens at the last measured vote, and null — nothing measured
@@ -222,8 +222,18 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     })
     // New cell metrics change how many cells fit the same box, so the vote
     // must re-run; the grid itself stays at tmux's size until tmux answers.
-    watch(fontSizePx, (px) => {
-      for (const tab of tabs.value) tab.term.options.fontSize = px
+    // Weight and family move the advance width as much as size does, so all
+    // four re-vote — and the faces have to be resident before xterm re-measures
+    // against them, or it measures the outgoing font (ADR 0038).
+    watch([fontSizePx, fontFamily, fontWeight, fontWeightBold], async ([px, family, weight, weightBold]) => {
+      await loadTerminalFaces(family, px, weight, weightBold)
+      if (disposed) return
+      for (const tab of tabs.value) {
+        tab.term.options.fontFamily = terminalFontStack(family)
+        tab.term.options.fontSize = px
+        tab.term.options.fontWeight = weight
+        tab.term.options.fontWeightBold = weightBold
+      }
       scheduleVote()
     })
   })
@@ -238,8 +248,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // a cleaner boundary, and a lineHeight above 1 pads the glyph away from the
     // cell edge box drawing has to meet. ADR 0038.
     const term = markRaw(new Terminal({
-      fontFamily: TERMINAL_FONT_STACK,
+      fontFamily: terminalFontStack(fontFamily.value),
       fontSize: fontSizePx.value,
+      fontWeight: fontWeight.value,
+      fontWeightBold: fontWeightBold.value,
       linkHandler,
       scrollback: 5000,
       theme: xtermTheme(),
@@ -618,7 +630,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     error.value = null
     actionError.value = null
     try {
-      await loadTerminalFaces(fontSizePx.value)
+      await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
       // 0x0 sets no client size at all: tmux ignores a control client until it
       // sets one, so the session keeps the size its other clients gave it.
       const { windows } = await client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0)

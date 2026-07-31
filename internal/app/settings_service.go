@@ -69,10 +69,13 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 // values are opaque here: the frontend owns each valid set and heals unknown
 // values, so "" means "nothing persisted" rather than an error.
 type AppearanceSettings struct {
-	Theme               string
-	TerminalFontSize    string
-	TerminalShowWindows bool
-	TerminalPoolSize    int
+	Theme                  string
+	TerminalFontSize       string
+	TerminalFontFamily     string
+	TerminalFontWeight     int
+	TerminalFontWeightBold int
+	TerminalShowWindows    bool
+	TerminalPoolSize       int
 }
 
 func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error) {
@@ -81,10 +84,13 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		return AppearanceSettings{}, Wrap(err, KindInternal, "reading settings")
 	}
 	return AppearanceSettings{
-		Theme:               cfg.Appearance.Theme,
-		TerminalFontSize:    cfg.Appearance.TerminalFontSize,
-		TerminalShowWindows: cfg.Appearance.TerminalShowWindows,
-		TerminalPoolSize:    cfg.Appearance.TerminalPoolSize,
+		Theme:                  cfg.Appearance.Theme,
+		TerminalFontSize:       cfg.Appearance.TerminalFontSize,
+		TerminalFontFamily:     cfg.Appearance.TerminalFontFamily,
+		TerminalFontWeight:     cfg.Appearance.TerminalFontWeight,
+		TerminalFontWeightBold: cfg.Appearance.TerminalFontWeightBold,
+		TerminalShowWindows:    cfg.Appearance.TerminalShowWindows,
+		TerminalPoolSize:       cfg.Appearance.TerminalPoolSize,
 	}, nil
 }
 
@@ -99,6 +105,26 @@ func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
 func (s *SettingsService) SetTerminalFontSize(_ context.Context, size string) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.TerminalFontSize = size
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalFontFamily(_ context.Context, family string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalFontFamily = family
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// SetTerminalFontWeights writes both weights at once: they are picked together
+// in one control, and a normal weight above the bold one is the kind of state
+// two independent setters would let a caller land in.
+func (s *SettingsService) SetTerminalFontWeights(_ context.Context, weight, weightBold int) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalFontWeight = weight
+		current.Appearance.TerminalFontWeightBold = weightBold
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

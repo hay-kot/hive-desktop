@@ -21,6 +21,19 @@ export interface AppearanceSettings {
     "terminalFontSize": string;
 
     /**
+     * TerminalFontFamily is an installed monospace family for the terminal
+     * alone; empty is the bundled face.
+     */
+    "terminalFontFamily": string;
+
+    /**
+     * The CSS weights normal and bold cells draw at. Zero means nothing
+     * persisted — the frontend owns the defaults and heals anything else.
+     */
+    "terminalFontWeight": number;
+    "terminalFontWeightBold": number;
+
+    /**
      * TerminalShowWindows lists every active session's tmux windows in the
      * terminal sidebar, not just the attached session's. Ships on.
      */
