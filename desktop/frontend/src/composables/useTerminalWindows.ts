@@ -17,6 +17,7 @@ import {
   type WindowState,
 } from '../lib/terminalClient'
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
+import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
@@ -133,6 +134,7 @@ interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
   finder: SearchAddon
+  output: TerminalOutputWriter
   disposers: IDisposable[]
   // An atlas renderer is live on this terminal. False after a context loss the
   // canvas claim did not survive, which is what makes the next activation
@@ -265,6 +267,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     term.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
     const finder = markRaw(new SearchAddon())
     term.loadAddon(finder)
+    const output = markRaw(new TerminalOutputWriter((data) => {
+      if (painted.value) term.write(data)
+      else term.write(data, () => { painted.value = true })
+    }))
     // Before any output reaches it: xterm re-wraps its buffer on resize, so a
     // grid sized after the first paint mangles the snapshot it just drew.
     term.resize(state.width || unreportedSize().cols, state.height || unreportedSize().rows)
@@ -282,8 +288,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     })
     runtime.set(state.windowId, {
       finder,
+      output,
       disposers: [
         finder,
+        { dispose: () => output.dispose() },
         term.onData((data: string) => sendInput(state.windowId, data)),
         // onScroll covers what output does to the buffer — the auto-pin to the
         // tail, and a trim moving it — but *not* the user scrolling: xterm's
@@ -510,12 +518,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
     switch (frame.type) {
       case 'output': {
-        const tab = findTab(frame.windowId)
-        if (!tab) break
-        // The callback fires once xterm has processed the chunk, which is the
-        // earliest moment this attach has a screen worth revealing.
-        if (painted.value) tab.term.write(frame.data)
-        else tab.term.write(frame.data, () => { painted.value = true })
+        runtime.get(frame.windowId)?.output.write(frame.data)
         break
       }
       case 'window':
