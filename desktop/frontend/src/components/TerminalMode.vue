@@ -5,6 +5,8 @@ import { useStorage } from '@vueuse/core'
 import IconAArrowDown from '~icons/lucide/a-arrow-down'
 import IconAArrowUp from '~icons/lucide/a-arrow-up'
 import IconArrowDown from '~icons/lucide/arrow-down'
+import IconArrowLeft from '~icons/lucide/arrow-left'
+import IconArrowRight from '~icons/lucide/arrow-right'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -48,6 +50,7 @@ import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
+import { formatCombo } from '../composables/useKeybindings'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useSessionActions } from '../composables/useSessionActions'
@@ -247,20 +250,31 @@ const viewMenuOpen = ref(false)
 const viewMenuToggle = ref<HTMLElement | null>(null)
 const viewMenuEntries = computed<MenuEntry[]>(() => {
   const ladder = terminalFontSizeState(fontSize.value)
+  const index = activeTabIndex.value
   return [
     { kind: 'label', text: `Text size · ${terminalFontSizeLabels[fontSize.value]}` },
     { kind: 'action', id: 'text-size-decrease', label: 'Decrease', icon: IconAArrowDown, disabled: !ladder.canDecrease, testid: 'terminal-text-size-decrease' },
     { kind: 'action', id: 'text-size-increase', label: 'Increase', icon: IconAArrowUp, disabled: !ladder.canIncrease, testid: 'terminal-text-size-increase' },
     { kind: 'action', id: 'text-size-reset', label: 'Reset', icon: IconRotateCcw, disabled: ladder.isDefault, testid: 'terminal-text-size-reset' },
+    { kind: 'separator' },
+    // The reachable-without-a-pointer half of drag reordering, and where the
+    // shortcut the tabs answer to is advertised. It moves the tab in view,
+    // because that is the one the menu is anchored to.
+    { kind: 'label', text: 'Tab order' },
+    { kind: 'action', id: 'tab-move-left', label: 'Move tab left', icon: IconArrowLeft, kbd: formatCombo('alt+arrowleft'), disabled: index <= 0, testid: 'terminal-tab-move-left' },
+    { kind: 'action', id: 'tab-move-right', label: 'Move tab right', icon: IconArrowRight, kbd: formatCombo('alt+arrowright'), disabled: index < 0 || index >= tabs.value.length - 1, testid: 'terminal-tab-move-right' },
   ]
 })
 
 // Stays open on select, unlike the row menus: a size is arrived at by nudging,
-// and reopening the menu between notches would make that unusable.
+// and reopening the menu between notches would make that unusable. A tab walks
+// along the strip the same way.
 function onViewMenuSelect(id: string): void {
   if (id === 'text-size-decrease') stepTerminalFontSize(-1)
   else if (id === 'text-size-increase') stepTerminalFontSize(1)
   else if (id === 'text-size-reset') resetTerminalFontSize()
+  else if (id === 'tab-move-left') stepTab(activeWindowId.value, -1)
+  else if (id === 'tab-move-right') stepTab(activeWindowId.value, 1)
 }
 
 const {
@@ -706,6 +720,72 @@ function commitRename(): void {
   if (name) void visible.value?.rename(windowId, name)
 }
 
+// ── tab reordering ──────────────────────────────────────────────────────────
+// Native HTML5 DnD, the same shape the hub sidebar uses; the dragged window is
+// tracked here because dataTransfer cannot be read during dragover, and the
+// hovered edge drives the insertion marker.
+const TERMINAL_TAB_DRAG_MIME = 'application/x-hive-terminal-tab'
+const draggingWindowId = ref('')
+const dropTarget = ref<{ windowId: string; after: boolean } | null>(null)
+
+function onTabDragStart(event: DragEvent, tab: TerminalWindowTab): void {
+  draggingWindowId.value = tab.windowId
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData(TERMINAL_TAB_DRAG_MIME, tab.windowId)
+  }
+}
+
+function onTabDragOver(event: DragEvent, tab: TerminalWindowTab): void {
+  if (!draggingWindowId.value) return
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  dropTarget.value = { windowId: tab.windowId, after: event.clientX > rect.left + rect.width / 2 }
+}
+
+function onTabDrop(): void {
+  const target = dropTarget.value
+  const windowId = draggingWindowId.value
+  onTabDragEnd()
+  if (!target || !windowId) return
+  void visible.value?.moveWindow(windowId, dropPosition(windowId, target))
+}
+
+function onTabDragEnd(): void {
+  draggingWindowId.value = ''
+  dropTarget.value = null
+}
+
+// The drop edge names a gap between windows; the API takes the index the moved
+// window ends up at, which is that gap once the window is out of the list.
+function dropPosition(windowId: string, target: { windowId: string; after: boolean }): number {
+  const rest = tabs.value.filter((tab) => tab.windowId !== windowId)
+  const anchor = rest.findIndex((tab) => tab.windowId === target.windowId)
+  if (anchor < 0) return rest.length
+  return target.after ? anchor + 1 : anchor
+}
+
+function showDropBefore(windowId: string): boolean {
+  return !!dropTarget.value && !dropTarget.value.after && dropTarget.value.windowId === windowId
+}
+
+function showDropAfter(windowId: string): boolean {
+  return !!dropTarget.value && dropTarget.value.after && dropTarget.value.windowId === windowId
+}
+
+const activeTabIndex = computed(() => tabs.value.findIndex((tab) => tab.windowId === activeWindowId.value))
+
+// The keyboard half, and the one the overflow menu advertises: a focused tab
+// steps along the strip and keeps focus, so a reorder never needs a pointer.
+// The ends hold rather than wrap, like the text-size ladder above.
+function stepTab(windowId: string, delta: number): void {
+  const from = tabs.value.findIndex((tab) => tab.windowId === windowId)
+  if (from < 0) return
+  const to = from + delta
+  if (to < 0 || to >= tabs.value.length) return
+  void visible.value?.moveWindow(windowId, to)
+}
+
 onMounted(() => {
   void probe()
   startStatusPolling()
@@ -987,14 +1067,27 @@ onBeforeUnmount(() => {
         <template v-if="visible && !notStarted">
           <div class="flex h-9 shrink-0 items-stretch border-b border-border bg-raised">
             <div class="hive-scroll flex min-w-0 items-stretch overflow-x-auto">
+              <!-- Draggable only while it is not being renamed: a drag on the
+                   name field would take the tab instead of selecting text. -->
               <div
                 v-for="tab in tabs"
                 :key="tab.uid"
-                class="flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
-                :class="tab.windowId === activeWindowId ? 'bg-app shadow-[inset_0_1px_0_var(--color-accent)]' : 'hover:bg-chip'"
+                class="tab relative flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
+                :class="{
+                  'bg-app shadow-[inset_0_1px_0_var(--color-accent)]': tab.windowId === activeWindowId,
+                  'hover:bg-chip': tab.windowId !== activeWindowId,
+                  'opacity-40': draggingWindowId === tab.windowId,
+                  'drop-before': showDropBefore(tab.windowId),
+                  'drop-after': showDropAfter(tab.windowId),
+                }"
+                :draggable="renamingId !== tab.windowId"
                 data-testid="terminal-tab"
                 :data-window-id="tab.windowId"
                 :data-active="tab.windowId === activeWindowId"
+                @dragstart="onTabDragStart($event, tab)"
+                @dragover.prevent="onTabDragOver($event, tab)"
+                @drop.prevent="onTabDrop"
+                @dragend="onTabDragEnd"
               >
                 <input
                   v-if="renamingId === tab.windowId"
@@ -1013,6 +1106,8 @@ onBeforeUnmount(() => {
                   :class="tab.windowId === activeWindowId ? 'font-medium text-text' : 'text-text-2'"
                   @click="visible?.select(tab.windowId)"
                   @dblclick="startRename(tab)"
+                  @keydown.alt.left.prevent="stepTab(tab.windowId, -1)"
+                  @keydown.alt.right.prevent="stepTab(tab.windowId, 1)"
                 >{{ tab.name || tab.windowId }}</button>
                 <button
                   type="button"
@@ -1294,6 +1389,15 @@ onBeforeUnmount(() => {
 .window-row::before { content: ''; position: absolute; left: 26px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
 .window-row::after { content: ''; position: absolute; left: 26px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
 .window-row-last::before { bottom: 50%; }
+
+/* The tab strip's insertion marker, vertical where the sidebar's is horizontal.
+   Drawn as a pseudo-element rather than an inset shadow so it composes with the
+   active tab's own accent line instead of replacing it mid-drag. */
+.tab.drop-before::before, .tab.drop-after::after {
+  content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-accent);
+}
+.tab.drop-before::before { left: 0; }
+.tab.drop-after::after { right: 0; }
 
 /* Tree motion, fast enough to read as instant: rows fade/slide over 150ms, a
    leaving row drops out of flow so its neighbors glide up through .tree-move

@@ -98,6 +98,23 @@ func (b terminalWindowRequest) Validate() error {
 	)
 }
 
+// terminalMoveRequest carries a destination index rather than a neighbour: a
+// tab strip means "this window ends up here", and which tmux insertion expresses
+// that is the core's to work out against the order it can see.
+type terminalMoveRequest struct {
+	Slug     string `json:"slug"`
+	WindowID string `json:"windowId"`
+	Position int    `json:"position"`
+}
+
+func (b terminalMoveRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("slug", b.Slug, criterio.Required),
+		criterio.Run("windowId", b.WindowID, criterio.Required),
+		criterio.Run("position", b.Position, criterio.Min(0)),
+	)
+}
+
 type terminalRenameRequest struct {
 	Slug     string `json:"slug"`
 	WindowID string `json:"windowId"`
@@ -254,6 +271,20 @@ func (ctrl *Controller) TerminalRenameWindow(w http.ResponseWriter, r *http.Requ
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// TerminalMoveWindow moves one window of an attached session to a position in
+// its window order.
+func (ctrl *Controller) TerminalMoveWindow(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalMoveRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	windows, err := ctrl.core.Terminals.MoveWindow(r.Context(), body.Slug, body.WindowID, body.Position)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalWindowsResponse{Windows: toTerminalWindows(windows)})
 }
 
 // TerminalSelectWindow makes one window the session's active window.

@@ -232,6 +232,7 @@ function fakeClient(): MockedClient {
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
     closeWindow: vi.fn().mockResolvedValue(undefined),
     renameWindow: vi.fn().mockResolvedValue(undefined),
+    moveWindow: vi.fn().mockResolvedValue({ windows: [] }),
     selectWindow: vi.fn().mockResolvedValue(undefined),
     detach: vi.fn().mockResolvedValue(undefined),
     openStream: vi.fn(() => {
@@ -1030,6 +1031,76 @@ describe('useTerminalWindows', () => {
     expect(term.scrollToBottom).toHaveBeenCalled()
     expect(term.focus).toHaveBeenCalled()
     expect(session.tabs.value[0].scrolledUp).toBe(false)
+  })
+
+  describe('reordering windows', () => {
+    // tmux reports the whole order back, and it is the one that lands: this
+    // client's guess is only what fills the gap while the round trip runs.
+    it('reorders on the drop and settles on the order tmux answers with', async () => {
+      const { client, session } = await attached()
+      let resolve: (value: { windows: { windowId: string }[] }) => void = () => {}
+      client.moveWindow.mockReturnValue(new Promise((r) => { resolve = r }))
+
+      const moving = session.moveWindow('@1', 1)
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@2', '@1'])
+      expect(client.moveWindow).toHaveBeenCalledWith('hive-abc', '@1', 1)
+
+      resolve({ windows: [{ windowId: '@1' }, { windowId: '@2' }] })
+      await moving
+
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
+      expect(session.actionError.value).toBeNull()
+    })
+
+    it('keeps the terminals and the selection across a move', async () => {
+      const { client, session } = await attached()
+      client.moveWindow.mockResolvedValue({ windows: [{ windowId: '@2' }, { windowId: '@1' }] })
+      const terminals = session.tabs.value.map((tab) => tab.term)
+
+      await session.moveWindow('@1', 1)
+
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@2', '@1'])
+      expect(session.tabs.value.map((tab) => tab.term)).toEqual([terminals[1], terminals[0]])
+      expect(session.activeWindowId.value).toBe('@1')
+      expect(terminals[0].dispose).not.toHaveBeenCalled()
+    })
+
+    it('puts the strip back and names the failure when tmux refuses', async () => {
+      const { client, session } = await attached()
+      client.moveWindow.mockRejectedValue(new Error('tmux refused the move'))
+
+      await session.moveWindow('@1', 1)
+
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
+      expect(session.actionError.value).toBe('tmux refused the move')
+      expect(session.status.value).toBe('live')
+    })
+
+    // A window opened while the move was in flight is tmux's news, not part of
+    // what the refusal was about.
+    it('rolls back the order without dropping a window that arrived meanwhile', async () => {
+      const { client, session, socket } = await attached()
+      let reject: (reason: Error) => void = () => {}
+      client.moveWindow.mockReturnValue(new Promise((_, r) => { reject = r }))
+
+      const moving = session.moveWindow('@1', 1)
+      socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs' }) })
+      reject(new Error('tmux refused the move'))
+      await moving
+
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2', '@3'])
+    })
+
+    it('never asks tmux for a move that changes nothing', async () => {
+      const { client, session } = await attached()
+
+      await session.moveWindow('@1', 0)
+      await session.moveWindow('@1', 5)
+      await session.moveWindow('@404', 1)
+
+      expect(client.moveWindow).not.toHaveBeenCalled()
+      expect(session.tabs.value.map((tab) => tab.windowId)).toEqual(['@1', '@2'])
+    })
   })
 
   it('reports a failed control action without ending the session', async () => {

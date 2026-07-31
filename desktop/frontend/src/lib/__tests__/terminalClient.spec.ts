@@ -152,6 +152,23 @@ describe('createTerminalClient', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ slug: 'hive-abc', windowId: '@2' })
   })
 
+  it('moves a window to a position and answers with the order tmux settled on', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {
+      windows: [
+        { windowId: '@2', name: 'shell', active: false, width: 120, height: 40 },
+        { windowId: '@1', name: 'agent', active: true, width: 120, height: 40 },
+      ],
+    }))
+
+    const result = await createTerminalClient(endpoint).moveWindow('hive-abc', '@1', 1)
+
+    // The reply is a window set, not an acknowledgement: tmux owns the order.
+    expect(result.windows.map((window) => window.windowId)).toEqual(['@2', '@1'])
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/windows/move')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', windowId: '@1', position: 1 })
+  })
+
   it('starts a session and reports whether the call is what spawned it', async () => {
     fetchMock.mockResolvedValue(jsonResponse(200, { started: true }))
 

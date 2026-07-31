@@ -135,6 +135,13 @@ func (c *controller) reconcile(next []Window) []Event {
 		c.removeLocked(id)
 		events = append(events, WindowChanged{Kind: WindowClosed, Window: w})
 	}
+	// tmux's order is the authoritative one, and it is the only thing a reorder
+	// changes: every window comes back identical, so nothing above would notice
+	// and the set would keep the order it was first discovered in.
+	c.order = c.order[:0]
+	for _, w := range next {
+		c.order = append(c.order, w.ID)
+	}
 	return events
 }
 

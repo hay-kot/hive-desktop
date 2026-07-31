@@ -266,6 +266,12 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
 		},
 		{
+			Method: "POST", Path: "/api/terminal/windows/move", Summary: "Move one window of the attached session to a position in its window order and answer with the order tmux settled on. position is a 0-based index into the resulting order, the way a drop on a tab strip means one; tmux's own indices are renumbered afterwards so they stay contiguous. The active window is preserved, and the move is tmux session state — every other client attached to the session sees it too.",
+			Request: terminalMoveRequest{}, Response: terminalWindowsResponse{}, Handler: ctrl.TerminalMoveWindow,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such window",
+				ErrResp{Status: 400, When: "the position is outside the session's window order"}),
+		},
+		{
 			Method: "POST", Path: "/api/terminal/windows/select", Summary: "Make one window the attached session's active window.",
 			Request: terminalWindowRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalSelectWindow,
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),

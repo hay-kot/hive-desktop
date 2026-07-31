@@ -161,6 +161,80 @@ func TestTerminalsKillEndsTheSessionAndLeavesItStartableAgain(t *testing.T) {
 	assert.True(t, started, "a killed session can be started again")
 }
 
+// Reordering is the one operation whose result is not what the caller asked
+// for: tmux owns the order, so the service answers with what tmux settled on.
+func TestTerminalsMoveWindowReordersAndKeepsTheSelection(t *testing.T) {
+	tmux := privateTmux(t)
+	require.NoError(t, tmux("-f", "/dev/null", "new-session", "-d", "-s", "hive-move", "-n", "alpha", "-x", "120", "-y", "40", "sh"))
+	require.NoError(t, tmux("new-window", "-t", "hive-move", "-n", "bravo", "sh"))
+	require.NoError(t, tmux("new-window", "-t", "hive-move", "-n", "charlie", "sh"))
+	terminals := newTestTerminals(t, &spawningStarter{tmux: tmux})
+
+	windows, err := terminals.Attach(t.Context(), "hive-move", 120, 40)
+	require.NoError(t, err)
+	require.Equal(t, []string{"alpha", "bravo", "charlie"}, windowNames(windows))
+	active := activeWindowID(t, windows)
+
+	moved, err := terminals.MoveWindow(t.Context(), "hive-move", windows[0].ID, 2)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"bravo", "charlie", "alpha"}, windowNames(moved))
+	assert.Equal(t, active, activeWindowID(t, moved), "a reorder is not a selection")
+
+	// Indices are what tmux's own key bindings and every other attached client
+	// address a window by, so an insert must not leave them with holes.
+	listed, err := terminals.ListWindows(t.Context(), "hive-move")
+	require.NoError(t, err)
+	assert.Equal(t, windowNames(moved), windowNames(listed))
+	// The fixture's server runs with no config, so the run starts at tmux's own
+	// base-index of 0.
+	assert.Equal(t, "0 1 2", tmuxFields(t, "list-windows", "-t", "hive-move", "-F", "#{window_index}"))
+}
+
+func TestTerminalsMoveWindowClassifiesWhatItRefuses(t *testing.T) {
+	tmux := privateTmux(t)
+	require.NoError(t, tmux("-f", "/dev/null", "new-session", "-d", "-s", "hive-badmove", "-n", "alpha", "-x", "120", "-y", "40", "sh"))
+	terminals := newTestTerminals(t, &spawningStarter{tmux: tmux})
+
+	_, err := terminals.MoveWindow(t.Context(), "hive-badmove", "@0", 0)
+	assert.Equal(t, KindNotFound, KindOf(err), "no client is attached for that slug")
+
+	windows, err := terminals.Attach(t.Context(), "hive-badmove", 120, 40)
+	require.NoError(t, err)
+
+	_, err = terminals.MoveWindow(t.Context(), "hive-badmove", "@404", 0)
+	assert.Equal(t, KindNotFound, KindOf(err))
+	_, err = terminals.MoveWindow(t.Context(), "hive-badmove", windows[0].ID, 7)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func windowNames(windows []tmuxcc.Window) []string {
+	names := make([]string, 0, len(windows))
+	for _, w := range windows {
+		names = append(names, w.Name)
+	}
+	return names
+}
+
+func activeWindowID(t *testing.T, windows []tmuxcc.Window) string {
+	t.Helper()
+	for _, w := range windows {
+		if w.Active {
+			return w.ID
+		}
+	}
+	t.Fatalf("no active window in %#v", windows)
+	return ""
+}
+
+// tmuxFields reads a tmux listing as one space-joined line, so a per-row format
+// reads as the sequence it describes.
+func tmuxFields(t *testing.T, args ...string) string {
+	t.Helper()
+	out, err := exec.CommandContext(t.Context(), "tmux", args...).Output()
+	require.NoError(t, err)
+	return strings.Join(strings.Fields(string(out)), " ")
+}
+
 func TestTerminalsStartReportsWhyItCouldNot(t *testing.T) {
 	tmux := privateTmux(t)
 	starter := &spawningStarter{tmux: tmux, err: Errorf(KindNotFound, "no session named %q", "hive-gone")}
