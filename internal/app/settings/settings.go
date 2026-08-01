@@ -168,6 +168,13 @@ type PprofSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
 }
 
+// PerfSettings gates the UI performance recorder, which appends spans the
+// frontend emits to perf.jsonl under the state directory (ADR 0055). Off in a
+// shipped build; desktop:dev turns it on through launch.env.
+type PerfSettings struct {
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
+}
+
 type DebugSettings struct {
 	PauseIngest Duration `yaml:"pause_ingest" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST"`
 	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT"`
@@ -196,6 +203,7 @@ type DevelopmentSettings struct {
 	Vite     ServerSettings    `yaml:"vite"               envPrefix:"HIVE_DESKTOP_DEVELOPMENT_VITE_"`
 	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`
+	Perf     PerfSettings      `yaml:"perf"`
 	Debug    DebugSettings     `yaml:"debug"`
 }
 
@@ -233,6 +241,7 @@ func DefaultSettings() Settings {
 			Vite:  ServerSettings{Host: "127.0.0.1", Port: 0},
 			Wails: ServerSettings{Host: "127.0.0.1", Port: 0},
 			Pprof: PprofSettings{Enabled: false},
+			Perf:  PerfSettings{Enabled: false},
 		},
 	}
 }

@@ -161,6 +161,27 @@ frontend edits require re-running `desktop:serve`; for a fast frontend loop use
 centering, close-hides-window, tray menu, template-icon tinting) is a **manual**
 verification concern — it cannot be checked headlessly.
 
+### Measuring a slow interaction
+
+`usePerf` records spans to `perf.jsonl` under the state directory for later
+analysis (ADR 0055). It is on in `desktop:dev` via `launch.env` and off in a
+shipped build, so instrumentation can be added freely to chase something and
+left in place — a disabled recorder costs a boolean check.
+
+```ts
+const perf = usePerf('feed')                             // scope = subsystem
+await perf.track('item:open', () => open(id), { id })    // wrap sync or async work
+const end = perf.start('render', { count }); end()       // or open and close a span
+perf.record('paint', durationMs)                         // or report a duration you measured
+```
+
+Keep `name` stable across calls so samples aggregate, and put the varying part
+in attrs: an id interpolated into the name gives every sample a unique one and
+nothing groups. Samples buffer and flush in batches, so read the file after
+exercising the app;
+`perfInfo()` returns its path. Analysis is `jq` over the file — there is no
+query API by design.
+
 ## Testing
 
 - **Unit** (`mise run desktop:test`): Go logic (`go test ./desktop/...
@@ -272,6 +293,7 @@ more expensive, which is the whole reason it is being done now.
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
     pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR 0023)
+    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR 0055); desktop:dev turns it on
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
@@ -382,6 +404,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR 0023); off by default, needs `http.enabled` |
+| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR 0055). Off by default; `launch.env` sets it so `desktop:dev` records |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |
