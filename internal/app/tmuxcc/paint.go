@@ -55,6 +55,16 @@ func (g *paintGate) hold(pane string) bool {
 	return true
 }
 
+// rehold buffers a pane whether or not it has been painted before. It is what a
+// deferred first paint needs and hold cannot give: a repaint's windows are all
+// live from the attach that preceded it, so hold would decline them and their
+// output would stream ahead of the snapshot that has to precede it.
+func (g *paintGate) rehold(pane string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.held[pane] = true
+}
+
 // mark holds the pane and records the point the snapshot command was sent at:
 // output buffered before it is inside the snapshot, output after it is replayed
 // behind the snapshot.
@@ -98,16 +108,25 @@ func (g *paintGate) discard(pane string) {
 	delete(g.live, pane)
 }
 
+// openAll opens the gate for every pane that is not mid-snapshot. A held pane
+// keeps its buffer and its mark: its snapshot has not landed yet, and flushing
+// what it is holding would put the pane's own scrollback on the stream *behind*
+// the live output that followed it. That is the case a deferred first paint
+// makes ordinary — the gate opens while the background windows are still being
+// captured.
 func (g *paintGate) openAll() {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	now := time.Now()
 	for pane, data := range g.buf {
+		if g.held[pane] {
+			continue
+		}
 		if len(data) > 0 {
 			g.emit(pane, data, now)
 		}
+		delete(g.buf, pane)
+		delete(g.marks, pane)
 	}
-	g.buf = map[string][]byte{}
-	g.marks = map[string]int{}
 	g.open = true
 }

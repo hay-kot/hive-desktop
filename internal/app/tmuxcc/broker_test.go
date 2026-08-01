@@ -276,8 +276,12 @@ func TestBrokerReplacementSubscriberSeesEveryUndeliveredEvent(t *testing.T) {
 	replacement, unsubscribe := b.subscribe()
 	defer unsubscribe()
 
+	// Read until the bytes are all accounted for rather than for a fixed number
+	// of events: queued output for one pane is coalesced, so what the
+	// replacement is owed is a byte stream with no hole in it, not a particular
+	// number of frames.
 	var got strings.Builder
-	for range count {
+	for got.Len() < count {
 		got.Write(requireOutput(t, receive(t, replacement)).Data)
 	}
 	require.Equal(t, "01234567", got.String())
@@ -388,4 +392,61 @@ func TestBrokerPublishNeverBlocks(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("publish blocked on an unread subscriber")
 	}
+}
+
+// Coalescing exists to cut the number of frames a busy pane produces, and it is
+// only allowed to do that if the bytes and their order survive it exactly.
+func TestBrokerCoalescesQueuedOutputWithoutLosingBytes(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(backlogBounds{}, nil)
+	stalled, _ := b.subscribe()
+
+	const count = 64
+	var want strings.Builder
+	for i := range count {
+		chunk := strconv.Itoa(i) + ","
+		want.WriteString(chunk)
+		b.publish(outputEvent("@1", chunk))
+	}
+	require.Equal(t, want.Len(), b.depth(), "coalescing must not change what the backlog is charged")
+
+	replacement, unsubscribe := b.subscribe()
+	defer unsubscribe()
+
+	var got strings.Builder
+	frames := 0
+	for got.Len() < want.Len() {
+		got.Write(requireOutput(t, receive(t, replacement)).Data)
+		frames++
+	}
+	require.Equal(t, want.String(), got.String(), "every byte, in order")
+	require.Less(t, frames, count, "a stalled subscriber's queued output is delivered in fewer frames than it was published in")
+
+	<-stalled
+}
+
+// Output for different windows must never be folded together: each frame
+// carries one window id, and merging across them would deliver one pane's bytes
+// to another's emulator.
+func TestBrokerNeverCoalescesAcrossWindows(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(backlogBounds{}, nil)
+	_, _ = b.subscribe()
+
+	b.publish(outputEvent("@1", "a"))
+	b.publish(outputEvent("@2", "b"))
+	b.publish(outputEvent("@1", "c"))
+	b.publish(outputEvent("@2", "d"))
+
+	replacement, unsubscribe := b.subscribe()
+	defer unsubscribe()
+
+	perWindow := map[string]string{}
+	for range 4 {
+		out := requireOutput(t, receive(t, replacement))
+		perWindow[out.WindowID] += string(out.Data)
+	}
+	require.Equal(t, map[string]string{"@1": "ac", "@2": "bd"}, perWindow)
 }

@@ -1,6 +1,13 @@
 const BEGIN_SYNCHRONIZED_OUTPUT = Uint8Array.from([0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68])
 const END_SYNCHRONIZED_OUTPUT = Uint8Array.from([0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x6c])
 const SYNCHRONIZED_OUTPUT_TIMEOUT_MS = 1000
+// A held frame is output the pane has produced and the renderer has not been
+// shown. Only an END marker or the timeout releases one, so a program that
+// opens a frame and then streams without closing it would otherwise pin every
+// byte it writes for a full second — unbounded memory, and a pane that appears
+// frozen. Past this the frame is released mid-redraw: one torn repaint beats
+// holding megabytes and a second of latency.
+const MAX_SYNCHRONIZED_FRAME_BYTES = 1 << 20
 
 // tmux splits one process write across %output notifications, while xterm 5
 // ignores the synchronized-output markers pi wraps around each redraw. Holding
@@ -70,6 +77,9 @@ export class TerminalOutputWriter {
       return
     }
     this.appendFrame(data)
+    // No END in sight and the frame has grown past what is worth holding —
+    // release it rather than keep buffering toward the timeout.
+    if (this.frameBytes >= MAX_SYNCHRONIZED_FRAME_BYTES) this.flushFrame()
   }
 
   private appendFrame(data: Uint8Array): void {

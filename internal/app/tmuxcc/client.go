@@ -112,9 +112,19 @@ type Client struct {
 	events *broker
 	paint  *paintGate
 
-	cancel        context.CancelFunc
-	readerDone    chan struct{}
-	workerDone    chan struct{}
+	cancel context.CancelFunc
+	// lifeCtx bounds work that outlives the request that started it — the
+	// deferred first paint, whether an attach or a repaint queued it. Held
+	// rather than passed because the request context is cancelled the moment
+	// Attach answers, which is precisely what deferring the paint means.
+	lifeCtx context.Context //nolint:containedctx // see above; teardown cancels it before joining the pass
+
+	readerDone chan struct{}
+	workerDone chan struct{}
+	// bgPaint tracks the deferred first paint. A WaitGroup rather than a
+	// channel because an attach that fails before negotiate never starts one,
+	// and teardown must not block waiting for a goroutine that does not exist.
+	bgPaint       sync.WaitGroup
 	reconcileReq  chan struct{}
 	handshake     chan struct{}
 	attached      chan struct{}
@@ -169,6 +179,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 
 	lifeCtx, cancel := context.WithCancel(lifetime)
 	c.cancel = cancel
+	c.lifeCtx = lifeCtx
 
 	go c.read(stdout)
 	go c.worker(lifeCtx)
@@ -426,16 +437,98 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 	}
 	c.ctrl.set(windows)
 
-	for _, w := range windows {
-		if w.ActivePane == "" {
-			continue
-		}
-		if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
+	// Only the window the user is about to look at is painted before Attach
+	// answers. A first paint is dominated by `capture-pane -e`, which costs
+	// roughly 3.5us per scrollback line inside tmux, so painting every window
+	// here made attach latency scale with a session's window count while the
+	// renderer could only show one of them. The rest are painted immediately
+	// afterwards, on the client's own lifetime, and reach the same stream in
+	// the same order — see paintBackground.
+	deferred := c.holdBackground(windows)
+	if active, ok := activeWindow(windows); ok {
+		if err := c.firstPaint(ctx, active.ActivePane, active.Height); err != nil {
+			c.releaseRemaining(deferred)
 			return err
 		}
 	}
 	c.paint.openAll()
+	c.startBackgroundPaint(deferred) //nolint:contextcheck // deliberately the client's lifetime, not this request's
 	return nil
+}
+
+// activeWindow picks the window a fresh attach paints synchronously: the one
+// tmux reports as active, falling back to the first paintable window so a
+// session tmux has not marked one for still gets a painted pane.
+func activeWindow(windows []Window) (Window, bool) {
+	var fallback Window
+	var found bool
+	for _, w := range windows {
+		if w.ActivePane == "" {
+			continue
+		}
+		if w.Active {
+			return w, true
+		}
+		if !found {
+			fallback, found = w, true
+		}
+	}
+	return fallback, found
+}
+
+// holdBackground puts every window that will not be painted synchronously into
+// the paint gate before the synchronous paint starts, so output produced from
+// this moment on is buffered rather than emitted ahead of the snapshot that has
+// to precede it. It returns the windows still owing a paint.
+func (c *Client) holdBackground(windows []Window) []Window {
+	active, hasActive := activeWindow(windows)
+	deferred := make([]Window, 0, len(windows))
+	for _, w := range windows {
+		if w.ActivePane == "" || (hasActive && w.ID == active.ID) {
+			continue
+		}
+		c.paint.rehold(w.ActivePane)
+		deferred = append(deferred, w)
+	}
+	return deferred
+}
+
+// startBackgroundPaint paints the windows a fresh attach deferred. It runs on
+// the client's lifetime rather than the attach request's, because the request's
+// context is cancelled the moment Attach answers — which is the whole point of
+// deferring. teardown joins it, so a client cannot outlive the goroutine.
+//
+// Every pane is released on every path: a pane left held buffers its output for
+// the life of the client and renders nothing.
+func (c *Client) startBackgroundPaint(windows []Window) {
+	if len(windows) == 0 {
+		return
+	}
+	c.bgPaint.Go(func() { //nolint:contextcheck // the client's lifetime, not the request's — see lifeCtx
+		ctx, cancel := context.WithTimeout(c.lifeCtx, attachTimeout)
+		defer cancel()
+		for _, w := range windows {
+			if err := c.firstPaint(ctx, w.ActivePane, w.Height); err != nil {
+				// A failure here is not fatal to the attach that already
+				// answered: the pane is released unpainted, so it renders from
+				// the live stream rather than staying blank forever, and the
+				// window can still be repainted on demand.
+				c.log.Debug().Err(err).Str("pane", w.ActivePane).Msg("deferred first paint failed")
+				if ctx.Err() != nil {
+					c.releaseRemaining(windows)
+					return
+				}
+			}
+		}
+	})
+}
+
+// releaseRemaining unblocks every pane still held, for the case the deferred
+// pass gave up partway.
+func (c *Client) releaseRemaining(windows []Window) {
+	for _, w := range windows {
+		c.paint.release(w.ActivePane, nil)
+	}
 }
 
 // Repaint re-runs the first paint for every window, so a caller re-attaching to
@@ -449,18 +542,24 @@ func (c *Client) negotiate(ctx context.Context, opts Options) error {
 // see broker.reset. The captures are bounded like an attach's own, because the
 // manager runs this under the lock every other attach queues behind.
 func (c *Client) Repaint(ctx context.Context) error {
+	// A deferred pass from the attach before this one may still be capturing.
+	// Letting the two interleave would put two snapshots of the same pane on
+	// the stream in an order neither chose.
+	c.bgPaint.Wait()
+
 	paintCtx, cancel := context.WithTimeout(ctx, attachTimeout)
 	defer cancel()
 
 	c.events.reset()
-	for _, w := range c.Windows() {
-		if w.ActivePane == "" {
-			continue
-		}
-		if err := c.firstPaint(paintCtx, w.ActivePane, w.Height); err != nil {
+	windows := c.Windows()
+	deferred := c.holdBackground(windows)
+	if active, ok := activeWindow(windows); ok {
+		if err := c.firstPaint(paintCtx, active.ActivePane, active.Height); err != nil {
+			c.releaseRemaining(deferred)
 			return err
 		}
 	}
+	c.startBackgroundPaint(deferred) //nolint:contextcheck // deliberately the client's lifetime, not this request's
 	return nil
 }
 
@@ -708,6 +807,9 @@ func (c *Client) teardown(reason string) {
 		_ = c.proc.Kill()
 		<-c.readerDone
 		<-c.workerDone
+		// After cancel above, so a paint parked on a reply that will never
+		// arrive is released by its context rather than waited out.
+		c.bgPaint.Wait()
 		_ = c.proc.Wait()
 		c.gw.fail(errGatewayClosed)
 		c.events.publish(LifecycleChanged{Kind: LifecycleExited, Message: reason})

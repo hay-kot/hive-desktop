@@ -753,7 +753,15 @@ them is the constraint (ADR 0036):
 
 **A first paint is a pane's scrollback, its screen at exactly the window's
 height, and its cursor** (ADR 0046) — three tmux commands per pane, replayed
-as one byte stream into a fresh emulator. Two invariants hold it together and
+as one byte stream into a fresh emulator. **An attach paints the active window
+and answers; the rest are painted straight after on the client's own lifetime**
+(ADR 0052). `capture-pane -e` is what a first paint costs — 7.5x the same
+capture without escape reconstruction, linear in scrollback depth — so painting
+every window before answering made attach latency scale with a session's window
+count for panes the renderer could not show. A deferred pane is held from
+before the synchronous paint begins, `openAll` leaves a held pane's buffer
+alone, and a repaint waits for an in-flight deferred pass rather than
+interleaving with it. Two invariants hold it together and
 both are easy to break by accident. The screen must be written at the full
 window height, because an emulator pins its viewport to the last rows it was
 written and a short screen seats the pane's row 0 partway down it — every
@@ -775,6 +783,15 @@ only render the future of. The repaint resets the broker first: the snapshot
 supersedes every undelivered byte, and a subscriber still draining the dropped
 stream would otherwise consume the snapshot meant for its replacement. The size
 vote is a fresh attach's alone — a live client keeps the one it already cast.
+
+**What a subscriber is owed is a byte stream, not the frames it was published
+in.** tmux caps a `%output` at 2KB, so a busy pane produces ~14.5k events a
+second and every fixed per-frame cost downstream is multiplied by that. The
+broker folds an incoming output into the last queued event for the same pane
+(ADR 0053). It costs no latency because a merge is only possible when a second
+event is already waiting — a consumer keeping up sees every event whole — and
+it never merges into the head, which `pump` may already be delivering. Byte
+accounting is unchanged, so the overflow bound trips at the same volume.
 
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold

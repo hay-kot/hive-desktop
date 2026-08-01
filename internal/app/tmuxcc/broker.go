@@ -118,10 +118,60 @@ func (b *broker) publish(ev Event) {
 			return
 		}
 	}
+	if b.coalesceLocked(ev, size) {
+		b.mu.Unlock()
+		b.cond.Broadcast()
+		return
+	}
 	b.buf = append(b.buf, ev)
 	b.bytes += size
 	b.mu.Unlock()
 	b.cond.Broadcast()
+}
+
+// maxCoalescedBytes bounds one merged frame. tmux caps a %output notification
+// at 2KB, so a busy pane produces thousands of them a second and every
+// per-frame cost downstream — a WebSocket frame, a webview message task, a
+// decode — is paid that many times. Merging them while they are queued anyway
+// divides all of it at once.
+const maxCoalescedBytes = 64 << 10
+
+// coalesceLocked folds ev into the last queued event when both are output for
+// the same pane, reporting whether it did. It merges only into an event behind
+// the head, because the head is the one pump may already be handing to the
+// subscriber — it holds its own copy and charges the backlog for the size it
+// read, so growing it there would both lose the appended bytes and corrupt the
+// byte accounting.
+//
+// Nothing here adds latency: a merge is only possible when a second event is
+// already waiting, which means the subscriber is behind. A consumer keeping up
+// sees a backlog of at most one and every event whole.
+func (b *broker) coalesceLocked(ev Event, size int) bool {
+	out, isOutput := ev.(Output)
+	if !isOutput || len(b.buf) < 2 {
+		return false
+	}
+	last := len(b.buf) - 1
+	tail, isOutput := b.buf[last].(Output)
+	if !isOutput || tail.WindowID != out.WindowID || tail.PaneID != out.PaneID {
+		return false
+	}
+	if len(tail.Data)+size > maxCoalescedBytes {
+		return false
+	}
+	// A fresh buffer rather than append onto tail.Data: that slice can alias
+	// one the paint gate or the decoder still owns, and appending into its
+	// spare capacity would write through to the other holder.
+	merged := make([]byte, 0, len(tail.Data)+size)
+	merged = append(merged, tail.Data...)
+	merged = append(merged, out.Data...)
+	// tail.At is kept, not out.At: it stamps the oldest byte in the frame, so
+	// the latency the adapter reports stays the worst case rather than being
+	// reset by every merge.
+	tail.Data = merged
+	b.buf[last] = tail
+	b.bytes += size
+	return true
 }
 
 // droppable reports whether losing ev is recoverable. Overflow tears the client
