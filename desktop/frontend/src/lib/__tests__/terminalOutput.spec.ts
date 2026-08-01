@@ -102,3 +102,26 @@ describe('TerminalOutputWriter', () => {
     expect(decoder.decode(chunks[0])).toBe('\x1b[?2026hpartial')
   })
 })
+
+// A program that opens a synchronized frame and then streams without ever
+// closing it must not pin its output until the timeout: that is unbounded
+// memory and a pane that looks frozen for a full second.
+it('releases a synchronized frame that grows past the hold bound', () => {
+  const written: Uint8Array[] = []
+  const writer = new TerminalOutputWriter((data) => written.push(data))
+
+  writer.write(Uint8Array.from([0x1b, 0x5b, 0x3f, 0x32, 0x30, 0x32, 0x36, 0x68]))
+  expect(written).toHaveLength(0)
+
+  let sent = 0
+  const chunk = new Uint8Array(64 * 1024).fill(0x61)
+  while (written.length === 0 && sent < 4 << 20) {
+    writer.write(chunk)
+    sent += chunk.length
+  }
+
+  expect(written.length).toBeGreaterThan(0)
+  expect(sent).toBeLessThanOrEqual(2 << 20)
+  const total = written.reduce((n, part) => n + part.length, 0)
+  expect(total).toBe(sent + 8)
+})

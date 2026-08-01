@@ -133,6 +133,9 @@ const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 interface TabRuntime {
   host?: HTMLElement
   observer?: ResizeObserver
+  // The same Terminal the tab holds, reachable without going through the
+  // reactive tabs array — see refreshScrolledUp.
+  term: Terminal
   finder: SearchAddon
   output: TerminalOutputWriter
   disposers: IDisposable[]
@@ -140,6 +143,10 @@ interface TabRuntime {
   // canvas claim did not survive, which is what makes the next activation
   // retry instead of leaving the pane on the DOM renderer. ADR 0045.
   rendered?: boolean
+  // The last value written to the tab's reactive `scrolledUp`, held raw so the
+  // per-line refresh can tell "unchanged" without touching a Vue proxy. See
+  // refreshScrolledUp.
+  scrolledUp?: boolean
 }
 
 // How far off the live tail the viewport has to be before the way back is
@@ -298,6 +305,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       return true
     })
     runtime.set(state.windowId, {
+      term,
       finder,
       output,
       disposers: [
@@ -324,13 +332,25 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     return { uid: nextTabUID++, windowId: state.windowId, name: state.name, active: state.active, scrolledUp: false, term, fit }
   }
 
-  // Reads through findTab so the reactive proxy is mutated, not the raw object
-  // createTab returned — a raw write would leave the pill stale.
+  // Runs once per rendered line of output, per streaming window — xterm fires
+  // onScroll for every line feed that reaches the bottom of the scroll region,
+  // and hidden pooled panes keep parsing, so this is the hottest app-owned path
+  // there is. Everything reactive is therefore behind an unchanged-value guard
+  // read from the raw runtime record: the steady state (pinned to the tail,
+  // nothing to say) touches no Vue proxy at all.
+  //
+  // The write itself still goes through findTab, because it has to mutate the
+  // reactive proxy rather than the raw object createTab returned — a raw write
+  // would leave the pill stale.
   function refreshScrolledUp(windowId: string): void {
+    const state = runtime.get(windowId)
+    if (!state) return
+    const buffer = state.term.buffer.active
+    const scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
+    if (scrolledUp === state.scrolledUp) return
+    state.scrolledUp = scrolledUp
     const tab = findTab(windowId)
-    if (!tab) return
-    const buffer = tab.term.buffer.active
-    tab.scrolledUp = buffer.baseY - buffer.viewportY > TAIL_SLACK_ROWS
+    if (tab) tab.scrolledUp = scrolledUp
   }
 
   // applySize holds a terminal to tmux's size for its window. A 0 means tmux has
@@ -646,10 +666,17 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     error.value = null
     actionError.value = null
     try {
-      await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
+      // Concurrent, not sequential: the faces have to be resident before
+      // term.open() measures a cell, which attachTab does well after this
+      // resolves — so ~100ms of woff2 decode has no reason to be spent ahead of
+      // the tmux round trip instead of alongside it.
+      //
       // 0x0 sets no client size at all: tmux ignores a control client until it
       // sets one, so the session keeps the size its other clients gave it.
-      const { windows } = await client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0)
+      const [, { windows }] = await Promise.all([
+        loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value),
+        client.attach(slug, vote?.cols ?? 0, vote?.rows ?? 0),
+      ])
       if (disposed) return
       tabs.value = windows.map(createTab)
       setActive(windows.find((window) => window.active)?.windowId ?? windows[0]?.windowId ?? '')

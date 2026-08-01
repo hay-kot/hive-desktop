@@ -60,6 +60,8 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0049](decisions/0049-launchers-are-their-own-list-in-actions-yml.md) | A pop-up terminal launcher is its own list in actions.yml, not an action |
 | [0050](decisions/0050-terminal-typography-is-configurable.md) | Terminal typography is configurable, and the bundled face carries five weights |
 | [0051](decisions/0051-terminal-line-height-and-letter-spacing.md) | Terminal line height and letter spacing are settings, and line height defaults to 1.2 |
+| [0052](decisions/0052-attach-paints-the-active-window-first.md) | Attach paints the active window first and defers the rest to the client's own lifetime |
+| [0053](decisions/0053-queued-terminal-output-coalesces.md) | Queued terminal output coalesces per pane, so batching costs no latency |
 
 ## References
 

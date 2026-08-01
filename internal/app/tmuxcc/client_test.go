@@ -3,6 +3,7 @@
 package tmuxcc
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"slices"
@@ -57,20 +58,72 @@ func TestAttachRunsTheHandshakeSequence(t *testing.T) {
 	commands := f.sentCommands()
 	require.Equal(t, "refresh-client -C 120,40", commands[0])
 	require.Equal(t, `list-windows -F "`+listWindowsFormat+`"`, commands[1])
-	// The bound is spelled out rather than built from historyLines: it is a
-	// decision about startup cost, so changing it should fail a test.
+	// Only the active window is snapshotted before Attach answers. A first
+	// paint is dominated by capture-pane, so painting every window here made
+	// attach latency scale with the window count for panes the renderer cannot
+	// show yet. The bound is spelled out rather than built from historyLines:
+	// it is a decision about startup cost, so changing it should fail a test.
 	require.Equal(t, []string{
 		`display-message -p -t %1 "` + cursorFormat + `"`,
 		"capture-pane -pe -J -S -2000 -E -1 -t %1",
 		"capture-pane -pe -S 0 -t %1",
+	}, commands[2:5], "the active window is snapshotted cursor-first, then history, then screen")
+
+	// The rest follow on the client's own lifetime, in the same shape. The wait
+	// is on the last command of the sequence, not the first: anything earlier
+	// races the two that follow it.
+	f.awaitCommands(t, "capture-pane -pe -S 0 -t %2", 1)
+	require.Equal(t, []string{
 		`display-message -p -t %2 "` + cursorFormat + `"`,
 		"capture-pane -pe -J -S -2000 -E -1 -t %2",
 		"capture-pane -pe -S 0 -t %2",
-	}, commands[2:8], "each window is snapshotted cursor-first, then history, then screen")
+	}, f.sentCommands()[5:8], "a deferred window is snapshotted the same way")
 
-	for _, cmd := range commands {
+	for _, cmd := range f.sentCommands() {
 		require.NotContains(t, cmd, "pause-after", "v1 never enables pause mode")
 	}
+}
+
+// The deferred paint must not reorder a pane's stream: whatever the background
+// window produced while its snapshot was in flight has to land behind that
+// snapshot, exactly as it does for the window painted synchronously.
+func TestDeferredFirstPaintPrecedesTheOutputItRaced(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell")
+	f.setCapture("%1", "claude> ready")
+	f.setHistory("%2", "old scrollback")
+	f.setCapture("%2", "$ ")
+	// Emitted while the deferred snapshot for %2 is being requested.
+	f.setOnCommand(func(cmd string) {
+		if strings.HasPrefix(cmd, `display-message -p -t %2`) {
+			f.emit(`%output %2 live-after-mark`)
+		}
+	})
+
+	client := attachFake(t, f, Options{Cols: 120, Rows: 40})
+	events, unsubscribe := client.Subscribe()
+	t.Cleanup(unsubscribe)
+
+	var window2 []byte
+	require.Eventually(t, func() bool {
+		for {
+			select {
+			case ev := <-events:
+				if out, ok := ev.(Output); ok && out.WindowID == "@2" {
+					window2 = append(window2, out.Data...)
+				}
+			default:
+				return bytes.Contains(window2, []byte("live-after-mark"))
+			}
+		}
+	}, 2*time.Second, time.Millisecond)
+
+	require.Less(t,
+		bytes.Index(window2, []byte("old scrollback")),
+		bytes.Index(window2, []byte("live-after-mark")),
+		"the snapshot must reach the stream before the output that raced it")
 }
 
 // A caller with nothing measured must not vote a placeholder: tmux would obey
@@ -106,7 +159,10 @@ func TestAttachFirstPaintsEachWindow(t *testing.T) {
 	f.setCapture("%2", "$ ", "", "")
 
 	client := attachFake(t, f, Options{})
-	events, unsubscribe := subscribeAndCollect(t, client, lifecycleIs(LifecycleAttached))
+	// The non-active window is painted after Attach answers, so the stop
+	// condition is its paint rather than the attach lifecycle event that now
+	// precedes it.
+	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@2", "$ "))
 	defer unsubscribe()
 
 	require.Equal(t, "claude> ready\r\nsecond row\r\n", outputData(events, "@1"))
