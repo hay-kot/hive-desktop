@@ -5,6 +5,7 @@ import ActionInputFields from './ActionInputFields.vue'
 import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
+import RepositorySelect from './RepositorySelect.vue'
 import type { InputSpec } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { useAutofocus } from '../composables/useAutofocus'
@@ -63,10 +64,14 @@ useAutofocus(nameInput)
     @close="emit('close')"
   >
     <form class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
-      <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
-        <input v-model="repository" list="session-repositories" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="https://github.com/owner/repository.git" data-testid="session-repository">
-        <datalist id="session-repositories"><option v-for="repo in options.repositories" :key="repo.repository" :value="repo.repository">{{ repo.name }}</option></datalist>
-      </label>
+      <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
+        <RepositorySelect
+          :model-value="repository"
+          :repositories="options.repositories"
+          testid="session-repository"
+          @update:model-value="repository = $event"
+        />
+      </div>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
         <input ref="nameInput" v-model="name" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="session-name">
       </label>

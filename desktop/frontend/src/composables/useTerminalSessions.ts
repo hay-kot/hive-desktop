@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { repoDisplayName } from '../lib/repositories'
 
 /**
  * One row of the terminal sidebar. Slug is the tmux target an attach uses; a
@@ -29,7 +30,7 @@ export function groupTerminalSessions(rows: TerminalSessionRow[]): TerminalSessi
   for (const row of rows) {
     let group = groups.get(row.repo)
     if (!group) {
-      group = { key: row.repo, name: repoDisplayName(row.repo), sessions: [] }
+      group = { key: row.repo, name: groupDisplayName(row.repo), sessions: [] }
       groups.set(row.repo, group)
     }
     group.sessions.push(row)
@@ -39,23 +40,8 @@ export function groupTerminalSessions(rows: TerminalSessionRow[]): TerminalSessi
   return sorted
 }
 
-// "git@github.com:owner/name.git" and "https://github.com/owner/name.git"
-// both read as "owner/name"; a bare path keeps its last two segments.
-function repoDisplayName(remote: string): string {
-  if (!remote) return '(no remote)'
-  let path = remote.replace(/\.git\/*$/, '').replace(/\/+$/, '')
-  const protocol = path.indexOf('://')
-  if (protocol !== -1) {
-    path = path.slice(protocol + 3)
-    const host = path.indexOf('/')
-    if (host !== -1) path = path.slice(host + 1)
-  } else {
-    const colon = path.indexOf(':')
-    if (colon !== -1 && path.slice(0, colon).includes('@')) path = path.slice(colon + 1)
-  }
-  const segments = path.split('/').filter(Boolean)
-  if (!segments.length) return remote
-  return segments.slice(-2).join('/')
+function groupDisplayName(remote: string): string {
+  return repoDisplayName(remote) || '(no remote)'
 }
 
 // Module singletons: terminal mode unmounts on every trip to the hub, and a
@@ -78,6 +64,16 @@ async function reload(): Promise<void> {
   } finally {
     loading.value = false
   }
+}
+
+/**
+ * The remote of the session at `slug`, or '' when there is no such session or
+ * it has none. This is what makes "new session" default to the repository you
+ * are already working in rather than to the first workspace on disk.
+ */
+export function sessionRepository(slug: string): string {
+  if (!slug) return ''
+  return sessions.value.find((row) => row.slug === slug)?.repo ?? ''
 }
 
 export function useTerminalSessions(): {

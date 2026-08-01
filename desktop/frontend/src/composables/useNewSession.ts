@@ -53,14 +53,17 @@ export function useNewSession() {
     if (!cachedOptions) void fetchOptions().catch(() => {})
   }
 
-  async function openBlank(): Promise<void> {
+  // `preferred` is the repository of whatever session is on screen. Starting a
+  // second session on the repo you are already in is the common case, and the
+  // backend default — the first configured workspace — is almost never it.
+  async function openBlank(preferred = ''): Promise<void> {
     if (open.value || loading.value) return
     error.value = null
     loading.value = true
     try {
       const opts = await resolveOptions()
       options.value = opts
-      initial.value = { repository: opts.defaultRepository ?? '', name: '', prompt: '' }
+      initial.value = { repository: preferred || opts.defaultRepository || '', name: '', prompt: '' }
       open.value = true
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })

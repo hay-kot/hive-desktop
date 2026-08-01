@@ -4,6 +4,7 @@ import IconPlay from '~icons/lucide/play'
 import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
+import RepositorySelect from './RepositorySelect.vue'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { useAutofocus } from '../composables/useAutofocus'
 
@@ -25,7 +26,6 @@ const agent = ref(props.options.defaultAgent)
 const validationError = ref('')
 const nameInput = ref<HTMLInputElement | null>(null)
 const canSubmit = computed(() => repository.value.trim() !== '' && name.value.trim() !== '')
-const repositoryOptions = computed(() => (props.options.repositories ?? []).map((repo) => ({ value: repo.repository, label: repo.name || repo.repository })))
 const agentOptions = computed(() => [{ value: '', label: 'Default agent' }, ...(props.options.agents ?? []).map((key) => ({ value: key, label: key }))])
 
 function submit() {
@@ -62,13 +62,10 @@ useAutofocus(nameInput)
   >
     <form class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
       <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
-        <AppSelect
+        <RepositorySelect
           :model-value="repository"
-          :options="repositoryOptions"
-          editable
-          placeholder="https://github.com/owner/repository.git"
+          :repositories="options.repositories"
           testid="new-session-repository"
-          aria-label="Repository"
           @update:model-value="repository = $event"
         />
       </div>

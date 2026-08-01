@@ -29,6 +29,19 @@ describe('NewSessionDialog', () => {
     expect(wrapper.emitted('submit')).toEqual([[{ repository: options.defaultRepository, name: 'standalone', prompt: '', agent: 'claude' }]])
   })
 
+  it('picks a repository through the shared selector', async () => {
+    const wrapper = mountDialog({
+      options: { ...options, repositories: [...options.repositories, { name: 'site', repository: 'https://github.com/acme/site.git' }] },
+    })
+    await wrapper.get('[data-testid="new-session-repository"]').trigger('click')
+    await wrapper.get('[data-testid="new-session-repository-search"]').setValue('acme')
+    await wrapper.get('[data-testid="new-session-repository-option"]').trigger('click')
+    await wrapper.get('[data-testid="new-session-name"]').setValue('fix-crash')
+    await wrapper.get('[data-testid="new-session-submit"]').trigger('click')
+
+    expect(wrapper.emitted('submit')).toEqual([[{ repository: 'https://github.com/acme/site.git', name: 'fix-crash', prompt: '', agent: 'claude' }]])
+  })
+
   it('keeps the dialog open and reports invalid names locally', async () => {
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="new-session-name"]').setValue('bad@name')

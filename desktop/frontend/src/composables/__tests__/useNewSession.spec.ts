@@ -26,6 +26,18 @@ describe('useNewSession', () => {
     expect(s.initial.value).toEqual({ repository: options.defaultRepository, name: '', prompt: '' })
   })
 
+  it('prefers the repository of the session on screen', async () => {
+    const s = useNewSession()
+    await s.openBlank('https://github.com/acme/site.git')
+    expect(s.initial.value).toEqual({ repository: 'https://github.com/acme/site.git', name: '', prompt: '' })
+  })
+
+  it('falls back to the default when the session on screen has no remote', async () => {
+    const s = useNewSession()
+    await s.openBlank('')
+    expect(s.initial.value.repository).toBe(options.defaultRepository)
+  })
+
   it('prefills from an item draft', async () => {
     mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' })
     const s = useNewSession()
