@@ -3,19 +3,13 @@
 // open list with the OS chrome (a light popup that ignores the app theme), so
 // this reimplements the listbox: trigger button + popover, full keyboard
 // handling, optional search filter and per-option icons.
-//
-// The popover teleports to <body> and is positioned from the trigger's
-// bounding rect. Every call site sits inside something that clips — the
-// actions drawer and the node editor both scroll, the create-session dialog is
-// a modal — so an `absolute` popover inside a `relative` root would be cut off
-// by the nearest `overflow` ancestor. Fixed positioning off body escapes all
-// of them; the cost is repositioning on scroll/resize while open.
 import { onClickOutside } from '@vueuse/core'
-import { computed, nextTick, onBeforeUnmount, ref, useId, watch } from 'vue'
+import { computed, nextTick, ref, useId, watch } from 'vue'
 import type { Component } from 'vue'
 import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconSearch from '~icons/lucide/search'
+import { useAnchoredPopover } from '../composables/useAnchoredPopover'
 
 export interface AppSelectOption {
   value: string
@@ -198,59 +192,7 @@ function onKeydown(event: KeyboardEvent): void {
   }
 }
 
-// --- Anchored positioning -------------------------------------------------
-const GAP = 6
-const EDGE = 8
-const MAX_HEIGHT = 320
-const MIN_HEIGHT = 140
-
-const anchor = ref({ left: 0, minWidth: 0, maxWidth: 0, top: 0, bottom: 0, flip: false, maxHeight: MAX_HEIGHT })
-
-function measure(): void {
-  const el = root.value
-  if (!el) return
-  const rect = el.getBoundingClientRect()
-  const viewport = window.innerHeight
-  const below = viewport - rect.bottom - GAP - EDGE
-  const above = rect.top - GAP - EDGE
-  const flip = below < MIN_HEIGHT && above > below
-  // The list is at least as wide as the trigger but grows past it rather than
-  // truncating a long label ("succ…"), so it can stick out to the right — and
-  // shifts back left once that would run off the viewport. Measured from the
-  // rendered popover, so opening runs this twice: once to place it, once with
-  // its real width.
-  const width = popover.value?.getBoundingClientRect().width ?? rect.width
-  anchor.value = {
-    left: Math.max(EDGE, Math.min(rect.left, window.innerWidth - EDGE - width)),
-    minWidth: rect.width,
-    maxWidth: window.innerWidth - EDGE * 2,
-    top: rect.bottom + GAP,
-    bottom: viewport - rect.top + GAP,
-    flip,
-    maxHeight: Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, flip ? above : below)),
-  }
-}
-
-const popoverStyle = computed(() => ({
-  left: `${anchor.value.left}px`,
-  minWidth: `${anchor.value.minWidth}px`,
-  maxWidth: `${anchor.value.maxWidth}px`,
-  maxHeight: `${anchor.value.maxHeight}px`,
-  ...(anchor.value.flip ? { bottom: `${anchor.value.bottom}px` } : { top: `${anchor.value.top}px` }),
-}))
-
-function bindReposition(): void {
-  // Capture phase: scrolling any ancestor moves the trigger, not just window.
-  window.addEventListener('scroll', measure, true)
-  window.addEventListener('resize', measure)
-}
-function unbindReposition(): void {
-  window.removeEventListener('scroll', measure, true)
-  window.removeEventListener('resize', measure)
-}
-
-watch(open, (isOpen) => (isOpen ? bindReposition() : unbindReposition()))
-onBeforeUnmount(unbindReposition)
+const { style: popoverStyle, measure } = useAnchoredPopover(root, popover, open)
 
 // The popover lives outside `root` once teleported, so it has to be ignored
 // explicitly or clicking an option would count as a click outside.

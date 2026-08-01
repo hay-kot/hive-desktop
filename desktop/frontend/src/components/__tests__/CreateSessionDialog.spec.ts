@@ -21,6 +21,19 @@ describe('CreateSessionDialog', () => {
     expect(wrapper.emitted('submit')).toEqual([[{ name: 'review-pr-12', repository: options.defaultRepository, agent: 'claude', inputs: {} }]])
   })
 
+  it('picks a repository through the shared selector', async () => {
+    const wrapper = mountDialog({
+      options: { ...options, repositories: [...options.repositories, { name: 'site', repository: 'https://github.com/acme/site.git' }] },
+    })
+    await wrapper.get('[data-testid="session-repository"]').trigger('click')
+    await wrapper.get('[data-testid="session-repository-search"]').setValue('acme')
+    await wrapper.get('[data-testid="session-repository-option"]').trigger('click')
+    await wrapper.get('[data-testid="session-name"]').setValue('review-pr-12')
+    await wrapper.get('[data-testid="create-session-submit"]').trigger('click')
+
+    expect(wrapper.emitted('submit')).toEqual([[{ name: 'review-pr-12', repository: 'https://github.com/acme/site.git', agent: 'claude', inputs: {} }]])
+  })
+
   it('keeps the dialog open and reports invalid input locally', async () => {
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="session-name"]').setValue('bad@name')

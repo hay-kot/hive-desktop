@@ -38,6 +38,7 @@ import { useCommands, useCommandPalette, type Command } from './composables/useC
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
+import { sessionRepository } from './composables/useTerminalSessions'
 import { useLaunchers } from './composables/useLaunchers'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
@@ -732,17 +733,20 @@ const {
 } = useNewSession()
 const kb = useKeybindings()
 
+// The URL is the attach state, so it is also the answer to "which session is on
+// screen" — the pop-up terminal, the launchers, and a new session all follow it.
+const onScreenSessionSlug = computed(() =>
+  (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
+
 // The pop-up terminal opens in the checkout of whichever session is on screen,
 // and in the user's home when none is (ADR 0048). The panel is mounted on first
 // use and stays mounted: hiding it is a view change, not the end of the shell.
 const popupTerminal = usePopupTerminal()
 const popupTerminalMounted = ref(false)
-const popupTerminalSlug = computed(() =>
-  (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
 
 function togglePopupTerminal(): void {
   popupTerminalMounted.value = true
-  popupTerminal.toggle({ sessionSlug: popupTerminalSlug.value || undefined })
+  popupTerminal.toggle({ sessionSlug: onScreenSessionSlug.value || undefined })
 }
 
 // A launcher is the pop-up opened straight into a program. It follows the
@@ -751,7 +755,7 @@ function togglePopupTerminal(): void {
 // to a directory, which the core decides from the catalog.
 function toggleLauncher(actionID: string): void {
   popupTerminalMounted.value = true
-  popupTerminal.toggle({ launcher: actionID, sessionSlug: popupTerminalSlug.value || undefined })
+  popupTerminal.toggle({ launcher: actionID, sessionSlug: onScreenSessionSlug.value || undefined })
 }
 
 // The launchers are read here rather than by the panel: they are commands in
@@ -778,7 +782,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
   'terminal.popup.toggle': togglePopupTerminal,
-  'session.new': openNewSession,
+  'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
 }
 

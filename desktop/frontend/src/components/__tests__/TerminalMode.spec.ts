@@ -277,6 +277,17 @@ describe('TerminalMode', () => {
     const { wrapper } = await mountAvailable()
     await wrapper.get('[data-testid="terminal-new-session"]').trigger('click')
     expect(mocks.openBlank).toHaveBeenCalledOnce()
+    // Nothing is attached yet, so there is no repository to inherit.
+    expect(mocks.openBlank).toHaveBeenCalledWith('')
+  })
+
+  it('starts a new session in the attached session’s repository', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="terminal-new-session"]').trigger('click')
+    expect(mocks.openBlank).toHaveBeenCalledWith('hay-kot/hive')
   })
 
   it('collapses a repo group without losing the attached session', async () => {

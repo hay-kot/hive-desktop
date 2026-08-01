@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { groupTerminalSessions, resetTerminalSessionsForTests, useTerminalSessions, type TerminalSessionRow } from '../useTerminalSessions'
+import { groupTerminalSessions, resetTerminalSessionsForTests, sessionRepository, useTerminalSessions, type TerminalSessionRow } from '../useTerminalSessions'
 
 const mocks = vi.hoisted(() => ({ ListSessions: vi.fn() }))
 
@@ -51,6 +51,33 @@ describe('useTerminalSessions', () => {
     // The reload is a revalidation of a tree that is already on screen; a
     // failure must not collapse it.
     expect(sessions.value.map((row) => row.slug)).toEqual(['hive-fix-parser'])
+  })
+})
+
+describe('sessionRepository', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetTerminalSessionsForTests()
+  })
+
+  it('resolves the remote of the session at a slug', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'https://github.com/hay-kot/hive.git', state: 'active' },
+    ])
+    await useTerminalSessions().reload()
+
+    expect(sessionRepository('hive-fix-parser')).toBe('https://github.com/hay-kot/hive.git')
+  })
+
+  it('is empty for an unknown slug, no slug, and a session without a remote', async () => {
+    mocks.ListSessions.mockResolvedValue([
+      { id: '1', name: 'scratch', slug: 'scratch', repo: '', state: 'active' },
+    ])
+    await useTerminalSessions().reload()
+
+    expect(sessionRepository('scratch')).toBe('')
+    expect(sessionRepository('gone')).toBe('')
+    expect(sessionRepository('')).toBe('')
   })
 })
 

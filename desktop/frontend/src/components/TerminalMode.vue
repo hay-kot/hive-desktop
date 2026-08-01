@@ -43,7 +43,7 @@ import {
   terminalFontSizeState,
   useTerminalFont,
 } from '../composables/useTerminalFont'
-import { groupTerminalSessions, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
+import { groupTerminalSessions, sessionRepository, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
@@ -895,7 +895,7 @@ onBeforeUnmount(() => {
             data-testid="terminal-new-session"
             aria-label="New session"
             title="New session"
-            @click="openNewSession"
+            @click="openNewSession(sessionRepository(activeSlug))"
           ><IconPlus class="size-3.5" /></button>
           <!-- List-wide operations; a session's own live on its row. -->
           <div class="relative flex">
