@@ -339,6 +339,30 @@ describe('TerminalMode', () => {
     expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
   })
 
+  it('keeps the pool through a trip to the hub, so re-entry re-attaches nothing', async () => {
+    const session = fakeSession()
+    mocks.useTerminalWindows.mockReturnValue(session)
+    const { wrapper, router } = await mountAt()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+    expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
+
+    // The mode is hidden, never unmounted (App.vue), so leaving it is the
+    // `active` prop going false alongside the route change.
+    await router.push('/feed')
+    await wrapper.setProps({ active: false })
+    await flushPromises()
+    expect(session.dispose).not.toHaveBeenCalled()
+
+    await router.push('/terminal/hive-bump-deps')
+    await wrapper.setProps({ active: true })
+    await flushPromises()
+
+    expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
+    expect(session.start).toHaveBeenCalledTimes(1)
+    expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
+  })
+
   it('holds the outgoing session on screen until the incoming one paints', async () => {
     const first = fakeSession()
     const second = fakeSession()

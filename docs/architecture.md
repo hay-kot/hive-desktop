@@ -799,6 +799,14 @@ attach keeps the outgoing screen until the incoming one has painted, so a
 switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
+**Terminal mode is mounted on first entry and hidden, never unmounted, on the
+way back to the hub** (ADR 0054) — the same rule the pop-up panel follows, and
+for the same reason: an unmount is what makes the pool pay for itself again.
+The mode takes an `active` prop, and that, not mount, is what starts the
+status poll and the window-listing sweep and what revalidates the session tree.
+Anything the mode must not do off-screen belongs on that prop; anything it must
+keep across a trip to the hub can now simply live in the component.
+
 **Terminal style is one preference wherever it is changed.** The pane's own ⋯
 menu steps text size through the same `appearance.terminal_font_size` setting
 Settings writes, so an adjustment made while looking at the terminal is durable

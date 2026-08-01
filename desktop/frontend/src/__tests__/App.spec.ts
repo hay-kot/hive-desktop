@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
@@ -201,6 +201,16 @@ async function mountAppWithRouter() {
 
 async function mountApp() {
   return (await mountAppWithRouter()).wrapper
+}
+
+// Terminal mode is mounted once and hidden on a trip to the hub, so whether it
+// is the surface on screen is a question about visibility, never about the
+// element being there. Read off v-show's own inline display rather than through
+// isVisible(): that goes to getComputedStyle, which happy-dom does not resolve
+// for a tree VTU never attached to the document.
+function terminalOnScreen(wrapper: VueWrapper): boolean {
+  const mode = wrapper.find('[data-testid="terminal-mode"]')
+  return mode.exists() && !(mode.attributes('style') ?? '').includes('display: none')
 }
 
 describe('App', () => {
@@ -1145,7 +1155,7 @@ describe('App', () => {
 
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
     // Terminal mode is async-imported, so it lands a tick after the toggle.
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
     await flushPromises()
 
     // The mode is a route, so the toggle is ordinary navigation.
@@ -1162,8 +1172,11 @@ describe('App', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.name).toBe('feed')
-    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
+    expect(terminalOnScreen(wrapper)).toBe(false)
     expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
+    // Hidden, not unmounted: the pool behind it holds live tmux clients and
+    // xterm screens, and re-entry must not pay to build them again.
+    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true)
 
     wrapper.unmount()
   })
@@ -1175,7 +1188,7 @@ describe('App', () => {
     const { wrapper } = await mountAppWithRouter()
 
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
     await flushPromises()
 
     const toggle = wrapper.get('[data-testid="titlebar-toggle-sidebar"]')
@@ -1211,7 +1224,7 @@ describe('App', () => {
     await flushPromises()
 
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
 
     // The Hub toggle lands on the page the hub was left on, not the feed.
     await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
@@ -1221,16 +1234,40 @@ describe('App', () => {
 
     // Activity is reachable from inside terminal mode without toggling first.
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
     await wrapper.get('[data-testid="titlebar-activity"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('activity')
-    expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(false)
+    expect(terminalOnScreen(wrapper)).toBe(false)
 
     // The mode is history like any page: Back returns to the terminal route.
     router.back()
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('terminal'))
-    await vi.waitFor(() => expect(wrapper.find('[data-testid="terminal-mode"]').exists()).toBe(true))
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+
+    wrapper.unmount()
+  })
+
+  it('re-enters terminal mode on the session it was left attached to', async () => {
+    mocks.TerminalAvailable.mockResolvedValue({ available: true, reason: '' })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    await router.replace({ name: 'terminal', params: { slug: 'api-fix' }, query: { window: '@3' } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+    expect(terminalOnScreen(wrapper)).toBe(false)
+
+    // Straight back to the attached session and window, not through the bare
+    // picker route — that pass detached the pool entry and blanked the pane.
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('terminal')
+    expect(router.currentRoute.value.params.slug).toBe('api-fix')
+    expect(router.currentRoute.value.query.window).toBe('@3')
 
     wrapper.unmount()
   })

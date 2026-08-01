@@ -58,10 +58,9 @@ function repoDisplayName(remote: string): string {
   return segments.slice(-2).join('/')
 }
 
-// Module singletons: terminal mode unmounts on every trip to the hub, and a
-// component-local list re-entered as empty made the whole tree pop in again.
-// The rows survive here so re-entry renders the last-known tree immediately,
-// with reload() as the revalidation.
+// Module singletons: the rows are hive's session set, not one view's, and the
+// tree renders the last-known ones while reload() revalidates rather than
+// emptying and popping back in.
 const sessions = ref<TerminalSessionRow[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)

@@ -58,8 +58,10 @@ test('terminal mode explains its own unavailability and hands the frame back', a
   await expect(page.getByTestId('terminal-unavailable')).toBeVisible()
   await expect(reason).not.toBeEmpty()
 
+  // Hidden, not unmounted (ADR 0054): the pool behind the mode holds live tmux
+  // clients and xterm screens, so a trip to the hub is a display flip.
   await hubToggle.click()
-  await expect(page.getByTestId('terminal-mode')).toHaveCount(0)
+  await expect(page.getByTestId('terminal-mode')).toBeHidden()
   await expect(hubToggle).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('feed-item')).toHaveCount(feedItemCount)
 
