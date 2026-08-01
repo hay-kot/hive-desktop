@@ -60,6 +60,7 @@ const xterm = vi.hoisted(() => {
     dispose = vi.fn()
     activate = vi.fn()
     fit = vi.fn()
+    proposeDimensions = vi.fn(() => ({ cols: 132, rows: 43 }))
     onContextLoss = vi.fn(() => ({ dispose: vi.fn() }))
   }
 
@@ -143,6 +144,20 @@ function el<T extends HTMLElement>(testid: string): T {
   return element
 }
 
+// jsdom lays nothing out, so a pane only has a box when one is declared. Without
+// this every pane measures to nothing, which is its own case below.
+function givePaneABox(): void {
+  for (const prop of ['clientWidth', 'clientHeight'] as const) {
+    Object.defineProperty(HTMLElement.prototype, prop, { configurable: true, value: 800 })
+  }
+}
+
+function takePaneBoxAway(): void {
+  for (const prop of ['clientWidth', 'clientHeight'] as const) {
+    delete (HTMLElement.prototype as Partial<HTMLElement>)[prop]
+  }
+}
+
 // The panel state is a module singleton, so a panel left mounted by an earlier
 // test would open a terminal of its own on the next show().
 let mounted: ReturnType<typeof mount> | null = null
@@ -159,6 +174,7 @@ describe('PopupTerminal', () => {
   afterEach(() => {
     mounted?.unmount()
     mounted = null
+    takePaneBoxAway()
   })
 
   beforeEach(() => {
@@ -487,6 +503,36 @@ describe('PopupTerminal', () => {
     expect(el('popup-terminal-unavailable').textContent).toBe('Terminal features are off.')
     expect(el('popup-terminal-pane').style.display).toBe('none')
     expect(client.open).not.toHaveBeenCalled()
+  })
+
+  // A PTY sized only after the process started paints one full screen at the
+  // placeholder grid and reflows on SIGWINCH — which is a TUI popping up small
+  // and snapping wider. The size has to ride the launch.
+  it('spawns the process at the grid the pane measured', async () => {
+    givePaneABox()
+    const { client } = await mountPanel()
+
+    usePopupTerminal().show({ sessionSlug: 'hive-abc' })
+    await flushPromises()
+
+    expect(client.open).toHaveBeenCalledWith({ sessionSlug: 'hive-abc', cols: 132, rows: 43 })
+    // The pane opens on the same grid, so the first frame is the right one and
+    // there is no resize to send once the process is running.
+    expect(xterm.FakeTerminal.instances[0].resize).toHaveBeenCalledWith(132, 43)
+    expect(client.resize).not.toHaveBeenCalled()
+  })
+
+  // proposeDimensions on a host with no box answers a bogus tiny grid rather
+  // than failing, so an unmeasurable pane leaves the size to the server instead
+  // of spawning at one that is wrong on purpose.
+  it('leaves the size to the server when the pane cannot be measured', async () => {
+    const { client } = await mountPanel()
+
+    usePopupTerminal().show({ sessionSlug: 'hive-abc' })
+    await flushPromises()
+
+    expect(client.open).toHaveBeenCalledWith({ sessionSlug: 'hive-abc' })
+    expect(xterm.FakeTerminal.instances[0].resize).not.toHaveBeenCalled()
   })
 
   // The server applies whatever size it is told, so what xterm measured is what

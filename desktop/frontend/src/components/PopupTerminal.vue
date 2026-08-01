@@ -67,6 +67,11 @@ const disposers: IDisposable[] = []
 const title = computed(() => terminal.value?.title || 'Terminal')
 const subtitle = computed(() => terminal.value?.dir ?? '')
 
+// The pane is laid out from the moment a terminal is being opened, not from the
+// moment one is live: it has to be measured before the PTY is spawned, and a
+// host inside a display:none subtree has no box to measure.
+const paneLaidOut = computed(() => status.value === 'opening' || term.value !== null)
+
 // The window's own size, tracked so the panel follows it. The box is derived
 // from the viewport and nothing else: it cannot be dragged or resized, so there
 // is no remembered geometry to go stale against a window that changed since.
@@ -104,29 +109,40 @@ async function openTerminal(): Promise<void> {
     // were resident — a pane opened ahead of the face shows tofu where every
     // Nerd Font icon in a TUI should be.
     await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
-    const opened = await client.value.open(request.value)
-    terminal.value = opened
+    // Built and measured before the process exists, so the PTY is spawned on
+    // the grid it will be drawn on. Sizing it afterwards is what a TUI sees as
+    // a full screen at the fallback grid followed by a SIGWINCH reflow — the
+    // pop-up appearing small and snapping wider a moment later.
+    //
+    // The tick is what gives the host its box, and xterm measures its cell on
+    // open and never re-measures: a pane built a frame early measures nothing
+    // and keeps that cell for the rest of its life.
     await nextTick()
-    if (!mountTerminal(opened)) {
+    const created = buildPane()
+    if (!created) {
       error.value = 'The terminal could not be rendered.'
       status.value = 'idle'
       return
     }
+    const size = measurePane()
+    if (size) created.resize(size.cols, size.rows)
+
+    const opened = await client.value.open({ ...request.value, ...size })
+    terminal.value = opened
+    attachStream(created, opened)
     status.value = 'live'
-    // Focus only once the pane is actually on screen. The host is behind
-    // v-show until the status flips, and focusing an element inside a
-    // display:none subtree does nothing at all — which is the difference
-    // between popping up a terminal and popping up a terminal you can type in.
-    await nextTick()
-    term.value?.focus()
+    created.focus()
   } catch (failure) {
+    teardown()
     status.value = 'idle'
     error.value = failure instanceof Error ? failure.message : 'The terminal could not be opened.'
   }
 }
 
-function mountTerminal(state: PopupTerminalState): boolean {
-  if (!host.value || !client.value) return false
+// The pane exists before the terminal does, because measuring it is what the
+// launch needs.
+function buildPane(): Terminal | null {
+  if (!host.value) return null
 
   const created = markRaw(new Terminal({
     fontFamily: terminalFontStack(fontFamily.value),
@@ -142,9 +158,26 @@ function mountTerminal(state: PopupTerminalState): boolean {
   const fitAddon = markRaw(new FitAddon())
   created.loadAddon(fitAddon)
   created.loadAddon(markRaw(new WebLinksAddon((_event, uri) => openLink(uri))))
-  created.resize(state.cols || 80, state.rows || 24)
   created.open(host.value)
   loadRenderer(created)
+
+  term.value = created
+  fit = fitAddon
+  return created
+}
+
+// The grid this pane's box holds, or null when there is nothing to measure:
+// proposeDimensions on a host with no box answers a bogus tiny grid rather than
+// failing, and opening a PTY at that is worse than letting the server default.
+function measurePane(): { cols: number; rows: number } | null {
+  if (!host.value?.clientWidth || !host.value.clientHeight) return null
+  const proposed = fit?.proposeDimensions()
+  if (!proposed?.cols || !proposed.rows) return null
+  return { cols: proposed.cols, rows: proposed.rows }
+}
+
+function attachStream(created: Terminal, state: PopupTerminalState): void {
+  if (!client.value || !host.value) return
 
   disposers.push(created.onData((data) => send(data)))
   // The server applies whatever size it is told, so the grid xterm measured is
@@ -152,9 +185,6 @@ function mountTerminal(state: PopupTerminalState): boolean {
   disposers.push(created.onResize(({ cols, rows }) => {
     void client.value?.resize(state.id, cols, rows).catch(() => {})
   }))
-
-  term.value = created
-  fit = fitAddon
 
   socket = client.value.openStream(state.id)
   socket.onmessage = (event: MessageEvent<ArrayBuffer>) => {
@@ -166,10 +196,10 @@ function mountTerminal(state: PopupTerminalState): boolean {
   socket.onerror = () => fail('The terminal connection dropped.')
   socket.onclose = () => { if (status.value === 'live') fail('The terminal connection closed.') }
 
+  // The observer keeps the grid on the box as the window changes; it is not
+  // what establishes it, so it is armed after the launch rather than before.
   observer = new ResizeObserver(() => scheduleFit())
   observer.observe(host.value)
-  scheduleFit()
-  return true
 }
 
 function send(data: string): void {
@@ -378,7 +408,7 @@ onBeforeUnmount(() => {
         <!-- data-terminal-input-scope hands every key to the pane, so app
              shortcuts do not steal keys from whatever is running in it. -->
         <div
-          v-show="status === 'live' || status === 'ended'"
+          v-show="paneLaidOut"
           ref="host"
           class="absolute inset-0 p-1.5"
           data-terminal-input-scope
@@ -387,7 +417,7 @@ onBeforeUnmount(() => {
         />
 
         <div
-          v-if="status !== 'live' && status !== 'ended'"
+          v-if="!term"
           class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center"
         >
           <template v-if="checking">

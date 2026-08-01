@@ -978,6 +978,13 @@ Three rules govern it, and each is a consequence of that:
   Each one is a bindable command, `launcher.<id>`, unbound by default; a launch
   that differs from the live one replaces it, since one pop-up is open at a
   time.
+- **The PTY is spawned at the grid the pane measured.** The panel is built and
+  measured first, and the launch carries its cols/rows; the server applies them,
+  because one client renders this PTY and a measurement here is the size rather
+  than a vote. Sizing it afterwards is what a TUI sees as a full screen at the
+  fallback grid followed by a SIGWINCH reflow — the pop-up appearing small and
+  snapping wider. A pane with no box to measure sends nothing and takes the
+  server's default; it must never send a placeholder.
 - **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
   covered by that prefix's bearer token and CORS policy. Its stream carries one
   terminal per socket, so its frames carry no window or pane ids and are not the
