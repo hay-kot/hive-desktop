@@ -1,12 +1,12 @@
 import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import type { TerminalClient } from '../lib/terminalClient'
 
-// The tmux availability probe's answer and the control client, cached across
-// terminal-mode visits: the component unmounts on every trip to the hub, and
-// re-probing from scratch blanked the view behind the "Checking tmux…" gate.
-// Re-entry renders the last-known answer immediately while the mount re-probes
-// in the background. The endpoint (loopback address + bearer token) is stable
-// for the life of the backend process, so a created client is never re-minted.
+// The tmux availability probe's answer and the control client. Module state
+// because both are properties of the backend process rather than of a mounted
+// view: the "Checking tmux…" gate is shown once, and every later probe
+// revalidates the answer already on screen instead of blanking it. The endpoint
+// (loopback address + bearer token) is stable for the life of that process, so
+// a created client is never re-minted.
 const checking = ref(true)
 const available = ref(false)
 const reason = ref('')

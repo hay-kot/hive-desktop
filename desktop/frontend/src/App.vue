@@ -67,7 +67,8 @@ const DevBar = devMode ? defineAsyncComponent(() => import('./components/DevBar.
 const DevView = devMode ? defineAsyncComponent(() => import('./components/DevView.vue')) : null
 
 // Async so xterm.js stays out of the initial bundle: terminal mode is opt-in
-// and the hub must not pay for it at startup.
+// and the hub must not pay for it at startup. Mounted only once the mode is
+// first entered — after which it stays mounted, same as the pop-up below.
 const TerminalMode = defineAsyncComponent(() => import('./components/TerminalMode.vue'))
 // Same reason, and mounted only once the pop-up is first asked for — after
 // which it stays mounted, because hiding it must not end the shell inside it.
@@ -660,13 +661,31 @@ watch(githubConnected, async (connected) => {
 // webview loads with no hash), so no relaunch attaches a tmux control client
 // unprompted; re-entering the mode is what resumes the last session.
 const mode = computed<'hub' | 'terminal'>(() => (route.name === 'terminal' ? 'terminal' : 'hub'))
-const terminalActive = computed(() => mode.value === 'terminal' && !onboardingActive.value)
+// Neither mode is on screen behind the loading frame, and a deep link to
+// /terminal must not mount the mode under it — the two are siblings now, not
+// branches of one chain.
+const shellLoaded = computed(() => profilesLoaded.value || !!profilesError.value)
+const terminalActive = computed(() => mode.value === 'terminal' && shellLoaded.value && !onboardingActive.value)
+const hubActive = computed(() => shellLoaded.value && !onboardingActive.value && !terminalActive.value)
 
-// Where the Hub button lands: the last hub route, so toggling into the
-// terminal and back is not a trip to the default feed.
+// Terminal mode is mounted on first entry and never unmounted: its pool holds
+// live tmux control clients and xterm screens bound to the elements they were
+// opened on, so tearing the mode down paid a full re-attach — process spawn,
+// pane capture, scrollback replay, renderer claim — on the way back in, and
+// the pool ADR 0042 warms stopped dead at the mode boundary. Hiding it is a
+// view change, not the end of the shell (same rule as PopupTerminal).
+const terminalMounted = ref(false)
+watch(terminalActive, (active) => { if (active) terminalMounted.value = true }, { immediate: true })
+
+// Where each mode's toggle lands: the route that mode was last on, so a round
+// trip is not a trip to the default feed — or, on the terminal side, a pass
+// through the picker on the way back to the session that was already attached.
 let lastHubPath = ''
+let lastTerminalPath = ''
 watch(() => route.fullPath, (path) => {
-  if (route.name && route.name !== 'terminal') lastHubPath = path
+  if (!route.name) return
+  if (route.name === 'terminal') lastTerminalPath = path
+  else lastHubPath = path
 }, { immediate: true })
 
 // Terminal mode ships dark (experimental.terminal, ADR 0037): until the probe
@@ -682,7 +701,7 @@ onMounted(() => {
 
 function setMode(next: 'hub' | 'terminal'): void {
   if (next === mode.value) return
-  if (next === 'terminal') void router.push({ name: 'terminal' })
+  if (next === 'terminal') void router.push(lastTerminalPath || { name: 'terminal' })
   else void router.push(lastHubPath || { name: 'feed' })
 }
 
@@ -1037,7 +1056,7 @@ onUnmounted(() => {
       <!-- Hold an empty frame until the workspaces resolve so a returning user
            never sees onboarding flash by. A load failure falls through to the
            shell below, which renders the error with a retry. -->
-      <div v-if="!profilesLoaded && !profilesError" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
+      <div v-if="!shellLoaded" class="flex min-h-0 flex-1 items-center justify-center font-mono text-xs text-text-4">Loading…</div>
       <OnboardingScreen
         v-else-if="onboardingActive"
         :card="needsWorkspace ? 'workspace' : firstRunConnect ? connectCard : 'permissions'"
@@ -1056,13 +1075,21 @@ onUnmounted(() => {
       />
       <!-- Terminal mode takes the whole frame under the title bar, spaces rail
            included: nothing in it is workspace-scoped, and the always-live mode
-           toggle is the way back. -->
-      <TerminalMode v-else-if="terminalActive" :sidebar-collapsed="terminalSidebarCollapsed" />
+           toggle is the way back.
+
+           v-show, not a branch of the chain above: leaving the mode must hide
+           it, never unmount it — see terminalMounted. -->
+      <TerminalMode
+        v-if="terminalMounted"
+        v-show="terminalActive"
+        :active="terminalActive"
+        :sidebar-collapsed="terminalSidebarCollapsed"
+      />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is
            what keeps the user from being stranded in the flows canvas — the
            spaces rail is always there to navigate back. -->
-      <div v-else class="flex min-h-0 flex-1">
+      <div v-if="hubActive" class="flex min-h-0 flex-1">
         <ProfileRail
           :profiles="profiles"
           :active-profile-id="activeProfileId"

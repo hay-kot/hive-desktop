@@ -60,9 +60,13 @@ import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.c
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
 
-defineProps<{
+// `active` is whether this mode is the surface on screen. The component is
+// mounted once and hidden on a trip to the hub (App.vue), so it is the signal
+// that replaces mount/unmount for anything that must not run off-screen.
+const props = withDefaults(defineProps<{
   sidebarCollapsed?: boolean
-}>()
+  active?: boolean
+}>(), { active: true })
 
 const { checking, available, reason, client } = useTerminalAvailability()
 
@@ -364,9 +368,11 @@ const { listings: sessionWindows, refresh: refreshListings } = useTerminalWindow
 // another's window list, and the attached one's own tabs come from its live
 // client. Sweeping every session on every switch was pure cost on the path
 // the switch itself was waiting on.
-watch([showAllWindows, attachable, client], () => {
+// Gated on `active` as well: an unattached session answers a listing by
+// spawning tmux twice, and none of it is on screen while the hub is.
+watch([showAllWindows, attachable, client, () => props.active], () => {
   const transport = client.value
-  if (!showAllWindows.value || !transport) return
+  if (!props.active || !showAllWindows.value || !transport) return
   void refreshListings(transport, attachable.value)
 })
 
@@ -827,9 +833,21 @@ function showDropAfter(surface: WindowSurface, slug: string, windowId: string): 
   return !!target && target.after && target.surface === surface && target.slug === slug && target.windowId === windowId
 }
 
-onMounted(() => {
+// Entering the mode is an activation, not a mount: the pool, its tmux control
+// clients and their screens all survive a trip to the hub, so re-entry is a
+// display flip plus a revalidation — the hub is where a session gets created,
+// renamed or deleted, and the tree has to catch up. The attach itself is what
+// used to be paid here, and no longer is.
+watch(() => props.active, (active) => {
+  if (!active) {
+    stopStatusPolling()
+    return
+  }
   void probe()
   startStatusPolling()
+}, { immediate: true })
+
+onMounted(() => {
   prefetchNewSession()
   void loadTerminalActions()
 })

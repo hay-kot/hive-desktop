@@ -3,9 +3,8 @@ import type { TerminalClient, WindowState } from '../lib/terminalClient'
 import type { TerminalSessionRow } from './useTerminalSessions'
 
 // The passive per-session window listings behind "Always show windows", keyed
-// by slug. A module singleton for the same reason as useTerminalSessions: the
-// cached tree renders immediately on re-entry, and refresh() revalidates. It
-// also stands in for a session whose attach is still in flight, so switching
+// by slug. A module singleton for the same reason as useTerminalSessions, and
+// it also stands in for a session whose attach is still in flight, so switching
 // sessions does not collapse and rebuild its subtree and tab strip.
 const listings = ref<Record<string, WindowState[]>>({})
 
