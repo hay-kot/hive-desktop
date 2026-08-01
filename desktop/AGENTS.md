@@ -182,6 +182,9 @@ exercising the app;
 `perfInfo()` returns its path. Analysis is `jq` over the file — there is no
 query API by design.
 
+The **ui-perf** skill carries the full loop: confirming the gate, the naming
+rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
+
 ## Testing
 
 - **Unit** (`mise run desktop:test`): Go logic (`go test ./desktop/...
