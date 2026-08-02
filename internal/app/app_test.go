@@ -94,6 +94,7 @@ func TestAppLifecycle(t *testing.T) {
 	require.NotNil(t, core.Activity)
 	require.NotNil(t, core.Jobs)
 	require.NotNil(t, core.Prompts)
+	require.NotNil(t, core.Perf)
 	require.NotNil(t, core.Events)
 	require.NotNil(t, core.Store)
 

@@ -308,6 +308,9 @@ internal/
                                   #   in: the login shell's PATH, then this
                                   #   process's, then those prefixes (ADR 0041)
     jobs/  activity/              # observability domains
+    perf/                         # UI performance spans -> a size-capped JSONL
+                                  #   file; development-gated, no aggregation
+                                  #   and no dependencies (ADR 0055)
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
 

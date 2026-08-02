@@ -210,6 +210,31 @@ export interface PathInfo {
     "overridden": boolean;
 }
 
+export interface PerfInfo {
+    "enabled": boolean;
+    "path": string;
+    "maxBytes": number;
+}
+
+export interface PerfRecordResult {
+    "written": number;
+}
+
+/**
+ * PerfSample is one completed span. AtUnixMs is the wall-clock start in
+ * milliseconds because that is what Date.now() gives the frontend; zero means
+ * "stamp it on arrival".
+ */
+export interface PerfSample {
+    "atUnixMs": number;
+    "scope": string;
+    "name": string;
+    "durationMs": number;
+    "attrs"?: { [_ in string]?: any } | null;
+    "id"?: string;
+    "parent"?: string;
+}
+
 /**
  * PopupTerminalAvailability gates the pop-up terminal. Unlike terminal mode it
  * does not depend on tmux — there is no program to discover — so a machine

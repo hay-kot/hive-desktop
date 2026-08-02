@@ -94,6 +94,9 @@ type App struct {
 	Skills       *SkillsService
 	Report       *ReportService
 	Terminals    *TerminalsService
+	// Perf records UI spans to a JSONL file when development.perf.enabled is
+	// on. Always non-nil; a disabled recorder is a no-op (ADR 0055).
+	Perf *PerfService
 
 	PopupTerminals *PopupTerminalsService
 
@@ -337,6 +340,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
+	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 
@@ -552,6 +556,12 @@ func (a *App) Close() error {
 		a.actionsWatcher.Close()
 	}
 	a.Events.Close()
+
+	if a.Perf != nil {
+		if closeErr := a.Perf.Close(); closeErr != nil {
+			a.logger.Warn().Err(closeErr).Msg("close perf recorder")
+		}
+	}
 
 	if a.hiveBusCancel != nil {
 		a.hiveBusCancel()
