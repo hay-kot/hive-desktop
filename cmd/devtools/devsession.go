@@ -14,6 +14,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v3"
+	"golang.org/x/sys/unix"
 )
 
 const (
@@ -147,7 +148,7 @@ func killRunner(logger zerolog.Logger, runner *exec.Cmd, exited <-chan error) er
 // it never fires — which is also what keeps this quiet under `go test`.
 func terminalClosed(logger zerolog.Logger) <-chan struct{} {
 	closed := make(chan struct{})
-	leader, err := syscall.Getsid(0)
+	leader, err := unix.Getsid(0)
 	if err != nil || leader == os.Getpid() {
 		logger.Debug().Err(err).Msg("no owning terminal to watch")
 		return closed
