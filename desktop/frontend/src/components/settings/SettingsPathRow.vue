@@ -55,7 +55,7 @@ const iconBtnClass =
         :size="32"
         rounded="rounded-lg"
         :class="props.tone === 'accent'
-          ? 'border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.13)] text-accent'
+          ? 'border border-accent/35 bg-accent-tint text-accent'
           : 'border border-card bg-chip text-text-2'"
       >
         <component :is="typeIcon" class="size-4" />

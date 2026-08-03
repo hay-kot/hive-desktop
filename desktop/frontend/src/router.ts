@@ -16,13 +16,13 @@ export type AppRouteName = 'feed' | 'flows' | 'activity' | 'terminal' | 'applica
 // Order is presentation order in SettingsView's nav.
 export const applicationSettingsSections = [
   'appearance',
+  'notifications',
   'keybindings',
   'integrations',
   'actions',
   'launchers',
   'skills',
   'system',
-  'notifications',
 ] as const
 export type ApplicationSettingsSection = (typeof applicationSettingsSections)[number]
 

@@ -4,9 +4,8 @@ import { h } from 'vue'
 import SettingsLayout from '../SettingsLayout.vue'
 
 describe('SettingsLayout', () => {
-  it('renders its slots and emits close from the button and Escape', async () => {
+  it('renders its slots and emits close on Escape', async () => {
     const wrapper = mount(SettingsLayout, {
-      props: { closeTestid: 'settings-layout-close' },
       slots: {
         'sidebar-title': () => h('span', 'Settings title'),
         nav: () => h('button', { 'data-testid': 'settings-layout-nav' }, 'General'),
@@ -20,9 +19,10 @@ describe('SettingsLayout', () => {
     expect(wrapper.get('[data-testid="settings-layout-header-title"]').text()).toBe('General')
     expect(wrapper.get('[data-testid="settings-layout-body"]').text()).toBe('Body')
 
-    await wrapper.get('[data-testid="settings-layout-close"]').trigger('click')
+    // The header carries no close button; Escape is the only affordance the
+    // layout itself owns.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
-    expect(wrapper.emitted('close')).toHaveLength(2)
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

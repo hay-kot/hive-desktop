@@ -12,6 +12,11 @@ import IconCheck from '~icons/lucide/check'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconCopy from '~icons/lucide/copy'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import SettingsError from './settings/SettingsError.vue'
+import SettingsRow from './settings/SettingsRow.vue'
+import SettingsSection from './settings/SettingsSection.vue'
+import SettingsHeading from './settings/SettingsHeading.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import BaseButton from './BaseButton.vue'
 import AppSwitch from './AppSwitch.vue'
 import AgentIcon, { agentHasIcon } from './AgentIcon.vue'
@@ -111,52 +116,46 @@ onMounted(() => void refresh())
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-[820px] flex-col gap-5" data-testid="skill-settings">
-    <!-- header -->
-    <div class="flex flex-wrap items-start gap-3">
-      <div class="min-w-0 flex-1">
-        <div class="flex flex-wrap items-baseline gap-2.5">
-          <h2 class="text-[16px] font-semibold tracking-[-.01em] text-text">Skills</h2>
-          <span v-if="catalog" class="font-mono text-[11.5px] text-text-4">
-            {{ skills.length }} skills · {{ installedAgents }} / {{ targets.length }} agents installed
-          </span>
-        </div>
-        <p class="mt-1 max-w-[560px] text-[12.5px] leading-relaxed text-text-3">
-          Hive writes its configuration prompts as SKILL.md files where your agents read them. Turn on an agent to install all of them; Sync keeps installed agents current. Files you edit yourself are never overwritten.
-        </p>
-      </div>
-      <div v-if="catalog" class="flex shrink-0 items-center gap-3">
+  <SettingsPage testid="skill-settings">
+    <SettingsHeading
+      title="Skills"
+      description="Hive writes its configuration prompts as SKILL.md files where your agents read them. Turn on an agent to install all of them; Sync keeps installed agents current. Files you edit yourself are never overwritten."
+    >
+      <template v-if="catalog" #actions>
         <span v-if="status" class="text-[11.5px] font-medium text-accent" data-testid="skill-status">{{ status }}</span>
-        <AppSwitch
-          :model-value="catalog.autoUpdate"
-          size="sm"
-          label="Auto-sync"
-          aria-label="Keep installed skills current on startup"
-          testid="skill-autoupdate"
-          @update:model-value="setAutoUpdate"
-        />
         <BaseButton size="sm" variant="primary" :disabled="pending('sync')" data-testid="skill-sync" @click="onSync">
           <template #icon><IconRefreshCw class="size-3.5" :class="pending('sync') ? 'animate-spin' : ''" /></template>
           Sync
         </BaseButton>
-      </div>
-    </div>
+      </template>
+    </SettingsHeading>
 
     <p v-if="loading" class="text-xs text-text-4" data-testid="skill-settings-loading">Loading skills…</p>
-    <p
-      v-else-if="error"
-      class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error"
-      data-testid="skill-settings-error"
-    >{{ error }}</p>
+    <SettingsError v-else-if="error" :message="error" testid="skill-settings-error" />
+
+    <SettingsSection
+      v-if="catalog"
+      title="Automatic sync"
+      description="Sync runs on demand from the button above; this keeps it running without you."
+      boxed
+    >
+      <SettingsRow
+        label="Sync on startup"
+        hint="Refresh every installed agent's skills when Hive launches. Files you edited yourself are still never overwritten."
+      >
+        <AppSwitch
+          :model-value="catalog.autoUpdate"
+          aria-label="Keep installed skills current on startup"
+          testid="skill-autoupdate"
+          @update:model-value="setAutoUpdate"
+        />
+      </SettingsRow>
+    </SettingsSection>
 
     <template v-if="!loading && catalog">
       <!-- agent roster -->
       <section class="flex flex-col gap-2">
-        <div class="flex items-baseline gap-2.5">
-          <span class="font-mono text-[10.5px] tracking-[.14em] text-text-4">AGENTS</span>
-          <div class="h-px flex-1 bg-border"></div>
-          <span class="text-[11.5px] text-text-4">turn on to install every skill</span>
-        </div>
+        <SettingsHeading level="group" title="Agents" :description="`${installedAgents} of ${targets.length} installed · turn one on to install every skill`" />
         <div class="overflow-hidden rounded-lg border border-border bg-raised">
           <div
             class="grid items-center gap-3 border-b border-border bg-chip px-3.5 py-2 font-mono text-[10px] tracking-[.12em] text-text-4"
@@ -218,12 +217,8 @@ onMounted(() => void refresh())
       </section>
 
       <!-- skills list -->
-      <section class="mt-3 flex flex-col gap-2">
-        <div class="flex items-baseline gap-2.5">
-          <span class="font-mono text-[10.5px] tracking-[.14em] text-text-4">SKILLS</span>
-          <div class="h-px flex-1 bg-border"></div>
-          <span class="text-[11.5px] text-text-4">what each agent gets</span>
-        </div>
+      <section class="flex flex-col gap-2">
+        <SettingsHeading level="group" title="Skills" :description="`${skills.length} shipped · what each enabled agent gets`" />
         <div class="flex flex-col gap-2">
           <div
             v-for="skill in skills"
@@ -281,5 +276,5 @@ onMounted(() => void refresh())
         <span>YOUR OWN EDITS ARE NEVER OVERWRITTEN</span>
       </div>
     </template>
-  </div>
+  </SettingsPage>
 </template>

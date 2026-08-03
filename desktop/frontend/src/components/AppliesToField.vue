@@ -69,7 +69,7 @@ defineExpose({ flush: () => add() })
           v-for="tag in tags"
           :key="tag"
           class="inline-flex items-center gap-1 rounded-md border py-0.5 pl-2 pr-1 font-mono text-[12px]"
-          :class="isKnown(tag) ? 'border-strong bg-chip text-text' : 'border-dashed border-[rgba(245,158,11,0.6)] bg-accent-tint text-accent'"
+          :class="isKnown(tag) ? 'border-strong bg-chip text-text' : 'border-dashed border-accent/60 bg-accent-tint text-accent'"
           :title="isKnown(tag) ? undefined : 'Not a known feed-item type — it won\'t match any feed item'"
         >
           <span>{{ tag }}</span>

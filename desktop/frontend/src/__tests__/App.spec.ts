@@ -560,7 +560,8 @@ describe('App', () => {
     expect(wrapper.find('[data-testid="settings-view"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(false)
 
-    await wrapper.find('[data-testid="profile-settings-close"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
     await wrapper.find('[data-testid="application-settings"]').trigger('click')
     await flushPromises()
 
@@ -568,7 +569,7 @@ describe('App', () => {
     expect(wrapper.find('[data-testid="profile-settings-view"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
 
-    await wrapper.find('[data-testid="settings-close"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
     expect(wrapper.find('[data-testid="sidebar-profile-header"]').exists()).toBe(true)
 
@@ -581,7 +582,7 @@ describe('App', () => {
     await wrapper.find('[data-testid="application-settings"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('application-settings')
-    expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
 
     await wrapper.find('[data-testid="settings-category-integrations"]').trigger('click')
     await flushPromises()
@@ -592,7 +593,7 @@ describe('App', () => {
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('application-settings')
     expect(router.currentRoute.value.params.section).toBe('')
-    expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
 
     router.back()
     await flushPromises()
@@ -1140,7 +1141,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('never renders the Hub|Terminal toggle while experimental.terminal is off', async () => {
+  it('never renders the Inbox|Code toggle while experimental.terminal is off', async () => {
     mocks.TerminalModeEnabled.mockResolvedValue(false)
     const wrapper = await mountApp()
 
@@ -1227,7 +1228,7 @@ describe('App', () => {
     await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
     await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
 
-    // The Hub toggle lands on the page the hub was left on, not the feed.
+    // The Inbox toggle lands on the page that mode was left on, not the feed.
     await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('application-settings')

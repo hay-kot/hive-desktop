@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsError from './SettingsError.vue'
 // Local webhook listener settings. Both controls here are startup-time
 // decisions — the listener binds a port and serves flow-declared routes — so
 // the drawer's job is to persist them and be honest about the pending
@@ -165,7 +166,7 @@ onMounted(() => void refresh())
         data-testid="webhook-settings-restart-note"
       >Restart Hive to apply the listener's enabled state and port.</p>
 
-      <p v-if="error" class="rounded-md border border-severity-error/40 bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="webhook-settings-error">{{ error }}</p>
+      <SettingsError v-if="error" :message="error" testid="webhook-settings-error" />
     </div>
 
     <template #footer>

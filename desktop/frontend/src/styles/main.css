@@ -217,6 +217,7 @@
 
   /* A darker ANSI set — the stock palette is built for dark backgrounds and
      washes out on white. */
+  --hv-term-foreground: #121722;
   --hv-term-black: #121722;
   --hv-term-red: #b02436;
   --hv-term-green: #2f6b2a;
@@ -430,6 +431,7 @@
   --hv-code-string: #2f6b1f;
   --hv-code-comment: #6b7688;
 
+  --hv-term-foreground: #10151c;
   --hv-term-black: #1b2029;
   --hv-term-red: #b3261e;
   --hv-term-green: #2f6b1f;
@@ -538,6 +540,7 @@
   --hv-code-string: #50a14f;
   --hv-code-comment: #8b949e;
 
+  --hv-term-foreground: #1f2228;
   --hv-term-black: #383a42;
   --hv-term-red: #e45649;
   --hv-term-green: #50a14f;
@@ -591,6 +594,7 @@
   --hv-code-string: #9ece6a;
   --hv-code-comment: #565f89;
 
+  --hv-term-foreground: #a9b1d6;
   --hv-term-black: #15161e;
   --hv-term-red: #f7768e;
   --hv-term-green: #9ece6a;
@@ -644,6 +648,7 @@
   --hv-code-string: #587539;
   --hv-code-comment: #9aa0bd;
 
+  --hv-term-foreground: #1b1f33;
   --hv-term-black: #b4b5b9;
   --hv-term-red: #f52a65;
   --hv-term-green: #587539;
@@ -697,6 +702,7 @@
   --hv-code-string: #a6e3a1;
   --hv-code-comment: #6c7086;
 
+  --hv-term-foreground: #bac2de;
   --hv-term-black: #45475a;
   --hv-term-red: #f38ba8;
   --hv-term-green: #a6e3a1;
@@ -750,6 +756,7 @@
   --hv-code-string: #40a02b;
   --hv-code-comment: #9ca0b0;
 
+  --hv-term-foreground: #3c3f52;
   --hv-term-black: #5c5f77;
   --hv-term-red: #d20f39;
   --hv-term-green: #40a02b;
@@ -859,6 +866,7 @@
   --hv-code-string: #4e6b34;
   --hv-code-comment: #9aa4b2;
 
+  --hv-term-foreground: #2e3440;
   --hv-term-black: #3b4252;
   --hv-term-red: #a33a44;
   --hv-term-green: #4e6b34;

@@ -234,7 +234,7 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .markdown-body :deep(.markdown-alert-tip) { --alert-color: var(--color-kind-issue); }
 .markdown-body :deep(.markdown-alert-important) { --alert-color: var(--color-kind-pr); }
 .markdown-body :deep(.markdown-alert-warning),
-.markdown-body :deep(.markdown-alert-caution) { --alert-color: var(--color-warning, #d29922); }
+.markdown-body :deep(.markdown-alert-caution) { --alert-color: var(--color-severity-warning); }
 .markdown-body :deep(hr) { margin: 16px 0; border: 0; border-top: 1px solid var(--color-border); }
 .markdown-body :deep(code) {
   padding: 1.5px 6px; border-radius: 5px; background: var(--color-card);

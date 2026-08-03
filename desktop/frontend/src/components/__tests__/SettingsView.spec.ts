@@ -14,6 +14,7 @@ import { TERMINAL_FONT } from '../../lib/terminalFaces'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { setTerminalPoolSize } from '../../composables/useTerminalPoolSize'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
+import { applicationSettingsSections } from '../../router'
 
 const setTerminalShowWindowsBinding = vi.hoisted(() => vi.fn())
 const setTerminalPoolSizeBinding = vi.hoisted(() => vi.fn())
@@ -93,11 +94,21 @@ afterEach(() => {
 })
 
 describe('SettingsView', () => {
+  it('puts every routable section in exactly one nav group', () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    const rendered = wrapper.findAll('[data-testid^="settings-category-"]')
+      .map((item) => item.attributes('data-testid')!.replace('settings-category-', ''))
+
+    expect(rendered.sort()).toEqual([...applicationSettingsSections].sort())
+    expect(new Set(rendered).size).toBe(rendered.length)
+  })
+
   it('only exposes settings backed by application behavior', () => {
     const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
 
     expect(wrapper.find('[data-testid="settings-category-appearance"]').attributes('aria-current')).toBe('true')
-    expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="settings-category-general"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-category-integrations"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="settings-category-advanced"]').exists()).toBe(false)
@@ -108,12 +119,12 @@ describe('SettingsView', () => {
   it('reflects and changes the real application theme', async () => {
     const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
 
-    expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').attributes('aria-selected')).toBe('true')
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').attributes('aria-checked')).toBe('true')
 
-    await wrapper.find('[data-testid="settings-theme-toggle-gruvbox"]').trigger('click')
+    await wrapper.find('[data-testid="settings-theme-gruvbox"]').trigger('click')
 
-    expect(wrapper.find('[data-testid="settings-theme-toggle-gruvbox"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.find('[data-testid="settings-theme-toggle-dark"]').attributes('aria-selected')).toBe('false')
+    expect(wrapper.find('[data-testid="settings-theme-gruvbox"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').attributes('aria-checked')).toBe('false')
     expect(document.documentElement.dataset.theme).toBe('gruvbox')
     await nextTick()
     expect(localStorage.getItem('hive.theme')).toBe('gruvbox')
@@ -411,12 +422,11 @@ describe('SettingsView', () => {
     expect(wrapper.find('[data-testid="skill-settings"]').exists()).toBe(true)
   })
 
-  it('closes from the header action and Escape', async () => {
+  it('closes on Escape', async () => {
     const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
 
-    await wrapper.find('[data-testid="settings-close"]').trigger('click')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
 
-    expect(wrapper.emitted('close')).toHaveLength(2)
+    expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

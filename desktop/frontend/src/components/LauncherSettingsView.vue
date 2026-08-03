@@ -2,6 +2,9 @@
 import { computed, ref } from 'vue'
 import IconPlus from '~icons/lucide/plus'
 import IconTrash2 from '~icons/lucide/trash-2'
+import SettingsError from './settings/SettingsError.vue'
+import SettingsHeading from './settings/SettingsHeading.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import BaseBadge from './BaseBadge.vue'
 import BaseButton from './BaseButton.vue'
 import BaseCard from './BaseCard.vue'
@@ -9,7 +12,6 @@ import BaseIconBadge from './BaseIconBadge.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import LauncherEditor from './LauncherEditor.vue'
 import EmptyState from './settings/EmptyState.vue'
-import SettingsSection from './settings/SettingsSection.vue'
 import { useConfirmation } from '../composables/useConfirmation'
 import { launcherIconComponent } from '../lib/launcherIcons'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
@@ -50,22 +52,19 @@ function requestDelete(launcher: Launcher): void {
 </script>
 
 <template>
-  <div class="mx-auto max-w-[720px]" data-testid="launchers-settings">
-    <div class="mb-5 flex items-start gap-4">
-      <SettingsSection
-        title="Launchers"
-        description="Open the pop-up terminal straight into a program — lazygit in the session you are looking at, a test watcher, btop. Each one gets a command in the palette and can take a shortcut of its own."
-        class="flex-1"
-      />
-      <BaseButton
-        size="sm"
-        class="shrink-0"
-        data-testid="launcher-create"
-        @click="createNew"
-      ><template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New launcher</BaseButton>
-    </div>
+  <SettingsPage testid="launchers-settings">
+    <SettingsHeading
+      title="Launchers"
+      description="Open the pop-up terminal straight into a program — lazygit in the session you are looking at, a test watcher, btop. Each one gets a command in the palette and can take a shortcut of its own."
+    >
+      <template #actions>
+        <BaseButton size="sm" data-testid="launcher-create" @click="createNew">
+          <template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New launcher
+        </BaseButton>
+      </template>
+    </SettingsHeading>
 
-    <p v-if="error && !editing" class="mb-3 rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="launchers-error">{{ error }}</p>
+    <SettingsError v-if="error && !editing" :message="error" testid="launchers-error" />
     <p v-if="loading" class="text-xs text-text-4">Loading launchers…</p>
 
     <div v-else class="flex flex-col gap-3">
@@ -77,7 +76,7 @@ function requestDelete(launcher: Launcher): void {
         :data-testid="`launcher-row-${launcher.id}`"
       >
         <template #icon>
-          <BaseIconBadge :size="38" rounded="rounded-[10px]" class="border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.13)] text-accent">
+          <BaseIconBadge :size="38" rounded="rounded-[10px]" class="border border-accent/35 bg-accent-tint text-accent">
             <component :is="launcherIconComponent(launcher.icon)" class="size-[17px]" />
           </BaseIconBadge>
         </template>
@@ -105,5 +104,5 @@ function requestDelete(launcher: Launcher): void {
 
     <LauncherEditor v-if="editing" :launcher="editing" :is-new="isNew" :busy="saving" :error="error" :return-focus-to="editorTrigger" @save="save" @cancel="editing = null" />
     <ConfirmationDialog v-if="confirmation.open.value && confirmation.options.value" :title="confirmation.options.value.title" :description="confirmation.options.value.description" :confirm-label="confirmation.options.value.confirmLabel" :busy="confirmation.busy.value" :error="confirmation.error.value" @confirm="confirmation.confirm" @cancel="confirmation.cancel" />
-  </div>
+  </SettingsPage>
 </template>

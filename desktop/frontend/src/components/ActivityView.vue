@@ -75,7 +75,7 @@ onMounted(() => {
 
 <template>
   <div class="flex h-full min-h-0 flex-1 flex-col" data-testid="activity-view">
-    <ViewHeader close-testid="activity-close" @close="emit('close')">
+    <ViewHeader>
       <template #title>
         <span class="text-[13px] font-semibold text-text">Activity</span>
         <span class="font-mono text-[11px] text-text-4">{{ events.length }} {{ events.length === 1 ? 'event' : 'events' }}</span>

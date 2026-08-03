@@ -66,9 +66,9 @@ describe('ProfileSettingsView', () => {
     expect(wrapper.get('[data-testid="profile-settings-rename-error"]').text()).toBe('Could not save')
   })
 
-  it('closes from the header action', async () => {
+  it('closes on Escape', async () => {
     const wrapper = mount(ProfileSettingsView, { props: { profile, activeSection: 'general' } })
-    await wrapper.find('[data-testid="profile-settings-close"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 

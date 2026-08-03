@@ -9,9 +9,23 @@ describe('SettingsSection', () => {
     })
 
     expect(wrapper.get('h2').text()).toBe('Actions')
-    expect(wrapper.get('h2').classes()).toEqual(expect.arrayContaining(['text-[15px]', 'font-semibold', 'text-text']))
+    expect(wrapper.get('h2').classes()).toEqual(expect.arrayContaining(['text-xs', 'font-semibold', 'uppercase', 'text-text-2']))
     expect(wrapper.get('p').text()).toBe('Configure actions.')
-    expect(wrapper.get('p').classes()).toEqual(expect.arrayContaining(['mt-1', 'text-xs', 'leading-relaxed', 'text-text-3']))
+    expect(wrapper.get('p').classes()).toEqual(expect.arrayContaining(['text-xs', 'leading-relaxed', 'text-text-3']))
+  })
+
+  it('boxes the slot into one card only when asked', () => {
+    const plain = mount(SettingsSection, {
+      props: { title: 'Diagnostics' },
+      slots: { default: '<div data-testid="row" />' },
+    })
+    expect(plain.find('.divide-y').exists()).toBe(false)
+
+    const boxed = mount(SettingsSection, {
+      props: { title: 'Diagnostics', boxed: true },
+      slots: { default: '<div data-testid="row" />' },
+    })
+    expect(boxed.get('.divide-y').get('[data-testid="row"]')).toBeTruthy()
   })
 
   it('renders slot content after the header', () => {

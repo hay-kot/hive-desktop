@@ -10,8 +10,9 @@ import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconSearch from '~icons/lucide/search'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
+import SettingsHeading from './settings/SettingsHeading.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import EmptyState from './settings/EmptyState.vue'
-import SettingsSection from './settings/SettingsSection.vue'
 import { commands } from '../keybindings/catalog'
 import { comboFromEvent, formatCombo, useKeybindings } from '../composables/useKeybindings'
 
@@ -93,30 +94,31 @@ onUnmounted(endCapture)
 </script>
 
 <template>
-  <div class="mx-auto max-w-[640px]" data-testid="settings-keybindings">
-    <SettingsSection
+  <SettingsPage testid="settings-keybindings">
+    <SettingsHeading
       title="Keyboard shortcuts"
       description="Rebind commands to your own keys. Bindings apply across the app; feed navigation keys work while the feed is open."
-      class="mb-4"
-    />
-
-    <label class="mb-4 flex items-center gap-2 rounded-lg border border-strong bg-app px-3 py-2 focus-within:border-accent">
-      <IconSearch class="size-[14px] shrink-0 text-text-3" />
-      <input
-        v-model="filter"
-        type="text"
-        class="min-w-0 flex-1 border-none bg-transparent text-[13px] text-text outline-none placeholder:text-text-4"
-        placeholder="Filter shortcuts…"
-        data-testid="keybinding-filter"
-      >
-    </label>
+    >
+      <template #actions>
+        <label class="flex w-[220px] items-center gap-2 rounded-[7px] border border-card bg-app px-3 py-1.5 focus-within:border-accent">
+          <IconSearch class="size-[14px] shrink-0 text-text-3" />
+          <input
+            v-model="filter"
+            type="text"
+            class="min-w-0 flex-1 border-none bg-transparent text-[12.5px] text-text outline-none placeholder:text-text-4"
+            placeholder="Filter shortcuts…"
+            data-testid="keybinding-filter"
+          >
+        </label>
+      </template>
+    </SettingsHeading>
 
     <EmptyState v-if="empty" boxed data-testid="keybinding-empty">
       No shortcuts match "{{ filter.trim() }}".
     </EmptyState>
 
-    <div v-for="group in groups" :key="group.group" class="mb-5">
-      <div class="mb-1.5 px-1 font-mono text-[10px] font-semibold uppercase tracking-[0.12em] text-text-3">{{ group.group }}</div>
+    <div v-for="group in groups" :key="group.group" class="flex flex-col gap-2">
+      <SettingsHeading level="group" :title="group.group" />
       <div class="overflow-hidden rounded-lg border border-border bg-raised">
         <div
           v-for="(row, index) in group.rows"
@@ -176,7 +178,7 @@ onUnmounted(endCapture)
         </div>
       </div>
     </div>
-  </div>
+  </SettingsPage>
 </template>
 
 <style scoped>

@@ -7,7 +7,9 @@ import { notifySeverityMapping, useNotify, type NotifySeverity } from '../compos
 import { useToasts } from '../composables/useToasts'
 import AppSelect from './AppSelect.vue'
 import BaseCard from './BaseCard.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
+import { useEscapeToClose } from '../composables/useEscapeToClose'
 import ViewHeader from './settings/ViewHeader.vue'
 
 const emit = defineEmits<{ close: [] }>()
@@ -88,11 +90,14 @@ function sendTest(): void {
 onUnmounted(() => {
   if (pendingTimeout !== undefined) clearTimeout(pendingTimeout)
 })
+
+// The header no longer carries a close button, so Escape is the way out.
+useEscapeToClose(() => emit('close'))
 </script>
 
 <template>
   <div class="flex h-full min-h-0 flex-1 flex-col" data-testid="dev-view">
-    <ViewHeader close-testid="dev-close" @close="emit('close')">
+    <ViewHeader>
       <template #title>
         <span class="text-[13px] font-semibold text-text">Developer tools</span>
         <span class="font-mono text-[11px] text-text-4">internal</span>
@@ -100,7 +105,7 @@ onUnmounted(() => {
     </ViewHeader>
 
     <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div class="mx-auto max-w-[640px]">
+      <SettingsPage>
         <SettingsSection
           title="Notifications"
           description="Exercise notification delivery while developing Hive."
@@ -149,7 +154,7 @@ onUnmounted(() => {
             </template>
           </BaseCard>
         </SettingsSection>
-      </div>
+      </SettingsPage>
     </div>
   </div>
 </template>

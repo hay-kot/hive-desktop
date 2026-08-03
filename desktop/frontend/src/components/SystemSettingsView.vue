@@ -10,7 +10,11 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconBug from '~icons/lucide/bug'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import SettingsError from './settings/SettingsError.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
+import SettingsRow from './settings/SettingsRow.vue'
+import SettingsSection from './settings/SettingsSection.vue'
 import AppSwitch from './AppSwitch.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
 import { useReportDialog } from '../composables/useReportDialog'
@@ -49,7 +53,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="mx-auto flex max-w-[860px] flex-col gap-6" data-testid="settings-system">
+  <SettingsPage testid="settings-system">
     <div
       v-if="restartRequired"
       class="flex items-center gap-3 rounded-lg border border-border bg-severity-info-tint p-3.5"
@@ -65,11 +69,7 @@ onMounted(() => {
       >Quit Hive</button>
     </div>
 
-    <div
-      v-if="error"
-      class="rounded-md border border-border bg-severity-error-tint px-3 py-2 text-xs text-severity-error"
-      data-testid="system-error"
-    >{{ error }}</div>
+    <SettingsError v-if="error" :message="error" testid="system-error" />
 
     <button
       type="button"
@@ -87,12 +87,12 @@ onMounted(() => {
       <IconChevronRight class="size-4 shrink-0 text-text-3 transition-transform group-hover:translate-x-0.5 group-hover:text-text-2" />
     </button>
 
-    <section class="flex flex-col gap-2.5">
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h2 class="text-xs font-semibold uppercase tracking-[.1em] text-text-2">Storage locations</h2>
-        <p class="text-xs text-text-3">Point Hive at a different folder. Existing data isn't moved; a new location applies after restart.</p>
-      </div>
-      <div v-if="info" class="divide-y divide-row overflow-hidden rounded-[11px] border border-card bg-raised">
+    <SettingsSection
+      v-if="info"
+      title="Storage locations"
+      description="Point Hive at a different folder. Existing data isn't moved; a new location applies after restart."
+      boxed
+    >
         <SettingsPathRow
           label="Data directory"
           hint="Desktop state, logs, and the databases live here."
@@ -123,15 +123,14 @@ onMounted(() => {
           @change="changeConfigDir"
           @reset="resetConfigDir"
         />
-      </div>
-    </section>
+    </SettingsSection>
 
-    <section class="flex flex-col gap-2.5">
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h2 class="text-xs font-semibold uppercase tracking-[.1em] text-text-2">Diagnostics</h2>
-        <p class="text-xs text-text-3">Open or locate the log file and database when troubleshooting.</p>
-      </div>
-      <div v-if="info" class="divide-y divide-row overflow-hidden rounded-[11px] border border-card bg-raised">
+    <SettingsSection
+      v-if="info"
+      title="Diagnostics"
+      description="Open or locate the log file and database when troubleshooting."
+      boxed
+    >
         <SettingsPathRow
           label="Log file"
           icon="log"
@@ -150,41 +149,41 @@ onMounted(() => {
           @open="openPath(info.database.path)"
           @reveal="revealPath(info.database.path)"
         />
-      </div>
-    </section>
+    </SettingsSection>
 
-    <section class="flex flex-col gap-2.5" data-testid="system-experimental">
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h2 class="text-xs font-semibold uppercase tracking-[.1em] text-text-2">Experimental</h2>
-        <p class="text-xs text-text-3">Early features that ship off by default. Changes apply after restarting Hive.</p>
-      </div>
-      <div class="overflow-hidden rounded-[11px] border border-card bg-raised">
-        <div class="flex items-center gap-3.5 px-4 py-3.5">
+    <SettingsSection
+      title="Experimental"
+      description="Early features that ship off by default. Changes apply after restarting Hive."
+      boxed
+      testid="system-experimental"
+    >
+      <SettingsRow
+        label="Terminal mode"
+        hint="Attach to a session's tmux windows inside the app, from the Inbox | Code switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
+      >
+        <div class="flex items-center gap-2.5">
+          <span
+            v-if="terminalRestartPending"
+            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
+            data-testid="system-terminal-restart"
+          >Restart to apply</span>
           <AppSwitch
             :model-value="experimentalTerminal"
             aria-label="Terminal mode"
             testid="system-experimental-terminal"
             @update:model-value="setExperimentalTerminal"
           />
-          <div class="min-w-0 flex-1">
-            <div class="text-[13.5px] font-semibold text-text">Terminal mode</div>
-            <div class="mt-0.5 text-[11.5px] text-text-3">Attach to a session's tmux windows inside the app, from the Hub | Terminal switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running.</div>
-          </div>
-          <span
-            v-if="terminalRestartPending"
-            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
-            data-testid="system-terminal-restart"
-          >Restart to apply</span>
         </div>
-      </div>
-    </section>
+      </SettingsRow>
+    </SettingsSection>
 
-    <section class="flex flex-col gap-2.5" data-testid="system-about">
-      <div class="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
-        <h2 class="text-xs font-semibold uppercase tracking-[.1em] text-text-2">About</h2>
-        <p class="text-xs text-text-3">The build of Hive you're running — include this when reporting an issue.</p>
-      </div>
-      <div v-if="build" class="overflow-hidden rounded-[11px] border border-card bg-raised">
+    <SettingsSection
+      v-if="build"
+      title="About"
+      description="The build of Hive you're running — include this when reporting an issue."
+      boxed
+      testid="system-about"
+    >
         <div class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3.5">
           <div class="flex flex-col gap-1">
             <span class="text-[11px] text-text-3">Version</span>
@@ -255,7 +254,6 @@ onMounted(() => {
             {{ checkingUpdate ? 'Checking…' : 'Check for updates' }}
           </button>
         </div>
-      </div>
-    </section>
-  </div>
+    </SettingsSection>
+  </SettingsPage>
 </template>
