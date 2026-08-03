@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Both fixtures are subsets of the bundled CaskaydiaMono Nerd Font (OFL-1.1),
-// renamed off the reserved font name and cut to the probe glyphs. They differ
+// Both fixtures are subsets of CaskaydiaMono Nerd Font (OFL-1.1), renamed off
+// the reserved font name and cut to the probe glyphs. They differ
 // only in one advance width, so nothing but the measurement separates them:
 // each reports isFixedPitch=0, which is what a Nerd Font patched face reports
 // once its double-width icon glyphs are added.

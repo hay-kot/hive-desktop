@@ -282,7 +282,7 @@ watch(
           <div class="mt-3 space-y-4">
             <SettingsField
               label="Font"
-              hint="Monospace families installed on this machine. The bundled face carries the powerline and devicon glyphs agent TUIs draw with; a system font may not."
+              hint="Monospace families installed on this machine. The powerline and devicon glyphs agent TUIs draw with come from a bundled symbol face, so a family that lacks them still renders them."
               testid="settings-terminal-font-family"
             >
               <AppSelect

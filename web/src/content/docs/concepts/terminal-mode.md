@@ -5,9 +5,9 @@ group: Concepts
 order: 1
 ---
 
-Terminal mode attaches to the **tmux session** behind a Hive session and renders
-its windows as tabs, so the agent you launched from the feed is readable without
-leaving the app. It is **experimental** and ships off.
+Terminal mode attaches to the **tmux session** behind a Hive session and lists
+its windows in the sidebar, so the agent you launched from the feed is readable
+without leaving the app. It is **experimental** and ships off.
 
 ## Turning it on
 
@@ -173,23 +173,72 @@ in your `tmux.conf` this is the entire history tmux is keeping. If you have
 raised it, the app replays the most recent 2000 lines and the rest stays
 reachable in tmux's copy mode (`prefix + [`).
 
-**Find in a window** with `⌘F` (`Ctrl+Shift+F` on Linux and Windows), or the
-magnifier in the tab strip. It searches the window you are looking at, scrollback
-included — `Enter` and `Shift+Enter` step through the matches, `Esc` closes the
+**Find in a window** with `⌘F` (`Ctrl+Shift+F` on Linux and Windows). It
+searches the window you are looking at, scrollback included — `Enter` and `Shift+Enter` step through the matches, `Esc` closes the
 bar. A plain `Ctrl+F` is left alone on purpose: it is readline's forward-char and
 belongs to whatever is running in the pane.
 
-Switching tabs re-runs the search against that window, because a match count only
-ever describes one window's buffer.
+Switching windows re-runs the search against that window, because a match count
+only ever describes one window's buffer.
+
+## Driving the sidebar from the keyboard
+
+The session tree is a keyboard surface. `↑` and `↓` — or `j` and `k` — walk it,
+and landing on a row does exactly what clicking it does: a session attaches, a
+window is selected. There is nothing to confirm.
+
+A running session **is** its windows, so the arrows walk those and skip its own
+row — stopping there first would have changed nothing, since it is already
+attached. What is left is a simple rule: you stop on a session row exactly when
+there is no terminal behind it yet, and `Enter` on that row starts one. (A
+session whose windows are not listed keeps its row either way, so nothing
+becomes unreachable.)
+
+What arrowing deliberately does *not* do is put the cursor in the terminal.
+Walking past a session is not the same as sitting down to work in one, and a
+pane that took focus on the way past would send your next `↓` to tmux instead of
+the sidebar. `Enter` is how you go in — as is clicking, which keeps the mouse
+behaving the way it always has.
+
+`/` puts the cursor in the filter at the top of the sidebar and narrows the tree
+to what matches: a session name, its slug, or a repository — a repository match
+keeps everything under it. Collapsed repositories open for as long as a filter
+is on, so nothing hides behind one. `Esc` clears the filter, and a second `Esc`
+leaves the field; `↓` and `Enter` leave it without clearing, which is how you
+narrow the list and then walk what is left. Inside a pane `/` is just a slash,
+so reach the tree first.
+
+Filtering only changes what the sidebar draws. The session you are attached to
+stays attached and on screen even when the filter hides its row, and clearing
+the filter puts the row back where it was.
+
+`⌘←` takes you back to the tree from inside a pane, and `⌘→` puts you back in
+the terminal. `⌘←` is one of the chords terminal mode takes away from tmux: it
+has to work while a pane holds every other key, so it is the only way back out
+that does not need the mouse. If the sidebar is collapsed, `⌘←` reopens it.
+
+`⌘1` through `⌘9` go straight to a window of the session you are attached to,
+counting down its list in the sidebar — so `⌘3` is the third window under it,
+whatever tmux numbered that window. These work from inside a pane too, which is
+the point: the window you are leaving is the one holding the keyboard. A session
+with fewer windows than the digit ignores the chord.
+
+All of these are rebindable in Settings ▸ Keyboard, which is also where to
+change them on Linux and Windows — there `mod` is Control, so `Ctrl+←` is
+readline's backward-word and `Ctrl+2` through `Ctrl+7` are control characters
+you may want back in the pane. The arrow keys inside the tree are the tree's own
+and are not rebindable.
+
+The bar under the session list carries the essentials, and its last hint follows
+your focus — it offers the way into the terminal while you are in the tree, and
+the way back out once you are in a pane.
 
 ## Putting the windows in the order you want
 
-Drag a tab along the strip, or a window along its session in the sidebar, and it
-lands in the gap the pointer is nearest. Both are the same order — a window
-moved in one shows up moved in the other — because the order is tmux's own, not
-a per-view arrangement. Every other client attached to that session sees the
-move too, and tmux's window indices are renumbered afterwards so they stay
-contiguous.
+Drag a window along its session in the sidebar and it lands in the gap the
+pointer is nearest. The order is tmux's own, not a per-view arrangement, so
+every other client attached to that session sees the move too, and tmux's window
+indices are renumbered afterwards so they stay contiguous.
 
 Only a session you are attached to can be reordered: moving a window is
 something the attach does, so the windows listed under sessions you have not
@@ -197,15 +246,9 @@ opened are there to click, not to drag.
 
 ## Changing the text size
 
-The **⋯** menu at the end of the tab strip carries **Decrease**, **Increase**,
-and **Reset** for the terminal's text size, so a pane that is too small to read
-is fixed where you are looking at it. It steps through the same five presets as
-Settings ▸ Appearance ▸ Terminal — 12px to 18px — and the menu stays open, so
-walking to the size you want is a run of clicks rather than a run of trips.
-
-Both controls write the same setting, `appearance.terminal_font_size`, so a
-nudge here applies to every open terminal at once and is still there next
-launch. **Reset** goes back to Medium, the default.
+Settings ▸ Appearance ▸ Terminal steps the terminal's text through five presets,
+12px to 18px. It writes `appearance.terminal_font_size`, so a change applies to
+every open terminal at once and is still there next launch.
 
 New cell metrics mean a different number of cells fit the pane, so a change
 re-votes the window size — with the same rule as above about who wins that

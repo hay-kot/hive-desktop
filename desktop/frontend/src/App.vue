@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, defineAsyncComponent, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Events, Window } from '@wailsio/runtime'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
@@ -39,10 +39,11 @@ import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { sessionRepository } from './composables/useTerminalSessions'
+import { focusTerminalFilter, focusTerminalPane, focusTerminalTree, selectTerminalWindow } from './lib/terminalTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, launcherActionID } from './keybindings/catalog'
+import { commands as bindableCommands, launcherActionID, terminalWindowPosition } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -801,17 +802,35 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
   'terminal.popup.toggle': togglePopupTerminal,
+  // Reaching for the tree is also how you get a collapsed sidebar back: the
+  // chord means "work in the session list", and a hidden panel is not an
+  // answer to it.
+  'terminal.focus-sidebar': () => {
+    terminalSidebarCollapsed.value = false
+    void nextTick(focusTerminalTree)
+  },
+  'terminal.focus-pane': focusTerminalPane,
+  'terminal.focus-filter': () => {
+    terminalSidebarCollapsed.value = false
+    void nextTick(focusTerminalFilter)
+  },
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
 }
 
-// Resolves a command id to its implementation. Launchers are not in runMap:
-// they come from actions.yml, so there is one implementation parameterised by
-// the action id rather than an entry per launcher.
+// Resolves a command id to its implementation. Launchers and the numbered
+// window jumps are not in runMap: each is one implementation parameterised by
+// what its id names — an action from actions.yml, a position in the window
+// strip — rather than an entry per command.
 function runCommand(id: string): void {
   const launcher = launcherActionID(id)
   if (launcher !== null) {
     toggleLauncher(launcher)
+    return
+  }
+  const window = terminalWindowPosition(id)
+  if (window !== null) {
+    selectTerminalWindow(window)
     return
   }
   void runMap[id]?.()
@@ -947,6 +966,18 @@ function onGlobalKeydown(e: KeyboardEvent): void {
       runCommand(id)
       return
     }
+    // Reaching the session tree is the pane's other way out, so it fires over a
+    // focused terminal too. Only this half of the pair does: the chord that
+    // moves focus *into* a pane is unreachable from inside one, so it stays an
+    // ordinary command and tmux keeps it.
+    //
+    // A numbered window jump is the same case — it is only ever wanted from
+    // inside the window you are leaving.
+    if (id && terminalActive.value && (id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null)) {
+      e.preventDefault()
+      runCommand(id)
+      return
+    }
     // The palette is the way back out of a pane, so it fires over one too — but
     // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
     // answers. A bare Ctrl+K stays with the pane; it is readline's
@@ -981,6 +1012,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
 
   if (anyOverlayOpen.value && id !== 'palette.toggle') return
   if (command.context === 'feed' && !feedNavActive.value) return
+  if (command.context === 'terminal' && !terminalActive.value) return
 
   e.preventDefault()
   runCommand(id)

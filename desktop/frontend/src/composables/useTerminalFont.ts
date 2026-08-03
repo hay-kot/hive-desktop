@@ -169,30 +169,6 @@ export function setTerminalFontSize(next: TerminalFontSize): void {
   persist(() => PersistTerminalFontSize(next))
 }
 
-// The ladder ends hold rather than wrap: a nudge past the last preset is a
-// no-op, not a jump back to the smallest.
-export function stepTerminalFontSize(delta: 1 | -1): void {
-  const next = terminalFontSizes[terminalFontSizes.indexOf(currentSize.value) + delta]
-  if (next) setTerminalFontSize(next)
-}
-
-export function resetTerminalFontSize(): void {
-  if (currentSize.value !== defaultTerminalFontSize) setTerminalFontSize(defaultTerminalFontSize)
-}
-
-/** Where `size` sits on the ladder, for controls that offer to move it. */
-export function terminalFontSizeState(size: TerminalFontSize): {
-  canDecrease: boolean
-  canIncrease: boolean
-  isDefault: boolean
-} {
-  const at = terminalFontSizes.indexOf(size)
-  return {
-    canDecrease: at > 0,
-    canIncrease: at < terminalFontSizes.length - 1,
-    isDefault: size === defaultTerminalFontSize,
-  }
-}
 
 export function setTerminalFontFamily(next: string): void {
   // The bundled face is stored as empty so it tracks the shipped font rather

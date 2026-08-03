@@ -64,6 +64,8 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0053](decisions/0053-queued-terminal-output-coalesces.md) | Queued terminal output coalesces per pane, so batching costs no latency |
 | [0054](decisions/0054-terminal-mode-is-hidden-not-unmounted.md) | Terminal mode is hidden on a trip to the hub, never unmounted |
 | [0055](decisions/0055-ui-performance-spans-are-recorded-to-jsonl.md) | UI performance spans are recorded as raw JSONL, not aggregated metrics |
+| [0056](decisions/0056-bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font.md) | The bundled faces are JetBrains Mono, Inter, and a symbol font |
+| [0057](decisions/0057-the-sidebar-tree-is-the-only-window-list.md) | The sidebar tree is the only window list; the tab strip is deleted |
 
 ## References
 

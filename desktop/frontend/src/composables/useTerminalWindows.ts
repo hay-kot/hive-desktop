@@ -17,11 +17,17 @@ import {
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
-import { terminalEscapeCombo, useKeybindings } from './useKeybindings'
+import { paneMayAutoFocus } from '../lib/terminalTree'
+import { terminalWindowPosition } from '../keybindings/catalog'
+import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
 import { terminalCellMetrics, useTerminalFont } from './useTerminalFont'
 import { useTheme } from './useTheme'
+
+// The keymap is a module singleton with no lifecycle of its own, so the pane's
+// key handlers read it once here rather than calling in per keystroke.
+const keymap = useKeybindings()
 
 /**
  * 'ended' is terminal: this view has no stream any more — whether or not the
@@ -302,6 +308,9 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // one. Returning false only stops xterm from *also* sending the chord to
       // the pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
       if (isPaletteEscape(event)) return false
+      // Same deal for the chords that move between panes, which would otherwise
+      // reach this one as an arrow escape sequence or a control character.
+      if (piercesPane(event)) return false
       return true
     })
     runtime.set(state.windowId, {
@@ -455,7 +464,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       // activation to its own open(), which would throw a missing-context
       // error out of there rather than out of the load, past the fallback.
       showRenderer(windowId)
-      tab.term.focus()
+      if (paneMayAutoFocus.value) tab.term.focus()
     }
     scheduleVote()
   }
@@ -707,13 +716,14 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     if (!findTab(windowId)) return
     // Reselecting the active window is still an intent to type into it: the
     // click just moved DOM focus onto the tab, so hand it back to the pane.
+    // An arrow onto it is not — it is passing through.
     if (activeWindowId.value === windowId) {
-      focusActive()
+      if (paneMayAutoFocus.value) focusActive()
       return
     }
     setActive(windowId)
     await nextTick()
-    findTab(windowId)?.term.focus()
+    if (paneMayAutoFocus.value) findTab(windowId)?.term.focus()
     scheduleVote()
     await control(() => client.selectWindow(slug, windowId), 'Could not select that window.')
   }
@@ -830,7 +840,18 @@ function applyOrder<T extends { windowId: string }>(tabs: T[], order: string[]):
 // The command palette is reachable from inside a pane (App.vue), so the pane
 // must not consume its chord as well.
 function isPaletteEscape(event: KeyboardEvent): boolean {
-  return useKeybindings().resolve(terminalEscapeCombo(event) ?? '') === 'palette.toggle'
+  return keymap.resolve(terminalEscapeCombo(event) ?? '') === 'palette.toggle'
+}
+
+// The chords App.vue runs over a focused pane: back to the session tree, and
+// the jumps to a numbered window. Declining them here is only about keeping
+// xterm from *also* writing them to tmux — Ctrl+2 through Ctrl+7 are control
+// characters on a platform without Command. Resolved against the live keymap
+// rather than matched literally, so a rebind moves both sides together.
+function piercesPane(event: KeyboardEvent): boolean {
+  const id = keymap.resolve(comboFromEvent(event) ?? '')
+  if (!id) return false
+  return id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null
 }
 
 function isSearchCombo(event: KeyboardEvent): boolean {

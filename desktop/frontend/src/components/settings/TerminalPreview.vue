@@ -28,8 +28,8 @@ const { theme } = useTheme()
 
 // The line-height check ADR 0051 leaves to the eye: a box whose verticals must
 // meet across rows, block glyphs that must tile, and a run of prose long enough
-// to judge tracking against. The powerline segment is why a Nerd Font is
-// bundled at all, so a family picked here that lacks one shows it immediately.
+// to judge tracking against. The powerline segment is what the bundled symbol
+// face answers, so a family picked here that lacks one shows the fallback.
 const SAMPLE = [
   '\x1b[44;30m  main \x1b[0m\x1b[34m\x1b[0m \x1b[32m❯\x1b[0m hive preview',
   'AaBbCc 0123456789 il1I O0 {}[]()<> &@#%',

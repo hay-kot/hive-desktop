@@ -11,6 +11,7 @@ import { useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { applicationSettingsSections, createAppRouter } from '../router'
+import { setTerminalTreeHandles } from '../lib/terminalTree'
 
 const mocks = vi.hoisted(() => ({
   // flowsservice
@@ -1314,6 +1315,102 @@ describe('App', () => {
 
     paletteOpen.value = false
     pane.remove()
+    wrapper.unmount()
+  })
+
+  // The other way out of a pane. Only this half of the focus pair pierces: the
+  // chord that moves focus *into* a pane is unreachable from inside one.
+  it('reaches the session tree from inside a focused terminal', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const focusTree = vi.fn()
+    setTerminalTreeHandles({ focusTree, focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow: vi.fn() })
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+
+    const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(event)
+    await flushPromises()
+
+    expect(focusTree).toHaveBeenCalled()
+    // Swallowed here so the webview cannot also read ⌘← as browser Back.
+    expect(event.defaultPrevented).toBe(true)
+
+    setTerminalTreeHandles(null)
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // Same reason: the window you are jumping away from is holding the keyboard.
+  it('jumps to a numbered window from inside a focused terminal', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const selectWindow = vi.fn()
+    setTerminalTreeHandles({ focusTree: vi.fn(), focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow })
+
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+
+    const event = new KeyboardEvent('keydown', { key: '3', metaKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(event)
+    await flushPromises()
+
+    expect(selectWindow).toHaveBeenCalledWith(3)
+    expect(event.defaultPrevented).toBe(true)
+
+    setTerminalTreeHandles(null)
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // A bare key, so it belongs to whatever holds focus: the tree and the rows
+  // answer it, and a focused pane keeps `/` as the character it is.
+  it('focuses the session filter on / from the tree, and never from inside a pane', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const focusFilter = vi.fn()
+    setTerminalTreeHandles({ focusTree: vi.fn(), focusPane: vi.fn(), focusFilter, selectWindow: vi.fn() })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }))
+    await flushPromises()
+    expect(focusFilter).toHaveBeenCalled()
+
+    focusFilter.mockClear()
+    const pane = document.createElement('div')
+    pane.setAttribute('data-terminal-input-scope', '')
+    document.body.append(pane)
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))
+    await flushPromises()
+    expect(focusFilter).not.toHaveBeenCalled()
+
+    setTerminalTreeHandles(null)
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  it('leaves the focus chords alone outside terminal mode', async () => {
+    const wrapper = await mountApp()
+    const focusTree = vi.fn()
+    const selectWindow = vi.fn()
+    setTerminalTreeHandles({ focusTree, focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow })
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', metaKey: true }))
+    await flushPromises()
+
+    expect(focusTree).not.toHaveBeenCalled()
+    expect(selectWindow).not.toHaveBeenCalled()
+
+    setTerminalTreeHandles(null)
     wrapper.unmount()
   })
 

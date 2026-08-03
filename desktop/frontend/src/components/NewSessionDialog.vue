@@ -70,7 +70,9 @@ useAutofocus(nameInput)
         />
       </div>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
-        <input ref="nameInput" v-model="name" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="new-session-name">
+        <!-- A session name slugs into a tmux name and a directory path, so the
+             webview's text substitutions must not touch what was typed. -->
+        <input ref="nameInput" v-model="name" autocapitalize="off" autocorrect="off" spellcheck="false" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="new-session-name">
       </label>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Prompt <span class="font-normal text-text-4">(optional)</span>
         <textarea v-model="prompt" rows="6" class="resize-y rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] leading-relaxed text-text outline-none focus:border-accent" placeholder="Describe the task for the agent…" data-testid="new-session-prompt" />

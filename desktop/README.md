@@ -166,7 +166,7 @@ notifications:
 appearance:
   theme: ""
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
-  terminal_font_family: "" # any installed monospace family; empty is the bundled Nerd Font (ADR 0050)
+  terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR 0056)
   terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350
   terminal_font_weight_bold: 0 # the weight bold cells draw at; 0 means the default, 700
   terminal_line_height: 0 # 1 to 1.6 in tenths; 0 means the default, 1.2 (ADR 0051)
