@@ -10,6 +10,11 @@ import {
 // the only store and ships with the listing on.
 const showWindows: Ref<boolean> = ref(true)
 
+// Whether the value above is the stored one rather than the optimistic default.
+// The tree waits on it: painting subtrees the setting then turns off is a wave
+// of rows that arrive only to leave again.
+const ready: Ref<boolean> = ref(false)
+
 let hydrated = false
 // Same staleness guard as useTerminalFont: a toggle made while the hydrating
 // read is in flight must not be overwritten by its result.
@@ -24,6 +29,8 @@ async function hydrate(): Promise<void> {
     showWindows.value = settings.terminalShowWindows
   } catch (error) {
     console.warn('Unable to load the terminal window listing setting from settings.yaml', error)
+  } finally {
+    ready.value = true
   }
 }
 
@@ -40,10 +47,10 @@ export function setTerminalShowWindows(next: boolean): void {
     })
 }
 
-export function useTerminalShowWindows(): { showWindows: Ref<boolean> } {
+export function useTerminalShowWindows(): { showWindows: Ref<boolean>; ready: Ref<boolean> } {
   if (!hydrated) {
     hydrated = true
     void hydrate()
   }
-  return { showWindows }
+  return { showWindows, ready }
 }

@@ -8,12 +8,17 @@ import type { TerminalSessionRow } from './useTerminalSessions'
 // sessions does not collapse and rebuild its subtree and tab strip.
 const listings = ref<Record<string, WindowState[]>>({})
 
-// A sweep costs one round trip per session, and an unattached session answers
-// it by spawning tmux twice. The triggers arrive in bursts — a switch moves
-// the route, the pool and the session list inside a few ticks — so sweeps are
-// coalesced rather than run per trigger: overlapping calls collapse into a
-// single follow-up carrying the newest rows. Uncoalesced, one switch cost tens
-// of sweeps, and the attach it raced queued behind every one of them.
+// Whether the first sweep has landed. The tree waits on it before its first
+// paint: rows and their window subtrees arriving separately means painting the
+// panel twice, and the second one animates and relayouts every row.
+const settled = ref(false)
+
+// A sweep is one round trip answering every session. The triggers arrive in
+// bursts — a switch moves the route, the pool and the session list inside a few
+// ticks — so sweeps are coalesced rather than run per trigger: overlapping
+// calls collapse into a single follow-up carrying the newest rows. Uncoalesced,
+// one switch cost tens of sweeps, and the attach it raced queued behind every
+// one of them.
 let running: Promise<void> | null = null
 let next: { client: TerminalClient; rows: TerminalSessionRow[] } | null = null
 
@@ -44,27 +49,27 @@ async function drain(client: TerminalClient, rows: TerminalSessionRow[]): Promis
 // landing after the option was toggled off is harmless because rendering is
 // gated on the option, not on this cache.
 async function sweep(client: TerminalClient, rows: TerminalSessionRow[]): Promise<void> {
-  const entries = await Promise.all(rows.map(async (row) => {
-    try {
-      const { windows } = await client.listWindows(row.slug)
-      return [row.slug, windows] as const
-    } catch {
-      // One session's listing failing must not blank the others' rows.
-      return [row.slug, [] as WindowState[]] as const
-    }
-  }))
-  listings.value = Object.fromEntries(entries)
+  try {
+    listings.value = await client.listWindows(rows.map((row) => row.slug))
+  } catch {
+    // Keep the last-known listings: a failed sweep must not collapse every
+    // session's subtree, and the next trigger will try again.
+  } finally {
+    settled.value = true
+  }
 }
 
 export function useTerminalWindowListings(): {
   listings: Ref<Record<string, WindowState[]>>
+  settled: Ref<boolean>
   refresh: (client: TerminalClient, rows: TerminalSessionRow[]) => Promise<void>
 } {
-  return { listings, refresh }
+  return { listings, settled, refresh }
 }
 
 export function resetTerminalWindowListingsForTests(): void {
   listings.value = {}
+  settled.value = false
   running = null
   next = null
 }

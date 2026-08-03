@@ -94,13 +94,14 @@ func (s *TerminalsService) Kill(ctx context.Context, slug string) (bool, error) 
 	return killed, nil
 }
 
-// ListWindows answers slug's window set without attaching: an attached slug
-// answers from its live client, any other from a one-shot tmux query. A slug
-// with no tmux session behind it answers with no windows rather than an error.
-func (s *TerminalsService) ListWindows(ctx context.Context, slug string) ([]tmuxcc.Window, error) {
-	windows, err := s.manager.ListWindows(ctx, slug)
+// ListAllWindows answers the window sets of every slug in one tmux call, keyed
+// by slug. This is what the sidebar sweeps with: asking per slug spawned two
+// tmux processes for each unattached session. A slug with no tmux session
+// behind it is absent from the result rather than an error.
+func (s *TerminalsService) ListAllWindows(ctx context.Context, slugs []string) (map[string][]tmuxcc.Window, error) {
+	windows, err := s.manager.ListAllWindows(ctx, slugs)
 	if err != nil {
-		return nil, terminalError(err, "listing windows of session %q", slug)
+		return nil, terminalError(err, "listing windows of %d sessions", len(slugs))
 	}
 	return windows, nil
 }

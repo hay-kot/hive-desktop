@@ -50,6 +50,10 @@ function groupDisplayName(remote: string): string {
 const sessions = ref<TerminalSessionRow[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+// Whether a reload has ever finished. `loading` cannot answer that — it is
+// false both before the first one starts and after it lands — and the tree
+// needs the difference to tell an empty list from one it has not read yet.
+const loaded = ref(false)
 
 async function reload(): Promise<void> {
   loading.value = true
@@ -62,6 +66,7 @@ async function reload(): Promise<void> {
     error.value = e instanceof Error && e.message ? e.message : 'Could not list sessions.'
   } finally {
     loading.value = false
+    loaded.value = true
   }
 }
 
@@ -78,14 +83,16 @@ export function sessionRepository(slug: string): string {
 export function useTerminalSessions(): {
   sessions: Ref<TerminalSessionRow[]>
   loading: Ref<boolean>
+  loaded: Ref<boolean>
   error: Ref<string | null>
   reload: () => Promise<void>
 } {
-  return { sessions, loading, error, reload }
+  return { sessions, loading, loaded, error, reload }
 }
 
 export function resetTerminalSessionsForTests(): void {
   sessions.value = []
   loading.value = false
+  loaded.value = false
   error.value = null
 }

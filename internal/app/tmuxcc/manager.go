@@ -318,32 +318,56 @@ func (m *Manager) KillSession(ctx context.Context, slug string) (bool, error) {
 	return true, nil
 }
 
-// ListWindows answers slug's window set without requiring an attach: an
-// attached slug answers from its live client, any other from a one-shot
-// list-windows. A slug with no tmux session behind it answers with no windows
-// rather than an error — callers enumerate sessions hive knows about, and one
-// that was never spawned, or whose tmux server restarted, is a normal state.
-func (m *Manager) ListWindows(ctx context.Context, slug string) ([]Window, error) {
-	if mc, ok := m.managed(slug); ok {
-		if _, dead := mc.client.exited(); !dead {
-			return mc.client.Windows(), nil
+// ListAllWindows answers the window sets of every slug in one tmux call.
+//
+// Asking per slug cost two spawns for each unattached session — a has-session
+// probe and a list-windows — so a sidebar sweep spawned twice as many processes
+// as it had sessions, all at once. `list-windows -a` is one spawn for the whole
+// server, and a slug it has no session for is simply absent from the output,
+// which is the answer has-session was being paid for.
+//
+// Attached slugs still answer from their live client, as ListWindows has them:
+// it is authoritative, already in memory, and carries the sizes tmux settled on.
+func (m *Manager) ListAllWindows(ctx context.Context, slugs []string) (map[string][]Window, error) {
+	wanted := make(map[string]struct{}, len(slugs))
+	for _, slug := range slugs {
+		if slug != "" {
+			wanted[slug] = struct{}{}
 		}
 	}
-	if exists, err := m.HasSession(ctx, slug); err != nil || !exists {
+	if len(wanted) == 0 {
+		return nil, nil
+	}
+	if err := m.Available(ctx); err != nil {
 		return nil, err
 	}
-	lines, err := m.oneShot(ctx, "list-windows", "-t", slug, "-F", listWindowsFormat)
-	if err != nil {
-		return nil, fmt.Errorf("tmuxcc: list windows of %s: %w", slug, err)
-	}
-	windows := make([]Window, 0, len(lines))
-	for _, line := range lines {
-		w, ok := parseWindowLine(line)
-		if !ok {
-			m.log.Warn().Str("line", line).Msg("unparseable list-windows row")
-			continue
+	windows := make(map[string][]Window, len(wanted))
+	// A failure here is a server with no sessions on it, which is no windows
+	// rather than an error — the same tolerance ListWindows extends to a slug
+	// tmux has never heard of.
+	if lines, err := m.oneShot(ctx, "list-windows", "-a", "-F", sessionWindowsFormat); err == nil {
+		for _, line := range lines {
+			slug, row, ok := strings.Cut(line, " ")
+			if !ok {
+				continue
+			}
+			if _, want := wanted[slug]; !want {
+				continue
+			}
+			w, ok := parseWindowLine(row)
+			if !ok {
+				m.log.Warn().Str("line", line).Msg("unparseable list-windows row")
+				continue
+			}
+			windows[slug] = append(windows[slug], w)
 		}
-		windows = append(windows, w)
+	}
+	for slug := range wanted {
+		if mc, ok := m.managed(slug); ok {
+			if _, dead := mc.client.exited(); !dead {
+				windows[slug] = mc.client.Windows()
+			}
+		}
 	}
 	return windows, nil
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Component } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, watchEffect, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
@@ -161,7 +161,7 @@ const routeWindow = computed(() => (typeof route.query.window === 'string' ? rou
 const restore = useStorage('hive.terminal.restore', { slug: '', window: '' })
 
 const {
-  sessions: sessionRows, loading: sessionsLoading, error: sessionsError, reload: reloadSessions,
+  sessions: sessionRows, loading: sessionsLoading, loaded: sessionsLoaded, error: sessionsError, reload: reloadSessions,
 } = useTerminalSessions()
 const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSession()
 // The tree is the attach surface, so only an active session belongs in it — a
@@ -381,19 +381,52 @@ function toggleGroup(group: TerminalSessionGroup): void {
 // session's come from a one-shot listing per session — fetched only while the
 // Settings ▸ Appearance ▸ Terminal option is on, and refreshed whenever the
 // session list or the attached slug changes.
-const { showWindows: showAllWindows } = useTerminalShowWindows()
-const { listings: sessionWindows, refresh: refreshListings } = useTerminalWindowListings()
+const { showWindows: showAllWindows, ready: showAllWindowsReady } = useTerminalShowWindows()
+const { listings: sessionWindows, settled: listingsSettled, refresh: refreshListings } = useTerminalWindowListings()
 // Not keyed on the attached slug: attaching to one session cannot change
 // another's window list, and the attached one's own tabs come from its live
 // client. Sweeping every session on every switch was pure cost on the path
 // the switch itself was waiting on.
 // Gated on `active` as well: an unattached session answers a listing by
 // spawning tmux twice, and none of it is on screen while the hub is.
-watch([showAllWindows, attachable, client, () => props.active], () => {
+// Held until the session list has landed as well: sweeping the rows we happen
+// to hold when the client appears asks about a set we already know is stale,
+// and the answer would report the listings as settled before the real ones are
+// even in flight.
+watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], () => {
   const transport = client.value
-  if (!props.active || !showAllWindows.value || !transport) return
+  if (!props.active || !showAllWindows.value || !transport || !sessionsLoaded.value) return
   void refreshListings(transport, attachable.value)
 })
+
+// The tree used to paint the moment the session list landed, then paint again
+// for the window listings, the setting that decides whether they show at all,
+// and the attach — four passes over every row, each one animating and
+// relayouting the whole panel. The placeholder holds until a row's final shape
+// is known, so the tree arrives once instead.
+//
+// One-shot: this is the cost of the first fill, not a state to return to. A
+// later reload revalidates the tree already on screen, and toggling the window
+// listing off and on again must not blank it.
+const treeReady = ref(false)
+watchEffect(() => {
+  if (treeReady.value || !sessionsLoaded.value || !showAllWindowsReady.value) return
+  if (attachable.value.length && showAllWindows.value && !listingsSettled.value) return
+  treeReady.value = true
+})
+
+// Motion stays off until the tree has been through a frame: on the first paint
+// every row is an enter, so the panel would animate in as one block, and the
+// rails measure per frame and would force layout through all of it. The
+// transitions exist to make a *change* legible, and the first fill is not one.
+const treeSettled = ref(false)
+watch(treeReady, (ready) => {
+  if (!ready) return
+  void nextTick(() => requestAnimationFrame(() => requestAnimationFrame(() => {
+    treeSettled.value = true
+    settleRails()
+  })))
+}, { immediate: true })
 
 function listedWindows(row: TerminalSessionRow): WindowState[] {
   if (!showAllWindows.value) return []
@@ -411,10 +444,24 @@ interface TreeWindowRow {
   indicator: StatusIndicator | null
 }
 
+// Keyed by session id, derived once per invalidation. The template reads a
+// session's rows three times per render and treeRowKeys reads every session's,
+// so deriving them per call meant the whole tree re-ran — and re-allocated —
+// on every status poll, and the row count made the innermost read quadratic.
+const windowRows = computed<Record<string, TreeWindowRow[]>>(() => {
+  const rows: Record<string, TreeWindowRow[]> = {}
+  for (const row of attachable.value) rows[row.id] = buildWindowRows(row)
+  return rows
+})
+
+function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
+  return windowRows.value[row.id] ?? []
+}
+
 // A pooled session's live tab set is fresher than its listing — but while its
 // attach is still in flight, the cached listing stands in so selecting a
 // session does not collapse its subtree.
-function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
+function buildWindowRows(row: TerminalSessionRow): TreeWindowRow[] {
   const live = pool.get(row.slug)
   if (live?.tabs.value.length && (row.slug === activeSlug.value || showAllWindows.value)) {
     return live.tabs.value.map((tab) => ({
@@ -657,8 +704,13 @@ function measureRails(): void {
 let railSettleUntil = 0
 let railSettleFrame = 0
 function settleRails(): void {
-  railSettleUntil = performance.now() + 260
   measureRails() // land on the same frame as the click; the loop only corrects
+  // The loop exists to correct a measurement taken while rows are still moving.
+  // Nothing moves during the first fill — motion is suppressed for it — so
+  // there is nothing to chase, and running it would force layout every frame
+  // for as long as the tree took to fill in.
+  if (!treeSettled.value) return
+  railSettleUntil = performance.now() + 260
   if (railSettleFrame) return
   const step = (): void => {
     measureRails()
@@ -784,6 +836,10 @@ async function probe(): Promise<void> {
   } else {
     checking.value = true
   }
+  // The session list is a SQLite read that knows nothing about tmux, so it goes
+  // out with the availability probe rather than behind it. Awaiting the two in
+  // series put three round trips in front of the first row.
+  const sessions = client.value ? null : reloadSessions()
   try {
     const availability = await Available()
     available.value = availability.available
@@ -791,7 +847,7 @@ async function probe(): Promise<void> {
     if (!availability.available) return
     if (!client.value) {
       client.value = createTerminalClient(await getTerminalEndpoint())
-      await reloadSessions()
+      await sessions
       restoreLastSession()
     }
   } catch (e) {
@@ -1221,7 +1277,7 @@ onBeforeUnmount(() => {
         </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4">
           <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
-          <p v-else-if="sessionsLoading && !attachable.length" class="px-3 py-2 font-mono text-xs text-text-4">Loading…</p>
+          <p v-else-if="!treeReady" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="terminal-sessions-loading">Loading…</p>
           <p v-else-if="!attachable.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
             No active sessions. Start one from the hub and it will appear here.
           </p>
@@ -1233,7 +1289,7 @@ onBeforeUnmount(() => {
                a long run of sessions cannot bleed into the next repo's. The
                wrapper is the rails' positioning context and the box whose
                resize tells them a row has moved. -->
-          <div ref="treeContent" class="relative">
+          <div ref="treeContent" class="relative" :class="{ 'tree-settling': !treeSettled }">
             <div v-for="group in filteredGroups" :key="group.key" class="border-t border-border first:border-t-0">
               <button
                 type="button"
@@ -1754,6 +1810,12 @@ onBeforeUnmount(() => {
 .tail-pill-enter-active { transition: opacity .12s ease, transform .18s cubic-bezier(.2, 1.5, .4, 1); }
 .tail-pill-leave-active { transition: opacity .1s ease, transform .1s ease; }
 .tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
+
+/* The first fill is not a change to make legible: every row is entering, so the
+   whole panel would animate in as one block and the rails would force layout
+   per frame chasing it. Motion starts once the tree is on screen. */
+.tree-settling :is(.tree-enter-active, .tree-leave-active, .tree-move,
+  .tree-expand-enter-active, .tree-expand-leave-active) { transition: none; }
 
 @media (prefers-reduced-motion: reduce) {
   .tree-enter-active, .tree-leave-active, .tree-move,
