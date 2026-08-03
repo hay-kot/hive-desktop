@@ -74,10 +74,10 @@ describe('ActivityView', () => {
     expect(wrapper.find('[data-testid="activity-empty"]').exists()).toBe(true)
   })
 
-  it('emits close from the back button', async () => {
+  it('emits close on Escape', async () => {
     events.value = seed()
     const wrapper = mount(ActivityView)
-    await wrapper.find('[data-testid="activity-close"]').trigger('click')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     expect(wrapper.emitted('close')).toHaveLength(1)
   })
 })

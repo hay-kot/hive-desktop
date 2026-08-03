@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsError from './settings/SettingsError.vue'
 import { nextTick, onMounted, onUnmounted, ref } from 'vue'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
@@ -84,7 +85,7 @@ onUnmounted(() => {
         <template v-else>Unbound. Give it a shortcut under <code>launcher.{{ launcher.id || 'id' }}</code> in Settings ▸ Keybindings.</template>
       </p>
 
-      <p v-if="validationError || error" class="rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="launcher-editor-error">{{ validationError || error }}</p>
+      <SettingsError v-if="validationError || error" :message="validationError || error" testid="launcher-editor-error" />
     </div>
 
     <template #footer>

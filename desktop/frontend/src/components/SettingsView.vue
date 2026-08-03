@@ -30,11 +30,14 @@ import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
-import SettingsField from './settings/SettingsField.vue'
+import SettingsHeading from './settings/SettingsHeading.vue'
+import SettingsPage from './settings/SettingsPage.vue'
+import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
+import ThemePicker from './settings/ThemePicker.vue'
 import IconWebhook from '~icons/lucide/webhook'
-import { setTheme, themeLabels, themes, useTheme, type Theme } from '../composables/useTheme'
+import { setTheme, useTheme, type Theme } from '../composables/useTheme'
 import {
   loadInstalledMonospaceFonts,
   setTerminalFontFamily,
@@ -87,11 +90,19 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
 }
-const categories = applicationSettingsSections.map((id) => ({ id, ...categoryMeta[id] }))
+// The nav is grouped by what you came to change, not by when each pane was
+// built: how the app treats you, the pipeline it runs, then the install
+// itself. Every section appears in exactly one group — SettingsView.spec
+// asserts that against applicationSettingsSections so a new pane cannot be
+// routable but absent from the nav.
+const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection[] }> = [
+  { title: 'General', ids: ['appearance', 'notifications', 'keybindings'] },
+  { title: 'Automation', ids: ['integrations', 'actions', 'launchers', 'skills'] },
+  { title: 'Advanced', ids: ['system'] },
+]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const { theme } = useTheme()
-const themeOptions = themes.map((value) => ({ value, label: themeLabels[value] }))
 const {
   size: terminalFontSize,
   selectedFamily: terminalFontFamily,
@@ -103,7 +114,8 @@ const {
 } = useTerminalFont()
 const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
   value,
-  label: `${terminalFontSizeLabels[value]} · ${terminalFontSizePx[value]}px`,
+  label: `${terminalFontSizePx[value]}px`,
+  title: terminalFontSizeLabels[value],
 }))
 // The bundled face leads the list whether or not it is also installed
 // system-wide, so the shipped default is always the first thing offered.
@@ -248,137 +260,179 @@ watch(
 </script>
 
 <template>
-  <SettingsLayout close-testid="settings-close" data-testid="settings-view" @close="emit('close')">
+  <SettingsLayout data-testid="settings-view" @close="emit('close')">
     <template #sidebar-title>
       <div class="text-[15px] font-semibold tracking-[-.01em] text-text">Application settings</div>
     </template>
     <template #nav>
-      <SettingsNavItem
-        v-for="category in categories"
-        :key="category.id"
-        :active="props.activeCategory === category.id"
-        :icon="category.icon"
-        :label="category.label"
-        :testid="`settings-category-${category.id}`"
-        @select="emit('select-category', category.id)"
-      />
+      <div v-for="(group, index) in navGroups" :key="group.title" class="flex flex-col gap-0.5">
+        <!-- Collapsed to the icon rail there is no room for a heading, so the
+             groups are separated by a rule instead. -->
+        <span v-if="index > 0" class="mx-1.5 my-2 h-px bg-border @[700px]/settings:hidden" />
+        <SettingsHeading
+          level="group"
+          :rule="false"
+          :title="group.title"
+          class="hidden px-2.5 pb-1.5 @[700px]/settings:flex"
+          :class="index > 0 ? 'pt-4' : ''"
+        />
+        <SettingsNavItem
+          v-for="id in group.ids"
+          :key="id"
+          :active="props.activeCategory === id"
+          :icon="categoryMeta[id].icon"
+          :label="categoryMeta[id].label"
+          :testid="`settings-category-${id}`"
+          @select="emit('select-category', id)"
+        />
+      </div>
     </template>
     <template #header-title>
       <span class="text-[13px] font-semibold text-text">{{ sectionTitle }}</span>
     </template>
 
-    <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div v-if="props.activeCategory === 'appearance'" class="mx-auto max-w-[560px] space-y-6">
-        <SettingsSegmented
-          :model-value="theme"
-          label="Theme"
-          :options="themeOptions"
-          :columns="3"
-          hint="Applies immediately across the whole app."
-          testid="settings-theme-toggle"
-          @update:model-value="onThemeChange"
-        />
-        <SettingsSection title="Terminal">
-          <div class="mt-3 space-y-4">
-            <SettingsField
-              label="Font"
-              hint="Monospace families installed on this machine. The powerline and devicon glyphs agent TUIs draw with come from a bundled symbol face, so a family that lacks them still renders them."
-              testid="settings-terminal-font-family"
-            >
-              <AppSelect
-                :model-value="terminalFontFamily"
-                :options="terminalFontFamilyOptions"
-                searchable
-                search-placeholder="Search fonts"
-                aria-label="Terminal font"
-                testid="settings-terminal-font-family-select"
-                @update:model-value="onTerminalFontFamilyChange"
-              />
-            </SettingsField>
-            <SettingsSegmented
-              :model-value="terminalFontSize"
-              label="Font size"
-              :options="terminalFontSizeOptions"
-              hint="Applies immediately to open terminals; tmux re-fits their grid."
-              testid="settings-terminal-font-size"
-              @update:model-value="onTerminalFontSizeChange"
-            />
-            <SettingsSegmented
-              :model-value="String(terminalFontWeight)"
-              label="Font weight"
-              :options="terminalFontWeightOptions"
-              hint="The weight normal text draws at. A family that ships fewer weights renders the nearest one it has."
-              testid="settings-terminal-font-weight"
-              @update:model-value="onTerminalFontWeightChange"
-            />
-            <SettingsSegmented
-              :model-value="String(terminalFontWeightBold)"
-              label="Bold weight"
-              :options="terminalFontWeightOptions"
-              hint="The weight bold text draws at."
-              testid="settings-terminal-font-weight-bold"
-              @update:model-value="onTerminalFontWeightBoldChange"
-            />
-            <SettingsSegmented
-              :model-value="String(terminalLineHeight)"
-              label="Line height"
-              :options="terminalLineHeightOptions"
-              hint="Multiplies the row height. Taller rows are easier to scan; each one costs a row of grid in the same pane."
-              testid="settings-terminal-line-height"
-              @update:model-value="onTerminalLineHeightChange"
-            />
-            <SettingsSegmented
-              :model-value="String(terminalLetterSpacing)"
-              label="Letter spacing"
-              :options="terminalLetterSpacingOptions"
-              hint="Extra tracking in device pixels — half a point per step on a Retina display. Wider cells fit fewer columns."
-              testid="settings-terminal-letter-spacing"
-              @update:model-value="onTerminalLetterSpacingChange"
-            />
-            <TerminalPreview />
-            <AppSwitch
-              :model-value="terminalShowWindows"
-              label="Always show windows"
-              hint="List every active session's windows in the session tree, not just the attached one's."
-              testid="settings-terminal-show-windows"
-              @update:model-value="setTerminalShowWindows"
-            />
-            <SettingsSegmented
-              :model-value="String(terminalPoolSize)"
-              label="Warm sessions"
-              :options="terminalPoolSizeOptions"
-              hint="Sessions kept attached in the background so switching back is instant. Each holds a tmux client, its stream, and its terminals."
-              testid="settings-terminal-pool-size"
-              @update:model-value="onTerminalPoolSizeChange"
-            />
-          </div>
-        </SettingsSection>
-      </div>
+    <SettingsPage v-if="props.activeCategory === 'appearance'">
+      <SettingsSection
+        title="Theme"
+        description="Applies immediately across the whole app."
+      >
+        <ThemePicker :model-value="theme" @update:model-value="onThemeChange" />
+      </SettingsSection>
 
-      <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
+      <SettingsSection
+        title="Terminal typography"
+        description="How terminal text is drawn. Changes apply to open terminals immediately."
+        boxed
+      >
+        <SettingsRow
+          label="Font"
+          hint="Monospace families installed on this machine. The powerline and devicon glyphs agent TUIs draw with come from a bundled symbol face, so a family that lacks them still renders them."
+          testid="settings-terminal-font-family"
+        >
+          <AppSelect
+            class="w-[220px]"
+            :model-value="terminalFontFamily"
+            :options="terminalFontFamilyOptions"
+            searchable
+            search-placeholder="Search fonts"
+            aria-label="Terminal font"
+            testid="settings-terminal-font-family-select"
+            @update:model-value="onTerminalFontFamilyChange"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Font size"
+          hint="Applies immediately to open terminals; tmux re-fits their grid."
+        >
+          <SettingsSegmented
+            :model-value="terminalFontSize"
+            :options="terminalFontSizeOptions"
+            aria-label="Font size"
+            testid="settings-terminal-font-size"
+            @update:model-value="onTerminalFontSizeChange"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Font weight"
+          hint="The weight normal text draws at. A family that ships fewer weights renders the nearest one it has."
+        >
+          <SettingsSegmented
+            :model-value="String(terminalFontWeight)"
+            :options="terminalFontWeightOptions"
+            aria-label="Font weight"
+            testid="settings-terminal-font-weight"
+            @update:model-value="onTerminalFontWeightChange"
+          />
+        </SettingsRow>
+        <SettingsRow label="Bold weight" hint="The weight bold text draws at.">
+          <SettingsSegmented
+            :model-value="String(terminalFontWeightBold)"
+            :options="terminalFontWeightOptions"
+            aria-label="Bold weight"
+            testid="settings-terminal-font-weight-bold"
+            @update:model-value="onTerminalFontWeightBoldChange"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Line height"
+          hint="Multiplies the row height. Taller rows are easier to scan; each one costs a row of grid in the same pane."
+        >
+          <SettingsSegmented
+            :model-value="String(terminalLineHeight)"
+            :options="terminalLineHeightOptions"
+            aria-label="Line height"
+            testid="settings-terminal-line-height"
+            @update:model-value="onTerminalLineHeightChange"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Letter spacing"
+          hint="Extra tracking in device pixels — half a point per step on a Retina display. Wider cells fit fewer columns."
+        >
+          <SettingsSegmented
+            :model-value="String(terminalLetterSpacing)"
+            :options="terminalLetterSpacingOptions"
+            aria-label="Letter spacing"
+            testid="settings-terminal-letter-spacing"
+            @update:model-value="onTerminalLetterSpacingChange"
+          />
+        </SettingsRow>
+        <div class="px-4 py-3.5"><TerminalPreview /></div>
+      </SettingsSection>
 
-      <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
-      <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
+      <SettingsSection
+        title="Terminal behaviour"
+        description="What the terminal keeps on hand while you work."
+        boxed
+      >
+        <SettingsRow
+          label="Always show windows"
+          hint="List every active session's windows in the session tree, not just the attached one's."
+        >
+          <AppSwitch
+            :model-value="terminalShowWindows"
+            aria-label="Always show windows"
+            testid="settings-terminal-show-windows"
+            @update:model-value="setTerminalShowWindows"
+          />
+        </SettingsRow>
+        <SettingsRow
+          label="Warm sessions"
+          hint="Sessions kept attached in the background so switching back is instant. Each holds a tmux client, its stream, and its terminals."
+        >
+          <SettingsSegmented
+            :model-value="String(terminalPoolSize)"
+            :options="terminalPoolSizeOptions"
+            aria-label="Warm sessions"
+            testid="settings-terminal-pool-size"
+            @update:model-value="onTerminalPoolSizeChange"
+          />
+        </SettingsRow>
+      </SettingsSection>
+    </SettingsPage>
 
-      <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
+    <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
 
-      <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
+    <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
+    <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
 
-      <NotificationSettingsView v-else-if="props.activeCategory === 'notifications'" />
+    <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
 
-      <div v-else class="mx-auto max-w-[640px]" data-testid="settings-integrations">
-        <SettingsSection
-          title="Data sources"
-          description="Connections bring external events into Hive. Every connector the app knows about is listed here."
-          class="mb-5"
-        />
+    <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
 
+    <NotificationSettingsView v-else-if="props.activeCategory === 'notifications'" />
+
+    <SettingsPage v-else testid="settings-integrations">
+      <SettingsSection
+        title="Data sources"
+        description="Connections bring external events into Hive. Every connector the app knows about is listed here."
+      >
         <div v-if="!integrationsLoaded" class="font-mono text-xs text-text-4" data-testid="integrations-loading">Loading…</div>
         <div v-else class="flex flex-col gap-3">
           <BaseCard
             v-for="integration in integrations"
             :key="integration.key"
-            class="flex-wrap items-start rounded-lg border border-border bg-raised @[600px]/pane:flex-nowrap @[600px]/pane:items-center"
+            class="flex-wrap items-start rounded-[11px] border border-card bg-raised @[600px]/pane:flex-nowrap @[600px]/pane:items-center"
             :data-testid="`integration-${cardId(integration.key)}`"
           >
             <template #icon>
@@ -420,10 +474,11 @@ watch(
             </template>
           </BaseCard>
         </div>
-        <GithubIntegrationDrawer v-if="githubSettingsOpen" @close="githubSettingsOpen = false" />
-        <GrafanaIntegrationDrawer v-if="grafanaSettingsOpen" @close="grafanaSettingsOpen = false" />
-        <WebhookIntegrationDrawer v-if="webhookSettingsOpen" @close="webhookSettingsOpen = false" />
-      </div>
-    </div>
+      </SettingsSection>
+
+      <GithubIntegrationDrawer v-if="githubSettingsOpen" @close="githubSettingsOpen = false" />
+      <GrafanaIntegrationDrawer v-if="grafanaSettingsOpen" @close="grafanaSettingsOpen = false" />
+      <WebhookIntegrationDrawer v-if="webhookSettingsOpen" @close="webhookSettingsOpen = false" />
+    </SettingsPage>
   </SettingsLayout>
 </template>

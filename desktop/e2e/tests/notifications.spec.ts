@@ -34,7 +34,7 @@ test('records focused profile rename feedback in both toast and Activity', async
   await page.getByTestId('titlebar-activity').click()
   await expect(page.getByTestId('activity-view')).toBeVisible()
   const beforeRows = await page.getByTestId('activity-row').count()
-  await page.getByTestId('activity-close').click()
+  await page.keyboard.press('Escape')
 
   const renamedName = `${originalName} notifications`
   await page.getByTestId('sidebar-open-settings').click()
@@ -45,5 +45,5 @@ test('records focused profile rename feedback in both toast and Activity', async
   await page.getByTestId('titlebar-activity').click()
   await expect(page.getByTestId('activity-row')).toHaveCount(beforeRows + 1)
   await expect(page.getByTestId('activity-row').first()).toContainText('Profile renamed')
-  await page.getByTestId('activity-close').click()
+  await page.keyboard.press('Escape')
 })

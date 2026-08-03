@@ -5,6 +5,7 @@ import IconTrash2 from '~icons/lucide/trash-2'
 import AppSwitch from './AppSwitch.vue'
 import BaseButton from './BaseButton.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
 import { fileToImageBase64, ImageUploadError, imageUploadAccept } from '../lib/imageUpload'
 import type { Profile } from '../types/feed'
@@ -79,7 +80,7 @@ async function onImageChange(event: Event): Promise<void> {
 </script>
 
 <template>
-  <SettingsLayout close-testid="profile-settings-close" data-testid="profile-settings-view" @close="emit('close')">
+  <SettingsLayout data-testid="profile-settings-view" @close="emit('close')">
     <template #sidebar-title>
       <div class="text-[15px] font-semibold tracking-[-.01em] text-text">Profile settings</div>
       <div class="mt-1 truncate text-xs text-text-3">{{ props.profile.name }}</div>
@@ -105,9 +106,8 @@ async function onImageChange(event: Event): Promise<void> {
       <span class="text-[13px] font-semibold text-text">{{ props.activeSection === 'general' ? 'General' : 'Danger zone' }}</span>
     </template>
 
-    <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
-      <div class="mx-auto max-w-[560px]">
-        <div v-if="props.activeSection === 'general'" class="space-y-4">
+    <SettingsPage>
+      <template v-if="props.activeSection === 'general'">
           <div class="rounded-lg border border-border bg-raised p-4">
             <div class="text-[13px] font-medium text-text">Profile image</div>
             <p class="mt-1 text-xs leading-relaxed text-text-3">Shown in the sidebar rail. Square images look best — larger images are cropped to a square and downscaled.</p>
@@ -175,9 +175,9 @@ async function onImageChange(event: Event): Promise<void> {
           </div>
           <p v-if="props.toggleError" class="mt-2 text-xs text-severity-error" data-testid="profile-settings-toggle-error">{{ props.toggleError }}</p>
           </form>
-        </div>
+      </template>
 
-        <div v-else class="rounded-lg border border-severity-error/35 bg-raised p-4">
+      <div v-else class="rounded-[11px] border border-severity-error/35 bg-raised p-4">
           <div class="text-[14px] font-semibold text-text">Delete profile</div>
           <p class="mt-1.5 text-xs leading-relaxed text-text-3">
             Permanently remove this profile, its flow file, inbox items, and membership claims.
@@ -189,8 +189,7 @@ async function onImageChange(event: Event): Promise<void> {
             data-testid="profile-settings-delete"
             @click="emit('delete')"
           ><template #icon><IconTrash2 class="size-3.5" /></template>Delete profile</BaseButton>
-        </div>
       </div>
-    </div>
+    </SettingsPage>
   </SettingsLayout>
 </template>

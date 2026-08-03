@@ -3,6 +3,9 @@ import { computed, ref } from 'vue'
 import IconGripVertical from '~icons/lucide/grip-vertical'
 import IconPlus from '~icons/lucide/plus'
 import IconTrash2 from '~icons/lucide/trash-2'
+import SettingsError from './settings/SettingsError.vue'
+import SettingsHeading from './settings/SettingsHeading.vue'
+import SettingsPage from './settings/SettingsPage.vue'
 import BaseBadge from './BaseBadge.vue'
 import BaseButton from './BaseButton.vue'
 import BaseCard from './BaseCard.vue'
@@ -11,7 +14,6 @@ import AppIcon from './AppIcon.vue'
 import ActionEditor from './ActionEditor.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import EmptyState from './settings/EmptyState.vue'
-import SettingsSection from './settings/SettingsSection.vue'
 import { useConfirmation } from '../composables/useConfirmation'
 import { actionTypeMeta } from '../lib/actionPresentation'
 import { moveId, type OrderDropTarget } from '../lib/listOrder'
@@ -74,22 +76,19 @@ function dropClass(id: string): Record<string, boolean> {
 </script>
 
 <template>
-  <div class="mx-auto max-w-[720px]" data-testid="actions-settings">
-    <div class="mb-5 flex items-start gap-4">
-      <SettingsSection
-        title="Actions"
-        description="Drag to set the order they appear on an item. Detail visibility controls only manual feed-item buttons; flow nodes can still target any action."
-        class="flex-1"
-      />
-      <BaseButton
-        size="sm"
-        class="shrink-0"
-        data-testid="action-create"
-        @click="createNew"
-      ><template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New action</BaseButton>
-    </div>
+  <SettingsPage testid="actions-settings">
+    <SettingsHeading
+      title="Actions"
+      description="Drag to set the order they appear on an item. Detail visibility controls only manual feed-item buttons; flow nodes can still target any action."
+    >
+      <template #actions>
+        <BaseButton size="sm" data-testid="action-create" @click="createNew">
+          <template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New action
+        </BaseButton>
+      </template>
+    </SettingsHeading>
 
-    <p v-if="error && !editing" class="mb-3 rounded border border-severity-error bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="actions-error">{{ error }}</p>
+    <SettingsError v-if="error && !editing" :message="error" testid="actions-error" />
     <p v-if="loading" class="text-xs text-text-4">Loading actions…</p>
 
     <div v-else class="flex flex-col gap-3">
@@ -108,7 +107,7 @@ function dropClass(id: string): Record<string, boolean> {
       >
         <template #icon>
           <span class="drag-grip" aria-hidden="true" :data-testid="`action-grip-${action.id}`"><IconGripVertical class="size-[15px]" /></span>
-          <BaseIconBadge :size="38" rounded="rounded-[10px]" class="border border-[rgba(245,158,11,0.35)] bg-[rgba(245,158,11,0.13)] text-accent">
+          <BaseIconBadge :size="38" rounded="rounded-[10px]" class="border border-accent/35 bg-accent-tint text-accent">
             <AppIcon :name="actionTypeMeta(action.type).icon" class="size-[17px]" />
           </BaseIconBadge>
         </template>
@@ -136,7 +135,7 @@ function dropClass(id: string): Record<string, boolean> {
 
     <ActionEditor v-if="editing" :action="editing" :is-new="isNew" :busy="saving" :error="error" :known-types="editorTypes" :return-focus-to="editorTrigger" @save="save" @cancel="editing = null" />
     <ConfirmationDialog v-if="confirmation.open.value && confirmation.options.value" :title="confirmation.options.value.title" :description="confirmation.options.value.description" :confirm-label="confirmation.options.value.confirmLabel" :busy="confirmation.busy.value" :error="confirmation.error.value" @confirm="confirmation.confirm" @cancel="confirmation.cancel" />
-  </div>
+  </SettingsPage>
 </template>
 
 <style scoped>

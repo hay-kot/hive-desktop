@@ -38,7 +38,7 @@ describe('NotificationSettingsView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="notification-enable"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="notification-delivery-auto"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="notification-delivery"]').attributes('disabled')).toBeUndefined()
     expect(wrapper.find('[data-testid="notification-sound"]').exists()).toBe(true)
 
     await wrapper.find('[data-testid="notification-enable"]').trigger('click')
@@ -49,7 +49,9 @@ describe('NotificationSettingsView', () => {
       delivery: 'auto',
       notificationSound: true,
     })
-    expect(wrapper.find('[data-testid="notification-delivery-auto"]').attributes('disabled')).toBeDefined()
+    // Delivery and sound are meaningless with the master switch off.
+    expect(wrapper.find('[data-testid="notification-delivery"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="notification-sound"]').attributes('disabled')).toBeDefined()
   })
 
   it('reflects the persisted delivery mode and persists a change', async () => {
@@ -61,9 +63,13 @@ describe('NotificationSettingsView', () => {
     const wrapper = mount(NotificationSettingsView)
     await flushPromises()
 
-    expect(wrapper.find<HTMLInputElement>('[data-testid="notification-delivery-system"]').element.checked).toBe(true)
+    expect(wrapper.find('[data-testid="notification-delivery"]').text()).toContain('Always a banner')
 
-    await wrapper.find('[data-testid="notification-delivery-app"]').trigger('change')
+    // AppSelect teleports its popover to document.body, so the option is not
+    // inside the wrapper.
+    await wrapper.find('[data-testid="notification-delivery"]').trigger('click')
+    await wrapper.vm.$nextTick()
+    document.querySelector<HTMLElement>('[data-testid="notification-delivery-option-app"]')!.click()
     await flushPromises()
 
     expect(mocks.SetNotificationSettings).toHaveBeenCalledWith({

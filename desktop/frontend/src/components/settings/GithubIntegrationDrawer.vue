@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SettingsError from './SettingsError.vue'
 import { computed, onMounted, ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import IconGithub from '~icons/lucide/github'
@@ -172,7 +173,7 @@ onMounted(() => void load())
       </SettingsField>
     </div>
     <p v-if="!valid" class="mt-2 text-xs text-severity-error" data-testid="github-poll-interval-error">Enter a whole number of at least {{ minPollIntervalSeconds }} seconds.</p>
-    <p v-if="error" class="mt-4 rounded-md border border-severity-error/40 bg-severity-error-tint px-3 py-2 text-xs text-severity-error" data-testid="github-settings-error">{{ error }}</p>
+    <SettingsError v-if="error" class="mt-4" :message="error" testid="github-settings-error" />
 
     <template #footer>
       <div class="flex items-center justify-end gap-2.5">

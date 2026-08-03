@@ -2,9 +2,6 @@
 import { useEscapeToClose } from '../../composables/useEscapeToClose'
 import ViewHeader from './ViewHeader.vue'
 
-const props = defineProps<{
-  closeTestid?: string
-}>()
 const emit = defineEmits<{ close: [] }>()
 
 function close(): void {
@@ -36,10 +33,15 @@ useEscapeToClose(close)
     </aside>
 
     <section class="@container/pane flex min-w-0 flex-1 flex-col">
-      <ViewHeader :close-testid="props.closeTestid" @close="close">
+      <ViewHeader>
         <template #title><slot name="header-title" /></template>
       </ViewHeader>
-      <slot />
+      <!-- The pane scrolls, not the page: the nav rail and header stay put
+           while content moves. Declared here so every settings page inherits
+           the same gutters instead of restating them. -->
+      <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-6 py-6">
+        <slot />
+      </div>
     </section>
   </div>
 </template>
