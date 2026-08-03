@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "../assets/fonts/terminal-fonts.css";
 
 @theme inline {
   --color-app: var(--hv-app);
@@ -73,8 +74,8 @@
 }
 
 @theme {
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", monospace;
+  --font-sans: "Inter Variable", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
 
 /* The default dark and light themes are the Theme Redesign's Hive Signal
@@ -919,6 +920,12 @@ body {
   background: var(--color-app);
   color: var(--color-text);
   font-family: var(--font-sans);
+  /* JetBrains Mono's coding ligatures are `calt`, which `none` covers. Set here
+     and inherited rather than on the mono selectors, because every surface that
+     reaches for var(--font-mono) would otherwise have to remember. Panes are
+     unaffected either way — an atlas renderer rasterises one cell at a time, so
+     no ligature can form — but xterm's last-resort DOM renderer emits runs. */
+  font-variant-ligatures: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }

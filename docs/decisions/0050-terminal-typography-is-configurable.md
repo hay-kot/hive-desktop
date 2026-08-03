@@ -1,6 +1,6 @@
 # 0050 — Terminal typography is configurable, and the bundled face carries five weights
 
-- **Status:** accepted
+- **Status:** accepted; point 2 superseded by [ADR 0056](0056-bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font.md)
 - **Date:** 2026-07-31
 
 ## Context

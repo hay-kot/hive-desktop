@@ -689,7 +689,7 @@ onBeforeUnmount(() => {
   top: -24px;
   white-space: nowrap;
   pointer-events: none;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-accent);
   background: var(--color-pane);
