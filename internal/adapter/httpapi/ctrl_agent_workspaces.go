@@ -55,9 +55,21 @@ type agentSessionView struct {
 
 func toAgentWorkspaceView(w app.WorkspaceView) agentWorkspaceView {
 	return agentWorkspaceView{
-		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy, MCPs: w.MCPs, Problem: w.Problem,
+		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy, MCPs: nonNilStrings(w.MCPs), Problem: w.Problem,
 		Notice: w.Notice,
 	}
+}
+
+// nonNilStrings normalizes nil to an empty, non-nil slice. encoding/json
+// marshals a nil slice as the JSON literal null rather than [], and the
+// frontend calls .length on every array field unconditionally — a workspace
+// with no mcps: entries, or an open with nothing missing, must still answer
+// with an empty array on the wire, not null.
+func nonNilStrings(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }
 
 func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
@@ -150,7 +162,7 @@ func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Reques
 	return server.JSON(w, http.StatusOK, agentWorkspaceOpenResponse{
 		Workspace:   toAgentWorkspaceView(result.Workspace),
 		Sessions:    toAgentSessionViews(result.Sessions),
-		MissingMCPs: result.MissingMCPs,
+		MissingMCPs: nonNilStrings(result.MissingMCPs),
 	})
 }
 

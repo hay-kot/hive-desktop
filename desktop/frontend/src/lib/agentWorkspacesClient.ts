@@ -112,11 +112,13 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      return body ?? { root: '', rootProblem: '', available: false, error: '', workspaces: [] }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [] }
+      return { ...body, workspaces: (body.workspaces ?? []).map(normalizeWorkspace) }
     },
     async openWorkspace(dir) {
       const body = await post<AgentWorkspaceOpenResult>('/workspaces/open', { dir })
-      return body ?? { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [] }
+      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [] }
+      return { workspace: normalizeWorkspace(body.workspace), sessions: body.sessions ?? [], missingMcps: body.missingMcps ?? [] }
     },
     async deleteWorkspace(dir) {
       await post('/workspaces/delete', { dir })
@@ -148,6 +150,14 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 
 function emptyWorkspace(dir: string): AgentWorkspace {
   return { dir, name: '', agent: '', autonomy: '', mcps: [], problem: '', notice: '' }
+}
+
+// normalizeWorkspace guards against a null mcps array on the wire: the Go
+// side now always sends [], but this is the client boundary, so a template
+// or composable can trust AgentWorkspace.mcps is iterable without its own
+// null check regardless.
+function normalizeWorkspace(w: AgentWorkspace): AgentWorkspace {
+  return { ...w, mcps: w.mcps ?? [] }
 }
 
 async function failure(response: Response): Promise<AgentRequestError> {
