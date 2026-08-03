@@ -1,4 +1,11 @@
-import { afterAll, beforeEach } from 'vitest'
+import { enableAutoUnmount } from '@vue/test-utils'
+import { afterAll, afterEach, beforeEach } from 'vitest'
+
+// Every `mount` is torn down between tests. Leaked wrappers stay attached to
+// the document, and each carries its own Vue app whose `useId()` counter
+// restarts at the same value — so a stale wrapper's `id` shadows the live one
+// and `form=`/`aria-controls` lookups resolve to the wrong element.
+enableAutoUnmount(afterEach)
 
 // @wailsio/runtime's drag module starts a 50ms polling interval as an
 // import-time side effect, and that interval's very first tick dereferences

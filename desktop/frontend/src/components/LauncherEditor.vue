@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SettingsError from './settings/SettingsError.vue'
-import { nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
 import IconTerminal from '~icons/lucide/terminal'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
@@ -8,6 +8,7 @@ import DrawerSheet from './DrawerSheet.vue'
 import { SelectField, TextField } from '../pipeline/fields'
 import { launcherIconOptions } from '../lib/launcherIcons'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { useReturnFocus } from '../composables/useReturnFocus'
 import { launcherCommandID } from '../keybindings/catalog'
 import type { Launcher } from '../composables/useActionsSettings'
 
@@ -37,16 +38,12 @@ function save(): void {
 }
 function cancel(): void { if (!props.busy) emit('cancel') }
 
-let trigger: HTMLElement | null = null
+useReturnFocus(() => props.returnFocusTo)
 onMounted(async () => {
-  trigger = props.returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   await nextTick()
   if (props.isNew && idRef.value) idRef.value.focus()
   else if (labelRef.value) labelRef.value.focus()
   else closeRef.value?.focus()
-})
-onUnmounted(() => {
-  void nextTick(() => { if (trigger?.isConnected) trigger.focus() })
 })
 </script>
 

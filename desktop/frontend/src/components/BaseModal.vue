@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, type Component } from 'vue'
+import { computed, ref, type Component } from 'vue'
 import IconX from '~icons/lucide/x'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
+import { useFocusTrap } from '../composables/useFocusTrap'
+import { useReturnFocus } from '../composables/useReturnFocus'
 
 const props = withDefaults(defineProps<{
   title: string
@@ -24,6 +26,8 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ close: [] }>()
 
+const dialog = ref<HTMLElement | null>(null)
+
 const badgeClasses = computed(() => props.tone === 'danger'
   ? 'bg-severity-error-tint text-severity-error'
   : 'bg-accent-tint text-accent')
@@ -37,6 +41,8 @@ function onBackdropClick(): void {
 }
 
 useEscapeToClose(close, { enabled: () => props.closeOnEscape && !props.busy })
+const { onKeydown: trapFocus } = useFocusTrap(dialog)
+useReturnFocus()
 </script>
 
 <template>
@@ -47,12 +53,14 @@ useEscapeToClose(close, { enabled: () => props.closeOnEscape && !props.busy })
       @click.self="onBackdropClick"
     >
       <div
+        ref="dialog"
         class="flex max-h-full flex-col overflow-hidden rounded-xl border border-strong bg-pane text-text shadow-2xl"
         :style="{ width: `${width}px` }"
         :role="ariaRole"
         :aria-label="title"
         aria-modal="true"
         :data-testid="testid"
+        @keydown="trapFocus"
       >
         <header class="flex shrink-0 items-center gap-3 border-b border-row px-5 py-4">
           <span v-if="icon" :class="['flex size-7 items-center justify-center rounded-[7px]', badgeClasses]"><component :is="icon" class="size-4" /></span>

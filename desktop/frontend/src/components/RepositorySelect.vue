@@ -25,6 +25,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const listboxId = useId()
 const root = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLElement | null>(null)
 const popover = ref<HTMLElement | null>(null)
 const list = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -68,7 +69,14 @@ function openList(): void {
   })
 }
 
-function close(): void { open.value = false }
+// The search box lives in the popover this removes, so closing while it holds
+// focus would strand focus on <body> and the next Tab would restart at the top
+// of the app instead of moving to the next field.
+function close(): void {
+  const reclaim = popover.value?.contains(document.activeElement) ?? false
+  open.value = false
+  if (reclaim) trigger.value?.focus()
+}
 function toggle(): void { open.value ? close() : openList() }
 
 function choose(remote: string): void {
@@ -99,6 +107,9 @@ function onKeydown(event: KeyboardEvent): void {
   else if (event.key === 'Home') { event.preventDefault(); active.value = 0 }
   else if (event.key === 'End') { event.preventDefault(); active.value = Math.max(0, rowCount.value - 1) }
   else if (event.key === 'Enter') { event.preventDefault(); commitActive() }
+  // Not prevented: close() puts focus back on the trigger first, so the default
+  // Tab carries on from there into the next field.
+  else if (event.key === 'Tab') close()
 }
 
 // Typing re-ranks, so the previous active row is meaningless; the best match is.
@@ -113,6 +124,7 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
          the search box while open — rather than on this root, which would
          double-handle every key the search box lets bubble. -->
     <button
+      ref="trigger"
       type="button"
       class="flex w-full items-center gap-2 rounded-lg border bg-app px-3 py-2.5 text-left text-[13.5px] text-text outline-none"
       :class="open ? 'border-accent' : 'border-strong'"
