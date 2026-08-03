@@ -21,6 +21,7 @@ Concrete infrastructure and runbook for shipping the desktop app. Decisions behi
 ```
 desktop/
 ├── releases/<full-semver>/                  # immutable
+│   ├── Hive-<ver>-darwin-universal.dmg
 │   ├── Hive-<ver>-darwin-universal.zip
 │   ├── Hive-<ver>-linux-amd64.tar.gz
 │   ├── Hive-<ver>-linux-arm64.tar.gz
@@ -34,9 +35,12 @@ One `SHA256SUMS` lists every artifact in the release. A single publish writes th
 
 | Platform | Artifact | Notes |
 | -------- | -------- | ----- |
-| `darwin-universal` | `.zip` of `Hive.app` | Universal binary, Developer ID signed, notarized + stapled |
+| `darwin-universal` | `.dmg` holding `Hive.app` + an `/Applications` symlink | **The human download.** Universal binary, Developer ID signed, notarized + stapled — the image itself, not just the app inside (decision [0060](decisions/0060-macos-dmg-installer.md)) |
+| `darwin-universal` | `.zip` of `Hive.app` | **The update artifact.** Same signed, notarized, stapled app; the updater cannot consume a disk image |
 | `linux-amd64` | `.tar.gz` of a single `hive-desktop` binary | Unsigned; integrity comes from the manifest sha256 |
 | `linux-arm64` | `.tar.gz` of a single `hive-desktop` binary | Same, built for aarch64 |
+
+macOS is the one platform that publishes two artifacts, because the two jobs conflict: the Wails updater declares its artifact filetype as `zip` and unpacks it in place, while a first-time user needs an install affordance a bare `.app` in `~/Downloads` does not give them. Both are cut from the same signed, stapled app in the same publish, so they cannot drift.
 
 The Linux tarballs contain **exactly one entry, and that entry is the binary**. This is a hard requirement of the updater, not a style choice: it rejects archives with more than one top-level entry, and its helper renames whatever it extracts directly over the running executable — so a wrapper directory would replace the binary with a directory. `cmd/release` builds the archive itself and re-reads it to assert entry count, name, type, and the executable bit before uploading.
 
@@ -51,7 +55,10 @@ The Linux tarballs contain **exactly one entry, and that entry is the binary**. 
     "darwin-universal": {
       "url": "https://dl.hivedesktop.com/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip",
       "sha256": "<hex>",
-      "size": 48123456
+      "size": 48123456,
+      "installer_url": "https://dl.hivedesktop.com/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.dmg",
+      "installer_sha256": "<hex>",
+      "installer_size": 47987654
     },
     "linux-amd64": {
       "url": "https://dl.hivedesktop.com/desktop/releases/1.4.0/Hive-1.4.0-linux-amd64.tar.gz",
@@ -69,9 +76,13 @@ The Linux tarballs contain **exactly one entry, and that entry is the binary**. 
 
 Platform keys come from `platformKey` in `internal/adapter/wailsui/updater_provider.go`: macOS ships one universal build so both arches resolve to `darwin-universal`; everything else is `<os>-<arch>`.
 
+`url`/`sha256`/`size` are the artifact the **updater** downloads. The `installer_*` fields are the artifact a **human** downloads, and appear only where the two differ — today, macOS. They are optional and must be read as a set: a consumer either has all three or treats the platform as having no separate installer, because a URL without its checksum would mean installing unverified bytes. Consumers written against the pre-installer schema keep working; the updater ignores unknown fields.
+
 ## Landing page
 
 The download CTA on hivedesktop.com resolves through the stable manifest at runtime, so shipping a release does not require redeploying the site. `dl.hivedesktop.com` sends no CORS headers, so the page fetches the same-origin `/api/latest` route on the worker, which proxies the manifest and caches it at the edge for 5 minutes. If that fetch fails the button keeps its static fallback (`#beta`) rather than breaking.
+
+The worker route is live but **no page consumes it yet** — during the private beta every CTA points at the invite form and installs go through the invite's one-liner. When the CTA lands it reads `installer_url`, not `url`: the zip is the updater's artifact, and handing it to a first-time visitor is the problem the DMG exists to solve. The proxy passes the manifest through untouched, so that needs no worker change.
 
 Private-beta signups POST to `/api/subscribe`; the worker validates the address, drops honeypot submissions (the form's hidden `company` field, answered with a fake success), and forwards the rest to listmonk's public form endpoint with the Hive Desktop list UUID. Subscribers are managed in the listmonk admin at https://listmonk.haybytes.com/admin.
 
@@ -129,9 +140,10 @@ gunzip -c report.json.gz | jq .
 The pipeline is the Go CLI in `cmd/release`. **A release publishes every platform at once, from one machine** — there is no CI publishing workflow (decision [0028](decisions/0028-linux-tarball-distribution.md)). `publish`:
 
 1. builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, and verifies the extracted archive's signature and stapled ticket;
-2. builds `linux-amd64` and `linux-arm64` in a container, asserting each binary carries the version stamp and each tarball still satisfies the updater's single-entry rule;
-3. writes one `SHA256SUMS` covering all three, uploads them to `releases/<semver>/`, writes one channel manifest naming all three, and verifies every published artifact against the manifest it just wrote;
-4. records the release on GitHub ([0034](decisions/0034-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
+2. builds the installer `.dmg` from that stapled app, signs it, notarizes and staples **the image** (a second Apple round trip), then mounts it and asserts the layout the user will see;
+3. builds `linux-amd64` and `linux-arm64` in a container, asserting each binary carries the version stamp and each tarball still satisfies the updater's single-entry rule;
+4. writes one `SHA256SUMS` covering all four, uploads them to `releases/<semver>/`, writes one channel manifest naming all of them, and verifies every published artifact — installer included — against the manifest it just wrote;
+5. records the release on GitHub ([0034](decisions/0034-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
 
 Publishing everything in one process is what keeps the manifest-advancement rule (below) usable: a second publish topping up another platform would be rejected for not advancing the version the first just set. It also means a release needs macOS, a running Docker, **and** an authenticated `gh` on the same machine. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
@@ -163,6 +175,12 @@ Rules enforced by the publisher:
 3. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
 4. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
 5. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
+
+## Installing on macOS
+
+Open `Hive-<ver>-darwin-universal.dmg` and drag Hive onto the `/Applications` shortcut in the window. Gatekeeper is satisfied without a right-click-to-open dance: the image carries its own notarization ticket, and so does the app inside it, so the copy in `/Applications` validates even offline.
+
+Installing into `/Applications` is what the in-app updater expects — an app left in `~/Downloads` is subject to translocation, where the running bundle is a read-only mount the updater cannot replace. The [install script](#install-script) puts the app in the same place without the DMG, and is the path invites point at.
 
 ## Installing on Linux
 

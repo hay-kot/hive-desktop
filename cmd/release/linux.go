@@ -82,6 +82,7 @@ func (p *publisher) buildLinux(ctx context.Context, arch string) (releaseArtifac
 	fmt.Printf("%s  %s\n", checksum, name)
 	return releaseArtifact{
 		platformKey: "linux-" + arch,
+		role:        updateArtifact,
 		name:        name,
 		path:        path,
 		checksum:    checksum,
