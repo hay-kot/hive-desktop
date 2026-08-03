@@ -90,6 +90,30 @@ describe('SkillsSettingsView', () => {
     expect(wrapper.find('[data-testid="skill-target-codex-toggle"]').exists()).toBe(true)
   })
 
+  // The skills catalog is this registry-driven prompt list — its Go
+  // counterpart is Settings ▸ Skills, described elsewhere as "LLM prompts".
+  // Asserting a specific entry here is what makes "a new prompt needs no
+  // frontend change" a checked claim rather than an assumption: the
+  // agent-workspaces prompt's target is the workspace root this install
+  // resolved, not a placeholder.
+  it('includes the agent workspaces prompt with its target workspace root', async () => {
+    const workspaceRoot = '/home/u/.config/hive/desktop/workspaces'
+    mocks.Catalog.mockResolvedValue(catalog({
+      skills: [skill('flows'), skill('actions'), {
+        id: 'agent-workspaces',
+        name: 'hive-agent-workspaces',
+        title: 'Agent workspaces',
+        description: 'Author or edit an agent workspace.',
+        target: workspaceRoot,
+        text: 'agent-workspaces BODY',
+      }],
+    }))
+    const wrapper = await mountView()
+    const row = wrapper.get('[data-testid="skill-agent-workspaces"]')
+    expect(row.text()).toContain('Agent workspaces')
+    expect(row.text()).toContain(workspaceRoot)
+  })
+
   it('installs every skill to an agent when its toggle is turned on', async () => {
     const wrapper = await mountView()
     // claude has nothing installed → toggle is off; turning it on installs all.

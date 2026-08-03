@@ -1,0 +1,59 @@
+Author or edit a Hive Desktop agent workspace: a named, durable directory
+where a CLI agent runs against a purpose-built MCP tool set, for work that has
+no repository.
+{{template "app" .}}
+Every workspace lives under {{.Env.AgentWorkspacesDir}}:
+
+    {{.Env.AgentWorkspacesDir}}/mcps.yaml                     — your own MCP server library
+    {{.Env.AgentWorkspacesDir}}/.shared/skills/<slug>/SKILL.md — merged into every workspace
+    {{.Env.AgentWorkspacesDir}}/<dir>/agent-workspace.yaml     — one workspace's manifest
+    {{.Env.AgentWorkspacesDir}}/<dir>/AGENTS.md                — the workspace's own instructions, hand-edited
+
+`<dir>` is the workspace's directory name and its whole identity — there is no
+separate id field, so create one by creating the directory. Opening a
+workspace regenerates everything else under `<dir>` (`CLAUDE.md`, `.mcp.json`,
+`.codex/config.toml`, `.claude/`, `.agents/`, an empty `docs/`) from the
+manifest and `AGENTS.md`. None of that generated output is meant to be
+hand-edited — it is silently replaced the next time the workspace opens. Put
+prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
+`system_prompt` field.
+{{template "yaml-strict" .}}
+## agent-workspace.yaml schema
+
+- `version` — must be `1`.
+- `name` — display name shown on the workspace's card.
+- `agent` — which CLI agent runs sessions here. Hive currently knows `claude` and `codex`.
+- `autonomy` — required, one of `ask`, `auto`, or `full`. There is no default: a manifest that omits it is invalid. `ask` leaves every prompt to the agent CLI's own defaults; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
+- `mcps` — optional list of MCP server ids this workspace enables. Each id is either one of the shipped catalogue entries below or a key from your own mcps.yaml `servers:` map; an mcps.yaml entry can also replace a shipped entry of the same id.
+- `skills` — optional list of installed skill slugs to render into this workspace's `.claude/skills/` and `.agents/skills/`, on top of whatever `.shared/skills/` already merges in. Slugs carry the installed `hive-` prefix (`hive-http-api`, not `http-api`) — the same names `.shared/skills/<slug>/` directories use. A slug declared here wins over a `.shared/` skill of the same name.
+
+## mcps.yaml schema
+
+Your own MCP server library — the escape hatch beyond the shipped catalogue.
+
+- `version` — must be `1`.
+- `servers` — a map of id to server declaration. Each entry is one of:
+  - a **stdio** server: `command` (required), `args`, `env`.
+  - an **http** or **sse** server: `type: http` or `type: sse`, `url` (required), `headers`.
+
+  `type` defaults to `stdio` when omitted. A stdio entry rejects `url`/`headers`; an http or sse entry rejects `command`/`args`/`env`.
+
+## Shipped MCP catalogue
+{{range .Types}}
+{{section 3 .Type .Doc}}
+{{end}}
+## Worked example
+
+A complete, valid `agent-workspace.yaml` naming both a shipped catalogue entry
+(`playwright`) and an `mcps.yaml` entry (`home-assistant`):
+
+```yaml
+{{.WorkspaceExample}}
+```
+
+The `mcps.yaml` it references:
+
+```yaml
+{{.MCPsExample}}
+```
+{{template "task" .}}

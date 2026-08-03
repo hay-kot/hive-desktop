@@ -70,6 +70,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0059](decisions/0059-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call |
 | [0060](decisions/0060-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
 | [0061](decisions/0061-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority: no inherited profiles, a fail-closed autonomy table |
+| [0062](decisions/0062-workspace-directories-are-generated-and-disposable.md) | Workspace directories are generated and disposable: no drift tracking, deterministic regeneration, iCloud-tolerant |
 
 ## References
 

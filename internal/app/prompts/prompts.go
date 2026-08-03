@@ -33,7 +33,9 @@ import (
 	"text/template"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
 )
 
 //go:embed templates/*.tmpl
@@ -64,6 +66,9 @@ type Env struct {
 	// APIEnabled reports whether the loopback HTTP server is on. It is the same
 	// http.enabled flag as the webhook listener (one server, ADR 0021).
 	APIEnabled bool
+	// AgentWorkspacesDir is the agent-workspace root: mcps.yaml, .shared/, and
+	// one directory per workspace live under it.
+	AgentWorkspacesDir string
 }
 
 // Command is one bindable command from the frontend's keybinding catalog.
@@ -180,6 +185,14 @@ var definitions = []definition{
 		target:      func(Env) string { return "function node" },
 		listed:      false,
 		data:        webhookTransformData,
+	},
+	{
+		id:          "agent-workspaces",
+		title:       "Agent workspaces",
+		description: "Author or edit an agent workspace: a named, durable directory where a CLI agent runs against a purpose-built MCP tool set, for work that has no repository.",
+		target:      func(env Env) string { return env.AgentWorkspacesDir },
+		listed:      true,
+		data:        agentWorkspacesData,
 	},
 }
 
@@ -315,6 +328,26 @@ func actionsData(Env, Input) (map[string]any, error) {
 		"Types":       docs,
 		"LauncherDoc": strings.TrimSpace(actions.LauncherDoc()),
 		"Example":     strings.TrimSpace(actions.ExampleYAML()),
+	}, nil
+}
+
+// agentWorkspacesData assembles the agent-workspaces prompt from the shipped
+// MCP catalogue, the way actionsData assembles the actions prompt from the
+// action type registry — so a new shipped MCP entry extends the prompt with
+// no prose edit here.
+func agentWorkspacesData(Env, Input) (map[string]any, error) {
+	docs := make([]nodeTypeDoc, 0, len(mcpcatalog.Types()))
+	for _, mcpType := range mcpcatalog.Types() {
+		doc, err := mcpcatalog.Doc(mcpType)
+		if err != nil {
+			return nil, err
+		}
+		docs = append(docs, nodeTypeDoc{Type: mcpType, Doc: strings.TrimSpace(doc)})
+	}
+	return map[string]any{
+		"Types":            docs,
+		"WorkspaceExample": strings.TrimSpace(agentws.ExampleWorkspaceYAML()),
+		"MCPsExample":      strings.TrimSpace(agentws.ExampleMCPsYAML()),
 	}, nil
 }
 

@@ -1,0 +1,9 @@
+version: 1
+name: Home Assistant
+agent: claude
+autonomy: ask
+mcps:
+  - playwright
+  - home-assistant
+skills:
+  - hive-http-api

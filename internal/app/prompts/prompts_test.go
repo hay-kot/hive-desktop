@@ -9,18 +9,20 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
+	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
 )
 
 func testEnv() Env {
 	return Env{
-		ConfigDir:      "/home/u/.config/hive/desktop",
-		FlowsDir:       "/home/u/.config/hive/desktop/flows",
-		ActionsPath:    "/home/u/.config/hive/desktop/actions.yml",
-		SettingsPath:   "/home/u/.config/hive/desktop/settings.yaml",
-		WebhookBaseURL: "http://127.0.0.1:24917/hooks",
-		WebhookEnabled: true,
-		APIBaseURL:     "http://127.0.0.1:24917/api",
-		APIEnabled:     true,
+		ConfigDir:          "/home/u/.config/hive/desktop",
+		FlowsDir:           "/home/u/.config/hive/desktop/flows",
+		ActionsPath:        "/home/u/.config/hive/desktop/actions.yml",
+		SettingsPath:       "/home/u/.config/hive/desktop/settings.yaml",
+		WebhookBaseURL:     "http://127.0.0.1:24917/hooks",
+		WebhookEnabled:     true,
+		APIBaseURL:         "http://127.0.0.1:24917/api",
+		APIEnabled:         true,
+		AgentWorkspacesDir: "/home/u/.config/hive/desktop/workspaces",
 	}
 }
 
@@ -111,6 +113,24 @@ func TestActionsPromptCoversEveryActionType(t *testing.T) {
 	assert.Contains(t, prompt.Text, strings.TrimSpace(actions.ExampleYAML()))
 }
 
+// TestAgentWorkspacesPromptCoversEveryMCPType mirrors the actions assertion
+// for the shipped MCP catalogue: the prompt↔catalogue bijection, so "a new
+// shipped MCP extends the prompt with no prose edit" is a claim something
+// checks.
+func TestAgentWorkspacesPromptCoversEveryMCPType(t *testing.T) {
+	prompt, err := newTestService(t).Render("agent-workspaces", testInput())
+	require.NoError(t, err)
+
+	for _, mcpType := range mcpcatalog.Types() {
+		assert.Containsf(t, prompt.Text, "`"+mcpType+"`", "agent-workspaces prompt omits MCP type %q", mcpType)
+
+		doc, err := mcpcatalog.Doc(mcpType)
+		require.NoError(t, err)
+		heading := strings.TrimSpace(strings.SplitN(strings.TrimSpace(doc), "\n", 2)[0])
+		assert.Containsf(t, prompt.Text, heading, "agent-workspaces prompt omits the docs for %q", mcpType)
+	}
+}
+
 // TestPromptsCarryInstallPaths is the point of rendering server-side: a copied
 // prompt names the file on this machine, not a placeholder.
 func TestPromptsCarryInstallPaths(t *testing.T) {
@@ -118,12 +138,13 @@ func TestPromptsCarryInstallPaths(t *testing.T) {
 	svc := newTestService(t)
 
 	for id, want := range map[string]string{
-		"flows":           env.FlowsDir,
-		"actions":         env.ActionsPath,
-		"keybindings":     env.SettingsPath,
-		"settings":        env.SettingsPath,
-		"webhook-sources": env.WebhookBaseURL,
-		"http-api":        env.APIBaseURL,
+		"flows":            env.FlowsDir,
+		"actions":          env.ActionsPath,
+		"keybindings":      env.SettingsPath,
+		"settings":         env.SettingsPath,
+		"webhook-sources":  env.WebhookBaseURL,
+		"http-api":         env.APIBaseURL,
+		"agent-workspaces": env.AgentWorkspacesDir,
 	} {
 		prompt, err := svc.Render(id, testInput())
 		require.NoErrorf(t, err, "prompt %q", id)
