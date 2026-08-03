@@ -88,6 +88,14 @@ func (s *FlowStore) Get(id string) (Flow, bool) {
 	return f, ok
 }
 
+// ParseDocument parses a flow document that is not on disk, resolving its
+// references the same way a loaded file's are. Nothing is written and the
+// store's own snapshot is untouched — this is how an unsaved edit is checked,
+// or executed by a dry run, without being deployed first.
+func (s *FlowStore) ParseDocument(id string, data []byte) (Flow, []string, error) {
+	return ParseDocument(id, data, s.refs)
+}
+
 // Statuses returns one FlowStatus per flow file in the directory — valid
 // and invalid alike — sorted by id, for a listing UI that must surface
 // broken flows too, not just the ones that loaded.

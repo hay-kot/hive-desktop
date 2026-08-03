@@ -32,6 +32,22 @@ func LoadFlow(path string, refs Refs) (Flow, []string, error) {
 	return parseFlow(id, data, refs)
 }
 
+// ParseDocument parses and validates a flow document that is not on disk,
+// under the id the caller gives it — a dry run against an unsaved edit, say.
+// It is the same migrate-then-decode path LoadFlow uses, so a document that
+// parses here is one that would load from a file, and one that does not fails
+// with the message the file would have produced.
+//
+// JSON is accepted too: the decoder is YAML, of which JSON is a subset, so an
+// API caller can send the document as a JSON object rather than as text.
+func ParseDocument(id string, data []byte, refs Refs) (Flow, []string, error) {
+	migrated, _, err := configmigrate.FlowSet.Apply(data)
+	if err != nil {
+		return Flow{}, nil, fmt.Errorf("flow %q: %w", id, err)
+	}
+	return parseFlow(id, migrated, refs)
+}
+
 // LoadFlows loads every *.yaml/*.yml file directly inside dir, except a
 // flow's sibling <id>.ui.yaml layout file (see SaveUI/LoadUI) — layouts
 // live in the same directory but are never flow definitions. Each file is

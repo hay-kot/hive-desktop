@@ -1074,16 +1074,23 @@ This replaces a split model in which Go ingested and executed while the
 browser routed. That split made the desktop window a hard dependency of flow
 execution and put the correctness-critical parts — topological order,
 fan-out, offset advancement, commit atomicity — out of reach of any headless
-surface. Consolidating in Go is what makes a `dry-run` surface *possible* —
-one execution path an editor preview, a CLI, and an MCP tool could each drive
-identically. No such surface is built yet; what exists is the separation that
-would let one be added without a second implementation of routing semantics.
+surface. Consolidating in Go is what made the dry-run surface possible: one
+execution path an editor preview, an HTTP caller and a future MCP tool each
+drive identically, rather than a second implementation of routing semantics.
 
 `Runner.Run` returns the `CommitBatch` a batch of messages is worth and
 **does not commit it**. Reading the log and applying the batch belong to the
-caller, which is what would let a dry-run and a live tick be one code path
-rather than two implementations of the same semantics, once a caller asks for
-one without committing.
+caller, which is what makes a dry run and a live tick one code path.
+
+`Runner.DryRun` is the second entry into that path: it delivers messages to a
+node the caller names — any node, not only an entry — and returns a per-node
+trace instead of a `CommitBatch`, so nothing it produces can be applied. What
+each node received, what it emitted per output port, its drops, timing,
+console output and structured script errors come back; the outputs and KV
+mutations a live run would have committed come back beside them. `FlowsService`
+builds a throwaway `Runner` over a `MemoryKV` for each call, because a `Runner`
+carries function-node `state` between messages and the engine's installed one
+must not be mutated by a debugging call. ADR 0058.
 
 The engine never *writes* the database. Its one read path is the `KVReader`
 driven port behind a function node's `kv` object — durable per-node key-value
@@ -1142,6 +1149,10 @@ Contract:
   `ScriptError` type with line/column, so the editor renders any language's
   diagnostics identically. Syntax checking is a core concern, exposed to the
   editor.
+- **`console` writes to a sink, not a log.** It is bound in every VM so a
+  script that logs is never a script that fails, and each call goes to the
+  invocation's `ConsoleSink`. A live run supplies none, so the calls go
+  nowhere; a dry run collects them per node.
 - **Cooperative timeouts.** `context.AfterFunc` plus `vm.Interrupt` replaces
   the browser's `worker.terminate()`. Evaluation runs on a goroutine the
   runtime is willing to abandon, so a script that outlives its interrupt does

@@ -204,6 +204,15 @@ func (ctrl *Controller) baseOperations() []Op {
 			Response: profileView{}, Handler: ctrl.ClearProfileImage,
 		},
 		{
+			Method: "POST", Path: "/api/flows/execute", Summary: "Dry-run a flow against input you supply and report what every node did, committing nothing — no feed membership, inbox rows, notifications, queued actions or durable kv. Name the flow with exactly one of flowId (an installed flow, enabled or not), flow (a flow document as a JSON object, same schema as flows/<id>.yaml, version included) or flowYaml (that document as YAML text), so an unsaved edit can be executed before it is deployed. messages are delivered to nodeId — any node, not only a source, which is how one function node is exercised in isolation against a captured payload; a message carrying a Snapshot expands into its items and declares feed reconciliation exactly as a poll would, and an empty Snapshot is still a snapshot. Sources never fetch: a source node relays what you inject. Envelope fields you leave empty are filled in — ID gets a synthetic one, and Topic the source's own topic when injecting at a source node. kv seeds an in-memory sandbox (nodeId -> key -> value) that is the whole world a kv.get sees, so notify-once logic is testable against a known starting state; what the run would have written comes back in kvMutations. Each node reports what it received, what it emitted per output port (including ports with no wire behind them), its drops, timing, console output, and a structured error with line and column for a script failure.",
+			Request: flowExecuteRequest{}, Response: flowExecuteResponse{}, Handler: ctrl.FlowExecute,
+			Errors: []ErrResp{
+				{Status: 400, When: "the flow document did not parse or validate, the flow cannot be built (a script that does not compile, a graph that is not a DAG), or nodeId names no node in it"},
+				{Status: 404, When: "flowId names no installed flow"},
+				{Status: 422, When: "the body failed validation (not exactly one flow source, or a missing nodeId or messages)"},
+			},
+		},
+		{
 			Method: "GET", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Return a webhook source node's feed-mark image as a 128x128 PNG, or 404 when it has none.",
 			Response: RawBinary{Media: []string{"image/png"}}, Handler: ctrl.GetNodeImage,
 			Errors: []ErrResp{{Status: 404, When: "the node has no image, or no such flow or node"}},
