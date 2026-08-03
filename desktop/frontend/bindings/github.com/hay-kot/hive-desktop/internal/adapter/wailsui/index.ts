@@ -13,6 +13,7 @@ import * as NotificationService from "./notificationservice.js";
 import * as PerfService from "./perfservice.js";
 import * as PipelineService from "./pipelineservice.js";
 import * as PopupTerminalService from "./popupterminalservice.js";
+import * as PostHogService from "./posthogservice.js";
 import * as PromptsService from "./promptsservice.js";
 import * as ReportService from "./reportservice.js";
 import * as SessionService from "./sessionservice.js";
@@ -36,6 +37,7 @@ export {
     PerfService,
     PipelineService,
     PopupTerminalService,
+    PostHogService,
     PromptsService,
     ReportService,
     SessionService,

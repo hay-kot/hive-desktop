@@ -156,6 +156,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	services := []application.Service{
 		application.NewService(NewGitHubService(core.GitHub)),
 		application.NewService(NewGrafanaService(core.Grafana)),
+		application.NewService(NewPostHogService(core.PostHog)),
 		application.NewService(NewIntegrationsService(core.Integrations)),
 		application.NewService(NewPipelineService(core.Inbox)),
 		application.NewService(NewSessionService(core.Sessions)),

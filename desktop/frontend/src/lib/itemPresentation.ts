@@ -14,8 +14,11 @@ import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
 import * as grafanaMetricsSourceNode from '../pipeline/nodes/sources.grafana_metrics/config'
 import * as grafanaAlertsSourceNode from '../pipeline/nodes/sources.grafana_alerts/config'
 import * as grafanaIRMAlertsSourceNode from '../pipeline/nodes/sources.grafana_irm_alerts/config'
+import * as posthogErrorsSourceNode from '../pipeline/nodes/sources.posthog_errors/config'
+import * as posthogAlertsSourceNode from '../pipeline/nodes/sources.posthog_alerts/config'
 import * as webhookSourceNode from '../pipeline/nodes/sources.webhook/config'
 import IconActivity from '~icons/lucide/activity'
+import IconBug from '~icons/lucide/bug'
 import IconCircleDot from '~icons/lucide/circle-dot'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconInbox from '~icons/lucide/inbox'
@@ -206,6 +209,14 @@ const grafanaPresentation: ItemPresentation = {
   markImage: () => grafanaLogo,
 }
 
+// Glyph-only, unlike GitHub and Grafana: PostHog's logomark is not bundled, and
+// a hand-drawn approximation of someone's brand is worse than an honest icon.
+// Adding assets/integrations/posthog.svg and a markImage here is all it takes.
+const posthogPresentation: ItemPresentation = {
+  sourceLabel: 'PostHog',
+  mark: () => IconBug,
+}
+
 const execPresentation: ItemPresentation = {
   sourceLabel: 'Command',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultExecSourceIcon),
@@ -224,6 +235,7 @@ const webhookPresentation: ItemPresentation = {
 export function presentationFor(sourceKind: string | undefined): ItemPresentation {
   if (sourceKind === 'github') return githubPresentation
   if (sourceKind === 'grafana') return grafanaPresentation
+  if (sourceKind === 'posthog') return posthogPresentation
   if (sourceKind === 'webhook') return webhookPresentation
   if (sourceKind === 'exec') return execPresentation
   return { sourceLabel: sourceKind ?? '', mark: () => IconInbox }
@@ -241,6 +253,8 @@ const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [grafanaMetricsSourceNode.type]: grafanaMetricsSourceNode.sourceKind,
   [grafanaAlertsSourceNode.type]: grafanaAlertsSourceNode.sourceKind,
   [grafanaIRMAlertsSourceNode.type]: grafanaIRMAlertsSourceNode.sourceKind,
+  [posthogErrorsSourceNode.type]: posthogErrorsSourceNode.sourceKind,
+  [posthogAlertsSourceNode.type]: posthogAlertsSourceNode.sourceKind,
   [webhookSourceNode.type]: webhookSourceNode.sourceKind,
   [execSourceNode.type]: execSourceNode.sourceKind,
 }
