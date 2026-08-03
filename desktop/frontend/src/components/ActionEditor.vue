@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import SettingsError from './settings/SettingsError.vue'
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, ref } from 'vue'
 import IconPlay from '~icons/lucide/play'
 import IconX from '~icons/lucide/x'
 import BaseButton from './BaseButton.vue'
@@ -8,6 +8,7 @@ import AppCheckbox from './AppCheckbox.vue'
 import ActionInputsEditor from './ActionInputsEditor.vue'
 import AppliesToField from './AppliesToField.vue'
 import DrawerSheet from './DrawerSheet.vue'
+import { useReturnFocus } from '../composables/useReturnFocus'
 import { SelectField, TextareaField, TextField } from '../pipeline/fields'
 import type { EditableAction } from '../composables/useActionsSettings'
 
@@ -61,16 +62,12 @@ function envText(): string { return Object.entries(props.action.shell?.env ?? {}
 function setEnv(text: string): void { if (!props.action.shell) return; const env: Record<string, string> = {}; for (const line of text.split('\n')) { const [key, ...value] = line.split('='); if (key.trim()) env[key.trim()] = value.join('=') }; props.action.shell.env = env }
 function save(): void { appliesField.value?.flush(); if (!props.action.id.trim() || !props.action.label.trim()) { validationError.value = 'ID and label are required.'; return }; validationError.value = null; emit('save') }
 function cancel(): void { if (!props.busy) emit('cancel') }
-let trigger: HTMLElement | null = null
+useReturnFocus(() => props.returnFocusTo)
 onMounted(async () => {
-  trigger = props.returnFocusTo ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null)
   await nextTick()
   if (props.isNew && idRef.value) idRef.value.focus()
   else if (labelRef.value) labelRef.value.focus()
   else closeRef.value?.focus()
-})
-onUnmounted(() => {
-  void nextTick(() => { if (trigger?.isConnected) trigger.focus() })
 })
 </script>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import IconPlay from '~icons/lucide/play'
 import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
@@ -7,6 +7,8 @@ import BaseModal from './BaseModal.vue'
 import RepositorySelect from './RepositorySelect.vue'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { useAutofocus } from '../composables/useAutofocus'
+import { formatCombo } from '../composables/useKeybindings'
+import { useSubmitShortcut } from '../composables/useSubmitShortcut'
 
 const props = defineProps<{
   options: SessionLaunchOptions
@@ -19,6 +21,10 @@ const emit = defineEmits<{
   submit: [input: { repository: string; name: string; prompt: string; agent?: string }]
 }>()
 
+// The footer sits outside the form, so the submit button claims it by id —
+// which is also what makes Enter in a single-line field submit.
+const formId = useId()
+const submitHint = formatCombo('mod+enter')
 const repository = ref(props.initial.repository || props.options.defaultRepository)
 const name = ref(props.initial.name)
 const prompt = ref(props.initial.prompt)
@@ -49,6 +55,7 @@ function submit() {
 }
 
 useAutofocus(nameInput)
+useSubmitShortcut(submit)
 </script>
 
 <template>
@@ -60,7 +67,7 @@ useAutofocus(nameInput)
     testid="new-session-dialog"
     @close="emit('close')"
   >
-    <form class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
+    <form :id="formId" class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
       <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
         <RepositorySelect
           :model-value="repository"
@@ -89,7 +96,10 @@ useAutofocus(nameInput)
       <p v-if="validationError || error" class="text-xs text-severity-error" data-testid="new-session-error">{{ validationError || error }}</p>
     </form>
     <template #footer>
-      <BaseButton class="flex-1" :busy="busy" :disabled="!canSubmit" data-testid="new-session-submit" @click="submit">{{ busy ? 'Creating…' : 'Create session' }}</BaseButton>
+      <BaseButton class="flex-1" type="submit" :form="formId" :busy="busy" :disabled="!canSubmit" data-testid="new-session-submit">
+        {{ busy ? 'Creating…' : 'Create session' }}
+        <kbd v-if="!busy" class="rounded bg-black/15 px-1 py-0.5 font-mono text-[10.5px] leading-none">{{ submitHint }}</kbd>
+      </BaseButton>
       <BaseButton variant="secondary" :busy="busy" @click="emit('close')">Cancel</BaseButton>
     </template>
   </BaseModal>

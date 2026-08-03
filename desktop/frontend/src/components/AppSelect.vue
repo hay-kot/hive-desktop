@@ -41,6 +41,7 @@ const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 const listboxId = useId()
 
 const root = ref<HTMLElement | null>(null)
+const trigger = ref<HTMLElement | null>(null)
 const popover = ref<HTMLElement | null>(null)
 const list = ref<HTMLElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -67,7 +68,7 @@ const visible = computed(() => {
   return props.options.filter((option) => option.label.toLowerCase().includes(q))
 })
 
-const trigger = computed(() => ({
+const triggerClass = computed(() => ({
   sm: 'gap-1.5 rounded-md px-2 py-1.5 text-[11px]',
   md: 'gap-2 rounded-lg px-3 py-2.5 text-[13.5px]',
 }[props.size]))
@@ -118,7 +119,15 @@ function openList(): void {
   })
 }
 
-function close(): void { open.value = false }
+// The search box lives in the popover this removes, so closing while it holds
+// focus would strand focus on <body> and the next Tab would restart at the top
+// of the app instead of moving to the next field. Editable mode never takes
+// focus off its own trigger, and refocusing it would reopen the list.
+function close(): void {
+  const reclaim = !props.editable && (popover.value?.contains(document.activeElement) ?? false)
+  open.value = false
+  if (reclaim) trigger.value?.focus()
+}
 function toggle(): void { open.value ? close() : openList() }
 
 function choose(option: AppSelectOption): void {
@@ -190,6 +199,9 @@ function onKeydown(event: KeyboardEvent): void {
     const option = visible.value[active.value]
     if (option) choose(option)
   }
+  // Not prevented: close() puts focus back on the trigger first, so the default
+  // Tab carries on from there into the next field.
+  else if (event.key === 'Tab') close()
 }
 
 const { style: popoverStyle, measure } = useAnchoredPopover(root, popover, open)
@@ -207,7 +219,7 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
         :value="text"
         type="text"
         class="w-full border bg-app pr-9 text-left text-text outline-none placeholder:text-text-4 disabled:cursor-not-allowed disabled:opacity-60"
-        :class="[trigger, open ? 'border-accent' : 'border-strong']"
+        :class="[triggerClass, open ? 'border-accent' : 'border-strong']"
         :data-testid="testid"
         :aria-label="ariaLabel"
         :placeholder="placeholder ?? ''"
@@ -227,9 +239,10 @@ onClickOutside(root, () => { if (open.value) close() }, { ignore: [popover] })
     </template>
     <button
       v-else
+      ref="trigger"
       type="button"
       class="flex w-full items-center justify-between border bg-app text-left text-text outline-none disabled:cursor-not-allowed disabled:opacity-60"
-      :class="[trigger, open ? 'border-accent' : 'border-strong']"
+      :class="[triggerClass, open ? 'border-accent' : 'border-strong']"
       :data-testid="testid"
       :aria-label="ariaLabel"
       :disabled="disabled"
