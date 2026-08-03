@@ -62,14 +62,9 @@ export interface ExecutionOutcome {
 }
 
 /**
- * ItemSessionView is one hive session an inbox item spawned, as that item's
- * detail pane sees it. Only CreatedAt comes from the link — everything else is
- * read live from hive, so a session renamed or recycled outside this app
- * reports what it actually is rather than what it was when it was created.
- * 
- * It carries liveness and not window activity, for the same reason the
- * terminal's session row does: activity belongs to a window, and an item has
- * no window to hang it on.
+ * ItemSessionView is one hive session an inbox item spawned. Only CreatedAt
+ * comes from the link — everything else is read live from hive, so a session
+ * renamed or recycled outside this app reports what it actually is.
  */
 export interface ItemSessionView {
     "id": string;
