@@ -73,8 +73,14 @@ export interface TerminalClient {
    * and its checkout are untouched. A slug with no session answers killed:false.
    */
   kill(slug: string): Promise<{ killed: boolean }>
-  /** Lists a session's windows without attaching; a slug with no tmux session behind it answers with none. */
-  listWindows(slug: string): Promise<{ windows: WindowState[] }>
+  /**
+   * Lists several sessions' windows without attaching, keyed by slug. The
+   * sidebar sweeps with this, so it takes the whole set: per slug, tmux
+   * answered an unattached session by spawning twice, and the fan-out landed
+   * on the frames the tree was painting in. A slug with no tmux session behind
+   * it is absent from the result.
+   */
+  listWindows(slugs: string[]): Promise<Record<string, WindowState[]>>
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
@@ -125,9 +131,14 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
       const body = await post<{ killed: boolean }>('/api/terminal/kill', { slug })
       return { killed: !!body?.killed }
     },
-    async listWindows(slug) {
-      const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/list', { slug })
-      return { windows: (body?.windows ?? []).map(toWindowState) }
+    async listWindows(slugs) {
+      const body = await post<{ sessions: Record<string, Partial<WindowState>[] | null> | null }>(
+        '/api/terminal/windows/list', { slugs })
+      const listings: Record<string, WindowState[]> = {}
+      for (const [slug, windows] of Object.entries(body?.sessions ?? {})) {
+        listings[slug] = (windows ?? []).map(toWindowState)
+      }
+      return listings
     },
     async resize(slug, cols, rows) { await post('/api/terminal/resize', { slug, cols, rows }) },
     async newWindow(slug) {
