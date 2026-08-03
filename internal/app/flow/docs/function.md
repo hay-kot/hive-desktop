@@ -46,6 +46,12 @@ Key on the full identity tuple, `JSON.stringify([msg.SourceKind, msg.SourceScope
 
 KV identity is the node **id**, which the editor preserves across renames — renaming a node keeps its memory and does not re-notify. The id disappearing is what reclaims it: deleting the node (or replacing it with a fresh one) clears its KV on the next deploy, converting the node to another type clears it too, while hand-recreating a node under the *same* id inherits the old memory. Keep dedup on the notify branch, not upstream of a feed — feeds recompute membership from full snapshots on deploy, with `kv` deliberately reading empty during that recompute, so a dedup in front of a feed and its live snapshot handling would disagree.
 
+## Debugging: `console` and the dry run
+
+`console.log` / `.info` / `.warn` / `.error` / `.debug` / `.trace` are available. Strings print verbatim, everything else as JSON. In a live run the output goes nowhere — it is a debugging affordance, not a log — so leaving a `console.log` in a deployed script costs nothing.
+
+Where it *is* readable is a dry run: `POST /api/flows/execute` runs a flow against input you supply and returns what every node received, emitted per output port, and dropped, plus its console output and structured script errors with line and column. Nothing is committed — no feed membership, inbox rows, notifications, queued actions or durable `kv` — so it is safe to call repeatedly. The flow can be one that is installed or a document you have not saved yet; the input is delivered to any node you name, so a single function node can be exercised against a captured payload without its source running; and `kv` is an in-memory sandbox you seed, which is how notify-once logic is tested against a known starting state. Fetch `/api/openapi.json` for the request shape.
+
 ## Example
 
 ```

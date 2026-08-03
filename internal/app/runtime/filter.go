@@ -66,7 +66,7 @@ func (p *filterProcessor) close() {}
 // process routes a message to port 0 (pass) or port 1 (fail). Leaving port 1
 // unwired reproduces a plain "drop on fail" filter through the engine's
 // unwired-port-becomes-discard rule.
-func (p *filterProcessor) process(_ context.Context, msg store.Msg, _ NodeKV) ([][]store.Msg, error) {
+func (p *filterProcessor) process(_ context.Context, msg store.Msg, _ NodeKV, _ ConsoleSink) ([][]store.Msg, error) {
 	var item filterableItem
 	// A payload that is not an object simply has no fields to filter on; the
 	// zero item then fails any include group, which is the same outcome the

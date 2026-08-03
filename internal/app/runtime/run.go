@@ -58,13 +58,7 @@ func (r *Runner) run(ctx context.Context, batch []store.Msg, inert bool) (store.
 	if inert {
 		kv = newInertKVBuffer(r.flow.ID, now)
 	}
-	state := &runState{
-		runner:       r,
-		pending:      map[string][]message{},
-		runs:         map[string]*nodeRunAcc{},
-		snapshotSeen: map[string]bool{},
-		kv:           kv,
-	}
+	state := newRunState(r, kv)
 
 	state.route(batch)
 	if err := state.execute(ctx); err != nil {
@@ -104,6 +98,20 @@ type runState struct {
 	runOrder []string
 
 	kv *kvBuffer
+
+	// trace is non-nil only for a dry run. Its presence is what turns on the
+	// per-message recording the live path deliberately does not pay for.
+	trace *runTrace
+}
+
+func newRunState(r *Runner, kv *kvBuffer) *runState {
+	return &runState{
+		runner:       r,
+		pending:      map[string][]message{},
+		runs:         map[string]*nodeRunAcc{},
+		snapshotSeen: map[string]bool{},
+		kv:           kv,
+	}
 }
 
 type nodeRunAcc struct {
@@ -113,6 +121,13 @@ type nodeRunAcc struct {
 	ok        bool
 	err       string
 	dur       time.Duration
+
+	// lastErr is the error behind err, kept so a dry run can report a
+	// *ScriptError's kind and position rather than only its rendered text.
+	lastErr error
+	// received and emitted are populated only while tracing.
+	received []store.Msg
+	emitted  map[int][]store.Msg
 }
 
 // route offers each input message to the entry nodes that accept it, expanding
@@ -131,27 +146,31 @@ func (s *runState) route(batch []store.Msg) {
 			s.discards = append(s.discards, store.Discard{MsgID: msg.ID, NodeID: UnroutedNodeID})
 			continue
 		}
+		s.deliver(matching, msg)
+	}
+}
 
-		if msg.Snapshot == nil {
-			s.offer(matching, message{msg: msg})
-			continue
-		}
+// deliver queues one input message at each of targets, expanding a source
+// snapshot into its items on the way.
+func (s *runState) deliver(targets []string, msg store.Msg) {
+	if msg.Snapshot == nil {
+		s.offer(targets, message{msg: msg})
+		return
+	}
 
-		// A snapshot restates the source's complete current item set, even
-		// items whose payload did not change. Its items route normally, but
-		// every feed in the flow also gets a reconciliation declaration so the
-		// commit can atomically drop that source's rows that are no longer in
-		// it — including when the set is empty, which is why an empty snapshot
-		// is still a snapshot.
-		snapshot := &snapshotContext{sourceTopic: msg.Topic, snapshotID: msg.ID}
-		s.declareSnapshot(snapshot)
-		for _, item := range msg.Snapshot {
-			expanded := msg
-			expanded.Key = item.Key
-			expanded.Payload = item.Payload
-			expanded.Snapshot = nil
-			s.offer(matching, message{msg: expanded, snapshot: snapshot})
-		}
+	// A snapshot restates the source's complete current item set, even items
+	// whose payload did not change. Its items route normally, but every feed in
+	// the flow also gets a reconciliation declaration so the commit can
+	// atomically drop that source's rows that are no longer in it — including
+	// when the set is empty, which is why an empty snapshot is still a snapshot.
+	snapshot := &snapshotContext{sourceTopic: msg.Topic, snapshotID: msg.ID}
+	s.declareSnapshot(snapshot)
+	for _, item := range msg.Snapshot {
+		expanded := msg
+		expanded.Key = item.Key
+		expanded.Payload = item.Payload
+		expanded.Snapshot = nil
+		s.offer(targets, message{msg: expanded, snapshot: snapshot})
 	}
 }
 
@@ -203,6 +222,9 @@ func (s *runState) execute(ctx context.Context) error {
 
 		for _, m := range msgs {
 			run.inCount++
+			if s.trace != nil {
+				run.received = append(run.received, m.msg)
+			}
 
 			if node.Disabled {
 				s.drop(run, nodeID, m)
@@ -273,7 +295,7 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 	staging := s.kv.node(node.ID)
 	nodeCtx, cancel := context.WithTimeout(ctx, timeout)
 	started := time.Now()
-	produced, err := proc.process(nodeCtx, m.msg, staging)
+	produced, err := proc.process(nodeCtx, m.msg, staging, s.trace.consoleFor(node.ID))
 	run.dur += time.Since(started)
 	cancel()
 
@@ -282,6 +304,7 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 		// followed by a throw must persist nothing.
 		run.ok = false
 		run.err = err.Error()
+		run.lastErr = err
 		s.drop(run, node.ID, m)
 		var scriptErr *ScriptError
 		if errors.As(err, &scriptErr) && scriptErr.Kind == ScriptErrorTimeout {
@@ -309,6 +332,15 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 // An unwired port is not an error — it is how a filter's fail port expresses
 // "drop this" — but the message is still accounted for.
 func (s *runState) forward(run *nodeRunAcc, nodeID string, port int, m message) {
+	if s.trace != nil {
+		// Recorded before the wire check: an unwired port is still something the
+		// node emitted, and a dry run whose whole job is "show me what this node
+		// produced" must not make that answer depend on the graph downstream.
+		if run.emitted == nil {
+			run.emitted = map[int][]store.Msg{}
+		}
+		run.emitted[port] = append(run.emitted[port], m.msg)
+	}
 	wires := s.runner.graph.Wires(nodeID, port)
 	if len(wires) == 0 {
 		s.drop(run, nodeID, m)

@@ -129,6 +129,9 @@ func (r *Runtime) New(src string, outputs int) (runtime.ScriptInstance, error) {
 	// it on a later one, so the methods resolve the *current* invocation's
 	// NodeKV and ctx at call time rather than closing over one message's.
 	inst.kvObject = inst.buildKVObject()
+	if err := inst.bindConsole(); err != nil {
+		return nil, &runtime.ScriptError{Kind: runtime.ScriptErrorCompile, Message: "binding console: " + err.Error()}
+	}
 	return inst, nil
 }
 
@@ -141,13 +144,16 @@ type instance struct {
 	pool     *runtime.ScriptPool
 	state    *goja.Object
 	kvObject *goja.Object
-	// curKV/curCtx are the live invocation's KV handle and timeout ctx, set
-	// by OnMessage around each evaluation. nil curKV means kv is unavailable
-	// (preview / dry-run) and every method throws. The ctx must live on the
-	// struct: the VM's host closures cannot take a Go parameter, and the
-	// façade outlives any one invocation by design.
-	curKV  runtime.NodeKV
-	curCtx context.Context //nolint:containedctx // invocation-scoped; set/cleared by OnMessage
+	// curKV/curCtx/curConsole are the live invocation's KV handle, timeout ctx
+	// and console sink, set by OnMessage around each evaluation. nil curKV
+	// means kv is unavailable (a runner built without a KV port) and every kv
+	// method throws; nil curConsole means console output is discarded, which is
+	// every live run. The ctx must live on the struct: the VM's host closures
+	// cannot take a Go parameter, and the façades outlive any one invocation by
+	// design.
+	curKV      runtime.NodeKV
+	curCtx     context.Context //nolint:containedctx // invocation-scoped; set/cleared by OnMessage
+	curConsole runtime.ConsoleSink
 	// wedged records that an evaluation outlived its interrupt and may still
 	// be running on an abandoned goroutine. The VM must never be touched
 	// again: another Run on it would race that goroutine.
@@ -195,7 +201,7 @@ const interruptGrace = 250 * time.Millisecond
 // from stopping its flow. A goroutine that outlives its interrupt is
 // abandoned and keeps its pool slot, and the instance is marked wedged so the
 // engine's reset drops it.
-func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv runtime.NodeKV) ([][]store.Msg, error) {
+func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv runtime.NodeKV, console runtime.ConsoleSink) ([][]store.Msg, error) {
 	if i.wedged {
 		return nil, &runtime.ScriptError{Kind: runtime.ScriptErrorTimeout, Message: "script instance is still running a previous message"}
 	}
@@ -237,8 +243,8 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv 
 	// goroutine has finished. The wedged path deliberately skips the clear —
 	// the instance is never reused, and clearing would race the abandoned
 	// goroutine.
-	i.curKV, i.curCtx = kv, ctx
-	clearKV := func() { i.curKV, i.curCtx = nil, nil }
+	i.curKV, i.curCtx, i.curConsole = kv, ctx, console
+	clearInvocation := func() { i.curKV, i.curCtx, i.curConsole = nil, nil, nil }
 
 	go func() {
 		value, err := i.fn(goja.Undefined(), msgValue, nodeValue, i.state, i.kvObject)
@@ -251,7 +257,7 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv 
 
 	select {
 	case result := <-done:
-		clearKV()
+		clearInvocation()
 		if result.err != nil {
 			return nil, evaluationError(result.err)
 		}
@@ -260,7 +266,7 @@ func (i *instance) OnMessage(ctx context.Context, msg store.Msg, config any, kv 
 		i.vm.Interrupt(errTimeout)
 		select {
 		case result := <-done:
-			clearKV()
+			clearInvocation()
 			// The interrupt landed. A script that returned a value in the same
 			// breath still loses: it ran past its deadline.
 			if result.err != nil {

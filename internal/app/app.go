@@ -144,7 +144,12 @@ type App struct {
 	// for now — see the note on Close.
 	producer *ingest.Producer
 	engine   *runtime.Engine
-	outputs  *dispatch.Worker
+	// scripts is the one script-language registry in the process. The engine's
+	// runners and a dry run's throwaway runner resolve `function` nodes through
+	// the same one, so a flow cannot execute differently depending on which
+	// asked for it.
+	scripts *runtime.ScriptRegistry
+	outputs *dispatch.Worker
 	// dispatcher is shared with the worker rather than private to it: a
 	// terminal action runs the same executors without a durable command
 	// behind it, and a second dispatcher would be a second executor map to
@@ -312,6 +317,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, a.flowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.scripts = runtime.NewScriptRegistry()
+	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
 	a.engine = a.buildEngine(cfg.Logger)
 	a.sources = a.buildSources(cfg.Logger)
 	a.producer = a.buildProducer(cfg.Logger)
@@ -321,7 +328,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore, a.actionStore, a.dispatcher, a.activityStore)
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
-	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, func() { a.PublishFlowsUpdated("save") })
+	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
@@ -697,13 +704,10 @@ func (a *App) MountAPI(prefix string, h http.Handler) bool {
 // replay recomputes exactly the membership the fixture declared rather than
 // contradicting it.
 func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
-	scripts := runtime.NewScriptRegistry()
-	scripts.Register(js.New(runtime.NewScriptPool(0)))
-
 	return runtime.NewEngine(runtime.EngineOptions{
 		Store:   a.Store,
 		Flows:   a.flowStore,
-		Scripts: scripts,
+		Scripts: a.scripts,
 		Logger:  logger,
 		OnCommitted: func() {
 			a.Events.Publish(a.ctx, events.InboxUpdated{})

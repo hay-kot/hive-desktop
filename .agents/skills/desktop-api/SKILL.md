@@ -66,7 +66,36 @@ curl -s "$API/api/feeds?profile=$P" | jq '.feeds'
 curl -s "$API/api/inbox/events?itemId=$ID" | jq '.events'
 ```
 
-## 4. Did my config edit load?
+## 4. Test a flow without deploying it
+
+`POST /api/flows/execute` runs a flow against input you supply and returns what
+every node did, committing nothing (ADR 0058). Reach for it *before* the
+deploy → refresh → read loop above: that loop writes feed membership, `kv` and
+notifications to answer a question about a script, and it cannot tell a bug from
+"hasn't polled yet".
+
+```bash
+curl -s -XPOST $API/api/flows/execute -d '{
+  "flowId": "triage", "nodeId": "src-github",
+  "messages": [{"Key": "acme/app#1", "Payload": {"state": "open"}}]
+}' | jq '.nodes[] | {nodeId, in, out, dropped, ok,
+                     emitted: [.emitted[] | {port, keys: [.messages[].Key]}],
+                     console: [.console[].text], error}'
+```
+
+- **Isolate one node.** `nodeId` is any node, not only a source — inject a
+  captured payload straight at the `function` node under test and the source in
+  front of it never runs.
+- **Test an unsaved edit.** Send `flowYaml` (the file's text) or `flow` (the
+  same document as a JSON object) instead of `flowId`.
+- **Seed `kv`** (`{"<nodeId>": {"<key>": <value>}}`) to exercise notify-once
+  against a known starting state. The real store is neither read nor written, so
+  repeated calls give the same answer; what the run *would* have stored comes
+  back in `.kvMutations`, and what it would have committed in `.outputs`.
+- `console.log` in a function node is readable here and nowhere else — a live
+  run discards it.
+
+## 5. Did my config edit load?
 
 Both config surfaces report their own load status, so an edit is verified by
 reading it back rather than by clicking through the UI. A file that fails to
@@ -95,4 +124,9 @@ select(.id=="…") | .clipboard.textTemplate`.
 - **The API needs the HTTP server on.** It shares that loopback server (on by
   default); with `http.enabled: false` there is nothing to mount on.
 - **Read-only + reload.** This surface never mutates triage or config; drive
-  changes through the app or the devserver, and assert here.
+  changes through the app or the devserver, and assert here. A dry run is part
+  of that: it reports the outputs and KV writes a live run would have made
+  instead of making them, so what it tells you about the commit is the graph's
+  half. Two things the commit itself does are deliberately outside it — minting
+  an inbox row for a key no source ingested, and dropping feed rows a snapshot
+  no longer lists. Assert those through the inbox after a real refresh.

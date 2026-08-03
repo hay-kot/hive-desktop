@@ -66,6 +66,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0055](decisions/0055-ui-performance-spans-are-recorded-to-jsonl.md) | UI performance spans are recorded as raw JSONL, not aggregated metrics |
 | [0056](decisions/0056-bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font.md) | The bundled faces are JetBrains Mono, Inter, and a symbol font |
 | [0057](decisions/0057-the-sidebar-tree-is-the-only-window-list.md) | The sidebar tree is the only window list; the tab strip is deleted |
+| [0058](decisions/0058-flows-are-dry-run-against-supplied-input.md) | Flows are dry-run against supplied input, not deployed to be observed |
 
 ## References
 
