@@ -83,17 +83,18 @@ export function xtermTheme(): ITheme {
   const background = cssColor(style, '--hv-app', FALLBACK.background!)
   const theme: ITheme = {
     background,
-    // --hv-text is the fallback, not the value: it is tuned for small UI labels
-    // on panels and lands near 16:1 against the app background, which is glare
-    // across a full screen of monospace. A dark theme overrides it with a
-    // softer foreground; a light theme deliberately does not, because its ANSI
-    // white is a pale grey that would vanish on white.
+    // Every theme must set --hv-term-foreground. :root defines it, so an
+    // unset theme inherits the dark value rather than falling through to the
+    // --hv-text default below — which is how light themes ended up painting a
+    // 1.7:1 grey on white.
     foreground: cssColor(style, '--hv-term-foreground', cssColor(style, '--hv-text', FALLBACK.foreground!)),
     cursor: cssColor(style, '--hv-accent', FALLBACK.cursor!),
     cursorAccent: background,
     // --hv-selection is tuned for a 10% overlay on app chrome; a terminal
-    // selection has to stay legible over arbitrary output, so it is stronger.
-    selectionBackground: FALLBACK.selectionBackground,
+    // selection has to stay legible over arbitrary output, so it is the
+    // theme's accent at a stronger alpha. xterm parses the colour itself and
+    // takes #RRGGBBAA, so the alpha is appended rather than mixed in CSS.
+    selectionBackground: `${hexOrFallback(cssColor(style, '--hv-accent', ''), FALLBACK.cursor!)}59`,
   }
   for (const key of Object.keys(ANSI_VARS) as (keyof typeof ANSI_VARS)[]) {
     theme[key] = cssColor(style, ANSI_VARS[key], FALLBACK[key]!)

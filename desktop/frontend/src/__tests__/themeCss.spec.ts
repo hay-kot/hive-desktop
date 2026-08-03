@@ -59,9 +59,11 @@ describe('theme CSS', () => {
   it('keeps terminal foreground contrast in the legible band for every theme', () => {
     for (const theme of blocks.keys()) {
       const background = value(theme, '--hv-app')
-      // Terminal foreground falls through to --hv-text where a theme sets
-      // none, which is what the light themes rely on.
-      const foreground = value(theme, '--hv-term-foreground') ?? value(theme, '--hv-text')
+      // No fallback to --hv-text here on purpose. :root defines
+      // --hv-term-foreground, so a theme that omits it inherits the *dark*
+      // value in the browser rather than falling through — which is how the
+      // light themes shipped a 1.7:1 grey on white while this test passed.
+      const foreground = value(theme, '--hv-term-foreground')
       expect(background, `theme "${theme}" --hv-app`).toBeDefined()
       expect(foreground, `theme "${theme}" foreground`).toBeDefined()
 
