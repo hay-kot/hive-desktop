@@ -70,6 +70,19 @@ vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetClipboardText },
 }))
 
+// The sidebar sweeps every session in one call, so a listing mock answers a map
+// keyed by slug. A slug with no tmux session behind it is simply absent.
+type FakeWindow = { windowId: string; name: string; active: boolean; width: number; height: number }
+function fakeListWindows(bySlug: Record<string, FakeWindow[]> = {}) {
+  return vi.fn(async (slugs: string[]) => Object.fromEntries(
+    slugs.filter((slug) => bySlug[slug]).map((slug) => [slug, bySlug[slug]])))
+}
+
+/** The same window set for whichever sessions the sweep asks about. */
+function fakeListWindowsEach(windows: FakeWindow[]) {
+  return vi.fn(async (slugs: string[]) => Object.fromEntries(slugs.map((slug) => [slug, windows])))
+}
+
 function fakeSession() {
   return {
     tabs: ref([
@@ -230,16 +243,14 @@ describe('TerminalMode', () => {
       { id: '2', name: 'stopped', slug: 'stopped', repo: 'hay-kot/hive', state: 'active' },
     ])
     mocks.createTerminalClient.mockReturnValue({
-      listWindows: vi.fn(async (slug: string) => ({
-        windows: slug === 'live'
-          ? [
-              { windowId: '@1', name: 'working', active: true, width: 0, height: 0 },
-              { windowId: '@2', name: 'approval', active: false, width: 0, height: 0 },
-              { windowId: '@3', name: 'ready', active: false, width: 0, height: 0 },
-              { windowId: '@4', name: 'unknown', active: false, width: 0, height: 0 },
-            ]
-          : [],
-      })),
+      listWindows: fakeListWindows({
+        live: [
+          { windowId: '@1', name: 'working', active: true, width: 0, height: 0 },
+          { windowId: '@2', name: 'approval', active: false, width: 0, height: 0 },
+          { windowId: '@3', name: 'ready', active: false, width: 0, height: 0 },
+          { windowId: '@4', name: 'unknown', active: false, width: 0, height: 0 },
+        ],
+      }),
     })
     const liveSession = fakeSession()
     liveSession.tabs.value = [
@@ -598,12 +609,12 @@ describe('TerminalMode', () => {
   })
 
   it('lists windows for unattached sessions out of the box', async () => {
-    const listWindows = vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
-      ? { windows: [
-          { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
-          { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
-        ] }
-      : { windows: [] }))
+    const listWindows = fakeListWindows({
+      'hive-bump-deps': [
+        { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
+        { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
+      ],
+    })
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const session = fakeSession()
     session.tabs.value = [
@@ -614,9 +625,8 @@ describe('TerminalMode', () => {
     const { wrapper, router } = await mountAvailable(session)
 
     // Settings ▸ Appearance ▸ Terminal ships the listing on, so the tree fills
-    // in without touching anything.
-    expect(listWindows).toHaveBeenCalledWith('hive-bump-deps')
-    expect(listWindows).toHaveBeenCalledWith('hive-fix-parser')
+    // in without touching anything — and one call carries the whole sidebar.
+    expect(listWindows).toHaveBeenCalledWith(['hive-fix-parser', 'hive-bump-deps'])
     const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
     expect(rows.map((row) => row.text())).toEqual(['agent', 'shell'])
 
@@ -633,9 +643,9 @@ describe('TerminalMode', () => {
   })
 
   it('empties the tree of listed windows when the setting is turned off', async () => {
-    const listWindows = vi.fn(async () => ({ windows: [
+    const listWindows = fakeListWindowsEach([
       { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
-    ] }))
+    ])
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const { wrapper } = await mountAvailable()
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
@@ -649,9 +659,9 @@ describe('TerminalMode', () => {
   })
 
   it('re-enters from the caches and resumes without waiting on the probe', async () => {
-    const listWindows = vi.fn(async () => ({ windows: [
+    const listWindows = fakeListWindowsEach([
       { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
-    ] }))
+    ])
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const { wrapper } = await mountAvailable()
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
@@ -676,10 +686,10 @@ describe('TerminalMode', () => {
   })
 
   it('stands in the cached listing for the subtree while attaching', async () => {
-    const listWindows = vi.fn(async () => ({ windows: [
+    const listWindows = fakeListWindowsEach([
       { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
       { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
-    ] }))
+    ])
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const session = fakeSession()
     session.tabs.value = []
@@ -850,7 +860,7 @@ describe('TerminalMode', () => {
   // is no control client to route it through yet.
   it('adds a window to an unattached session and selects it', async () => {
     const newWindow = vi.fn(async () => ({ windowId: '@5' }))
-    mocks.createTerminalClient.mockReturnValue({ listWindows: vi.fn(async () => ({ windows: [] })), newWindow })
+    mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newWindow })
     const { wrapper, router } = await mountAt()
 
     await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
@@ -1226,9 +1236,9 @@ describe('TerminalMode', () => {
     // listed has nothing to move it with.
     it('leaves a listed window undraggable', async () => {
       mocks.createTerminalClient.mockReturnValue({
-        listWindows: vi.fn(async (slug: string) => (slug === 'hive-bump-deps'
-          ? { windows: [{ windowId: '@7', name: 'agent', active: true, width: 0, height: 0 }] }
-          : { windows: [] })),
+        listWindows: fakeListWindows({
+          'hive-bump-deps': [{ windowId: '@7', name: 'agent', active: true, width: 0, height: 0 }],
+        }),
       })
       const { wrapper } = await attached()
 
