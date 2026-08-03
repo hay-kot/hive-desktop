@@ -211,6 +211,24 @@ func (q *Queries) CountNonterminalCommandsForAction(ctx context.Context, actionI
 	return count, err
 }
 
+const deleteAgentWorkspaceSession = `-- name: DeleteAgentWorkspaceSession :exec
+DELETE FROM agent_workspace_session WHERE id = ?
+`
+
+func (q *Queries) DeleteAgentWorkspaceSession(ctx context.Context, id int64) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentWorkspaceSession, id)
+	return err
+}
+
+const deleteAgentWorkspaceSessionsByWorkspace = `-- name: DeleteAgentWorkspaceSessionsByWorkspace :exec
+DELETE FROM agent_workspace_session WHERE workspace = ?
+`
+
+func (q *Queries) DeleteAgentWorkspaceSessionsByWorkspace(ctx context.Context, workspace string) error {
+	_, err := q.db.ExecContext(ctx, deleteAgentWorkspaceSessionsByWorkspace, workspace)
+	return err
+}
+
 const deleteConsumerOffsetByConsumer = `-- name: DeleteConsumerOffsetByConsumer :exec
 DELETE FROM consumer_offset WHERE consumer = ?
 `
@@ -632,6 +650,25 @@ func (q *Queries) FindRunningJobByCommandID(ctx context.Context, commandID sql.N
 	return i, err
 }
 
+const getAgentWorkspaceSession = `-- name: GetAgentWorkspaceSession :one
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session WHERE id = ?
+`
+
+func (q *Queries) GetAgentWorkspaceSession(ctx context.Context, id int64) (AgentWorkspaceSession, error) {
+	row := q.db.QueryRowContext(ctx, getAgentWorkspaceSession, id)
+	var i AgentWorkspaceSession
+	err := row.Scan(
+		&i.ID,
+		&i.Workspace,
+		&i.Name,
+		&i.Agent,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.LastOpenedAt,
+	)
+	return i, err
+}
+
 const getConsumerOffset = `-- name: GetConsumerOffset :one
 SELECT consumer, "offset" FROM consumer_offset
 WHERE consumer = ?
@@ -863,6 +900,43 @@ func (q *Queries) GetWebhookCapture(ctx context.Context, topic string) (WebhookC
 	row := q.db.QueryRowContext(ctx, getWebhookCapture, topic)
 	var i WebhookCapture
 	err := row.Scan(&i.Topic, &i.ReceivedAt, &i.Body)
+	return i, err
+}
+
+const insertAgentWorkspaceSession = `-- name: InsertAgentWorkspaceSession :one
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING id, workspace, name, agent, agent_session_id, created_at, last_opened_at
+`
+
+type InsertAgentWorkspaceSessionParams struct {
+	Workspace      string `json:"workspace"`
+	Name           string `json:"name"`
+	Agent          string `json:"agent"`
+	AgentSessionID string `json:"agent_session_id"`
+	CreatedAt      int64  `json:"created_at"`
+	LastOpenedAt   int64  `json:"last_opened_at"`
+}
+
+func (q *Queries) InsertAgentWorkspaceSession(ctx context.Context, arg InsertAgentWorkspaceSessionParams) (AgentWorkspaceSession, error) {
+	row := q.db.QueryRowContext(ctx, insertAgentWorkspaceSession,
+		arg.Workspace,
+		arg.Name,
+		arg.Agent,
+		arg.AgentSessionID,
+		arg.CreatedAt,
+		arg.LastOpenedAt,
+	)
+	var i AgentWorkspaceSession
+	err := row.Scan(
+		&i.ID,
+		&i.Workspace,
+		&i.Name,
+		&i.Agent,
+		&i.AgentSessionID,
+		&i.CreatedAt,
+		&i.LastOpenedAt,
+	)
 	return i, err
 }
 
@@ -1176,6 +1250,45 @@ func (q *Queries) ListActivityEvents(ctx context.Context, arg ListActivityEvents
 			&i.Body,
 			&i.Source,
 			&i.Metadata,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAgentWorkspaceSessions = `-- name: ListAgentWorkspaceSessions :many
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session
+WHERE workspace = ?
+ORDER BY last_opened_at DESC
+`
+
+// One workspace's sessions, most recently opened first: the order the area
+// lists them in.
+func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace string) ([]AgentWorkspaceSession, error) {
+	rows, err := q.db.QueryContext(ctx, listAgentWorkspaceSessions, workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentWorkspaceSession{}
+	for rows.Next() {
+		var i AgentWorkspaceSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.Workspace,
+			&i.Name,
+			&i.Agent,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+			&i.LastOpenedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -2153,6 +2266,24 @@ func (q *Queries) RetryOutputCommand(ctx context.Context, arg RetryOutputCommand
 	return err
 }
 
+const setAgentWorkspaceSessionAgentID = `-- name: SetAgentWorkspaceSessionAgentID :exec
+UPDATE agent_workspace_session SET agent_session_id = ? WHERE id = ?
+`
+
+type SetAgentWorkspaceSessionAgentIDParams struct {
+	AgentSessionID string `json:"agent_session_id"`
+	ID             int64  `json:"id"`
+}
+
+// The only write to agent_session_id after the insert: a resume that falls
+// back to a fresh launch (the agent has no resume form) mints a new id and
+// records it here so a later resume of this same record addresses the
+// conversation actually running rather than the one it replaced.
+func (q *Queries) SetAgentWorkspaceSessionAgentID(ctx context.Context, arg SetAgentWorkspaceSessionAgentIDParams) error {
+	_, err := q.db.ExecContext(ctx, setAgentWorkspaceSessionAgentID, arg.AgentSessionID, arg.ID)
+	return err
+}
+
 const setInboxItemUnread = `-- name: SetInboxItemUnread :one
 UPDATE inbox_item SET unread = ?, revision = revision + 1
 WHERE id = ? AND revision = ?
@@ -2357,6 +2488,20 @@ func (q *Queries) ToggleInboxItemIgnored(ctx context.Context, arg ToggleInboxIte
 		&i.IgnoredAt,
 	)
 	return i, err
+}
+
+const touchAgentWorkspaceSession = `-- name: TouchAgentWorkspaceSession :exec
+UPDATE agent_workspace_session SET last_opened_at = ? WHERE id = ?
+`
+
+type TouchAgentWorkspaceSessionParams struct {
+	LastOpenedAt int64 `json:"last_opened_at"`
+	ID           int64 `json:"id"`
+}
+
+func (q *Queries) TouchAgentWorkspaceSession(ctx context.Context, arg TouchAgentWorkspaceSessionParams) error {
+	_, err := q.db.ExecContext(ctx, touchAgentWorkspaceSession, arg.LastOpenedAt, arg.ID)
+	return err
 }
 
 const updateEventOccurrenceKey = `-- name: UpdateEventOccurrenceKey :exec

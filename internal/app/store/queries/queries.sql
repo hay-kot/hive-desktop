@@ -560,3 +560,34 @@ DELETE FROM node_kv WHERE flow_id = ?;
 -- to retain use DeleteNodeKVByFlow instead, mirroring the
 -- DeleteFeedMembershipClaimsForFeeds / *All pair.
 DELETE FROM node_kv WHERE flow_id = ? AND node_id NOT IN (sqlc.slice(node_ids));
+
+-- name: ListAgentWorkspaceSessions :many
+-- One workspace's sessions, most recently opened first: the order the area
+-- lists them in.
+SELECT * FROM agent_workspace_session
+WHERE workspace = ?
+ORDER BY last_opened_at DESC;
+
+-- name: GetAgentWorkspaceSession :one
+SELECT * FROM agent_workspace_session WHERE id = ?;
+
+-- name: InsertAgentWorkspaceSession :one
+INSERT INTO agent_workspace_session (workspace, name, agent, agent_session_id, created_at, last_opened_at)
+VALUES (?, ?, ?, ?, ?, ?)
+RETURNING *;
+
+-- name: TouchAgentWorkspaceSession :exec
+UPDATE agent_workspace_session SET last_opened_at = ? WHERE id = ?;
+
+-- name: SetAgentWorkspaceSessionAgentID :exec
+-- The only write to agent_session_id after the insert: a resume that falls
+-- back to a fresh launch (the agent has no resume form) mints a new id and
+-- records it here so a later resume of this same record addresses the
+-- conversation actually running rather than the one it replaced.
+UPDATE agent_workspace_session SET agent_session_id = ? WHERE id = ?;
+
+-- name: DeleteAgentWorkspaceSession :exec
+DELETE FROM agent_workspace_session WHERE id = ?;
+
+-- name: DeleteAgentWorkspaceSessionsByWorkspace :exec
+DELETE FROM agent_workspace_session WHERE workspace = ?;

@@ -2,7 +2,9 @@ package agentws
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -15,6 +17,9 @@ type MCPWiring struct {
 	File string
 	// Render encodes the resolved servers in that file's format.
 	Render func(servers map[string]mcpcatalog.Server) ([]byte, error)
+	// Args name the file at launch. nil when the agent discovers it from the
+	// working directory instead, as codex does.
+	Args func(workspaceDir string) []string
 	// Bounded reports whether this wiring confines the agent to exactly this
 	// set. When false the agent also loads its own global servers, and the UI
 	// says so — a posture is only meaningful against a tool set the user can
@@ -23,34 +28,159 @@ type MCPWiring struct {
 }
 
 // AgentLaunch is everything Hive knows about driving one agent CLI. It is
-// data, not a branch: a new agent is an entry. This phase carries only the
-// MCP half the generator needs; a later phase adds Autonomy, SessionArgs and
-// Resume once there is something to launch.
+// data, not a branch: a new agent is an entry.
 type AgentLaunch struct {
+	// Autonomy maps a posture onto flags. A posture with no entry fails
+	// closed — see ErrNoAutonomyMapping.
+	Autonomy map[Autonomy][]string
+
 	// MCP is how this agent receives the workspace's servers. A nil MCP means
-	// no known project-scoped form at all.
+	// no known project-scoped form at all: auto and full are withheld and the
+	// workspace runs at ask.
 	MCP *MCPWiring
+
+	// SessionArgs renders the flags pinning a caller-minted session id. nil
+	// means the agent mints its own id and Hive cannot address it. The caller
+	// mints the uuid, not the table: a table that mints is non-deterministic
+	// and cannot be goldened.
+	SessionArgs func(id string) []string
+
+	// Resume renders the resume invocation. nil means no known resume form:
+	// the session relaunches fresh and the UI says the previous conversation
+	// could not be resumed.
+	Resume func(id string) []string
 }
+
+var (
+	// ErrUnknownAgent reports an agent key with no launch entry.
+	ErrUnknownAgent = errors.New("agentws: no launch mapping for agent")
+	// ErrNoAutonomyMapping reports an (agent, posture) pair with no flags.
+	ErrNoAutonomyMapping = errors.New("agentws: no autonomy mapping")
+	// ErrPostureUnavailable reports a posture withheld from an agent with no
+	// MCP wiring.
+	ErrPostureUnavailable = errors.New("agentws: posture requires a bounded tool set")
+	// ErrCommandNotASingleWord reports a hive agent profile whose command
+	// carries flags.
+	ErrCommandNotASingleWord = errors.New("agentws: agent command must be a single word")
+)
 
 // agentLaunches is the launch table, keyed by the agent key a workspace names
 // in agent-workspace.yaml. The generator ranges it rather than special-casing
 // each agent, so adding one here adds its generated MCP file with no edit to
-// generate.go.
+// generate.go, and Resolve ranges it the same way for the launch line.
 var agentLaunches = map[string]AgentLaunch{
 	"claude": {
+		Autonomy: map[Autonomy][]string{
+			AutonomyAsk:  {},
+			AutonomyAuto: {"--permission-mode", "acceptEdits"},
+			AutonomyFull: {"--dangerously-skip-permissions"},
+		},
 		MCP: &MCPWiring{
-			File:    ".mcp.json",
-			Render:  renderMCPJSON,
+			File:   ".mcp.json",
+			Render: renderMCPJSON,
+			Args: func(dir string) []string {
+				return []string{"--strict-mcp-config", "--mcp-config", filepath.Join(dir, ".mcp.json")}
+			},
 			Bounded: true,
 		},
+		SessionArgs: func(id string) []string { return []string{"--session-id", id} },
+		Resume:      func(id string) []string { return []string{"--resume", id} },
 	},
 	"codex": {
+		Autonomy: map[Autonomy][]string{
+			AutonomyAsk:  {},
+			AutonomyAuto: {"--ask-for-approval", "on-request", "--sandbox", "workspace-write"},
+			AutonomyFull: {"--dangerously-bypass-approvals-and-sandbox"},
+		},
 		MCP: &MCPWiring{
 			File:    ".codex/config.toml",
 			Render:  renderCodexTOML,
 			Bounded: false,
 		},
+		// codex has no launch-time session-id flag and no resume-by-id form
+		// (`codex resume` takes only an id or name the agent itself minted),
+		// so SessionArgs and Resume both stay nil: a reopened codex session
+		// relaunches fresh and says so.
 	},
+}
+
+// SupportsResume reports whether agent has any known resume form at all.
+// The service calls this before Resolve to decide ResumeAttempted: Resolve
+// itself only reports whether ITS OWN inputs (the agent key, the posture)
+// were unknown, not which optional per-agent capabilities are present, and
+// ResumeAttempted has to be known before the launch line is built.
+func SupportsResume(agent string) bool {
+	launch, ok := agentLaunches[agent]
+	return ok && launch.Resume != nil
+}
+
+// MCPBounded reports whether agent's MCP wiring confines it to exactly the
+// workspace's declared servers. ok is false when the agent has no launch
+// entry or no MCP wiring at all, which the caller (building a user-facing
+// notice) treats the same as "nothing to bound."
+func MCPBounded(agent string) (bounded, ok bool) {
+	launch, exists := agentLaunches[agent]
+	if !exists || launch.MCP == nil {
+		return false, false
+	}
+	return launch.MCP.Bounded, true
+}
+
+// Resolve builds the finished login-shell command line for one launch, or
+// reports which of the agent and the posture had no mapping. It returns the
+// line rather than flags because the security-relevant step is interpolating
+// paths into it — see shellQuote. w.Dir must be the absolute workspace
+// directory: it is threaded straight into MCPWiring.Args, which needs a path
+// that resolves regardless of the launched process's cwd.
+func Resolve(command string, w Workspace, sessionID string, resume bool) (string, error) {
+	return resolveAgainst(agentLaunches, command, w, sessionID, resume)
+}
+
+// resolveAgainst is Resolve's implementation, parameterized over the launch
+// table so tests can exercise a fail-closed path (an agent with MCP == nil)
+// that does not exist in the real, always-total agentLaunches.
+func resolveAgainst(table map[string]AgentLaunch, command string, w Workspace, sessionID string, resume bool) (string, error) {
+	if len(strings.Fields(command)) != 1 {
+		return "", fmt.Errorf("%w: %q", ErrCommandNotASingleWord, command)
+	}
+
+	launch, ok := table[w.Agent]
+	if !ok {
+		return "", fmt.Errorf("%w: %q", ErrUnknownAgent, w.Agent)
+	}
+
+	autonomyFlags, ok := launch.Autonomy[w.Autonomy]
+	if !ok {
+		return "", fmt.Errorf("%w: agent %q, posture %q", ErrNoAutonomyMapping, w.Agent, w.Autonomy)
+	}
+	if launch.MCP == nil && w.Autonomy != AutonomyAsk {
+		return "", fmt.Errorf("%w: agent %q, posture %q", ErrPostureUnavailable, w.Agent, w.Autonomy)
+	}
+
+	words := []string{command}
+	words = append(words, autonomyFlags...)
+	if launch.MCP != nil && launch.MCP.Args != nil {
+		words = append(words, launch.MCP.Args(w.Dir)...)
+	}
+	switch {
+	case resume && launch.Resume != nil:
+		words = append(words, launch.Resume(sessionID)...)
+	case !resume && launch.SessionArgs != nil:
+		words = append(words, launch.SessionArgs(sessionID)...)
+	}
+
+	quoted := make([]string, len(words))
+	for i, word := range words {
+		quoted[i] = shellQuote(word)
+	}
+	return strings.Join(quoted, " "), nil
+}
+
+// shellQuote wraps s for a POSIX login shell: single quotes, with embedded
+// single quotes closed and re-opened. ptyterm hands the line to $SHELL -l -c
+// verbatim, so every interpolated path passes through here.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // mcpJSONServer is one entry under .mcp.json's "mcpServers" — claude's own

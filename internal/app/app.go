@@ -99,7 +99,8 @@ type App struct {
 	// on. Always non-nil; a disabled recorder is a no-op (ADR 0055).
 	Perf *PerfService
 
-	PopupTerminals *PopupTerminalsService
+	PopupTerminals  *PopupTerminalsService
+	AgentWorkspaces *AgentWorkspacesService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -167,6 +168,11 @@ type App struct {
 	launcher *dispatch.HiveSessionLauncher
 	sessions *dispatch.HiveSessionManager
 	hiveDB   *coredb.DB
+
+	// agentCommands is agentCommands(hiveCfg)'s result: hive's agent profiles
+	// projected onto their bare command, with Flags dropped (ADR 0061). Set
+	// in openHiveRuntime, alongside every other hiveCfg-derived field.
+	agentCommands map[string]string
 
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR 0036).
@@ -354,6 +360,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.popupTerminals, a.Store, a.Skills, a.agentCommands)
 
 	return a, nil
 }
@@ -957,6 +964,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.hiveBusCancel = cancel
 	go bus.Start(busCtx)
 
+	a.agentCommands = agentCommands(hiveCfg)
+
 	profile := hiveCfg.Agents.DefaultProfile()
 	renderer := tmpl.New(tmpl.Config{
 		ScriptPaths:  scripts.ScriptPaths(dataDir),
@@ -998,4 +1007,19 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, hiveCfg.Tmux.PollInterval)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
+}
+
+// agentCommands projects hive's agent profiles onto the one thing a workspace
+// may inherit from them. Flags are dropped here, at the seam, because hive's
+// profiles run --dangerously-skip-permissions and a workspace declares its own
+// authority instead (ADR 0061): agentws.Resolve validates the result is a
+// single shell word, so a profile whose Command carries flags (re-inheriting
+// through the back door this function exists to close) is refused at launch
+// naming the agent, rather than silently spliced into the line.
+func agentCommands(cfg *config.Config) map[string]string {
+	commands := make(map[string]string, len(cfg.Agents.Profiles))
+	for key, profile := range cfg.Agents.Profiles {
+		commands[key] = profile.CommandOrDefault(key)
+	}
+	return commands
 }

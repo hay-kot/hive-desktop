@@ -2,6 +2,8 @@ package agentws
 
 import (
 	"encoding/json"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -96,4 +98,125 @@ func TestRenderMCPJSONEmptyServersIsAnEmptyObject(t *testing.T) {
 	got, err := renderMCPJSON(map[string]mcpcatalog.Server{})
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"mcpServers":{}}`, string(got))
+}
+
+// TestAutonomyMappingIsTotal is the cross-product AutonomyNames() ×
+// agentLaunches, not the table iterated against itself. "Every pair in the
+// table resolves" would still pass if a fourth posture compiled with no
+// entries added anywhere — exactly the silent flag-drop the whole authority
+// decision exists to prevent (spec §13).
+func TestAutonomyMappingIsTotal(t *testing.T) {
+	t.Parallel()
+
+	for agent, launch := range agentLaunches {
+		for _, posture := range AutonomyNames() {
+			_, ok := launch.Autonomy[Autonomy(posture)]
+			assert.True(t, ok, "agent %q has no mapping for posture %q", agent, posture)
+		}
+	}
+
+	_, err := Resolve("bogus-cmd", Workspace{Agent: "no-such-agent", Autonomy: AutonomyAsk, Dir: "/tmp"}, "sess", false)
+	require.ErrorIs(t, err, ErrUnknownAgent)
+
+	_, err = Resolve("claude", Workspace{Agent: "claude", Autonomy: Autonomy("bogus"), Dir: "/tmp"}, "sess", false)
+	require.ErrorIs(t, err, ErrNoAutonomyMapping)
+}
+
+func TestResolvePassesStrictMCPConfigForClaude(t *testing.T) {
+	t.Parallel()
+
+	w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: "/abs/demo"}
+	line, err := Resolve("claude", w, "sess-1", false)
+	require.NoError(t, err)
+
+	assert.Contains(t, line, "--strict-mcp-config")
+	assert.Contains(t, line, shellQuote(filepath.Join("/abs/demo", ".mcp.json")))
+	assert.Contains(t, line, "--session-id")
+	assert.Contains(t, line, shellQuote("sess-1"))
+}
+
+// TestPosturesWithheldWithoutAnyMCPWiring resolves against a table entry
+// with MCP == nil — no real agent has one today, so this exercises
+// resolveAgainst directly rather than reaching for a fictitious global entry.
+func TestPosturesWithheldWithoutAnyMCPWiring(t *testing.T) {
+	t.Parallel()
+
+	table := map[string]AgentLaunch{
+		"no-mcp": {
+			Autonomy: map[Autonomy][]string{
+				AutonomyAsk:  {},
+				AutonomyAuto: {"--auto"},
+				AutonomyFull: {"--full"},
+			},
+		},
+	}
+
+	w := Workspace{Agent: "no-mcp", Autonomy: AutonomyAsk, Dir: "/abs/demo"}
+	_, err := resolveAgainst(table, "agent-bin", w, "sess", false)
+	require.NoError(t, err, "ask is available with no MCP wiring at all")
+
+	for _, posture := range []Autonomy{AutonomyAuto, AutonomyFull} {
+		w.Autonomy = posture
+		_, err := resolveAgainst(table, "agent-bin", w, "sess", false)
+		require.ErrorIs(t, err, ErrPostureUnavailable, "posture %q", posture)
+	}
+}
+
+// TestUnboundedWiringSurfacesTheGlobalServerSet: codex's MCP wiring exists
+// but does not bound the server set (Bounded: false, the D-B tradeoff), so
+// unlike TestPosturesWithheldWithoutAnyMCPWiring every posture must still
+// resolve — Bounded is what tells the service to surface the notice, not a
+// second withholding rule.
+func TestUnboundedWiringSurfacesTheGlobalServerSet(t *testing.T) {
+	t.Parallel()
+
+	bounded, ok := MCPBounded("codex")
+	require.True(t, ok, "codex has known MCP wiring")
+	assert.False(t, bounded, "codex's wiring does not bound the server set")
+
+	for _, posture := range AutonomyNames() {
+		w := Workspace{Agent: "codex", Autonomy: Autonomy(posture), Dir: "/abs/demo"}
+		_, err := Resolve("codex", w, "sess", false)
+		require.NoError(t, err, "posture %s", posture)
+	}
+}
+
+// TestLaunchLineQuotesShellMetacharacters actually executes the finished
+// line through a real shell for each dangerous workspace directory, rather
+// than asserting shellQuote's own escaping in isolation: the property that
+// matters is that the string never takes effect as shell syntax, and running
+// it is the only way to prove that.
+func TestLaunchLineQuotesShellMetacharacters(t *testing.T) {
+	t.Parallel()
+
+	dangerous := []string{
+		"has space",
+		"semi;colon",
+		"$(subshell)",
+		"back`tick`",
+		"single'quote",
+		"new\nline",
+	}
+
+	for _, d := range dangerous {
+		t.Run(d, func(t *testing.T) {
+			t.Parallel()
+
+			w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: d}
+			line, err := Resolve("echo", w, "sess", false)
+			require.NoError(t, err)
+
+			out, err := exec.Command("sh", "-c", line).CombinedOutput()
+			require.NoError(t, err)
+			assert.Contains(t, string(out), d)
+		})
+	}
+}
+
+func TestRejectsAMultiWordAgentCommand(t *testing.T) {
+	t.Parallel()
+
+	w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: "/tmp"}
+	_, err := Resolve("claude --dangerously-skip-permissions", w, "sess", false)
+	require.ErrorIs(t, err, ErrCommandNotASingleWord)
 }
