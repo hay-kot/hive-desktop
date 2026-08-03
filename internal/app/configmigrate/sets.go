@@ -13,4 +13,10 @@ var (
 	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 1, AllowMissingVersion: true}
 	FlowSet     = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet  = Set{Name: "actions", Baseline: 1, Current: 1}
+	// MCPLibrarySet and AgentWorkspaceSet cover mcps.yaml and
+	// agent-workspace.yaml (internal/app/agentws). Both are inert at
+	// Baseline == Current == 1, same as every other set until a real
+	// breaking change bumps Current.
+	MCPLibrarySet     = Set{Name: "mcps", Baseline: 1, Current: 1}
+	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 1}
 )

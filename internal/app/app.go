@@ -15,6 +15,7 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -117,12 +118,13 @@ type App struct {
 	// the same reason despite looking store-shaped: ActivityService and
 	// JobService above already front them, so nothing else may reach past
 	// those either.
-	actionStore   *actions.ActionStore
-	flowStore     *flow.FlowStore
-	activityStore *activity.Store
-	jobStore      *jobs.Store
-	fetchers      *ghsource.Fetchers
-	credentials   credentials.Store
+	actionStore         *actions.ActionStore
+	flowStore           *flow.FlowStore
+	agentWorkspaceStore *agentws.Store
+	activityStore       *activity.Store
+	jobStore            *jobs.Store
+	fetchers            *ghsource.Fetchers
+	credentials         credentials.Store
 
 	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
@@ -197,12 +199,13 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	settings       settings.Settings
-	settingsStore  *settings.Store
-	paths          settings.Paths
-	flowsWatcher   *flow.FlowsWatcher
-	actionsWatcher *actions.ActionsWatcher
-	hiveBusCancel  context.CancelFunc
+	settings               settings.Settings
+	settingsStore          *settings.Store
+	paths                  settings.Paths
+	flowsWatcher           *flow.FlowsWatcher
+	actionsWatcher         *actions.ActionsWatcher
+	agentWorkspacesWatcher *agentws.Watcher
+	hiveBusCancel          context.CancelFunc
 }
 
 // New builds the core: the store, the domain stores and their watchers, the
@@ -288,6 +291,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
+	a.openAgentWorkspaces(cfg.Paths.AgentWorkspacesDir, cfg.Logger)
 	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
 
 	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, gitHubClient, a.credentials, func() {
@@ -424,6 +428,9 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	if a.flowsWatcher != nil {
 		a.flowsWatcher.Start()
+	}
+	if a.agentWorkspacesWatcher != nil {
+		a.agentWorkspacesWatcher.Start()
 	}
 	if a.mock == "" {
 		a.outputs.Start(ctx)
@@ -562,6 +569,9 @@ func (a *App) Close() error {
 	if a.actionsWatcher != nil {
 		a.actionsWatcher.Close()
 	}
+	if a.agentWorkspacesWatcher != nil {
+		a.agentWorkspacesWatcher.Close()
+	}
 	a.Events.Close()
 
 	if a.Perf != nil {
@@ -655,6 +665,60 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 		return
 	}
 	a.flowsWatcher = watcher
+}
+
+// openAgentWorkspaces ensures the workspace root exists, seeds it — and,
+// only when EnsureRoot creates it for the first time, the Hive workspace too
+// — then loads it eagerly, with the same warn-and-keep-last-good shape and
+// the same publish-even-on-failure behaviour as openActions (app.go:610-637)
+// so the UI re-reads and sees the error.
+//
+// When EnsureRoot fails, root is a configured location Hive cannot reach (an
+// unmounted volume, a signed-out iCloud Drive) or one occupied by a file —
+// spec §14 says that is reported, not silently replaced with a second empty
+// root elsewhere. So nothing past that point may create root or anything
+// under it: no seed, no Hive workspace, no watcher (NewWatcher's own
+// MkdirAll would recreate exactly what EnsureRoot just refused to). The store
+// still gets built — its Reload on a missing root is already a valid, empty
+// snapshot — so the rest of the app has something non-nil to read; the
+// Agents area (phase 6) is what surfaces the unavailable root to the user.
+func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
+	created, err := agentws.EnsureRoot(root)
+	if err != nil {
+		logger.Warn().Err(err).Str("root", root).Str("setting", "agent_workspaces.dir").Msg("agent workspace root unavailable")
+		a.agentWorkspaceStore = agentws.NewStore(root)
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")
+		}
+		return
+	}
+
+	if _, err := agentws.SeedDefaultsIfMissing(root); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace defaults seed failed")
+	}
+	if created {
+		if err := agentws.SeedHiveWorkspace(root); err != nil {
+			logger.Warn().Err(err).Msg("hive workspace seed failed")
+		}
+	}
+
+	a.agentWorkspaceStore = agentws.NewStore(root)
+	if err := a.agentWorkspaceStore.Reload(); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")
+	}
+
+	watcher, err := agentws.NewWatcher(root, func() {
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			logger.Warn().Err(err).Msg("agent workspace reload failed")
+		}
+		count := len(a.agentWorkspaceStore.List())
+		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
+	}, logger)
+	if err != nil {
+		logger.Warn().Err(err).Msg("agent workspace hot-reload unavailable")
+		return
+	}
+	a.agentWorkspacesWatcher = watcher
 }
 
 // PublishLogAppended announces that the event log grew and wakes the engine to

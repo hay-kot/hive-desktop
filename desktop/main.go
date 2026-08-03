@@ -20,6 +20,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -93,6 +94,9 @@ func main() {
 	}
 	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, &logger); err != nil {
 		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
+	}
+	if err := agentws.MigrateRoot(paths.AgentWorkspacesDir, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace migration sweep failed; using last-good")
 	}
 
 	// A redirected API base means every item this run shows may be stale or

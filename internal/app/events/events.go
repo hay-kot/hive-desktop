@@ -42,6 +42,9 @@ type FlowsUpdated struct{ Reason string }
 // ActionsUpdated reports that the actions catalog was reloaded or mutated.
 type ActionsUpdated struct{ Count int }
 
+// AgentWorkspacesUpdated reports that the workspace set was reloaded.
+type AgentWorkspacesUpdated struct{ Count int }
+
 // ConnectionUpdated reports that one provider's stored credentials changed —
 // connected, rotated, or disconnected. Provider names which ("github"), so a
 // consumer can ignore a provider it does not use; the new state is not in the
@@ -64,11 +67,12 @@ type NotificationRaised struct {
 	InApp     bool
 }
 
-func (LogAppended) eventName() string        { return "log.appended" }
-func (InboxUpdated) eventName() string       { return "inbox.updated" }
-func (ActivityAppended) eventName() string   { return "activity.appended" }
-func (JobsUpdated) eventName() string        { return "jobs.updated" }
-func (FlowsUpdated) eventName() string       { return "flows.updated" }
-func (ActionsUpdated) eventName() string     { return "actions.updated" }
-func (ConnectionUpdated) eventName() string  { return "connection.updated" }
-func (NotificationRaised) eventName() string { return "notification.raised" }
+func (LogAppended) eventName() string            { return "log.appended" }
+func (InboxUpdated) eventName() string           { return "inbox.updated" }
+func (ActivityAppended) eventName() string       { return "activity.appended" }
+func (JobsUpdated) eventName() string            { return "jobs.updated" }
+func (FlowsUpdated) eventName() string           { return "flows.updated" }
+func (ActionsUpdated) eventName() string         { return "actions.updated" }
+func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }
+func (ConnectionUpdated) eventName() string      { return "connection.updated" }
+func (NotificationRaised) eventName() string     { return "notification.raised" }

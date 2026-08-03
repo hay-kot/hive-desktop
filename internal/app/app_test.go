@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/events"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
@@ -136,4 +137,97 @@ func settle(t *testing.T) {
 		}
 		baseline = current
 	}
+}
+
+// TestAgentWorkspacesReloadPublishesEvenOnFailure exercises the watcher ->
+// store -> events.AgentWorkspacesUpdated chain end to end, including that a
+// broken manifest still publishes — the whole point of the
+// publish-even-on-failure shape openAgentWorkspaces shares with openActions
+// (app.go:624-628): the reload's own error is only logged, never used to skip
+// the publish, so the UI still re-reads and sees the failure reflected in
+// Statuses.
+func TestAgentWorkspacesReloadPublishesEvenOnFailure(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
+	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
+	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
+	t.Setenv(settings.EnvMockMode, "feed")
+	workspacesDir := filepath.Join(root, "workspaces")
+	t.Setenv(settings.EnvAgentWorkspacesDir, workspacesDir)
+
+	core, err := New(t.Context(), Config{
+		Settings: settings.DefaultSettings(),
+		MockMode: settings.MockMode(),
+		Logger:   zerolog.Nop(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = core.Close() })
+	require.NoError(t, core.Start(t.Context()))
+
+	require.NotNil(t, core.agentWorkspaceStore)
+	require.NotNil(t, core.agentWorkspacesWatcher)
+
+	updates := make(chan events.AgentWorkspacesUpdated, 8)
+	cancel := events.Subscribe(t.Context(), core.Events, "test.agentworkspaces", events.Buffer(8), func(_ context.Context, e events.AgentWorkspacesUpdated) {
+		updates <- e
+	})
+	t.Cleanup(cancel)
+
+	// A broken manifest (an unknown field — the strict decode path) must
+	// still make the watcher fire, and the store must isolate the failure to
+	// this one workspace rather than erroring Reload itself.
+	brokenDir := filepath.Join(workspacesDir, "broken")
+	require.NoError(t, os.MkdirAll(brokenDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(brokenDir, "agent-workspace.yaml"), []byte("version: 1\nfoo: bar\n"), 0o600))
+
+	select {
+	case <-updates:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no agent-workspaces:updated published after a broken manifest was written")
+	}
+
+	found := false
+	for _, st := range core.agentWorkspaceStore.Statuses() {
+		if st.Dir != "broken" {
+			continue
+		}
+		found = true
+		assert.False(t, st.Valid)
+		require.Error(t, st.Err)
+	}
+	assert.True(t, found, "the broken workspace must still surface in Statuses rather than vanish")
+}
+
+// TestAgentWorkspacesUnavailableRootCreatesNothing proves the EnsureRoot
+// contract (spec §14, phase 1's manual criteria) survives openAgentWorkspaces:
+// a configured root whose parent does not exist (an unmounted volume, a
+// signed-out iCloud Drive) is reported, never silently created — and nothing
+// downstream (SeedDefaultsIfMissing, NewWatcher) may create it either.
+func TestAgentWorkspacesUnavailableRootCreatesNothing(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(settings.EnvDataDir, filepath.Join(root, "data"))
+	t.Setenv("HIVE_CONFIG", filepath.Join(root, "hive.yaml"))
+	t.Setenv(settings.EnvConfigDir, filepath.Join(root, "config"))
+	t.Setenv(settings.EnvMockMode, "feed")
+	missingParent := filepath.Join(root, "no-such-parent")
+	workspacesDir := filepath.Join(missingParent, "workspaces")
+	t.Setenv(settings.EnvAgentWorkspacesDir, workspacesDir)
+
+	core, err := New(t.Context(), Config{
+		Settings: settings.DefaultSettings(),
+		MockMode: settings.MockMode(),
+		Logger:   zerolog.Nop(),
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = core.Close() })
+	require.NoError(t, core.Start(t.Context()))
+
+	_, statErr := os.Stat(missingParent)
+	assert.True(t, os.IsNotExist(statErr), "an unavailable root must not even create its missing parent")
+	_, statErr = os.Stat(workspacesDir)
+	assert.True(t, os.IsNotExist(statErr), "an unavailable root must not be created")
+
+	require.NotNil(t, core.agentWorkspaceStore)
+	assert.Empty(t, core.agentWorkspaceStore.List())
+	assert.Nil(t, core.agentWorkspacesWatcher, "no watcher may exist over a root that was never created")
 }
