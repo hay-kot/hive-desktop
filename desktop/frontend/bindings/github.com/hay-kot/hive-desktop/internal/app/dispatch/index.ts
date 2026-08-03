@@ -7,6 +7,7 @@ export type {
     ClipboardExecutionOutcome,
     CreateSessionRequest,
     ExecutionOutcome,
+    ItemSessionView,
     MessageExecutionOutcome,
     SessionDetail,
     SessionDraft,

@@ -340,7 +340,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(a.launcher, a.sessions, a.sessions, a.terminals, a.jobStore, a.actionStore, a.dispatcher, a.activityStore)
+	a.Sessions = newSessionsService(sessionsDeps{
+		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, tmux: a.terminals,
+		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
+		recorder: a.activityStore, logger: cfg.Logger,
+	})
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, func() { a.PublishFlowsUpdated("save") })
@@ -1024,6 +1028,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 
 	a.launcher = dispatch.NewHiveSessionLauncher(sessions)
 	a.launcher.SetRecorder(a.activityStore)
+	a.launcher.SetItemSessionLinker(a.Store, cfg.Logger)
 
 	var statusService *hive.StatusService
 	if cfg.MockMode == "" && cfg.Settings.Experimental.Terminal {

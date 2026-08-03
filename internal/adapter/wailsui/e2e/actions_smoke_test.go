@@ -76,11 +76,11 @@ func TestActionSmokeMiddlewareReadsOnlyCurrentRunWithoutMutation(t *testing.T) {
 	_, err = stores.NewMessageStore(core, 0).Publish(ctx, messaging.Message{Payload: "hidden", Sender: "other"}, []string{"smoke.other"})
 	require.NoError(t, err)
 
-	kept, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-unit-shell", "pr2841", []byte(`{}`))
+	kept, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-unit-shell", "pr2841", []byte(`{}`), store.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, pipeline.MarkOutputCommandDone(ctx, kept.ID, `{"message":{"topic":"smoke.unit","sender":"hive-desktop"}}`, "out", "err"))
-	other, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-other-shell", "pr2841", []byte(`{}`))
+	other, created, err := pipeline.ConfirmOutputCommand(ctx, "smoke-other-shell", "pr2841", []byte(`{}`), store.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, pipeline.MarkOutputCommandFailed(ctx, other.ID, "hidden failure"))

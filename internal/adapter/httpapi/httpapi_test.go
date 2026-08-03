@@ -24,6 +24,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
@@ -189,6 +190,36 @@ func TestEventsResolution(t *testing.T) {
 	assert.Equal(t, http.StatusOK, get(t, handler, "/api/inbox/events?itemId="+strconv.FormatInt(id, 10)).Code)
 	assert.Equal(t, http.StatusConflict, get(t, handler, "/api/inbox/events?externalId=PR_1").Code,
 		"one external id matched two items")
+}
+
+// An item's sessions are resolved the same way its events are, and the linked
+// sessions come back joined to hive's live state.
+func TestItemSessionsResolution(t *testing.T) {
+	core, handler := testServer(t)
+	id := seedItem(t, core, "p1", "PR_1", `{}`)
+	seedItem(t, core, "p2", "PR_1", `{}`) // same external id, second profile
+
+	assert.Equal(t, http.StatusUnprocessableEntity, get(t, handler, "/api/inbox/sessions").Code,
+		"itemId or externalId is required")
+	assert.Equal(t, http.StatusConflict, get(t, handler, "/api/inbox/sessions?externalId=PR_1").Code,
+		"one external id matched two items")
+
+	ref, err := core.Store.ItemRefByID(t.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, core.Store.LinkItemSession(t.Context(), "sess-a", ref))
+
+	var body struct {
+		Sessions []dispatch.ItemSessionView `json:"sessions"`
+	}
+	rec := get(t, handler, "/api/inbox/sessions?itemId="+strconv.FormatInt(id, 10))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	// Mock mode has no hive sessions behind it, so the link is one hive cannot
+	// account for and the read drops it rather than reporting a ghost.
+	assert.Empty(t, body.Sessions)
+	links, err := core.Store.ItemSessions(t.Context(), ref)
+	require.NoError(t, err)
+	assert.Empty(t, links)
 }
 
 // TestProfileRequired covers the sibling-endpoint validation, including that a

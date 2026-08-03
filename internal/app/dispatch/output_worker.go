@@ -48,6 +48,11 @@ type OutputData struct {
 	CreatedAt int64
 	CommandID int64
 	IsRerun   bool
+	// Origin is the inbox item this command was routed from — attribution, not
+	// payload, and zero when the command has no inbox item behind it. It is
+	// what lets a side effect that outlives the command (a hive session) be
+	// found from the item again.
+	Origin store.ItemRef
 }
 type Executor interface {
 	Execute(context.Context, actions.Action, OutputData, ActionInvocationInput) (ExecutionResult, error)
@@ -71,8 +76,8 @@ type ActionLister interface {
 }
 type OutputCommandStore interface {
 	ListRunnableOutputCommandsAfter(context.Context, int64, int) ([]store.OutputCommand, error)
-	ConfirmOutputCommand(context.Context, string, string, []byte) (store.OutputCommand, bool, error)
-	RerunOutputCommand(context.Context, string, string, []byte) (store.OutputCommand, error)
+	ConfirmOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, bool, error)
+	RerunOutputCommand(context.Context, string, string, []byte, store.ItemRef) (store.OutputCommand, error)
 	OutputCommand(context.Context, int64) (store.OutputCommand, error)
 	MarkOutputCommandDone(context.Context, int64, ...string) error
 	MarkOutputCommandFailed(context.Context, int64, string, ...string) error
@@ -171,16 +176,16 @@ func (w *Worker) Start(ctx context.Context) {
 	}()
 }
 func (w *Worker) Stop() { w.stopOnce.Do(func() { close(w.stop) }) }
-func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, input ActionInvocationInput) (ActionRunView, error) {
+func (w *Worker) Confirm(ctx context.Context, actionID, key string, payload []byte, origin store.ItemRef, input ActionInvocationInput) (ActionRunView, error) {
 	w.runMu.Lock()
 	defer w.runMu.Unlock()
 	var row store.OutputCommand
 	var err error
 	if input.Rerun {
-		row, err = w.db.RerunOutputCommand(ctx, actionID, key, payload)
+		row, err = w.db.RerunOutputCommand(ctx, actionID, key, payload, origin)
 	} else {
 		var created bool
-		row, created, err = w.db.ConfirmOutputCommand(ctx, actionID, key, payload)
+		row, created, err = w.db.ConfirmOutputCommand(ctx, actionID, key, payload, origin)
 		if err == nil && !created {
 			if row.Status == "pending" || row.Status == "running" {
 				return ActionRunView{}, fmt.Errorf("action %q is already running for %q", actionID, key)
@@ -347,7 +352,7 @@ func (w *Worker) execute(
 	}
 	return w.dispatch.Execute(ctx, a, OutputData{
 		Key: row.Key, Payload: payload, Raw: json.RawMessage(row.Payload), Inputs: inputs,
-		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun != 0,
+		CreatedAt: row.CreatedAt, CommandID: row.ID, IsRerun: row.IsRerun != 0, Origin: row.ItemRef(),
 	}, input)
 }
 

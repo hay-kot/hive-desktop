@@ -58,18 +58,18 @@ func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
 	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
-	row, created, err := database.ConfirmOutputCommand(ctx, "action-a", "k1", []byte(`{"v":2}`))
+	row, created, err := database.ConfirmOutputCommand(ctx, "action-a", "k1", []byte(`{"v":2}`), ItemRef{})
 	require.NoError(t, err)
 	assert.True(t, created, "confirmation atomically claims the pending command")
 	assert.Equal(t, "running", row.Status)
 	assert.JSONEq(t, `{"v":1}`, string(row.Payload), "the queued payload remains authoritative")
-	existing, created, err := database.ConfirmOutputCommand(ctx, "action-a", "k1", []byte(`{"v":3}`))
+	existing, created, err := database.ConfirmOutputCommand(ctx, "action-a", "k1", []byte(`{"v":3}`), ItemRef{})
 	require.NoError(t, err)
 	assert.False(t, created, "a running command cannot be claimed twice")
 	assert.Equal(t, row.ID, existing.ID, "the existing command is returned for confirmation UX")
 	require.NoError(t, database.MarkOutputCommandDone(ctx, row.ID))
 
-	rerun, err := database.RerunOutputCommand(ctx, "action-a", "k1", []byte(`{"v":4}`))
+	rerun, err := database.RerunOutputCommand(ctx, "action-a", "k1", []byte(`{"v":4}`), ItemRef{})
 	require.NoError(t, err)
 	assert.NotEqual(t, row.ID, rerun.ID)
 	assert.Equal(t, int64(1), rerun.IsRerun)
@@ -79,7 +79,7 @@ func TestConfirmOutputCommandDeduplicatesExistingCommand(t *testing.T) {
 func TestRerunOutputCommandRequiresPriorRun(t *testing.T) {
 	database := openTestDB(t)
 
-	_, err := database.RerunOutputCommand(t.Context(), "action-a", "missing", []byte(`{}`))
+	_, err := database.RerunOutputCommand(t.Context(), "action-a", "missing", []byte(`{}`), ItemRef{})
 	require.ErrorContains(t, err, `action "action-a" cannot rerun for "missing" without a completed prior run`)
 }
 
@@ -87,7 +87,7 @@ func TestRerunOutputCommandRejectsActivePriorRun(t *testing.T) {
 	database := openTestDB(t)
 	enqueueTestCommand(t, database, "action-a", "active")
 
-	_, err := database.RerunOutputCommand(t.Context(), "action-a", "active", []byte(`{}`))
+	_, err := database.RerunOutputCommand(t.Context(), "action-a", "active", []byte(`{}`), ItemRef{})
 	require.ErrorContains(t, err, "without a completed prior run")
 }
 

@@ -42,6 +42,7 @@ import { sessionRepository } from './composables/useTerminalSessions'
 import { focusTerminalFilter, focusTerminalPane, focusTerminalTree, selectTerminalWindow } from './lib/terminalTree'
 import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
+import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
 import { commands as bindableCommands, launcherActionID, terminalWindowPosition } from './keybindings/catalog'
@@ -819,6 +820,21 @@ const launchers = useLaunchers()
 onMounted(() => { void launchers.refresh() })
 useWailsEvent('actions:updated', () => { void launchers.refresh() })
 
+// The hive sessions the selected item created. Driven off the selection rather
+// than off selectItem, so every path that moves it — keyboard walk, a clicked
+// notification, restoring a job's item — loads the same list. jobs:updated is
+// what re-reads it: creating, deleting and recycling a session are all jobs, so
+// that is when the answer can have changed.
+const { sessions: itemSessions, load: loadItemSessions, refresh: refreshItemSessions } = useItemSessions()
+watch(() => selectedItem.value?.id ?? null, (itemID) => { void loadItemSessions(itemID) }, { immediate: true })
+useWailsEvent('jobs:updated', () => { void refreshItemSessions() })
+
+// Attaching is terminal mode's job; the route is the attach state (ADR 0036),
+// so linking through is a navigation and nothing here touches tmux.
+function openItemSession(slug: string): void {
+  void router.push({ name: 'terminal', params: { slug } })
+}
+
 // One handler per bindable command id. Both the keydown dispatcher and the
 // command palette run through this map, so each command has a single
 // implementation and the palette can show its live shortcut.
@@ -1287,7 +1303,7 @@ onUnmounted(() => {
               @item-create-session="openNewSessionFromItem"
               @item-run-action="runItemAction"
             />
-            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @edit="requestOpenActionsSettings" />
+            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :sessions="itemSessions" :can-attach-session="terminalEnabled" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @open-session="openItemSession" @edit="requestOpenActionsSettings" />
           </section>
           <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 font-mono text-xs text-text-4">
             <template v-if="profilesError">

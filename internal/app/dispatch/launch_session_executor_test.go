@@ -10,9 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
+	"github.com/rs/zerolog"
 )
 
 // fakeSessionLauncher records every LaunchSession call.
@@ -179,4 +181,85 @@ func TestHiveSessionLauncher_PropagatesServiceFailure(t *testing.T) {
 	creator := &fakeSessionCreator{err: errors.New("tmux unavailable")}
 	_, err := NewHiveSessionLauncher(creator).LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-pr-1"})
 	require.ErrorIs(t, err, creator.err)
+}
+
+// fakeItemSessionLinker records the association the launcher persists.
+type fakeItemSessionLinker struct {
+	links map[string]store.ItemRef
+	err   error
+}
+
+func (f *fakeItemSessionLinker) LinkItemSession(_ context.Context, sessionID string, ref store.ItemRef) error {
+	if f.err != nil {
+		return f.err
+	}
+	if f.links == nil {
+		f.links = map[string]store.ItemRef{}
+	}
+	f.links[sessionID] = ref
+	return nil
+}
+
+func TestHiveSessionLauncher_LinksTheCreatedSessionToItsItem(t *testing.T) {
+	creator := &fakeSessionCreator{}
+	linker := &fakeItemSessionLinker{}
+	launcher := NewHiveSessionLauncher(creator)
+	launcher.SetItemSessionLinker(linker, zerolog.Nop())
+	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/repo#1"}
+
+	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r", Origin: ref})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]store.ItemRef{"session-1": ref}, linker.links)
+	// The item id also goes on the session as a hive tag, for a reader inside
+	// hive. It is presentational and never read back.
+	require.Len(t, creator.calls, 1)
+	assert.Equal(t, []string{"acme/repo#1"}, creator.calls[0].Tags)
+}
+
+// A session with no item behind it — the blank New Session form, an action run
+// from a terminal target — must not produce a link, or every such session
+// would share one.
+func TestHiveSessionLauncher_LinksNothingWithoutAnOrigin(t *testing.T) {
+	creator := &fakeSessionCreator{}
+	linker := &fakeItemSessionLinker{}
+	launcher := NewHiveSessionLauncher(creator)
+	launcher.SetItemSessionLinker(linker, zerolog.Nop())
+
+	_, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{Name: "review-1", Prompt: "go", Repo: "r"})
+	require.NoError(t, err)
+	assert.Empty(t, linker.links)
+	require.Len(t, creator.calls, 1)
+	assert.Empty(t, creator.calls[0].Tags)
+}
+
+// The session exists either way, so reporting the launch as failed would be a
+// lie — and would invite a retry that creates a second session.
+func TestHiveSessionLauncher_ReportsSuccessWhenTheLinkCannotBeWritten(t *testing.T) {
+	launcher := NewHiveSessionLauncher(&fakeSessionCreator{})
+	launcher.SetItemSessionLinker(&fakeItemSessionLinker{err: errors.New("disk full")}, zerolog.Nop())
+
+	outcome, err := launcher.LaunchSession(t.Context(), LaunchSessionRequest{
+		Name: "review-1", Prompt: "go", Repo: "r",
+		Origin: store.ItemRef{ProfileID: "p", ExternalID: "acme/repo#1"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "session-1", outcome.ID)
+}
+
+// The flow-fired path: a command the engine enqueued carries the item it was
+// routed from, and the executor hands it to the launcher.
+func TestLaunchSessionExecutor_CarriesTheCommandsOriginToTheLauncher(t *testing.T) {
+	launcher := &fakeSessionLauncher{}
+	exec := NewLaunchSessionExecutor(launcher)
+	action := actions.Action{ID: "spawn-review", Type: "launch-session", Config: &actions.LaunchSessionConfig{
+		PromptTemplate: "review", RepoTemplate: "acme/site",
+	}}
+	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", SourceScope: "acct", ExternalID: "acme/site#81"}
+
+	_, err := exec.Execute(t.Context(), action, OutputData{
+		Key: "oc-1", Raw: json.RawMessage(`{}`), Payload: map[string]any{}, Origin: ref,
+	}, ActionInvocationInput{})
+	require.NoError(t, err)
+	require.Len(t, launcher.calls, 1)
+	assert.Equal(t, ref, launcher.calls[0].Origin)
 }

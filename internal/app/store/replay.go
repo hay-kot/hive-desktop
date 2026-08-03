@@ -149,6 +149,11 @@ func (db *DB) PurgeProfile(ctx context.Context, profileID string) error {
 		if err := q.DeleteInboxItemsByProfile(ctx, profileID); err != nil {
 			return fmt.Errorf("purging inbox items: %w", err)
 		}
+		// The sessions themselves are hive's and survive; only the links go,
+		// because there is no longer an item for them to hang off.
+		if err := q.DeleteItemSessionsByProfile(ctx, profileID); err != nil {
+			return fmt.Errorf("purging item session links: %w", err)
+		}
 		if err := q.DeleteConsumerOffsetByConsumer(ctx, profileID); err != nil {
 			return fmt.Errorf("purging consumer offset: %w", err)
 		}

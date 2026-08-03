@@ -7,6 +7,7 @@ import (
 
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 // LaunchSessionRequest is a rendered launch-session action, ready to hand to
@@ -16,6 +17,10 @@ type LaunchSessionRequest struct {
 	Prompt string
 	Agent  string
 	Repo   string
+	// Origin is the inbox item the session is being created for, or a zero
+	// ref for a session that has no item behind it. The launcher records it,
+	// so it is what makes the session findable from the item afterwards.
+	Origin store.ItemRef
 }
 
 // SessionLauncher spawns a hive session for a launch-session action.
@@ -89,7 +94,7 @@ func (e *LaunchSessionExecutor) Execute(ctx context.Context, action actions.Acti
 			return ExecutionResult{}, fmt.Errorf("launch-session: rerun session name: %w", err)
 		}
 	}
-	outcome, err := e.launcher.LaunchSession(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: cfg.Agent, Repo: repo})
+	outcome, err := e.launcher.LaunchSession(ctx, LaunchSessionRequest{Name: name, Prompt: prompt, Agent: cfg.Agent, Repo: repo, Origin: data.Origin})
 	if err != nil {
 		return ExecutionResult{Attempted: true}, err
 	}

@@ -9,12 +9,16 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 )
 
-// CreateSessionRequest is a user-submitted New Session form.
+// CreateSessionRequest is a user-submitted New Session form. ItemID is the
+// inbox item the form was drafted from, or 0 for a blank one; it is an id
+// rather than a ref because the core resolves the item's identity itself and
+// never takes it from a client.
 type CreateSessionRequest struct {
 	Repository string `json:"repository"`
 	Name       string `json:"name"`
 	Prompt     string `json:"prompt"`
 	Agent      string `json:"agent,omitempty"`
+	ItemID     int64  `json:"itemId,omitempty"`
 }
 
 // SessionDraft is a New Session form prefilled from an inbox item.

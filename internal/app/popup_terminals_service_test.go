@@ -19,7 +19,7 @@ func newPopupHarness(t *testing.T, manager *fakeSessionManager) *PopupTerminalsS
 
 func newPopupHarnessWithCatalog(t *testing.T, manager *fakeSessionManager, catalog *actions.ActionStore) *PopupTerminalsService {
 	t.Helper()
-	sessions := newSessionsService(&fakeSessionLauncher{}, manager, manager, &fakeSessionTmux{}, &fakeJobRunner{}, nil, nil, nil)
+	sessions := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
 	pty := ptyterm.NewManager(ptyterm.ManagerOptions{Shell: []string{"/bin/sh"}})
 	t.Cleanup(func() { _ = pty.Stop(t.Context()) })
 	return newPopupTerminalsService(pty, sessions, catalog)

@@ -108,28 +108,49 @@ func (q *Queries) CommitConsumerOffset(ctx context.Context, arg CommitConsumerOf
 }
 
 const confirmOutputCommand = `-- name: ConfirmOutputCommand :one
-INSERT INTO output_command (action_id, key, payload, status, created_at)
-VALUES (?, ?, ?, 'running', ?)
-ON CONFLICT DO UPDATE SET status = 'running'
+INSERT INTO output_command (action_id, key, payload, status, created_at, profile_id, source_kind, source_scope, external_id)
+VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)
+ON CONFLICT DO UPDATE SET
+    status = 'running',
+    profile_id = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                      THEN output_command.profile_id ELSE excluded.profile_id END,
+    source_kind = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                       THEN output_command.source_kind ELSE excluded.source_kind END,
+    source_scope = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                        THEN output_command.source_scope ELSE excluded.source_scope END,
+    external_id = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                       THEN output_command.external_id ELSE excluded.external_id END
 WHERE output_command.status = 'pending'
-RETURNING id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun
+RETURNING id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id
 `
 
 type ConfirmOutputCommandParams struct {
-	ActionID  string `json:"action_id"`
-	Key       string `json:"key"`
-	Payload   []byte `json:"payload"`
-	CreatedAt int64  `json:"created_at"`
+	ActionID    string `json:"action_id"`
+	Key         string `json:"key"`
+	Payload     []byte `json:"payload"`
+	CreatedAt   int64  `json:"created_at"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
 }
 
 // Explicit detail invocation creates work or claims a queued flow command.
-// Terminal/running commands remain deduplicated.
+// Terminal/running commands remain deduplicated. Claiming a queued command
+// keeps the origin the enqueue recorded when that names an item, and takes the
+// caller's only when it does not. The four columns move together: a mix of one
+// row's profile and another's external id would be a reference to no item at
+// all, which is worse than either.
 func (q *Queries) ConfirmOutputCommand(ctx context.Context, arg ConfirmOutputCommandParams) (OutputCommand, error) {
 	row := q.db.QueryRowContext(ctx, confirmOutputCommand,
 		arg.ActionID,
 		arg.Key,
 		arg.Payload,
 		arg.CreatedAt,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
 	)
 	var i OutputCommand
 	err := row.Scan(
@@ -145,6 +166,10 @@ func (q *Queries) ConfirmOutputCommand(ctx context.Context, arg ConfirmOutputCom
 		&i.Stderr,
 		&i.CreatedAt,
 		&i.IsRerun,
+		&i.ProfileID,
+		&i.SourceKind,
+		&i.SourceScope,
+		&i.ExternalID,
 	)
 	return i, err
 }
@@ -420,6 +445,24 @@ func (q *Queries) DeleteInboxItemsByProfile(ctx context.Context, profileID strin
 	return err
 }
 
+const deleteItemSession = `-- name: DeleteItemSession :exec
+DELETE FROM item_session WHERE session_id = ?
+`
+
+func (q *Queries) DeleteItemSession(ctx context.Context, sessionID string) error {
+	_, err := q.db.ExecContext(ctx, deleteItemSession, sessionID)
+	return err
+}
+
+const deleteItemSessionsByProfile = `-- name: DeleteItemSessionsByProfile :exec
+DELETE FROM item_session WHERE profile_id = ?
+`
+
+func (q *Queries) DeleteItemSessionsByProfile(ctx context.Context, profileID string) error {
+	_, err := q.db.ExecContext(ctx, deleteItemSessionsByProfile, profileID)
+	return err
+}
+
 const deleteNodeKV = `-- name: DeleteNodeKV :exec
 DELETE FROM node_kv WHERE flow_id = ? AND node_id = ? AND scope = ? AND key = ?
 `
@@ -545,16 +588,20 @@ func (q *Queries) DeleteUnarchivedFeedMembershipClaimsByProfile(ctx context.Cont
 }
 
 const enqueueOutputCommand = `-- name: EnqueueOutputCommand :exec
-INSERT INTO output_command (action_id, key, payload, status, created_at)
-VALUES (?, ?, ?, 'pending', ?)
+INSERT INTO output_command (action_id, key, payload, status, created_at, profile_id, source_kind, source_scope, external_id)
+VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING
 `
 
 type EnqueueOutputCommandParams struct {
-	ActionID  string `json:"action_id"`
-	Key       string `json:"key"`
-	Payload   []byte `json:"payload"`
-	CreatedAt int64  `json:"created_at"`
+	ActionID    string `json:"action_id"`
+	Key         string `json:"key"`
+	Payload     []byte `json:"payload"`
+	CreatedAt   int64  `json:"created_at"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
 }
 
 // Deduped on (action_id, key): a replayed commit batch enqueues the same
@@ -565,6 +612,10 @@ func (q *Queries) EnqueueOutputCommand(ctx context.Context, arg EnqueueOutputCom
 		arg.Key,
 		arg.Payload,
 		arg.CreatedAt,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
 	)
 	return err
 }
@@ -755,7 +806,7 @@ func (q *Queries) GetInboxItemByID(ctx context.Context, id int64) (InboxItem, er
 }
 
 const getLatestOutputCommandForAction = `-- name: GetLatestOutputCommandForAction :one
-SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun FROM output_command
+SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command
 WHERE action_id = ? AND key = ?
 ORDER BY id DESC
 LIMIT 1
@@ -782,6 +833,10 @@ func (q *Queries) GetLatestOutputCommandForAction(ctx context.Context, arg GetLa
 		&i.Stderr,
 		&i.CreatedAt,
 		&i.IsRerun,
+		&i.ProfileID,
+		&i.SourceKind,
+		&i.SourceScope,
+		&i.ExternalID,
 	)
 	return i, err
 }
@@ -817,7 +872,7 @@ func (q *Queries) GetNodeKV(ctx context.Context, arg GetNodeKVParams) (string, e
 }
 
 const getOutputCommand = `-- name: GetOutputCommand :one
-SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun FROM output_command WHERE id = ?
+SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command WHERE id = ?
 `
 
 func (q *Queries) GetOutputCommand(ctx context.Context, id int64) (OutputCommand, error) {
@@ -836,6 +891,10 @@ func (q *Queries) GetOutputCommand(ctx context.Context, id int64) (OutputCommand
 		&i.Stderr,
 		&i.CreatedAt,
 		&i.IsRerun,
+		&i.ProfileID,
+		&i.SourceKind,
+		&i.SourceScope,
+		&i.ExternalID,
 	)
 	return i, err
 }
@@ -1125,6 +1184,34 @@ func (q *Queries) InsertNodeRun(ctx context.Context, arg InsertNodeRunParams) er
 		arg.Err,
 		arg.EndedAt,
 		arg.DurMs,
+	)
+	return err
+}
+
+const linkItemSession = `-- name: LinkItemSession :exec
+INSERT INTO item_session (session_id, profile_id, source_kind, source_scope, external_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (session_id) DO NOTHING
+`
+
+type LinkItemSessionParams struct {
+	SessionID   string `json:"session_id"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
+// A session hive already minted an id for, so a re-link is the same row.
+func (q *Queries) LinkItemSession(ctx context.Context, arg LinkItemSessionParams) error {
+	_, err := q.db.ExecContext(ctx, linkItemSession,
+		arg.SessionID,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
+		arg.CreatedAt,
 	)
 	return err
 }
@@ -1611,6 +1698,56 @@ func (q *Queries) ListInboxItemsTrash(ctx context.Context, arg ListInboxItemsTra
 	return items, nil
 }
 
+const listItemSessions = `-- name: ListItemSessions :many
+SELECT session_id, profile_id, source_kind, source_scope, external_id, created_at FROM item_session
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?
+ORDER BY created_at DESC, session_id DESC
+`
+
+type ListItemSessionsParams struct {
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
+}
+
+// Newest first: a re-run appends a session rather than replacing one, so the
+// most recent attempt leads.
+func (q *Queries) ListItemSessions(ctx context.Context, arg ListItemSessionsParams) ([]ItemSession, error) {
+	rows, err := q.db.QueryContext(ctx, listItemSessions,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ItemSession{}
+	for rows.Next() {
+		var i ItemSession
+		if err := rows.Scan(
+			&i.SessionID,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listJobs = `-- name: ListJobs :many
 SELECT id, created_at, updated_at, status, label, step, action_id, target, error, command_id FROM job WHERE id < ? ORDER BY id DESC LIMIT ?
 `
@@ -1807,7 +1944,7 @@ func (q *Queries) ListNodeRunsByFlow(ctx context.Context, arg ListNodeRunsByFlow
 }
 
 const listRunnableOutputCommands = `-- name: ListRunnableOutputCommands :many
-SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun FROM output_command
+SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command
 WHERE status = 'pending'
 ORDER BY id ASC
 LIMIT ?
@@ -1837,6 +1974,10 @@ func (q *Queries) ListRunnableOutputCommands(ctx context.Context, limit int64) (
 			&i.Stderr,
 			&i.CreatedAt,
 			&i.IsRerun,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
 		); err != nil {
 			return nil, err
 		}
@@ -1852,7 +1993,7 @@ func (q *Queries) ListRunnableOutputCommands(ctx context.Context, limit int64) (
 }
 
 const listRunnableOutputCommandsAfter = `-- name: ListRunnableOutputCommandsAfter :many
-SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun FROM output_command
+SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command
 WHERE status = 'pending' AND id > ?
 ORDER BY id ASC
 LIMIT ?
@@ -1887,6 +2028,10 @@ func (q *Queries) ListRunnableOutputCommandsAfter(ctx context.Context, arg ListR
 			&i.Stderr,
 			&i.CreatedAt,
 			&i.IsRerun,
+			&i.ProfileID,
+			&i.SourceKind,
+			&i.SourceScope,
+			&i.ExternalID,
 		); err != nil {
 			return nil, err
 		}
@@ -2229,8 +2374,9 @@ func (q *Queries) RenameAgentWorkspaceSession(ctx context.Context, arg RenameAge
 }
 
 const rerunOutputCommand = `-- name: RerunOutputCommand :one
-INSERT INTO output_command (action_id, key, payload, status, created_at, is_rerun)
-SELECT ?1, ?2, ?3, 'running', ?4, 1
+INSERT INTO output_command (action_id, key, payload, status, created_at, is_rerun, profile_id, source_kind, source_scope, external_id)
+SELECT ?1, ?2, ?3, 'running', ?4, 1,
+       ?5, ?6, ?7, ?8
 WHERE EXISTS (
     SELECT 1 FROM output_command
     WHERE action_id = ?1 AND key = ?2
@@ -2241,14 +2387,18 @@ AND NOT EXISTS (
     WHERE action_id = ?1 AND key = ?2
       AND status IN ('pending', 'running')
 )
-RETURNING id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun
+RETURNING id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id
 `
 
 type RerunOutputCommandParams struct {
-	ActionID  string `json:"action_id"`
-	Key       string `json:"key"`
-	Payload   []byte `json:"payload"`
-	CreatedAt int64  `json:"created_at"`
+	ActionID    string `json:"action_id"`
+	Key         string `json:"key"`
+	Payload     []byte `json:"payload"`
+	CreatedAt   int64  `json:"created_at"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
 }
 
 // An explicit user confirmation creates a separate command so prior execution
@@ -2259,6 +2409,10 @@ func (q *Queries) RerunOutputCommand(ctx context.Context, arg RerunOutputCommand
 		arg.Key,
 		arg.Payload,
 		arg.CreatedAt,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.SourceScope,
+		arg.ExternalID,
 	)
 	var i OutputCommand
 	err := row.Scan(
@@ -2274,6 +2428,10 @@ func (q *Queries) RerunOutputCommand(ctx context.Context, arg RerunOutputCommand
 		&i.Stderr,
 		&i.CreatedAt,
 		&i.IsRerun,
+		&i.ProfileID,
+		&i.SourceKind,
+		&i.SourceScope,
+		&i.ExternalID,
 	)
 	return i, err
 }
@@ -2294,6 +2452,33 @@ type RescopeInboxItemParams struct {
 // external_id) index.
 func (q *Queries) RescopeInboxItem(ctx context.Context, arg RescopeInboxItemParams) error {
 	_, err := q.db.ExecContext(ctx, rescopeInboxItem, arg.SourceScope, arg.ID)
+	return err
+}
+
+const rescopeItemSessions = `-- name: RescopeItemSessions :exec
+UPDATE item_session SET source_scope = ?1
+WHERE profile_id = ?2
+  AND source_kind = ?3
+  AND source_scope = ''
+  AND external_id = ?4
+`
+
+type RescopeItemSessionsParams struct {
+	SourceScope string `json:"source_scope"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	ExternalID  string `json:"external_id"`
+}
+
+// Follows an inbox row whose source_scope was healed (see
+// resolveInboxItemScoped), so links keyed on the old scope stay reachable.
+func (q *Queries) RescopeItemSessions(ctx context.Context, arg RescopeItemSessionsParams) error {
+	_, err := q.db.ExecContext(ctx, rescopeItemSessions,
+		arg.SourceScope,
+		arg.ProfileID,
+		arg.SourceKind,
+		arg.ExternalID,
+	)
 	return err
 }
 

@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
+	"github.com/rs/zerolog"
 )
 
 // AgentActivityStatus is this app's own vocabulary for a captured tmux pane's
@@ -89,6 +91,24 @@ type SessionSummary struct {
 	State string `json:"state"`
 }
 
+// ItemSessionView is one hive session an inbox item spawned, as that item's
+// detail pane sees it. Only CreatedAt comes from the link — everything else is
+// read live from hive, so a session renamed or recycled outside this app
+// reports what it actually is rather than what it was when it was created.
+//
+// It carries liveness and not window activity, for the same reason the
+// terminal's session row does: activity belongs to a window, and an item has
+// no window to hang it on.
+type ItemSessionView struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Slug      string    `json:"slug"`
+	Repo      string    `json:"repo"`
+	State     string    `json:"state"`
+	Running   bool      `json:"running"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
 // SessionWindowStatus is one tmux window's detected agent activity.
 type SessionWindowStatus struct {
 	WindowID string `json:"windowId"`
@@ -137,10 +157,19 @@ type SessionRisk struct {
 	RecycleDeletes bool `json:"recycleDeletes"`
 }
 
+// ItemSessionLinker persists the association between an inbox item and a
+// session created for it, so the item can find the session again after a
+// restart. Consumer-defined: the launcher needs one write, not a store.
+type ItemSessionLinker interface {
+	LinkItemSession(ctx context.Context, sessionID string, ref store.ItemRef) error
+}
+
 // HiveSessionLauncher adapts Hive's session service to SessionLauncher.
 type HiveSessionLauncher struct {
 	sessions SessionCreator
 	recorder activity.Recorder
+	links    ItemSessionLinker
+	logger   zerolog.Logger
 }
 
 func NewHiveSessionLauncher(sessions SessionCreator) *HiveSessionLauncher {
@@ -150,6 +179,13 @@ func NewHiveSessionLauncher(sessions SessionCreator) *HiveSessionLauncher {
 // SetRecorder attaches an activity recorder so created sessions surface in the
 // Activity view. Optional: nil (the default) records nothing.
 func (l *HiveSessionLauncher) SetRecorder(r activity.Recorder) { l.recorder = r }
+
+// SetItemSessionLinker attaches the store that remembers which item a session
+// came from. Optional: nil (the default) links nothing, and the session is
+// still created.
+func (l *HiveSessionLauncher) SetItemSessionLinker(links ItemSessionLinker, logger zerolog.Logger) {
+	l.links, l.logger = links, logger
+}
 
 func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessionRequest) (SessionExecutionOutcome, error) {
 	if l.sessions == nil {
@@ -163,12 +199,28 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		}
 		remote, source = repo.Remote, repo.Source
 	}
-	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false})
+	// Tags are hive's own "labels for external provider tracking", so the item
+	// id goes on the session for a reader inside hive. It is presentational
+	// only and never read back: the association this app queries is the one
+	// LinkItemSession writes, and two authorities would be one too many.
+	var tags []string
+	if req.Origin.ExternalID != "" {
+		tags = []string{req.Origin.ExternalID}
+	}
+	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags})
 	if err != nil {
 		if errors.Is(err, session.ErrDuplicateName) {
 			return SessionExecutionOutcome{}, fmt.Errorf("%w: %w", ErrDuplicateSessionName, err)
 		}
 		return SessionExecutionOutcome{}, fmt.Errorf("create hive session: %w", err)
+	}
+	// The session exists either way, so a failed link is logged rather than
+	// returned: reporting the launch as failed would be a lie, and would
+	// invite a retry that creates a second session.
+	if l.links != nil && req.Origin.Known() {
+		if linkErr := l.links.LinkItemSession(ctx, s.ID, req.Origin); linkErr != nil {
+			l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Msg("linking session to its inbox item")
+		}
 	}
 	if l.recorder != nil {
 		name := req.Name
@@ -277,6 +329,39 @@ func (m *HiveSessionManager) SessionStatuses(ctx context.Context) (SessionStatus
 		snapshot.Items = append(snapshot.Items, item)
 	}
 	return snapshot, nil
+}
+
+// RunningSessions reports which of ids currently have a live tmux session. It
+// is the narrow counterpart to SessionStatuses: an inbox item asks about the
+// one or two sessions it spawned, and a full sweep would pay a tmux round trip
+// for every active session in the install to answer that.
+//
+// An unavailable status source is data, not a failure — nothing is reported
+// running, which is what "we cannot see tmux from here" honestly looks like.
+func (m *HiveSessionManager) RunningSessions(ctx context.Context, ids []string) (map[string]bool, error) {
+	running := map[string]bool{}
+	if len(ids) == 0 || m.statuses == nil || !m.statuses.Available() {
+		return running, nil
+	}
+	wanted := make(map[string]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	sessions, err := m.sessions.ListSessions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list hive sessions for status: %w", err)
+	}
+	subset := make([]*session.Session, 0, len(ids))
+	for i := range sessions {
+		if _, ok := wanted[sessions[i].ID]; !ok || sessions[i].State != session.StateActive {
+			continue
+		}
+		subset = append(subset, &sessions[i])
+	}
+	for id, status := range m.statuses.FetchBatch(ctx, subset, nil) {
+		running[id] = status.Running
+	}
+	return running, nil
 }
 
 func (m *HiveSessionManager) SessionDetail(ctx context.Context, id string) (SessionDetail, error) {

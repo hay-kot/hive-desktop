@@ -65,7 +65,7 @@ func TestCommitBatchWritesUseUnixMilliseconds(t *testing.T) {
 func TestConfirmOutputCommandWritesUnixMilliseconds(t *testing.T) {
 	database := openTestDB(t)
 	before := time.Now().UnixMilli()
-	command, created, err := database.ConfirmOutputCommand(t.Context(), "action-a", "item-1", []byte(`{}`))
+	command, created, err := database.ConfirmOutputCommand(t.Context(), "action-a", "item-1", []byte(`{}`), ItemRef{})
 	after := time.Now().UnixMilli()
 	require.NoError(t, err)
 	require.True(t, created)

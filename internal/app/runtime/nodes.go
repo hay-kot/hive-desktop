@@ -107,9 +107,10 @@ func feedSinks(flowID, nodeID string, _ flow.NodeConfig, msg store.Msg) []store.
 }
 
 // actionSinks enqueues an output_command against the referenced actions.yml
-// action. Unlike a feed or notify output it carries no source identity: an
-// action runs over the payload, and its dedup key is the message's own
-// occurrence key.
+// action. An action runs over the payload and dedups on the message's own
+// occurrence key, so the source identity is carried for attribution only —
+// what the command produces (a launched session) belongs to the item the
+// message came from, and the occurrence key cannot name it.
 func actionSinks(_, _ string, cfg flow.NodeConfig, msg store.Msg) []store.Output {
 	config, ok := cfg.(*flow.ActionConfig)
 	if !ok {
@@ -117,8 +118,11 @@ func actionSinks(_, _ string, cfg flow.NodeConfig, msg store.Msg) []store.Output
 	}
 	return []store.Output{{
 		Sink:          store.Sink{Kind: store.SinkKindAction, TargetID: config.Action},
+		Key:           msg.Key,
 		OccurrenceKey: msg.OccurrenceKey,
 		Payload:       msg.Payload,
+		SourceKind:    msg.SourceKind,
+		SourceScope:   msg.SourceScope,
 		SourceTopic:   "",
 	}}
 }

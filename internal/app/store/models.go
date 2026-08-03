@@ -86,6 +86,15 @@ type InboxItem struct {
 	IgnoredAt      sql.NullInt64  `json:"ignored_at"`
 }
 
+type ItemSession struct {
+	SessionID   string `json:"session_id"`
+	ProfileID   string `json:"profile_id"`
+	SourceKind  string `json:"source_kind"`
+	SourceScope string `json:"source_scope"`
+	ExternalID  string `json:"external_id"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
 type Job struct {
 	ID        int64         `json:"id"`
 	CreatedAt int64         `json:"created_at"`
@@ -122,18 +131,22 @@ type NodeRun struct {
 }
 
 type OutputCommand struct {
-	ID         int64          `json:"id"`
-	ActionID   string         `json:"action_id"`
-	Key        string         `json:"key"`
-	Payload    []byte         `json:"payload"`
-	Status     string         `json:"status"`
-	Attempts   int64          `json:"attempts"`
-	LastError  sql.NullString `json:"last_error"`
-	ResultJson sql.NullString `json:"result_json"`
-	Stdout     sql.NullString `json:"stdout"`
-	Stderr     sql.NullString `json:"stderr"`
-	CreatedAt  int64          `json:"created_at"`
-	IsRerun    int64          `json:"is_rerun"`
+	ID          int64          `json:"id"`
+	ActionID    string         `json:"action_id"`
+	Key         string         `json:"key"`
+	Payload     []byte         `json:"payload"`
+	Status      string         `json:"status"`
+	Attempts    int64          `json:"attempts"`
+	LastError   sql.NullString `json:"last_error"`
+	ResultJson  sql.NullString `json:"result_json"`
+	Stdout      sql.NullString `json:"stdout"`
+	Stderr      sql.NullString `json:"stderr"`
+	CreatedAt   int64          `json:"created_at"`
+	IsRerun     int64          `json:"is_rerun"`
+	ProfileID   string         `json:"profile_id"`
+	SourceKind  string         `json:"source_kind"`
+	SourceScope string         `json:"source_scope"`
+	ExternalID  string         `json:"external_id"`
 }
 
 type SourceHead struct {

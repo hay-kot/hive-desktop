@@ -283,6 +283,16 @@ func (ctrl *Controller) baseOperations() []Op {
 			},
 		},
 		{
+			Method: "GET", Path: "/api/inbox/sessions", Summary: "List the hive sessions one inbox item created, newest first, each with the state hive reports for it now; slug is the tmux session name an attach targets. Links to sessions hive no longer has are dropped as a side effect of this read.",
+			Query: ItemSessionsQuery{}, Response: itemSessionsResponse{}, Handler: ctrl.InboxItemSessions,
+			Errors: []ErrResp{
+				{Status: 422, When: "neither itemId nor externalId was given"},
+				{Status: 404, When: "no item matches the externalId, or the itemId does not exist"},
+				{Status: 409, When: "the externalId matches items in more than one profile; add profile to disambiguate"},
+				{Status: 503, When: "session links are unavailable"},
+			},
+		},
+		{
 			Method: "POST", Path: "/api/sources/refresh", Summary: "Force one producer tick across all sources, dropping fetch caches; returns aggregate totals, not a per-source breakdown.",
 			Response: refreshResponse{}, Handler: ctrl.SourcesRefresh,
 			Errors: []ErrResp{{Status: 503, When: "no producer is available (e.g. mock mode)"}},

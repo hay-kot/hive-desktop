@@ -24,7 +24,8 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 
 	for _, table := range []string{
 		"activity_event", "agent_workspace_session", "consumer_offset", "event_log", "feed_membership_claim",
-		"inbox_event", "inbox_item", "job", "node_kv", "node_run", "output_command", "source_head", "webhook_capture",
+		"inbox_event", "inbox_item", "item_session", "job", "node_kv", "node_run", "output_command",
+		"source_head", "webhook_capture",
 	} {
 		_, err := database.Conn().ExecContext(ctx, "SELECT 1 FROM "+table+" LIMIT 0")
 		require.NoError(t, err, "%s table should exist", table)
@@ -34,11 +35,11 @@ func TestOpen_FreshDB_AppliesBaseline(t *testing.T) {
 	require.NoError(t, err)
 	migrations, err := migrate.Load(sub)
 	require.NoError(t, err)
-	require.Len(t, migrations, 6)
+	require.Len(t, migrations, 7)
 
 	applied, err := migrate.AppliedVersions(ctx, database.Conn())
 	require.NoError(t, err)
-	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true}, applied)
+	assert.Equal(t, map[int]bool{1: true, 2: true, 3: true, 4: true, 5: true, 6: true, 7: true}, applied)
 }
 
 func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
@@ -47,7 +48,7 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	first, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, first, "review", "item-1")
-	command, created, err := first.ConfirmOutputCommand(ctx, "review", "item-1", []byte(`{}`))
+	command, created, err := first.ConfirmOutputCommand(ctx, "review", "item-1", []byte(`{}`), ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	job, err := first.InsertJob(ctx, JobRecord{CreatedAt: 1, UpdatedAt: 1, Status: "queued", Label: "Review"})

@@ -38,13 +38,17 @@ export interface ClipboardExecutionOutcome {
 }
 
 /**
- * CreateSessionRequest is a user-submitted New Session form.
+ * CreateSessionRequest is a user-submitted New Session form. ItemID is the
+ * inbox item the form was drafted from, or 0 for a blank one; it is an id
+ * rather than a ref because the core resolves the item's identity itself and
+ * never takes it from a client.
  */
 export interface CreateSessionRequest {
     "repository": string;
     "name": string;
     "prompt": string;
     "agent"?: string;
+    "itemId"?: number;
 }
 
 /**
@@ -55,6 +59,26 @@ export interface ExecutionOutcome {
     "session"?: SessionExecutionOutcome | null;
     "message"?: MessageExecutionOutcome | null;
     "clipboard"?: ClipboardExecutionOutcome | null;
+}
+
+/**
+ * ItemSessionView is one hive session an inbox item spawned, as that item's
+ * detail pane sees it. Only CreatedAt comes from the link — everything else is
+ * read live from hive, so a session renamed or recycled outside this app
+ * reports what it actually is rather than what it was when it was created.
+ * 
+ * It carries liveness and not window activity, for the same reason the
+ * terminal's session row does: activity belongs to a window, and an item has
+ * no window to hang it on.
+ */
+export interface ItemSessionView {
+    "id": string;
+    "name": string;
+    "slug": string;
+    "repo": string;
+    "state": string;
+    "running": boolean;
+    "createdAt": string;
 }
 
 export interface MessageExecutionOutcome {

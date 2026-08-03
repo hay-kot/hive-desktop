@@ -46,6 +46,14 @@ export function InvokeTerminalAction(actionID: string, target: dispatch$0.Termin
 }
 
 /**
+ * ItemSessions returns the sessions an inbox item spawned, newest first, with
+ * the state hive reports for each now. Slug is the attach target.
+ */
+export function ItemSessions(itemID: number): $CancellablePromise<dispatch$0.ItemSessionView[] | null> {
+    return $Call.ByID(4171186493, itemID);
+}
+
+/**
  * ListSessions returns every session in every state; Slug is the tmux target an
  * attach uses, and only an active session has one.
  */

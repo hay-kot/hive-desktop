@@ -39,6 +39,13 @@ func resolveInboxItemScoped(ctx context.Context, q *Queries, profileID, sourceKi
 	if rescopeErr := q.RescopeInboxItem(ctx, RescopeInboxItemParams{SourceScope: sourceScope, ID: legacy.ID}); rescopeErr != nil {
 		return legacy, rescopeErr
 	}
+	// item_session is keyed on these same coordinates, so the links have to
+	// move with the row or they address a scope nothing reads under again.
+	if rescopeErr := q.RescopeItemSessions(ctx, RescopeItemSessionsParams{
+		SourceScope: sourceScope, ProfileID: profileID, SourceKind: sourceKind, ExternalID: externalID,
+	}); rescopeErr != nil {
+		return legacy, rescopeErr
+	}
 	legacy.SourceScope = sourceScope
 	return legacy, nil
 }

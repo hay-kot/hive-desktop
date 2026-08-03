@@ -12,9 +12,9 @@ import IconEllipsis from '~icons/lucide/ellipsis'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
-import type { ActionRunView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
+import type { ActionRunView, ItemSessionView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
-const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
+const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; sessions?: ItemSessionView[]; canAttachSession?: boolean; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
 const emit = defineEmits<{
   'run-action': [actionId: string]
   'open-browser': []
@@ -25,8 +25,20 @@ const emit = defineEmits<{
   'copy-link': []
   'copy-contents': []
   'create-session': []
+  'open-session': [slug: string]
   edit: []
 }>()
+
+// A session is reachable only while it still has a checkout: a recycled or
+// corrupted one has no tmux session to attach to, and its row stays a record
+// of what ran rather than a link. Terminal mode ships dark (ADR 0037), so
+// canAttachSession is false until it is switched on.
+const attachableSessions = computed(() => new Set(
+  (props.sessions ?? []).filter((session) => session.state === 'active').map((session) => session.id),
+))
+function attachable(session: ItemSessionView): boolean {
+  return !!props.canAttachSession && attachableSessions.value.has(session.id)
+}
 
 const itemMenuToggle = ref<HTMLElement | null>(null)
 const itemMenuOpen = ref(false)
@@ -150,6 +162,33 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
             <ActionCard v-for="action in actions" :key="action.id" :action="action" :pending="pendingAction === action.id" :run="actionRuns?.[action.id]" @run="emit('run-action', action.id)" />
           </div>
         </template>
+        <!-- Sessions this item spawned. Absent rather than empty when it has
+             none: an item that never started work should not carry a heading
+             announcing that. -->
+        <section v-if="(sessions ?? []).length" class="mt-6 border-t border-border pt-4" data-testid="item-sessions">
+          <h2 class="mb-3 font-mono text-[10.5px] tracking-[.12em] text-accent">SESSIONS</h2>
+          <ul class="session-list">
+            <li v-for="session in sessions ?? []" :key="session.id">
+              <component
+                :is="attachable(session) ? 'button' : 'div'"
+                class="session-row"
+                :class="{ 'session-row-linked': attachable(session) }"
+                :data-testid="'item-session-' + session.id"
+                v-bind="attachable(session) ? { type: 'button' } : {}"
+                @click="attachable(session) && emit('open-session', session.slug)"
+              >
+                <span class="session-dot" :class="session.running ? 'session-dot-live' : 'session-dot-idle'" />
+                <span class="min-w-0 flex-1 truncate text-[13px] text-text">{{ session.name }}</span>
+                <span class="shrink-0 font-mono text-[10.5px] text-text-4">{{ session.running ? 'running' : session.state === 'active' ? 'idle' : session.state }}</span>
+              </component>
+              <p class="session-meta">
+                <span v-if="session.repo" class="truncate">{{ session.repo }}</span>
+                <span v-if="session.repo">·</span>
+                <span>{{ relativeAge(new Date(session.createdAt).getTime()) }}</span>
+              </p>
+            </li>
+          </ul>
+        </section>
         <section v-if="(events ?? []).length" class="mt-6 border-t border-border pt-4" data-testid="observed-activity">
           <h2 class="mb-3 font-mono text-[10.5px] tracking-[.12em] text-accent">ACTIVITY</h2>
           <ol class="space-y-2"><li v-for="event in events ?? []" :key="event.id" class="text-xs text-text-3"><span class="text-text-2">{{ event.summary || event.kind }}</span><span v-if="event.summary && event.kind !== 'observed'" class="ml-1 font-mono text-[10px] text-text-4">{{ event.kind.replaceAll('_', ' ') }}</span><span class="ml-2 font-mono text-[10px]">{{ relativeAge(event.createdAt) }}</span></li></ol>
@@ -171,6 +210,15 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .more-button { height: 24px; padding: 0 5px; }
 .edit-button:hover, .more-button:hover, .more-button[aria-expanded="true"] { border-color: var(--color-strong); color: var(--color-text); }
 .action-list { overflow: hidden; border: 1px solid var(--color-card); border-radius: 9px; background: var(--color-raised); }
+.session-list { display: flex; flex-direction: column; gap: 10px; }
+.session-row { display: flex; width: 100%; align-items: center; gap: 8px; text-align: left; }
+.session-row-linked { cursor: pointer; }
+.session-row-linked:hover .session-dot { box-shadow: 0 0 0 3px var(--color-chip); }
+.session-row-linked:hover span:not(.session-dot) { color: var(--color-accent); }
+.session-dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.session-dot-live { background: var(--color-accent); }
+.session-dot-idle { background: var(--color-strong); }
+.session-meta { display: flex; gap: 5px; padding-left: 15px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; }
 .action-footer-meta { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 
 /* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline
