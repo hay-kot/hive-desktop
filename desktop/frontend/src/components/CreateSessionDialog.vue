@@ -73,7 +73,7 @@ useAutofocus(nameInput)
         />
       </div>
       <label class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Session name
-        <input ref="nameInput" v-model="name" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="session-name">
+        <input ref="nameInput" v-model="name" autocapitalize="off" autocorrect="off" spellcheck="false" class="rounded-lg border border-strong bg-app px-3 py-2.5 text-[13px] text-text outline-none focus:border-accent" placeholder="review-pr-123" data-testid="session-name">
       </label>
       <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Agent <span class="font-normal text-text-4">(optional)</span>
         <AppSelect
