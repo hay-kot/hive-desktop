@@ -47,7 +47,7 @@ func TestResolvePathsUsesResolvedYAMLMockMode(t *testing.T) {
 	t.Setenv(EnvConfigDir, filepath.Join(root, "config"))
 	unsetEnv(t, EnvMockMode)
 
-	paths := ResolvePaths(Bootstrap{}, MockOnboarding)
+	paths := ResolvePaths(Bootstrap{}, ResolveOptions{MockMode: MockOnboarding})
 	require.NotEqual(t, filepath.Join(root, "config", "flows"), paths.FlowsDir)
 }
 
@@ -63,7 +63,7 @@ func TestHiveDataDirDefaultsToDataDir(t *testing.T) {
 	t.Setenv(EnvDataDir, data)
 	unsetEnv(t, EnvHiveDataDir)
 
-	assert.Equal(t, data, ResolvePaths(Bootstrap{}, "").HiveDataDir)
+	assert.Equal(t, data, ResolvePaths(Bootstrap{}, ResolveOptions{}).HiveDataDir)
 }
 
 func TestHiveDataDirOverrideKeepsDesktopStateIsolated(t *testing.T) {
@@ -72,8 +72,49 @@ func TestHiveDataDirOverrideKeepsDesktopStateIsolated(t *testing.T) {
 	t.Setenv(EnvDataDir, data)
 	t.Setenv(EnvHiveDataDir, hive)
 
-	paths := ResolvePaths(Bootstrap{}, "")
+	paths := ResolvePaths(Bootstrap{}, ResolveOptions{})
 	assert.Equal(t, hive, paths.HiveDataDir, "hive.db follows the override")
 	assert.Equal(t, data, paths.DataDir)
 	assert.Equal(t, filepath.Join(data, "desktop"), paths.StateDir, "desktop state stays under the isolated data dir")
+}
+
+func TestAgentWorkspacesRootResolution(t *testing.T) {
+	t.Run("DefaultsUnderConfigDir", func(t *testing.T) {
+		unsetEnv(t, EnvAgentWorkspacesDir)
+		config := filepath.Join(t.TempDir(), "config")
+
+		paths := ResolvePaths(Bootstrap{ConfigDir: config}, ResolveOptions{})
+		assert.Equal(t, filepath.Join(config, "workspaces"), paths.AgentWorkspacesDir)
+	})
+
+	// A non-empty ResolveOptions field is the settings-driven re-run's way of
+	// carrying agent_workspaces.dir past the immutable Paths snapshot.
+	t.Run("ResolveOptionsFieldWins", func(t *testing.T) {
+		unsetEnv(t, EnvAgentWorkspacesDir)
+		root := t.TempDir()
+		custom := filepath.Join(root, "custom-workspaces")
+
+		paths := ResolvePaths(Bootstrap{ConfigDir: filepath.Join(root, "config")}, ResolveOptions{AgentWorkspacesDir: custom})
+		assert.Equal(t, custom, paths.AgentWorkspacesDir)
+	})
+
+	t.Run("TildeExpands", func(t *testing.T) {
+		unsetEnv(t, EnvAgentWorkspacesDir)
+		home, err := os.UserHomeDir()
+		require.NoError(t, err)
+
+		paths := ResolvePaths(Bootstrap{}, ResolveOptions{AgentWorkspacesDir: "~/agent-workspaces"})
+		assert.Equal(t, filepath.Join(home, "agent-workspaces"), paths.AgentWorkspacesDir)
+	})
+
+	// The env var exists so an ops override can take effect without editing
+	// settings.yaml, which only works if it wins over a persisted value.
+	t.Run("EnvWinsOverYAML", func(t *testing.T) {
+		root := t.TempDir()
+		envDir := filepath.Join(root, "env-workspaces")
+		t.Setenv(EnvAgentWorkspacesDir, envDir)
+
+		paths := ResolvePaths(Bootstrap{}, ResolveOptions{AgentWorkspacesDir: filepath.Join(root, "yaml-workspaces")})
+		assert.Equal(t, envDir, paths.AgentWorkspacesDir)
+	})
 }

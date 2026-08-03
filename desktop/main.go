@@ -48,7 +48,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	paths := settings.ResolvePaths(bootstrap, "")
+	paths := settings.ResolvePaths(bootstrap, settings.ResolveOptions{})
 	level, err := settings.ResolveLogLevel()
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +71,10 @@ func main() {
 	// Mock mode can select an isolated flows directory, so finalize the path
 	// snapshot only after settings and environment precedence are resolved.
 	initialLogPath := paths.LogFile
-	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	paths = settings.ResolvePaths(bootstrap, settings.ResolveOptions{
+		MockMode:           cfg.MockMode(),
+		AgentWorkspacesDir: cfg.AgentWorkspaces.Dir,
+	})
 	if paths.LogFile != initialLogPath {
 		logCloser()
 		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level)

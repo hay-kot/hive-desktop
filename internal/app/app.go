@@ -211,7 +211,7 @@ type App struct {
 func New(ctx context.Context, cfg Config) (*App, error) {
 	if cfg.Paths.SettingsPath == "" {
 		b, _ := settings.LoadBootstrap()
-		cfg.Paths = settings.ResolvePaths(b, cfg.MockMode)
+		cfg.Paths = settings.ResolvePaths(b, settings.ResolveOptions{MockMode: cfg.MockMode})
 	}
 	if cfg.SettingsStore == nil {
 		cfg.SettingsStore = settings.NewStore(cfg.Paths.SettingsPath)

@@ -115,6 +115,13 @@ type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
 }
 
+// AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
+// <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
+// configurable because iCloud Drive is an expected destination (spec §4.4).
+type AgentWorkspacesSettings struct {
+	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR"`
+}
+
 // PathsSettings locates the external binaries the app execs. Each is the escape
 // hatch for an install discovery does not know about (ADR 0039): empty — the
 // shipped value — searches PATH and the usual package-manager prefixes.
@@ -216,13 +223,14 @@ type Settings struct {
 	Notifications NotificationSettings `yaml:"notifications"`
 	// No omitempty: with terminal_show_windows off and nothing else set the
 	// struct is all-zero, and an omitted section would read back as defaults.
-	Appearance   Appearance           `yaml:"appearance"`
-	HTTP         HTTPSettings         `yaml:"http"`
-	Keybindings  map[string][]string  `yaml:"keybindings,omitempty"`
-	Skills       SkillsSettings       `yaml:"skills"`
-	Paths        PathsSettings        `yaml:"paths,omitempty"`
-	Experimental ExperimentalSettings `yaml:"experimental,omitempty"`
-	Development  DevelopmentSettings  `yaml:"development"`
+	Appearance      Appearance              `yaml:"appearance"`
+	HTTP            HTTPSettings            `yaml:"http"`
+	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
+	Skills          SkillsSettings          `yaml:"skills"`
+	Paths           PathsSettings           `yaml:"paths,omitempty"`
+	Experimental    ExperimentalSettings    `yaml:"experimental,omitempty"`
+	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
+	Development     DevelopmentSettings     `yaml:"development"`
 
 	overrides map[string]bool
 }

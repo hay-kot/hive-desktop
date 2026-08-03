@@ -46,7 +46,7 @@ func TestBootstrapRoundtrip(t *testing.T) {
 func TestResolvePathsUsesBootstrapWhenEnvUnset(t *testing.T) {
 	unsetEnv(t, EnvDataDir)
 	unsetEnv(t, EnvConfigDir)
-	paths := ResolvePaths(Bootstrap{DataDir: "/custom/data", ConfigDir: "/custom/cfg"}, "")
+	paths := ResolvePaths(Bootstrap{DataDir: "/custom/data", ConfigDir: "/custom/cfg"}, ResolveOptions{})
 	require.Equal(t, "/custom/data", paths.DataDir)
 	require.Equal(t, "/custom/cfg", paths.ConfigDir)
 }
@@ -54,7 +54,7 @@ func TestResolvePathsUsesBootstrapWhenEnvUnset(t *testing.T) {
 func TestResolvePathsKeepsExplicitEnv(t *testing.T) {
 	t.Setenv(EnvDataDir, "/env/data")
 	t.Setenv(EnvConfigDir, "/env/cfg")
-	paths := ResolvePaths(Bootstrap{DataDir: "/custom/data", ConfigDir: "/custom/cfg"}, "")
+	paths := ResolvePaths(Bootstrap{DataDir: "/custom/data", ConfigDir: "/custom/cfg"}, ResolveOptions{})
 	require.Equal(t, "/env/data", paths.DataDir)
 	require.Equal(t, "/env/cfg", paths.ConfigDir)
 }

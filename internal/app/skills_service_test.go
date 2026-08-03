@@ -17,7 +17,7 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	t.Helper()
 	b, err := settings.LoadBootstrap()
 	require.NoError(t, err)
-	paths := settings.ResolvePaths(b, "")
+	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
 	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", 24917))
 	installer, err := skills.NewInstaller(filepath.Join(t.TempDir(), "skills.json"))

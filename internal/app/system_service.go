@@ -28,7 +28,7 @@ func newSystemService(paths ...settings.Paths) *SystemService {
 		return &SystemService{paths: paths[0]}
 	}
 	b, _ := settings.LoadBootstrap()
-	return &SystemService{paths: settings.ResolvePaths(b, settings.MockMode())}
+	return &SystemService{paths: settings.ResolvePaths(b, settings.ResolveOptions{MockMode: settings.MockMode()})}
 }
 
 // PathInfo describes a single on-disk location.

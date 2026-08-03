@@ -6,6 +6,7 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 )
 
@@ -24,6 +25,13 @@ const (
 
 	EnvExperimentalTerminal = "HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"
 
+	// EnvAgentWorkspacesDir is the environment name behind
+	// agent_workspaces.dir. Named here, duplicating the settings.go struct
+	// tag, because a struct tag cannot reference a const and startup reports
+	// provenance by name — the same duplication EnvExperimentalTerminal
+	// already carries for experimental.terminal.
+	EnvAgentWorkspacesDir = "HIVE_DESKTOP_AGENT_WORKSPACES_DIR"
+
 	EnvPerfEnabled = "HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"
 )
 
@@ -35,12 +43,15 @@ type Paths struct {
 	// HiveDataDir holds hive.db, shared with the external hive CLI. It defaults
 	// to DataDir; dev overrides it to the installed hive data dir so sessions
 	// created in dev land in the real database while desktop state stays isolated.
-	HiveDataDir          string
-	StateDir             string
-	ConfigDir            string
-	ConfigPath           string
-	FlowsDir             string
-	ActionsPath          string
+	HiveDataDir string
+	StateDir    string
+	ConfigDir   string
+	ConfigPath  string
+	FlowsDir    string
+	ActionsPath string
+	// AgentWorkspacesDir is the agent-workspace root: agent_workspaces.dir,
+	// resolved and `~`-expanded, or <ConfigDir>/workspaces when unset.
+	AgentWorkspacesDir   string
 	SettingsPath         string
 	CredentialsIndexPath string
 	LogFile              string
@@ -48,9 +59,20 @@ type Paths struct {
 	ConfigDirOverridden  bool
 }
 
-// ResolvePaths applies explicit environment overrides over bootstrap values,
-// then XDG defaults. mockMode only affects the isolated onboarding flow path.
-func ResolvePaths(b Bootstrap, mockMode string) Paths {
+// ResolveOptions carries the settings-derived inputs to path resolution. They
+// are arguments rather than a post-hoc copy because Paths is a snapshot:
+// every field is resolved once, by one function.
+type ResolveOptions struct {
+	// MockMode only affects the isolated onboarding flow path.
+	MockMode string
+	// AgentWorkspacesDir is settings' agent_workspaces.dir. Empty resolves to
+	// <ConfigDir>/workspaces; a leading `~` is expanded here.
+	AgentWorkspacesDir string
+}
+
+// ResolvePaths applies explicit environment overrides over bootstrap and
+// settings values, then XDG defaults.
+func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 	dataDir, dataEnv := os.LookupEnv(EnvDataDir)
 	dataOverride := dataEnv && dataDir != ""
 	if !dataOverride {
@@ -87,7 +109,7 @@ func ResolvePaths(b Bootstrap, mockMode string) Paths {
 	stateDir := filepath.Join(dataDir, "desktop")
 	flowsDir := os.Getenv(EnvFlowsDir)
 	if flowsDir == "" {
-		if mockMode == MockOnboarding {
+		if opts.MockMode == MockOnboarding {
 			flowsDir = onboardingFlowsDir()
 		}
 		if flowsDir == "" {
@@ -98,6 +120,17 @@ func ResolvePaths(b Bootstrap, mockMode string) Paths {
 	if actionsPath == "" {
 		actionsPath = filepath.Join(configDir, "actions.yml")
 	}
+
+	agentWorkspacesDir, agentWorkspacesEnv := os.LookupEnv(EnvAgentWorkspacesDir)
+	if !agentWorkspacesEnv || agentWorkspacesDir == "" {
+		agentWorkspacesDir = opts.AgentWorkspacesDir
+	}
+	if agentWorkspacesDir == "" {
+		agentWorkspacesDir = filepath.Join(configDir, "workspaces")
+	} else {
+		agentWorkspacesDir = expandHome(agentWorkspacesDir)
+	}
+
 	return Paths{
 		DataDir:              dataDir,
 		HiveDataDir:          hiveDataDir,
@@ -106,12 +139,27 @@ func ResolvePaths(b Bootstrap, mockMode string) Paths {
 		ConfigPath:           filepath.Join(configDir, "profiles.yaml"),
 		FlowsDir:             flowsDir,
 		ActionsPath:          actionsPath,
+		AgentWorkspacesDir:   agentWorkspacesDir,
 		SettingsPath:         filepath.Join(configDir, settingsFileName),
 		CredentialsIndexPath: filepath.Join(stateDir, "credentials.json"),
 		LogFile:              filepath.Join(stateDir, logFileName),
 		DataDirOverridden:    dataOverride || b.DataDir != "",
 		ConfigDirOverridden:  configOverride || b.ConfigDir != "",
 	}
+}
+
+// expandHome resolves a leading `~` in a configured agent-workspace root.
+// Every other Paths field is derived from XDG bases and is already absolute,
+// so this is the one place ResolvePaths needs it.
+func expandHome(dir string) string {
+	if dir != "~" && !strings.HasPrefix(dir, "~/") {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return dir
+	}
+	return filepath.Join(home, strings.TrimPrefix(dir, "~"))
 }
 
 func envMockMode() string {
@@ -124,7 +172,7 @@ func envMockMode() string {
 
 func defaultPaths() Paths {
 	b, _ := LoadBootstrap()
-	return ResolvePaths(b, envMockMode())
+	return ResolvePaths(b, ResolveOptions{MockMode: envMockMode()})
 }
 
 // Package-level helpers are retained for isolated tests and e2e harnesses.

@@ -385,7 +385,7 @@ func installedPaths() (settings.Paths, error) {
 	if err != nil {
 		return settings.Paths{}, fmt.Errorf("load installed bootstrap: %w", err)
 	}
-	return settings.ResolvePaths(bootstrap, ""), nil
+	return settings.ResolvePaths(bootstrap, settings.ResolveOptions{}), nil
 }
 
 // freePorts allocates count distinct free loopback ports, none of them in
