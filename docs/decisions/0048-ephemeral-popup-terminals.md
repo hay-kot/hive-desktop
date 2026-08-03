@@ -1,6 +1,6 @@
 # 0048 — Ephemeral pop-up terminals this process owns, beside the tmux ones it does not
 
-- **Status:** proposed
+- **Status:** proposed; point 2 amended by [ADR 0060](0060-ptyterm-terminals-are-caller-addressed.md) — a caller may now supply the terminal's id rather than always receiving a minted one
 - **Date:** 2026-07-30
 
 ## Context

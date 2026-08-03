@@ -17,7 +17,6 @@ import (
 // slug, so it is its own path space rather than more verbs on the tmux one.
 const (
 	PopupTerminalPathPrefix = "/api/terminal/popup/"
-	PopupTerminalStreamPath = "/api/terminal/popup/stream"
 
 	maxPopupCommand = 2000
 	maxPopupDir     = 4096

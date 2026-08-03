@@ -12,9 +12,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 )
 
-// The pop-up data plane. One socket carries exactly one terminal — the id is in
-// the query string, not in every frame — so output is a byte payload behind a
-// single tag and xterm.js writes it without a decode step.
+// The ptyterm data plane, shared by every caller that addresses a terminal by
+// id (ADR 0060) — today the pop-up, and a workspace session once phase 5 lands.
+// One socket carries exactly one terminal — the id is in the query string, not
+// in every frame — so output is a byte payload behind a single tag and
+// xterm.js writes it without a decode step.
 //
 //	server -> client
 //	  0x00 Output [0x00][raw bytes]
@@ -22,16 +24,21 @@ import (
 //	client -> server
 //	  0x10 Input  [0x10][raw bytes]
 const (
+	// PTYStreamPath is the data plane's mount path, under TerminalPathPrefix so
+	// the bearer token and CORS policy already guarding the terminal surface
+	// cover it (ADR 0048 point 4).
+	PTYStreamPath = "/api/terminal/pty/stream"
+
 	popupFrameOutput byte = 0x00
 	popupFrameExit   byte = 0x01
 	popupFrameInput  byte = 0x10
 )
 
-// PopupTerminalStreamHandler returns the mount path and the raw handler for the
-// pop-up data plane. Like the tmux stream it is mounted on its own rather than
+// PTYStreamHandler returns the mount path and the raw handler for the ptyterm
+// data plane. Like the tmux stream it is mounted on its own rather than
 // joining the operations table: the errchain cannot frame a hijacked socket.
-func PopupTerminalStreamHandler(core *app.App, token string, origins []string, log zerolog.Logger) (string, http.Handler) {
-	return PopupTerminalStreamPath, &popupTerminalStream{core: core, token: token, origins: origins, log: log}
+func PTYStreamHandler(core *app.App, token string, origins []string, log zerolog.Logger) (string, http.Handler) {
+	return PTYStreamPath, &popupTerminalStream{core: core, token: token, origins: origins, log: log}
 }
 
 type popupTerminalStream struct {

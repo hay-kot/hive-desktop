@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -36,6 +37,13 @@ const (
 	// Output coalesces, so this is reached only by a consumer that has stopped
 	// reading rather than by one that is merely behind.
 	defaultBufferBytes = 4 << 20
+
+	// maxConcurrentSessions bounds Open across every caller. Each terminal is an
+	// agent CLI spawning its own copy of every enabled MCP server, so with no
+	// idle reaping and no cap this is a fork bomb with a progress bar; the
+	// pop-up's former one-at-a-time behaviour was frontend policy, not a limit
+	// the manager enforced (ADR 0060).
+	maxConcurrentSessions = 8
 )
 
 var (
@@ -47,13 +55,49 @@ var (
 	ErrInvalidSpec = errors.New("ptyterm: invalid terminal spec")
 	// ErrNotFound is returned for an id with no live terminal.
 	ErrNotFound = errors.New("ptyterm: no such terminal")
+	// ErrIDInUse reports a caller-supplied id that already addresses a live
+	// terminal.
+	ErrIDInUse = errors.New("ptyterm: terminal id already in use")
+	// ErrInvalidID reports an id that is malformed or that collides with the
+	// minted namespace.
+	ErrInvalidID = errors.New("ptyterm: invalid terminal id")
+	// ErrTooManyTerminals reports the concurrency cap.
+	ErrTooManyTerminals = errors.New("ptyterm: too many terminals are open")
 )
+
+// idPattern is the caller-id charset: safe as a map key today and, since a
+// workspace session's id is durable (ADR 0060), safe wherever a future caller
+// wants to fold it into a path.
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+
+// mintedIDPattern is the shape Open mints when Spec.ID is empty. A caller id
+// matching it is rejected so a mint can never collide with an address a
+// caller is already holding.
+var mintedIDPattern = regexp.MustCompile(`^t[0-9]+$`)
+
+// validateID accepts [A-Za-z0-9_.-]{1,64} and rejects the minted form t<N>.
+func validateID(id string) error {
+	if !idPattern.MatchString(id) {
+		return fmt.Errorf("%w: %q", ErrInvalidID, id)
+	}
+	if strings.Contains(id, "..") {
+		return fmt.Errorf("%w: %q", ErrInvalidID, id)
+	}
+	if mintedIDPattern.MatchString(id) {
+		return fmt.Errorf("%w: %q collides with the minted namespace", ErrInvalidID, id)
+	}
+	return nil
+}
 
 // Spec is one terminal's launch. Command is a shell command line rather than an
 // argv: it is run through a login shell, so what a user would type into their
 // own terminal — aliases, functions, a PATH set by their startup files — is
 // what runs. Empty opens an interactive shell instead.
 type Spec struct {
+	// ID addresses the terminal. Empty mints one; a non-empty id already live
+	// is ErrIDInUse rather than a second terminal, because the caller's id is
+	// what it will reattach with.
+	ID      string
 	Dir     string
 	Command string
 	Cols    int
@@ -115,7 +159,9 @@ func (m *Manager) Available(context.Context) error {
 
 // Open launches a terminal and returns it. Dir must already be a directory the
 // process can enter — a spec is rejected rather than opening a terminal
-// somewhere the caller did not ask for.
+// somewhere the caller did not ask for. A non-empty Spec.ID is honoured rather
+// than minted; a mint never collides with it because validateID rejects the
+// minted shape as a caller id.
 func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 	if err := m.Available(ctx); err != nil {
 		return Terminal{}, err
@@ -130,6 +176,11 @@ func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 	if err := validateSize(cols, rows); err != nil {
 		return Terminal{}, err
 	}
+	if spec.ID != "" {
+		if err := validateID(spec.ID); err != nil {
+			return Terminal{}, err
+		}
+	}
 
 	argv := m.argv(spec.Command)
 
@@ -138,8 +189,18 @@ func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 		m.mu.Unlock()
 		return Terminal{}, ErrUnavailable
 	}
-	m.nextID++
-	id := fmt.Sprintf("t%d", m.nextID)
+	if len(m.terminals) >= maxConcurrentSessions {
+		m.mu.Unlock()
+		return Terminal{}, ErrTooManyTerminals
+	}
+	id := spec.ID
+	if id == "" {
+		m.nextID++
+		id = fmt.Sprintf("t%d", m.nextID)
+	} else if _, exists := m.terminals[id]; exists {
+		m.mu.Unlock()
+		return Terminal{}, ErrIDInUse
+	}
 	m.mu.Unlock()
 
 	t, err := spawn(spawnOptions{
@@ -159,10 +220,21 @@ func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 	}
 
 	m.mu.Lock()
-	if m.stopped {
+	switch {
+	case m.stopped:
 		m.mu.Unlock()
 		t.close()
 		return Terminal{}, ErrUnavailable
+	case spec.ID != "" && m.terminals[id] != nil:
+		// Another Open for the same id won the race while this one spawned.
+		m.mu.Unlock()
+		t.close()
+		return Terminal{}, ErrIDInUse
+	case len(m.terminals) >= maxConcurrentSessions:
+		// The cap filled while this one spawned.
+		m.mu.Unlock()
+		t.close()
+		return Terminal{}, ErrTooManyTerminals
 	}
 	m.terminals[id] = t
 	m.order = append(m.order, id)

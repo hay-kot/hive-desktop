@@ -162,11 +162,12 @@ func main() {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 		}
-		// The pop-up terminal's own stream. It carries one terminal per socket
-		// rather than a session's window set (ADR 0045).
-		if path, handler := httpapi.PopupTerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+		// The ptyterm data plane. It carries one terminal per socket rather than a
+		// session's window set (ADR 0045), and is addressed by an id a caller may
+		// supply as well as one this process mints (ADR 0060).
+		if path, handler := httpapi.PTYStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}
-			logger.Info().Str("path", path).Msg("popup terminal WebSocket stream mounted")
+			logger.Info().Str("path", path).Msg("ptyterm WebSocket stream mounted")
 		}
 	}
 	// pprof shares the same server when enabled (ADR 0023).

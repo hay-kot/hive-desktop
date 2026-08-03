@@ -208,3 +208,81 @@ func TestSizeBounds(t *testing.T) {
 	require.ErrorIs(t, m.Resize(term.ID, 0, 24), ErrInvalidSize)
 	require.ErrorIs(t, m.Resize(term.ID, 80, maxDimension+1), ErrInvalidSize)
 }
+
+// A caller that already knows the id it wants to reattach with gets exactly
+// that id back, not a minted one.
+func TestOpenHonoursACallerSuppliedID(t *testing.T) {
+	m := testManager(t)
+
+	term, err := m.Open(t.Context(), Spec{ID: "workspace-session-1", Dir: t.TempDir()})
+	require.NoError(t, err)
+	require.Equal(t, "workspace-session-1", term.ID)
+
+	got, err := m.Get("workspace-session-1")
+	require.NoError(t, err)
+	require.Equal(t, term, got)
+}
+
+// A second Open for an id already live is a rejection, not a second terminal —
+// the caller's id is what it will reattach with, so a collision must not spawn
+// a second process silently claiming it.
+func TestOpenRejectsADuplicateID(t *testing.T) {
+	m := testManager(t)
+
+	first, err := m.Open(t.Context(), Spec{ID: "dup", Dir: t.TempDir()})
+	require.NoError(t, err)
+
+	_, err = m.Open(t.Context(), Spec{ID: "dup", Dir: t.TempDir()})
+	require.ErrorIs(t, err, ErrIDInUse)
+
+	require.Equal(t, []Terminal{first}, m.List(), "the rejected Open spawned nothing")
+}
+
+// A mint must never be able to collide with an address a caller is holding, so
+// the minted shape is off-limits as a caller-supplied id.
+func TestCallerIDCannotCollideWithAMintedID(t *testing.T) {
+	m := testManager(t)
+
+	for _, id := range []string{"t1", "t2", "t99", "t0"} {
+		_, err := m.Open(t.Context(), Spec{ID: id, Dir: t.TempDir()})
+		require.ErrorIs(t, err, ErrInvalidID, "id %q", id)
+	}
+	require.Empty(t, m.List())
+}
+
+func TestValidateIDBounds(t *testing.T) {
+	require.ErrorIs(t, validateID(""), ErrInvalidID, "empty")
+	require.ErrorIs(t, validateID(strings.Repeat("a", 65)), ErrInvalidID, "65 characters")
+	require.ErrorIs(t, validateID("has/slash"), ErrInvalidID, "slash")
+	require.ErrorIs(t, validateID("has..dots"), ErrInvalidID, "..")
+	require.ErrorIs(t, validateID("has space"), ErrInvalidID, "space")
+	require.ErrorIs(t, validateID("has\x00nul"), ErrInvalidID, "NUL")
+
+	require.NoError(t, validateID(strings.Repeat("a", 64)), "64 characters is in bounds")
+}
+
+// The cap is the cheapest bound that stops an enthusiastic afternoon from
+// being a fork bomb with a progress bar: the ninth terminal is refused before
+// a process is spawned, and closing one makes room for the next.
+func TestOpenCapsConcurrentTerminals(t *testing.T) {
+	m := testManager(t)
+	dir := t.TempDir()
+
+	var opened []Terminal
+	for range maxConcurrentSessions {
+		term, err := m.Open(t.Context(), Spec{Dir: dir})
+		require.NoError(t, err)
+		opened = append(opened, term)
+	}
+
+	_, err := m.Open(t.Context(), Spec{Dir: dir})
+	require.ErrorIs(t, err, ErrTooManyTerminals)
+	require.Len(t, m.List(), maxConcurrentSessions, "the rejected Open spawned nothing")
+
+	closed, err := m.Close(opened[0].ID)
+	require.NoError(t, err)
+	require.True(t, closed)
+
+	_, err = m.Open(t.Context(), Spec{Dir: dir})
+	require.NoError(t, err, "closing one makes room for the next")
+}

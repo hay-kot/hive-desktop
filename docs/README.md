@@ -68,6 +68,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0057](decisions/0057-the-sidebar-tree-is-the-only-window-list.md) | The sidebar tree is the only window list; the tab strip is deleted |
 | [0058](decisions/0058-flows-are-dry-run-against-supplied-input.md) | Flows are dry-run against supplied input, not deployed to be observed |
 | [0059](decisions/0059-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call |
+| [0060](decisions/0060-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
 
 ## References
 
