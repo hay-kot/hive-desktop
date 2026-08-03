@@ -9,6 +9,7 @@ import { resetTerminalSessionsForTests } from '../../composables/useTerminalSess
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
+import { focusTerminalFilter, paneMayAutoFocus, selectTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
@@ -104,6 +105,16 @@ function fakeSession() {
   }
 }
 
+// What is actually on screen: every pooled session's panes stay mounted, and
+// only the visible session's active window is shown. Read off v-show's own
+// inline style — isVisible() resolves through getComputedStyle, which happy-dom
+// does not derive from it, so it answers true for a hidden pane.
+function shownWindow(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): string | undefined {
+  return wrapper.findAll('[data-testid="terminal-pane"]')
+    .find((pane) => (pane.element as HTMLElement).style.display !== 'none')
+    ?.attributes('data-window-id')
+}
+
 // TerminalMode only renders under the terminal route in App.vue, so every
 // mount starts there; tests deep-link by passing the session in the path.
 // Transitions are stubbed because happy-dom never fires transitionend, which
@@ -136,6 +147,7 @@ describe('TerminalMode', () => {
     resetTerminalSessionsForTests()
     resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
+    paneMayAutoFocus.value = true
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     mocks.createTerminalClient.mockReturnValue({})
@@ -143,7 +155,15 @@ describe('TerminalMode', () => {
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
     ])
-    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 60_000 })
+    // Both fixtures run, which is what keeps their repo group expanded by
+    // default — a group with nothing live in it opens only on a click.
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        { sessionId: '1', running: true, windows: [] },
+        { sessionId: '2', running: true, windows: [] },
+      ],
+      pollIntervalMs: 60_000,
+    })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
     mocks.TerminalActionViews.mockResolvedValue([])
   })
@@ -200,7 +220,7 @@ describe('TerminalMode', () => {
     expect(wrapper.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(false)
     expect(rows[1].attributes('data-attached')).toBe('true')
-    expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]').map((row) => row.text())).toEqual(['agent', 'shell'])
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
   })
 
@@ -247,13 +267,16 @@ describe('TerminalMode', () => {
     })
 
     const { wrapper } = await mountAt()
+    // Only a running session carries a glyph; an idle one greys its name instead.
     const liveness = wrapper.findAll('[data-testid="terminal-session-liveness"]')
-    expect(liveness).toHaveLength(2)
-    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="running"]').attributes('title')).toBe('Terminal running')
-    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="running"] span[aria-hidden="true"]').classes()).toEqual(expect.arrayContaining(['size-2.5', 'rounded-full', 'bg-current']))
-    expect(wrapper.find('[data-testid="terminal-session-liveness"][data-status="inactive"] svg').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="terminal-session-liveness"][data-status="inactive"]').classes()).toContain('text-text-4')
+    expect(liveness).toHaveLength(1)
+    expect(liveness[0].attributes('title')).toBe('Terminal running')
+    expect(liveness[0].get('span[aria-hidden="true"]').classes()).toEqual(expect.arrayContaining(['size-2.5', 'rounded-full', 'bg-current']))
+    const idleRow = wrapper.get('[data-testid="terminal-session-row"][data-slug="stopped"]')
+    expect(idleRow.find('[data-testid="terminal-session-liveness"]').exists()).toBe(false)
+    expect(idleRow.get('span').classes()).toContain('text-text-3')
     const liveRow = wrapper.get('[data-testid="terminal-session-row"][data-slug="live"]')
+    expect(liveRow.get('span').classes()).not.toContain('text-text-3')
     expect(liveRow.get('[data-testid="terminal-session-liveness"]').element.parentElement)
       .toBe(liveRow.get('[data-testid="terminal-session-menu-toggle"]').element.parentElement)
 
@@ -303,6 +326,76 @@ describe('TerminalMode', () => {
     expect(wrapper.findAll('[data-testid="terminal-session-row"]')).toHaveLength(2)
   })
 
+  // A machine's worth of repos would otherwise open at once and bury the one
+  // being worked in, so an untouched group takes its state from its sessions.
+  it('opens an untouched repo group only when something in it is running', async () => {
+    mocks.SessionStatuses.mockResolvedValue({
+      items: [
+        { sessionId: '1', running: false, windows: [] },
+        { sessionId: '2', running: false, windows: [] },
+      ],
+      pollIntervalMs: 60_000,
+    })
+
+    const { wrapper } = await mountAt()
+
+    expect(wrapper.get('[data-testid="terminal-repo-group"]').attributes('aria-expanded')).toBe('false')
+    expect(wrapper.findAll('[data-testid="terminal-session-row"]')).toHaveLength(0)
+  })
+
+  // The tree renders from cache a poll before the first status does, so a repo
+  // that waited on one would collapse under the session already on screen.
+  it('opens the attached repo group before any status has arrived', async () => {
+    mocks.SessionStatuses.mockResolvedValue({ items: [], pollIntervalMs: 60_000 })
+    mocks.useTerminalWindows.mockReturnValue(fakeSession())
+
+    const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+
+    expect(wrapper.get('[data-testid="terminal-repo-group"]').attributes('aria-expanded')).toBe('true')
+  })
+
+  // Once toggled, the choice is the user's and outlives what the sessions do.
+  it('keeps a collapsed group collapsed while its sessions run', async () => {
+    const { wrapper } = await mountAt()
+    await wrapper.get('[data-testid="terminal-repo-group"]').trigger('click')
+
+    const { wrapper: reopened } = await mountAt()
+
+    expect(reopened.get('[data-testid="terminal-repo-group"]').attributes('aria-expanded')).toBe('false')
+  })
+
+  // The markers are two elements that move, so what a test can pin is which row
+  // each one is bound to — the travel itself is a layout the DOM here has none
+  // of, and is verified by eye like the rest of the tree's motion.
+  it('binds a selection rail to the attached session and to its active window', async () => {
+    const { wrapper } = await mountAvailable()
+
+    expect(wrapper.get('[data-testid="terminal-session-rail"]').attributes('data-shown')).toBe('false')
+    expect(wrapper.get('[data-testid="terminal-window-rail"]').attributes('data-shown')).toBe('false')
+
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="terminal-session-rail"]').attributes('data-shown')).toBe('true')
+    expect(wrapper.get('[data-testid="terminal-window-rail"]').attributes('data-shown')).toBe('true')
+  })
+
+  // A rail whose row left the tree fades where it stands; resetting it would
+  // make the next selection travel from the top of the list.
+  it('hides a rail without moving it when its row goes away', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    const placed = wrapper.get('[data-testid="terminal-session-rail"]').attributes('style')
+    await wrapper.get('[data-testid="terminal-repo-group"]').trigger('click')
+    await flushPromises()
+
+    const rail = wrapper.get('[data-testid="terminal-session-rail"]')
+    expect(rail.attributes('data-shown')).toBe('false')
+    expect(rail.attributes('style')).toBe(placed)
+  })
+
   it('nests the attached session’s windows in the tree and selects from them', async () => {
     const { wrapper, session } = await mountAvailable()
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
@@ -314,6 +407,24 @@ describe('TerminalMode', () => {
 
     await windows[1].trigger('click')
     expect(session.select).toHaveBeenCalledWith('@2')
+  })
+
+  // The keymap dispatches ⌘1…⌘9 against the strip's positions; a session with
+  // fewer windows than the digit ignores the chord rather than clamping.
+  it('jumps to a window by position, and past the end does nothing', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await flushPromises()
+
+    selectTerminalWindow(2)
+    await flushPromises()
+    expect(session.select).toHaveBeenCalledWith('@2')
+    expect(paneMayAutoFocus.value).toBe(true)
+
+    session.select.mockClear()
+    selectTerminalWindow(3)
+    await flushPromises()
+    expect(session.select).not.toHaveBeenCalled()
   })
 
   it('keeps the outgoing attach warm and snaps back to it without re-attaching', async () => {
@@ -339,15 +450,15 @@ describe('TerminalMode', () => {
     // mounted (hidden) beside the incoming session's, its subtree still live.
     expect(first.dispose).not.toHaveBeenCalled()
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(3)
-    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(1)
     expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(3)
+    expect(shownWindow(wrapper)).toBe('@9')
 
     // Snapping back is a reveal and a refocus, not a re-attach.
     await rows[0].trigger('click')
     await flushPromises()
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(2)
     expect(first.focusActive).toHaveBeenCalled()
-    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+    expect(shownWindow(wrapper)).toBe('@1')
   })
 
   it('keeps the pool through a trip to the hub, so re-entry re-attaches nothing', async () => {
@@ -391,14 +502,15 @@ describe('TerminalMode', () => {
 
     // The sidebar reflects the selection at once; the pane does not blank.
     expect(wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').attributes('data-slug')).toBe('hive-fix-parser')
-    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+    expect(shownWindow(wrapper)).toBe('@1')
 
     // First paint is the swap signal.
     second.tabs.value = [{ uid: 9, windowId: '@9', name: 'other', active: true, scrolledUp: false, term: {}, fit: {} }]
+    second.activeWindowId.value = '@9'
     second.status.value = 'live'
     second.painted.value = true
     await flushPromises()
-    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(1)
+    expect(shownWindow(wrapper)).toBe('@9')
     expect(second.focusActive).toHaveBeenCalled()
   })
 
@@ -418,10 +530,10 @@ describe('TerminalMode', () => {
 
       await rows[1].trigger('click')
       await flushPromises()
-      expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+      expect(shownWindow(wrapper)).toBe('@1')
 
       await vi.advanceTimersByTimeAsync(300)
-      expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(0)
+      expect(shownWindow(wrapper)).toBeUndefined()
       expect(wrapper.text()).toContain('Attaching…')
     } finally {
       vi.useRealTimers()
@@ -563,7 +675,7 @@ describe('TerminalMode', () => {
     second.unmount()
   })
 
-  it('stands in the cached listing for the tab strip and subtree while attaching', async () => {
+  it('stands in the cached listing for the subtree while attaching', async () => {
     const listWindows = vi.fn(async () => ({ windows: [
       { windowId: '@7', name: 'agent', active: true, width: 0, height: 0 },
       { windowId: '@8', name: 'shell', active: false, width: 0, height: 0 },
@@ -577,9 +689,8 @@ describe('TerminalMode', () => {
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
     await flushPromises()
 
-    const placeholders = wrapper.findAll('[data-testid="terminal-placeholder-tab"]')
-    expect(placeholders.map((tab) => tab.text())).toEqual(['agent', 'shell'])
-    // The attached session's subtree keeps its cached rows too.
+    // The attached session's subtree stands in its cached rows until the live
+    // ones arrive, so selecting a session does not empty the tree first.
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(4)
 
     // The live tab set replaces the stand-ins in place.
@@ -589,8 +700,7 @@ describe('TerminalMode', () => {
     ]
     session.status.value = 'live'
     await flushPromises()
-    expect(wrapper.findAll('[data-testid="terminal-placeholder-tab"]')).toHaveLength(0)
-    expect(wrapper.findAll('[data-testid="terminal-tab"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
     expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
   })
 
@@ -711,7 +821,7 @@ describe('TerminalMode', () => {
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(2)
   })
 
-  it('drives the window toolbar and hands panes to the composable', async () => {
+  it('drives the window controls from the tree and hands panes to the composable', async () => {
     const { wrapper, session } = await mountAvailable()
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
     await flushPromises()
@@ -719,56 +829,48 @@ describe('TerminalMode', () => {
     expect(session.attachTab).toHaveBeenCalledTimes(2)
     expect(session.attachTab.mock.calls[0][0]).toBe('@1')
 
-    await wrapper.get('[data-testid="terminal-new-window"]').trigger('click')
+    // The attached session's row adds a window through its own client, which is
+    // what makes the new one active.
+    await wrapper.get('[data-testid="terminal-session-row"][data-attached="true"] [data-testid="terminal-new-window"]').trigger('click')
     expect(session.newWindow).toHaveBeenCalled()
 
     await wrapper.findAll('[data-testid="terminal-close-window"]')[1].trigger('click')
     expect(session.closeWindow).toHaveBeenCalledWith('@2')
 
-    const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-    await tabs[1].trigger('mousedown')
-    expect(session.select).toHaveBeenCalledWith('@2')
-
-    await tabs[1].trigger('dblclick')
+    const rows = wrapper.findAll('[data-testid="terminal-window-row"]')
+    await rows[1].trigger('dblclick')
     const input = wrapper.get('[data-testid="terminal-rename-input"]')
     await input.setValue('build')
     await input.trigger('keydown.enter')
     expect(session.rename).toHaveBeenCalledWith('@2', 'build')
   })
 
-  // The whole tab answers, and it answers to both halves of the press: the
-  // label used to be the only target and it is the height of its own text, a
-  // press that drifts 3px on a drag source is delivered as a drag with no click
-  // at all, and mousedown's own default action takes focus off the pane after
-  // the press has put it there.
-  it('selects from the press and again from the click, and not from its close button', async () => {
+  // Adding a window is a property of the session, not of what is on screen, so
+  // an unattached row offers it too — through the slug-keyed call, since there
+  // is no control client to route it through yet.
+  it('adds a window to an unattached session and selects it', async () => {
+    const newWindow = vi.fn(async () => ({ windowId: '@5' }))
+    mocks.createTerminalClient.mockReturnValue({ listWindows: vi.fn(async () => ({ windows: [] })), newWindow })
+    const { wrapper, router } = await mountAt()
+
+    await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-bump-deps"] [data-testid="terminal-new-window"]').trigger('click')
+    await flushPromises()
+
+    expect(newWindow).toHaveBeenCalledWith('hive-bump-deps')
+    expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+  })
+
+  // The trailing controls sit inside the row, whose own click attaches or
+  // selects; a press on one must not do both.
+  it('does not select the row a trailing control was pressed in', async () => {
     const { wrapper, session } = await mountAvailable()
     await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
     await flushPromises()
 
-    const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-    await tabs[1].trigger('mousedown')
-    expect(session.select).toHaveBeenCalledWith('@2')
-
-    // The click reclaims the pane; select() on the active window is the refocus.
     session.select.mockClear()
-    await tabs[1].trigger('click')
-    expect(session.select).toHaveBeenCalledWith('@2')
-
-    // Closing a window is not selecting it first, on either half of the press.
-    session.select.mockClear()
-    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('mousedown')
     await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+
     expect(session.closeWindow).toHaveBeenCalledWith('@1')
-    expect(session.select).not.toHaveBeenCalled()
-
-    // Nor is a secondary button.
-    await tabs[0].trigger('mousedown', { button: 2 })
-    expect(session.select).not.toHaveBeenCalled()
-
-    // Nor is a press inside the rename field, which would blur it and commit.
-    await tabs[0].trigger('dblclick')
-    await wrapper.get('[data-testid="terminal-rename-input"]').trigger('mousedown')
     expect(session.select).not.toHaveBeenCalled()
   })
 
@@ -888,7 +990,7 @@ describe('TerminalMode', () => {
     expect(start).not.toHaveBeenCalled()
     expect(wrapper.find('[data-testid="terminal-session-not-started"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="terminal-session-ended"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="terminal-tab"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="terminal-window-row"]').exists()).toBe(false)
 
     await wrapper.get('[data-testid="terminal-start-session"]').trigger('click')
     await flushPromises()
@@ -1031,118 +1133,8 @@ describe('TerminalMode', () => {
     expect(storedRestore()).toEqual({ slug: '', window: '' })
   })
 
-  describe('reordering tabs', () => {
-    async function attached() {
-      const mounted = await mountAvailable()
-      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
-      await flushPromises()
-      return mounted
-    }
-
-    // happy-dom lays nothing out, so the drop edge has to be stated: a tab
-    // 150px wide starting at x, and a pointer somewhere in it.
-    function box(tab: DOMWrapper<Element>, left: number): void {
-      (tab.element as HTMLElement).getBoundingClientRect = () =>
-        ({ left, width: 150, right: left + 150, top: 0, bottom: 30, height: 30, x: left, y: 0 }) as DOMRect
-    }
-
-    async function drag(wrapper: Awaited<ReturnType<typeof attached>>['wrapper'], from: number, onto: number, clientX: number) {
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-      box(tabs[onto], onto * 150)
-      await tabs[from].trigger('dragstart', { dataTransfer: new DataTransfer() })
-      await tabs[onto].trigger('dragover', { dataTransfer: new DataTransfer(), clientX })
-      await tabs[onto].trigger('drop')
-    }
-
-    it('drops a tab into the gap the pointer is nearest', async () => {
-      const { wrapper, session } = await attached()
-
-      // Past the middle of the second tab: after it, which is the end.
-      await drag(wrapper, 0, 1, 250)
-
-      expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
-    })
-
-    it('drops before the tab when the pointer is on its leading half', async () => {
-      const { wrapper, session } = await attached()
-
-      await drag(wrapper, 1, 0, 20)
-
-      expect(session.moveWindow).toHaveBeenCalledWith('@2', 0)
-    })
-
-    it('marks the gap it would drop into, and clears it when the drag ends', async () => {
-      const { wrapper } = await attached()
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-      box(tabs[1], 150)
-
-      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
-      await tabs[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientX: 160 })
-      expect(tabs[1].classes()).toContain('drop-before')
-      expect(tabs[0].classes()).toContain('opacity-40')
-
-      await tabs[0].trigger('dragend')
-      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].classes()).not.toContain('drop-before')
-    })
-
-    // The strip and the sidebar's window well read the same list, so the order
-    // cannot disagree between them.
-    it('renders the tab strip and the sidebar tree in the order the tabs carry', async () => {
-      const { wrapper, session } = await attached()
-      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['agent', 'shell'])
-
-      session.tabs.value = [session.tabs.value[1], session.tabs.value[0]]
-      await flushPromises()
-
-      expect(wrapper.findAll('[data-testid="terminal-tab"]').map((tab) => tab.text())).toEqual(['shell', 'agent'])
-      expect(wrapper.findAll('[data-testid="terminal-window-row"]').map((row) => row.attributes('data-window-id')))
-        .toEqual(['@2', '@1'])
-    })
-
-    it('leaves a tab being renamed undraggable so its text can be selected', async () => {
-      const { wrapper } = await attached()
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-      expect(tabs[1].attributes('draggable')).toBe('true')
-
-      await tabs[1].trigger('dblclick')
-
-      expect(wrapper.findAll('[data-testid="terminal-tab"]')[1].attributes('draggable')).toBe('false')
-    })
-
-    // A tab dropped where it already is has not moved: both of its own edges
-    // name the gap it fills, and reading either as an insertion put it last.
-    it('does not move a tab dropped back onto itself', async () => {
-      const { wrapper, session } = await attached()
-
-      await drag(wrapper, 0, 0, 20)
-
-      expect(session.moveWindow).not.toHaveBeenCalled()
-      expect(wrapper.findAll('[data-testid="terminal-tab"]')[0].classes()).not.toContain('drop-after')
-    })
-
-    // The click a tab hands focus back to the pane on is the one a drag eats.
-    it('puts focus back in the pane when a tab drag ends', async () => {
-      const { wrapper, session } = await attached()
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-
-      // Attaching focuses the pane on its own; this is about the drag.
-      session.focusActive.mockClear()
-      await tabs[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
-      await tabs[0].trigger('dragend')
-      expect(session.focusActive).toHaveBeenCalled()
-
-      // The sidebar is not the pane's own strip, so a drag there leaves focus
-      // where the user put it.
-      session.focusActive.mockClear()
-      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
-      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
-      await slots[0].trigger('dragend')
-      expect(session.focusActive).not.toHaveBeenCalled()
-    })
-  })
-
-  // The sidebar's window well reorders the same order the strip does, so the
-  // two cannot disagree — and a window can only land in the session it left.
+  // The window well is the only place windows are ordered — a window can only
+  // land back in the session it left.
   describe('reordering windows in the sidebar', () => {
     async function attached() {
       const mounted = await mountAvailable()
@@ -1172,19 +1164,44 @@ describe('TerminalMode', () => {
       expect(session.moveWindow).toHaveBeenCalledWith('@1', 1)
     })
 
-    // Both surfaces draw the same windows, so an unscoped mark would light up a
-    // tab for a drag happening in the tree.
-    it('marks only the surface the drag is in', async () => {
+    it('marks the gap it would drop into, and clears it when the drag ends', async () => {
       const { wrapper } = await attached()
       const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
       box(slots[1], 28)
 
       await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
-      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 50 })
+      await slots[1].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 30 })
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].classes()).toContain('drop-before')
+      expect(slots[0].classes()).toContain('opacity-40')
 
-      const tabs = wrapper.findAll('[data-testid="terminal-tab"]')
-      expect(tabs[1].classes()).not.toContain('drop-after')
-      expect(tabs[0].classes()).not.toContain('opacity-40')
+      await slots[0].trigger('dragend')
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].classes()).not.toContain('drop-before')
+    })
+
+    // A window dropped where it already is has not moved: both of its own edges
+    // name the gap it fills, and reading either as an insertion put it last.
+    it('does not move a window dropped back onto itself', async () => {
+      const { wrapper, session } = await attached()
+      const slots = wrapper.findAll('[data-testid="terminal-window-slot"]')
+      box(slots[0], 0)
+
+      await slots[0].trigger('dragstart', { dataTransfer: new DataTransfer() })
+      await slots[0].trigger('dragover', { dataTransfer: new DataTransfer(), clientY: 5 })
+      await slots[0].trigger('drop')
+
+      expect(session.moveWindow).not.toHaveBeenCalled()
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[0].classes()).not.toContain('drop-after')
+    })
+
+    // A drag started on the name field would take the row instead of selecting
+    // the text in it.
+    it('leaves a window being renamed undraggable', async () => {
+      const { wrapper } = await attached()
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].attributes('draggable')).toBe('true')
+
+      await wrapper.findAll('[data-testid="terminal-window-row"]')[1].trigger('dblclick')
+
+      expect(wrapper.findAll('[data-testid="terminal-window-slot"]')[1].attributes('draggable')).toBe('false')
     })
 
     it('refuses a window dragged into another session', async () => {
@@ -1219,99 +1236,6 @@ describe('TerminalMode', () => {
       expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(1)
       expect(slots[0].attributes('draggable')).toBe('false')
       expect(slots[1].attributes('draggable')).toBe('true')
-    })
-  })
-
-  describe('terminal overflow menu', () => {
-    async function attached() {
-      const mounted = await mountAvailable()
-      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
-      await flushPromises()
-      return mounted
-    }
-
-    async function openMenu(wrapper: Awaited<ReturnType<typeof attached>>['wrapper']) {
-      await wrapper.get('[data-testid="terminal-view-menu-toggle"]').trigger('click')
-      return wrapper.get('[data-testid="terminal-view-menu"]')
-    }
-
-    it('opens from the tab strip and names the size it is on', async () => {
-      const { wrapper } = await attached()
-
-      const toggle = wrapper.get('[data-testid="terminal-view-menu-toggle"]')
-      expect(toggle.attributes('aria-label')).toBe('Terminal options')
-      expect(toggle.attributes('aria-haspopup')).toBe('menu')
-      expect(toggle.attributes('aria-expanded')).toBe('false')
-      expect(wrapper.find('[data-testid="terminal-view-menu"]').exists()).toBe(false)
-
-      const menu = await openMenu(wrapper)
-
-      expect(toggle.attributes('aria-expanded')).toBe('true')
-      expect(menu.attributes('role')).toBe('menu')
-      expect(menu.findAll('[role="menuitem"]').map((entry) => entry.text())).toEqual([
-        'Decrease', 'Increase', 'Reset',
-      ])
-      expect(menu.text()).toContain('Text size · Medium')
-      wrapper.unmount()
-    })
-
-    // Nothing to tune with no pane on screen.
-    it('is absent until a session is attached', async () => {
-      const { wrapper } = await mountAvailable()
-
-      expect(wrapper.find('[data-testid="terminal-view-menu-toggle"]').exists()).toBe(false)
-      wrapper.unmount()
-    })
-
-    it('steps the size through the appearance setting, one preset per click', async () => {
-      const { wrapper } = await attached()
-      const menu = await openMenu(wrapper)
-
-      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
-      await flushPromises()
-      expect(mocks.SetTerminalFontSize).toHaveBeenLastCalledWith('large')
-      // The menu stays open so the next notch is one click away.
-      expect(wrapper.get('[data-testid="terminal-view-menu"]').text()).toContain('Text size · Large')
-
-      await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
-      await flushPromises()
-
-      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
-      wrapper.unmount()
-    })
-
-    it('offers no step past the end of the ladder', async () => {
-      const { wrapper } = await attached()
-      const menu = await openMenu(wrapper)
-
-      for (let step = 0; step < 2; step++) {
-        await menu.get('[data-testid="terminal-text-size-decrease"]').trigger('click')
-      }
-      await flushPromises()
-
-      expect(menu.text()).toContain('Text size · Small')
-      expect(menu.get('[data-testid="terminal-text-size-decrease"]').attributes('disabled')).toBeDefined()
-      expect(menu.get('[data-testid="terminal-text-size-increase"]').attributes('disabled')).toBeUndefined()
-      // Two moves, not three: the third click had nowhere to go.
-      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['small'])
-      wrapper.unmount()
-    })
-
-    it('resets to the default size, and offers nothing to reset once there', async () => {
-      const { wrapper } = await attached()
-      const menu = await openMenu(wrapper)
-      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeDefined()
-
-      await menu.get('[data-testid="terminal-text-size-increase"]').trigger('click')
-      await flushPromises()
-      expect(menu.get('[data-testid="terminal-text-size-reset"]').attributes('disabled')).toBeUndefined()
-
-      await menu.get('[data-testid="terminal-text-size-reset"]').trigger('click')
-      await flushPromises()
-
-      expect(menu.text()).toContain('Text size · Medium')
-      expect(mocks.SetTerminalFontSize.mock.calls.map(([size]) => size)).toEqual(['large', 'medium'])
-      wrapper.unmount()
     })
   })
 
@@ -1396,6 +1320,389 @@ describe('TerminalMode', () => {
       expect(mocks.RenderTerminalClipboardAction).toHaveBeenCalledWith('copy-path', { slug: 'hive-fix-parser', windowId: '' }, {})
       expect(mocks.SetClipboardText).toHaveBeenCalledWith('/work/hive-fix-parser')
       expect(mocks.InvokeTerminalAction).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+  })
+
+  describe('filtering the session list', () => {
+    async function filter(wrapper: { get: (s: string) => Pick<DOMWrapper<Element>, 'setValue'> }, query: string) {
+      await wrapper.get('[data-testid="terminal-sessions-filter"]').setValue(query)
+      await flushPromises()
+    }
+
+    function slugs(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): (string | undefined)[] {
+      return wrapper.findAll('[data-testid="terminal-session-row"]').map((row) => row.attributes('data-slug'))
+    }
+
+    it('narrows the tree to the sessions that match, and says when none do', async () => {
+      const { wrapper } = await mountAvailable()
+
+      await filter(wrapper, 'bump')
+      expect(slugs(wrapper)).toEqual(['hive-bump-deps'])
+
+      await filter(wrapper, 'PARSER')
+      expect(slugs(wrapper)).toEqual(['hive-fix-parser'])
+
+      await filter(wrapper, 'nothing here')
+      expect(slugs(wrapper)).toEqual([])
+      expect(wrapper.get('[data-testid="terminal-sessions-no-matches"]').text()).toContain('nothing here')
+      wrapper.unmount()
+    })
+
+    it('carries a whole repo when the repo itself matches', async () => {
+      mocks.ListSessions.mockResolvedValue([
+        { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+        { id: '3', name: 'landing copy', slug: 'site-landing-copy', repo: 'hay-kot/haykot.dev', state: 'active' },
+      ])
+      const { wrapper } = await mountAvailable()
+
+      await filter(wrapper, 'haykot.dev')
+      expect(slugs(wrapper)).toEqual(['site-landing-copy'])
+      wrapper.unmount()
+    })
+
+    // A collapsed group would hide the very row the query asked for.
+    it('opens a collapsed group for as long as the filter is on', async () => {
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-repo-group"]').trigger('click')
+      expect(slugs(wrapper)).toEqual([])
+
+      await filter(wrapper, 'bump')
+      expect(slugs(wrapper)).toEqual(['hive-bump-deps'])
+
+      await filter(wrapper, '')
+      expect(slugs(wrapper)).toEqual([])
+      wrapper.unmount()
+    })
+
+    // Filtering is a way to look at the list, not a way to detach: the session
+    // on screen is the one the user is working in.
+    it('keeps the attached session on screen while it is filtered out', async () => {
+      const { wrapper, router } = await mountAvailable()
+      await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+      await flushPromises()
+
+      await filter(wrapper, 'parser')
+
+      expect(slugs(wrapper)).toEqual(['hive-fix-parser'])
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
+      expect(shownWindow(wrapper)).toBe('@1')
+      wrapper.unmount()
+    })
+
+    it('walks only the rows the filter left', async () => {
+      const { wrapper, router } = await mountAvailable()
+
+      await filter(wrapper, 'parser')
+      await wrapper.get('[data-testid="terminal-session-sidebar"]').trigger('keydown', { key: 'ArrowDown' })
+      await flushPromises()
+
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-fix-parser')
+      wrapper.unmount()
+    })
+
+    // Esc is the way back out, and it is two keystrokes on purpose: the first
+    // restores the list, the second leaves a field that has nothing left to
+    // undo. ↓ and Enter are the way out that keeps the query.
+    it('clears on Esc, then hands focus to the tree', async () => {
+      const { wrapper } = await mountAvailable()
+      const field = wrapper.get('[data-testid="terminal-sessions-filter"]')
+      // Nothing in this DOM can hold focus, so the move is observed on the call.
+      const focusRow = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {})
+
+      await filter(wrapper, 'bump')
+      await field.trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(slugs(wrapper)).toEqual(['hive-bump-deps', 'hive-fix-parser'])
+      expect(focusRow).not.toHaveBeenCalled()
+
+      await field.trigger('keydown', { key: 'Escape' })
+      await flushPromises()
+      expect(focusRow).toHaveBeenCalled()
+
+      focusRow.mockClear()
+      await filter(wrapper, 'bump')
+      await field.trigger('keydown', { key: 'ArrowDown' })
+      await flushPromises()
+      expect(focusRow).toHaveBeenCalled()
+      expect(slugs(wrapper)).toEqual(['hive-bump-deps'])
+
+      focusRow.mockRestore()
+      wrapper.unmount()
+    })
+
+    // `/` is dispatched by App.vue against the published handle; this is the
+    // half that lands in the field.
+    it('takes the field on the focus-filter command, selecting what is there', async () => {
+      const { wrapper } = await mountAvailable()
+      const input = wrapper.get('[data-testid="terminal-sessions-filter"]').element as HTMLInputElement
+      const select = vi.spyOn(input, 'select')
+
+      focusTerminalFilter()
+      await flushPromises()
+
+      expect(select).toHaveBeenCalled()
+      wrapper.unmount()
+    })
+  })
+
+  // An arrow is a click on the neighbouring row — there is no cursor running
+  // ahead of the selection and no Enter to commit.
+  describe('keyboard navigation in the tree', () => {
+    // Attached to the sidebar rather than the row, so it answers wherever focus
+    // is — including the panel itself before the first arrow.
+    async function press(wrapper: { get: (s: string) => Pick<DOMWrapper<Element>, 'trigger'> }, key: string) {
+      await wrapper.get('[data-testid="terminal-session-sidebar"]').trigger('keydown', { key })
+      await flushPromises()
+    }
+
+    function tabStop(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): string | undefined {
+      return wrapper.findAll('[data-tree-key]')
+        .find((row) => row.attributes('tabindex') === '0')
+        ?.attributes('data-tree-key')
+    }
+
+    it('attaches the session an arrow lands on, as a click would', async () => {
+      const { wrapper, router } = await mountAvailable()
+      expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
+
+      // Alphabetical within the group, so the first row is 'bump deps'.
+      await press(wrapper, 'ArrowDown')
+
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
+      wrapper.unmount()
+    })
+
+    // Attaching the first session unfolds its two windows into the walk, so the
+    // next session sits four rows down rather than one.
+    it('walks through the attached session windows on to the next session', async () => {
+      const { wrapper, router } = await mountAvailable()
+
+      for (let i = 0; i < 4; i++) await press(wrapper, 'ArrowDown')
+
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-fix-parser')
+      wrapper.unmount()
+    })
+
+    it('selects a window row the same way', async () => {
+      const session = fakeSession()
+      const { wrapper } = await mountAvailable(session)
+
+      await press(wrapper, 'ArrowDown')
+      // Onto the attached session's second window.
+      await press(wrapper, 'ArrowDown')
+      await press(wrapper, 'ArrowDown')
+
+      expect(session.select).toHaveBeenCalledWith('@2')
+      wrapper.unmount()
+    })
+
+    it('moves on j and k as well', async () => {
+      const session = fakeSession()
+      const { wrapper, router } = await mountAvailable(session)
+
+      await press(wrapper, 'j')
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
+
+      await press(wrapper, 'j')
+      expect(tabStop(wrapper)).toBe('w:2:@2')
+
+      await press(wrapper, 'k')
+      expect(tabStop(wrapper)).toBe('w:2:@1')
+      wrapper.unmount()
+    })
+
+    // A running session is its windows. Stopping on its row first changed
+    // nothing, so the row leaves the walk once there is a terminal behind it.
+    it('skips a running session row and walks its windows', async () => {
+      const { wrapper } = await mountAvailable()
+
+      // Nothing is attached yet and no windows are known, so the row is still
+      // the only way in.
+      await press(wrapper, 'ArrowDown')
+      expect(tabStop(wrapper)).toBe('w:2:@1')
+
+      const walked = wrapper.findAll('[data-tree-key][tabindex]')
+        .filter((row) => row.attributes('tabindex') === '0')
+        .map((row) => row.attributes('data-tree-key'))
+      expect(walked).not.toContain('s:2')
+      wrapper.unmount()
+    })
+
+    // The exception that keeps every session reachable: with window listing off,
+    // an unattached session has no windows to stand in for its row.
+    it('keeps the row of a running session that lists no windows', async () => {
+      setTerminalShowWindows(false)
+      const { wrapper, router } = await mountAvailable()
+
+      // The attached session still contributes its own live windows, so the
+      // second session's row is three stops down rather than one.
+      for (let i = 0; i < 3; i++) await press(wrapper, 'ArrowDown')
+
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-fix-parser')
+      wrapper.unmount()
+    })
+
+    // A repo header collapses on click, which is not something to do to every
+    // group an arrow passes.
+    it('skips repo headers', async () => {
+      const { wrapper } = await mountAvailable()
+
+      await press(wrapper, 'ArrowUp')
+
+      expect(wrapper.findAll('[data-tree-key]').map((row) => row.attributes('data-tree-key')))
+        .not.toContain('g:hay-kot/hive')
+      wrapper.unmount()
+    })
+
+    // One tab stop, not one per row: the tree is a single widget, so Tab steps
+    // over it and the arrows move within it.
+    it('carries a single tab stop that follows the selection', async () => {
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.findAll('[data-tree-key][tabindex="0"]')).toHaveLength(1)
+      expect(tabStop(wrapper)).toBe('s:2')
+
+      for (let i = 0; i < 3; i++) await press(wrapper, 'ArrowDown')
+
+      expect(wrapper.findAll('[data-tree-key][tabindex="0"]')).toHaveLength(1)
+      expect(tabStop(wrapper)).toBe('w:1:@1')
+      wrapper.unmount()
+    })
+
+    it('clamps at the bottom instead of wrapping', async () => {
+      const { wrapper, router } = await mountAvailable()
+
+      for (let i = 0; i < 12; i++) await press(wrapper, 'ArrowDown')
+
+      expect(tabStop(wrapper)).toBe('w:1:@2')
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-fix-parser')
+      wrapper.unmount()
+    })
+
+    // Enter on a row the walk only stops at because nothing is running behind
+    // it. A click still just opens it — the pane's own Start button is there.
+    it('starts a session that has no terminal on Enter', async () => {
+      const start = vi.fn().mockResolvedValue(undefined)
+      mocks.createTerminalClient.mockReturnValue({ start })
+      mocks.SessionStatuses.mockResolvedValue({
+        items: [
+          { sessionId: '1', running: false, windows: [] },
+          { sessionId: '2', running: true, windows: [] },
+        ],
+        pollIntervalMs: 60_000,
+      })
+      const { wrapper } = await mountAvailable()
+
+      await wrapper.get('[data-tree-key="s:1"]').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+
+      expect(start).toHaveBeenCalledWith('hive-fix-parser')
+
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      expect(start).toHaveBeenCalledTimes(1)
+      wrapper.unmount()
+    })
+
+    // Cmd+↓ is not the tree's to take — it resolves through the global keymap.
+    it('leaves modified arrows to the keymap', async () => {
+      const { wrapper, router } = await mountAvailable()
+
+      await wrapper.get('[data-testid="terminal-session-sidebar"]')
+        .trigger('keydown', { key: 'ArrowDown', metaKey: true })
+      await flushPromises()
+
+      expect(router.currentRoute.value.path).toBe('/terminal')
+      wrapper.unmount()
+    })
+
+    it('leaves the arrows to a rename input mid-edit', async () => {
+      const { wrapper } = await mountAvailable(fakeSession())
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="terminal-window-row"]').trigger('dblclick')
+
+      const before = tabStop(wrapper)
+      await wrapper.get('[data-testid="terminal-rename-input"]').trigger('keydown', { key: 'ArrowDown' })
+      await flushPromises()
+
+      expect(tabStop(wrapper)).toBe(before)
+      wrapper.unmount()
+    })
+
+    // The bug this guards: a pane that grabs focus mid-walk sends the next
+    // arrow to tmux instead of the tree.
+    it('keeps focus in the tree while the arrows walk it', async () => {
+      const session = fakeSession()
+      const { wrapper } = await mountAvailable(session)
+
+      for (let i = 0; i < 3; i++) await press(wrapper, 'ArrowDown')
+
+      expect(paneMayAutoFocus.value).toBe(false)
+      expect(session.focusActive).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    // The mouse keeps the old behaviour: clicking a session is how you go to
+    // work in it.
+    it('lets a click hand focus to the pane', async () => {
+      const session = fakeSession()
+      const { wrapper } = await mountAvailable(session)
+
+      await press(wrapper, 'ArrowDown')
+      expect(paneMayAutoFocus.value).toBe(false)
+
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      expect(paneMayAutoFocus.value).toBe(true)
+      wrapper.unmount()
+    })
+
+    it('enters the pane on Enter', async () => {
+      const session = fakeSession()
+      const { wrapper } = await mountAvailable(session)
+
+      await press(wrapper, 'ArrowDown')
+      await wrapper.get('[data-tree-key="s:2"]').trigger('keydown', { key: 'Enter' })
+      await flushPromises()
+
+      expect(paneMayAutoFocus.value).toBe(true)
+      expect(session.focusActive).toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('shows the tree keys once there is a tree to drive', async () => {
+      const { wrapper } = await mountAvailable()
+
+      const hints = wrapper.get('[data-testid="terminal-tree-hints"]').text()
+      expect(hints).toContain('switch')
+      expect(hints).toContain('enter')
+      wrapper.unmount()
+    })
+
+    // The chord worth showing is the one that leaves where focus already is.
+    it('offers the way out of whichever side holds focus', async () => {
+      const { wrapper } = await mountAvailable()
+      const sidebar = wrapper.get('[data-testid="terminal-session-sidebar"]')
+
+      expect(wrapper.get('[data-testid="terminal-tree-hints"]').text()).toContain('tree')
+
+      await sidebar.trigger('focusin')
+      expect(wrapper.get('[data-testid="terminal-tree-hints"]').text()).toContain('terminal')
+
+      await sidebar.trigger('focusout')
+      expect(wrapper.get('[data-testid="terminal-tree-hints"]').text()).toContain('tree')
+      wrapper.unmount()
+    })
+
+    it('omits the hint bar when there are no sessions to navigate', async () => {
+      mocks.ListSessions.mockResolvedValue([])
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.find('[data-testid="terminal-tree-hints"]').exists()).toBe(false)
       wrapper.unmount()
     })
   })

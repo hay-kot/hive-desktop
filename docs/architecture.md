@@ -810,15 +810,34 @@ status poll and the window-listing sweep and what revalidates the session tree.
 Anything the mode must not do off-screen belongs on that prop; anything it must
 keep across a trip to the hub can now simply live in the component.
 
-**Terminal style is one preference wherever it is changed.** The pane's own ⋯
-menu steps text size through the same `appearance.terminal_font_size` setting
-Settings writes, so an adjustment made while looking at the terminal is durable
-and there is no second store to reconcile. A style option added to that menu
-takes the same route.
+**Terminal style is a setting, not pane chrome.** Text size, family, weights,
+line height and tracking are all `appearance.terminal_*` settings written from
+Settings ▸ Appearance ▸ Terminal, and the pane carries no duplicate control for
+any of them (ADR 0057). A new style option takes the same route.
+
+**The sidebar tree is a session's only window list.** There is no tab strip to
+keep in step with it, and a window's controls — close, rename, and the add on
+its session's row — live on the rows themselves (ADR 0057).
+
+**The sidebar filter narrows what the tree draws and nothing else.** The
+attachable set still carries every session, because the watcher that follows a
+rename or a deletion reads it and a session filtered off the screen must not
+read as one that went away; the attached session is not exempt from the filter
+either, and stays on screen while its row is hidden. The tree's keyboard walk
+reads the filtered groups, so an arrow only ever lands on a row that is drawn.
+`terminal.focus-filter` (`/`) is an ordinary catalog command, so a focused pane
+keeps the key — a bare `/` is a character, and the tree is where a search for a
+session starts.
+
+**`terminal.select-window-1` … `-9` name a position in that list, not a tmux
+index.** The list is what is on screen and tmux's indices have gaps as soon as a
+window is closed, so `⌘3` is the third row rather than window 3. A session with
+fewer windows ignores the chord instead of clamping to the last: the chord means
+one window, not whichever is nearest.
 
 **Window order is tmux's, and a reorder is a move rather than a swap.**
 `POST /api/terminal/windows/move` takes a window id and the index it ends up at,
-because a tab strip means a destination and not a neighbour; the core reads the
+because a reorder means a destination and not a neighbour; the core reads the
 current order and picks the tmux insertion that expresses it, anchored on a
 window id since the move renumbers the very indices an anchor would be read
 from. Three rules hold it together and each answers something tmux does:
@@ -1004,15 +1023,37 @@ Three rules govern it, and each is a consequence of that:
   toggle opens a terminal outright, returns to a running one, and hands focus
   back where it came from on the way out. Anything that adds a step between the
   shortcut and a prompt is working against what this is for.
-- **A focused pane keeps every key it can use, and three things get one back.**
+- **A focused pane keeps every key it can use, and five things get one back.**
   The pop-up toggle and any launcher chord, because the combo that opens one has
-  to close it; and the command palette, because it is the way back out of a
-  pane. The palette is the only one gated on modifiers rather than on the
-  binding alone — `terminalEscapeCombo` claims Command chords, and Ctrl+Shift
-  where there is no Command, dropping that Shift so one configured `mod+k`
-  matches on both. A bare Ctrl+K is readline's kill-to-end-of-line and stays
-  with the pane. Anything else added here has to answer why a pane may not have
-  the key.
+  to close it; the command palette, because it is the way back out of a pane;
+  `terminal.focus-sidebar`, because it is the way back to the session tree; and
+  `terminal.select-window-1` … `-9`, because a jump between windows is only ever
+  wanted from inside the one being left. The palette is the only one gated on
+  modifiers rather than on the binding alone — `terminalEscapeCombo` claims
+  Command chords, and Ctrl+Shift where there is no Command, dropping that Shift
+  so one configured `mod+k` matches on both. A bare Ctrl+K is readline's
+  kill-to-end-of-line and stays with the pane. Anything else added here has to
+  answer why a pane may not have the key.
+
+  Piercing is two-sided: the dispatcher must act on the chord *and* xterm's
+  `attachCustomKeyEventHandler` must decline it, or the pane writes it to tmux
+  as well. Both sides resolve through the live keymap, so a rebind moves them
+  together.
+- **A pane takes focus for the mouse, not for the arrows.** `paneMayAutoFocus`
+  gates the automatic `term.focus()` calls — the ones on attach, on reveal, and
+  on a window switch — because walking the session tree past a session is not an
+  intent to type in it, and a pane that grabbed focus mid-walk would send the
+  next arrow to tmux. Explicit requests (Enter, the focus chord, the scroll
+  pill) call `focusActive()` directly and do not consult it. The latch records
+  the last input to move the selection rather than bracketing one activation:
+  the calls it gates are spread across an attach that may not paint for a
+  second.
+- **Widget-local keys are not catalog commands.** A combo resolves to exactly
+  one command — the first in the catalog claiming it — so `context` narrows when
+  a command fires but does not let two commands share a chord. The session
+  tree's `↑`/`↓`/`j`/`k` would have had to fight the feed's `j`/`k` for the same
+  combo, so they are handlers on the widget that owns focus, as the command
+  palette's own arrows already were.
 - **The panel's box is derived from the window, never stored.** Centred, a fixed
   fraction of it, following a resize; not draggable and not resizable for now.
   Restoring either means answering how a remembered box stays honest against a

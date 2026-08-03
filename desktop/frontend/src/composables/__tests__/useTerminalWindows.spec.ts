@@ -15,8 +15,9 @@ import {
   terminalCellMetrics,
   terminalFontSizePx,
 } from '../useTerminalFont'
-import { TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
+import { SYMBOL_FONT, TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
+import { paneMayAutoFocus } from '../../lib/terminalTree'
 
 const xterm = vi.hoisted(() => {
   interface FakeLine {
@@ -359,6 +360,7 @@ describe('useTerminalWindows', () => {
   beforeEach(() => {
     sockets = []
     loadedFaces = []
+    paneMayAutoFocus.value = true
     resetTerminalFacesForTests()
     xterm.FakeTerminal.instances = []
     xterm.FakeFitAddon.instances = []
@@ -736,6 +738,9 @@ describe('useTerminalWindows', () => {
       `italic ${defaultTerminalFontWeight} ${px}px ${stack}`,
       `${defaultTerminalFontWeightBold} ${px}px ${stack}`,
       `italic ${defaultTerminalFontWeightBold} ${px}px ${stack}`,
+      // The symbol face, warmed by name because a stack would resolve to the
+      // text face and leave this one unfetched.
+      `${defaultTerminalFontWeight} ${px}px '${SYMBOL_FONT}'`,
     ])
     const load = (document.fonts.load as ReturnType<typeof vi.fn>)
     expect(load.mock.invocationCallOrder.at(-1))
@@ -1324,6 +1329,46 @@ describe('useTerminalWindows', () => {
     expect(term.press({ key: 'f', metaKey: true })).toBe(false)
     expect(session.search.value.open).toBe(true)
     expect(socket.sent).toHaveLength(0)
+  })
+
+  // App.vue acts on the chord from its own window listener; declining it here is
+  // only about keeping xterm from *also* writing an arrow escape to the pane.
+  it('keeps the chord back to the session tree off the wire', async () => {
+    const { socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: 'ArrowLeft', metaKey: true })).toBe(false)
+    // A bare arrow is the pane's, and tmux needs it.
+    expect(term.press({ key: 'ArrowLeft' })).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  // Ctrl+2 is a NUL on a platform without Command, so the pane would write the
+  // jump chord to tmux as well as App.vue acting on it.
+  it('keeps a numbered window jump off the wire', async () => {
+    const { socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: '2', metaKey: true })).toBe(false)
+    expect(term.press({ key: '2', ctrlKey: true })).toBe(false)
+    // A bare digit is text.
+    expect(term.press({ key: '2' })).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  // Arrowing down the tree walks through windows; a pane that took focus on the
+  // way past would send the next arrow to tmux instead of the sidebar.
+  it('does not focus the pane when a window is selected by keyboard', async () => {
+    const { session } = await attached()
+    const [first, second] = xterm.FakeTerminal.instances
+
+    paneMayAutoFocus.value = false
+    await session.select('@2')
+    expect(second.focus).not.toHaveBeenCalled()
+
+    paneMayAutoFocus.value = true
+    await session.select('@1')
+    expect(first.focus).toHaveBeenCalled()
   })
 
   it('drops the query and the highlights when the bar closes', async () => {

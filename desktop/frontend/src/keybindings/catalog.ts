@@ -7,8 +7,10 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
 import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
+import IconPanelLeft from '~icons/lucide/panel-left'
 import IconPanelRight from '~icons/lucide/panel-right'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconSearch from '~icons/lucide/search'
 import IconSquarePlus from '~icons/lucide/square-plus'
 import IconTerminal from '~icons/lucide/terminal'
 
@@ -25,10 +27,18 @@ import IconTerminal from '~icons/lucide/terminal'
 // include them.
 //
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
-// only run when the feed is actually on screen; `global` commands run anywhere.
+// only run when the feed is actually on screen, `terminal` commands only inside
+// terminal mode; `global` commands run anywhere.
 // `defaultCombos` are canonical combo strings (see useKeybindings.comboFromEvent)
 // — an empty array means "bindable, but unbound by default".
-export type CommandContext = 'global' | 'feed'
+//
+// A combo resolves to exactly one command — the first in this list that claims
+// it — so `context` narrows *when* a command fires, it does not let two
+// commands share a chord. Widget-local navigation (the palette's own ↑↓, the
+// session tree's) is therefore not modelled here: it would have to fight the
+// feed's `j`/`k` for the same combo. Those keys stay handlers on the widget
+// that owns focus.
+export type CommandContext = 'global' | 'feed' | 'terminal'
 
 export interface BindableCommand {
   id: string
@@ -46,6 +56,40 @@ export interface BindableCommand {
   /** Omit from the command palette (still bindable + listed in settings). */
   paletteHidden?: boolean
 }
+
+// How far the digit row reaches. A session with more windows than this is
+// walked from the tree; there is no chord for the tenth.
+const DIRECT_WINDOW_COMMANDS = 9
+const WINDOW_PREFIX = 'terminal.select-window-'
+
+function terminalWindowCommandID(position: number): string {
+  return WINDOW_PREFIX + position
+}
+
+/** The 1-based window a jump command names, or null for any other command. */
+export function terminalWindowPosition(commandID: string): number | null {
+  if (!commandID.startsWith(WINDOW_PREFIX)) return null
+  const position = Number(commandID.slice(WINDOW_PREFIX.length))
+  return Number.isInteger(position) && position >= 1 && position <= DIRECT_WINDOW_COMMANDS ? position : null
+}
+
+// Generated rather than written out: nine entries that differ in a digit, and
+// one implementation behind them. They are palette-hidden because the palette
+// does not filter by context — nine rows naming windows that do not exist would
+// otherwise sit in it on the feed.
+const windowJumpCommands: BindableCommand[] = Array.from({ length: DIRECT_WINDOW_COMMANDS }, (_, index) => {
+  const position = index + 1
+  return {
+    id: terminalWindowCommandID(position),
+    title: `Go to window ${position}`,
+    group: 'Terminal',
+    keywords: ['terminal', 'window', 'tab', 'switch', String(position)],
+    icon: IconTerminal,
+    defaultCombos: [`mod+${position}`],
+    context: 'terminal',
+    paletteHidden: true,
+  }
+})
 
 export const commandCatalog: BindableCommand[] = [
   {
@@ -153,6 +197,47 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+`'],
     context: 'global',
   },
+  // Directional rather than one toggle: which pane you land on should be
+  // readable off the chord, not off where focus happened to be.
+  //
+  // Only the sidebar half has to escape a focused pane, so it is the one chord
+  // terminal mode takes away from tmux (App.vue's dispatcher, and xterm's own
+  // handler in useTerminalWindows). `mod` is Cmd on macOS and Ctrl elsewhere,
+  // where Ctrl+← is readline's backward-word — rebind it there if the pane
+  // needs it back.
+  {
+    id: 'terminal.focus-sidebar',
+    title: 'Focus session tree',
+    group: 'Terminal',
+    keywords: ['terminal', 'sidebar', 'sessions', 'tree', 'focus', 'left'],
+    icon: IconPanelLeft,
+    defaultCombos: ['mod+arrowleft'],
+    context: 'terminal',
+  },
+  {
+    id: 'terminal.focus-pane',
+    title: 'Focus terminal',
+    group: 'Terminal',
+    keywords: ['terminal', 'pane', 'focus', 'right'],
+    icon: IconPanelRight,
+    defaultCombos: ['mod+arrowright'],
+    context: 'terminal',
+  },
+  // Bare `/`, the way every list this is modelled on spells it. A focused pane
+  // keeps the key — it is a character — so this fires from the tree, which is
+  // where a search for a session starts anyway.
+  {
+    id: 'terminal.focus-filter',
+    title: 'Filter sessions',
+    group: 'Terminal',
+    keywords: ['terminal', 'filter', 'search', 'find', 'session'],
+    icon: IconSearch,
+    defaultCombos: ['/'],
+    context: 'terminal',
+  },
+  // A position in the window strip, not a tmux window index: the strip is what
+  // is on screen, and tmux's indices have gaps as soon as a window is closed.
+  ...windowJumpCommands,
   {
     id: 'report.open',
     title: 'Report a problem',

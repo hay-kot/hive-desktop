@@ -2,13 +2,10 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, shallowRef, watch, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
-import IconAArrowDown from '~icons/lucide/a-arrow-down'
-import IconAArrowUp from '~icons/lucide/a-arrow-up'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
-import IconCircle from '~icons/lucide/circle'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconCircleCheck from '~icons/lucide/circle-check'
 import IconCircleOff from '~icons/lucide/circle-off'
@@ -19,7 +16,6 @@ import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
-import IconRotateCcw from '~icons/lucide/rotate-ccw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
 import IconSearch from '~icons/lucide/search'
 import IconTerminal from '~icons/lucide/terminal'
@@ -34,15 +30,9 @@ import SessionDetailDialog from './SessionDetailDialog.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
+import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
-import {
-  resetTerminalFontSize,
-  stepTerminalFontSize,
-  terminalFontSizeLabels,
-  terminalFontSizeState,
-  useTerminalFont,
-} from '../composables/useTerminalFont'
 import { groupTerminalSessions, sessionRepository, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
@@ -55,6 +45,8 @@ import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
+import { isEditableTarget } from '../lib/isEditableTarget'
+import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
@@ -120,7 +112,7 @@ function reveal(incoming: UseTerminalWindows): void {
   // Only ever the selected session reaches here, so activeSlug is its key.
   displayedSlug.value = activeSlug.value
   void nextTick(() => {
-    if (displayed.value === incoming) incoming.focusActive()
+    if (displayed.value === incoming && paneMayAutoFocus.value) incoming.focusActive()
   })
 }
 
@@ -180,6 +172,48 @@ const attachable = computed(() => sessionRows.value.filter((row) => row.state ==
 const sessionGroups = computed(() => groupTerminalSessions(attachable.value))
 const prunableCount = computed(() => sessionRows.value.length - attachable.value.length)
 
+// The sidebar filter. It narrows what the tree draws and nothing else:
+// `attachable` keeps every session, because the watcher that follows a rename
+// or a deletion reads it, and a session filtered off the screen must not read
+// as one that went away. The attached session is not exempt either — filtering
+// is a way to look at the list, not a way to detach.
+//
+// Transient, deliberately not stored: a filter restored at launch hides
+// sessions the user has no reason to suspect are there.
+const sessionFilter = ref('')
+const filterInput = ref<HTMLInputElement | null>(null)
+
+// Escape clears the field, and leaves it once there is nothing left to clear —
+// so it is never a keystroke that appears to do nothing. Keeping a filter and
+// walking what it left is the other way out: ↓ and Enter go to the tree without
+// touching the query.
+function escapeFilter(): void {
+  if (sessionFilter.value) {
+    sessionFilter.value = ''
+    return
+  }
+  focusTreeCursor()
+}
+
+// A repo match carries its whole group, which is what makes typing a repo name
+// a way to narrow to it. Sessions match on the name and on the slug, since the
+// slug is the tmux target and what a deep link or a script names.
+const filteredGroups = computed<TerminalSessionGroup[]>(() => {
+  const query = sessionFilter.value.trim().toLowerCase()
+  if (!query) return sessionGroups.value
+  const groups: TerminalSessionGroup[] = []
+  for (const group of sessionGroups.value) {
+    if (group.name.toLowerCase().includes(query)) {
+      groups.push(group)
+      continue
+    }
+    const sessions = group.sessions.filter((row) =>
+      row.name.toLowerCase().includes(query) || row.slug.toLowerCase().includes(query))
+    if (sessions.length) groups.push({ ...group, sessions })
+  }
+  return groups
+})
+
 const { statuses: sessionStatuses, startPolling: startStatusPolling, stopPolling: stopStatusPolling } = useSessionStatuses()
 interface StatusIndicator {
   icon: Component
@@ -187,12 +221,10 @@ interface StatusIndicator {
   label: string
   animated?: boolean
 }
-const sessionLivenessIndicators = computed<Record<string, StatusIndicator>>(() => Object.fromEntries(
-  Object.entries(sessionStatuses.value).map(([id, status]) => [id, {
-    icon: IconCircle,
-    color: status.running ? 'text-severity-success' : 'text-text-4',
-    label: status.running ? 'Terminal running' : 'Terminal not running',
-  }]),
+// Idle is carried by the row's own name rather than a glyph — undefined until
+// the first status poll lands, so a row is not greyed before its state is known.
+const sessionIdle = computed<Record<string, boolean>>(() => Object.fromEntries(
+  Object.entries(sessionStatuses.value).map(([id, status]) => [id, !status.running]),
 ))
 
 function windowActivityIndicator(status: SessionWindowStatus): StatusIndicator {
@@ -247,31 +279,6 @@ const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
   icon: IconTrash,
   testid: 'terminal-sessions-prune',
 }])
-
-// The pane's own overflow menu: style tuning while looking at the terminal
-// rather than a trip to Settings. Text size writes through the appearance
-// setting, so this and Settings ▸ Appearance ▸ Terminal are one preference and
-// a nudge here is durable. Later style options join this menu.
-const { size: fontSize } = useTerminalFont()
-const viewMenuOpen = ref(false)
-const viewMenuToggle = ref<HTMLElement | null>(null)
-const viewMenuEntries = computed<MenuEntry[]>(() => {
-  const ladder = terminalFontSizeState(fontSize.value)
-  return [
-    { kind: 'label', text: `Text size · ${terminalFontSizeLabels[fontSize.value]}` },
-    { kind: 'action', id: 'text-size-decrease', label: 'Decrease', icon: IconAArrowDown, disabled: !ladder.canDecrease, testid: 'terminal-text-size-decrease' },
-    { kind: 'action', id: 'text-size-increase', label: 'Increase', icon: IconAArrowUp, disabled: !ladder.canIncrease, testid: 'terminal-text-size-increase' },
-    { kind: 'action', id: 'text-size-reset', label: 'Reset', icon: IconRotateCcw, disabled: ladder.isDefault, testid: 'terminal-text-size-reset' },
-  ]
-})
-
-// Stays open on select, unlike the row menus: a size is arrived at by nudging,
-// and reopening the menu between notches would make that unusable.
-function onViewMenuSelect(id: string): void {
-  if (id === 'text-size-decrease') stepTerminalFontSize(-1)
-  else if (id === 'text-size-increase') stepTerminalFontSize(1)
-  else if (id === 'text-size-reset') resetTerminalFontSize()
-}
 
 const {
   confirmation,
@@ -349,13 +356,25 @@ function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
 }
 
+function groupRunning(group: TerminalSessionGroup): boolean {
+  return group.sessions.some((row) => sessionStatuses.value[row.id]?.running)
+}
+
 // Expand/collapse is transient view state, not configuration — localStorage,
-// same as the hub sidebar's folder collapse.
-const collapsedRepos = useStorage<string[]>('hive.terminal.sidebar.collapsed', [])
-function toggleGroup(key: string): void {
-  collapsedRepos.value = collapsedRepos.value.includes(key)
-    ? collapsedRepos.value.filter((other) => other !== key)
-    : [...collapsedRepos.value, key]
+// same as the hub sidebar's folder collapse. A repo the user has never toggled
+// has no entry and takes the default, which is open only where something is
+// live: a machine's worth of dormant repos would otherwise bury the one being
+// worked in. The attached repo counts as live on its own, because statuses
+// arrive a poll after the tree does and the repo on screen must not wait.
+const groupExpansion = useStorage<Record<string, boolean>>('hive.terminal.sidebar.groups', {})
+function groupExpanded(group: TerminalSessionGroup): boolean {
+  // A filter overrides the stored state: a group is only in the list because
+  // something in it matched, and a collapsed one would hide the match.
+  if (sessionFilter.value.trim()) return true
+  return groupExpansion.value[group.key] ?? (groupAttached(group) || groupRunning(group))
+}
+function toggleGroup(group: TerminalSessionGroup): void {
+  groupExpansion.value[group.key] = !groupExpanded(group)
 }
 
 // Windows are only known live through an attach, so every other active
@@ -415,14 +434,266 @@ function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
   }))
 }
 
+// The mouse's path, shared with Enter: both mean "go to work in this", so the
+// pane is allowed to take focus as it comes up.
 function openTreeWindow(row: TerminalSessionRow, win: TreeWindowRow): void {
+  cursorRequest.value = `w:${row.id}:${win.windowId}`
+  paneMayAutoFocus.value = true
   if (win.live && row.slug === activeSlug.value) void current.value?.select(win.windowId)
   else openWindow(row, win.windowId)
 }
 
+function selectSessionRow(row: TerminalSessionRow): void {
+  cursorRequest.value = `s:${row.id}`
+  paneMayAutoFocus.value = true
+  selectSession(row.slug)
+}
+
+// Committing on a row the walk only stops at because there is no terminal behind
+// it: starting one is the move on offer, so Enter makes it without the trip
+// through the empty pane. A click still just opens the session — the pane's own
+// Start button is right there, and the mouse has not asked for anything else.
+// startSession does not respawn a live session, so a status poll that has not
+// landed yet costs nothing.
+function enterSessionRow(row: TerminalSessionRow): void {
+  cursorRequest.value = `s:${row.id}`
+  paneMayAutoFocus.value = true
+  if (sessionStatuses.value[row.id]?.running) selectSession(row.slug)
+  else void startSession(row.slug)
+}
+
+// ── Tree keyboard navigation ─────────────────────────────────────────────────
+// An arrow is a click on the next row, not a cursor that moves ahead of the
+// selection: the keyboard and the mouse pick a session the same way, so there
+// is one selected row rather than a selection and a pending cursor to reconcile.
+//
+// Only rows a click does something to are walked. A repo header collapses on
+// click, which is not something to do to every group on the way past one, so it
+// stays mouse- and Tab-reachable.
+//
+// A running session is its windows, so its own row drops out of the walk rather
+// than standing in front of them as a stop that changes nothing. What is left is
+// the rule the tree reads by: a session row is a stop exactly when Enter has a
+// session to start. The `windows.length` guard is the exception that keeps
+// everything reachable — with window listing off, an unattached session has no
+// windows to stand in for it.
+//
+// Rows are keyed rather than indexed: the tree re-sorts under a poll, and an
+// index would silently point at a different session afterwards.
+const treeRowKeys = computed<string[]>(() => {
+  const keys: string[] = []
+  for (const group of filteredGroups.value) {
+    if (!groupExpanded(group)) continue
+    for (const row of group.sessions) {
+      const windows = windowRowsFor(row)
+      if (!sessionStatuses.value[row.id]?.running || !windows.length) keys.push(`s:${row.id}`)
+      for (const win of windows) keys.push(`w:${row.id}:${win.windowId}`)
+    }
+  }
+  return keys
+})
+
+const attachedRow = computed(() => attachable.value.find((row) => row.slug === activeSlug.value) ?? null)
+
+// Where the keyboard is, read off what is attached — a session's active window
+// if it has one, the session itself otherwise.
+const selectedRowKey = computed(() => {
+  const row = attachedRow.value
+  if (!row) return ''
+  const active = windowRowsFor(row).find((win) => win.active)
+  return active ? `w:${row.id}:${active.windowId}` : `s:${row.id}`
+})
+
+// The row last landed on, by either input. It cannot be derived from the
+// selection: attaching a session also selects its active window, so a tree
+// position read back off the selection would sit one row below the session row
+// the arrow just picked, and the next arrow would skip that window.
+// Both the arrows and the row handlers set it, which is what keeps a click and a
+// keypress agreeing on where the next arrow starts.
+const cursorRequest = ref('')
+
+const cursorKey = computed(() => {
+  const keys = treeRowKeys.value
+  if (keys.includes(cursorRequest.value)) return cursorRequest.value
+  if (keys.includes(selectedRowKey.value)) return selectedRowKey.value
+  return ''
+})
+
+// Nothing is selected on the way in, so the first row carries the tab stop and
+// the first arrow moves from there.
+const tabStopKey = computed(() => cursorKey.value || treeRowKeys.value[0] || '')
+
+const sidebarEl = ref<HTMLElement | null>(null)
+
+// The chord worth showing is the one that leaves where focus already is —
+// "⌘← tree" is noise to someone standing in the tree.
+const { combosFor } = useKeybindings()
+const focusHint = computed(() => {
+  const inTree = terminalTreeFocused.value
+  const combo = combosFor(inTree ? 'terminal.focus-pane' : 'terminal.focus-sidebar')[0]
+  if (!combo) return null
+  return { keys: formatCombo(combo), label: inTree ? 'terminal' : 'tree' }
+})
+
+function rowElement(key: string): HTMLElement | null {
+  if (!key) return null
+  const rows = treeContent.value?.querySelectorAll<HTMLElement>('[data-tree-key]')
+  if (!rows) return null
+  for (const row of Array.from(rows)) if (row.dataset.treeKey === key) return row
+  return null
+}
+
+// The click handlers, reached by key. Re-picking the attached session is the one
+// place the two part company: a click there means "put me back in the pane", and
+// an arrow that did the same would hand the next keystroke to tmux.
+async function activateRow(key: string): Promise<void> {
+  const [kind, rowID, windowId] = key.split(':')
+  const row = attachable.value.find((candidate) => candidate.id === rowID)
+  if (!row) return
+  if (kind === 's') {
+    if (row.slug !== activeSlug.value) selectSession(row.slug)
+    return
+  }
+  const win = windowRowsFor(row).find((candidate) => candidate.windowId === windowId)
+  if (!win) return
+  if (win.live && row.slug === activeSlug.value) await current.value?.select(win.windowId)
+  else openWindow(row, win.windowId)
+}
+
+async function moveSelection(delta: number): Promise<void> {
+  const keys = treeRowKeys.value
+  if (!keys.length) return
+  const at = keys.indexOf(cursorKey.value)
+  // Clamped, not wrapped: running off the end of a session list and landing
+  // back at the top reads as a jump, not as navigation.
+  const next = keys[Math.min(keys.length - 1, Math.max(0, at + delta))]
+  if (!next || next === cursorKey.value) return
+  cursorRequest.value = next
+  // Walking past a session is not an intent to type in it. The latch is what
+  // holds that across the attach; the row still takes DOM focus so the ring and
+  // the tab stop follow the walk.
+  paneMayAutoFocus.value = false
+  rowElement(next)?.focus()
+  await activateRow(next)
+}
+
+function onTreeKeydown(event: KeyboardEvent): void {
+  // Modified arrows belong to the keymap — Cmd+← is how focus got here.
+  if (event.metaKey || event.ctrlKey || event.altKey) return
+  if (renamingId.value || isEditableTarget(event.target)) return
+  const delta = { ArrowDown: 1, j: 1, ArrowUp: -1, k: -1 }[event.key]
+  if (delta === undefined) return
+  event.preventDefault()
+  void moveSelection(delta)
+}
+
+function onTreeFocusOut(event: FocusEvent): void {
+  const next = event.relatedTarget
+  if (next instanceof Node && sidebarEl.value?.contains(next)) return
+  terminalTreeFocused.value = false
+}
+
+// Nothing to land on while the list is still loading, so take the panel itself
+// and let the first arrow seed the cursor.
+function focusTreeCursor(): void {
+  void nextTick(() => (rowElement(cursorKey.value) ?? sidebarEl.value)?.focus())
+}
+
+onMounted(() => setTerminalTreeHandles({
+  focusTree: focusTreeCursor,
+  // Selected, not just focused: `/` on a field that already has a query means
+  // a new search far more often than an edit of the old one.
+  focusFilter: (): void => {
+    void nextTick(() => filterInput.value?.select())
+  },
+  focusPane: (): void => current.value?.focusActive(),
+  // Counted along the strip rather than clamped to it: ⌘3 means the third
+  // window, so a session with two ignores it instead of standing the last one
+  // in for a window the user did not ask for.
+  selectWindow: (position: number): void => {
+    const tab = current.value?.tabs.value[position - 1]
+    if (!tab) return
+    if (attachedRow.value) cursorRequest.value = `w:${attachedRow.value.id}:${tab.windowId}`
+    paneMayAutoFocus.value = true
+    void current.value?.select(tab.windowId)
+  },
+}))
+onBeforeUnmount(() => setTerminalTreeHandles(null))
+
+// The selection markers are two elements that travel, not a border each row
+// draws for itself: one tracks the attached session, one the active window, and
+// moving them is what makes a selection read as the same mark relocating.
+//
+// Measured off the rows rather than computed. Row heights differ by kind, a
+// group's own height animates, and a collapsed group contributes nothing — so
+// there is no arithmetic over the list that stays true.
+const treeContent = ref<HTMLElement | null>(null)
+interface SelectionRail { y: number; height: number; shown: boolean }
+const sessionRail = ref<SelectionRail>({ y: 0, height: 0, shown: false })
+const windowRail = ref<SelectionRail>({ y: 0, height: 0, shown: false })
+
+// A rail with no row to sit on fades out where it stands rather than resetting,
+// so it does not travel from a stale origin the next time one appears.
+function measureRail(rail: SelectionRail, selector: string): SelectionRail {
+  const content = treeContent.value
+  const row = content?.querySelector<HTMLElement>(selector)
+  if (!content || !row) return { ...rail, shown: false }
+  return {
+    y: row.getBoundingClientRect().top - content.getBoundingClientRect().top,
+    height: row.offsetHeight,
+    shown: true,
+  }
+}
+
+function measureRails(): void {
+  sessionRail.value = measureRail(sessionRail.value, '[data-testid="terminal-session-row"][data-attached="true"]')
+  windowRail.value = measureRail(windowRail.value, '[data-testid="terminal-window-row"][data-active="true"]')
+}
+
+// Rows move under FLIP and inside a panel whose height is animating, so one
+// measurement lands mid-flight and sticks. Re-measure per frame until the tree
+// has stopped moving; a later trigger extends the window rather than stacking
+// a second loop on it.
+let railSettleUntil = 0
+let railSettleFrame = 0
+function settleRails(): void {
+  railSettleUntil = performance.now() + 260
+  measureRails() // land on the same frame as the click; the loop only corrects
+  if (railSettleFrame) return
+  const step = (): void => {
+    measureRails()
+    railSettleFrame = performance.now() < railSettleUntil ? requestAnimationFrame(step) : 0
+  }
+  railSettleFrame = requestAnimationFrame(step)
+}
+
+// A resize of the tree's content is every layout change that can move a row —
+// expand/collapse, a session arriving, a window subtree filling in — and it
+// fires per frame while a height animates. Selection can also change without
+// moving anything, which is what the watch below covers.
+watch(treeContent, (content, _previous, onCleanup) => {
+  if (!content || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(() => settleRails())
+  observer.observe(content)
+  onCleanup(() => observer.disconnect())
+})
+
+watch(
+  () => [activeSlug.value, current.value?.activeWindowId.value, props.sidebarCollapsed] as const,
+  () => void nextTick(settleRails),
+)
+
+onBeforeUnmount(() => {
+  if (railSettleFrame) cancelAnimationFrame(railSettleFrame)
+  railSettleFrame = 0
+})
+
 // Expand/collapse animates the measured height — the hooks only pin the start
-// and end values, the .tree-expand-* classes carry the (fast) transition, and
-// after-enter clears the inline height so an open panel resizes naturally.
+// and end values, and the .tree-expand-* classes carry the (fast) transition.
+//
+// The animated element holds nothing but the panel: its border and padding sit
+// on the block inside it, because a box cannot shrink below its own padding, so
+// a padded panel would animate down to 9px and then snap the rest of the way.
 function expandEnter(el: Element): void {
   const panel = el as HTMLElement
   panel.style.height = '0'
@@ -430,7 +701,9 @@ function expandEnter(el: Element): void {
   panel.style.height = `${panel.scrollHeight}px`
 }
 
-function expandAfterEnter(el: Element): void {
+// Clears the pinned height so an open panel resizes with its content — on the
+// way in, and on an enter cut short by a collapse before it finished.
+function expandSettle(el: Element): void {
   (el as HTMLElement).style.height = ''
 }
 
@@ -458,11 +731,6 @@ const tabs = computed<TerminalWindowTab[]>(() => visible.value?.tabs.value ?? []
 const activeWindowId = computed(() => visible.value?.activeWindowId.value ?? '')
 const activeScrolledUp = computed(() => tabs.value.some((tab) => tab.windowId === activeWindowId.value && tab.scrolledUp))
 const status = computed(() => visible.value?.status.value ?? 'connecting')
-// The cached listing stands in for the tab strip while the attach is in
-// flight, so selecting a session swaps the strip's contents in place instead
-// of emptying and rebuilding it.
-const placeholderTabs = computed<WindowState[]>(() =>
-  (status.value === 'connecting' && !tabs.value.length ? sessionWindows.value[activeSlug.value] ?? [] : []))
 const endReason = computed(() => visible.value?.endReason.value ?? null)
 // Not a failure: tmux is running nothing under this slug, and starting it runs
 // the session's agent command — so it is offered, never done on selection.
@@ -470,7 +738,10 @@ const notStarted = computed(() => endReason.value === 'not-started')
 const starting = ref('')
 const startError = ref('')
 const sessionError = computed(() => visible.value?.error.value ?? '')
-const actionError = computed(() => visible.value?.actionError.value ?? '')
+// A tree control can act on a session that is not the attached one, so its
+// failure has no session to report through; it falls back to the same strip.
+const treeError = ref('')
+const actionError = computed(() => visible.value?.actionError.value || treeError.value)
 const sizeConstraint = computed(() => visible.value?.sizeConstraint.value ?? null)
 
 const search = computed(() => visible.value?.search.value ?? { open: false, query: '', matches: 0, index: 0 })
@@ -707,28 +978,32 @@ function closeSession(): void {
   if (routeSlug.value) void router.replace({ name: 'terminal' })
 }
 
-// A tab answers to the press and again to the click, and both mean the same
-// thing: this is the window I am typing into.
-//
-// The press is what selects. The tab is a drag source, and a press that drifts
-// past the 3px drag threshold starts a drag and dispatches no click at all, so
-// a tab that only answered clicks dropped them often enough to read as dead.
-//
-// The click is what lands focus in the pane. mousedown's default action moves
-// DOM focus onto whatever was pressed and runs *after* this handler, so focus
-// taken on the press is taken straight back off; by click it has already run.
-// select() on the window that is already active is exactly "focus the pane".
-function onTabPress(event: MouseEvent, tab: TerminalWindowTab): void {
-  if (event.button !== 0 || renamingId.value === tab.windowId) return
-  void visible.value?.select(tab.windowId)
+// Adding a window is a property of the session, not of what is on screen, so
+// the row offers it whether or not that session is the attached one. A pooled
+// session goes through its own client, which is what makes the new window the
+// active one; an unattached session takes the plain slug-keyed call, and the
+// attach that selecting the row starts lists its windows fresh either way.
+async function newWindowIn(row: TerminalSessionRow): Promise<void> {
+  const pooled = pool.get(row.slug)
+  selectSession(row.slug)
+  if (pooled) {
+    await pooled.newWindow()
+    return
+  }
+  try {
+    treeError.value = ''
+    await client.value?.newWindow(row.slug)
+  } catch (e) {
+    treeError.value = appErrorMessage(e) || 'Could not create a window.'
+  }
 }
 
-// The rename field sits inside the tab, so a double-click meant for its text
+// The rename field sits inside the row, so a double-click meant for its text
 // arrives here as well; restarting the rename would discard what was typed.
-function startRename(tab: TerminalWindowTab): void {
-  if (renamingId.value === tab.windowId) return
-  renamingId.value = tab.windowId
-  renameDraft.value = tab.name
+function startRename(win: TreeWindowRow): void {
+  if (!win.live || renamingId.value === win.windowId) return
+  renamingId.value = win.windowId
+  renameDraft.value = win.name
 }
 
 function commitRename(): void {
@@ -740,29 +1015,23 @@ function commitRename(): void {
 }
 
 // ── window reordering ───────────────────────────────────────────────────────
-// The tab strip and the sidebar's window well are two views of one session's
-// window order, so one drag model serves both: a window carries the slug it
-// came from and can only land back in that session. Both surfaces show the same
-// windows, so each mark names the surface it belongs to — a drag through the
-// sidebar must not light up the strip's tabs. Native HTML5 DnD, the same shape
-// the hub sidebar uses; the dragged window is tracked here because dataTransfer
-// cannot be read during dragover, and the hovered edge drives the marker.
-type WindowSurface = 'strip' | 'tree'
+// A window carries the slug it came from and can only land back in that
+// session. Native HTML5 DnD, the same shape the hub sidebar uses; the dragged
+// window is tracked here because dataTransfer cannot be read during dragover,
+// and the hovered edge drives the marker.
 const WINDOW_DRAG_MIME = 'application/x-hive-terminal-window'
-const draggingWindow = ref<{ surface: WindowSurface; slug: string; windowId: string } | null>(null)
-const dropTarget = ref<{ surface: WindowSurface; slug: string; windowId: string; after: boolean } | null>(null)
+const draggingWindow = ref<{ slug: string; windowId: string } | null>(null)
+const dropTarget = ref<{ slug: string; windowId: string; after: boolean } | null>(null)
 
-function onWindowDragStart(event: DragEvent, surface: WindowSurface, slug: string, windowId: string): void {
-  draggingWindow.value = { surface, slug, windowId }
+function onWindowDragStart(event: DragEvent, slug: string, windowId: string): void {
+  draggingWindow.value = { slug, windowId }
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
     event.dataTransfer.setData(WINDOW_DRAG_MIME, windowId)
   }
 }
 
-// The surface also says which way it runs: a tab is entered by its left or
-// right half, a sidebar row by its top or bottom.
-function onWindowDragOver(event: DragEvent, surface: WindowSurface, slug: string, windowId: string): void {
+function onWindowDragOver(event: DragEvent, slug: string, windowId: string): void {
   const dragged = draggingWindow.value
   if (!dragged) return
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'move'
@@ -775,10 +1044,7 @@ function onWindowDragOver(event: DragEvent, surface: WindowSurface, slug: string
     return
   }
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  const after = surface === 'strip'
-    ? event.clientX > rect.left + rect.width / 2
-    : event.clientY > rect.top + rect.height / 2
-  dropTarget.value = { surface, slug, windowId, after }
+  dropTarget.value = { slug, windowId, after: event.clientY > rect.top + rect.height / 2 }
 }
 
 function onWindowDrop(): void {
@@ -792,17 +1058,13 @@ function onWindowDrop(): void {
 }
 
 function onWindowDragEnd(): void {
-  // A drag swallows the click the strip hands focus back to the pane on, and a
-  // tab the user just dragged is still a tab they reached for.
-  if (draggingWindow.value?.surface === 'strip') visible.value?.focusActive()
   draggingWindow.value = null
   dropTarget.value = null
 }
 
-// The order both surfaces reorder against. A window is only movable while its
-// session holds a control client, which is exactly when the sidebar renders its
-// live tabs rather than a cached listing — so a pooled session is the whole
-// precondition, in the tree as much as in the strip.
+// The order a drag reorders against. A window is only movable while its session
+// holds a control client, which is exactly when the tree renders its live tabs
+// rather than a cached listing — so a pooled session is the whole precondition.
 function windowOrder(slug: string): string[] {
   return pool.get(slug)?.tabs.value.map((tab) => tab.windowId) ?? []
 }
@@ -816,21 +1078,20 @@ function dropPosition(order: string[], windowId: string, target: { windowId: str
   return target.after ? anchor + 1 : anchor
 }
 
-// Dimmed where the drag started, marked where the pointer is: the same window
-// is drawn in both surfaces, and only the one being used should change.
-function draggingWindowRow(surface: WindowSurface, slug: string, windowId: string): boolean {
+// Dimmed where the drag started, marked where the pointer is.
+function draggingWindowRow(slug: string, windowId: string): boolean {
   const dragged = draggingWindow.value
-  return !!dragged && dragged.surface === surface && dragged.slug === slug && dragged.windowId === windowId
+  return !!dragged && dragged.slug === slug && dragged.windowId === windowId
 }
 
-function showDropBefore(surface: WindowSurface, slug: string, windowId: string): boolean {
+function showDropBefore(slug: string, windowId: string): boolean {
   const target = dropTarget.value
-  return !!target && !target.after && target.surface === surface && target.slug === slug && target.windowId === windowId
+  return !!target && !target.after && target.slug === slug && target.windowId === windowId
 }
 
-function showDropAfter(surface: WindowSurface, slug: string, windowId: string): boolean {
+function showDropAfter(slug: string, windowId: string): boolean {
   const target = dropTarget.value
-  return !!target && target.after && target.surface === surface && target.slug === slug && target.windowId === windowId
+  return !!target && target.after && target.slug === slug && target.windowId === windowId
 }
 
 // Entering the mode is an activation, not a mount: the pool, its tmux control
@@ -887,14 +1148,35 @@ onBeforeUnmount(() => {
            only with "Always show windows" on, from a one-shot listing. -->
       <aside
         v-if="!sidebarCollapsed"
+        ref="sidebarEl"
         class="relative flex shrink-0 flex-col border-r border-border bg-sidebar"
         :style="{ width: sidebarWidth + 'px' }"
         data-testid="terminal-session-sidebar"
+        tabindex="-1"
+        @keydown="onTreeKeydown"
+        @focusin="terminalTreeFocused = true"
+        @focusout="onTreeFocusOut"
       >
         <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-          <span class="text-[15px] font-semibold">Sessions</span>
-          <span v-if="attachable.length" class="font-mono text-[12px] text-text-3">{{ attachable.length }}</span>
-          <span class="flex-1" />
+          <!-- Flush in the bar rather than a boxed field: the sidebar resizes
+               down to 180px, and a bordered input beside three controls leaves
+               the bar looking like nothing but chrome. -->
+          <IconSearch class="size-3 shrink-0" :class="sessionFilter ? 'text-text-3' : 'text-text-4'" />
+          <input
+            ref="filterInput"
+            v-model="sessionFilter"
+            type="text"
+            placeholder="Filter…"
+            aria-label="Filter sessions"
+            class="min-w-0 flex-1 bg-transparent text-[12.5px] text-text outline-none placeholder:text-text-4"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
+            data-testid="terminal-sessions-filter"
+            @keydown.esc.prevent="escapeFilter"
+            @keydown.down.prevent="focusTreeCursor"
+            @keydown.enter.prevent="focusTreeCursor"
+          >
           <!-- The refresh control doubles as the staleness indicator: the
                cached tree renders instantly, and the spin is what says a
                revalidation is still in flight. -->
@@ -943,189 +1225,245 @@ onBeforeUnmount(() => {
           <p v-else-if="!attachable.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-empty">
             No active sessions. Start one from the hub and it will appear here.
           </p>
+          <p v-else-if="!filteredGroups.length" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-no-matches">
+            No sessions match &ldquo;{{ sessionFilter.trim() }}&rdquo;.
+          </p>
           <!-- One repository reads as one block: the header keeps the sidebar's
                own surface and its sessions sit in a recessed panel under it, so
-               a long run of sessions cannot bleed into the next repo's. -->
-          <div v-for="group in sessionGroups" :key="group.key" class="border-t border-border first:border-t-0">
-            <button
-              type="button"
-              class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
-              data-testid="terminal-repo-group"
-              :data-repo="group.key"
-              :aria-expanded="!collapsedRepos.includes(group.key)"
-              @click="toggleGroup(group.key)"
-            >
-              <span class="min-w-0 truncate font-mono text-[13.5px] font-semibold tracking-[.02em] text-text">{{ group.name }}</span>
-              <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
-              <component :is="collapsedRepos.includes(group.key) ? IconChevronRight : IconChevronDown" class="size-3 shrink-0 text-text-4" />
-            </button>
-            <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
-              <div v-if="!collapsedRepos.includes(group.key)" class="relative flex flex-col border-t border-border bg-app py-1">
-                <TransitionGroup name="tree">
-                  <div v-for="row in group.sessions" :key="row.id">
-                    <!-- Not a <button>: the row's menu toggle is a real button, and
-                         nesting one inside another is invalid. -->
-                    <div
-                      class="session-row"
-                      :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
-                      role="button"
-                      tabindex="0"
-                      data-testid="terminal-session-row"
-                      :data-slug="row.slug"
-                      :data-attached="row.slug === activeSlug"
-                      :title="row.slug"
-                      @click="selectSession(row.slug)"
-                      @keydown.enter.self.prevent="selectSession(row.slug)"
-                      @keydown.space.self.prevent="selectSession(row.slug)"
-                      @contextmenu.prevent="toggleRowMenu(row, $event)"
-                    >
-                      <span class="min-w-0 flex-1 truncate text-[13.5px]">{{ row.name }}</span>
-                      <!-- AppMenu must anchor to the positioned row so its panel
-                           spans the row. Grid overlap avoids making this slot a
-                           positioning ancestor while keeping its width fixed. -->
-                      <div class="row-trailing" data-testid="terminal-session-trailing" @click.stop>
-                        <span
-                          v-if="sessionLivenessIndicators[row.id]"
-                          class="row-status"
-                          :class="sessionLivenessIndicators[row.id].color"
-                          :title="sessionLivenessIndicators[row.id].label"
-                          data-testid="terminal-session-liveness"
-                          :data-status="sessionStatuses[row.id].running ? 'running' : 'inactive'"
-                        >
+               a long run of sessions cannot bleed into the next repo's. The
+               wrapper is the rails' positioning context and the box whose
+               resize tells them a row has moved. -->
+          <div ref="treeContent" class="relative">
+            <div v-for="group in filteredGroups" :key="group.key" class="border-t border-border first:border-t-0">
+              <button
+                type="button"
+                class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
+                data-testid="terminal-repo-group"
+                :data-repo="group.key"
+                :aria-expanded="groupExpanded(group)"
+                @click="toggleGroup(group)"
+              >
+                <span class="min-w-0 truncate text-[13.5px] text-text">{{ group.name }}</span>
+                <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+                <component :is="groupExpanded(group) ? IconChevronDown : IconChevronRight" class="size-3 shrink-0 text-text-4" />
+              </button>
+              <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandSettle" @enter-cancelled="expandSettle" @leave="expandLeave">
+                <div v-if="groupExpanded(group)">
+                  <TransitionGroup name="tree" tag="div" class="relative flex flex-col border-t border-border bg-app py-1">
+                    <div v-for="row in group.sessions" :key="row.id">
+                      <!-- Not a <button>: the row's menu toggle is a real button, and
+                           nesting one inside another is invalid. -->
+                      <div
+                        class="session-row"
+                        :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
+                        role="button"
+                        :tabindex="tabStopKey === `s:${row.id}` ? 0 : -1"
+                        data-testid="terminal-session-row"
+                        :data-slug="row.slug"
+                        :data-tree-key="`s:${row.id}`"
+                        :data-attached="row.slug === activeSlug"
+                        :title="row.slug"
+                        @click="selectSessionRow(row)"
+                        @keydown.enter.self.prevent="enterSessionRow(row)"
+                        @keydown.space.self.prevent="enterSessionRow(row)"
+                        @contextmenu.prevent="toggleRowMenu(row, $event)"
+                      >
+                        <span class="min-w-0 flex-1 truncate text-[13.5px]" :class="{ 'text-text-3': sessionIdle[row.id] }">{{ row.name }}</span>
+                        <!-- AppMenu must anchor to the positioned row so its panel
+                             spans the row. Grid overlap avoids making this slot a
+                             positioning ancestor while keeping its width fixed. -->
+                        <div class="row-trailing" data-testid="terminal-session-trailing" @click.stop>
+                          <button
+                            type="button"
+                            class="row-action row-lead"
+                            title="New window"
+                            aria-label="New window"
+                            data-testid="terminal-new-window"
+                            @click="newWindowIn(row)"
+                          ><IconPlus class="size-3" /></button>
                           <span
-                            v-if="sessionStatuses[row.id].running"
-                            class="size-2.5 rounded-full bg-current"
-                            aria-hidden="true"
-                          />
-                          <component
-                            :is="sessionLivenessIndicators[row.id].icon"
-                            v-else
-                            class="size-3"
-                            aria-hidden="true"
-                          />
-                          <span class="sr-only">{{ sessionLivenessIndicators[row.id].label }}</span>
-                        </span>
-                        <button
-                          :ref="(el) => setRowMenuToggle(row.id, el)"
-                          type="button"
-                          class="row-action"
-                          title="Session actions"
-                          aria-label="Session actions"
-                          aria-haspopup="menu"
-                          :aria-expanded="openRowMenu === row.id"
-                          data-testid="terminal-session-menu-toggle"
-                          @click="toggleRowMenu(row)"
-                        ><IconEllipsisVertical class="size-3" /></button>
-                        <SessionRowMenu
-                          v-if="openRowMenu === row.id"
-                          :session="row"
-                          :extra="sessionActionEntries"
-                          :flip="rowMenuFlip"
-                          :ignore="[rowMenuToggles.get(row.id) ?? null]"
-                          @extra="runSessionAction(row, $event)"
-                          @close="openRowMenu = ''"
-                          @start="startSession(row.slug)"
-                          @kill="requestKill(row)"
-                          @detail="openSessionDetail(row)"
-                          @rename="requestRename(row)"
-                          @recycle="requestRecycle(row)"
-                          @delete="requestDelete(row)"
-                        />
-                      </div>
-                    </div>
-                    <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandAfterEnter" @leave="expandLeave">
-                      <div v-if="windowRowsFor(row).length" class="relative flex flex-col pb-1">
-                        <TransitionGroup name="tree">
-                          <!-- The slot carries the drag and its insertion
-                               marker: the row's own ::before and ::after draw
-                               the tree connector. Draggable only while the
-                               session is attached, which is the whole
-                               precondition for moving one of its windows. -->
-                          <div
-                            v-for="(win, index) in windowRowsFor(row)"
-                            :key="win.windowId"
-                            class="window-slot"
-                            :class="{
-                              'opacity-40': draggingWindowRow('tree', row.slug, win.windowId),
-                              'drop-before': showDropBefore('tree', row.slug, win.windowId),
-                              'drop-after': showDropAfter('tree', row.slug, win.windowId),
-                            }"
-                            :draggable="win.live"
-                            data-testid="terminal-window-slot"
-                            @dragstart="onWindowDragStart($event, 'tree', row.slug, win.windowId)"
-                            @dragover.prevent="onWindowDragOver($event, 'tree', row.slug, win.windowId)"
-                            @drop.prevent="onWindowDrop"
-                            @dragend="onWindowDragEnd"
+                            v-if="sessionStatuses[row.id]?.running"
+                            class="row-status text-severity-success"
+                            title="Terminal running"
+                            data-testid="terminal-session-liveness"
                           >
-                            <!-- Not a <button>, for the same reason the session
-                                 row above is not: its own menu toggle is one. -->
+                            <span class="size-2.5 rounded-full bg-current" aria-hidden="true" />
+                            <span class="sr-only">Terminal running</span>
+                          </span>
+                          <button
+                            :ref="(el) => setRowMenuToggle(row.id, el)"
+                            type="button"
+                            class="row-action row-swap"
+                            title="Session actions"
+                            aria-label="Session actions"
+                            aria-haspopup="menu"
+                            :aria-expanded="openRowMenu === row.id"
+                            data-testid="terminal-session-menu-toggle"
+                            @click="toggleRowMenu(row)"
+                          ><IconEllipsisVertical class="size-3" /></button>
+                          <SessionRowMenu
+                            v-if="openRowMenu === row.id"
+                            :session="row"
+                            :extra="sessionActionEntries"
+                            :flip="rowMenuFlip"
+                            :ignore="[rowMenuToggles.get(row.id) ?? null]"
+                            @extra="runSessionAction(row, $event)"
+                            @close="openRowMenu = ''"
+                            @start="startSession(row.slug)"
+                            @kill="requestKill(row)"
+                            @detail="openSessionDetail(row)"
+                            @rename="requestRename(row)"
+                            @recycle="requestRecycle(row)"
+                            @delete="requestDelete(row)"
+                          />
+                        </div>
+                      </div>
+                      <Transition name="tree-expand" @enter="expandEnter" @after-enter="expandSettle" @enter-cancelled="expandSettle" @leave="expandLeave">
+                        <div v-if="windowRowsFor(row).length">
+                          <TransitionGroup name="tree" tag="div" class="relative flex flex-col pb-1">
+                            <!-- The slot carries the drag and its insertion
+                                 marker: the row's own ::before and ::after draw
+                                 the tree connector. Draggable only while the
+                                 session is attached, which is the whole
+                                 precondition for moving one of its windows. -->
                             <div
-                              class="window-row"
+                              v-for="(win, index) in windowRowsFor(row)"
+                              :key="win.windowId"
+                              class="window-slot"
                               :class="{
-                                'window-row-last': index === windowRowsFor(row).length - 1,
-                                'window-row-active': win.active,
-                                'has-menu': hasWindowActions,
-                                'menu-open': openWindowMenu === windowMenuKey(row, win.windowId),
+                                'opacity-40': draggingWindowRow(row.slug, win.windowId),
+                                'drop-before': showDropBefore(row.slug, win.windowId),
+                                'drop-after': showDropAfter(row.slug, win.windowId),
                               }"
-                              role="button"
-                              tabindex="0"
-                              :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
-                              :data-window-id="win.windowId"
-                              :data-active="win.live ? win.active : undefined"
-                              @click="openTreeWindow(row, win)"
-                              @keydown.enter.self.prevent="openTreeWindow(row, win)"
-                              @keydown.space.self.prevent="openTreeWindow(row, win)"
-                              @contextmenu.prevent="toggleWindowMenu(row, win.windowId, $event)"
+                              :draggable="win.live && renamingId !== win.windowId"
+                              data-testid="terminal-window-slot"
+                              @dragstart="onWindowDragStart($event, row.slug, win.windowId)"
+                              @dragover.prevent="onWindowDragOver($event, row.slug, win.windowId)"
+                              @drop.prevent="onWindowDrop"
+                              @dragend="onWindowDragEnd"
                             >
-                              <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
-                              <div class="window-trailing" data-testid="terminal-window-trailing" @click.stop>
-                                <span
-                                  v-if="win.indicator"
-                                  class="window-status"
-                                  :class="win.indicator.color"
-                                  :title="win.indicator.label"
-                                  data-testid="terminal-window-status"
-                                  :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                              <!-- Not a <button>, for the same reason the session
+                                   row above is not: its own menu toggle is one. -->
+                              <div
+                                class="window-row"
+                                :class="{
+                                  'window-row-last': index === windowRowsFor(row).length - 1,
+                                  'window-row-active': win.active,
+                                  'has-swap': win.live,
+                                  'menu-open': openWindowMenu === windowMenuKey(row, win.windowId),
+                                }"
+                                role="button"
+                                :tabindex="tabStopKey === `w:${row.id}:${win.windowId}` ? 0 : -1"
+                                :data-testid="win.live ? 'terminal-window-row' : 'terminal-listed-window-row'"
+                                :data-window-id="win.windowId"
+                                :data-tree-key="`w:${row.id}:${win.windowId}`"
+                                :data-active="win.live ? win.active : undefined"
+                                @click="openTreeWindow(row, win)"
+                                @keydown.enter.self.prevent="openTreeWindow(row, win)"
+                                @keydown.space.self.prevent="openTreeWindow(row, win)"
+                                @dblclick="startRename(win)"
+                                @contextmenu.prevent="toggleWindowMenu(row, win.windowId, $event)"
+                              >
+                                <input
+                                  v-if="renamingId === win.windowId"
+                                  v-model="renameDraft"
+                                  class="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text outline-none"
+                                  data-testid="terminal-rename-input"
+                                  autocapitalize="off"
+                                  autocorrect="off"
+                                  spellcheck="false"
+                                  autofocus
+                                  @click.stop
+                                  @dblclick.stop
+                                  @keydown.enter="commitRename"
+                                  @keydown.esc="renamingId = ''"
+                                  @blur="commitRename"
                                 >
-                                  <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
-                                  <span class="sr-only">{{ win.indicator.label }}</span>
-                                </span>
-                                <!-- A window row has no operations of its own,
-                                     so the toggle exists only once a configured
-                                     action targets one. -->
-                                <button
-                                  v-if="hasWindowActions"
-                                  :ref="(el) => setWindowMenuToggle(windowMenuKey(row, win.windowId), el)"
-                                  type="button"
-                                  class="row-action"
-                                  title="Window actions"
-                                  aria-label="Window actions"
-                                  aria-haspopup="menu"
-                                  :aria-expanded="openWindowMenu === windowMenuKey(row, win.windowId)"
-                                  data-testid="terminal-window-menu-toggle"
-                                  @click="toggleWindowMenu(row, win.windowId)"
-                                ><IconEllipsisVertical class="size-3" /></button>
-                                <AppMenu
-                                  v-if="openWindowMenu === windowMenuKey(row, win.windowId)"
-                                  :entries="windowActionEntries"
-                                  :flip="windowMenuFlip"
-                                  width="min(230px, 100%)"
-                                  :ignore="[windowMenuToggles.get(windowMenuKey(row, win.windowId)) ?? null]"
-                                  testid="terminal-window-menu"
-                                  @select="runWindowAction(row, win.windowId, $event)"
-                                  @close="openWindowMenu = ''"
-                                />
+                                <span v-else class="min-w-0 flex-1 truncate font-mono text-[12.5px]">{{ win.name }}</span>
+                                <div class="window-trailing" data-testid="terminal-window-trailing" @click.stop>
+                                  <button
+                                    v-if="win.live"
+                                    type="button"
+                                    class="row-action row-swap"
+                                    :title="`Close ${win.name}`"
+                                    :aria-label="`Close ${win.name}`"
+                                    data-testid="terminal-close-window"
+                                    @click="pool.get(row.slug)?.closeWindow(win.windowId)"
+                                  ><IconX class="size-3" /></button>
+                                  <span
+                                    v-if="win.indicator"
+                                    class="window-status"
+                                    :class="win.indicator.color"
+                                    :title="win.indicator.label"
+                                    data-testid="terminal-window-status"
+                                    :data-status="sessionStatuses[row.id]?.windows?.find((status) => status.windowId === win.windowId)?.status"
+                                  >
+                                    <component :is="win.indicator.icon" class="size-3" :class="{ 'animate-spin': win.indicator.animated }" aria-hidden="true" />
+                                    <span class="sr-only">{{ win.indicator.label }}</span>
+                                  </span>
+                                  <!-- A window row has no operations of its own,
+                                       so the toggle exists only once a configured
+                                       action targets one. -->
+                                  <button
+                                    v-if="hasWindowActions"
+                                    :ref="(el) => setWindowMenuToggle(windowMenuKey(row, win.windowId), el)"
+                                    type="button"
+                                    class="row-action row-lead"
+                                    title="Window actions"
+                                    aria-label="Window actions"
+                                    aria-haspopup="menu"
+                                    :aria-expanded="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                    data-testid="terminal-window-menu-toggle"
+                                    @click="toggleWindowMenu(row, win.windowId)"
+                                  ><IconEllipsisVertical class="size-3" /></button>
+                                  <AppMenu
+                                    v-if="openWindowMenu === windowMenuKey(row, win.windowId)"
+                                    :entries="windowActionEntries"
+                                    :flip="windowMenuFlip"
+                                    width="min(230px, 100%)"
+                                    :ignore="[windowMenuToggles.get(windowMenuKey(row, win.windowId)) ?? null]"
+                                    testid="terminal-window-menu"
+                                    @select="runWindowAction(row, win.windowId, $event)"
+                                    @close="openWindowMenu = ''"
+                                  />
+                                </div>
                               </div>
                             </div>
-                          </div>
-                        </TransitionGroup>
-                      </div>
-                    </Transition>
-                  </div>
-                </TransitionGroup>
-              </div>
-            </Transition>
+                          </TransitionGroup>
+                        </div>
+                      </Transition>
+                    </div>
+                  </TransitionGroup>
+                </div>
+              </Transition>
+            </div>
+            <!-- Last, so they paint over the rows: every row and panel is
+                 positioned too, and among positioned boxes DOM order decides. -->
+            <div
+              v-for="rail in [
+                { key: 'session', state: sessionRail, testid: 'terminal-session-rail' },
+                { key: 'window', state: windowRail, testid: 'terminal-window-rail' },
+              ]"
+              :key="rail.key"
+              class="tree-rail"
+              :class="{ 'tree-rail-shown': rail.state.shown }"
+              :style="{ transform: `translateY(${rail.state.y}px)`, height: `${rail.state.height}px` }"
+              :data-testid="rail.testid"
+              :data-shown="rail.state.shown"
+              aria-hidden="true"
+            />
           </div>
+        </div>
+        <!-- The tree's keys are not otherwise announced anywhere, so the panel
+             carries its own legend. The focus chord is read off the live keymap
+             because it is rebindable; the arrows are the tree's own handler and
+             cannot move. -->
+        <div v-if="attachable.length" class="tree-hints" data-testid="terminal-tree-hints">
+          <span><span class="tree-hint-key">↑↓</span> switch</span>
+          <span><span class="tree-hint-key">↵</span> enter</span>
+          <!-- Whichever half of the focus pair leaves where focus is. The pane
+               has nowhere to advertise its own way out, so the tree carries it. -->
+          <span v-if="focusHint"><span class="tree-hint-key">{{ focusHint.keys }}</span> {{ focusHint.label }}</span>
         </div>
         <PanelResizeHandle edge="right" name="terminal-sidebar" :start="startResize" :step="step" />
       </aside>
@@ -1140,129 +1478,11 @@ onBeforeUnmount(() => {
           <p class="text-xs text-text-3">Select a session to attach.</p>
         </div>
 
-        <!-- A session with no tmux session behind it has no tabs to show and
-             nothing to attach to yet, so the chrome stays out of the way and
-             the panel below does the talking. -->
+        <!-- A session with no tmux session behind it has nothing to attach to
+             yet, so the chrome stays out of the way and the panel below does
+             the talking. The sidebar tree is the only window list — there is
+             no tab strip to keep in step with it (ADR 0057). -->
         <template v-if="visible && !notStarted">
-          <div class="flex h-9 shrink-0 items-stretch border-b border-border bg-raised">
-            <div class="hive-scroll flex min-w-0 items-stretch overflow-x-auto">
-              <!-- The whole tab is the target and it selects on press: a label
-                   the size of its own text left most of the tab dead, and a
-                   press that drifts 3px on a drag source is delivered as a drag
-                   with no click at all — the two ways a click on a tab went
-                   missing. Draggable only while it is not being renamed: a drag
-                   on the name field would take the tab instead of selecting
-                   text. -->
-              <TransitionGroup name="tab">
-                <div
-                  v-for="tab in tabs"
-                  :key="tab.uid"
-                  class="tab relative flex w-[150px] shrink-0 cursor-pointer items-center gap-2 border-r border-border px-3"
-                  :class="{
-                    'bg-app shadow-[inset_0_1px_0_var(--color-accent)]': tab.windowId === activeWindowId,
-                    'hover:bg-chip': tab.windowId !== activeWindowId,
-                    'opacity-40': draggingWindowRow('strip', visibleSlug, tab.windowId),
-                    'drop-before': showDropBefore('strip', visibleSlug, tab.windowId),
-                    'drop-after': showDropAfter('strip', visibleSlug, tab.windowId),
-                  }"
-                  :draggable="renamingId !== tab.windowId"
-                  role="button"
-                  tabindex="0"
-                  data-testid="terminal-tab"
-                  :data-window-id="tab.windowId"
-                  :data-active="tab.windowId === activeWindowId"
-                  @mousedown="onTabPress($event, tab)"
-                  @click="onTabPress($event, tab)"
-                  @dblclick="startRename(tab)"
-                  @keydown.enter.self.prevent="visible?.select(tab.windowId)"
-                  @keydown.space.self.prevent="visible?.select(tab.windowId)"
-                  @dragstart="onWindowDragStart($event, 'strip', visibleSlug, tab.windowId)"
-                  @dragover.prevent="onWindowDragOver($event, 'strip', visibleSlug, tab.windowId)"
-                  @drop.prevent="onWindowDrop"
-                  @dragend="onWindowDragEnd"
-                >
-                  <input
-                    v-if="renamingId === tab.windowId"
-                    v-model="renameDraft"
-                    class="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-text outline-none"
-                    data-testid="terminal-rename-input"
-                    autofocus
-                    @keydown.enter="commitRename"
-                    @keydown.esc="renamingId = ''"
-                    @blur="commitRename"
-                  >
-                  <span
-                    v-else
-                    class="min-w-0 flex-1 truncate font-mono text-[12.5px]"
-                    :class="tab.windowId === activeWindowId ? 'font-medium text-text' : 'text-text-2'"
-                  >{{ tab.name || tab.windowId }}</span>
-                  <button
-                    type="button"
-                    class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
-                    data-testid="terminal-close-window"
-                    :aria-label="`Close ${tab.name || tab.windowId}`"
-                    @mousedown.stop
-                    @click.stop="visible?.closeWindow(tab.windowId)"
-                  ><IconX class="size-3" /></button>
-                </div>
-              </TransitionGroup>
-              <!-- Inert stand-ins from the cached listing while the attach is
-                   in flight; the live tabs replace them in place. -->
-              <div
-                v-for="win in placeholderTabs"
-                :key="win.windowId"
-                class="flex w-[150px] shrink-0 items-center gap-2 border-r border-border px-3"
-                :class="win.active ? 'bg-app shadow-[inset_0_1px_0_var(--color-accent)]' : ''"
-                data-testid="terminal-placeholder-tab"
-                :data-window-id="win.windowId"
-              >
-                <span class="min-w-0 flex-1 truncate font-mono text-[12.5px]" :class="win.active ? 'font-medium text-text' : 'text-text-2'">{{ win.name || win.windowId }}</span>
-              </div>
-              <button
-                type="button"
-                class="flex w-9 shrink-0 cursor-pointer items-center justify-center border-r border-border text-text-3 hover:bg-chip hover:text-text"
-                data-testid="terminal-new-window"
-                aria-label="New window"
-                title="New window"
-                @click="visible?.newWindow()"
-              ><IconPlus class="size-3.5" /></button>
-              <!-- The shortcut only reaches a focused pane, so the bar needs a
-                   way in from the chrome as well. -->
-              <button
-                type="button"
-                class="flex w-9 shrink-0 cursor-pointer items-center justify-center border-r border-border text-text-3 hover:bg-chip hover:text-text"
-                :class="search.open ? 'bg-chip text-text' : ''"
-                data-testid="terminal-search-open"
-                aria-label="Find in window"
-                title="Find in window"
-                @click="visible?.openSearch()"
-              ><IconSearch class="size-3.5" /></button>
-            </div>
-            <!-- Pinned outside the tab strip's scroll box so a session with
-                 many windows cannot scroll it out of reach. -->
-            <div class="relative ml-auto flex shrink-0 items-stretch">
-              <button
-                ref="viewMenuToggle"
-                type="button"
-                class="flex w-9 cursor-pointer items-center justify-center text-text-3 hover:bg-chip hover:text-text"
-                data-testid="terminal-view-menu-toggle"
-                aria-label="Terminal options"
-                title="Terminal options"
-                aria-haspopup="menu"
-                :aria-expanded="viewMenuOpen"
-                @click="viewMenuOpen = !viewMenuOpen"
-              ><IconEllipsis class="size-3.5" /></button>
-              <AppMenu
-                v-if="viewMenuOpen"
-                :entries="viewMenuEntries"
-                :ignore="[viewMenuToggle]"
-                testid="terminal-view-menu"
-                @close="viewMenuOpen = false"
-                @select="onViewMenuSelect"
-              />
-            </div>
-          </div>
-
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
 
           <!-- Names tmux's rule rather than reporting a fault: the grid is
@@ -1461,37 +1681,54 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Pinned under the tree rather than scrolling with it: a legend that scrolls
+   away is one you cannot consult at the moment you need it. */
+.tree-hints {
+  display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  padding: 8px 12px;
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-mono); font-size: 11px;
+  color: var(--color-text-4);
+  user-select: none;
+}
+.tree-hint-key { color: var(--color-text-3); }
+
 .session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 20px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
 .session-row:hover, .session-row.menu-open { background: var(--color-chip); }
-.session-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+/* No focus styling of its own: the walk activates the row it lands on, so the
+   rail and the accent are already the mark that follows the cursor. The outline
+   has to be set to none rather than merely dropped — the UA draws its own. */
+.session-row:focus-visible { outline: none; }
 /* No fill: the rail and the accent are enough to find the attached row, and
    leaving the surface alone also lets it keep its hover feedback. */
-.session-row-attached { font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.session-row-attached { font-weight: 500; color: var(--color-accent); }
 /* The tree connector is drawn, not typed: a box-drawing glyph is only as tall as
    its font size, so stacked rows would show a gap where the TUI's cell grid
    shows an unbroken line. ::before is the vertical, stopped at the elbow on the
    last row; ::after is the tick into the name. */
 .window-row { position: relative; display: flex; height: 28px; width: 100%; align-items: center; gap: 8px; padding-left: 40px; padding-right: 12px; text-align: left; color: var(--color-text-2); cursor: pointer; }
 .window-row:hover, .window-row.menu-open { background: var(--color-chip); }
-.window-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.window-row-active { font-weight: 500; color: var(--color-accent); box-shadow: inset 2px 0 0 var(--color-accent); }
+.window-row:focus-visible { outline: none; }
+.window-row-active { font-weight: 500; color: var(--color-accent); }
+
+/* The travelling selection markers. Out of flow, so moving one costs no layout
+   anywhere else, and its height is free to animate between the two row heights.
+   The z-index is load-bearing: rows and panels are positioned boxes as well, so
+   without it a rail is painted over by whichever of them comes after it. */
+.tree-rail {
+  /* Square ends, not rounded: the attached session's row and its active
+     window's are usually adjacent, and two rounded bars stacked pinch the edge
+     at the seam instead of reading as one continuous mark. */
+  position: absolute; left: 0; top: 0; z-index: 1; width: 3px;
+  background: var(--color-accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .2s cubic-bezier(.2, 0, 0, 1), height .2s cubic-bezier(.2, 0, 0, 1), opacity .12s ease;
+}
+.tree-rail-shown { opacity: 1; }
 .window-row::before { content: ''; position: absolute; left: 26px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
 .window-row::after { content: ''; position: absolute; left: 26px; top: 50%; width: 9px; border-top: 1px solid var(--color-strong); }
 .window-row-last::before { bottom: 50%; }
-
-/* The tab strip's insertion marker, vertical where the sidebar's is horizontal.
-   Drawn as a pseudo-element rather than an inset shadow so it composes with the
-   active tab's own accent line instead of replacing it mid-drag. */
-.tab.drop-before::before, .tab.drop-after::after {
-  content: ''; position: absolute; top: 0; bottom: 0; width: 2px; background: var(--color-accent);
-}
-.tab.drop-before::before { left: 0; }
-.tab.drop-after::after { right: 0; }
-.tab:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-/* A reordered tab travels to its new place instead of appearing in it, the same
-   FLIP the sidebar tree moves through. Only the move: a tab set swaps whole on
-   a session switch, and fading that in and out would be motion about nothing. */
-.tab-move { transition: transform .15s ease; }
 
 /* The window well's insertion marker, on the slot because the row's own
    ::before and ::after are the tree connector. Inset like the hub sidebar's. */
@@ -1506,7 +1743,10 @@ onBeforeUnmount(() => {
 .tree-enter-active, .tree-leave-active, .tree-move { transition: opacity .15s ease, transform .15s ease; }
 .tree-enter-from, .tree-leave-to { opacity: 0; transform: translateY(-4px); }
 .tree-leave-active { position: absolute; left: 0; right: 0; }
-.tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .15s ease; }
+/* Decelerating rather than `ease`: a disclosure that leaves at full speed and
+   settles reads as instant, where ease-in-out spends its first frames barely
+   moving and reads as lag. */
+.tree-expand-enter-active, .tree-expand-leave-active { overflow: hidden; transition: height .18s cubic-bezier(.2, 0, 0, 1); }
 /* The pill pops rather than fades in: it appears over live output, and motion
    is what separates it from the text moving behind it. Overshooting the scale
    on the way in is the whole effect; leaving is a plain shrink, because an
@@ -1516,24 +1756,29 @@ onBeforeUnmount(() => {
 .tail-pill-enter-from, .tail-pill-leave-to { opacity: 0; transform: scale(.85) translateY(4px); }
 
 @media (prefers-reduced-motion: reduce) {
-  .tree-enter-active, .tree-leave-active, .tree-move, .tab-move,
-  .tree-expand-enter-active, .tree-expand-leave-active,
+  .tree-enter-active, .tree-leave-active, .tree-move,
+  .tree-expand-enter-active, .tree-expand-leave-active, .tree-rail,
   .tail-pill-enter-active, .tail-pill-leave-active { transition: none; }
 }
 
-/* The shared slot keeps session and window names aligned while swapping the
-   status glyph for the row's menu. A window row only carries a menu once
-   something targets a window, and .has-menu is what says so — without it the
-   status keeps the whole slot, and its tooltip with it. */
-.row-trailing, .window-trailing { display: grid; width: 18px; height: 18px; flex: none; align-self: center; }
-.row-status, .window-status, .row-action { grid-area: 1 / 1; }
+/* Two fixed columns, so session and window names stay aligned whatever a row
+   is carrying. The second is where the status glyph sits, and the control that
+   replaces it on hover shares that cell rather than crowding in beside it — a
+   session's menu, a window's close. Anything else goes in the first.
+
+   A row whose second cell has no other occupant keeps its status there, and its
+   tooltip with it: that is a listed window, which has no live client to close.
+   .has-swap is what says otherwise. */
+.row-trailing, .window-trailing { display: grid; grid-template-columns: 18px 18px; width: 36px; height: 18px; flex: none; align-self: center; }
+.row-lead { grid-area: 1 / 1; }
+.row-status, .window-status, .row-swap { grid-area: 1 / 2; }
 .row-status, .window-status { display: flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; }
-.row-status, .window-row.has-menu .window-status { pointer-events: none; }
+.row-status, .window-row.has-swap .window-status { pointer-events: none; }
 .row-action { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover, .row-action[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
 .session-row:hover .row-action, .window-row:hover .row-action, .row-action:focus-visible,
 .session-row.menu-open .row-action, .window-row.menu-open .row-action { opacity: 1; }
 .session-row:hover .row-status, .session-row.menu-open .row-status, .row-trailing:focus-within .row-status { opacity: 0; }
-.window-row.has-menu:hover .window-status, .window-row.menu-open .window-status,
-.window-trailing:focus-within .window-status { opacity: 0; }
+.window-row.has-swap:hover .window-status,
+.window-row.has-swap .window-trailing:focus-within .window-status { opacity: 0; }
 </style>
