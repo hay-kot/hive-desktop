@@ -5,6 +5,8 @@ import IconActivity from '~icons/lucide/activity'
 import IconArrowLeft from '~icons/lucide/arrow-left'
 import IconArrowRight from '~icons/lucide/arrow-right'
 import IconBug from '~icons/lucide/bug'
+import IconInbox from '~icons/lucide/inbox'
+import IconCode from '~icons/lucide/code'
 import IconPanelLeftClose from '~icons/lucide/panel-left-close'
 import IconPanelLeftOpen from '~icons/lucide/panel-left-open'
 import IconPanelRightClose from '~icons/lucide/panel-right-close'
@@ -19,19 +21,25 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // One button grammar for the whole chrome, with a fixed slot per zone. The bar
 // is three flex-1 columns so the center stays the middle third of the window:
 //   left   — structure then history: the sidebar (left-panel) toggle brackets
-//            the far edge, a divider, then feed-scoped back/forward.
+//            the far edge, then feed-scoped back/forward, then the mode switch.
 //   center — the command palette launcher, window-centered.
 //   right  — app-level utilities (Activity, Report a problem) as one icon run,
-//            a divider, then the preview (right-panel) toggle bracketing the
-//            far edge. Panel toggles are the only things at the extremes, so
-//            they read as the frame; new utilities append to the icon run.
+//            then the preview (right-panel) toggle bracketing the far edge.
+//            Panel toggles are the only things at the extremes, so they read
+//            as the frame; new utilities append to the icon run.
 // Every control is one of two shapes: a 28px square icon button or a 28px
-// labeled/segmented button, both 7px-radius with a `chip` hover fill. Amber is
-// reserved for on-state and unread.
+// labeled/segmented button, both 7px-radius with a `chip` hover fill. Groups
+// are separated by margin, not rules — at four controls a hairline costs as
+// much attention as the control beside it.
+// Amber is reserved for things asking for attention — unread activity, an
+// available update. Selected state is a neutral `chip` fill, so the mode
+// switch (rarely used) cannot outshout them. It is also the only treatment
+// that clears contrast in all 14 themes: accent-on-accent-tint falls to
+// 1.8:1 in the light theme.
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
-// mode is the app-level Hub|Terminal switch. It renders only while
+// mode is the app-level Inbox|Code switch. It renders only while
 // terminalEnabled — the experimental.terminal opt-in (ADR 0037) — and once
 // rendered it is never disabled, because an unavailable terminal explains
 // itself inside Terminal mode.
@@ -105,7 +113,7 @@ function onTitlebarDblclick(event: MouseEvent): void {
     style="--wails-draggable: drag"
     @dblclick="onTitlebarDblclick"
   >
-    <!-- Left: panel toggle (frame) · divider · feed history -->
+    <!-- Left: panel toggle (frame) · feed history · mode switch -->
     <div class="flex min-w-0 flex-1 items-center gap-1 pr-2" :class="isMac ? 'pl-[84px]' : 'pl-3'">
       <button
         v-if="profileName"
@@ -118,8 +126,7 @@ function onTitlebarDblclick(event: MouseEvent): void {
         data-testid="titlebar-toggle-sidebar"
         @click="emit('toggle-sidebar')"
       ><component :is="sidebarCollapsed ? IconPanelLeftOpen : IconPanelLeftClose" class="size-3.5" /></button>
-      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
-      <nav v-if="profileName" class="flex shrink-0 items-center gap-0.5" aria-label="Page history" style="--wails-draggable: no-drag">
+      <nav v-if="profileName" class="ml-1 flex shrink-0 items-center gap-0.5" aria-label="Page history" style="--wails-draggable: no-drag">
         <button
           type="button"
           class="flex size-7 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:opacity-30"
@@ -137,30 +144,31 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @click="emit('forward')"
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
-      <span v-if="profileName && terminalEnabled" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
       <div
         v-if="profileName && terminalEnabled"
-        class="flex h-7 shrink-0 items-center rounded-[7px] border border-card bg-app p-[2px]"
+        class="ml-1.5 flex h-7 shrink-0 items-center gap-[2px] rounded-[7px] border border-card bg-app p-[2px]"
         style="--wails-draggable: no-drag"
         role="group"
         aria-label="App mode"
       >
+        <!-- Segments size to their labels. An equal-width split padded the
+             shorter label out to match the longer, which read as a gap. -->
         <button
           type="button"
-          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px]"
-          :class="mode === 'terminal' ? 'font-medium text-text-3 hover:text-text' : 'bg-accent font-semibold text-accent-contrast'"
+          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
+          :class="mode === 'terminal' ? 'font-medium text-text-3 hover:text-text' : 'bg-chip font-medium text-text'"
           :aria-pressed="mode !== 'terminal'"
           data-testid="titlebar-mode-hub"
           @click="emit('set-mode', 'hub')"
-        ><span class="font-mono text-[12px] leading-none">◈</span>Hub</button>
+        ><IconInbox class="size-3.5 shrink-0" />Inbox</button>
         <button
           type="button"
-          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px]"
-          :class="mode === 'terminal' ? 'bg-accent font-semibold text-accent-contrast' : 'font-medium text-text-3 hover:text-text'"
+          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
+          :class="mode === 'terminal' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'terminal'"
           data-testid="titlebar-mode-terminal"
           @click="emit('set-mode', 'terminal')"
-        ><span class="font-mono text-[12px] leading-none">&gt;_</span>Terminal</button>
+        ><IconCode class="size-3.5 shrink-0" />Code</button>
       </div>
     </div>
 
@@ -181,7 +189,7 @@ function onTitlebarDblclick(event: MouseEvent): void {
     </div>
     <div v-else class="flex-1" />
 
-    <!-- Right: status chips · utility icon run (Activity, Report) · divider · preview toggle (frame) -->
+    <!-- Right: status chips · utility icon run (Activity, Report) · preview toggle (frame) -->
     <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5 pl-2 pr-3">
       <button
         v-if="updateAvailable"
@@ -251,11 +259,10 @@ function onTitlebarDblclick(event: MouseEvent): void {
         :title="isMac ? 'Report a problem  ⌘⇧B' : 'Report a problem  Ctrl+Shift+B'"
         @click="emit('open-report')"
       ><IconBug class="size-3.5" /></button>
-      <span v-if="profileName" class="mx-0.5 h-[18px] w-px shrink-0 bg-border" />
       <button
         v-if="profileName"
         type="button"
-        class="flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
+        class="ml-1 flex size-7 shrink-0 items-center justify-center rounded-[7px] text-text-3 enabled:cursor-pointer enabled:hover:bg-chip enabled:hover:text-text disabled:cursor-default disabled:opacity-30"
         style="--wails-draggable: no-drag"
         :disabled="!canTogglePreview"
         :aria-label="previewCollapsed ? 'Show preview' : 'Hide preview'"

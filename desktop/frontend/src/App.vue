@@ -655,7 +655,7 @@ watch(githubConnected, async (connected) => {
 })
 
 // ── App mode ─────────────────────────────────────────────────────────────────
-// Hub is the feed/flows/settings app; Terminal takes the whole frame under the
+// Inbox is the feed/flows/settings app; Code takes the whole frame under the
 // title bar. Terminal is a route (/terminal/:slug?), so the title-bar controls
 // stay live inside it — Activity, back/forward — and history traversal
 // restores the attached session. A relaunch still lands on the hub (the
