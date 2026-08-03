@@ -1,0 +1,99 @@
+package agentws
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
+)
+
+// TestRenderCodexTOMLEscapesReservedStrings pins the hand-rolled writer's
+// escaping byte-for-byte: a command carrying a quote and a backslash, an arg
+// carrying a newline, and an env value carrying a backslash and a quote.
+// There is no TOML library backing this, so this is this feature's own
+// correctness to prove.
+func TestRenderCodexTOMLEscapesReservedStrings(t *testing.T) {
+	t.Parallel()
+
+	servers := map[string]mcpcatalog.Server{
+		"demo": {
+			Transport: mcpcatalog.TransportStdio,
+			Command:   "npx \"pkg\" \\bin",
+			Args:      []string{"line1\nline2"},
+			Env:       map[string]string{"TOKEN": "a\\b\"c"},
+		},
+	}
+
+	got, err := renderCodexTOML(servers)
+	require.NoError(t, err)
+
+	want := "[mcp_servers.demo]\ncommand = \"npx \\\"pkg\\\" \\\\bin\"\nargs = [\"line1\\nline2\"]\nenv = { TOKEN = \"a\\\\b\\\"c\" }\n"
+	assert.Equal(t, want, string(got))
+}
+
+func TestRenderCodexTOMLSortsServersByID(t *testing.T) {
+	t.Parallel()
+
+	servers := map[string]mcpcatalog.Server{
+		"zulu":  {Transport: mcpcatalog.TransportStdio, Command: "true"},
+		"alpha": {Transport: mcpcatalog.TransportStdio, Command: "true"},
+	}
+
+	got, err := renderCodexTOML(servers)
+	require.NoError(t, err)
+
+	assert.Less(t, strings.Index(string(got), "mcp_servers.alpha"), strings.Index(string(got), "mcp_servers.zulu"))
+}
+
+func TestRenderCodexTOMLQuotesAReservedTableKey(t *testing.T) {
+	t.Parallel()
+
+	servers := map[string]mcpcatalog.Server{
+		"has space": {Transport: mcpcatalog.TransportStdio, Command: "true"},
+	}
+
+	got, err := renderCodexTOML(servers)
+	require.NoError(t, err)
+	assert.Equal(t, "[mcp_servers.\"has space\"]\ncommand = \"true\"\n", string(got))
+}
+
+func TestRenderMCPJSONIsKeySortedAndTypesRemoteServers(t *testing.T) {
+	t.Parallel()
+
+	servers := map[string]mcpcatalog.Server{
+		"zulu-remote": {Transport: mcpcatalog.TransportHttp, URL: "https://example.com/mcp", Headers: map[string]string{"Authorization": "Bearer xyz"}},
+		"alpha-local": {Transport: mcpcatalog.TransportStdio, Command: "npx", Args: []string{"-y", "@playwright/mcp@latest"}},
+	}
+
+	got, err := renderMCPJSON(servers)
+	require.NoError(t, err)
+	assert.Less(t, strings.Index(string(got), `"alpha-local"`), strings.Index(string(got), `"zulu-remote"`))
+
+	var decoded struct {
+		MCPServers map[string]mcpJSONServer `json:"mcpServers"`
+	}
+	require.NoError(t, json.Unmarshal(got, &decoded))
+	require.Len(t, decoded.MCPServers, 2)
+
+	local := decoded.MCPServers["alpha-local"]
+	assert.Empty(t, local.Type)
+	assert.Equal(t, "npx", local.Command)
+	assert.Equal(t, []string{"-y", "@playwright/mcp@latest"}, local.Args)
+
+	remote := decoded.MCPServers["zulu-remote"]
+	assert.Equal(t, "http", remote.Type)
+	assert.Equal(t, "https://example.com/mcp", remote.URL)
+	assert.Empty(t, remote.Command)
+}
+
+func TestRenderMCPJSONEmptyServersIsAnEmptyObject(t *testing.T) {
+	t.Parallel()
+
+	got, err := renderMCPJSON(map[string]mcpcatalog.Server{})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"mcpServers":{}}`, string(got))
+}

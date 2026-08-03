@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -183,6 +184,25 @@ func TestSkillsSyncMaintainsInstalledAgentsOnly(t *testing.T) {
 	assert.Equal(t, 1, res.Restored)
 	assert.FileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
 	assert.False(t, targetInfo(t, res.Catalog, "claude").NeedsSync)
+}
+
+func TestSkillsRenderSkillRendersAgainstTheClaudeTarget(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	name, body, err := svc.RenderSkill(t.Context(), "http-api")
+	require.NoError(t, err)
+	assert.Equal(t, "hive-http-api", name)
+	assert.Contains(t, body, "name: hive-http-api", "renders the claude target's SKILL.md frontmatter")
+	assert.True(t, strings.HasPrefix(body, "---\n"), "SKILL.md frontmatter must open the file")
+}
+
+func TestSkillsRenderSkillRejectsAnUnknownID(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	_, _, err := svc.RenderSkill(t.Context(), "nope")
+	require.Error(t, err)
 }
 
 func TestSkillsUnknownTargetRejected(t *testing.T) {

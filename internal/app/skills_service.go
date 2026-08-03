@@ -321,6 +321,28 @@ func (s *SkillsService) skillMap(ctx context.Context, in prompts.Input) (map[str
 	return out, nil
 }
 
+// RenderSkill renders one listed prompt as a SKILL.md body for installation
+// into a workspace rather than into an agent's home directory. It renders
+// against the claude target: Target.Render needs one named target and all
+// four registered targets share one skillBodyTmpl today, so the choice is
+// arbitrary now — it stops being arbitrary the moment they diverge.
+func (s *SkillsService) RenderSkill(ctx context.Context, id string) (name, body string, err error) {
+	p, err := s.prompts.Render(ctx, id, prompts.Input{})
+	if err != nil {
+		return "", "", err
+	}
+	target, ok := skills.TargetByID("claude")
+	if !ok {
+		return "", "", Errorf(KindInternal, "unknown skill target %q", "claude")
+	}
+	skill := toSkill(p)
+	rendered, err := target.Render(skill)
+	if err != nil {
+		return "", "", Wrap(err, KindInternal, "rendering skill %q", id)
+	}
+	return skill.Name, rendered, nil
+}
+
 func (s *SkillsService) target(id string) (skills.Target, string, error) {
 	target, ok := skills.TargetByID(id)
 	if !ok {
