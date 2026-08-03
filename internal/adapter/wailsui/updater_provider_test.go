@@ -85,6 +85,42 @@ func TestManifestProviderCheckNewer(t *testing.T) {
 	require.Equal(t, want[:], rel.Verification.Digest)
 }
 
+// Releases publish a .dmg installer beside the update zip and advertise it in
+// the same platform entry (decision 0060). The updater has no disk-image path,
+// so it must keep resolving `url` and ignore the installer fields — including
+// in builds already shipped, which decode this manifest with the same tolerance.
+func TestManifestProviderCheckIgnoresInstallerFields(t *testing.T) {
+	zipBody := []byte("PK\x03\x04 fake zip")
+	sum := sha256.Sum256(zipBody)
+	ms := newManifestServer(t, settings.ChannelStable, func(base string) string {
+		return fmt.Sprintf(`{
+  "channel": "stable",
+  "version": "1.4.0",
+  "pub_date": "2026-08-01T00:00:00Z",
+  "platforms": {
+    "darwin-universal": {
+      "url": "%s/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip",
+      "sha256": %q,
+      "size": %d,
+      "installer_url": "%s/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.dmg",
+      "installer_sha256": "%s",
+      "installer_size": 99
+    }
+  }
+}`, base, hex.EncodeToString(sum[:]), len(zipBody), base, hex.EncodeToString(bytes.Repeat([]byte{0xab}, sha256.Size)))
+	})
+	p := NewManifestProvider(ms.URL, settings.ChannelStable)
+
+	rel, err := p.Check(context.Background(), darwinCheck("1.3.0"))
+	require.NoError(t, err)
+	require.NotNil(t, rel)
+	require.Equal(t, "Hive-1.4.0-darwin-universal.zip", rel.Artifact.Filename)
+	require.Equal(t, "zip", rel.Artifact.Filetype)
+	require.Equal(t, int64(len(zipBody)), rel.Artifact.Size)
+	require.Equal(t, ms.URL+"/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip", rel.Metadata[artifactURLKey])
+	require.Equal(t, sum[:], rel.Verification.Digest)
+}
+
 func TestManifestProviderCheckUpToDate(t *testing.T) {
 	ms := newManifestServer(t, settings.ChannelStable, stableManifest([]byte("PK\x03\x04 fake zip"), "1.4.0"))
 	p := NewManifestProvider(ms.URL, settings.ChannelStable)
