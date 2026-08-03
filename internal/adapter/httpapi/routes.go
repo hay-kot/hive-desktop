@@ -286,8 +286,8 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
 		},
 		{
-			Method: "POST", Path: "/api/terminal/windows/list", Summary: "List a session's windows without attaching. An attached slug answers from its live client; a slug with no tmux session behind it answers with no windows rather than an error.",
-			Request: terminalSlugRequest{}, Response: terminalWindowsResponse{}, Handler: ctrl.TerminalListWindows,
+			Method: "POST", Path: "/api/terminal/windows/list", Summary: "List several sessions' windows without attaching, keyed by slug. The whole set is answered from one tmux call. An attached slug answers from its live client; a slug with no tmux session behind it is absent from the answer rather than an error.",
+			Request: terminalSlugsRequest{}, Response: terminalSessionWindowsResponse{}, Handler: ctrl.TerminalListWindows,
 			Errors: terminalErrors(""),
 		},
 		{

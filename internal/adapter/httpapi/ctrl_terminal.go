@@ -55,6 +55,13 @@ type terminalSlugRequest struct {
 	Slug string `json:"slug"`
 }
 
+// terminalSlugsRequest names the sessions a sweep wants windows for. No
+// Validate: an empty set is a sidebar with nothing in it, which is an empty
+// answer rather than a bad request.
+type terminalSlugsRequest struct {
+	Slugs []string `json:"slugs"`
+}
+
 func (b terminalSlugRequest) Validate() error {
 	return criterio.Run("slug", b.Slug, criterio.Required)
 }
@@ -137,6 +144,13 @@ type terminalWindowsResponse struct {
 	Windows []terminalWindow `json:"windows"`
 }
 
+// terminalSessionWindowsResponse keys window sets by slug. A slug tmux has no
+// session for is absent rather than present-and-empty; the two mean the same
+// thing to a caller and only one of them needs representing.
+type terminalSessionWindowsResponse struct {
+	Sessions map[string][]terminalWindow `json:"sessions"`
+}
+
 // terminalStartResponse reports whether this call is what spawned the session,
 // so a caller can tell "I started it" from "it was already running".
 type terminalStartResponse struct {
@@ -207,18 +221,25 @@ func (ctrl *Controller) TerminalKill(w http.ResponseWriter, r *http.Request) err
 	return server.JSON(w, http.StatusOK, terminalKillResponse{Killed: killed})
 }
 
-// TerminalListWindows answers a session's window set without attaching, so the
-// sidebar can show windows for sessions this webview is not attached to.
+// TerminalListWindows answers several sessions' window sets without attaching,
+// so the sidebar can show windows for sessions this webview is not attached to.
+// It takes the whole set rather than one slug because the caller is a sweep:
+// per-slug, each unattached session cost two tmux spawns and the sidebar
+// spawned twice as many processes as it had rows, all at once.
 func (ctrl *Controller) TerminalListWindows(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[terminalSlugRequest](ctrl, w, r)
+	body, err := terminalBody[terminalSlugsRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
-	windows, err := ctrl.core.Terminals.ListWindows(r.Context(), body.Slug)
+	windows, err := ctrl.core.Terminals.ListAllWindows(r.Context(), body.Slugs)
 	if err != nil {
 		return err
 	}
-	return server.JSON(w, http.StatusOK, terminalWindowsResponse{Windows: toTerminalWindows(windows)})
+	sessions := make(map[string][]terminalWindow, len(windows))
+	for slug, set := range windows {
+		sessions[slug] = toTerminalWindows(set)
+	}
+	return server.JSON(w, http.StatusOK, terminalSessionWindowsResponse{Sessions: sessions})
 }
 
 // TerminalResize renegotiates the control client's size.

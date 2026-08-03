@@ -524,57 +524,95 @@ func TestManagerRenameSessionValidatesSlugs(t *testing.T) {
 	require.Empty(t, cmds.calls)
 }
 
-func TestManagerListWindowsAsksTmuxForAnUnattachedSlug(t *testing.T) {
+func TestManagerListAllWindowsAsksTmuxOnceForEverySlug(t *testing.T) {
 	t.Parallel()
 
-	cmds := &fakeTmuxCommands{windows: []string{"@1 1 %1 120 40 claude", "@2 0 %2 120 40 shell"}}
+	cmds := &fakeTmuxCommands{windows: []string{
+		"hive-demo @1 1 %1 120 40 claude",
+		"hive-demo @2 0 %2 120 40 shell",
+		"hive-other @5 1 %5 80 24 my window",
+	}}
 	m := newTestManager(t, nil, ManagerOptions{
 		Binary:  func() (string, error) { return "/opt/homebrew/bin/tmux", nil },
 		runTmux: cmds.run,
 	})
 
-	windows, err := m.ListWindows(t.Context(), "hive-demo")
+	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo", "hive-other"})
 	require.NoError(t, err)
-	require.Equal(t, []Window{
-		{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"},
-		{ID: "@2", Active: false, ActivePane: "%2", Width: 120, Height: 40, Name: "shell"},
+	require.Equal(t, map[string][]Window{
+		"hive-demo": {
+			{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"},
+			{ID: "@2", Active: false, ActivePane: "%2", Width: 120, Height: 40, Name: "shell"},
+		},
+		// A window name may contain spaces, which is why the session goes first.
+		"hive-other": {{ID: "@5", Active: true, ActivePane: "%5", Width: 80, Height: 24, Name: "my window"}},
 	}, windows)
-	require.Equal(t, [][]string{
-		{"has-session", "-t", "hive-demo"},
-		{"list-windows", "-t", "hive-demo", "-F", listWindowsFormat},
-	}, cmds.calls)
+	// One spawn for the whole server, and no has-session probes: the sweep this
+	// serves used to cost two of each per session.
+	require.Equal(t, [][]string{{"list-windows", "-a", "-F", sessionWindowsFormat}}, cmds.calls)
 	// The one-shot must exec the binary the probe resolved, not a bare "tmux"
 	// $PATH may not have (ADR 0039).
-	require.Equal(t, []string{"/opt/homebrew/bin/tmux", "/opt/homebrew/bin/tmux"}, cmds.binaries)
+	require.Equal(t, []string{"/opt/homebrew/bin/tmux"}, cmds.binaries)
 }
 
-func TestManagerListWindowsAnswersFromTheAttachedClient(t *testing.T) {
+func TestManagerListAllWindowsIgnoresSessionsNobodyAskedFor(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{windows: []string{
+		"hive-demo @1 1 %1 120 40 claude",
+		"someone-elses-session @9 1 %9 80 24 vim",
+	}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
+	require.NoError(t, err)
+	require.Equal(t, map[string][]Window{
+		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"}},
+	}, windows)
+}
+
+func TestManagerListAllWindowsAnswersFromTheAttachedClient(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
 	f.setWindows("@1 1 %1 120 40 claude")
-	cmds := &fakeTmuxCommands{}
+	// The server-wide listing is stale for an attached slug — the live client is
+	// what carries the sizes tmux settled on for it.
+	cmds := &fakeTmuxCommands{windows: []string{"hive-demo @1 1 %1 80 24 claude"}}
 	m := newTestManager(t, f, ManagerOptions{runTmux: cmds.run})
 
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
 	require.NoError(t, err)
 
-	windows, err := m.ListWindows(t.Context(), "hive-demo")
+	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.NoError(t, err)
-	require.Equal(t, []Window{{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"}}, windows)
-	require.Empty(t, cmds.calls, "the live client already holds the window set")
+	require.Equal(t, map[string][]Window{
+		"hive-demo": {{ID: "@1", Active: true, ActivePane: "%1", Width: 120, Height: 40, Name: "claude"}},
+	}, windows)
 }
 
-func TestManagerListWindowsTreatsAnAbsentSessionAsNoWindows(t *testing.T) {
+func TestManagerListAllWindowsTreatsAnAbsentSessionAsNoWindows(t *testing.T) {
 	t.Parallel()
 
-	cmds := &fakeTmuxCommands{absent: true}
+	cmds := &fakeTmuxCommands{}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	windows, err := m.ListWindows(t.Context(), "hive-demo")
+	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.NoError(t, err)
 	require.Empty(t, windows)
-	require.Len(t, cmds.calls, 1, "no list is attempted for a session that is not there")
+}
+
+func TestManagerListAllWindowsTreatsADeadServerAsNoWindows(t *testing.T) {
+	t.Parallel()
+
+	// No tmux server running at all is what this answers, and it is a normal
+	// state for a sidebar full of sessions nobody has started yet.
+	cmds := &fakeTmuxCommands{failure: errors.New("no server running")}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
+	require.NoError(t, err)
+	require.Empty(t, windows)
 }
 
 func TestManagerHasSessionProbesTmux(t *testing.T) {
@@ -660,16 +698,18 @@ func TestManagerHasSessionValidatesInput(t *testing.T) {
 	require.Empty(t, cmds.calls)
 }
 
-func TestManagerListWindowsValidatesInput(t *testing.T) {
+func TestManagerListAllWindowsRequiresAUsableTmux(t *testing.T) {
 	t.Parallel()
 
 	cmds := &fakeTmuxCommands{}
 
-	_, err := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run}).ListWindows(t.Context(), "")
-	require.ErrorIs(t, err, ErrNotAttached)
+	// An empty set is a sidebar with nothing in it, not a bad request.
+	windows, err := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run}).ListAllWindows(t.Context(), nil)
+	require.NoError(t, err)
+	require.Empty(t, windows)
 
 	old := newTestManager(t, nil, ManagerOptions{versionProbe: probe("tmux 2.9\n"), runTmux: cmds.run})
-	_, err = old.ListWindows(t.Context(), "hive-demo")
+	_, err = old.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.ErrorIs(t, err, ErrUnavailable)
 
 	require.Empty(t, cmds.calls)

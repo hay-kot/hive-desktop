@@ -182,9 +182,9 @@ func TestTerminalsMoveWindowReordersAndKeepsTheSelection(t *testing.T) {
 
 	// Indices are what tmux's own key bindings and every other attached client
 	// address a window by, so an insert must not leave them with holes.
-	listed, err := terminals.ListWindows(t.Context(), "hive-move")
+	listed, err := terminals.ListAllWindows(t.Context(), []string{"hive-move"})
 	require.NoError(t, err)
-	assert.Equal(t, windowNames(moved), windowNames(listed))
+	assert.Equal(t, windowNames(moved), windowNames(listed["hive-move"]))
 	// The fixture's server runs with no config, so the run starts at tmux's own
 	// base-index of 0.
 	assert.Equal(t, "0 1 2", tmuxFields(t, "list-windows", "-t", "hive-move", "-F", "#{window_index}"))

@@ -128,14 +128,20 @@ func (f *tmuxFixture) awaitPane(target, want string) {
 	f.t.Fatalf("pane %s never showed %q; last capture:\n%s", target, want, last)
 }
 
+type terminalWindowResult struct {
+	WindowID string `json:"windowId"`
+	Name     string `json:"name"`
+	Active   bool   `json:"active"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+}
+
 type attachResult struct {
-	Windows []struct {
-		WindowID string `json:"windowId"`
-		Name     string `json:"name"`
-		Active   bool   `json:"active"`
-		Width    int    `json:"width"`
-		Height   int    `json:"height"`
-	} `json:"windows"`
+	Windows []terminalWindowResult `json:"windows"`
+}
+
+type sessionWindowsResult struct {
+	Sessions map[string][]terminalWindowResult `json:"sessions"`
 }
 
 func (h *terminalHarness) attach(t *testing.T, slug string) attachResult {
@@ -362,30 +368,28 @@ func TestTmuxStartIsANoOpForALiveSession(t *testing.T) {
 
 // The sidebar's "always show windows" option lists windows for sessions this
 // webview is not attached to, so the listing must work with no control client.
+// It answers the whole sidebar at once: per slug, every unattached session cost
+// a has-session probe and a list-windows, so the sweep spawned two tmux
+// processes per row.
 func TestTmuxListWindowsAnswersWithoutAnAttach(t *testing.T) {
 	tmux := startTmux(t, "hive-list")
 	tmux.newWindow("shell")
 	h := newTerminalHarness(t)
 
-	list := func(t *testing.T, slug string) attachResult {
-		t.Helper()
-		resp := h.post(t, "/api/terminal/windows/list", testToken, map[string]any{"slug": slug})
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-		var out attachResult
-		require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
-		_ = resp.Body.Close()
-		return out
-	}
+	resp := h.post(t, "/api/terminal/windows/list", testToken,
+		map[string]any{"slugs": []string{tmux.slug, "hive-never-spawned"}})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var out sessionWindowsResult
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	_ = resp.Body.Close()
 
-	listed := list(t, tmux.slug)
-	require.Len(t, listed.Windows, 2)
-	assert.ElementsMatch(t, []string{"claude", "shell"},
-		[]string{listed.Windows[0].Name, listed.Windows[1].Name})
+	listed := out.Sessions[tmux.slug]
+	require.Len(t, listed, 2)
+	assert.ElementsMatch(t, []string{"claude", "shell"}, []string{listed[0].Name, listed[1].Name})
 
 	// A hive session with no tmux session behind it is a normal state for the
-	// sidebar, so it reads as no windows rather than an error.
-	absent := list(t, "hive-never-spawned")
-	assert.Empty(t, absent.Windows)
+	// sidebar, so it is simply absent rather than an error.
+	assert.NotContains(t, out.Sessions, "hive-never-spawned")
 }
 
 // The move is the one control-plane operation whose reply carries a whole

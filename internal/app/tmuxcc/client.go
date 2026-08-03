@@ -30,6 +30,10 @@ const (
 
 	// The window name goes last: it is the only field that can contain spaces.
 	listWindowsFormat = "#{window_id} #{window_active} #{pane_id} #{window_width} #{window_height} #{window_name}"
+	// The same row prefixed with the session it belongs to, for the one call
+	// that lists the whole server. The name goes first because window_name is
+	// last and may contain spaces, so only the first field can be split off.
+	sessionWindowsFormat = "#{session_name} " + listWindowsFormat
 
 	// The pane's cursor as an emulator addresses it: 0-based row, then column.
 	cursorFormat = "#{cursor_y} #{cursor_x}"
