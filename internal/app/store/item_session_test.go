@@ -18,8 +18,8 @@ func TestItemSessions_LinksAndListsNewestFirst(t *testing.T) {
 
 	require.NoError(t, db.LinkItemSession(ctx, "sess-a", ref))
 	require.NoError(t, db.LinkItemSession(ctx, "sess-b", ref))
-	// Links are minted with time.Now(), so two in the same millisecond tie;
-	// the query breaks the tie on session id so the order is deterministic.
+	// Links are minted with time.Now(), so two created in the same test would
+	// tie on created_at; pin them apart to assert the ordering itself.
 	_, err := db.Conn().ExecContext(ctx, `UPDATE item_session SET created_at = 100 WHERE session_id = 'sess-a'`)
 	require.NoError(t, err)
 	_, err = db.Conn().ExecContext(ctx, `UPDATE item_session SET created_at = 200 WHERE session_id = 'sess-b'`)

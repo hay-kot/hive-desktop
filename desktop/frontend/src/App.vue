@@ -820,11 +820,9 @@ const launchers = useLaunchers()
 onMounted(() => { void launchers.refresh() })
 useWailsEvent('actions:updated', () => { void launchers.refresh() })
 
-// The hive sessions the selected item created. Driven off the selection rather
-// than off selectItem, so every path that moves it — keyboard walk, a clicked
-// notification, restoring a job's item — loads the same list. jobs:updated is
-// what re-reads it: creating, deleting and recycling a session are all jobs, so
-// that is when the answer can have changed.
+// Driven off the selection rather than off selectItem, so every path that
+// moves it — keyboard walk, a clicked notification, restoring a job's item —
+// loads the same list.
 const { sessions: itemSessions, load: loadItemSessions, refresh: refreshItemSessions } = useItemSessions()
 watch(() => selectedItem.value?.id ?? null, (itemID) => { void loadItemSessions(itemID) }, { immediate: true })
 useWailsEvent('jobs:updated', () => { void refreshItemSessions() })

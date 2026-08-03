@@ -200,9 +200,7 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 				}
 			case SinkKindAction:
 				// The dedup key is the occurrence key, so the row cannot be
-				// traced back to its item by key alone; the source identity is
-				// recorded beside it for anything the command produces that
-				// belongs to the item (a launched session).
+				// traced back to its item by key alone.
 				if err := q.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
 					ActionID: out.Sink.TargetID, Key: out.OccurrenceKey, Payload: []byte(out.Payload), CreatedAt: now,
 					ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope, ExternalID: out.Key,

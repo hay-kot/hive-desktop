@@ -31,13 +31,9 @@ const emit = defineEmits<{
 
 // A session is reachable only while it still has a checkout: a recycled or
 // corrupted one has no tmux session to attach to, and its row stays a record
-// of what ran rather than a link. Terminal mode ships dark (ADR 0037), so
-// canAttachSession is false until it is switched on.
-const attachableSessions = computed(() => new Set(
-  (props.sessions ?? []).filter((session) => session.state === 'active').map((session) => session.id),
-))
+// of what ran rather than a link.
 function attachable(session: ItemSessionView): boolean {
-  return !!props.canAttachSession && attachableSessions.value.has(session.id)
+  return !!props.canAttachSession && session.state === 'active'
 }
 
 const itemMenuToggle = ref<HTMLElement | null>(null)

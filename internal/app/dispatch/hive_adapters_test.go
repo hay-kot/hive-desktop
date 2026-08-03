@@ -244,6 +244,41 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 	assert.Equal(t, "s4", statuses.seen[2].ID)
 }
 
+// An inbox item asks about the one or two sessions it spawned, so the probe
+// must be scoped to those — a full sweep would pay a tmux round trip for every
+// active session in the install to answer it.
+func TestHiveSessionManagerRunningSessionsProbesOnlyTheNamedActiveSessions(t *testing.T) {
+	statuses := &fakeSessionStatusSource{
+		available: true,
+		results:   map[string]hivesvc.TerminalStatus{"s1": {Running: true}},
+	}
+	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
+		{ID: "s1", State: session.StateActive},
+		{ID: "s2", State: session.StateRecycled},
+		{ID: "s3", State: session.StateActive},
+	}}, statuses, time.Second)
+
+	got, err := manager.RunningSessions(t.Context(), []string{"s1", "s2"})
+	require.NoError(t, err)
+	assert.Equal(t, map[string]bool{"s1": true}, got)
+	// s2 is recycled and s3 was not asked about, so neither is probed.
+	require.Len(t, statuses.seen, 1)
+	assert.Equal(t, "s1", statuses.seen[0].ID)
+}
+
+// Terminal mode ships dark, so this is the default install: no liveness source
+// is data, not a failure — nothing reads as running and the caller still gets
+// its sessions.
+func TestHiveSessionManagerRunningSessionsReportsNothingWhenTerminalUnavailable(t *testing.T) {
+	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
+		{ID: "s1", State: session.StateActive},
+	}}, &fakeSessionStatusSource{}, time.Second)
+
+	got, err := manager.RunningSessions(t.Context(), []string{"s1"})
+	require.NoError(t, err)
+	assert.Empty(t, got)
+}
+
 func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.T) {
 	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, 1500*time.Millisecond)
 

@@ -91,14 +91,9 @@ type SessionSummary struct {
 	State string `json:"state"`
 }
 
-// ItemSessionView is one hive session an inbox item spawned, as that item's
-// detail pane sees it. Only CreatedAt comes from the link — everything else is
-// read live from hive, so a session renamed or recycled outside this app
-// reports what it actually is rather than what it was when it was created.
-//
-// It carries liveness and not window activity, for the same reason the
-// terminal's session row does: activity belongs to a window, and an item has
-// no window to hang it on.
+// ItemSessionView is one hive session an inbox item spawned. Only CreatedAt
+// comes from the link — everything else is read live from hive, so a session
+// renamed or recycled outside this app reports what it actually is.
 type ItemSessionView struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -199,12 +194,11 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 		}
 		remote, source = repo.Remote, repo.Source
 	}
-	// Tags are hive's own "labels for external provider tracking", so the item
-	// id goes on the session for a reader inside hive. It is presentational
-	// only and never read back: the association this app queries is the one
-	// LinkItemSession writes, and two authorities would be one too many.
+	// The tag is presentational, for a reader inside hive, and is never read
+	// back — LinkItemSession below writes the association this app queries.
+	linked := req.Origin.Known()
 	var tags []string
-	if req.Origin.ExternalID != "" {
+	if linked {
 		tags = []string{req.Origin.ExternalID}
 	}
 	s, err := l.sessions.CreateSession(ctx, hive.CreateOptions{Name: req.Name, Prompt: req.Prompt, Remote: remote, Source: source, AgentKey: req.Agent, Background: true, UseBatchSpawn: false, Tags: tags})
@@ -217,7 +211,7 @@ func (l *HiveSessionLauncher) LaunchSession(ctx context.Context, req LaunchSessi
 	// The session exists either way, so a failed link is logged rather than
 	// returned: reporting the launch as failed would be a lie, and would
 	// invite a retry that creates a second session.
-	if l.links != nil && req.Origin.Known() {
+	if l.links != nil && linked {
 		if linkErr := l.links.LinkItemSession(ctx, s.ID, req.Origin); linkErr != nil {
 			l.logger.Warn().Err(linkErr).Str("session_id", s.ID).Msg("linking session to its inbox item")
 		}

@@ -138,6 +138,26 @@ func TestSessionsService_ItemSessionsSurvivesAFailedPrune(t *testing.T) {
 	assert.Equal(t, "s1", views[0].ID)
 }
 
+// Liveness is the last thing added to an otherwise complete answer, so losing
+// it must not cost the sessions themselves — the frontend renders a failed read
+// as an empty pane.
+func TestSessionsService_ItemSessionsKeepsSessionsWhenLivenessCannotBeRead(t *testing.T) {
+	manager := &fakeSessionManager{
+		sessions:   []dispatch.SessionSummary{{ID: "s1", Name: "kept", Slug: "kept", State: "active"}},
+		runningErr: errors.New("tmux is not reachable"),
+	}
+	links := &fakeItemSessionStore{
+		refs:  map[int64]store.ItemRef{7: {ProfileID: "p", ExternalID: "acme/site#81"}},
+		links: map[string][]store.ItemSession{"acme/site#81": {{SessionID: "s1", CreatedAt: 100}}},
+	}
+
+	views, err := itemSessionsService(manager, links).ItemSessions(t.Context(), 7)
+	require.NoError(t, err)
+	require.Len(t, views, 1)
+	assert.Equal(t, "s1", views[0].ID)
+	assert.False(t, views[0].Running)
+}
+
 func TestSessionsService_ItemSessionsRejectsAnUnknownItem(t *testing.T) {
 	manager, _ := activeSession()
 	links := &fakeItemSessionStore{refs: map[int64]store.ItemRef{}}

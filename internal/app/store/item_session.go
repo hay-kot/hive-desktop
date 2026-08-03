@@ -6,10 +6,7 @@ import (
 )
 
 // ItemRef identifies an inbox item by inbox_item's own UNIQUE key rather than
-// by its row id. The row id is not durable enough to hold an association
-// against: ActivateReplay deletes and rebuilds every row a profile owns
-// whenever its graph changes, so a foreign key would drop the links on an
-// ordinary flow edit. These four columns come back identical.
+// by its row id, which ActivateReplay does not preserve (ADR 0060).
 type ItemRef struct {
 	ProfileID   string `json:"profileId"`
 	SourceKind  string `json:"sourceKind"`

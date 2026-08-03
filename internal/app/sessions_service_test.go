@@ -39,6 +39,9 @@ type fakeSessionManager struct {
 	risk     dispatch.SessionRisk
 	running  map[string]bool
 	err      error
+	// runningErr fails only the liveness probe, which is how tmux being
+	// unreachable presents behind a hive listing that succeeded.
+	runningErr error
 
 	renamed   [][2]string
 	deleted   []string
@@ -68,6 +71,9 @@ func (f *fakeSessionManager) SessionDetail(_ context.Context, id string) (dispat
 func (f *fakeSessionManager) RunningSessions(_ context.Context, ids []string) (map[string]bool, error) {
 	if f.err != nil {
 		return nil, f.err
+	}
+	if f.runningErr != nil {
+		return nil, f.runningErr
 	}
 	running := map[string]bool{}
 	for _, id := range ids {

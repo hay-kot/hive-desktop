@@ -147,13 +147,8 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 }
 
 // ItemSessions returns the hive sessions an inbox item spawned, newest first,
-// joined to the state hive reports for them now.
-//
-// The read is also what reconciles: nothing tells this app when a session is
-// deleted from the CLI, so links hive cannot account for are dropped here.
-// That only happens behind a *successful* listing — a listing that failed
-// proves nothing about what still exists, and pruning on it would throw away
-// associations because hive.db was momentarily unreadable.
+// joined to the state hive reports for them now. The read is also what
+// reconciles (ADR 0060).
 func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
 	if s.manager == nil || s.links == nil {
 		return nil, Errorf(KindUnavailable, "session links are unavailable")
@@ -214,7 +209,11 @@ func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dis
 	}
 	running, err := s.statuses.RunningSessions(ctx, ids)
 	if err != nil {
-		return nil, Wrap(err, KindInternal, "reading session status")
+		// Same reason as the prune above: the views are already correct
+		// without liveness, and failing the read blanks a pane that had an
+		// answer.
+		s.logger.Warn().Err(err).Int64("item_id", itemID).Msg("reading session status")
+		return views, nil
 	}
 	for i := range views {
 		views[i].Running = running[views[i].ID]

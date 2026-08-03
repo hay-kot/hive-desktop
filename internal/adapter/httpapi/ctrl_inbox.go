@@ -129,7 +129,7 @@ func (ctrl *Controller) InboxItemEvents(w http.ResponseWriter, r *http.Request) 
 }
 
 type ItemSessionsQuery struct {
-	ItemID     int64  `schema:"itemId"     desc:"Inbox item id. Provide this or externalId."`
+	ItemID     int64  `schema:"itemId"     desc:"Inbox item id; 404 if no such item. Provide this or externalId."`
 	ExternalID string `schema:"externalId" desc:"External id resolving to one item; provide this or itemId. If it matches items in more than one profile, add 'profile' to disambiguate, else the response is 409."`
 	Profile    string `schema:"profile"    desc:"Profile id used to disambiguate an externalId that matches multiple profiles."`
 }

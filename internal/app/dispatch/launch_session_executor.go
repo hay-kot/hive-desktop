@@ -17,9 +17,8 @@ type LaunchSessionRequest struct {
 	Prompt string
 	Agent  string
 	Repo   string
-	// Origin is the inbox item the session is being created for, or a zero
-	// ref for a session that has no item behind it. The launcher records it,
-	// so it is what makes the session findable from the item afterwards.
+	// Origin is the inbox item the session is being created for, or a zero ref
+	// for a session that has no item behind it.
 	Origin store.ItemRef
 }
 

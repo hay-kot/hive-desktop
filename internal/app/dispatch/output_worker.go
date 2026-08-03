@@ -49,9 +49,7 @@ type OutputData struct {
 	CommandID int64
 	IsRerun   bool
 	// Origin is the inbox item this command was routed from — attribution, not
-	// payload, and zero when the command has no inbox item behind it. It is
-	// what lets a side effect that outlives the command (a hive session) be
-	// found from the item again.
+	// payload, and zero when the command has no inbox item behind it.
 	Origin store.ItemRef
 }
 type Executor interface {
