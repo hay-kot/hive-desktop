@@ -7,7 +7,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.5
 	github.com/bmatcuk/doublestar/v4 v4.10.0
 	github.com/caarlos0/env/v11 v11.4.1
-	github.com/coder/websocket v1.8.14
+	github.com/coder/websocket v1.8.15
 	github.com/colonyops/hive v0.58.1-0.20260730204015-0e40f753012d
 	github.com/creack/pty v1.1.24
 	github.com/dop251/goja v0.0.0-20260723142020-b4aef50fa347
@@ -32,7 +32,7 @@ require (
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v3 v3.0.1
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 )
 
 require (
