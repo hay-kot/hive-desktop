@@ -50,7 +50,9 @@ func newTerminalHarness(t *testing.T) *terminalHarness {
 
 	origins := []string{testOrigin}
 	mux := http.NewServeMux()
-	mux.Handle(PathPrefix, New(core, zerolog.Nop(), testToken, origins).Handler())
+	mux.Handle(PathPrefix, New(core, zerolog.Nop(), Options{
+		TerminalToken: testToken, Origins: origins, TerminalEnabled: true,
+	}).Handler())
 	streamPath, stream := TerminalStreamHandler(core, testToken, origins, zerolog.Nop())
 	mux.Handle(streamPath, stream)
 	ptyStreamPath, ptyStream := PTYStreamHandler(core, testToken, origins, zerolog.Nop())

@@ -113,6 +113,10 @@ type Appearance struct {
 // to off and is read once at startup — flipping one takes a relaunch.
 type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
+	// Agents gates the Agents area (spec-tracked as hc-49x3i833). Like Terminal
+	// it governs both a control plane and the PTY stream a session rides, both
+	// under the token-guarded /api/terminal/ prefix — see ADR 0061.
+	Agents bool `yaml:"agents" env:"HIVE_DESKTOP_EXPERIMENTAL_AGENTS"`
 }
 
 // AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to

@@ -122,10 +122,15 @@ type App struct {
 	actionStore         *actions.ActionStore
 	flowStore           *flow.FlowStore
 	agentWorkspaceStore *agentws.Store
-	activityStore       *activity.Store
-	jobStore            *jobs.Store
-	fetchers            *ghsource.Fetchers
-	credentials         credentials.Store
+	// agentWorkspaceRootProblem carries EnsureRoot's error, verbatim, when the
+	// configured agent-workspace root could not be created or opened.
+	// openAgentWorkspaces sets it; the Agents area is what surfaces it to the
+	// user (phase 6) rather than silently creating a second root elsewhere.
+	agentWorkspaceRootProblem string
+	activityStore             *activity.Store
+	jobStore                  *jobs.Store
+	fetchers                  *ghsource.Fetchers
+	credentials               credentials.Store
 
 	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
@@ -360,7 +365,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.popupTerminals, a.Store, a.Skills, a.agentCommands)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.popupTerminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem)
 
 	return a, nil
 }
@@ -693,6 +698,7 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 	created, err := agentws.EnsureRoot(root)
 	if err != nil {
 		logger.Warn().Err(err).Str("root", root).Str("setting", "agent_workspaces.dir").Msg("agent workspace root unavailable")
+		a.agentWorkspaceRootProblem = err.Error()
 		a.agentWorkspaceStore = agentws.NewStore(root)
 		if err := a.agentWorkspaceStore.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")

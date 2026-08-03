@@ -1,6 +1,7 @@
 import { computed, ref, type Component, type ComputedRef } from 'vue'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconArrowUp from '~icons/lucide/arrow-up'
+import IconBot from '~icons/lucide/bot'
 import IconBug from '~icons/lucide/bug'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
@@ -28,7 +29,8 @@ import IconTerminal from '~icons/lucide/terminal'
 //
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
 // only run when the feed is actually on screen, `terminal` commands only inside
-// terminal mode; `global` commands run anywhere.
+// terminal mode, `agents` commands only inside the Agents area; `global`
+// commands run anywhere.
 // `defaultCombos` are canonical combo strings (see useKeybindings.comboFromEvent)
 // — an empty array means "bindable, but unbound by default".
 //
@@ -38,7 +40,7 @@ import IconTerminal from '~icons/lucide/terminal'
 // session tree's) is therefore not modelled here: it would have to fight the
 // feed's `j`/`k` for the same combo. Those keys stay handlers on the widget
 // that owns focus.
-export type CommandContext = 'global' | 'feed' | 'terminal'
+export type CommandContext = 'global' | 'feed' | 'terminal' | 'agents'
 
 export interface BindableCommand {
   id: string
@@ -238,6 +240,29 @@ export const commandCatalog: BindableCommand[] = [
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
+  // The Agents area is a plain two-level list beside a pane, not a tree, so it
+  // needs only the pair terminal mode's focus chords have — no filter, no
+  // window jumps. Combos are new ones, not terminal.*'s: a combo resolves to
+  // exactly one command, so reusing mod+arrowleft/-right here would shadow
+  // whichever command claims it first rather than binding both.
+  {
+    id: 'agents.focus-sidebar',
+    title: 'Focus workspace list',
+    group: 'Agents',
+    keywords: ['agents', 'workspace', 'sidebar', 'list', 'focus', 'left'],
+    icon: IconBot,
+    defaultCombos: ['mod+shift+arrowleft'],
+    context: 'agents',
+  },
+  {
+    id: 'agents.focus-pane',
+    title: 'Focus session',
+    group: 'Agents',
+    keywords: ['agents', 'session', 'pane', 'focus', 'right'],
+    icon: IconBot,
+    defaultCombos: ['mod+shift+arrowright'],
+    context: 'agents',
+  },
   {
     id: 'report.open',
     title: 'Report a problem',

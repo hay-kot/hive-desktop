@@ -10,6 +10,7 @@ import { resetLaunchersForTests } from '../composables/useLaunchers'
 import { useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
+import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import { setTerminalTreeHandles } from '../lib/terminalTree'
 
@@ -74,6 +75,10 @@ const mocks = vi.hoisted(() => ({
   PopupAvailable: vi.fn(),
   PopupEndpoint: vi.fn(),
   PopupLaunchers: vi.fn(),
+  // agentsservice
+  AgentsAvailable: vi.fn(),
+  AgentsEndpoint: vi.fn(),
+  AgentsModeEnabled: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -180,6 +185,12 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
   Launchers: mocks.PopupLaunchers,
 }))
 
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
+  Available: mocks.AgentsAvailable,
+  Endpoint: mocks.AgentsEndpoint,
+  Enabled: mocks.AgentsModeEnabled,
+}))
+
 const flow = {
   id: 'personal',
   name: 'Personal',
@@ -214,6 +225,12 @@ function terminalOnScreen(wrapper: VueWrapper): boolean {
   return mode.exists() && !(mode.attributes('style') ?? '').includes('display: none')
 }
 
+// Same shape as terminalOnScreen: the Agents area is mount-once/v-show too.
+function agentsOnScreen(wrapper: VueWrapper): boolean {
+  const mode = wrapper.find('[data-testid="agents-mode"]')
+  return mode.exists() && !(mode.attributes('style') ?? '').includes('display: none')
+}
+
 describe('App', () => {
   beforeEach(() => {
     // useFlowsSession is a module singleton (App.vue + FlowsView.vue share
@@ -231,6 +248,7 @@ describe('App', () => {
     useKeybindings().clearAll()
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
+    resetAgentWorkspacesForTests()
     vi.clearAllMocks()
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
@@ -272,6 +290,13 @@ describe('App', () => {
     mocks.PopupLaunchers.mockResolvedValue([])
     mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
     mocks.TerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
+    // Agents mode defaults off in these tests, same as terminal mode defaults
+    // on: most tests are not about the mode switch, and a disabled area keeps
+    // the title bar's default assertions (Inbox|Code, no Agents segment) true
+    // without every test having to say so.
+    mocks.AgentsModeEnabled.mockResolvedValue(false)
+    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'The Agents area is off.' })
+    mocks.AgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
   })
 
   // ── First run ──────────────────────────────────────────────────────────────
@@ -1270,6 +1295,55 @@ describe('App', () => {
     expect(router.currentRoute.value.name).toBe('terminal')
     expect(router.currentRoute.value.params.slug).toBe('api-fix')
     expect(router.currentRoute.value.query.window).toBe('@3')
+
+    wrapper.unmount()
+  })
+
+  it('never renders the Agents segment while experimental.agents is off', async () => {
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="titlebar-mode-agents"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('swaps the whole hub for the Agents area and back from the title-bar toggle, hiding rather than unmounting it', async () => {
+    mocks.AgentsModeEnabled.mockResolvedValue(true)
+    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-mode-agents"]').trigger('click')
+    // AgentsMode is async-imported, so it lands a tick after the toggle.
+    await vi.waitFor(() => expect(agentsOnScreen(wrapper)).toBe(true))
+    await flushPromises()
+
+    // The mode is a route, so the toggle is ordinary navigation.
+    expect(router.currentRoute.value.name).toBe('agents')
+    // The toggle is never gated on availability; the reason shows up inside.
+    expect(wrapper.get('[data-testid="agents-unavailable-reason"]').text()).toBe('no ptyterm on this build.')
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(false)
+
+    await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
+    await flushPromises()
+
+    expect(router.currentRoute.value.name).toBe('feed')
+    expect(agentsOnScreen(wrapper)).toBe(false)
+    expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
+    // Hidden, not unmounted: leaving the area must not end a live session's
+    // pane (ADR 0054).
+    expect(wrapper.find('[data-testid="agents-mode"]').exists()).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('shows Inbox | Agents when only experimental.agents is on — the group renders on the second mode, not on terminal specifically', async () => {
+    mocks.TerminalModeEnabled.mockResolvedValue(false)
+    mocks.AgentsModeEnabled.mockResolvedValue(true)
+    const wrapper = await mountApp()
+
+    expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-mode-agents"]').exists()).toBe(true)
 
     wrapper.unmount()
   })

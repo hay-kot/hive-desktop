@@ -174,10 +174,11 @@ describe('TitleBar', () => {
     expect(wrapper.emitted('open-error-node')).toHaveLength(1)
   })
 
-  it('hides the Inbox|Code toggle entirely while experimental.terminal is off', () => {
+  it('hides the whole mode group while neither terminal nor agents is enabled', () => {
     const wrapper = mount(TitleBar, { props: { profileName: 'Triage', mode: 'hub' } })
     expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-mode-agents"]').exists()).toBe(false)
   })
 
   it('keeps the Inbox|Code toggle live in both modes and reports the pressed one', async () => {
@@ -197,5 +198,44 @@ describe('TitleBar', () => {
     expect(wrapper.get('[data-testid="titlebar-mode-terminal"]').attributes('aria-pressed')).toBe('true')
     await wrapper.get('[data-testid="titlebar-mode-hub"]').trigger('click')
     expect(wrapper.emitted('set-mode')).toEqual([['terminal'], ['hub']])
+  })
+
+  // The group renders on "any second mode is enabled", not on terminal
+  // specifically — a build that ships agents without terminal mode still
+  // shows Inbox | Agents, with the terminal segment absent rather than
+  // disabled.
+  it('renders the group on agentsEnabled alone, with the terminal segment absent', async () => {
+    const wrapper = mount(TitleBar, {
+      props: { profileName: 'Triage', mode: 'hub', terminalEnabled: false, agentsEnabled: true },
+    })
+    const hub = wrapper.get('[data-testid="titlebar-mode-hub"]')
+    const agents = wrapper.get('[data-testid="titlebar-mode-agents"]')
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+
+    expect(hub.attributes('aria-pressed')).toBe('true')
+    expect(agents.attributes('aria-pressed')).toBe('false')
+
+    await agents.trigger('click')
+    expect(wrapper.emitted('set-mode')).toEqual([['agents']])
+
+    await wrapper.setProps({ mode: 'agents' })
+    expect(wrapper.get('[data-testid="titlebar-mode-agents"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="titlebar-mode-hub"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  it('renders all three segments when both terminal and agents are enabled', async () => {
+    const wrapper = mount(TitleBar, {
+      props: { profileName: 'Triage', mode: 'agents', terminalEnabled: true, agentsEnabled: true },
+    })
+    const hub = wrapper.get('[data-testid="titlebar-mode-hub"]')
+    const terminal = wrapper.get('[data-testid="titlebar-mode-terminal"]')
+    const agents = wrapper.get('[data-testid="titlebar-mode-agents"]')
+
+    expect(hub.attributes('aria-pressed')).toBe('false')
+    expect(terminal.attributes('aria-pressed')).toBe('false')
+    expect(agents.attributes('aria-pressed')).toBe('true')
+
+    await terminal.trigger('click')
+    expect(wrapper.emitted('set-mode')).toEqual([['terminal']])
   })
 })

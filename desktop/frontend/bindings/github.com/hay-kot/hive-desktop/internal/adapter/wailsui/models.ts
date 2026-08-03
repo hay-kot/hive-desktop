@@ -6,6 +6,26 @@
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
 /**
+ * AgentsAvailability gates the Agents area. Unlike terminal mode it does not
+ * depend on tmux — ptyterm's own build/platform support is the axis — so
+ * Available answers the same question PopupTerminalAvailability does.
+ */
+export interface AgentsAvailability {
+    "available": boolean;
+    "reason": string;
+}
+
+/**
+ * AgentsEndpoint bootstraps the webview: control actions go to HTTPBaseURL
+ * with the bearer token, the data plane opens WSURL.
+ */
+export interface AgentsEndpoint {
+    "httpBaseURL": string;
+    "wsURL": string;
+    "token": string;
+}
+
+/**
  * AppearanceSettings is the frontend's presentation configuration. String
  * values are carried verbatim: the frontend owns each valid set and heals
  * unknown values, so an empty field means "nothing persisted yet" rather than
@@ -81,13 +101,14 @@ export interface BuildInfo {
 }
 
 /**
- * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
- * the effective persisted value, not the running one: the flag is read at
- * startup, so the frontend compares it against TerminalService.Enabled to
- * know whether a relaunch is pending.
+ * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
+ * is the effective persisted value, not the running one: the flag is read at
+ * startup, so the frontend compares it against TerminalService.Enabled /
+ * AgentsService.Enabled to know whether a relaunch is pending.
  */
 export interface ExperimentalSettings {
     "terminal": boolean;
+    "agents": boolean;
 }
 
 /**

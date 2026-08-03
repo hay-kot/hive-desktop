@@ -67,12 +67,13 @@ type AppearanceSettings struct {
 	TerminalPoolSize int `json:"terminalPoolSize"`
 }
 
-// ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
-// the effective persisted value, not the running one: the flag is read at
-// startup, so the frontend compares it against TerminalService.Enabled to
-// know whether a relaunch is pending.
+// ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
+// is the effective persisted value, not the running one: the flag is read at
+// startup, so the frontend compares it against TerminalService.Enabled /
+// AgentsService.Enabled to know whether a relaunch is pending.
 type ExperimentalSettings struct {
 	Terminal bool `json:"terminal"`
+	Agents   bool `json:"agents"`
 }
 
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
@@ -164,7 +165,7 @@ func (s *SettingsService) ExperimentalSettings(ctx context.Context) (Experimenta
 	if err != nil {
 		return ExperimentalSettings{}, err
 	}
-	return ExperimentalSettings{Terminal: current.Terminal}, nil
+	return ExperimentalSettings{Terminal: current.Terminal, Agents: current.Agents}, nil
 }
 
 func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
@@ -172,7 +173,23 @@ func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled b
 	if err != nil {
 		return ExperimentalSettings{}, err
 	}
-	return ExperimentalSettings{Terminal: effective}, nil
+	current, err := s.settings.Experimental(ctx)
+	if err != nil {
+		return ExperimentalSettings{}, err
+	}
+	return ExperimentalSettings{Terminal: effective, Agents: current.Agents}, nil
+}
+
+func (s *SettingsService) SetExperimentalAgents(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
+	effective, err := s.settings.SetExperimentalAgents(ctx, enabled)
+	if err != nil {
+		return ExperimentalSettings{}, err
+	}
+	current, err := s.settings.Experimental(ctx)
+	if err != nil {
+		return ExperimentalSettings{}, err
+	}
+	return ExperimentalSettings{Terminal: current.Terminal, Agents: effective}, nil
 }
 
 func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {

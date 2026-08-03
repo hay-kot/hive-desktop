@@ -48,6 +48,10 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
     return $Call.ByID(256290300);
 }
 
+export function SetExperimentalAgents(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(324482454, enabled);
+}
+
 export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
     return $Call.ByID(1793440840, enabled);
 }

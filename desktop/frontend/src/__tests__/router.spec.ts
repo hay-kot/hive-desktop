@@ -19,6 +19,18 @@ describe('createAppRouter', () => {
   // default pane with no error — the URL changes and nothing else does. The
   // route matcher and the section resolver are built from one list so that
   // cannot happen; this asserts it for every section, including new ones.
+  // The Agents area is a third mode beside the hub and terminal, so its route
+  // must resolve the same way — a bare /workspaces entering the area and a
+  // named one opening a specific workspace.
+  it('resolves the agents route with and without a workspace', () => {
+    const router = createAppRouter(createMemoryHistory())
+
+    expect(router.resolve('/workspaces').name).toBe('agents')
+    const resolved = router.resolve('/workspaces/hive')
+    expect(resolved.name).toBe('agents')
+    expect(resolved.params.workspace).toBe('hive')
+  })
+
   it('routes every application settings section to itself', () => {
     const router = createAppRouter(createMemoryHistory())
 

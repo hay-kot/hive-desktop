@@ -69,6 +69,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0058](decisions/0058-flows-are-dry-run-against-supplied-input.md) | Flows are dry-run against supplied input, not deployed to be observed |
 | [0059](decisions/0059-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call |
 | [0060](decisions/0060-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
+| [0061](decisions/0061-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority: no inherited profiles, a fail-closed autonomy table |
 
 ## References
 

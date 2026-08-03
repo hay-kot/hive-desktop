@@ -33,6 +33,9 @@ const {
   experimentalTerminal,
   terminalRestartPending,
   setExperimentalTerminal,
+  experimentalAgents,
+  agentsRestartPending,
+  setExperimentalAgents,
   setAutoUpdate,
   checkForUpdates,
   refresh,
@@ -159,7 +162,7 @@ onMounted(() => {
     >
       <SettingsRow
         label="Terminal mode"
-        hint="Attach to a session's tmux windows inside the app, from the Inbox | Code switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
+        hint="Attach to a session's tmux windows inside the app, from the mode switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
       >
         <div class="flex items-center gap-2.5">
           <span
@@ -172,6 +175,24 @@ onMounted(() => {
             aria-label="Terminal mode"
             testid="system-experimental-terminal"
             @update:model-value="setExperimentalTerminal"
+          />
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        label="Agents area"
+        hint="Run a CLI agent against a named workspace with its own MCP tool set, from the mode switch in the title bar. A workspace declares its own autonomy posture — nothing here inherits a coding session's flags."
+      >
+        <div class="flex items-center gap-2.5">
+          <span
+            v-if="agentsRestartPending"
+            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
+            data-testid="system-agents-restart"
+          >Restart to apply</span>
+          <AppSwitch
+            :model-value="experimentalAgents"
+            aria-label="Agents area"
+            testid="system-experimental-agents"
+            @update:model-value="setExperimentalAgents"
           />
         </div>
       </SettingsRow>

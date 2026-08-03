@@ -19,9 +19,11 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import {
   ExperimentalSettings as LoadExperimentalSettings,
+  SetExperimentalAgents,
   SetExperimentalTerminal,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { Enabled as TerminalModeEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import { Enabled as AgentsModeEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 import type { BuildInfo, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
@@ -50,17 +52,22 @@ export function useSystemSettings() {
 
   // The experimental.terminal opt-in (ADR 0037) is read once at startup, so
   // the toggle tracks two values: what is persisted and what this run mounted.
-  // They differ exactly while a relaunch is pending.
+  // They differ exactly while a relaunch is pending. experimental.agents
+  // (ADR 0061) follows the identical shape.
   const experimentalTerminal = ref(false)
   const terminalModeRunning = ref(false)
   const terminalRestartPending = computed(() => experimentalTerminal.value !== terminalModeRunning.value)
+
+  const experimentalAgents = ref(false)
+  const agentsModeRunning = ref(false)
+  const agentsRestartPending = computed(() => experimentalAgents.value !== agentsModeRunning.value)
 
   async function refresh(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      const [locations, buildInfo, status, experimental, terminalRunning] = await Promise.all([
-        Info(), Build(), Status(), LoadExperimentalSettings(), TerminalModeEnabled(),
+      const [locations, buildInfo, status, experimental, terminalRunning, agentsRunning] = await Promise.all([
+        Info(), Build(), Status(), LoadExperimentalSettings(), TerminalModeEnabled(), AgentsModeEnabled(),
       ])
       info.value = locations
       build.value = buildInfo
@@ -68,6 +75,8 @@ export function useSystemSettings() {
       autoUpdate.value = status.enabled
       experimentalTerminal.value = experimental.terminal
       terminalModeRunning.value = terminalRunning
+      experimentalAgents.value = experimental.agents
+      agentsModeRunning.value = agentsRunning
     } catch (err) {
       error.value = errText(err)
     } finally {
@@ -88,6 +97,21 @@ export function useSystemSettings() {
       experimentalTerminal.value = effective.terminal
     } catch (err) {
       experimentalTerminal.value = previous
+      error.value = errText(err)
+    }
+  }
+
+  // setExperimentalAgents persists the Agents-area opt-in; the running app is
+  // unchanged until relaunch, which agentsRestartPending surfaces.
+  async function setExperimentalAgents(value: boolean): Promise<void> {
+    const previous = experimentalAgents.value
+    experimentalAgents.value = value
+    error.value = ''
+    try {
+      const effective = await SetExperimentalAgents(value)
+      experimentalAgents.value = effective.agents
+    } catch (err) {
+      experimentalAgents.value = previous
       error.value = errText(err)
     }
   }
@@ -190,6 +214,9 @@ export function useSystemSettings() {
     experimentalTerminal,
     terminalRestartPending,
     setExperimentalTerminal,
+    experimentalAgents,
+    agentsRestartPending,
+    setExperimentalAgents,
     setAutoUpdate,
     checkForUpdates,
     refresh,

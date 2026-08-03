@@ -31,7 +31,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands)
+	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "")
 }
 
 func writeAgentWorkspaceManifest(t *testing.T, root, dir, body string) string {
@@ -268,6 +268,29 @@ func TestTwoSessionsMayShareAName(t *testing.T) {
 	result, err := svc.Open(t.Context(), "demo")
 	require.NoError(t, err)
 	assert.Len(t, result.Sessions, 2)
+}
+
+func TestSessionsListsWithoutRegeneratingArtifacts(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+
+	sessions, err := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, started.ID, sessions[0].ID)
+	assert.Equal(t, started.TerminalID, sessions[0].TerminalID)
+
+	_, err = os.Stat(filepath.Join(root, "demo", ".mcp.json"))
+	assert.True(t, os.IsNotExist(err), "Sessions must not regenerate the workspace's disposable artifacts")
+
+	_, err = svc.Sessions(t.Context(), "../escape")
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
 func TestDeleteWorkspaceRemovesRecordsAndLeavesTheDirectory(t *testing.T) {

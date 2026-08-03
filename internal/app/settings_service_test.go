@@ -204,6 +204,30 @@ func TestSettingsServiceSetExperimentalTerminalReportsEnvOverride(t *testing.T) 
 	require.True(t, persisted.Experimental.Terminal, "the user's choice still lands on disk for the next launch")
 }
 
+func TestSettingsServiceSetExperimentalAgentsPersistsIndependentlyOfTerminal(t *testing.T) {
+	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
+	cfg := settings.DefaultSettings()
+	cfg.Updates.Enabled = false
+	require.NoError(t, settings.SaveSettings(cfg))
+
+	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)
+
+	effective, err := service.SetExperimentalAgents(t.Context(), true)
+	require.NoError(t, err)
+	require.True(t, effective)
+
+	got, err := settings.LoadSettings()
+	require.NoError(t, err)
+	require.True(t, got.Experimental.Agents)
+	require.False(t, got.Experimental.Terminal, "the agents opt-in must not flip the terminal one")
+	require.False(t, got.Updates.Enabled, "the opt-in must not clobber unrelated fields")
+
+	roundTripped, err := service.Experimental(t.Context())
+	require.NoError(t, err)
+	require.True(t, roundTripped.Agents)
+	require.False(t, roundTripped.Terminal)
+}
+
 func TestSettingsServiceAppearanceSettingsDefaultsToUnset(t *testing.T) {
 	t.Setenv(settings.EnvConfigDir, filepath.Join(t.TempDir(), "config"))
 	service := newSettingsService(settings.NewStore(settings.SettingsPath()), nil, nil)

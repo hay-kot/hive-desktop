@@ -7,6 +7,7 @@ import IconArrowRight from '~icons/lucide/arrow-right'
 import IconBug from '~icons/lucide/bug'
 import IconInbox from '~icons/lucide/inbox'
 import IconCode from '~icons/lucide/code'
+import IconBot from '~icons/lucide/bot'
 import IconPanelLeftClose from '~icons/lucide/panel-left-close'
 import IconPanelLeftOpen from '~icons/lucide/panel-left-open'
 import IconPanelRightClose from '~icons/lucide/panel-right-close'
@@ -39,10 +40,11 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
-// mode is the app-level Inbox|Code switch. It renders only while
-// terminalEnabled — the experimental.terminal opt-in (ADR 0037) — and once
-// rendered it is never disabled, because an unavailable terminal explains
-// itself inside Terminal mode.
+// mode is the app-level Inbox|Code|Agents switch. The group renders once any
+// second mode is enabled — terminalEnabled (ADR 0037) or agentsEnabled
+// (ADR 0061) — with each optional segment carrying its own v-if, and once a
+// segment is rendered it is never disabled, because an unavailable terminal
+// or Agents area explains itself inside the mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
@@ -54,8 +56,9 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // onboarding too.
 const props = defineProps<{
   profileName?: string
-  mode?: 'hub' | 'terminal'
+  mode?: 'hub' | 'terminal' | 'agents'
   terminalEnabled?: boolean
+  agentsEnabled?: boolean
   activityActive?: boolean
   errorCount?: number
   unseenActivity?: number
@@ -72,7 +75,7 @@ const props = defineProps<{
   canTogglePreview?: boolean
 }>()
 const emit = defineEmits<{
-  'set-mode': [mode: 'hub' | 'terminal']
+  'set-mode': [mode: 'hub' | 'terminal' | 'agents']
   back: []
   forward: []
   'open-error-node': []
@@ -145,23 +148,27 @@ function onTitlebarDblclick(event: MouseEvent): void {
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
       <div
-        v-if="profileName && terminalEnabled"
+        v-if="profileName && (terminalEnabled || agentsEnabled)"
         class="ml-1.5 flex h-7 shrink-0 items-center gap-[2px] rounded-[7px] border border-card bg-app p-[2px]"
         style="--wails-draggable: no-drag"
         role="group"
         aria-label="App mode"
       >
         <!-- Segments size to their labels. An equal-width split padded the
-             shorter label out to match the longer, which read as a gap. -->
+             shorter label out to match the longer, which read as a gap.
+             Every :class/:aria-pressed below is a positive comparison against
+             its own mode — with three modes "not terminal" no longer means
+             "hub". -->
         <button
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
-          :class="mode === 'terminal' ? 'font-medium text-text-3 hover:text-text' : 'bg-chip font-medium text-text'"
-          :aria-pressed="mode !== 'terminal'"
+          :class="mode === 'hub' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
+          :aria-pressed="mode === 'hub'"
           data-testid="titlebar-mode-hub"
           @click="emit('set-mode', 'hub')"
         ><IconInbox class="size-3.5 shrink-0" />Inbox</button>
         <button
+          v-if="terminalEnabled"
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'terminal' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
@@ -169,6 +176,15 @@ function onTitlebarDblclick(event: MouseEvent): void {
           data-testid="titlebar-mode-terminal"
           @click="emit('set-mode', 'terminal')"
         ><IconCode class="size-3.5 shrink-0" />Code</button>
+        <button
+          v-if="agentsEnabled"
+          type="button"
+          class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
+          :class="mode === 'agents' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
+          :aria-pressed="mode === 'agents'"
+          data-testid="titlebar-mode-agents"
+          @click="emit('set-mode', 'agents')"
+        ><IconBot class="size-3.5 shrink-0" />Agents</button>
       </div>
     </div>
 

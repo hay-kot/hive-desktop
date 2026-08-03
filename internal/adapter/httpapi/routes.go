@@ -65,12 +65,16 @@ func (op Op) pattern() string {
 
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
-	// No token means terminal mode is off for this run (experimental.terminal,
-	// ADR 0037): the routes are absent rather than answering 503, so the route
-	// index and OpenAPI document never advertise a surface that cannot work.
-	if ctrl.terminalToken != "" {
+	// Off means the surface is absent rather than answering 503, so the route
+	// index and OpenAPI document never advertise something that cannot work
+	// (ADR 0037 point 2). The two flags gate independently: a build can ship
+	// agents without terminal mode or vice versa.
+	if ctrl.opts.TerminalEnabled {
 		ops = append(ops, ctrl.terminalOperations()...)
 		ops = append(ops, ctrl.popupTerminalOperations()...)
+	}
+	if ctrl.opts.AgentsEnabled {
+		ops = append(ops, ctrl.agentOperations()...)
 	}
 	return ops
 }
@@ -119,6 +123,68 @@ func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 	}
 	errs = append(errs, extra...)
 	return append(errs, ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"})
+}
+
+// agentOperations is the agent-workspace control plane: named, durable
+// workspaces where a CLI agent runs against a purpose-built MCP tool set
+// (spec-tracked as hc-49x3i833). Like popupTerminalOperations it rides the
+// terminal bearer token and CORS policy by sitting under TerminalPathPrefix —
+// starting a session spawns an agent CLI, which is arbitrary command
+// execution (ADR 0036, ADR 0061).
+func (ctrl *Controller) agentOperations() []Op {
+	return []Op{
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer.",
+			Response: agentWorkspacesResponse{}, Handler: ctrl.AgentWorkspaces,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve.",
+			Request: agentWorkspaceOpenRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
+			Errors: agentErrors("no such workspace, or its manifest is invalid"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
+			Request: agentWorkspaceDeleteRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions", Summary: "List a workspace's sessions without regenerating its artifacts, unlike workspaces/open. terminalId is empty for a session with no live terminal.",
+			Request: agentSessionsRequest{}, Response: agentSessionsResponse{}, Handler: ctrl.AgentSessions,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: resolves the workspace's agent, autonomy posture and MCP wiring into a command line and opens it on a Hive-owned PTY. cols/rows of 0x0 open at the terminal's own default. The data plane is the ptyterm stream at " + PTYStreamPath + ", outside this operations table.",
+			Request: agentSessionStartRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionStart,
+			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resume", Summary: "Reattach a session's live terminal if it still has one, or relaunch it — resuming the agent's own conversation when it has a resume form (resumeAttempted), and starting a fresh one with a notice when it does not.",
+			Request: agentSessionResumeRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionResume,
+			Errors: agentErrors("no such session, or its workspace is gone", ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/close", Summary: "End a session's live terminal and report whether there was one to close. The session record is untouched, so it still lists afterward.",
+			Request: agentSessionIDRequest{}, Response: agentSessionCloseResponse{}, Handler: ctrl.AgentSessionClose,
+			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/delete", Summary: "End any live terminal and delete a session's record.",
+			Request: agentSessionIDRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionDelete,
+			Errors: agentErrors("no such session"),
+		},
+	}
+}
+
+// agentErrors documents what every agent-workspace operation can answer
+// beyond the generic error: the bearer token these routes require, same as
+// every other terminal-prefixed route.
+func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
+	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
+	if notFound != "" {
+		errs = append(errs, ErrResp{Status: 404, When: notFound})
+	}
+	return append(errs, extra...)
 }
 
 func (ctrl *Controller) baseOperations() []Op {

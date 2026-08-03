@@ -24,6 +24,7 @@ const (
 	EnvHTTPPort    = "HIVE_DESKTOP_HTTP_PORT"
 
 	EnvExperimentalTerminal = "HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"
+	EnvExperimentalAgents   = "HIVE_DESKTOP_EXPERIMENTAL_AGENTS"
 
 	// EnvAgentWorkspacesDir is the environment name behind
 	// agent_workspaces.dir. Named here, duplicating the settings.go struct

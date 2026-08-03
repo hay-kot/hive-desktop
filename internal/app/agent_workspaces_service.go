@@ -42,10 +42,13 @@ type AgentWorkspacesService struct {
 	// present here but absent from agentws's launch table is the second,
 	// distinct refusal.
 	commands map[string]string
+	// rootProblem carries EnsureRoot's error, verbatim, when the configured
+	// root could not be created or opened at startup -- empty otherwise.
+	rootProblem string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *ptyterm.Manager, db *store.DB, skills *SkillsService, commands map[string]string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands}
+func newAgentWorkspacesService(store *agentws.Store, terminals *ptyterm.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem}
 }
 
 // WorkspaceView is one row of the area's list. Autonomy is on it because a
@@ -58,6 +61,11 @@ type WorkspaceView struct {
 	Autonomy string   `json:"autonomy"`
 	MCPs     []string `json:"mcps"`
 	Problem  string   `json:"problem"`
+	// Notice mirrors SessionView.Notice's MCP explanation, shown on the
+	// workspace row itself: an agent whose wiring cannot bound its tool set to
+	// what the workspace declares says so before any session is even started
+	// (spec §7.2, ADR 0061).
+	Notice string `json:"notice"`
 }
 
 // SessionView is one row of a workspace's session list.
@@ -102,6 +110,15 @@ func (s *AgentWorkspacesService) Available(ctx context.Context) error {
 // Root returns the configured workspace root.
 func (s *AgentWorkspacesService) Root(context.Context) string {
 	return s.store.Root()
+}
+
+// RootProblem reports why the configured root could not be created or
+// opened at startup, or "" when it is fine. Spec §14: a root on an unmounted
+// volume or a signed-out iCloud Drive is reported rather than silently
+// replaced with a second, empty root elsewhere -- the UI is what points at
+// the setting to fix.
+func (s *AgentWorkspacesService) RootProblem(context.Context) string {
+	return s.rootProblem
 }
 
 // List returns every recognized workspace, valid or not — a broken manifest
@@ -165,6 +182,25 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	}
 
 	return OpenResult{Workspace: view, Sessions: sessions, MissingMCPs: genResult.MissingMCPs}, nil
+}
+
+// Sessions lists a workspace's session rows without regenerating its
+// disposable artifacts — the read the Agents area uses to refresh a session
+// list after starting, resuming, closing, or deleting one, without paying
+// Open's generation cost.
+func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]SessionView, error) {
+	if !validWorkspaceDir(dir) {
+		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
+	}
+	views := make([]SessionView, 0, len(records))
+	for _, rec := range records {
+		views = append(views, s.sessionView(rec))
+	}
+	return views, nil
 }
 
 // StartSession launches a new, named session in workspace.
@@ -448,13 +484,19 @@ func (s *AgentWorkspacesService) sessionView(rec store.AgentWorkspaceSession) Se
 }
 
 func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
-	problem := ""
+	problem, notice := "", ""
 	if !st.Valid && st.Err != nil {
 		problem = st.Err.Error()
+	} else if st.Valid {
+		// A workspace whose manifest failed to parse has no trustworthy Agent
+		// field to explain, so the MCP notice is skipped rather than shown
+		// against whatever the zero value happens to be.
+		notice = mcpNotice(st.Workspace.Agent)
 	}
 	return WorkspaceView{
 		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
 		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs, Problem: problem,
+		Notice: notice,
 	}
 }
 
