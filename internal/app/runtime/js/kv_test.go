@@ -57,7 +57,7 @@ func runWithKV(t *testing.T, inst runtime.ScriptInstance, m store.Msg, kv runtim
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	return inst.OnMessage(ctx, m, map[string]any{}, kv)
+	return inst.OnMessage(ctx, m, map[string]any{}, kv, nil)
 }
 
 func TestKV_RoundTrip(t *testing.T) {

@@ -32,7 +32,7 @@ func run(t *testing.T, inst runtime.ScriptInstance, m store.Msg) [][]store.Msg {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	produced, err := inst.OnMessage(ctx, m, map[string]any{}, nil)
+	produced, err := inst.OnMessage(ctx, m, map[string]any{}, nil, nil)
 	require.NoError(t, err)
 	return produced
 }
@@ -132,7 +132,7 @@ func TestNodeConfigIsTheSecondArgument(t *testing.T) {
 	inst := instance(t, "return {...msg, Payload: {seen: node.label}}", 1)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	produced, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{"label": "hello"}, nil)
+	produced, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{"label": "hello"}, nil, nil)
 	require.NoError(t, err)
 	require.JSONEq(t, `{"seen":"hello"}`, string(produced[0][0].Payload))
 }
@@ -164,7 +164,7 @@ func TestThrownValuesAreRuntimeErrors(t *testing.T) {
 	inst := instance(t, "\nthrow new Error('nope')", 1)
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	_, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{}, nil)
+	_, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{}, nil, nil)
 
 	var scriptErr *runtime.ScriptError
 	require.ErrorAs(t, err, &scriptErr)
@@ -183,7 +183,7 @@ func TestARunawayLoopIsInterrupted(t *testing.T) {
 	defer cancel()
 
 	started := time.Now()
-	_, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{}, nil)
+	_, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{}, nil, nil)
 	elapsed := time.Since(started)
 
 	var scriptErr *runtime.ScriptError
@@ -206,7 +206,7 @@ func TestAnExhaustedPoolRefusesRatherThanQueues(t *testing.T) {
 	t.Cleanup(inst.Close)
 
 	started := time.Now()
-	_, err = inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil)
+	_, err = inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil, nil)
 	require.Less(t, time.Since(started), time.Second, "refusal is immediate")
 
 	var scriptErr *runtime.ScriptError
@@ -214,7 +214,7 @@ func TestAnExhaustedPoolRefusesRatherThanQueues(t *testing.T) {
 	require.Equal(t, runtime.ScriptErrorUnavailable, scriptErr.Kind)
 
 	pool.Release()
-	_, err = inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil)
+	_, err = inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil, nil)
 	require.NoError(t, err, "the slot is usable again once released")
 }
 
@@ -227,7 +227,7 @@ func TestPoolSlotsAreReturnedAfterEveryEvaluation(t *testing.T) {
 	t.Cleanup(inst.Close)
 
 	for range 10 {
-		_, err := inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil)
+		_, err := inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil, nil)
 		require.NoError(t, err)
 	}
 	require.Equal(t, 2, pool.Available())
@@ -237,7 +237,7 @@ func TestReturningSomethingThatIsNotAMessage(t *testing.T) {
 	t.Parallel()
 
 	inst := instance(t, "return 42", 1)
-	_, err := inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil)
+	_, err := inst.OnMessage(t.Context(), msg(`{}`), map[string]any{}, nil, nil)
 
 	var scriptErr *runtime.ScriptError
 	require.ErrorAs(t, err, &scriptErr)

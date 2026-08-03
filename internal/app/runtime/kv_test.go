@@ -209,7 +209,7 @@ type fakeScriptInstance struct {
 	onMessage func(ctx context.Context, msg store.Msg, kv NodeKV) ([][]store.Msg, error)
 }
 
-func (f *fakeScriptInstance) OnMessage(ctx context.Context, msg store.Msg, _ any, kv NodeKV) ([][]store.Msg, error) {
+func (f *fakeScriptInstance) OnMessage(ctx context.Context, msg store.Msg, _ any, kv NodeKV, _ ConsoleSink) ([][]store.Msg, error) {
 	return f.onMessage(ctx, msg, kv)
 }
 func (f *fakeScriptInstance) Close() {}

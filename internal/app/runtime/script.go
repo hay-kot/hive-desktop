@@ -29,6 +29,21 @@ type ScriptRuntime interface {
 	New(src string, outputs int) (ScriptInstance, error)
 }
 
+// ConsoleSink receives one console.* call from a script. A nil sink discards
+// the line, which is what a live run passes: console output is a debugging
+// affordance for a dry run, not a second log stream on the hot path. It is
+// invoked from the evaluating goroutine, which for a wedged script may be one
+// the engine has already abandoned — an implementation must be safe to call
+// after the evaluation it belongs to has returned.
+type ConsoleSink func(level, text string)
+
+// Log writes one line, tolerating a nil sink so callers never branch.
+func (s ConsoleSink) Log(level, text string) {
+	if s != nil {
+		s(level, text)
+	}
+}
+
 // ScriptInstance is one node instance's live script: its compiled program and
 // the state object that survives across messages for as long as the instance
 // does. Not safe for concurrent use — the engine evaluates one message at a
@@ -36,9 +51,10 @@ type ScriptRuntime interface {
 type ScriptInstance interface {
 	// OnMessage evaluates the script for msg and returns its outputs indexed
 	// by output port. config is the node's own config, passed as the script's
-	// `node` argument; kv is the node's per-message durable-KV handle. A
-	// returned error is always a *ScriptError.
-	OnMessage(ctx context.Context, msg store.Msg, config any, kv NodeKV) ([][]store.Msg, error)
+	// `node` argument; kv is the node's per-message durable-KV handle and
+	// console its per-message console sink. A returned error is always a
+	// *ScriptError.
+	OnMessage(ctx context.Context, msg store.Msg, config any, kv NodeKV, console ConsoleSink) ([][]store.Msg, error)
 	// Close releases the instance. An instance whose evaluation timed out may
 	// still be running, in which case Close interrupts it and returns without
 	// waiting.
