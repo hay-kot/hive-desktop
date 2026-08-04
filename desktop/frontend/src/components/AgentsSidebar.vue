@@ -202,15 +202,37 @@ function confirmDeleteSession(): void {
 }
 
 // ── Panel sizing: the sidebar's width and the Workspaces/Chats divider, both
-// persisted like every other panel (useResizablePanel). The divider adjusts
-// the cap on the Workspaces scroll region, so a short list still hugs its
-// content. ────────────────────────────────────────────────────────────────
+// persisted like every other panel (useResizablePanel). The divider sets the
+// Workspaces section's height outright — DetailPane's reading-pane semantics:
+// taller than the list leaves room, shorter scrolls it — so the split is the
+// user's, not derived from content. Both sections floor at their header row
+// (min-h-9) and the Workspaces section may flex-shrink on a short window;
+// syncing the stored height to the rendered one when a drag starts keeps the
+// handle live from the first pixel instead of spending travel un-storing a
+// height the window could not show. ──────────────────────────────────────
 const { size: sidebarWidth, startResize: startSidebarResize, step: stepSidebar } = useResizablePanel({
   storageKey: 'hive.panel.agents.sidebar', defaultSize: 260, min: 180, max: 400, edge: 'right',
 })
 const { size: workspacesHeight, startResize: startWorkspacesResize, step: stepWorkspaces } = useResizablePanel({
-  storageKey: 'hive.panel.agents.workspaces', defaultSize: 240, min: 96, max: 480, edge: 'bottom',
+  storageKey: 'hive.panel.agents.workspaces', defaultSize: 240, min: 36, max: 800, edge: 'bottom',
 })
+
+const workspacesSection = ref<HTMLElement | null>(null)
+
+function syncWorkspacesHeight(): void {
+  const rendered = workspacesSection.value?.getBoundingClientRect().height
+  if (rendered && Math.abs(rendered - workspacesHeight.value) > 1) workspacesHeight.value = Math.round(rendered)
+}
+
+function startWorkspacesDrag(event: PointerEvent): void {
+  syncWorkspacesHeight()
+  startWorkspacesResize(event)
+}
+
+function stepWorkspacesDivider(deltaPx: number): void {
+  syncWorkspacesHeight()
+  stepWorkspaces(deltaPx)
+}
 
 // ── Selection rails (the Code view's traveling mark, TerminalMode.vue) ────
 // One accent rail per section, measured off the active row rather than drawn
@@ -266,11 +288,16 @@ defineExpose({ focus: () => rootEl.value?.focus() })
     data-testid="agents-workspace-sidebar"
     tabindex="-1"
   >
-    <!-- Workspaces: pinned with their own capped scroll region so a long
-         chat list below never pushes them out of view. The divider drags the
-         cap; a list shorter than it still hugs its content. -->
-    <div class="relative shrink-0 border-b border-border" data-testid="agents-sidebar-workspaces">
-      <div class="hive-scroll overflow-y-auto pb-1.5" :style="{ maxHeight: `${workspacesHeight}px` }">
+    <!-- Workspaces: a fixed-height scroll region — as tall or short as the
+         divider says, whatever the list's own length, so a long chat list
+         below never pushes it out of view and vice versa. -->
+    <div
+      ref="workspacesSection"
+      class="relative min-h-9 border-b border-border"
+      :style="{ height: `${workspacesHeight}px` }"
+      data-testid="agents-sidebar-workspaces"
+    >
+      <div class="hive-scroll h-full overflow-y-auto pb-1.5">
         <div class="flex items-center px-3 pt-2.5 pb-1">
           <span class="font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-4">Workspaces</span>
           <button
@@ -354,12 +381,12 @@ defineExpose({ focus: () => rootEl.value?.focus() })
           />
         </div>
       </div>
-      <PanelResizeHandle edge="bottom" name="agents-workspaces" :start="startWorkspacesResize" :step="stepWorkspaces" />
+      <PanelResizeHandle edge="bottom" name="agents-workspaces" :start="startWorkspacesDrag" :step="stepWorkspacesDivider" />
     </div>
 
     <!-- Chats: a flat list across every workspace, narrowed to the focused
          one — the lit workspace row is the scope indicator. -->
-    <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4" data-testid="agents-sidebar-sessions">
+    <div class="hive-scroll min-h-9 flex-1 overflow-y-auto pb-4" data-testid="agents-sidebar-sessions">
       <div class="flex items-center px-3 pt-2.5 pb-1">
         <span class="font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-4">Chats</span>
         <button
