@@ -366,6 +366,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem)
+	a.syncHiveWorkspaceSkills()
 
 	return a, nil
 }
@@ -732,6 +733,35 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 		return
 	}
 	a.agentWorkspacesWatcher = watcher
+}
+
+// syncHiveWorkspaceSkills keeps the seeded hive workspace's skills: list in
+// step with the shipped skill set, so the workspace that drives Hive Desktop
+// gains new skills on update without hand-editing its manifest. It runs after
+// the services are built because the slug set comes from the prompt catalog;
+// the sync itself is a no-op when the root was unavailable or the workspace
+// was deleted (spec §14).
+func (a *App) syncHiveWorkspaceSkills() {
+	if a.agentWorkspaceRootProblem != "" {
+		return
+	}
+	slugs, err := a.Skills.SkillSlugs(a.ctx)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("hive workspace skills sync: listing skills failed")
+		return
+	}
+	changed, err := agentws.SyncHiveWorkspaceSkills(a.agentWorkspaceStore.Root(), slugs)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("hive workspace skills sync failed")
+		return
+	}
+	// The watcher would pick the write up too, but reloading here means the
+	// first workspaces read of the run already sees the synced skill set.
+	if changed {
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			a.logger.Warn().Err(err).Msg("agent workspace reload failed")
+		}
+	}
 }
 
 // PublishLogAppended announces that the event log grew and wakes the engine to

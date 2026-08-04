@@ -1,6 +1,7 @@
 package agentws
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -99,19 +100,21 @@ skills:
 
 const hiveAgentsMD = `# Hive
 
-This workspace drives Hive Desktop itself, over its loopback agent HTTP API
-(the hive-http-api skill) — settings, the feed, flows and actions, from an
-agent session instead of hand-edited config files.
+This workspace drives Hive Desktop itself — settings, the feed, flows,
+actions, keybindings, and webhooks — through the full set of hive skills,
+which the app keeps up to date here automatically.
 
 Autonomy is "ask": nothing here runs unprompted.
 `
 
 // SeedHiveWorkspace writes <root>/hive/: an agent-workspace.yaml with
 // autonomy: ask (explicit, though it is also the default since hc-ou4o02zx
-// §4) and the hive-http-api skill, plus an AGENTS.md explaining what the
-// workspace is for. It gives a user an agent
-// surface for configuration and feed curation without authoring YAML first —
-// the orchestrator case from spec §1, working on first launch.
+// §4), plus an AGENTS.md explaining what the workspace is for. It gives a
+// user an agent surface for configuration and feed curation without
+// authoring YAML first — the orchestrator case from spec §1, working on
+// first launch. The manifest's skills: list is not this seed's to keep
+// current: SyncHiveWorkspaceSkills rewrites it to the full shipped set on
+// every startup, including the one that just seeded it.
 //
 // Callers must invoke this only when EnsureRoot creates root for the first
 // time, never on every open: deleting the workspace must leave it deleted
@@ -128,4 +131,40 @@ func SeedHiveWorkspace(root string) error {
 		return fmt.Errorf("write hive workspace AGENTS.md: %w", err)
 	}
 	return nil
+}
+
+// SyncHiveWorkspaceSkills rewrites the seeded hive workspace's skills: list
+// to slugs, editing the manifest's node tree in place so comments and keys
+// the sync does not own survive. It runs on every startup — the workspace
+// exists to drive Hive Desktop, so it tracks the full shipped skill set as
+// releases add or remove skills, including hand-removed entries. A missing
+// manifest is left missing: deleting the workspace must leave it deleted
+// (spec §14). The returned boolean reports whether the file was rewritten.
+func SyncHiveWorkspaceSkills(root string, slugs []string) (bool, error) {
+	path := filepath.Join(root, "hive", manifestFileName)
+	raw, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("hive workspace manifest: %w", err)
+	}
+	doc, mapping, err := parseManifestNode(raw)
+	if err != nil {
+		return false, fmt.Errorf("hive workspace manifest: %w", err)
+	}
+	if err := setManifestValue(mapping, "skills", slugs); err != nil {
+		return false, fmt.Errorf("hive workspace manifest: %w", err)
+	}
+	out, err := encodeManifestDoc(doc)
+	if err != nil {
+		return false, fmt.Errorf("hive workspace manifest: %w", err)
+	}
+	if bytes.Equal(raw, out) {
+		return false, nil
+	}
+	if err := writeManifestAtomic(path, out); err != nil {
+		return false, fmt.Errorf("hive workspace manifest: %w", err)
+	}
+	return true, nil
 }

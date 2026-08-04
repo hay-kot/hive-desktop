@@ -72,6 +72,71 @@ func TestSeedCreatesTheHiveWorkspaceOnRootCreation(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestSyncHiveWorkspaceSkills(t *testing.T) {
+	t.Parallel()
+
+	seededRoot := func(t *testing.T) string {
+		t.Helper()
+		root := filepath.Join(t.TempDir(), "workspaces")
+		created, err := EnsureRoot(root)
+		require.NoError(t, err)
+		require.True(t, created)
+		require.NoError(t, SeedHiveWorkspace(root))
+		return root
+	}
+
+	t.Run("RewritesTheSkillsListToTheGivenSet", func(t *testing.T) {
+		t.Parallel()
+
+		root := seededRoot(t)
+		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows", "hive-settings"})
+		require.NoError(t, err)
+		assert.True(t, changed)
+
+		ws, err := LoadWorkspace(filepath.Join(root, "hive", manifestFileName))
+		require.NoError(t, err)
+		assert.Equal(t, []string{"hive-http-api", "hive-flows", "hive-settings"}, ws.Skills)
+
+		changedAgain, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows", "hive-settings"})
+		require.NoError(t, err)
+		assert.False(t, changedAgain, "an already-current manifest is not rewritten")
+	})
+
+	t.Run("PreservesUserEditsOutsideTheSkillsList", func(t *testing.T) {
+		t.Parallel()
+
+		root := seededRoot(t)
+		manifest := filepath.Join(root, "hive", manifestFileName)
+		require.NoError(t, os.WriteFile(manifest, []byte("version: 1\nname: Hive\n# my note\nagent: codex\nautonomy: full\nmcps:\n  - playwright\nskills:\n  - hive-http-api\n"), 0o600))
+
+		_, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows"})
+		require.NoError(t, err)
+
+		data, err := os.ReadFile(manifest)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "# my note")
+		ws, err := LoadWorkspace(manifest)
+		require.NoError(t, err)
+		assert.Equal(t, "codex", ws.Agent)
+		assert.Equal(t, AutonomyFull, ws.Autonomy)
+		assert.Equal(t, []string{"playwright"}, ws.MCPs)
+		assert.Equal(t, []string{"hive-http-api", "hive-flows"}, ws.Skills)
+	})
+
+	t.Run("LeavesADeletedWorkspaceDeleted", func(t *testing.T) {
+		t.Parallel()
+
+		root := seededRoot(t)
+		require.NoError(t, os.RemoveAll(filepath.Join(root, "hive")))
+
+		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api"})
+		require.NoError(t, err)
+		assert.False(t, changed)
+		_, statErr := os.Stat(filepath.Join(root, "hive"))
+		assert.True(t, os.IsNotExist(statErr), "sync must not resurrect a deleted hive workspace")
+	})
+}
+
 func TestSeedDoesNotRecreateADeletedHiveWorkspace(t *testing.T) {
 	t.Parallel()
 
