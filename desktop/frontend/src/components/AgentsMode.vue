@@ -1,11 +1,13 @@
 <script setup lang="ts">
-// The Agents area: a plain two-level list — workspaces, then a selected
-// workspace's sessions — beside a pane rendering whichever session is open.
-// Unlike terminal mode's three-level session tree there is no keyboard walk
-// to maintain; what is borrowed from TerminalMode.vue is narrower — the
-// aside/main split and row shapes, plus (since ADR 0063) the pane's xterm
-// wiring itself: a session is a tmux session, addressed and framed exactly
-// like a hive one, just not discovered through hive.
+// The Agents area: AgentsSidebar's two flat lists (workspaces, then sessions
+// filtered by the focused workspace) beside a pane the terminal owns edge to
+// edge. Focusing a workspace is a filter, not a container — changing it never
+// tears down a live pane. The one pane the shell itself draws is pre-attach:
+// no PTY exists yet, so it states where the session will start and lets the
+// workspace be picked when none is focused. What is borrowed from
+// TerminalMode.vue is narrower — the aside/main split, plus (since ADR 0063)
+// the pane's xterm wiring itself: a session is a tmux session, addressed and
+// framed exactly like a hive one, just not discovered through hive.
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Browser } from '@wailsio/runtime'
@@ -13,13 +15,15 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconBot from '~icons/lucide/bot'
-import IconPlay from '~icons/lucide/play'
-import IconPlus from '~icons/lucide/plus'
-import IconPower from '~icons/lucide/power'
-import IconRotateCw from '~icons/lucide/rotate-cw'
-import IconTrash2 from '~icons/lucide/trash-2'
-import ConfirmationDialog from './ConfirmationDialog.vue'
+import IconLoaderCircle from '~icons/lucide/loader-circle'
+import IconX from '~icons/lucide/x'
+import AgentsSidebar from './AgentsSidebar.vue'
+import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
+import AppSelect, { type AppSelectOption } from './AppSelect.vue'
+import BaseButton from './BaseButton.vue'
+import ChatRenameDialog from './ChatRenameDialog.vue'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
+import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useTerminalFont } from '../composables/useTerminalFont'
 import { useTheme } from '../composables/useTheme'
 import { xtermTheme } from '../lib/terminalTheme'
@@ -27,7 +31,7 @@ import { decodeFrame, encodeInputFrames } from '../lib/agentWorkspacesClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
-import type { AgentSession } from '../lib/agentWorkspacesClient'
+import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 import '@xterm/xterm/css/xterm.css'
 
 /** Poll period for the M2 approval indicator (hc-ou4o02zx §5), while active. */
@@ -37,13 +41,13 @@ const props = defineProps<{ active?: boolean }>()
 
 const {
   checking, available, reason,
-  workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-  root, rootProblem,
-  sessions, sessionsLoading, sessionsLoaded, sessionsError, missingMCPs,
+  workspaces, root, agents, missingMCPs,
   client, ready,
-  reloadWorkspaces, openWorkspace, reloadSessions, deleteWorkspace,
-  startSession, resumeSession, closeSession, deleteSession, resetSessions,
+  reloadWorkspaces, openWorkspace, deleteWorkspace,
+  createWorkspace, updateWorkspace,
+  startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
 } = useAgentWorkspaces()
+const { recents, reloadRecents } = useAgentSessionsAll()
 
 const {
   px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold, lineHeight, letterSpacing,
@@ -59,9 +63,8 @@ const RESIZE_DEBOUNCE_MS = 80
 const paneHost = ref<HTMLElement | null>(null)
 const term = shallowRef<Terminal | null>(null)
 const openSessionId = ref<number | null>(null)
-const paneStatus = ref<'idle' | 'opening' | 'live' | 'ended'>('idle')
+const paneStatus = ref<'idle' | 'opening' | 'live'>('idle')
 const paneError = ref('')
-const endedReason = ref('')
 
 let socket: WebSocket | null = null
 let fit: FitAddon | null = null
@@ -74,7 +77,6 @@ const disposers: IDisposable[] = []
 // its own for the life of one attach.
 let paneWindowId = ''
 
-const openSession = computed(() => sessions.value.find((s) => s.id === openSessionId.value) ?? null)
 const paneLaidOut = computed(() => paneStatus.value === 'opening' || term.value !== null)
 
 // ── Route-driven workspace selection ────────────────────────────────────────
@@ -85,14 +87,12 @@ const selectedWorkspace = computed(() =>
 
 function selectWorkspace(dir: string): void {
   if (dir === selectedWorkspace.value) return
+  if (!dir) {
+    void router.push({ name: 'agents' })
+    return
+  }
   void router.push({ name: 'agents', params: { workspace: dir } })
 }
-
-function backToWorkspaces(): void {
-  void router.push({ name: 'agents' })
-}
-
-const selectedWorkspaceRow = computed(() => workspaces.value.find((w) => w.dir === selectedWorkspace.value) ?? null)
 
 watch(() => props.active, (active) => {
   if (!active) return
@@ -104,28 +104,29 @@ async function loadWorkspaces(): Promise<void> {
   if (available.value) void reloadWorkspaces()
 }
 
+// Focus is a filter: switching it regenerates the workspace's artifacts and
+// swaps its missing-MCP state in, but a live pane keeps running — the open
+// session need not belong to the focused workspace.
 watch(selectedWorkspace, async (dir, previous) => {
   if (dir === previous) return
-  teardownPane()
-  paneStatus.value = 'idle'
-  openSessionId.value = null
-  resetSessions()
+  resetOpenWorkspace()
   if (!dir) return
   await openWorkspace(dir)
 }, { immediate: true })
 
-// ── M2 approval indicator (hc-ou4o02zx) ──────────────────────────────────────
-// Polled only while the area is active and a workspace is open, matching
-// SessionStatuses' precedent in TerminalMode.vue -- capture-pane is real tmux
-// work per live session, so nothing here polls off-screen.
+// ── Activity indicators (hc-ou4o02zx) ────────────────────────────────────────
+// Polled while the area is active, across every workspace — the sidebar shows
+// every session at once, the way the Code view's status poll covers its whole
+// tree. Off-screen, nothing polls: capture-pane is real tmux work per live
+// session.
 const sessionActivity = ref<Record<number, string>>({})
 let activityTimer: ReturnType<typeof setTimeout> | undefined
 let activityGeneration = 0
 
-async function pollActivity(generation: number, workspace: string): Promise<void> {
+async function pollActivity(generation: number): Promise<void> {
   if (client.value) {
     try {
-      const items = await client.value.activity(workspace)
+      const items = await client.value.activity('')
       if (generation !== activityGeneration) return
       sessionActivity.value = Object.fromEntries(items.map((item) => [item.id, item.status]))
     } catch {
@@ -133,7 +134,7 @@ async function pollActivity(generation: number, workspace: string): Promise<void
     }
   }
   if (generation !== activityGeneration) return
-  activityTimer = setTimeout(() => { void pollActivity(generation, workspace) }, ACTIVITY_POLL_MS)
+  activityTimer = setTimeout(() => { void pollActivity(generation) }, ACTIVITY_POLL_MS)
 }
 
 function stopActivityPolling(): void {
@@ -143,37 +144,64 @@ function stopActivityPolling(): void {
   sessionActivity.value = {}
 }
 
-watch([() => props.active, selectedWorkspace], ([active, dir]) => {
+watch(() => props.active, (active) => {
   stopActivityPolling()
-  if (active && dir) {
+  if (active) {
     const generation = ++activityGeneration
-    void pollActivity(generation, dir)
+    void pollActivity(generation)
   }
 }, { immediate: true })
 
-/** The dot's color/title for session's row, driven by its polled activity. */
-function activityIndicator(session: AgentSession): { color: string; title: string } {
-  if (!session.terminalId) return { color: '', title: '' }
-  switch (sessionActivity.value[session.id]) {
-    case 'approval': return { color: 'bg-severity-warning', title: 'Needs approval' }
-    case 'active': return { color: 'bg-severity-success', title: 'Working' }
-    case 'ready': return { color: 'bg-text-4', title: 'Ready' }
-    default: return { color: 'bg-severity-success', title: 'Running' }
-  }
-}
-
-// ── New session ──────────────────────────────────────────────────────────────
+// ── New chat ─────────────────────────────────────────────────────────────────
+// Two entry points, one policy (the design's own recommendation): the
+// sidebar's + starts silently in the focused workspace, and opens the
+// pre-attach panel only when nothing is focused. The panel is also what an
+// idle pane shows, so creation is always one gesture away without a bar over
+// the terminal.
+const newSessionOpen = ref(false)
 const newSessionName = ref('')
+const newSessionWorkspaceOverride = ref<string | null>(null)
 const startingSession = ref(false)
 
+const defaultWorkspaceDir = computed(() => selectedWorkspace.value || recents.value[0]?.workspace || workspaces.value[0]?.dir || '')
+const newSessionWorkspace = computed({
+  get: () => newSessionWorkspaceOverride.value ?? defaultWorkspaceDir.value,
+  set: (dir: string) => { newSessionWorkspaceOverride.value = dir },
+})
+const workspaceOptions = computed<AppSelectOption[]>(() => workspaces.value.map((ws) => ({ value: ws.dir, label: ws.name || ws.dir })))
+const showNewSessionPanel = computed(() => (term.value ? newSessionOpen.value : paneStatus.value !== 'opening'))
+
+const DEFAULT_CHAT_NAME = 'New Chat'
+const newSessionNameEl = ref<HTMLInputElement | null>(null)
+
+function handleNewSessionRequest(): void {
+  if (selectedWorkspace.value) {
+    void startNewSession(selectedWorkspace.value, DEFAULT_CHAT_NAME)
+    return
+  }
+  // An idle pane shows the pre-attach panel already, so opening it is not
+  // always a visible change — moving focus into the form is what answers
+  // the click either way.
+  newSessionOpen.value = true
+  void nextTick(() => newSessionNameEl.value?.focus())
+}
+
 async function submitNewSession(): Promise<void> {
-  const workspace = selectedWorkspace.value
-  const name = newSessionName.value.trim()
-  if (!workspace || !name || startingSession.value) return
+  const workspace = newSessionWorkspace.value
+  if (!workspace || startingSession.value) return
+  await startNewSession(workspace, newSessionName.value.trim() || DEFAULT_CHAT_NAME)
+  newSessionName.value = ''
+}
+
+// The focus filter follows a new session so its row is visible in the list
+// it lands in.
+async function startNewSession(workspace: string, name: string): Promise<void> {
+  if (startingSession.value) return
   startingSession.value = true
   try {
+    selectWorkspace(workspace)
     await launchIntoPane((size) => startSession({ workspace, name, ...size }))
-    newSessionName.value = ''
+    void reloadRecents()
   } finally {
     startingSession.value = false
   }
@@ -183,6 +211,98 @@ async function resumeRow(session: AgentSession): Promise<void> {
   await launchIntoPane((size) => resumeSession({ id: session.id, ...size }))
 }
 
+// ── Sidebar event wiring (AgentsSidebar.vue) ─────────────────────────────────
+// The chat list spans every workspace, so resuming from it can reach a chat
+// outside whatever is currently focused; every mutation reloads the
+// cross-workspace list afterward so its rows and dots stay live. The list
+// keeps stable creation order — a resume touches last_opened_at without
+// moving anything.
+async function handleSidebarSelectSession(session: AgentSession): Promise<void> {
+  await resumeRow(session)
+  void reloadRecents()
+}
+
+// ── Workspace editor (DrawerSheet, like every other editor) ──────────────────
+// Create, edit, and delete: the editor is the workspace's whole management
+// surface, so the sidebar rows carry no menu of their own.
+const workspaceEditorOpen = ref(false)
+const editingWorkspace = ref<AgentWorkspace | null>(null)
+const workspaceEditorBusy = ref(false)
+const workspaceEditorError = ref('')
+
+function openCreateWorkspace(): void {
+  editingWorkspace.value = null
+  workspaceEditorError.value = ''
+  workspaceEditorOpen.value = true
+}
+
+function openEditWorkspace(workspace: AgentWorkspace): void {
+  editingWorkspace.value = workspace
+  workspaceEditorError.value = ''
+  workspaceEditorOpen.value = true
+}
+
+async function saveWorkspace(request: WorkspaceEditRequest): Promise<void> {
+  workspaceEditorBusy.value = true
+  workspaceEditorError.value = ''
+  try {
+    if (editingWorkspace.value) {
+      await updateWorkspace(request)
+    } else {
+      await createWorkspace(request)
+      selectWorkspace(request.dir)
+    }
+    workspaceEditorOpen.value = false
+  } catch (failure) {
+    workspaceEditorError.value = failure instanceof Error ? failure.message : 'The workspace could not be saved.'
+  } finally {
+    workspaceEditorBusy.value = false
+  }
+}
+
+// The delete arrives from the editor's own confirm strip, so a failure
+// reports back into that strip (the editor stays open) rather than vanishing
+// with a closed sheet.
+async function deleteWorkspaceFromEditor(dir: string): Promise<void> {
+  workspaceEditorBusy.value = true
+  workspaceEditorError.value = ''
+  try {
+    await deleteWorkspace(dir)
+    workspaceEditorOpen.value = false
+    if (dir === selectedWorkspace.value) selectWorkspace('')
+    void reloadRecents()
+  } catch (failure) {
+    workspaceEditorError.value = failure instanceof Error ? failure.message : 'The workspace could not be deleted.'
+  } finally {
+    workspaceEditorBusy.value = false
+  }
+}
+
+// ── Chat rename (ChatRenameDialog.vue) ───────────────────────────────────────
+const renamingSession = ref<AgentSession | null>(null)
+const renameBusy = ref(false)
+const renameError = ref('')
+
+function openRenameSession(session: AgentSession): void {
+  renameError.value = ''
+  renamingSession.value = session
+}
+
+async function saveSessionRename(name: string): Promise<void> {
+  if (!renamingSession.value || renameBusy.value) return
+  renameBusy.value = true
+  renameError.value = ''
+  try {
+    await renameSession(renamingSession.value.id, name)
+    renamingSession.value = null
+    void reloadRecents()
+  } catch (failure) {
+    renameError.value = failure instanceof Error ? failure.message : 'The chat could not be renamed.'
+  } finally {
+    renameBusy.value = false
+  }
+}
+
 async function closeRow(session: AgentSession): Promise<void> {
   if (openSessionId.value === session.id) {
     teardownPane()
@@ -190,6 +310,7 @@ async function closeRow(session: AgentSession): Promise<void> {
     openSessionId.value = null
   }
   await closeSession(session.id)
+  void reloadRecents()
 }
 
 async function removeRow(session: AgentSession): Promise<void> {
@@ -199,26 +320,7 @@ async function removeRow(session: AgentSession): Promise<void> {
     openSessionId.value = null
   }
   await deleteSession(session.id)
-}
-
-// ── Workspace deletion ───────────────────────────────────────────────────────
-const deleteWorkspaceOpen = ref(false)
-const deletingWorkspace = ref(false)
-
-function requestDeleteWorkspace(): void {
-  deleteWorkspaceOpen.value = true
-}
-
-async function confirmDeleteWorkspace(): Promise<void> {
-  if (!selectedWorkspace.value) return
-  deletingWorkspace.value = true
-  try {
-    await deleteWorkspace(selectedWorkspace.value)
-    deleteWorkspaceOpen.value = false
-    backToWorkspaces()
-  } finally {
-    deletingWorkspace.value = false
-  }
+  void reloadRecents()
 }
 
 // ── The session pane ─────────────────────────────────────────────────────────
@@ -229,6 +331,7 @@ async function confirmDeleteWorkspace(): Promise<void> {
 async function launchIntoPane(action: (size: { cols?: number; rows?: number }) => Promise<AgentSession>): Promise<void> {
   if (!client.value || paneStatus.value === 'opening') return
   teardownPane()
+  newSessionOpen.value = false
   openSessionId.value = null
   paneStatus.value = 'opening'
   paneError.value = ''
@@ -252,6 +355,16 @@ async function launchIntoPane(action: (size: { cols?: number; rows?: number }) =
       paneStatus.value = 'idle'
       return
     }
+    // The grid opens at the size tmux granted at attach — not the size this
+    // launch voted, which tmux's window-size option may have overruled — and
+    // from here window 'resized' frames are what change it (the Code view's
+    // rule: the pane renders tmux's grid, never its own fit). Opening at any
+    // other size tears the TUI's cursor-addressed redraws.
+    if (result.cols && result.rows) created.resize(result.cols, result.rows)
+    else if (size) created.resize(size.cols, size.rows)
+    // The launch already voted this measurement; seeding the dedup keeps the
+    // observer's first fire from re-casting it.
+    lastVote = size ?? null
     attachStream(created, result.terminalId, result.windowId)
     paneStatus.value = 'live'
     created.focus()
@@ -292,10 +405,10 @@ function measurePane(): { cols: number; rows: number } | undefined {
   return { cols: proposed.cols, rows: proposed.rows }
 }
 
-// Sessions have no live-resize endpoint in M1 -- the vote rides
-// StartSession/ResumeSession's cols/rows only. A workspace session's grid is
-// fixed at launch and re-measured on its next start or resume; onResize below
-// just keeps xterm's own layout in step with the host box.
+// The pane renders tmux's grid, never its own fit — the Code view's rule
+// (useTerminalWindows.ts): a host resize is a size *vote* posted to
+// sessions/resize, and the window 'resized' frame tmux answers with is what
+// actually resizes xterm. The fit addon is kept only for proposeDimensions.
 function attachStream(created: Terminal, terminalId: string, windowId: string): void {
   if (!client.value || !paneHost.value) return
 
@@ -305,7 +418,17 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
   const opened = client.value.openStream(terminalId)
   opened.onmessage = (event: MessageEvent<ArrayBuffer>) => {
     const frame = decodeFrame(event.data)
-    if (!frame || frame.type === 'window') return
+    if (!frame) return
+    if (frame.type === 'window') {
+      // Every window-event kind carries tmux's own size, and the payload doc
+      // is explicit about why: the renderer must draw at that size or
+      // cursor-addressed output lands wrong. Applying it from any kind also
+      // covers a 'resized' that fired before this socket subscribed.
+      if (frame.kind !== 'closed' && frame.state.windowId === paneWindowId && frame.state.width && frame.state.height) {
+        created.resize(frame.state.width, frame.state.height)
+      }
+      return
+    }
     if (frame.windowId !== paneWindowId) return
     if (frame.type === 'output') created.write(frame.data)
     else if (frame.kind === 'exited' || frame.kind === 'error') exited()
@@ -314,7 +437,7 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
   opened.onclose = () => { if (paneStatus.value === 'live') fail('The session connection closed.') }
   socket = opened
 
-  observer = new ResizeObserver(() => scheduleFit())
+  observer = new ResizeObserver(() => scheduleSizeVote())
   observer.observe(paneHost.value)
 }
 
@@ -323,32 +446,39 @@ function send(data: string): void {
   for (const frame of encodeInputFrames(paneWindowId, data)) socket.send(frame)
 }
 
-function scheduleFit(): void {
+let lastVote: { cols: number; rows: number } | null = null
+
+function scheduleSizeVote(): void {
   clearTimeout(resizeTimer)
-  resizeTimer = setTimeout(() => {
-    try {
-      fit?.fit()
-    } catch {
-      // A pane mid-transition can measure to nothing; the next observation fits.
-    }
-  }, RESIZE_DEBOUNCE_MS)
+  resizeTimer = setTimeout(voteSize, RESIZE_DEBOUNCE_MS)
 }
 
-// The agent exited, so the pane goes with it; the session list is refreshed
-// so its row drops the stale terminalId.
+function voteSize(): void {
+  if (paneStatus.value !== 'live' || openSessionId.value === null) return
+  const proposed = measurePane()
+  if (!proposed) return
+  if (lastVote && proposed.cols === lastVote.cols && proposed.rows === lastVote.rows) return
+  lastVote = proposed
+  void client.value?.resizeSession(openSessionId.value, proposed.cols, proposed.rows).catch(() => {
+    // A vote against a just-closed session is not an error worth surfacing.
+  })
+}
+
+// The agent exited, so the pane clears to the zero state; the session list is
+// refreshed so its row drops the stale terminalId.
 function exited(): void {
   teardownPane()
   paneStatus.value = 'idle'
-  if (selectedWorkspace.value) void reloadSessions(selectedWorkspace.value)
+  void reloadRecents()
 }
 
-// A stream that dropped for any other reason keeps the last screen readable
-// rather than vanishing, the same rule PopupTerminal.vue follows.
+// Any other end of the stream clears the pane the same way — a dead screen is
+// not worth keeping — but says why in the pre-attach panel.
 function fail(why: string): void {
-  if (paneStatus.value === 'ended') return
-  paneStatus.value = 'ended'
-  endedReason.value = why
-  teardownStream()
+  teardownPane()
+  paneStatus.value = 'idle'
+  paneError.value = why
+  void reloadRecents()
 }
 
 function teardownStream(): void {
@@ -372,7 +502,7 @@ function teardownPane(): void {
   fit = null
   rendered = false
   paneWindowId = ''
-  endedReason.value = ''
+  lastVote = null
   paneError.value = ''
 }
 
@@ -398,12 +528,12 @@ watch(
     term.value.options.fontWeightBold = weightBold
     term.value.options.lineHeight = height
     term.value.options.letterSpacing = spacing
-    scheduleFit()
+    scheduleSizeVote()
   },
 )
 
 // ── Focus handles for the global keymap (agents.focus-sidebar/-pane) ─────────
-const sidebarEl = ref<HTMLElement | null>(null)
+const sidebarEl = ref<InstanceType<typeof AgentsSidebar> | null>(null)
 
 onMounted(() => {
   setAgentsTreeHandles({
@@ -441,191 +571,144 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-else class="flex min-h-0 min-w-0 flex-1">
-      <!-- Level one: workspaces. A plain list, not a tree -- no group headers,
-           no keyboard walk. -->
-      <aside
+      <AgentsSidebar
         ref="sidebarEl"
-        class="flex w-[260px] shrink-0 flex-col border-r border-border bg-sidebar"
-        data-testid="agents-workspace-sidebar"
-        tabindex="-1"
-      >
-        <div class="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3">
-          <IconBot class="size-3 shrink-0 text-text-4" />
-          <span class="min-w-0 flex-1 truncate text-[12.5px] text-text-3" :title="root">Workspaces</span>
-          <button
-            type="button"
-            class="flex size-6 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default"
-            data-testid="agents-workspaces-refresh"
-            aria-label="Reload workspaces"
-            :aria-busy="workspacesLoading"
-            :disabled="workspacesLoading"
-            @click="reloadWorkspaces"
-          ><IconRotateCw class="size-3.5" :class="{ 'animate-spin': workspacesLoading }" /></button>
-        </div>
-        <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4">
-          <p v-if="workspacesError" class="px-3 py-2 text-xs text-severity-error" data-testid="agents-workspaces-error">{{ workspacesError }}</p>
-          <div
-            v-else-if="rootProblem"
-            class="flex flex-col gap-2 px-3 py-3 text-xs text-text-3"
-            data-testid="agents-root-missing"
-          >
-            <p class="leading-relaxed">The configured workspace root is unavailable:</p>
-            <p class="font-mono text-[11px] text-severity-error">{{ rootProblem }}</p>
-            <p class="leading-relaxed">Point Settings ▸ System ▸ Agent workspaces at a reachable folder.</p>
-          </div>
-          <p v-else-if="!workspacesLoaded" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="agents-workspaces-loading">Loading…</p>
-          <p v-else-if="!workspaces.length" class="px-3 py-2 text-xs text-text-3" data-testid="agents-workspaces-empty">
-            No workspaces yet. Author one under {{ root }}.
-          </p>
-          <div v-else class="flex flex-col py-1">
-            <button
-              v-for="ws in workspaces"
-              :key="ws.dir"
-              type="button"
-              class="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-chip"
-              :class="{ 'bg-chip': ws.dir === selectedWorkspace }"
-              data-testid="agents-workspace-row"
-              :data-dir="ws.dir"
-              @click="selectWorkspace(ws.dir)"
-            >
-              <span class="flex w-full items-center gap-1.5">
-                <span class="min-w-0 flex-1 truncate text-[13px] text-text">{{ ws.name || ws.dir }}</span>
-                <span class="shrink-0 rounded-full border border-card px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-text-3">{{ ws.autonomy || '—' }}</span>
-              </span>
-              <span class="w-full truncate font-mono text-[11px] text-text-4">{{ ws.agent }}</span>
-              <span v-if="ws.problem" class="w-full truncate text-[11px] text-severity-error" data-testid="agents-workspace-problem">{{ ws.problem }}</span>
-              <span v-else-if="ws.notice" class="w-full text-[11px] leading-snug text-severity-warning" data-testid="agents-workspace-notice">{{ ws.notice }}</span>
-            </button>
-          </div>
-        </div>
-      </aside>
+        :active="props.active"
+        :selected-workspace="selectedWorkspace"
+        :open-session-id="openSessionId"
+        :starting-session="startingSession"
+        :session-activity="sessionActivity"
+        @select-session="handleSidebarSelectSession"
+        @request-new-session="handleNewSessionRequest"
+        @select-workspace="selectWorkspace"
+        @create-workspace="openCreateWorkspace"
+        @edit-workspace="openEditWorkspace"
+        @close-session="closeRow"
+        @rename-session="openRenameSession"
+        @delete-session="removeRow"
+      />
 
-      <!-- Level two: the selected workspace's sessions, plus the pane. -->
+      <!-- The terminal owns the pane edge to edge; the only chrome is a
+           conditional warning strip, never a persistent bar. -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div v-if="!selectedWorkspace" class="flex flex-1 items-center justify-center font-mono text-xs text-text-4">
-          Select a workspace to see its sessions.
-        </div>
-        <template v-else>
-          <div class="flex min-h-9 shrink-0 flex-wrap items-center gap-2 border-b border-border px-3 py-1.5">
-            <span class="text-[12.5px] font-semibold text-text">{{ selectedWorkspaceRow?.name || selectedWorkspace }}</span>
-            <span v-if="missingMCPs.length" class="text-[11px] text-severity-warning" data-testid="agents-missing-mcps">
-              Missing MCP servers: {{ missingMCPs.join(', ') }}
-            </span>
-            <button
-              type="button"
-              class="ml-auto flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-2 py-1 text-[11.5px] text-text-3 hover:bg-chip hover:text-severity-error"
-              data-testid="agents-workspace-delete"
-              @click="requestDeleteWorkspace"
-            ><IconTrash2 class="size-3.5" />Delete workspace</button>
-          </div>
+        <div
+          v-if="selectedWorkspace && missingMCPs.length"
+          class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
+          data-testid="agents-missing-mcps"
+        >Missing MCP servers: {{ missingMCPs.join(', ') }}</div>
 
-          <div class="hive-scroll flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-3 py-2">
-            <p v-if="sessionsError" class="text-xs text-severity-error" data-testid="agents-sessions-error">{{ sessionsError }}</p>
-            <p v-else-if="!sessionsLoaded" class="font-mono text-xs text-text-4" data-testid="agents-sessions-loading">Loading sessions…</p>
-            <template v-else>
-              <div
-                v-for="session in sessions"
-                :key="session.id"
-                class="flex items-center gap-1.5 rounded-[7px] border border-card px-2 py-1"
-                :class="{ 'border-accent': session.id === openSessionId }"
-                data-testid="agents-session-row"
-                :data-session-id="session.id"
-              >
-                <span class="max-w-[160px] truncate text-[12px] text-text">{{ session.name }}</span>
-                <span
-                  v-if="session.terminalId"
-                  class="size-1.5 rounded-full"
-                  :class="activityIndicator(session).color"
-                  :title="activityIndicator(session).title"
-                  data-testid="agents-session-activity"
-                />
-                <span v-if="session.notice" class="max-w-[220px] truncate text-[11px] text-severity-warning" :title="session.notice" data-testid="agents-session-notice">{{ session.notice }}</span>
-                <button
-                  type="button"
-                  class="flex size-5 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-chip hover:text-text"
-                  title="Resume"
-                  aria-label="Resume session"
-                  data-testid="agents-session-resume"
-                  @click="resumeRow(session)"
-                ><IconPlay class="size-3" /></button>
-                <button
-                  v-if="session.terminalId"
-                  type="button"
-                  class="flex size-5 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-chip hover:text-severity-error"
-                  title="Close"
-                  aria-label="Close session"
-                  data-testid="agents-session-close"
-                  @click="closeRow(session)"
-                ><IconPower class="size-3" /></button>
-                <button
-                  type="button"
-                  class="flex size-5 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-chip hover:text-severity-error"
-                  title="Delete"
-                  aria-label="Delete session"
-                  data-testid="agents-session-delete"
-                  @click="removeRow(session)"
-                ><IconTrash2 class="size-3" /></button>
+        <div class="relative min-h-0 flex-1 bg-app">
+          <!-- TerminalTab.vue's shape, for the same reasons: xterm opens in the
+               unpadded inner host so the fit measurement reads the content box
+               — measuring the padded wrapper over-proposes the grid by a row
+               under border-box — and overflow-auto scrolls a grid tmux sized
+               larger than this box instead of painting over the UI below. -->
+          <div
+            v-show="paneLaidOut"
+            class="absolute inset-0 overflow-auto px-2 py-1.5"
+            data-terminal-input-scope
+            data-testid="agents-session-pane"
+            @mousedown="term?.focus()"
+          >
+            <div ref="paneHost" class="size-full" />
+          </div>
+          <!-- Covers the whole launch, not just the beat before xterm exists:
+               most of a start is spent waiting on tmux after the grid is
+               built, and a bare dark pane there reads as nothing happening. -->
+          <div
+            v-if="paneStatus === 'opening'"
+            class="absolute inset-0 z-10 flex items-center justify-center bg-app"
+            data-testid="agents-pane-opening"
+          >
+            <p class="flex items-center gap-2 font-mono text-xs text-text-4">
+              <IconLoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />Opening…
+            </p>
+          </div>
+          <div
+            v-else-if="showNewSessionPanel"
+            class="hive-scroll absolute inset-0 z-10 overflow-y-auto bg-app"
+            data-testid="agents-new-session-panel"
+          >
+            <div class="flex min-h-full items-center justify-center px-8 py-10">
+              <div class="w-full max-w-[420px]">
+                <div class="flex items-start justify-between gap-2">
+                  <h2 class="text-[15px] font-semibold text-text">New chat</h2>
+                  <button
+                    v-if="term"
+                    type="button"
+                    class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+                    aria-label="Back to the open chat"
+                    data-testid="agents-new-session-dismiss"
+                    @click="newSessionOpen = false"
+                  ><IconX class="size-3.5" /></button>
+                </div>
+                <p class="mt-1.5 text-xs leading-relaxed text-text-3">
+                  A chat is an agent attached to a workspace's directory. It launches with the
+                  workspace's agent, autonomy, and MCP servers.
+                </p>
+                <form class="mt-5 flex flex-col gap-4" @submit.prevent="submitNewSession">
+                  <label class="flex flex-col gap-1.5">
+                    <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-text-4">Workspace</span>
+                    <AppSelect
+                      v-model="newSessionWorkspace"
+                      :options="workspaceOptions"
+                      placeholder="No workspaces yet"
+                      aria-label="Workspace for the new chat"
+                      testid="agents-new-session-workspace"
+                      :disabled="!workspaces.length"
+                    />
+                  </label>
+                  <label class="flex flex-col gap-1.5">
+                    <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-text-4">Name</span>
+                    <input
+                      ref="newSessionNameEl"
+                      v-model="newSessionName"
+                      type="text"
+                      placeholder="Optional — defaults to New Chat"
+                      aria-label="New chat name"
+                      class="rounded-[6px] border border-card bg-app px-2.5 py-1.5 text-[13px] text-text outline-none placeholder:text-text-4"
+                      data-testid="agents-new-session-name"
+                    >
+                  </label>
+                  <p v-if="!workspaces.length" class="text-xs leading-relaxed text-text-3">
+                    No workspaces yet. Author one under {{ root }}.
+                  </p>
+                  <p v-if="paneError" class="text-xs leading-relaxed text-severity-error" data-testid="agents-pane-error">{{ paneError }}</p>
+                  <div>
+                    <BaseButton
+                      type="submit"
+                      size="sm"
+                      :busy="startingSession"
+                      :disabled="!newSessionWorkspace"
+                      data-testid="agents-new-session-start"
+                    >Start chat</BaseButton>
+                  </div>
+                </form>
               </div>
-            </template>
-            <form class="ml-auto flex shrink-0 items-center gap-1.5" @submit.prevent="submitNewSession">
-              <input
-                v-model="newSessionName"
-                type="text"
-                placeholder="New session name…"
-                aria-label="New session name"
-                class="w-[160px] rounded-[6px] border border-card bg-app px-2 py-1 text-[12px] text-text outline-none placeholder:text-text-4"
-                data-testid="agents-new-session-name"
-              >
-              <button
-                type="submit"
-                class="flex size-6 cursor-pointer items-center justify-center rounded-[6px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
-                :disabled="!newSessionName.trim() || startingSession"
-                aria-label="Start session"
-                data-testid="agents-new-session-start"
-              ><IconPlus class="size-3.5" /></button>
-            </form>
-          </div>
-
-          <div class="relative min-h-0 flex-1 bg-app">
-            <div
-              v-show="paneLaidOut"
-              ref="paneHost"
-              class="absolute inset-0 p-1.5"
-              data-terminal-input-scope
-              data-testid="agents-session-pane"
-              @click="term?.focus()"
-            />
-            <div v-if="!term" class="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-              <template v-if="paneStatus === 'opening'">
-                <p class="font-mono text-xs text-text-4">Opening…</p>
-              </template>
-              <template v-else>
-                <p v-if="paneError" class="max-w-[420px] text-xs leading-relaxed text-severity-error" data-testid="agents-pane-error">{{ paneError }}</p>
-                <p v-else class="max-w-[360px] text-xs leading-relaxed text-text-4">Start a session, or resume one, to open it here.</p>
-              </template>
-            </div>
-            <div
-              v-if="paneStatus === 'ended'"
-              class="absolute inset-x-0 bottom-0 flex items-center gap-3 border-t border-row bg-raised px-3 py-2"
-              data-testid="agents-pane-ended"
-            >
-              <span class="truncate font-mono text-[11px] text-text-4">{{ endedReason }}</span>
-              <span v-if="openSession" class="ml-auto shrink-0 font-mono text-[11px] text-text-4">{{ openSession.name }}</span>
             </div>
           </div>
-        </template>
+        </div>
       </div>
     </div>
 
-    <ConfirmationDialog
-      v-if="deleteWorkspaceOpen"
-      title="Delete workspace?"
-      :description="`Close every live session in ${selectedWorkspaceRow?.name || selectedWorkspace} and remove its session records. The workspace directory itself is left on disk.`"
-      confirm-label="Delete workspace"
-      :busy="deletingWorkspace"
-      testid="agents-delete-workspace-confirmation"
-      @confirm="confirmDeleteWorkspace"
-      @cancel="deleteWorkspaceOpen = false"
+    <AgentWorkspaceEditor
+      v-if="workspaceEditorOpen"
+      :workspace="editingWorkspace"
+      :agents="agents"
+      :busy="workspaceEditorBusy"
+      :error="workspaceEditorError"
+      @close="workspaceEditorOpen = false"
+      @save="saveWorkspace"
+      @delete="deleteWorkspaceFromEditor"
+    />
+
+    <ChatRenameDialog
+      v-if="renamingSession"
+      :name="renamingSession.name"
+      :busy="renameBusy"
+      :error="renameError"
+      @close="renamingSession = null"
+      @save="saveSessionRename"
     />
   </div>
 </template>

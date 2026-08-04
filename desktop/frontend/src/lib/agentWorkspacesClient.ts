@@ -39,6 +39,16 @@ export interface AgentWorkspacesPayload {
   available: boolean
   error: string
   workspaces: AgentWorkspace[]
+  /** The agent keys this build can launch — the workspace editor's choices. */
+  agents: string[]
+}
+
+/** The manifest fields the in-app workspace editor writes. */
+export interface WorkspaceEditRequest {
+  dir: string
+  name: string
+  agent: string
+  autonomy: string
 }
 
 /** One row of a workspace's session list. */
@@ -56,6 +66,14 @@ export interface AgentSession {
    * a plain sessions() listing leaves it empty even for a live session.
    */
   windowId: string
+  /**
+   * tmux's own size for that window at attach — the grid the pane must open
+   * at, which may differ from the cols/rows voted (tmux's window-size option
+   * picks whose size wins). 0 when tmux has not reported one. Set only by
+   * startSession/resumeSession, like windowId.
+   */
+  cols: number
+  rows: number
   resumeAttempted: boolean
   notice: string
 }
@@ -100,10 +118,18 @@ export class AgentRequestError extends Error {
 export interface AgentWorkspacesClient {
   workspaces(): Promise<AgentWorkspacesPayload>
   openWorkspace(dir: string): Promise<AgentWorkspaceOpenResult>
+  createWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace>
+  updateWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace>
   deleteWorkspace(dir: string): Promise<void>
   sessions(workspace: string): Promise<AgentSession[]>
-  /** Polled while the area is active; omits a session with no live tmux session. */
+  /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
+  /** Votes a size for a live session's pane; tmux answers with a window 'resized' frame on the stream. */
+  resizeSession(id: number, cols: number, rows: number): Promise<void>
+  /** Sets a session's display name; the live terminal, if any, is untouched. */
+  renameSession(id: number, name: string): Promise<void>
+  /** Every session across every workspace, newest first in stable creation order. */
+  allSessions(): Promise<AgentSession[]>
   startSession(request: StartSessionRequest): Promise<AgentSession>
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
@@ -134,8 +160,18 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [] }
-      return { ...body, workspaces: (body.workspaces ?? []).map(normalizeWorkspace) }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [] }
+      return { ...body, workspaces: (body.workspaces ?? []).map(normalizeWorkspace), agents: body.agents ?? [] }
+    },
+    async createWorkspace(request) {
+      const body = await post<AgentWorkspace>('/workspaces/create', request)
+      if (!body) throw new AgentRequestError('the workspace was not created', '')
+      return normalizeWorkspace(body)
+    },
+    async updateWorkspace(request) {
+      const body = await post<AgentWorkspace>('/workspaces/update', request)
+      if (!body) throw new AgentRequestError('the workspace was not updated', '')
+      return normalizeWorkspace(body)
     },
     async openWorkspace(dir) {
       const body = await post<AgentWorkspaceOpenResult>('/workspaces/open', { dir })
@@ -152,6 +188,16 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async activity(workspace) {
       const body = await post<{ items: AgentSessionActivity[] | null }>('/sessions/activity', { workspace })
       return body?.items ?? []
+    },
+    async resizeSession(id, cols, rows) {
+      await post('/sessions/resize', { id, cols, rows })
+    },
+    async renameSession(id, name) {
+      await post('/sessions/rename', { id, name })
+    },
+    async allSessions() {
+      const body = await post<{ sessions: AgentSession[] | null }>('/sessions/all', {})
+      return body?.sessions ?? []
     },
     async startSession(request) {
       const body = await post<AgentSession>('/sessions/start', request)

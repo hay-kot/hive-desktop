@@ -7,6 +7,7 @@ import {
   type AgentWorkspacesClient,
   type ResumeSessionRequest,
   type StartSessionRequest,
+  type WorkspaceEditRequest,
 } from '../lib/agentWorkspacesClient'
 import { Available as AgentsAvailable } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 
@@ -28,6 +29,7 @@ const workspacesLoading = ref(false)
 const workspacesLoaded = ref(false)
 const workspacesError = ref<string | null>(null)
 const root = ref('')
+const agents = ref<string[]>([])
 // rootProblem is the one signal from the workspaces payload this composable
 // tracks separately from the top-level available/reason: it is the
 // configured root path itself being unreachable (spec §14), a distinct axis
@@ -35,10 +37,6 @@ const root = ref('')
 // check AgentsService.Available() already gates the whole mode on.
 const rootProblem = ref('')
 
-const sessions = ref<AgentSession[]>([])
-const sessionsLoading = ref(false)
-const sessionsLoaded = ref(false)
-const sessionsError = ref<string | null>(null)
 const missingMCPs = ref<string[]>([])
 
 // The availability answer and the transport are resolved once per run: like
@@ -69,6 +67,7 @@ async function reloadWorkspaces(): Promise<void> {
   try {
     const payload = await client.value.workspaces()
     root.value = payload.root
+    agents.value = payload.agents
     rootProblem.value = payload.rootProblem
     workspaces.value = payload.workspaces
   } catch (e) {
@@ -81,40 +80,23 @@ async function reloadWorkspaces(): Promise<void> {
   }
 }
 
-/** Regenerates dir's disposable artifacts and loads its sessions. */
+// Regenerates dir's disposable artifacts and records what the open reported:
+// the workspace's fresh view (folded into the list rather than requiring a
+// second round trip) and its missing MCPs. The session rows themselves come
+// from the cross-workspace list (useAgentSessionsAll), which the sidebar
+// filters — this composable keeps no per-workspace session list. A failed
+// open keeps the last-good state; the workspace row's own problem field is
+// where a broken manifest reports itself.
 async function openWorkspace(dir: string): Promise<void> {
   await ensureProbed()
   if (!client.value) return
-  sessionsLoading.value = true
-  sessionsError.value = null
   try {
     const result = await client.value.openWorkspace(dir)
-    sessions.value = result.sessions
     missingMCPs.value = result.missingMcps
-    // Fold the freshly regenerated view of this one workspace back into the
-    // list rather than requiring a second round trip.
     const idx = workspaces.value.findIndex((w) => w.dir === dir)
     if (idx >= 0) workspaces.value = [...workspaces.value.slice(0, idx), result.workspace, ...workspaces.value.slice(idx + 1)]
-  } catch (e) {
-    sessionsError.value = e instanceof Error && e.message ? e.message : 'Could not open the workspace.'
-  } finally {
-    sessionsLoading.value = false
-    sessionsLoaded.value = true
-  }
-}
-
-/** Reloads workspace's sessions without regenerating its artifacts. */
-async function reloadSessions(workspace: string): Promise<void> {
-  if (!client.value) return
-  sessionsLoading.value = true
-  sessionsError.value = null
-  try {
-    sessions.value = await client.value.sessions(workspace)
-  } catch (e) {
-    sessionsError.value = e instanceof Error && e.message ? e.message : 'Could not list sessions.'
-  } finally {
-    sessionsLoading.value = false
-    sessionsLoaded.value = true
+  } catch {
+    // Keep the last-good rows, matching the reload functions above.
   }
 }
 
@@ -124,45 +106,55 @@ async function deleteWorkspace(dir: string): Promise<void> {
   workspaces.value = workspaces.value.filter((w) => w.dir !== dir)
 }
 
-function replaceSession(next: AgentSession): void {
-  const idx = sessions.value.findIndex((s) => s.id === next.id)
-  sessions.value = idx >= 0
-    ? [...sessions.value.slice(0, idx), next, ...sessions.value.slice(idx + 1)]
-    : [...sessions.value, next]
+// Create/update fold the returned view straight into the list the same way
+// openWorkspace does, then revalidate in the background — the row is correct
+// immediately without waiting on a second round trip.
+async function createWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  const view = await client.value.createWorkspace(request)
+  workspaces.value = [...workspaces.value.filter((w) => w.dir !== view.dir), view]
+  void reloadWorkspaces()
+  return view
+}
+
+async function updateWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  const view = await client.value.updateWorkspace(request)
+  const idx = workspaces.value.findIndex((w) => w.dir === view.dir)
+  workspaces.value = idx >= 0
+    ? [...workspaces.value.slice(0, idx), view, ...workspaces.value.slice(idx + 1)]
+    : [...workspaces.value, view]
+  return view
 }
 
 async function startSession(request: StartSessionRequest): Promise<AgentSession> {
   if (!client.value) throw new Error('The Agents area is unavailable.')
-  const session = await client.value.startSession(request)
-  replaceSession(session)
-  return session
+  return await client.value.startSession(request)
 }
 
 async function resumeSession(request: ResumeSessionRequest): Promise<AgentSession> {
   if (!client.value) throw new Error('The Agents area is unavailable.')
-  const session = await client.value.resumeSession(request)
-  replaceSession(session)
-  return session
+  return await client.value.resumeSession(request)
 }
 
 async function closeSession(id: number): Promise<boolean> {
   if (!client.value) return false
   const result = await client.value.closeSession(id)
-  if (result.closed) sessions.value = sessions.value.map((s) => (s.id === id ? { ...s, terminalId: '' } : s))
   return result.closed
+}
+
+async function renameSession(id: number, name: string): Promise<void> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  await client.value.renameSession(id, name)
 }
 
 async function deleteSession(id: number): Promise<void> {
   if (!client.value) return
   await client.value.deleteSession(id)
-  sessions.value = sessions.value.filter((s) => s.id !== id)
 }
 
-/** Clears the session list — called when the open workspace changes. */
-function resetSessions(): void {
-  sessions.value = []
-  sessionsLoaded.value = false
-  sessionsError.value = null
+/** Clears what openWorkspace recorded — called when the focus changes. */
+function resetOpenWorkspace(): void {
   missingMCPs.value = []
 }
 
@@ -177,30 +169,29 @@ export function useAgentWorkspaces(): {
   workspacesError: Ref<string | null>
   root: Ref<string>
   rootProblem: Ref<string>
-  sessions: Ref<AgentSession[]>
-  sessionsLoading: Ref<boolean>
-  sessionsLoaded: Ref<boolean>
-  sessionsError: Ref<string | null>
+  agents: Ref<string[]>
   missingMCPs: Ref<string[]>
   ready: () => Promise<void>
   reloadWorkspaces: () => Promise<void>
   openWorkspace: (dir: string) => Promise<void>
-  reloadSessions: (workspace: string) => Promise<void>
+  createWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
+  updateWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
   deleteWorkspace: (dir: string) => Promise<void>
   startSession: (request: StartSessionRequest) => Promise<AgentSession>
   resumeSession: (request: ResumeSessionRequest) => Promise<AgentSession>
   closeSession: (id: number) => Promise<boolean>
+  renameSession: (id: number, name: string) => Promise<void>
   deleteSession: (id: number) => Promise<void>
-  resetSessions: () => void
+  resetOpenWorkspace: () => void
 } {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem,
-    sessions, sessionsLoading, sessionsLoaded, sessionsError, missingMCPs,
+    root, rootProblem, agents, missingMCPs,
     ready: ensureProbed,
-    reloadWorkspaces, openWorkspace, reloadSessions, deleteWorkspace,
-    startSession, resumeSession, closeSession, deleteSession, resetSessions,
+    reloadWorkspaces, openWorkspace,
+    createWorkspace, updateWorkspace, deleteWorkspace,
+    startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
   }
 }
 
@@ -216,9 +207,6 @@ export function resetAgentWorkspacesForTests(): void {
   workspacesError.value = null
   root.value = ''
   rootProblem.value = ''
-  sessions.value = []
-  sessionsLoading.value = false
-  sessionsLoaded.value = false
-  sessionsError.value = null
+  agents.value = []
   missingMCPs.value = []
 }
