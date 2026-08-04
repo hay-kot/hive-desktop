@@ -700,14 +700,20 @@ watch(agentsActive, (active) => { if (active) agentsMounted.value = true }, { im
 
 // Where each mode's toggle lands: the route that mode was last on, so a round
 // trip is not a trip to the default feed — or, on the terminal/agents side, a
-// pass through the picker on the way back to what was already open.
+// pass through the picker on the way back to what was already open. The
+// agents path alone survives a reload (localStorage): it restores the focus
+// filter and the open chat, and ?chat reattaches only a still-live session
+// (ADR 0065) — never a relaunch — while a restored /terminal/:slug would
+// attach a tmux control client unconditionally, so terminal's stays
+// in-memory.
 let lastHubPath = ''
 let lastTerminalPath = ''
-let lastAgentsPath = ''
+const lastAgentsPath = useStorage('hive.mode.agents.path', '')
+if (!lastAgentsPath.value.startsWith('/workspaces')) lastAgentsPath.value = ''
 watch(() => route.fullPath, (path) => {
   if (!route.name) return
   if (route.name === 'terminal') lastTerminalPath = path
-  else if (route.name === 'agents') lastAgentsPath = path
+  else if (route.name === 'agents') lastAgentsPath.value = path
   else lastHubPath = path
 }, { immediate: true })
 
@@ -730,7 +736,7 @@ onMounted(() => {
 function setMode(next: 'hub' | 'terminal' | 'agents'): void {
   if (next === mode.value) return
   if (next === 'terminal') void router.push(lastTerminalPath || { name: 'terminal' })
-  else if (next === 'agents') void router.push(lastAgentsPath || { name: 'agents' })
+  else if (next === 'agents') void router.push(lastAgentsPath.value || { name: 'agents' })
   else void router.push(lastHubPath || { name: 'feed' })
 }
 

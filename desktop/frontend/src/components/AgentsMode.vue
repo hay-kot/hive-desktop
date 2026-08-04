@@ -1,7 +1,8 @@
 <script setup lang="ts">
 // The Agents area: AgentsSidebar's two flat lists (workspaces, then sessions
-// filtered by the focused workspace) beside a pane the terminal owns edge to
-// edge. Focusing a workspace is a filter, not a container — changing it never
+// filtered by the focused workspace) beside a pane the terminal owns under a
+// slim status bar naming the open session's workspace. Focusing a workspace
+// is a filter, not a container — changing it never
 // tears down a live pane. The one pane the shell itself draws is pre-attach:
 // no PTY exists yet, so it states where the session will start and lets the
 // workspace be picked when none is focused. What is borrowed from
@@ -15,6 +16,9 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconBot from '~icons/lucide/bot'
+import IconCode from '~icons/lucide/code'
+import IconFolder from '~icons/lucide/folder'
+import IconFolderOpen from '~icons/lucide/folder-open'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconX from '~icons/lucide/x'
 import AgentsSidebar from './AgentsSidebar.vue'
@@ -41,8 +45,9 @@ const props = defineProps<{ active?: boolean }>()
 
 const {
   checking, available, reason,
-  workspaces, root, agents, missingMCPs,
+  workspaces, root, agents, editor, missingMCPs,
   client, ready,
+  openWorkspaceInEditor, revealWorkspace,
   reloadWorkspaces, openWorkspace, regenerateWorkspace, deleteWorkspace,
   createWorkspace, updateWorkspace,
   startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
@@ -65,6 +70,8 @@ const term = shallowRef<Terminal | null>(null)
 const openSessionId = ref<number | null>(null)
 const paneStatus = ref<'idle' | 'opening' | 'live'>('idle')
 const paneError = ref('')
+const paneWorkspaceDir = ref('')
+const paneActionError = ref('')
 
 let socket: WebSocket | null = null
 let fit: FitAddon | null = null
@@ -78,6 +85,8 @@ const disposers: IDisposable[] = []
 let paneWindowId = ''
 
 const paneLaidOut = computed(() => paneStatus.value === 'opening' || term.value !== null)
+const paneWorkspaceName = computed(() =>
+  workspaces.value.find((ws) => ws.dir === paneWorkspaceDir.value)?.name || paneWorkspaceDir.value)
 
 // ── Route-driven workspace selection ────────────────────────────────────────
 const route = useRoute()
@@ -87,11 +96,13 @@ const selectedWorkspace = computed(() =>
 
 function selectWorkspace(dir: string): void {
   if (dir === selectedWorkspace.value) return
+  // The query rides along: the focus filter and the open chat (?chat) are
+  // independent axes, and moving one must not drop the other.
   if (!dir) {
-    void router.push({ name: 'agents' })
+    void router.push({ name: 'agents', query: route.query })
     return
   }
-  void router.push({ name: 'agents', params: { workspace: dir } })
+  void router.push({ name: 'agents', params: { workspace: dir }, query: route.query })
 }
 
 watch(() => props.active, (active) => {
@@ -200,7 +211,7 @@ async function startNewSession(workspace: string, name: string): Promise<void> {
   startingSession.value = true
   try {
     selectWorkspace(workspace)
-    await launchIntoPane((size) => startSession({ workspace, name, ...size }))
+    await launchIntoPane(workspace, (size) => startSession({ workspace, name, ...size }))
     void reloadRecents()
   } finally {
     startingSession.value = false
@@ -208,7 +219,53 @@ async function startNewSession(workspace: string, name: string): Promise<void> {
 }
 
 async function resumeRow(session: AgentSession): Promise<void> {
-  await launchIntoPane((size) => resumeSession({ id: session.id, ...size }))
+  await launchIntoPane(session.workspace, (size) => resumeSession({ id: session.id, ...size }))
+}
+
+// ── The open chat rides the route (?chat, ADR 0065) ──────────────────────────
+// A reload keeps the hash and the toggle's remembered path keeps the query,
+// so the route names the pane's session the way /terminal names its surface,
+// and coming back to the area reattaches it. Only a chat whose tmux session
+// the listing reports live is auto-resumed: ResumeSession *relaunches* a dead
+// one, and a relaunch must stay a deliberate click on the row, never a side
+// effect of a reload. The beat between listing and resuming is an accepted
+// race.
+const routeChatId = computed(() => {
+  if (route.name !== 'agents') return null
+  const raw = route.query.chat
+  const id = typeof raw === 'string' ? Number.parseInt(raw, 10) : Number.NaN
+  return Number.isInteger(id) && id > 0 ? id : null
+})
+
+function syncChatQuery(id: number | null): void {
+  if (route.name !== 'agents') return
+  const next = id === null ? undefined : String(id)
+  if ((typeof route.query.chat === 'string' ? route.query.chat : undefined) === next) return
+  void router.replace({ name: 'agents', params: route.params, query: { ...route.query, chat: next } })
+}
+
+watch([paneStatus, openSessionId], ([status, id]) => {
+  if (status === 'live' && id !== null) syncChatQuery(id)
+  else if (status === 'idle') syncChatQuery(null)
+})
+
+watch([routeChatId, () => props.active], ([id, active]) => {
+  if (id === null || !active) return
+  if (openSessionId.value === id || paneStatus.value !== 'idle') return
+  void resumeChatFromRoute(id)
+}, { immediate: true })
+
+async function resumeChatFromRoute(id: number): Promise<void> {
+  await ready()
+  if (!available.value) return
+  await reloadRecents()
+  if (routeChatId.value !== id || openSessionId.value === id || paneStatus.value !== 'idle') return
+  const session = recents.value.find((row) => row.id === id)
+  if (!session?.terminalId) {
+    syncChatQuery(null)
+    return
+  }
+  await resumeRow(session)
 }
 
 // ── Sidebar event wiring (AgentsSidebar.vue) ─────────────────────────────────
@@ -330,16 +387,43 @@ async function removeRow(session: AgentSession): Promise<void> {
   void reloadRecents()
 }
 
+// ── Pane status bar ──────────────────────────────────────────────────────────
+// Names the workspace the pane's session belongs to — which the focus filter
+// need not match — and opens its directory outside the app, reusing the
+// workspace editor's control-plane calls.
+async function openPaneWorkspaceInEditor(): Promise<void> {
+  paneActionError.value = ''
+  try {
+    await openWorkspaceInEditor(paneWorkspaceDir.value)
+  } catch (failure) {
+    paneActionError.value = failure instanceof Error ? failure.message : 'The editor could not be opened.'
+  }
+}
+
+async function revealPaneWorkspace(): Promise<void> {
+  paneActionError.value = ''
+  try {
+    await revealWorkspace(paneWorkspaceDir.value)
+  } catch (failure) {
+    paneActionError.value = failure instanceof Error ? failure.message : 'The directory could not be opened.'
+  }
+}
+
 // ── The session pane ─────────────────────────────────────────────────────────
 // Mirrors PopupTerminal.vue's xterm wiring over the same wire protocol
 // (internal/adapter/httpapi/pty_stream.go); only the launch call and the
 // control-plane base differ, per the shared client this composable resolves.
 
-async function launchIntoPane(action: (size: { cols?: number; rows?: number }) => Promise<AgentSession>): Promise<void> {
+async function launchIntoPane(workspace: string, action: (size: { cols?: number; rows?: number }) => Promise<AgentSession>): Promise<void> {
   if (!client.value || paneStatus.value === 'opening') return
   teardownPane()
   newSessionOpen.value = false
   openSessionId.value = null
+  paneWorkspaceDir.value = workspace
+  paneActionError.value = ''
+  // The status bar mounts with the 'opening' flip, ahead of the nextTick that
+  // precedes measurePane — so the grid is measured with the bar's height
+  // already taken and the attach needs no corrective resize vote.
   paneStatus.value = 'opening'
   paneError.value = ''
   try {
@@ -595,14 +679,52 @@ onBeforeUnmount(() => {
         @delete-session="removeRow"
       />
 
-      <!-- The terminal owns the pane edge to edge; the only chrome is a
-           conditional warning strip, never a persistent bar. -->
+      <!-- The pane's chrome is conditional strips: the missing-MCP warning,
+           and — while a session is opening or open — a status bar naming the
+           session's own workspace, which the focus filter need not match. -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           v-if="selectedWorkspace && missingMCPs.length"
           class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
           data-testid="agents-missing-mcps"
         >Missing MCP servers: {{ missingMCPs.join(', ') }}</div>
+
+        <div
+          v-if="paneStatus !== 'idle'"
+          class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1"
+          data-testid="agents-pane-statusbar"
+        >
+          <div class="flex min-w-0 flex-1 items-center gap-1.5">
+            <IconFolder class="size-3.5 shrink-0 text-text-4" aria-hidden="true" />
+            <span
+              class="min-w-0 truncate text-[11px] text-text-3"
+              :title="paneWorkspaceDir"
+              data-testid="agents-pane-statusbar-workspace"
+            >{{ paneWorkspaceName }}</span>
+          </div>
+          <span
+            v-if="paneActionError"
+            class="truncate text-[11px] text-severity-error"
+            data-testid="agents-pane-statusbar-error"
+          >{{ paneActionError }}</span>
+          <button
+            v-if="editor.command"
+            type="button"
+            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+            :title="`Open in ${editor.title}`"
+            :aria-label="`Open in ${editor.title}`"
+            data-testid="agents-pane-statusbar-open-editor"
+            @click="openPaneWorkspaceInEditor"
+          ><IconCode class="size-3.5" /></button>
+          <button
+            type="button"
+            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+            title="Show in Finder"
+            aria-label="Show in Finder"
+            data-testid="agents-pane-statusbar-reveal"
+            @click="revealPaneWorkspace"
+          ><IconFolderOpen class="size-3.5" /></button>
+        </div>
 
         <div class="relative min-h-0 flex-1 bg-app">
           <!-- TerminalTab.vue's shape, for the same reasons: xterm opens in the

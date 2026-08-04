@@ -72,9 +72,9 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
     },
     {
       // The Agents area is app-global too — a workspace has no repository and
-      // no profile. :workspace is the opened workspace directory name; a
-      // session, unlike a terminal window, has no query param of its own yet
-      // (the area is a plain two-level list, not a tree to restore focus in).
+      // no profile. :workspace is the opened workspace directory name; ?chat
+      // names the session open in the pane, so a reload or mode re-entry
+      // reattaches it when it is still live (ADR 0065).
       path: '/workspaces/:workspace?',
       name: 'agents',
       component: ShellPage,
