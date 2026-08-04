@@ -20,14 +20,19 @@ import JobsPopover from './JobsPopover.vue'
 import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/jobs/models'
 
 // One button grammar for the whole chrome, with a fixed slot per zone. The bar
-// is three flex-1 columns so the center stays the middle third of the window:
+// is two clusters, not three centered columns — a window-centered palette sat
+// on top of the mode switch once three labeled modes existed:
 //   left   — structure then history: the sidebar (left-panel) toggle brackets
-//            the far edge, then feed-scoped back/forward, then the mode switch.
-//   center — the command palette launcher, window-centered.
-//   right  — app-level utilities (Activity, Report a problem) as one icon run,
-//            then the preview (right-panel) toggle bracketing the far edge.
-//            Panel toggles are the only things at the extremes, so they read
-//            as the frame; new utilities append to the icon run.
+//            the far edge, then feed-scoped back/forward, then the mode
+//            switch. The cluster owns all of the bar's slack, so the empty
+//            middle stays a drag surface. Below the labels breakpoint
+//            (min-[860px]) the mode segments drop their labels to icons.
+//   right  — status chips, then the command-palette launcher (compact, width
+//            clamped to the window so it gives way before the tabs do), then
+//            app-level utilities (Activity, Report a problem) as one icon
+//            run, then the preview (right-panel) toggle bracketing the far
+//            edge. Panel toggles are the only things at the extremes, so they
+//            read as the frame; new utilities append to the icon run.
 // Every control is one of two shapes: a 28px square icon button or a 28px
 // labeled/segmented button, both 7px-radius with a `chip` hover fill. Groups
 // are separated by margin, not rules — at four controls a hairline costs as
@@ -155,58 +160,48 @@ function onTitlebarDblclick(event: MouseEvent): void {
         aria-label="App mode"
       >
         <!-- Segments size to their labels. An equal-width split padded the
-             shorter label out to match the longer, which read as a gap.
-             Every :class/:aria-pressed below is a positive comparison against
-             its own mode — with three modes "not terminal" no longer means
-             "hub". -->
+             shorter label out to match the longer, which read as a gap. Below
+             the labels breakpoint the spans hide and the icons carry the
+             segment (title/aria-label keep the name). Every :class and
+             :aria-pressed is a positive comparison against its own mode —
+             with three modes "not terminal" no longer means "hub". -->
         <button
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'hub' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'hub'"
+          aria-label="Inbox"
+          title="Inbox"
           data-testid="titlebar-mode-hub"
           @click="emit('set-mode', 'hub')"
-        ><IconInbox class="size-3.5 shrink-0" />Inbox</button>
+        ><IconInbox class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Inbox</span></button>
         <button
           v-if="terminalEnabled"
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'terminal' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'terminal'"
+          aria-label="Code"
+          title="Code"
           data-testid="titlebar-mode-terminal"
           @click="emit('set-mode', 'terminal')"
-        ><IconCode class="size-3.5 shrink-0" />Code</button>
+        ><IconCode class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Code</span></button>
         <button
           v-if="agentsEnabled"
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'agents' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'agents'"
+          aria-label="Agents"
+          title="Agents"
           data-testid="titlebar-mode-agents"
           @click="emit('set-mode', 'agents')"
-        ><IconBot class="size-3.5 shrink-0" />Agents</button>
+        ><IconBot class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Agents</span></button>
       </div>
     </div>
 
-    <!-- Center: command-palette launcher, window-centered -->
-    <div v-if="profileName" class="flex min-w-0 flex-1 items-center justify-center px-2">
-      <button
-        type="button"
-        class="flex h-7 min-w-0 max-w-[460px] flex-1 cursor-pointer items-center gap-2 rounded-md border border-border bg-app px-2.5 text-text-3 hover:border-strong hover:text-text-2"
-        style="--wails-draggable: no-drag"
-        aria-label="Open command palette"
-        data-testid="titlebar-command-palette"
-        @click="emit('open-palette')"
-      >
-        <IconSearch class="size-3.5 shrink-0" />
-        <span class="min-w-0 flex-1 truncate text-left text-[12.5px]">Search or run a command…</span>
-        <kbd class="shrink-0 rounded border border-card px-1.5 py-0.5 font-mono text-[10.5px] leading-none text-text-3">{{ isMac ? '⌘' : 'Ctrl ' }}K</kbd>
-      </button>
-    </div>
-    <div v-else class="flex-1" />
-
-    <!-- Right: status chips · utility icon run (Activity, Report) · preview toggle (frame) -->
-    <div class="flex min-w-0 flex-1 items-center justify-end gap-1.5 pl-2 pr-3">
+    <!-- Right: status chips · palette launcher · utility icon run (Activity, Report) · preview toggle (frame) -->
+    <div class="flex shrink-0 items-center justify-end gap-1.5 pl-2 pr-3">
       <button
         v-if="updateAvailable"
         class="flex shrink-0 items-center gap-1.5 rounded-md border border-severity-info-border bg-severity-info-tint px-2 py-1 text-[11.5px] font-semibold text-severity-info disabled:cursor-wait enabled:cursor-pointer enabled:hover:opacity-85"
@@ -246,6 +241,19 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @open-run="(commandId) => { jobsOpen = false; emit('open-job-run', commandId) }"
         />
       </div>
+      <button
+        v-if="profileName"
+        type="button"
+        class="flex h-7 w-[clamp(150px,22vw,260px)] cursor-pointer items-center gap-2 rounded-md border border-border bg-app px-2.5 text-text-3 hover:border-strong hover:text-text-2"
+        style="--wails-draggable: no-drag"
+        aria-label="Open command palette"
+        data-testid="titlebar-command-palette"
+        @click="emit('open-palette')"
+      >
+        <IconSearch class="size-3.5 shrink-0" />
+        <span class="min-w-0 flex-1 truncate text-left text-[12.5px]">Search…</span>
+        <kbd class="hidden shrink-0 rounded border border-card px-1.5 py-0.5 font-mono text-[10.5px] leading-none text-text-3 min-[700px]:block">{{ isMac ? '⌘' : 'Ctrl ' }}K</kbd>
+      </button>
       <!-- Activity: a 28px icon in the utility run. An amber dot flags activity
            recorded since the page was last opened; amber fill marks it on. -->
       <button

@@ -72,7 +72,7 @@ describe('TitleBar', () => {
     expect(wrapper.emitted('forward')).toHaveLength(1)
   })
 
-  it('hides the centered history + command-palette cluster during onboarding', () => {
+  it('hides the history and command-palette controls during onboarding', () => {
     const onboarding = mount(TitleBar, { props: {} })
     expect(onboarding.find('[data-testid="titlebar-back"]').exists()).toBe(false)
     expect(onboarding.find('[data-testid="titlebar-command-palette"]').exists()).toBe(false)
@@ -81,7 +81,7 @@ describe('TitleBar', () => {
     expect(loaded.find('[data-testid="titlebar-command-palette"]').exists()).toBe(true)
   })
 
-  it('opens the command palette from the centered launcher', async () => {
+  it('opens the command palette from the launcher in the right cluster', async () => {
     const wrapper = mount(TitleBar, { props: { profileName: 'Triage' } })
     await wrapper.find('[data-testid="titlebar-command-palette"]').trigger('click')
     expect(wrapper.emitted('open-palette')).toHaveLength(1)
