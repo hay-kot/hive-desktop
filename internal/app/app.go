@@ -363,7 +363,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
-	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
+	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor)
 	a.syncHiveWorkspaceSkills()

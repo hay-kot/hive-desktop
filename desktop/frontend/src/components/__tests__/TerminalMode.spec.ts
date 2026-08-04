@@ -14,6 +14,7 @@ import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
+  Scratch: vi.fn(),
   ListSessions: vi.fn(),
   SessionStatuses: vi.fn(),
   SessionDetail: vi.fn(),
@@ -35,6 +36,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.Available,
+  Scratch: mocks.Scratch,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
@@ -118,6 +120,19 @@ function fakeSession() {
   }
 }
 
+// The scratch terminal's row is pinned above the repositories and is a session
+// row like any other, so a test that means a *hive* session says so rather than
+// taking whatever the tree lists first.
+const SCRATCH_SLUG = 'Scratch'
+function sessionRows(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): DOMWrapper<Element>[] {
+  return wrapper.findAll('[data-testid="terminal-session-row"]')
+    .filter((row) => row.attributes('data-slug') !== SCRATCH_SLUG)
+}
+
+function openRowMenu(wrapper: { get: (s: string) => Pick<DOMWrapper<Element>, 'trigger'> }, slug: string): Promise<void> {
+  return wrapper.get(`[data-testid="terminal-session-row"][data-slug="${slug}"] [data-testid="terminal-session-menu-toggle"]`).trigger('click')
+}
+
 // What is actually on screen: every pooled session's panes stay mounted, and
 // only the visible session's active window is shown. Read off v-show's own
 // inline style — isVisible() resolves through getComputedStyle, which happy-dom
@@ -162,6 +177,7 @@ describe('TerminalMode', () => {
     resetTerminalWindowListingsForTests()
     paneMayAutoFocus.value = true
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
+    mocks.Scratch.mockResolvedValue({ slug: 'Scratch', name: 'Terminals' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
     mocks.createTerminalClient.mockReturnValue({})
     mocks.ListSessions.mockResolvedValue([
@@ -217,7 +233,7 @@ describe('TerminalMode', () => {
     expect(groups).toHaveLength(1)
     expect(groups[0].text()).toContain('hay-kot/hive')
 
-    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    const rows = sessionRows(wrapper)
     expect(rows).toHaveLength(2)
     // Alphabetical within a group, like the TUI tree.
     expect(rows[0].text()).toContain('bump deps')
@@ -317,7 +333,7 @@ describe('TerminalMode', () => {
 
   it('starts a new session in the attached session’s repository', async () => {
     const { wrapper } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     await wrapper.get('[data-testid="terminal-new-session"]').trigger('click')
@@ -326,15 +342,15 @@ describe('TerminalMode', () => {
 
   it('collapses a repo group without losing the attached session', async () => {
     const { wrapper } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     await wrapper.get('[data-testid="terminal-repo-group"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="terminal-session-row"]')).toHaveLength(0)
+    expect(sessionRows(wrapper)).toHaveLength(0)
     expect(wrapper.findAll('[data-testid="terminal-pane"]')).toHaveLength(2)
 
     await wrapper.get('[data-testid="terminal-repo-group"]').trigger('click')
-    expect(wrapper.findAll('[data-testid="terminal-session-row"]')).toHaveLength(2)
+    expect(sessionRows(wrapper)).toHaveLength(2)
   })
 
   // A machine's worth of repos would otherwise open at once and bury the one
@@ -351,7 +367,7 @@ describe('TerminalMode', () => {
     const { wrapper } = await mountAt()
 
     expect(wrapper.get('[data-testid="terminal-repo-group"]').attributes('aria-expanded')).toBe('false')
-    expect(wrapper.findAll('[data-testid="terminal-session-row"]')).toHaveLength(0)
+    expect(sessionRows(wrapper)).toHaveLength(0)
   })
 
   // The tree renders from cache a poll before the first status does, so a repo
@@ -384,7 +400,7 @@ describe('TerminalMode', () => {
     expect(wrapper.get('[data-testid="terminal-session-rail"]').attributes('data-shown')).toBe('false')
     expect(wrapper.get('[data-testid="terminal-window-rail"]').attributes('data-shown')).toBe('false')
 
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     expect(wrapper.get('[data-testid="terminal-session-rail"]').attributes('data-shown')).toBe('true')
@@ -395,7 +411,7 @@ describe('TerminalMode', () => {
   // make the next selection travel from the top of the list.
   it('hides a rail without moving it when its row goes away', async () => {
     const { wrapper } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     const placed = wrapper.get('[data-testid="terminal-session-rail"]').attributes('style')
@@ -409,7 +425,7 @@ describe('TerminalMode', () => {
 
   it('nests the attached session’s windows in the tree and selects from them', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     const windows = wrapper.findAll('[data-testid="terminal-window-row"]')
@@ -424,7 +440,7 @@ describe('TerminalMode', () => {
   // fewer windows than the digit ignores the chord rather than clamping.
   it('jumps to a window by position, and past the end does nothing', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     selectTerminalWindow(2)
@@ -445,7 +461,7 @@ describe('TerminalMode', () => {
     second.activeWindowId.value = '@9'
     mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
     const { wrapper } = await mountAt()
-    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    const rows = sessionRows(wrapper)
     await rows[0].trigger('click')
     await flushPromises()
 
@@ -476,7 +492,7 @@ describe('TerminalMode', () => {
     const session = fakeSession()
     mocks.useTerminalWindows.mockReturnValue(session)
     const { wrapper, router } = await mountAt()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
     expect(mocks.useTerminalWindows).toHaveBeenCalledTimes(1)
 
@@ -504,7 +520,7 @@ describe('TerminalMode', () => {
     second.painted.value = false
     mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
     const { wrapper } = await mountAt()
-    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    const rows = sessionRows(wrapper)
     await rows[0].trigger('click')
     await flushPromises()
 
@@ -535,7 +551,7 @@ describe('TerminalMode', () => {
       second.painted.value = false
       mocks.useTerminalWindows.mockReturnValueOnce(first).mockReturnValueOnce(second)
       const { wrapper } = await mountAt()
-      const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+      const rows = sessionRows(wrapper)
       await rows[0].trigger('click')
       await flushPromises()
 
@@ -562,7 +578,7 @@ describe('TerminalMode', () => {
     for (const session of sessions) mocks.useTerminalWindows.mockReturnValueOnce(session)
     const { wrapper } = await mountAt()
 
-    for (const row of wrapper.findAll('[data-testid="terminal-session-row"]')) {
+    for (const row of sessionRows(wrapper)) {
       await row.trigger('click')
       await flushPromises()
     }
@@ -575,7 +591,7 @@ describe('TerminalMode', () => {
 
   it('refocuses the terminal when the attached row is reselected', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     await wrapper.find('[data-testid="terminal-session-row"][data-attached="true"]').trigger('click')
@@ -587,7 +603,7 @@ describe('TerminalMode', () => {
 
   it('offers a way back to the live tail while the viewport is scrolled up', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="terminal-scroll-to-bottom"]').exists()).toBe(false)
 
@@ -625,8 +641,9 @@ describe('TerminalMode', () => {
     const { wrapper, router } = await mountAvailable(session)
 
     // Settings ▸ Appearance ▸ Terminal ships the listing on, so the tree fills
-    // in without touching anything — and one call carries the whole sidebar.
-    expect(listWindows).toHaveBeenCalledWith(['hive-fix-parser', 'hive-bump-deps'])
+    // in without touching anything — and one call carries the whole sidebar,
+    // the pinned scratch terminal included.
+    expect(listWindows).toHaveBeenCalledWith(['Scratch', 'hive-fix-parser', 'hive-bump-deps'])
     const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
     expect(rows.map((row) => row.text())).toEqual(['agent', 'shell'])
 
@@ -648,14 +665,21 @@ describe('TerminalMode', () => {
     ])
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const { wrapper } = await mountAvailable()
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+    // One per session and one for the scratch terminal: the sweep answers for
+    // every slug it was asked about.
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(3)
 
-    setTerminalShowWindows(false)
-    await flushPromises()
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
-
-    // The setting is a module singleton; put the default back for later tests.
-    setTerminalShowWindows(true)
+    // The setting is a module singleton; the default goes back whatever happens
+    // here, or every test after this one runs with it off.
+    try {
+      setTerminalShowWindows(false)
+      await flushPromises()
+      // All but the pinned section's, which is exempt: its tabs are the section.
+      expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(1)
+      expect(wrapper.get('[data-testid="terminal-listed-window-row"]').attributes('data-tree-key')).toBe('w:Scratch:@7')
+    } finally {
+      setTerminalShowWindows(true)
+    }
   })
 
   it('re-enters from the caches and resumes without waiting on the probe', async () => {
@@ -664,7 +688,7 @@ describe('TerminalMode', () => {
     ])
     mocks.createTerminalClient.mockReturnValue({ listWindows })
     const { wrapper } = await mountAvailable()
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(3)
     wrapper.unmount()
 
     // Neither the probe nor the listing resolves this time: everything the
@@ -677,7 +701,7 @@ describe('TerminalMode', () => {
     const { wrapper: second, router } = await mountAt()
 
     expect(second.find('[data-testid="terminal-session-sidebar"]').exists()).toBe(true)
-    expect(second.findAll('[data-testid="terminal-session-row"]')).toHaveLength(2)
+    expect(sessionRows(second)).toHaveLength(2)
     // The refresh control is the staleness indicator while revalidation runs.
     expect(second.get('[data-testid="terminal-sessions-refresh"]').find('.animate-spin').exists()).toBe(true)
     expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
@@ -696,12 +720,12 @@ describe('TerminalMode', () => {
     session.status.value = 'connecting'
     const { wrapper } = await mountAvailable(session)
 
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     // The attached session's subtree stands in its cached rows until the live
     // ones arrive, so selecting a session does not empty the tree first.
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(4)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(6)
 
     // The live tab set replaces the stand-ins in place.
     session.tabs.value = [
@@ -711,7 +735,7 @@ describe('TerminalMode', () => {
     session.status.value = 'live'
     await flushPromises()
     expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
-    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(2)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(4)
   })
 
   it('says when there are no sessions to attach to', async () => {
@@ -776,7 +800,7 @@ describe('TerminalMode', () => {
 
   it('offers reconnect when the stream drops, and again when tmux exits', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="terminal-session-ended"]').exists()).toBe(false)
 
@@ -801,7 +825,7 @@ describe('TerminalMode', () => {
   // in place rather than reported as an error.
   it('names the client that is deciding the size, and can be dismissed', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="terminal-size-constraint"]').exists()).toBe(false)
 
@@ -819,7 +843,7 @@ describe('TerminalMode', () => {
 
   it('re-attaches from the sidebar row after the session ended', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     session.status.value = 'ended'
@@ -833,7 +857,7 @@ describe('TerminalMode', () => {
 
   it('drives the window controls from the tree and hands panes to the composable', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     expect(session.attachTab).toHaveBeenCalledTimes(2)
@@ -874,7 +898,7 @@ describe('TerminalMode', () => {
   // selects; a press on one must not do both.
   it('does not select the row a trailing control was pressed in', async () => {
     const { wrapper, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     session.select.mockClear()
@@ -886,7 +910,7 @@ describe('TerminalMode', () => {
 
   it('scopes every pane so the terminal owns its keys', async () => {
     const { wrapper } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     for (const pane of wrapper.findAll('[data-testid="terminal-pane"]')) {
@@ -896,7 +920,7 @@ describe('TerminalMode', () => {
 
   it('detaches when the ended overlay closes the session and on unmount', async () => {
     const { wrapper, router, session } = await mountAvailable()
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
 
     session.status.value = 'ended'
@@ -911,7 +935,7 @@ describe('TerminalMode', () => {
     expect(router.currentRoute.value.params.slug ?? '').toBe('')
     expect(storedRestore()).toEqual({ slug: '', window: '' })
 
-    await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+    await sessionRows(wrapper)[0].trigger('click')
     await flushPromises()
     wrapper.unmount()
     expect(session.dispose).toHaveBeenCalledTimes(2)
@@ -927,7 +951,7 @@ describe('TerminalMode', () => {
 
     // The tree is the attach surface, and only an active session has a tmux
     // session behind it. Prune is how the other two are dealt with.
-    const rows = wrapper.findAll('[data-testid="terminal-session-row"]')
+    const rows = sessionRows(wrapper)
     expect(rows).toHaveLength(1)
     expect(rows[0].attributes('data-slug')).toBe('hive-fix-parser')
     expect(wrapper.get('[data-testid="terminal-repo-group"]').text()).toContain('1')
@@ -941,7 +965,7 @@ describe('TerminalMode', () => {
     })
     const { wrapper } = await mountAvailable()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await openRowMenu(wrapper, 'hive-fix-parser')
     await wrapper.get('[data-testid="session-menu-detail"]').trigger('click')
     await flushPromises()
 
@@ -953,7 +977,7 @@ describe('TerminalMode', () => {
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: true, unpushedCommits: true, recycleDeletes: false })
     const { wrapper } = await mountAvailable()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await openRowMenu(wrapper, 'hive-bump-deps')
     await wrapper.get('[data-testid="session-menu-delete"]').trigger('click')
     await flushPromises()
 
@@ -970,7 +994,7 @@ describe('TerminalMode', () => {
   it('recycles from the row menu, behind the same confirmation', async () => {
     const { wrapper } = await mountAvailable()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await openRowMenu(wrapper, 'hive-bump-deps')
     await wrapper.get('[data-testid="session-menu-recycle"]').trigger('click')
     await flushPromises()
 
@@ -1034,7 +1058,7 @@ describe('TerminalMode', () => {
     mocks.createTerminalClient.mockReturnValue({ start })
     const { wrapper, router } = await mountAvailable()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[0].trigger('click')
+    await openRowMenu(wrapper, 'hive-bump-deps')
     await wrapper.get('[data-testid="session-menu-start"]').trigger('click')
     await flushPromises()
 
@@ -1051,7 +1075,7 @@ describe('TerminalMode', () => {
     await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
     await flushPromises()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await openRowMenu(wrapper, 'hive-fix-parser')
     await wrapper.get('[data-testid="session-menu-kill"]').trigger('click')
     await flushPromises()
 
@@ -1076,7 +1100,7 @@ describe('TerminalMode', () => {
     await wrapper.find('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
     await flushPromises()
 
-    await wrapper.findAll('[data-testid="terminal-session-menu-toggle"]')[1].trigger('click')
+    await openRowMenu(wrapper, 'hive-fix-parser')
     await wrapper.get('[data-testid="session-menu-rename"]').trigger('click')
     await flushPromises()
 
@@ -1249,6 +1273,209 @@ describe('TerminalMode', () => {
     })
   })
 
+  // Free space: one tmux session that belongs to no piece of work, headed like a
+  // repository and listing its tabs where a repository lists its sessions.
+  describe('the pinned scratch terminal', () => {
+    type Row = Pick<DOMWrapper<Element>, 'text' | 'attributes' | 'find' | 'get' | 'trigger'>
+    function heading(wrapper: { get: (s: string) => Row }): Row {
+      return wrapper.get('[data-testid="terminal-scratch-heading"]')
+    }
+
+    const oneTab = { windowId: '@1', name: 'zsh', active: true, width: 0, height: 0 }
+
+    it('heads the tree with a section of its own, above the repositories', async () => {
+      const { wrapper } = await mountAvailable()
+
+      const sections = wrapper.findAll('[data-testid="terminal-scratch-heading"], [data-testid="terminal-repo-group"]')
+      expect(sections.map((section) => section.attributes('data-testid')))
+        .toEqual(['terminal-scratch-heading', 'terminal-repo-group'])
+      expect(sections[0].text()).toContain('Terminals')
+      // The session behind it is a tmux name, not a row: nothing in the tree
+      // says Scratch.
+      expect(sections[0].text()).not.toContain('Scratch')
+      expect(sessionRows(wrapper).map((row) => row.attributes('data-slug'))).not.toContain(SCRATCH_SLUG)
+      wrapper.unmount()
+    })
+
+    // The tabs take the row a repository gives a session — same box, same
+    // controls — rather than hanging two levels in under a row of their own.
+    it('lists its tabs where a repository lists its sessions', async () => {
+      mocks.createTerminalClient.mockReturnValue({
+        listWindows: fakeListWindows({ [SCRATCH_SLUG]: [oneTab, { windowId: '@2', name: 'nvim', active: false, width: 0, height: 0 }] }),
+      })
+      const { wrapper } = await mountAvailable()
+
+      const tabs = wrapper.findAll('[data-testid="terminal-listed-window-row"]')
+      expect(tabs.map((tab) => tab.text())).toEqual(['zsh', 'nvim'])
+      expect(tabs[0].classes()).toContain('window-row-flush')
+      wrapper.unmount()
+    })
+
+    // A heading with nothing under it leaves the keyboard nothing to land on and
+    // the mouse nothing but the + to guess at.
+    it('offers a row to start from when there is nothing in it', async () => {
+      const start = vi.fn().mockResolvedValue({ started: true })
+      mocks.createTerminalClient.mockReturnValue({ start, listWindows: fakeListWindows({}) })
+      const { wrapper } = await mountAvailable()
+
+      const empty = wrapper.get('[data-testid="terminal-start-scratch"]')
+      expect(empty.text()).toBe('Start a terminal')
+      // It is a tree row, so the walk stops on it and Enter does what a click does.
+      expect(empty.attributes('data-tree-key')).toBe(`s:${SCRATCH_SLUG}`)
+
+      await empty.trigger('click')
+      await flushPromises()
+      expect(start).toHaveBeenCalledWith(SCRATCH_SLUG)
+      wrapper.unmount()
+    })
+
+    it('folds its tabs away from the heading, and keeps the heading', async () => {
+      mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows({ [SCRATCH_SLUG]: [oneTab] }) })
+      const { wrapper } = await mountAvailable()
+      expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(1)
+
+      await heading(wrapper).trigger('click')
+
+      expect(heading(wrapper).attributes('aria-expanded')).toBe('false')
+      expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+      wrapper.unmount()
+    })
+
+    // Its tabs are the section, so they are listed whatever "always show
+    // windows" says — that setting is about how much of every session to draw.
+    it('lists its tabs with window listing off, and reads its liveness from them', async () => {
+      const listWindows = fakeListWindows({ [SCRATCH_SLUG]: [oneTab] })
+      mocks.createTerminalClient.mockReturnValue({ listWindows })
+      setTerminalShowWindows(false)
+      try {
+        const { wrapper } = await mountAvailable()
+
+        expect(listWindows).toHaveBeenCalledWith([SCRATCH_SLUG])
+        expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]').map((tab) => tab.text())).toEqual(['zsh'])
+        expect(heading(wrapper).find('[data-testid="terminal-session-liveness"]').exists()).toBe(true)
+        wrapper.unmount()
+      } finally {
+        setTerminalShowWindows(true)
+      }
+    })
+
+    // + is the whole affordance on the heading: with tmux holding nothing, the
+    // session that gets created *is* the first tab, so there is no start to have
+    // missed and no attach to wait for.
+    it('starts on + while nothing is running, and adds a tab once something is', async () => {
+      const start = vi.fn().mockResolvedValue({ started: true })
+      const newWindow = vi.fn().mockResolvedValue({ windowId: '@2' })
+      mocks.createTerminalClient.mockReturnValue({ start, newWindow, listWindows: fakeListWindows({}) })
+      const { wrapper, session } = await mountAvailable()
+
+      await heading(wrapper).get('[data-testid="terminal-new-window"]').trigger('click')
+      await flushPromises()
+      expect(start).toHaveBeenCalledWith(SCRATCH_SLUG)
+      expect(newWindow).not.toHaveBeenCalled()
+
+      // The same press once it is attached adds a tab through its live client.
+      await heading(wrapper).get('[data-testid="terminal-new-window"]').trigger('click')
+      await flushPromises()
+      expect(session.newWindow).toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    // What the user hits first: tmux is holding the session from a previous run,
+    // nothing in this window has attached to it yet, and + has to work anyway.
+    it('adds a tab to a running terminal it has not attached to', async () => {
+      const start = vi.fn().mockResolvedValue({ started: false })
+      const newWindow = vi.fn().mockResolvedValue({ windowId: '@2' })
+      mocks.createTerminalClient.mockReturnValue({
+        start,
+        newWindow,
+        listWindows: fakeListWindows({ [SCRATCH_SLUG]: [oneTab] }),
+      })
+      const { wrapper } = await mountAvailable()
+
+      await heading(wrapper).get('[data-testid="terminal-new-window"]').trigger('click')
+      await flushPromises()
+
+      // Starting answers "already running", and the window is made on the slug —
+      // the core serves it without this window having to attach first.
+      expect(newWindow).toHaveBeenCalledWith(SCRATCH_SLUG)
+      wrapper.unmount()
+    })
+
+    it('opens a tab by clicking it, and keeps its attach across a session-list reload', async () => {
+      mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows({ [SCRATCH_SLUG]: [oneTab] }) })
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper, router } = await mountAt()
+
+      await wrapper.get('[data-testid="terminal-listed-window-row"]').trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.params.slug).toBe(SCRATCH_SLUG)
+      expect(mocks.useTerminalWindows).toHaveBeenCalledWith(SCRATCH_SLUG, expect.anything())
+
+      // The listing is hive's and carries no scratch terminal, so a reload that
+      // drops every pooled session it no longer lists must not take this one.
+      await wrapper.get('[data-testid="terminal-sessions-refresh"]').trigger('click')
+      await flushPromises()
+      expect(session.dispose).not.toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('says where it opens when there is no terminal behind it', async () => {
+      const start = vi.fn().mockResolvedValue({ started: true })
+      mocks.createTerminalClient.mockReturnValue({ start, listWindows: fakeListWindows({}) })
+      const session = fakeSession()
+      session.tabs.value = []
+      session.status.value = 'ended'
+      session.endReason.value = 'not-started'
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt(`/terminal/${SCRATCH_SLUG}`)
+
+      const panel = wrapper.get('[data-testid="terminal-session-not-started"]')
+      expect(panel.text()).toContain('opens a shell in your home directory')
+      expect(panel.text()).not.toContain('agent command')
+
+      await wrapper.get('[data-testid="terminal-start-session"]').trigger('click')
+      await flushPromises()
+      expect(start).toHaveBeenCalledWith(SCRATCH_SLUG)
+      wrapper.unmount()
+    })
+
+    // Rename, recycle, delete and details all address a hive session, and there
+    // is none behind this section — so are the configured actions, which render
+    // over one.
+    it('offers only the terminal’s own lifecycle in its menu', async () => {
+      mocks.TerminalActionViews.mockResolvedValue([
+        { id: 'open-in-zed', label: 'Open in Zed', type: 'shell', showInDetail: false, requiresSessionInput: false },
+      ])
+      const { wrapper } = await mountAvailable()
+
+      await heading(wrapper).get('[data-testid="terminal-session-menu-toggle"]').trigger('click')
+
+      expect(wrapper.find('[data-testid="session-menu-start"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="session-menu-kill"]').exists()).toBe(true)
+      for (const entry of ['detail', 'rename', 'recycle', 'delete']) {
+        expect(wrapper.find(`[data-testid="session-menu-${entry}"]`).exists()).toBe(false)
+      }
+      expect(wrapper.find('[data-testid="terminal-action-open-in-zed"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('names the tabs rather than a checkout when killed', async () => {
+      mocks.createTerminalClient.mockReturnValue({ kill: vi.fn().mockResolvedValue({ killed: true }) })
+      const { wrapper } = await mountAvailable()
+
+      await heading(wrapper).get('[data-testid="terminal-session-menu-toggle"]').trigger('click')
+      await wrapper.get('[data-testid="session-menu-kill"]').trigger('click')
+      await flushPromises()
+
+      const dialog = document.querySelector('[data-testid="session-confirmation"]')
+      expect(dialog?.textContent).toContain('Every tab in the scratch terminal is closed')
+      expect(dialog?.textContent).not.toContain('checkout')
+      document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+      wrapper.unmount()
+    })
+  })
+
   describe('configured terminal actions', () => {
     const openInZed = { id: 'open-in-zed', label: 'Open in Zed', type: 'shell', showInDetail: false, requiresSessionInput: false }
     const interrupt = { id: 'interrupt', label: 'Interrupt', type: 'shell', showInDetail: false, requiresSessionInput: false }
@@ -1340,8 +1567,10 @@ describe('TerminalMode', () => {
       await flushPromises()
     }
 
+    // The pinned scratch row is filtered like any other and has a test of its
+    // own below; these read the repositories.
     function slugs(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): (string | undefined)[] {
-      return wrapper.findAll('[data-testid="terminal-session-row"]').map((row) => row.attributes('data-slug'))
+      return sessionRows(wrapper).map((row) => row.attributes('data-slug'))
     }
 
     it('narrows the tree to the sessions that match, and says when none do', async () => {
@@ -1389,7 +1618,7 @@ describe('TerminalMode', () => {
     // on screen is the one the user is working in.
     it('keeps the attached session on screen while it is filtered out', async () => {
       const { wrapper, router } = await mountAvailable()
-      await wrapper.findAll('[data-testid="terminal-session-row"]')[0].trigger('click')
+      await sessionRows(wrapper)[0].trigger('click')
       await flushPromises()
 
       await filter(wrapper, 'parser')
@@ -1472,8 +1701,29 @@ describe('TerminalMode', () => {
         ?.attributes('data-tree-key')
     }
 
-    it('attaches the session an arrow lands on, as a click would', async () => {
+    // The pinned terminal is the tree's first stop — the test below is about
+    // that. The rest walk the repositories from a tree without one, because
+    // landing on the pinned row attaches it and unfolds its own tabs into the
+    // very list a press count is counting.
+    async function mountWalkable(session = fakeSession()) {
+      mocks.Scratch.mockRejectedValue(new Error('no scratch terminal in this fixture'))
+      return mountAvailable(session)
+    }
+
+    // Free space is the first thing the keyboard reaches, and one arrow is what
+    // it costs to get there.
+    it('starts the walk on the pinned scratch terminal', async () => {
       const { wrapper, router } = await mountAvailable()
+
+      await press(wrapper, 'ArrowDown')
+
+      expect(router.currentRoute.value.path).toBe('/terminal/Scratch')
+      expect(mocks.useTerminalWindows).toHaveBeenCalledWith('Scratch', expect.anything())
+      wrapper.unmount()
+    })
+
+    it('attaches the session an arrow lands on, as a click would', async () => {
+      const { wrapper, router } = await mountWalkable()
       expect(wrapper.find('[data-testid="terminal-no-session"]').exists()).toBe(true)
 
       // Alphabetical within the group, so the first row is 'bump deps'.
@@ -1486,7 +1736,7 @@ describe('TerminalMode', () => {
     // Attaching the first session unfolds its two windows into the walk, so the
     // next session sits four rows down rather than one.
     it('walks through the attached session windows on to the next session', async () => {
-      const { wrapper, router } = await mountAvailable()
+      const { wrapper, router } = await mountWalkable()
 
       for (let i = 0; i < 4; i++) await press(wrapper, 'ArrowDown')
 
@@ -1496,7 +1746,7 @@ describe('TerminalMode', () => {
 
     it('selects a window row the same way', async () => {
       const session = fakeSession()
-      const { wrapper } = await mountAvailable(session)
+      const { wrapper } = await mountWalkable(session)
 
       await press(wrapper, 'ArrowDown')
       // Onto the attached session's second window.
@@ -1509,7 +1759,7 @@ describe('TerminalMode', () => {
 
     it('moves on j and k as well', async () => {
       const session = fakeSession()
-      const { wrapper, router } = await mountAvailable(session)
+      const { wrapper, router } = await mountWalkable(session)
 
       await press(wrapper, 'j')
       expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
@@ -1525,7 +1775,7 @@ describe('TerminalMode', () => {
     // A running session is its windows. Stopping on its row first changed
     // nothing, so the row leaves the walk once there is a terminal behind it.
     it('skips a running session row and walks its windows', async () => {
-      const { wrapper } = await mountAvailable()
+      const { wrapper } = await mountWalkable()
 
       // Nothing is attached yet and no windows are known, so the row is still
       // the only way in.
@@ -1543,7 +1793,7 @@ describe('TerminalMode', () => {
     // an unattached session has no windows to stand in for its row.
     it('keeps the row of a running session that lists no windows', async () => {
       setTerminalShowWindows(false)
-      const { wrapper, router } = await mountAvailable()
+      const { wrapper, router } = await mountWalkable()
 
       // The attached session still contributes its own live windows, so the
       // second session's row is three stops down rather than one.
@@ -1556,7 +1806,7 @@ describe('TerminalMode', () => {
     // A repo header collapses on click, which is not something to do to every
     // group an arrow passes.
     it('skips repo headers', async () => {
-      const { wrapper } = await mountAvailable()
+      const { wrapper } = await mountWalkable()
 
       await press(wrapper, 'ArrowUp')
 
@@ -1568,7 +1818,7 @@ describe('TerminalMode', () => {
     // One tab stop, not one per row: the tree is a single widget, so Tab steps
     // over it and the arrows move within it.
     it('carries a single tab stop that follows the selection', async () => {
-      const { wrapper } = await mountAvailable()
+      const { wrapper } = await mountWalkable()
 
       expect(wrapper.findAll('[data-tree-key][tabindex="0"]')).toHaveLength(1)
       expect(tabStop(wrapper)).toBe('s:2')
@@ -1581,7 +1831,7 @@ describe('TerminalMode', () => {
     })
 
     it('clamps at the bottom instead of wrapping', async () => {
-      const { wrapper, router } = await mountAvailable()
+      const { wrapper, router } = await mountWalkable()
 
       for (let i = 0; i < 12; i++) await press(wrapper, 'ArrowDown')
 
@@ -1646,7 +1896,7 @@ describe('TerminalMode', () => {
     // arrow to tmux instead of the tree.
     it('keeps focus in the tree while the arrows walk it', async () => {
       const session = fakeSession()
-      const { wrapper } = await mountAvailable(session)
+      const { wrapper } = await mountWalkable(session)
 
       for (let i = 0; i < 3; i++) await press(wrapper, 'ArrowDown')
 
@@ -1659,7 +1909,7 @@ describe('TerminalMode', () => {
     // work in it.
     it('lets a click hand focus to the pane', async () => {
       const session = fakeSession()
-      const { wrapper } = await mountAvailable(session)
+      const { wrapper } = await mountWalkable(session)
 
       await press(wrapper, 'ArrowDown')
       expect(paneMayAutoFocus.value).toBe(false)
@@ -1673,7 +1923,7 @@ describe('TerminalMode', () => {
 
     it('enters the pane on Enter', async () => {
       const session = fakeSession()
-      const { wrapper } = await mountAvailable(session)
+      const { wrapper } = await mountWalkable(session)
 
       await press(wrapper, 'ArrowDown')
       await wrapper.get('[data-tree-key="s:2"]').trigger('keydown', { key: 'Enter' })
@@ -1708,11 +1958,23 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('omits the hint bar when there are no sessions to navigate', async () => {
+    // The bar is a legend for a walk, so it goes only when there is nothing to
+    // walk — and the pinned scratch row is something, whether or not hive has a
+    // session to list.
+    it('omits the hint bar when the tree has nothing in it at all', async () => {
       mocks.ListSessions.mockResolvedValue([])
+      mocks.Scratch.mockRejectedValue(new Error('the terminal is unavailable'))
       const { wrapper } = await mountAvailable()
 
       expect(wrapper.find('[data-testid="terminal-tree-hints"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('keeps the hint bar for the scratch terminal alone', async () => {
+      mocks.ListSessions.mockResolvedValue([])
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.find('[data-testid="terminal-tree-hints"]').exists()).toBe(true)
       wrapper.unmount()
     })
   })

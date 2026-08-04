@@ -13,6 +13,10 @@ import { Call as $Call, CancellablePromise as $CancellablePromise } from "@wails
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
+import * as app$0 from "../../app/models.js";
+
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
 import * as $models from "./models.js";
 
 /**
@@ -39,4 +43,13 @@ export function Enabled(): $CancellablePromise<boolean> {
  */
 export function Endpoint(): $CancellablePromise<$models.TerminalEndpoint> {
     return $Call.ByID(2785709422);
+}
+
+/**
+ * Scratch declares the scratch terminal the session tree pins above the
+ * repositories: the tmux session to attach to, and what to call it. It is
+ * constant for the run, so the tree reads it once beside the session list.
+ */
+export function Scratch(): $CancellablePromise<app$0.ScratchTerminal> {
+    return $Call.ByID(1213064263);
 }

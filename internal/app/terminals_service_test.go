@@ -4,8 +4,10 @@ package app
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
@@ -73,9 +76,17 @@ func privateTmux(t *testing.T) func(args ...string) error {
 
 func newTestTerminals(t *testing.T, starter terminalStarter) *TerminalsService {
 	t.Helper()
+	return newTestTerminalsIn(t, starter, os.UserHomeDir)
+}
+
+// newTestTerminalsIn is newTestTerminals with the home directory the scratch
+// terminal opens in, so a test can assert where it landed without opening one in
+// the developer's own home.
+func newTestTerminalsIn(t *testing.T, starter terminalStarter, home func() (string, error)) *TerminalsService {
+	t.Helper()
 	manager := tmuxcc.NewManager(t.Context(), tmuxcc.ManagerOptions{Logger: zerolog.Nop()})
 	t.Cleanup(func() { _ = manager.Stop(context.WithoutCancel(t.Context())) })
-	return newTerminalsService(manager, tmuxcc.NopMetrics, starter)
+	return newTerminalsService(manager, tmuxcc.NopMetrics, starter, home)
 }
 
 // spawningStarter stands in for the session service: it creates the tmux session
@@ -233,6 +244,98 @@ func tmuxFields(t *testing.T, args ...string) string {
 	out, err := exec.CommandContext(t.Context(), "tmux", args...).Output()
 	require.NoError(t, err)
 	return strings.Join(strings.Fields(string(out)), " ")
+}
+
+// The scratch terminal is the one session the desktop creates itself: hive has
+// no record to spawn from, so what it gets instead is the user's home directory.
+func TestTerminalsStartScratchOpensItInHomeWithoutAskingHive(t *testing.T) {
+	tmux := privateTmux(t)
+	home := t.TempDir()
+	starter := &spawningStarter{tmux: tmux}
+	terminals := newTestTerminalsIn(t, starter, func() (string, error) { return home, nil })
+
+	started, err := terminals.Start(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.True(t, started)
+	assert.Empty(t, starter.calls, "there is no hive session to spawn from")
+
+	// The home directory is the *session's* working directory rather than the
+	// first window's, which is what makes every tab opened later start there too.
+	assert.Equal(t, realpath(t, home), realpath(t, tmuxFields(t, "display-message", "-p", "-t", ScratchSlug, "#{session_path}")))
+
+	// Nothing else about it is special: the slug is the whole contract, so the
+	// attach and the window it opens are the ones every session uses.
+	windows, err := terminals.Attach(t.Context(), ScratchSlug, 120, 40)
+	require.NoError(t, err)
+	require.Len(t, windows, 1)
+
+	tab, err := terminals.NewWindow(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, home), realpath(t, tmuxFields(t, "display-message", "-p", "-t", tab, "#{pane_current_path}")))
+
+	started, err = terminals.Start(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.False(t, started, "a scratch terminal that is running is never recreated over")
+}
+
+// The + on a row is offered for the session, not for what is on screen, so it
+// has to work before anything has attached — which is what a first click on the
+// pinned terminal is.
+func TestTerminalsNewWindowWithoutAnAttachOpensInTheSessionDirectory(t *testing.T) {
+	tmux := privateTmux(t)
+	home := t.TempDir()
+	terminals := newTestTerminalsIn(t, &spawningStarter{tmux: tmux}, func() (string, error) { return home, nil })
+
+	_, err := terminals.Start(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+
+	// No Attach in between: the window is made by a one-shot, and it lands where
+	// the session lives rather than in this process's working directory.
+	id, err := terminals.NewWindow(t.Context(), ScratchSlug)
+	require.NoError(t, err)
+	assert.Equal(t, realpath(t, home), realpath(t, tmuxFields(t, "display-message", "-p", "-t", id, "#{pane_current_path}")))
+
+	windows, err := terminals.ListAllWindows(t.Context(), []string{ScratchSlug})
+	require.NoError(t, err)
+	assert.Len(t, windows[ScratchSlug], 2)
+}
+
+func TestTerminalsNewWindowInASessionThatIsNotRunning(t *testing.T) {
+	privateTmux(t)
+	terminals := newTestTerminals(t, &spawningStarter{})
+
+	_, err := terminals.NewWindow(t.Context(), "hive-gone")
+	// A session to add a window to is the caller's to create — a start for a
+	// hive session runs its agent, so this must not do it on their behalf.
+	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
+func TestTerminalsStartScratchReportsAnUnreadableHome(t *testing.T) {
+	privateTmux(t)
+	terminals := newTestTerminalsIn(t, &spawningStarter{}, func() (string, error) { return "", errors.New("no home") })
+
+	_, err := terminals.Start(t.Context(), ScratchSlug)
+	assert.Equal(t, KindUnavailable, KindOf(err))
+}
+
+// The scratch session lives in tmux's one session namespace alongside hive's, so
+// the slug it claims has to be one hive cannot mint — otherwise a session named
+// "Scratch" would silently become the scratch terminal, or take it over.
+func TestScratchSlugIsUnreachableFromASessionName(t *testing.T) {
+	terminals := newTestTerminals(t, nil)
+	assert.Equal(t, ScratchSlug, terminals.Scratch(t.Context()).Slug)
+
+	for _, name := range []string{"Scratch", "scratch", "SCRATCH", "  Scratch  ", "scratch/1"} {
+		assert.NotEqual(t, ScratchSlug, dispatch.SlugifySessionName(name),
+			"a hive session named %q must not slugify onto the scratch terminal", name)
+	}
+}
+
+func realpath(t *testing.T, path string) string {
+	t.Helper()
+	resolved, err := filepath.EvalSymlinks(path)
+	require.NoError(t, err)
+	return resolved
 }
 
 func TestTerminalsStartReportsWhyItCouldNot(t *testing.T) {

@@ -468,7 +468,7 @@ func (f *fakeTmuxCommands) run(_ context.Context, binary string, args ...string)
 		return nil, errors.New("can't find session")
 	case len(args) > 0 && args[0] == "rename-session":
 		return nil, f.failure
-	case len(args) > 0 && args[0] == "list-windows":
+	case len(args) > 0 && args[0] == "list-windows", len(args) > 0 && args[0] == "new-window":
 		return f.windows, f.failure
 	}
 	return nil, nil
@@ -625,6 +625,36 @@ func TestManagerListAllWindowsTreatsADeadServerAsNoWindows(t *testing.T) {
 	windows, err := m.ListAllWindows(t.Context(), []string{"hive-demo"})
 	require.NoError(t, err)
 	require.Empty(t, windows)
+}
+
+// The + on a row is offered for the session, not for what is on screen, so a
+// window can be made for a slug this app holds no client for.
+func TestManagerNewWindowWithoutAClient(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{windows: []string{"@7"}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	// The directory is spelled out as the session's own: tmux resolves an unset
+	// start-directory against the client running the command, and a one-shot
+	// command client is this process.
+	_, err := m.NewWindow(t.Context(), "hive-demo")
+	require.NoError(t, err)
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "hive-demo"},
+		{"new-window", "-t", "hive-demo", "-c", "#{session_path}", "-P", "-F", "#{window_id}"},
+	}, cmds.calls)
+}
+
+func TestManagerNewWindowInASessionThatIsNotRunning(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeTmuxCommands{absent: true}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	_, err := m.NewWindow(t.Context(), "hive-demo")
+	require.ErrorIs(t, err, ErrNotAttached)
+	require.Len(t, cmds.calls, 1, "nothing is created for a session that is not there")
 }
 
 func TestManagerHasSessionProbesTmux(t *testing.T) {

@@ -4,6 +4,7 @@
 export type {
     Integration,
     PopupLauncher,
+    ScratchTerminal,
     SkillEntry,
     SkillTarget,
     SkillsCatalog,

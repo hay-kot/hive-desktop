@@ -42,6 +42,20 @@ describe('SessionRowMenu', () => {
     expect(recycled.find('[data-testid="session-menu-delete"]').exists()).toBe(true)
   })
 
+  // The scratch terminal's tmux session is the whole thing: there is no record
+  // to rename or delete, and no checkout to recycle or read details of.
+  it('carries only the terminal lifecycle for the scratch terminal', async () => {
+    const wrapper = mountMenu({ scratch: true })
+
+    expect(wrapper.get('[data-testid="session-menu-start"]').text()).toBe('Start terminal')
+    for (const entry of ['detail', 'rename', 'recycle', 'delete']) {
+      expect(wrapper.find(`[data-testid="session-menu-${entry}"]`).exists()).toBe(false)
+    }
+
+    await wrapper.get('[data-testid="session-menu-kill"]').trigger('click')
+    expect(wrapper.emitted('kill')).toHaveLength(1)
+  })
+
   it('appends host entries in their own section and reports them by id', async () => {
     const wrapper = mountMenu({
       extra: [{ kind: 'action', id: 'new-tab:claude', label: 'New Claude tab', testid: 'extra-claude' }],

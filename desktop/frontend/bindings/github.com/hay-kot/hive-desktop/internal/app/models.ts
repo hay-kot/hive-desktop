@@ -46,6 +46,16 @@ export interface PopupLauncher {
 }
 
 /**
+ * ScratchTerminal declares the scratch terminal to the surfaces that draw it.
+ * There is exactly one, it is created on first use, and it holds no hive
+ * session, checkout or agent — its tabs are whatever the user opened.
+ */
+export interface ScratchTerminal {
+    "slug": string;
+    "name": string;
+}
+
+/**
  * SkillEntry is one installable skill, shown as an informational list entry with
  * its preview text. The install state is per agent, not per skill, so it lives on
  * SkillTarget rather than here.
