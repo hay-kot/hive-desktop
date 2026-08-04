@@ -1,0 +1,132 @@
+//go:build !server
+
+package tmuxcc
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// fakeSessionCommands is a self-contained one-shot fake for this file's
+// tests, separate from fakeTmuxCommands in manager_test.go: it answers
+// new-session, capture-pane, list-sessions and has-session, which that fake
+// does not need to know about.
+type fakeSessionCommands struct {
+	calls   [][]string
+	present map[string]bool
+	capture []string
+	names   []string
+	failure error
+}
+
+func (f *fakeSessionCommands) run(_ context.Context, _ string, args ...string) ([]string, error) {
+	f.calls = append(f.calls, args)
+	if len(args) == 0 {
+		return nil, nil
+	}
+	switch args[0] {
+	case "has-session":
+		if f.present[args[2]] {
+			return nil, nil
+		}
+		return nil, errors.New("can't find session")
+	case "new-session":
+		if f.failure != nil {
+			return nil, f.failure
+		}
+		if f.present == nil {
+			f.present = map[string]bool{}
+		}
+		f.present[args[3]] = true
+		return nil, nil
+	case "capture-pane":
+		return f.capture, f.failure
+	case "list-sessions":
+		return f.names, f.failure
+	}
+	return nil, nil
+}
+
+func TestManagerNewSessionCreatesADetachedSession(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude --resume 'abc'"))
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "agentws-1"},
+		{"new-session", "-d", "-s", "agentws-1", "-c", "/work/dir", "--", resolveLoginShell(), "-l", "-c", "claude --resume 'abc'"},
+	}, cmds.calls)
+}
+
+func TestManagerNewSessionOpensAnInteractiveShellForAnEmptyCommand(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", ""))
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "agentws-1"},
+		{"new-session", "-d", "-s", "agentws-1", "-c", "/work/dir", "--", resolveLoginShell(), "-l"},
+	}, cmds.calls)
+}
+
+func TestManagerNewSessionRejectsAnExistingName(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{present: map[string]bool{"agentws-1": true}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	err := m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude")
+	require.ErrorIs(t, err, ErrSessionExists)
+}
+
+func TestManagerNewSessionRejectsAnEmptyName(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	err := m.NewSession(t.Context(), "", "/work/dir", "claude")
+	require.ErrorIs(t, err, ErrInvalidName)
+	require.Empty(t, cmds.calls, "an invalid name is rejected before any tmux call")
+}
+
+func TestManagerCapturePaneJoinsWrappedLines(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{capture: []string{"line one", "line two"}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	screen, err := m.CapturePane(t.Context(), "agentws-1")
+	require.NoError(t, err)
+	require.Equal(t, "line one\nline two", screen)
+	require.Equal(t, [][]string{{"capture-pane", "-t", "agentws-1", "-p", "-J"}}, cmds.calls)
+}
+
+func TestManagerSessionNamesFiltersByPrefix(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{names: []string{"agentws-1", "agentws-2", "hive-demo"}}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	names, err := m.SessionNames(t.Context(), "agentws-")
+	require.NoError(t, err)
+	require.Equal(t, []string{"agentws-1", "agentws-2"}, names)
+}
+
+func TestManagerSessionNamesTreatsADeadServerAsEmpty(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{failure: errors.New("no server running")}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	names, err := m.SessionNames(t.Context(), "agentws-")
+	require.NoError(t, err)
+	require.Empty(t, names)
+}

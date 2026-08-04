@@ -14,9 +14,12 @@ import (
 // the reason the pop-up surface does: starting a session spawns an agent CLI,
 // which is arbitrary command execution just as a pop-up shell is (ADR 0036),
 // and mounting it here is what gives it the terminal bearer token and CORS
-// policy without a second rule. Sessions ride the shared ptyterm data plane
-// at PTYStreamPath, addressed by the id AgentWorkspacesService derives from
-// the session's record (ADR 0060) — there is no agent-specific stream.
+// policy without a second rule. Sessions are tmux sessions named
+// agentws-<record id> and ride the shared tmux data plane at
+// TerminalStreamPath (ADR 0063) — there is no agent-specific stream. Start and
+// Resume attach server-side and return the active window id alongside the
+// session name, because the generic /api/terminal/attach control route is
+// gated by experimental.terminal, which the Agents area must not depend on.
 const AgentWorkspacesPathPrefix = TerminalPathPrefix + "agents/"
 
 // agentWorkspaceView is one row of the area's workspace list. Autonomy and
@@ -42,9 +45,13 @@ type agentSessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
-	// TerminalID addresses the live PTY on PTYStreamPath, empty when nothing
-	// is running.
+	// TerminalID is the tmux session name (agentws-<id>) addressed on
+	// TerminalStreamPath, empty when nothing is running.
 	TerminalID string `json:"terminalId"`
+	// WindowID is TerminalID's active tmux window, needed to frame input and
+	// output on the windowed tmux wire. Set only by Start/Resume, which
+	// attach; a listing read leaves it empty even for a live session.
+	WindowID string `json:"windowId"`
 	// ResumeAttempted is false when this launch could not even try to resume —
 	// the agent has no resume form.
 	ResumeAttempted bool `json:"resumeAttempted"`
@@ -83,7 +90,7 @@ func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
 func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
-		TerminalID: s.TerminalID, ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
+		TerminalID: s.TerminalID, WindowID: s.WindowID, ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
 	}
 }
 
@@ -298,6 +305,46 @@ func (ctrl *Controller) AgentSessionClose(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	return server.JSON(w, http.StatusOK, agentSessionCloseResponse{Closed: closed})
+}
+
+// agentSessionActivityRequest scopes activity classification to one
+// workspace, matching AgentSessions — the frontend polls whichever
+// workspace's session list is on screen.
+type agentSessionActivityRequest struct {
+	Workspace string `json:"workspace"`
+}
+
+func (b agentSessionActivityRequest) Validate() error {
+	return criterio.Run("workspace", b.Workspace, criterio.Required)
+}
+
+type agentSessionActivityItem struct {
+	ID     int64  `json:"id"`
+	Status string `json:"status"`
+}
+
+type agentSessionActivityResponse struct {
+	Items []agentSessionActivityItem `json:"items"`
+}
+
+// AgentSessionActivity classifies each of a workspace's live sessions from
+// its captured tmux pane: ready, active, or approval — approval is the
+// highest-urgency state. A session with no live tmux session is omitted
+// rather than reported dead; its row's terminalId already carries that.
+func (ctrl *Controller) AgentSessionActivity(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentSessionActivityRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	items, err := ctrl.core.AgentWorkspaces.SessionActivity(r.Context(), body.Workspace)
+	if err != nil {
+		return err
+	}
+	out := make([]agentSessionActivityItem, 0, len(items))
+	for _, it := range items {
+		out = append(out, agentSessionActivityItem{ID: it.ID, Status: it.Status})
+	}
+	return server.JSON(w, http.StatusOK, agentSessionActivityResponse{Items: out})
 }
 
 // AgentSessionDelete ends any live terminal and deletes a session's record.

@@ -1,16 +1,24 @@
 // The Agents area's control-plane transport: plain fetch calls against
 // /api/terminal/agents/*, using the bearer token AgentsService.Endpoint()
 // hands the webview (internal/adapter/httpapi/ctrl_agent_workspaces.go). The
-// PTY data plane is shared with the pop-up terminal (ADR 0060) — this module
-// reuses popupTerminalClient's openStream(id) as-is over this endpoint rather
-// than reimplementing it: it is a stateless closure over whichever endpoint it
-// was built from, and PopupTerminalEndpoint/AgentsEndpoint are the same shape.
+// data plane is the tmux stream terminal mode uses (ADR 0063) — a session is
+// a tmux session, just not a hive one — so this module reuses
+// terminalClient's openStream(name)/decodeFrame/encodeInputFrames as-is
+// rather than reimplementing the windowed wire: openStream is a stateless
+// closure over whichever endpoint it was built from, and
+// TerminalEndpoint/AgentsEndpoint are the same shape. Start/Resume attach
+// server-side (AgentWorkspacesService) and return windowId, so this module
+// never calls the generic /api/terminal/attach control route, which is gated
+// by experimental.terminal — a flag the Agents area must not depend on.
 
-import { createPopupTerminalClient } from './popupTerminalClient'
+import { createTerminalClient, decodeFrame, encodeInputFrames } from './terminalClient'
+import type { TerminalEndpoint } from './terminalClient'
 import { Endpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 import type { AgentsEndpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 export type { AgentsEndpoint }
+export { decodeFrame, encodeInputFrames }
+export type { TerminalFrame } from './terminalClient'
 
 /** One row of the area's workspace list. */
 export interface AgentWorkspace {
@@ -40,10 +48,22 @@ export interface AgentSession {
   name: string
   agent: string
   lastOpenedAt: number
-  /** Addresses the live PTY on the shared stream; empty when nothing is running. */
+  /** The tmux session name on the shared terminal stream; empty when nothing is running. */
   terminalId: string
+  /**
+   * terminalId's active tmux window, needed to frame input/output on the
+   * windowed tmux wire. Set only by startSession/resumeSession, which attach;
+   * a plain sessions() listing leaves it empty even for a live session.
+   */
+  windowId: string
   resumeAttempted: boolean
   notice: string
+}
+
+/** One live session's detected activity — ready, active, or approval. */
+export interface AgentSessionActivity {
+  id: number
+  status: 'ready' | 'active' | 'approval' | string
 }
 
 export interface AgentWorkspaceOpenResult {
@@ -82,12 +102,14 @@ export interface AgentWorkspacesClient {
   openWorkspace(dir: string): Promise<AgentWorkspaceOpenResult>
   deleteWorkspace(dir: string): Promise<void>
   sessions(workspace: string): Promise<AgentSession[]>
+  /** Polled while the area is active; omits a session with no live tmux session. */
+  activity(workspace: string): Promise<AgentSessionActivity[]>
   startSession(request: StartSessionRequest): Promise<AgentSession>
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
-  /** The shared ptyterm stream a session's terminalId addresses (ADR 0060). */
-  openStream(id: string): WebSocket
+  /** The shared tmux stream a session's terminalId addresses (ADR 0063). */
+  openStream(name: string): WebSocket
 }
 
 /** Resolves the transport the webview was handed, or rejects with the reason. */
@@ -107,7 +129,7 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     return (await response.json()) as T
   }
 
-  const { openStream } = createPopupTerminalClient(endpoint)
+  const { openStream } = createTerminalClient(endpoint as TerminalEndpoint)
 
   return {
     async workspaces() {
@@ -126,6 +148,10 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async sessions(workspace) {
       const body = await post<{ sessions: AgentSession[] | null }>('/sessions', { workspace })
       return body?.sessions ?? []
+    },
+    async activity(workspace) {
+      const body = await post<{ items: AgentSessionActivity[] | null }>('/sessions/activity', { workspace })
+      return body?.items ?? []
     },
     async startSession(request) {
       const body = await post<AgentSession>('/sessions/start', request)

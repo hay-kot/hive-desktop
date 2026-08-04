@@ -365,7 +365,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.popupTerminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem)
 
 	return a, nil
 }

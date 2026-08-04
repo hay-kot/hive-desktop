@@ -28,11 +28,13 @@ type Workspace struct {
 	Skills   []string `yaml:"skills,omitempty"`
 }
 
-// Validate checks the fields Workspace owns directly. autonomy is required
-// and explicit in M1 — there is no default until the approval indicator
-// exists to make one legible (phase 8). It does not check Agent against the
-// set of agents this build can actually launch: that mapping lives at the
-// dispatch/launch-table seam (spec §14's unknown-agent case), not here.
+// Validate checks the fields Workspace owns directly. autonomy is no longer
+// required: the M2 approval indicator (hc-ou4o02zx) makes "ask" legible, so an
+// omitted autonomy defaults to it at load (parseWorkspace) rather than
+// failing here — Validate only rejects a non-empty value that names no known
+// posture. It does not check Agent against the set of agents this build can
+// actually launch: that mapping lives at the dispatch/launch-table seam
+// (spec §14's unknown-agent case), not here.
 func (w Workspace) Validate() error {
 	if w.Name == "" {
 		return fmt.Errorf("agent-workspace.yaml: name is required")
@@ -40,10 +42,7 @@ func (w Workspace) Validate() error {
 	if w.Agent == "" {
 		return fmt.Errorf("agent-workspace.yaml: agent is required")
 	}
-	if w.Autonomy == "" {
-		return fmt.Errorf("agent-workspace.yaml: autonomy is required")
-	}
-	if !w.Autonomy.IsValid() {
+	if w.Autonomy != "" && !w.Autonomy.IsValid() {
 		return fmt.Errorf("agent-workspace.yaml: autonomy %q is not valid (expected %s)", w.Autonomy, strings.Join(AutonomyNames(), ", "))
 	}
 	if dup := firstDuplicate(w.MCPs); dup != "" {

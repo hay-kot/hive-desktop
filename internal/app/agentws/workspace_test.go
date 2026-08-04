@@ -32,11 +32,14 @@ func TestWorkspaceValidate(t *testing.T) {
 		require.Error(t, w.Validate())
 	})
 
-	t.Run("AutonomyRequired", func(t *testing.T) {
+	t.Run("AutonomyEmptyIsValid", func(t *testing.T) {
 		t.Parallel()
+		// Validate no longer requires it: an omitted autonomy defaults to ask
+		// at load (see TestAutonomyDefaultsToAsk in loader_test.go), and this
+		// asserts Validate itself does not stand in the way of that.
 		w := validWorkspace()
 		w.Autonomy = ""
-		require.Error(t, w.Validate())
+		require.NoError(t, w.Validate())
 	})
 
 	t.Run("AutonomyMustBeValid", func(t *testing.T) {

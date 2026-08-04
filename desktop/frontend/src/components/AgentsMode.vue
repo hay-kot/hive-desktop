@@ -3,9 +3,9 @@
 // workspace's sessions — beside a pane rendering whichever session is open.
 // Unlike terminal mode's three-level session tree there is no keyboard walk
 // to maintain; what is borrowed from TerminalMode.vue is narrower — the
-// aside/main split and row shapes — and the pane itself borrows PopupTerminal
-// .vue's xterm wiring, since a session rides the identical ptyterm wire
-// protocol a pop-up terminal does (ADR 0060).
+// aside/main split and row shapes, plus (since ADR 0063) the pane's xterm
+// wiring itself: a session is a tmux session, addressed and framed exactly
+// like a hive one, just not discovered through hive.
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Browser } from '@wailsio/runtime'
@@ -23,12 +23,15 @@ import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useTerminalFont } from '../composables/useTerminalFont'
 import { useTheme } from '../composables/useTheme'
 import { xtermTheme } from '../lib/terminalTheme'
-import { decodeFrame, encodeInputFrames } from '../lib/popupTerminalClient'
+import { decodeFrame, encodeInputFrames } from '../lib/agentWorkspacesClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
 import type { AgentSession } from '../lib/agentWorkspacesClient'
 import '@xterm/xterm/css/xterm.css'
+
+/** Poll period for the M2 approval indicator (hc-ou4o02zx §5), while active. */
+const ACTIVITY_POLL_MS = 2000
 
 const props = defineProps<{ active?: boolean }>()
 
@@ -66,6 +69,10 @@ let observer: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | undefined
 let rendered = false
 const disposers: IDisposable[] = []
+// The tmux wire is windowed (ADR 0063): every frame in and out of the pane's
+// socket names the window it belongs to, so the pane has to know which one is
+// its own for the life of one attach.
+let paneWindowId = ''
 
 const openSession = computed(() => sessions.value.find((s) => s.id === openSessionId.value) ?? null)
 const paneLaidOut = computed(() => paneStatus.value === 'opening' || term.value !== null)
@@ -106,6 +113,54 @@ watch(selectedWorkspace, async (dir, previous) => {
   if (!dir) return
   await openWorkspace(dir)
 }, { immediate: true })
+
+// ── M2 approval indicator (hc-ou4o02zx) ──────────────────────────────────────
+// Polled only while the area is active and a workspace is open, matching
+// SessionStatuses' precedent in TerminalMode.vue -- capture-pane is real tmux
+// work per live session, so nothing here polls off-screen.
+const sessionActivity = ref<Record<number, string>>({})
+let activityTimer: ReturnType<typeof setTimeout> | undefined
+let activityGeneration = 0
+
+async function pollActivity(generation: number, workspace: string): Promise<void> {
+  if (client.value) {
+    try {
+      const items = await client.value.activity(workspace)
+      if (generation !== activityGeneration) return
+      sessionActivity.value = Object.fromEntries(items.map((item) => [item.id, item.status]))
+    } catch {
+      // A transient tmux probe failure must not erase the last dots shown.
+    }
+  }
+  if (generation !== activityGeneration) return
+  activityTimer = setTimeout(() => { void pollActivity(generation, workspace) }, ACTIVITY_POLL_MS)
+}
+
+function stopActivityPolling(): void {
+  ++activityGeneration
+  clearTimeout(activityTimer)
+  activityTimer = undefined
+  sessionActivity.value = {}
+}
+
+watch([() => props.active, selectedWorkspace], ([active, dir]) => {
+  stopActivityPolling()
+  if (active && dir) {
+    const generation = ++activityGeneration
+    void pollActivity(generation, dir)
+  }
+}, { immediate: true })
+
+/** The dot's color/title for session's row, driven by its polled activity. */
+function activityIndicator(session: AgentSession): { color: string; title: string } {
+  if (!session.terminalId) return { color: '', title: '' }
+  switch (sessionActivity.value[session.id]) {
+    case 'approval': return { color: 'bg-severity-warning', title: 'Needs approval' }
+    case 'active': return { color: 'bg-severity-success', title: 'Working' }
+    case 'ready': return { color: 'bg-text-4', title: 'Ready' }
+    default: return { color: 'bg-severity-success', title: 'Running' }
+  }
+}
 
 // ── New session ──────────────────────────────────────────────────────────────
 const newSessionName = ref('')
@@ -189,15 +244,15 @@ async function launchIntoPane(action: (size: { cols?: number; rows?: number }) =
     const size = measurePane()
     const result = await action(size ?? {})
     openSessionId.value = result.id
-    if (!result.terminalId) {
-      // An immediate exit, or a resume with no live terminal to reattach and
-      // no resume form to relaunch through -- the row's own notice explains
-      // why; there is nothing here to attach the pane to.
+    if (!result.terminalId || !result.windowId) {
+      // An immediate exit, or a resume with no live tmux session to reattach
+      // and no resume form to relaunch through -- the row's own notice
+      // explains why; there is nothing here to attach the pane to.
       teardownPane()
       paneStatus.value = 'idle'
       return
     }
-    attachStream(created, result.terminalId)
+    attachStream(created, result.terminalId, result.windowId)
     paneStatus.value = 'live'
     created.focus()
   } catch (failure) {
@@ -237,21 +292,23 @@ function measurePane(): { cols: number; rows: number } | undefined {
   return { cols: proposed.cols, rows: proposed.rows }
 }
 
-// Sessions have no live-resize endpoint in M1 -- ptyterm.Resize is reached
-// through the pop-up surface only. A workspace session's grid is fixed at
-// launch and re-measured on its next start or resume; onResize below just
-// keeps xterm's own layout in step with the host box.
-function attachStream(created: Terminal, terminalId: string): void {
+// Sessions have no live-resize endpoint in M1 -- the vote rides
+// StartSession/ResumeSession's cols/rows only. A workspace session's grid is
+// fixed at launch and re-measured on its next start or resume; onResize below
+// just keeps xterm's own layout in step with the host box.
+function attachStream(created: Terminal, terminalId: string, windowId: string): void {
   if (!client.value || !paneHost.value) return
 
+  paneWindowId = windowId
   disposers.push(created.onData((data) => send(data)))
 
   const opened = client.value.openStream(terminalId)
   opened.onmessage = (event: MessageEvent<ArrayBuffer>) => {
     const frame = decodeFrame(event.data)
-    if (!frame) return
+    if (!frame || frame.type === 'window') return
+    if (frame.windowId !== paneWindowId) return
     if (frame.type === 'output') created.write(frame.data)
-    else exited()
+    else if (frame.kind === 'exited' || frame.kind === 'error') exited()
   }
   opened.onerror = () => fail('The session connection dropped.')
   opened.onclose = () => { if (paneStatus.value === 'live') fail('The session connection closed.') }
@@ -262,8 +319,8 @@ function attachStream(created: Terminal, terminalId: string): void {
 }
 
 function send(data: string): void {
-  if (socket?.readyState !== WebSocket.OPEN) return
-  for (const frame of encodeInputFrames(data)) socket.send(frame)
+  if (socket?.readyState !== WebSocket.OPEN || !paneWindowId) return
+  for (const frame of encodeInputFrames(paneWindowId, data)) socket.send(frame)
 }
 
 function scheduleFit(): void {
@@ -314,6 +371,7 @@ function teardownPane(): void {
   term.value = null
   fit = null
   rendered = false
+  paneWindowId = ''
   endedReason.value = ''
   paneError.value = ''
 }
@@ -356,6 +414,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   setAgentsTreeHandles(null)
   teardownPane()
+  stopActivityPolling()
 })
 </script>
 
@@ -473,7 +532,13 @@ onBeforeUnmount(() => {
                 :data-session-id="session.id"
               >
                 <span class="max-w-[160px] truncate text-[12px] text-text">{{ session.name }}</span>
-                <span v-if="session.terminalId" class="size-1.5 rounded-full bg-severity-success" title="Running" />
+                <span
+                  v-if="session.terminalId"
+                  class="size-1.5 rounded-full"
+                  :class="activityIndicator(session).color"
+                  :title="activityIndicator(session).title"
+                  data-testid="agents-session-activity"
+                />
                 <span v-if="session.notice" class="max-w-[220px] truncate text-[11px] text-severity-warning" :title="session.notice" data-testid="agents-session-notice">{{ session.notice }}</span>
                 <button
                   type="button"

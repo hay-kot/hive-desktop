@@ -71,6 +71,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0060](decisions/0060-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
 | [0061](decisions/0061-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority: no inherited profiles, a fail-closed autonomy table |
 | [0062](decisions/0062-workspace-directories-are-generated-and-disposable.md) | Workspace directories are generated and disposable: no drift tracking, deterministic regeneration, iCloud-tolerant |
+| [0063](decisions/0063-agent-workspace-sessions-are-tmux-sessions.md) | Agent workspace sessions are tmux sessions: the pivot off `ptyterm`, why, and what it costs |
 
 ## References
 

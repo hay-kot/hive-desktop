@@ -23,7 +23,7 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 - `version` — must be `1`.
 - `name` — display name shown on the workspace's card.
 - `agent` — which CLI agent runs sessions here. Hive currently knows `claude` and `codex`.
-- `autonomy` — required, one of `ask`, `auto`, or `full`. There is no default: a manifest that omits it is invalid. `ask` leaves every prompt to the agent CLI's own defaults; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
+- `autonomy` — one of `ask`, `auto`, or `full`; omitted defaults to `ask`. `ask` leaves every prompt to the agent CLI's own defaults, and is what the area's approval indicator shows you waiting on; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
 - `mcps` — optional list of MCP server ids this workspace enables. Each id is either one of the shipped catalogue entries below or a key from your own mcps.yaml `servers:` map; an mcps.yaml entry can also replace a shipped entry of the same id.
 - `skills` — optional list of installed skill slugs to render into this workspace's `.claude/skills/` and `.agents/skills/`, on top of whatever `.shared/skills/` already merges in. Slugs carry the installed `hive-` prefix (`hive-http-api`, not `http-api`) — the same names `.shared/skills/<slug>/` directories use. A slug declared here wins over a `.shared/` skill of the same name.
 

@@ -1,6 +1,6 @@
 # 0061 — A workspace declares its own authority
 
-- **Status:** accepted
+- **Status:** accepted; [ADR 0063](0063-agent-workspace-sessions-are-tmux-sessions.md) landed the M2 indicator point 6 made a hard dependency of shipping `ask` as a real default, and moved sessions onto tmux in the same change — a session (and a `full`-autonomy agent inside it) now outlives `App.Close`, so this ADR's authority ceiling applies for as long as the tmux session survives, not just for one Hive run
 - **Date:** 2026-08-03
 
 ## Context

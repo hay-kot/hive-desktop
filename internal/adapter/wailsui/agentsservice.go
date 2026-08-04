@@ -9,18 +9,18 @@ import (
 )
 
 // AgentsTransport is what the Agents area needs that the core does not hold:
-// the per-run bearer token and the path its PTY stream is mounted at. Both are
-// composed in main.go and handed here (ADR 0036). It shares the terminal's
-// token and stream because a workspace session rides the same ptyterm data
-// plane a pop-up terminal does (ADR 0060, ADR 0061).
+// the per-run bearer token and the path its tmux stream is mounted at. Both
+// are composed in main.go and handed here (ADR 0036). It shares the terminal
+// surface's token and stream because a workspace session is a tmux session
+// too, just not a hive one (ADR 0063).
 type AgentsTransport struct {
 	Token      string
 	StreamPath string
 }
 
-// AgentsAvailability gates the Agents area. Unlike terminal mode it does not
-// depend on tmux — ptyterm's own build/platform support is the axis — so
-// Available answers the same question PopupTerminalAvailability does.
+// AgentsAvailability gates the Agents area. Like terminal mode, it depends on
+// tmux — a session is a tmux session since ADR 0063 — so Available answers
+// the same question TerminalService's does.
 type AgentsAvailability struct {
 	Available bool   `json:"available"`
 	Reason    string `json:"reason"`

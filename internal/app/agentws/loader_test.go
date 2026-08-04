@@ -100,6 +100,16 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 	assert.Equal(t, "homeassistant", w.Dir)
 }
 
+// TestAutonomyDefaultsToAsk asserts hc-ou4o02zx §4: a manifest that omits
+// autonomy loads as AutonomyAsk rather than failing.
+func TestAutonomyDefaultsToAsk(t *testing.T) {
+	t.Parallel()
+
+	w, err := parseWorkspace([]byte("version: 1\nname: X\nagent: claude\n"))
+	require.NoError(t, err)
+	assert.Equal(t, AutonomyAsk, w.Autonomy)
+}
+
 func TestLoadWorkspaceMissingFileWrapsNotExist(t *testing.T) {
 	t.Parallel()
 

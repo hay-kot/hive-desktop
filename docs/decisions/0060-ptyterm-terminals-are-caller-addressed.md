@@ -1,6 +1,6 @@
 # 0060 — `ptyterm` terminals are caller-addressed and concurrency-capped
 
-- **Status:** accepted
+- **Status:** accepted; [ADR 0063](0063-agent-workspace-sessions-are-tmux-sessions.md) moved agent workspace sessions off `ptyterm` onto tmux — the caller-addressing and cap this ADR describes now govern the pop-up alone, and the cap counts live `agentws-*` tmux sessions instead of a `ptyterm.Manager` set
 - **Date:** 2026-08-03
 
 ## Context

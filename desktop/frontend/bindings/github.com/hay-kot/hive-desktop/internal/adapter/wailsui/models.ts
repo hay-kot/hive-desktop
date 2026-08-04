@@ -6,9 +6,9 @@
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
 /**
- * AgentsAvailability gates the Agents area. Unlike terminal mode it does not
- * depend on tmux — ptyterm's own build/platform support is the axis — so
- * Available answers the same question PopupTerminalAvailability does.
+ * AgentsAvailability gates the Agents area. Like terminal mode, it depends on
+ * tmux — a session is a tmux session since ADR 0063 — so Available answers
+ * the same question TerminalService's does.
  */
 export interface AgentsAvailability {
     "available": boolean;

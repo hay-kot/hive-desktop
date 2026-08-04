@@ -154,19 +154,24 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: resolves the workspace's agent, autonomy posture and MCP wiring into a command line and opens it on a Hive-owned PTY. cols/rows of 0x0 open at the terminal's own default. The data plane is the ptyterm stream at " + PTYStreamPath + ", outside this operations table.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: resolves the workspace's agent, autonomy posture and MCP wiring into a command line, creates a detached tmux session named agentws-<id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
 			Request: agentSessionStartRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionStart,
-			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"}),
+			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resume", Summary: "Reattach a session's live terminal if it still has one, or relaunch it — resuming the agent's own conversation when it has a resume form (resumeAttempted), and starting a fresh one with a notice when it does not.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resume", Summary: "Reattach a session's live tmux session if it still has one, or relaunch it — resuming the agent's own conversation when it has a resume form (resumeAttempted), and starting a fresh one with a notice when it does not.",
 			Request: agentSessionResumeRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionResume,
-			Errors: agentErrors("no such session, or its workspace is gone", ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"}),
+			Errors: agentErrors("no such session, or its workspace is gone", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/close", Summary: "End a session's live terminal and report whether there was one to close. The session record is untouched, so it still lists afterward.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/close", Summary: "End a session's live tmux session and report whether there was one to close. The session record is untouched, so it still lists afterward.",
 			Request: agentSessionIDRequest{}, Response: agentSessionCloseResponse{}, Handler: ctrl.AgentSessionClose,
 			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/activity", Summary: "Classify each of a workspace's live sessions from its captured tmux pane: ready, active, or approval — approval is the highest-urgency state. A session with no live tmux session is omitted.",
+			Request: agentSessionActivityRequest{}, Response: agentSessionActivityResponse{}, Handler: ctrl.AgentSessionActivity,
+			Errors: agentErrors(""),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/delete", Summary: "End any live terminal and delete a session's record.",

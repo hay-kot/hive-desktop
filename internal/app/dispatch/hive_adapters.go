@@ -10,8 +10,36 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/hive"
 )
+
+// AgentActivityStatus is this app's own vocabulary for a captured tmux pane's
+// detected state, projected from hive's vendored terminal.Status at this seam
+// so no app signature carries a vendored type (Bounded Context,
+// architecture.md). Values match terminal.Status's own strings.
+type AgentActivityStatus string
+
+const (
+	// AgentActivityReady reports an input prompt: the agent is idle.
+	AgentActivityReady AgentActivityStatus = AgentActivityStatus(terminal.StatusReady)
+	// AgentActivityActive reports a busy indicator (spinner, "esc to interrupt").
+	AgentActivityActive AgentActivityStatus = AgentActivityStatus(terminal.StatusActive)
+	// AgentActivityApproval reports a permission prompt blocking on the user —
+	// the highest-urgency state, per terminal.Detector's own IsBusy-wins,
+	// NeedsApproval-before-IsReady precedence.
+	AgentActivityApproval AgentActivityStatus = AgentActivityStatus(terminal.StatusApproval)
+)
+
+// ClassifyAgentScreen classifies a captured tmux pane's screen for the named
+// agent CLI using terminal.NewDetector(agent).DetectStatus — the same
+// capture-pane -> Detector path SessionStatuses/FetchBatch below already runs
+// for hive's own sessions, so this is the input the detector was tuned
+// against rather than a raw PTY ring tail (hc-alqns469 spiked the latter and
+// found it does not classify).
+func ClassifyAgentScreen(agent, screen string) AgentActivityStatus {
+	return AgentActivityStatus(terminal.NewDetector(agent).DetectStatus(screen))
+}
 
 // ErrDuplicateSessionName is the seam-local translation of Hive's
 // session.ErrDuplicateName, so a core service can classify a name collision

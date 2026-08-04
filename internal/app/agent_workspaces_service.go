@@ -11,29 +11,48 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
-	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
-// earlyExitWindow is how long a just-launched terminal gets to report that
-// its process already exited before StartSession/ResumeSession report it as
-// live. ptyterm always runs the resolved line through a login shell
-// (ptyterm.Manager.argv), so a command that is not on PATH is not an exec
-// failure this service can see directly: the shell starts, prints "command
-// not found", and exits 127 -- usually within a few milliseconds, well
-// inside this window even accounting for a slow CI machine sourcing shell
-// startup files. A real agent CLI never exits this fast, so the window never
-// misclassifies a live session as dead.
-const earlyExitWindow = 500 * time.Millisecond
+const (
+	// agentSessionPrefix names every tmux session an agent workspace session
+	// owns (sessionName below). It is also the service-level concurrency
+	// cap's counting key: the cap moved here from ptyterm's own
+	// maxConcurrentSessions when sessions stopped being ptyterm terminals.
+	agentSessionPrefix = "agentws-"
+	// maxConcurrentAgentSessions bounds live agentws-* tmux sessions across
+	// every workspace. Each session is an agent CLI spawning its own copy of
+	// every enabled MCP server, so with no idle reaping and no cap this is a
+	// fork bomb with a progress bar (ADR 0060 point 4, carried over from
+	// ptyterm to this service now that sessions outlive the app on purpose).
+	maxConcurrentAgentSessions = 8
+
+	// earlyExitWindow is how long a just-created tmux session gets to report
+	// that its initial command already exited before StartSession/
+	// ResumeSession report it as live. tmux ends a session when its initial
+	// pane's command exits (remain-on-exit is not set), so a command not on
+	// PATH or an agent CLI that fails to start reads as the session simply
+	// vanishing -- usually within milliseconds, well inside this window even
+	// accounting for a slow CI machine sourcing shell startup files. A real
+	// agent CLI never exits this fast, so the window never misclassifies a
+	// live session as dead.
+	earlyExitWindow       = 500 * time.Millisecond
+	earlyExitPollInterval = 25 * time.Millisecond
+)
 
 // AgentWorkspacesService opens agent workspaces and drives the sessions run
-// inside them: an agent CLI on a Hive-owned PTY, resolved through the launch
-// table in agentws (autonomy flags, MCP wiring, session/resume args) and
-// addressed by a durable store.AgentWorkspaceSession record.
+// inside them: an agent CLI in a tmux session named agentws-<record id>,
+// resolved through the launch table in agentws (autonomy flags, MCP wiring,
+// session/resume args) and addressed by a durable store.AgentWorkspaceSession
+// record. Sessions are tmux's, not this process's -- they outlive App.Close
+// by design, which is what makes reopening a codex session (no resume form)
+// a real reattach instead of a fresh relaunch.
 type AgentWorkspacesService struct {
 	store     *agentws.Store
-	terminals *ptyterm.Manager
+	terminals *tmuxcc.Manager
 	db        *store.DB
 	skills    *SkillsService
 	// commands is agentCommands' result (app.go): hive's configured agent
@@ -47,7 +66,7 @@ type AgentWorkspacesService struct {
 	rootProblem string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *ptyterm.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string) *AgentWorkspacesService {
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string) *AgentWorkspacesService {
 	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem}
 }
 
@@ -75,16 +94,34 @@ type SessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
-	// TerminalID addresses the live PTY, empty when nothing is running.
+	// TerminalID is the tmux session name (agentws-<id>) a live session rides,
+	// addressed on the same tmux stream terminal mode uses (ADR 0036); empty
+	// when nothing is running.
 	TerminalID string `json:"terminalId"`
+	// WindowID is TerminalID's active tmux window at the moment this session
+	// was attached -- the tmux wire frames output and input by window id,
+	// unlike the flat ptyterm wire sessions rode before. It is set only by a
+	// call that attaches (StartSession, ResumeSession); a listing read
+	// (Sessions, Open) leaves it empty even for a live session, since nothing
+	// there attaches.
+	WindowID string `json:"windowId"`
 	// ResumeAttempted is false when this launch could not even try to resume —
 	// the agent has no resume form. It is deliberately not named Resumed: Hive
-	// sees only PTY bytes, so a pruned agent history would report a successful
-	// resume while the agent prints its own error in the pane, which is the
-	// "pretending it was" spec §6.2 forbids.
+	// sees only pane content, so a pruned agent history would report a
+	// successful resume while the agent prints its own error in the pane,
+	// which is the "pretending it was" spec §6.2 forbids.
 	ResumeAttempted bool `json:"resumeAttempted"`
 	// Notice carries a fresh-launch, unbounded-MCP or missing-MCP explanation.
 	Notice string `json:"notice"`
+}
+
+// SessionActivityItem is one live session's detected activity, keyed by
+// session id so the caller does not have to re-derive a tmux session name.
+type SessionActivityItem struct {
+	ID int64 `json:"id"`
+	// Status is one of dispatch.AgentActivityStatus's values: ready, active,
+	// or approval -- approval is the highest-urgency state.
+	Status string `json:"status"`
 }
 
 // StartSession is one new session's launch.
@@ -102,9 +139,12 @@ type OpenResult struct {
 	MissingMCPs []string
 }
 
-// Available reports build and platform support for the PTYs sessions run on.
+// Available reports tmux availability -- the same axis terminal mode reports
+// (TerminalsService.Available), since a session is now a tmux session rather
+// than a ptyterm one.
 func (s *AgentWorkspacesService) Available(ctx context.Context) error {
-	return popupError(s.terminals.Available(ctx), "agent workspaces need macOS or Linux and a desktop build.")
+	return terminalError(s.terminals.Available(ctx),
+		"agent workspaces need tmux 3.2 or newer. Hive searches PATH and the usual install prefixes; set paths.tmux in settings.yaml if yours is elsewhere.")
 }
 
 // Root returns the configured workspace root.
@@ -173,7 +213,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	}
 	sessions := make([]SessionView, 0, len(records))
 	for _, rec := range records {
-		sessions = append(sessions, s.sessionView(rec))
+		sessions = append(sessions, s.sessionView(ctx, rec))
 	}
 
 	view := workspaceView(st)
@@ -198,9 +238,36 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	}
 	views := make([]SessionView, 0, len(records))
 	for _, rec := range records {
-		views = append(views, s.sessionView(rec))
+		views = append(views, s.sessionView(ctx, rec))
 	}
 	return views, nil
+}
+
+// SessionActivity captures each of workspace dir's live sessions' tmux pane
+// and classifies it with dispatch.ClassifyAgentScreen: capture-pane through
+// terminal.Detector, the same path SessionStatuses/FetchBatch already run for
+// hive's own sessions (hc-ou4o02zx) and the input the detector was tuned
+// against. A session with no live tmux session is omitted rather than
+// reported dead -- a row's TerminalID already carries that.
+func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string) ([]SessionActivityItem, error) {
+	if !validWorkspaceDir(dir) {
+		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
+	}
+	items := make([]SessionActivityItem, 0, len(records))
+	for _, rec := range records {
+		screen, err := s.terminals.CapturePane(ctx, sessionName(rec.ID))
+		if err != nil {
+			// Not running, or a transient tmux error -- omitted rather than
+			// reported, the same tolerance sessionView extends to liveness.
+			continue
+		}
+		items = append(items, SessionActivityItem{ID: rec.ID, Status: string(dispatch.ClassifyAgentScreen(rec.Agent, screen))})
+	}
+	return items, nil
 }
 
 // StartSession launches a new, named session in workspace.
@@ -238,9 +305,11 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 	return s.launchTerminal(ctx, rec, workspaceDir, line, req.Cols, req.Rows, false, true)
 }
 
-// ResumeSession reattaches a session's live terminal if it still has one, or
-// relaunches it — resuming the agent's own conversation when it has a resume
-// form, and saying so when it does not (spec §6.2).
+// ResumeSession reattaches a session's live tmux session if it still has one
+// -- the persistence win: it works identically for codex, which has no
+// resume form of its own, because the process itself never stopped -- or
+// relaunches it, resuming the agent's own conversation when it has a resume
+// form and saying so when it does not (spec §6.2).
 func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
 	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
 	if err != nil {
@@ -250,14 +319,22 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		return SessionView{}, Errorf(KindNotFound, "session %d not found", id)
 	}
 
-	termID := terminalID(rec.ID)
-	if _, err := s.terminals.Get(termID); err == nil {
+	name := sessionName(rec.ID)
+	alive, err := s.terminals.HasSession(ctx, name)
+	if err != nil {
+		return SessionView{}, terminalError(err, "checking session %q", rec.Name)
+	}
+	if alive {
+		windowID, err := s.attach(ctx, name, cols, rows)
+		if err != nil {
+			return SessionView{}, err
+		}
 		if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
 			return SessionView{}, Wrap(err, KindInternal, "recording session %q as opened", rec.Name)
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-			LastOpenedAt: rec.LastOpenedAt, TerminalID: termID,
+			LastOpenedAt: rec.LastOpenedAt, TerminalID: name, WindowID: windowID,
 			ResumeAttempted: agentws.SupportsResume(rec.Agent),
 		}, nil
 	}
@@ -295,8 +372,8 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	return s.launchTerminal(ctx, rec, workspaceDir, line, cols, rows, true, resumeAttempted)
 }
 
-// CloseSession ends a session's live terminal and reports whether there was
-// one running. The record is untouched, so it still lists afterward.
+// CloseSession ends a session's live tmux session and reports whether there
+// was one running. The record is untouched, so it still lists afterward.
 func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bool, error) {
 	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
 	if err != nil {
@@ -305,17 +382,17 @@ func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bo
 	if !ok {
 		return false, Errorf(KindNotFound, "session %d not found", id)
 	}
-	closed, err := s.terminals.Close(terminalID(rec.ID))
+	closed, err := s.terminals.KillSession(ctx, sessionName(rec.ID))
 	if err != nil {
-		return false, popupError(err, "closing session %q", rec.Name)
+		return false, terminalError(err, "closing session %q", rec.Name)
 	}
 	return closed, nil
 }
 
-// DeleteSession ends any live terminal, then removes the record. The
-// terminal is closed first: the terminal id derives from the record id, so
-// deleting the record around a live PTY would orphan a running agent no UI
-// could address again until the app closes.
+// DeleteSession ends any live tmux session, then removes the record. The
+// session is killed first: its name derives from the record id, so deleting
+// the record around a live one would orphan a running agent no UI could
+// address again until it happened to be found by name.
 func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) error {
 	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
 	if err != nil {
@@ -324,8 +401,8 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 	if !ok {
 		return Errorf(KindNotFound, "session %d not found", id)
 	}
-	if _, err := s.terminals.Close(terminalID(rec.ID)); err != nil {
-		return popupError(err, "closing session %q", rec.Name)
+	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
+		return terminalError(err, "closing session %q", rec.Name)
 	}
 	if err := s.db.DeleteAgentWorkspaceSession(ctx, id); err != nil {
 		return Wrap(err, KindInternal, "deleting session %q", rec.Name)
@@ -333,7 +410,7 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 	return nil
 }
 
-// DeleteWorkspace ends every live terminal the workspace's sessions hold,
+// DeleteWorkspace ends every live tmux session the workspace's sessions hold,
 // then removes the session records — never the directory, which is the
 // user's and possibly under version control (spec §14).
 func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string) error {
@@ -345,8 +422,8 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 		return Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
 	}
 	for _, rec := range records {
-		if _, err := s.terminals.Close(terminalID(rec.ID)); err != nil {
-			return popupError(err, "closing session %q", rec.Name)
+		if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
+			return terminalError(err, "closing session %q", rec.Name)
 		}
 	}
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
@@ -355,12 +432,23 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	return nil
 }
 
-// launchTerminal opens the terminal for rec, gives it earlyExitWindow to
-// report that it already died, and assembles the notice the UI shows.
+// launchTerminal creates rec's tmux session fresh and attaches to it, gives it
+// earlyExitWindow to report that it already died, and assembles the notice
+// the UI shows. Both StartSession and ResumeSession's relaunch branch always
+// want a fresh session here — ResumeSession's still-alive branch attaches
+// directly instead, without going through this method.
 func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, dir, line string, cols, rows int, resumeRequested, resumeAttempted bool) (SessionView, error) {
-	id := terminalID(rec.ID)
-	if _, err := s.terminals.Open(ctx, ptyterm.Spec{ID: id, Dir: dir, Command: line, Cols: cols, Rows: rows}); err != nil {
-		return SessionView{}, popupError(err, "launching session %q", rec.Name)
+	count, err := s.liveSessionCount(ctx)
+	if err != nil {
+		return SessionView{}, terminalError(err, "counting live agent sessions")
+	}
+	if count >= maxConcurrentAgentSessions {
+		return SessionView{}, Errorf(KindConflict, "too many agent sessions are running (%d max); close one first", maxConcurrentAgentSessions)
+	}
+
+	name := sessionName(rec.ID)
+	if err := s.terminals.NewSession(ctx, name, dir, line); err != nil {
+		return SessionView{}, terminalError(err, "launching session %q", rec.Name)
 	}
 
 	if err := s.db.TouchAgentWorkspaceSession(ctx, rec.ID, time.Now().UnixMilli()); err != nil {
@@ -369,14 +457,20 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 
 	view := SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, TerminalID: id, ResumeAttempted: resumeAttempted,
+		LastOpenedAt: rec.LastOpenedAt, ResumeAttempted: resumeAttempted,
 	}
 
-	if exited, reason := s.awaitEarlyExit(id); exited {
-		view.TerminalID = ""
-		view.Notice = fmt.Sprintf("the session exited immediately: %s", reason)
+	if s.awaitEarlyExit(ctx, name) {
+		view.Notice = "the session exited immediately; check that the agent CLI is installed and on PATH"
 		return view, nil
 	}
+
+	windowID, err := s.attach(ctx, name, cols, rows)
+	if err != nil {
+		return SessionView{}, err
+	}
+	view.TerminalID = name
+	view.WindowID = windowID
 
 	var notices []string
 	if resumeRequested && !resumeAttempted {
@@ -389,33 +483,60 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	return view, nil
 }
 
-// awaitEarlyExit gives a just-opened terminal earlyExitWindow to report that
-// its process already exited, so a caller never reports a live session over
-// a terminal that is already gone.
-func (s *AgentWorkspacesService) awaitEarlyExit(id string) (exited bool, reason string) {
-	events, unsubscribe, err := s.terminals.Subscribe(id)
+// attach opens the control client for name and returns its active window's
+// id, wrapped in this service's error classification.
+func (s *AgentWorkspacesService) attach(ctx context.Context, name string, cols, rows int) (string, error) {
+	windows, err := s.terminals.Attach(ctx, name, cols, rows)
 	if err != nil {
-		// ptyterm forgets a terminal the instant its reader drains after
-		// publishing Exited (manager.go's forget), so losing this race is
-		// itself proof the process exited before this call could subscribe.
-		return true, "exited"
+		return "", terminalError(err, "attaching to session %q", name)
 	}
-	defer unsubscribe()
+	return firstActiveWindowID(windows), nil
+}
 
-	deadline := time.After(earlyExitWindow)
-	for {
-		select {
-		case ev, ok := <-events:
-			if !ok {
-				return true, "exited"
-			}
-			if e, isExit := ev.(ptyterm.Exited); isExit {
-				return true, e.Reason
-			}
-		case <-deadline:
-			return false, ""
+// firstActiveWindowID returns windows' active entry, or the first when none is
+// marked active, or "" when there are none. An agent workspace session's own
+// launch line never opens more than one window; a second one only ever comes
+// from the agent itself running tmux new-window inside its own session, which
+// this still addresses sensibly rather than erroring.
+func firstActiveWindowID(windows []tmuxcc.Window) string {
+	for _, w := range windows {
+		if w.Active {
+			return w.ID
 		}
 	}
+	if len(windows) > 0 {
+		return windows[0].ID
+	}
+	return ""
+}
+
+// awaitEarlyExit gives a just-created tmux session earlyExitWindow to exit on
+// its own. Unlike ptyterm's Exited event this carries no reason: tmux simply
+// stops answering has-session once its initial pane's command has ended.
+func (s *AgentWorkspacesService) awaitEarlyExit(ctx context.Context, name string) bool {
+	deadline := time.Now().Add(earlyExitWindow)
+	for {
+		exists, err := s.terminals.HasSession(ctx, name)
+		if err != nil || !exists {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(earlyExitPollInterval)
+	}
+}
+
+// liveSessionCount counts live agentws-* tmux sessions across every
+// workspace -- the service-level concurrency cap, since a live session is a
+// tmux fact rather than something this service's own records track (a
+// session record outlives the app; a tmux session need not).
+func (s *AgentWorkspacesService) liveSessionCount(ctx context.Context) (int, error) {
+	names, err := s.terminals.SessionNames(ctx, agentSessionPrefix)
+	if err != nil {
+		return 0, err
+	}
+	return len(names), nil
 }
 
 // resolveServers resolves a workspace's declared MCP ids through the store's
@@ -469,13 +590,13 @@ func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceS
 }
 
 // sessionView reports a session record's current, read-only state -- unlike
-// launchTerminal's view, this never launches anything, so ResumeAttempted and
-// Notice stay zero-valued.
-func (s *AgentWorkspacesService) sessionView(rec store.AgentWorkspaceSession) SessionView {
-	id := terminalID(rec.ID)
+// launchTerminal's view, this never launches or attaches anything, so
+// WindowID, ResumeAttempted and Notice stay zero-valued.
+func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec store.AgentWorkspaceSession) SessionView {
+	name := sessionName(rec.ID)
 	live := ""
-	if _, err := s.terminals.Get(id); err == nil {
-		live = id
+	if alive, err := s.terminals.HasSession(ctx, name); err == nil && alive {
+		live = name
 	}
 	return SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
@@ -509,11 +630,10 @@ func resolvedFor(ws agentws.Workspace, absoluteDir string) agentws.Workspace {
 	return ws
 }
 
-// terminalID derives a session's ptyterm id from its record id, so a resume
-// within one run reattaches rather than spawning beside itself, and so
-// ptyterm's own minted namespace ("t<N>") is never touched.
-func terminalID(recordID int64) string {
-	return fmt.Sprintf("agentws-%d", recordID)
+// sessionName derives a session's tmux session name from its record id, so a
+// resume within one run reattaches rather than spawning beside itself.
+func sessionName(recordID int64) string {
+	return fmt.Sprintf("%s%d", agentSessionPrefix, recordID)
 }
 
 // validWorkspaceDir reports whether dir resolves to a direct child of the

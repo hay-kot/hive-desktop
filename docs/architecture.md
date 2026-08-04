@@ -77,12 +77,14 @@ individual choices; this document describes the shape everything fits into.
 >
 > Agent workspaces are a third driving surface, behind the same terminal
 > transport rather than a new one: `internal/app/agentws` owns a
-> generated-and-disposable on-disk root (ADR 0062) and drives sessions on the
-> same `ptyterm` backend the pop-up uses (ADR 0060); its control plane rides
-> `httpapi`'s `/api/terminal/` prefix and authenticates per handler because it
-> spawns processes too. `internal/app/mcpcatalog` is the shipped MCP server
-> registry it wires workspaces against. The whole area ships dark behind
-> `experimental.agents` (ADR 0061). See
+> generated-and-disposable on-disk root (ADR 0062) and drives sessions as tmux
+> sessions named `agentws-<record id>` — not hive ones, but riding the same
+> `tmuxcc.Manager` and tmux stream a hive session's terminal does, which is
+> what lets a session survive an app restart (ADR 0063); its control plane
+> rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
+> because it spawns processes too. `internal/app/mcpcatalog` is the shipped
+> MCP server registry it wires workspaces against. The whole area ships dark
+> behind `experimental.agents` (ADR 0061). See
 > [Agent workspaces](#agent-workspaces).
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
@@ -1032,15 +1034,16 @@ device pixels, so neither can tune a cell onto a cleaner boundary and a
 the addon majors are pinned to the xterm core major, since they reach into
 `Terminal._core` for private services.
 
-#### Pop-up and agent-workspace terminals
+#### Pop-up terminals
 
 `internal/app/ptyterm` is the *other* terminal backend, and the rule for which
-one serves a request is the session: **a terminal that belongs to a hive session
-is tmux's; a terminal that belongs to a moment — or to an agent workspace's own
-durable session record — is this one's** (ADR 0048, ADR 0060). It owns a PTY
-and the process on the far end directly — no multiplexer, no discovered
-binary, no negotiation — and every terminal it opens dies with the app,
-whichever caller opened it.
+one serves a request is the session: **a terminal that belongs to a hive
+session, or to an agent workspace's own durable session record, is tmux's; a
+terminal that belongs to a moment is this one's** (ADR 0048; ADR 0063 moved
+agent workspace sessions onto tmux, so the pop-up is `ptyterm`'s only caller
+now). It owns a PTY and the process on the far end directly — no multiplexer,
+no discovered binary, no negotiation — and every terminal it opens dies with
+the app.
 
 Three rules govern it, and each is a consequence of that:
 
@@ -1048,15 +1051,14 @@ Three rules govern it, and each is a consequence of that:
   than the rule.** `Open` mints an id (never a slug) when the caller supplies
   none — the pop-up always takes this path, since nothing about it wants to be
   addressable. A caller that already knows the id it wants to reattach to may
-  supply its own instead; `AgentWorkspacesService` does this with the session
-  id its durable record holds, so reopening a workspace session reattaches to
-  the terminal it started rather than to whatever the mint counter is on next.
-  A caller-supplied id collides with `ErrIDInUse`, not a second terminal
-  (ADR 0060).
-- **The manager caps concurrent terminals at `maxConcurrentSessions` (8),
-  across every caller.** Pop-up and agent-workspace terminals share one
-  budget; the terminal past the cap returns `ErrTooManyTerminals` and spawns
-  no process, and closing one makes room for the next (ADR 0060).
+  supply its own instead (`Spec.ID`); a caller-supplied id collides with
+  `ErrIDInUse`, not a second terminal (ADR 0060) — no caller currently
+  exercises this since the pop-up is the one caller left and always mints.
+- **The manager caps concurrent terminals at `maxConcurrentSessions` (8).**
+  The terminal past the cap returns `ErrTooManyTerminals` and spawns no
+  process, and closing one makes room for the next (ADR 0060). Agent workspace
+  sessions have their own, separate cap now — a count of live `agentws-*` tmux
+  sessions (ADR 0063) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves
   launcher cwd → session checkout → explicit path → home; the command runs
   through a login shell so the user's own PATH and aliases resolve it (ADR
@@ -1078,13 +1080,16 @@ Three rules govern it, and each is a consequence of that:
   fallback grid followed by a SIGWINCH reflow — the pop-up appearing small and
   snapping wider. A pane with no box to measure sends nothing and takes the
   server's default; it must never send a placeholder.
-- **`/api/terminal/popup/…` and `/api/terminal/agents/…` are each their own path
-  space under the terminal prefix**, covered by that prefix's bearer token and
-  CORS policy for the same reason (ADR 0036): both spawn agent CLIs or shells,
-  which is arbitrary command execution. They share one data plane —
-  `/api/terminal/pty/stream`, renamed from `/api/terminal/popup/stream` when it
-  took on a second caller (ADR 0060) — carrying one terminal per socket, so its
-  frames carry no window or pane ids and are not the tmux stream's.
+- **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
+  covered by that prefix's bearer token and CORS policy for the same reason
+  (ADR 0036): a pop-up spawns a shell, which is arbitrary command execution.
+  Its data plane is `/api/terminal/pty/stream`, carrying one terminal per
+  socket, so its frames carry no window or pane ids and are not the tmux
+  stream's. `/api/terminal/agents/…` sits under the same prefix for the same
+  reason but is control-plane only since ADR 0063: an agent workspace
+  session's data plane is the tmux stream (`/api/terminal/stream`), the same
+  one a hive session's terminal rides, addressed by the tmux session name
+  `AgentWorkspacesService` gives it rather than a hive slug.
 - **Hiding the panel keeps the shell; exiting the shell takes the panel.** The
   toggle opens a terminal outright, returns to a running one, and hands focus
   back where it came from on the way out. Anything that adds a step between the
@@ -1150,8 +1155,9 @@ written only when its bytes differ — the write-only-if-different rule is what
 makes byte-determinism observable (nothing to re-sync when nothing changed)
 and what makes concurrent generation from two machines safe (ADR 0062).
 
-A workspace declares `autonomy: ask | auto | full` — required and explicit in
-M1, no default — and `agentws`'s launch table (`launch.go`) maps
+A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
+`ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
+`agentws`'s launch table (`launch.go`) maps
 `(agent, autonomy)` to that agent's own CLI flags; an agent or posture with no
 table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). Those
 flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at

@@ -107,8 +107,9 @@ Autonomy is "ask": nothing here runs unprompted.
 `
 
 // SeedHiveWorkspace writes <root>/hive/: an agent-workspace.yaml with
-// autonomy: ask (explicit — M1 requires it) and the hive-http-api skill, plus
-// an AGENTS.md explaining what the workspace is for. It gives a user an agent
+// autonomy: ask (explicit, though it is also the default since hc-ou4o02zx
+// §4) and the hive-http-api skill, plus an AGENTS.md explaining what the
+// workspace is for. It gives a user an agent
 // surface for configuration and feed curation without authoring YAML first —
 // the orchestrator case from spec §1, working on first launch.
 //

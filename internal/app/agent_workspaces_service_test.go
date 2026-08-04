@@ -1,37 +1,52 @@
 package app
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
-	"github.com/hay-kot/hive-desktop/internal/app/ptyterm"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
 
 // newTestAgentWorkspacesService builds a service over root with a real
-// ptyterm.Manager (a plain /bin/sh, matching ptyterm's own tests), a real
-// sqlite-backed store.DB, and a real SkillsService (newTestSkillsService).
-// commands stands in for agentCommands(hiveCfg) — the caller picks which
-// agent keys are "configured" and what they run.
+// tmuxcc.Manager pointed at a private tmux server (requireTmux/privateTmux,
+// terminals_service_test.go — a session's liveness is a real tmux fact, and a
+// faked one would only prove the fake), a real sqlite-backed store.DB, and a
+// real SkillsService (newTestSkillsService). commands stands in for
+// agentCommands(hiveCfg) — the caller picks which agent keys are "configured"
+// and what they run.
 func newTestAgentWorkspacesService(t *testing.T, root string, commands map[string]string) *AgentWorkspacesService {
 	t.Helper()
+	privateTmux(t)
 
 	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	manager := ptyterm.NewManager(ptyterm.ManagerOptions{Shell: []string{"/bin/sh"}})
-	t.Cleanup(func() { _ = manager.Stop(t.Context()) })
+	manager := tmuxcc.NewManager(t.Context(), tmuxcc.ManagerOptions{Logger: zerolog.Nop()})
+	t.Cleanup(func() { _ = manager.Stop(context.WithoutCancel(t.Context())) })
 
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
 	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "")
+}
+
+// liveAgentSessionCount is the test-side equivalent of the service's own
+// liveSessionCount, used to assert how many agentws-* tmux sessions a call
+// left running.
+func liveAgentSessionCount(t *testing.T, svc *AgentWorkspacesService) int {
+	t.Helper()
+	names, err := svc.terminals.SessionNames(t.Context(), agentSessionPrefix)
+	require.NoError(t, err)
+	return len(names)
 }
 
 func writeAgentWorkspaceManifest(t *testing.T, root, dir, body string) string {
@@ -162,7 +177,7 @@ func TestResumeReattachesTheSameTerminal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, started.TerminalID, resumed.TerminalID, "a resume within one run reattaches rather than spawning beside it")
 	assert.True(t, resumed.ResumeAttempted)
-	assert.Len(t, svc.terminals.List(), 1, "reattaching must not spawn a second terminal")
+	assert.Equal(t, 1, liveAgentSessionCount(t, svc), "reattaching must not spawn a second terminal")
 }
 
 func TestCloseSessionEndsTheTerminalAndKeepsTheRecord(t *testing.T) {
@@ -196,19 +211,19 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 	s2, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s2", Cols: 80, Rows: 24})
 	require.NoError(t, err)
-	require.Len(t, svc.terminals.List(), 2)
+	require.Equal(t, 2, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
 	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
 	require.NoError(t, err)
 	assert.False(t, ok, "the record is gone too")
-	assert.Len(t, svc.terminals.List(), 1)
+	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 	_, ok, err = svc.db.GetAgentWorkspaceSession(t.Context(), s2.ID)
 	require.NoError(t, err)
 	assert.False(t, ok)
-	assert.Empty(t, svc.terminals.List(), "every live terminal the workspace held is gone")
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "every live terminal the workspace held is gone")
 }
 
 func TestStartSessionReportsAnImmediateExit(t *testing.T) {
@@ -221,7 +236,7 @@ func TestStartSessionReportsAnImmediateExit(t *testing.T) {
 	require.NoError(t, err, "a command not on PATH is a live shell that exits 127, not an exec error")
 	assert.Empty(t, started.TerminalID, "a dead terminal must not be reported as live")
 	assert.NotEmpty(t, started.Notice)
-	assert.Empty(t, svc.terminals.List(), "ptyterm has already forgotten the exited terminal")
+	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "tmux already ended the session when its command exited")
 }
 
 func TestLaunchRefusesAnUnknownAgent(t *testing.T) {

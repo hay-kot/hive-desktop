@@ -166,17 +166,21 @@ func main() {
 	popupTerminal := wailsui.PopupTerminalTransport{}
 	agents := wailsui.AgentsTransport{}
 	if terminalToken != "" {
+		// A workspace session rides this same tmux stream a hive session's
+		// terminal does — it is a tmux session too, just not a hive one
+		// (ADR 0063) — addressed by the agentws-<id> name AgentWorkspacesService
+		// gives it rather than a hive slug. There is no agent-specific stream.
 		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
+			agents = wailsui.AgentsTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 		}
 		// The ptyterm data plane. It carries one terminal per socket rather than a
 		// session's window set (ADR 0045), and is addressed by an id a caller may
-		// supply as well as one this process mints (ADR 0060). A workspace
-		// session rides this same mount — there is no agent-specific stream.
+		// supply as well as one this process mints (ADR 0060). Pop-ups only — an
+		// agent workspace session rides the tmux stream above since ADR 0063.
 		if path, handler := httpapi.PTYStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}
-			agents = wailsui.AgentsTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("ptyterm WebSocket stream mounted")
 		}
 	}

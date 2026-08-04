@@ -32,8 +32,10 @@ func TestAgentWireArraysAreNeverNull(t *testing.T) {
 	}
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"workspaces", testToken, struct{}{})
+	defer func() { _ = resp.Body.Close() }()
 	assertNoNullArrays(t, resp, "workspaces")
 
-	resp = h.post(t, AgentWorkspacesPathPrefix+"workspaces/open", testToken, map[string]string{"dir": "hive"})
-	assertNoNullArrays(t, resp, "sessions", "missingMcps")
+	resp2 := h.post(t, AgentWorkspacesPathPrefix+"workspaces/open", testToken, map[string]string{"dir": "hive"})
+	defer func() { _ = resp2.Body.Close() }()
+	assertNoNullArrays(t, resp2, "sessions", "missingMcps")
 }
