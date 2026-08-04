@@ -101,6 +101,26 @@ export interface BuildInfo {
 }
 
 /**
+ * EditorChoice is one editor the selector offers: its CLI command, display
+ * title, and whether the command resolves on the subprocess PATH right now.
+ */
+export interface EditorChoice {
+    "command": string;
+    "title": string;
+    "found": boolean;
+}
+
+/**
+ * EditorSettings is the configured "open in editor" command plus the detected
+ * choices the selector offers. Command is empty when none is configured; it
+ * may name a command outside Choices when settings.yaml was authored by hand.
+ */
+export interface EditorSettings {
+    "command": string;
+    "choices": EditorChoice[] | null;
+}
+
+/**
  * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
  * is the effective persisted value, not the running one: the flag is read at
  * startup, so the frontend compares it against TerminalService.Enabled /

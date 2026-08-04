@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/ingest"
@@ -19,13 +20,16 @@ type SettingsService struct {
 	store    *settings.Store
 	producer *ingest.Producer
 	fetchers *ghsource.Fetchers
+	// lookPath resolves an editor command against the subprocess PATH
+	// (execenv.Resolver.LookPath); nil falls back to this process's own PATH.
+	lookPath func(context.Context, string) (string, error)
 }
 
 // newSettingsService builds the service. producer and fetchers are nil in
 // mock mode, where persistence still works and there is simply nothing live
 // to apply a change to.
-func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers) *SettingsService {
-	return &SettingsService{store: store, producer: producer, fetchers: fetchers}
+func newSettingsService(store *settings.Store, producer *ingest.Producer, fetchers *ghsource.Fetchers, lookPath func(context.Context, string) (string, error)) *SettingsService {
+	return &SettingsService{store: store, producer: producer, fetchers: fetchers, lookPath: lookPath}
 }
 
 // NewSettingsService builds a settings-only view of the core's settings
@@ -35,7 +39,7 @@ func newSettingsService(store *settings.Store, producer *ingest.Producer, fetche
 // needs, so it cannot wait for core.Settings to exist. Nothing built this way
 // calls SetGithub, so a nil producer and fetchers cost it nothing.
 func NewSettingsService(store *settings.Store) *SettingsService {
-	return newSettingsService(store, nil, nil)
+	return newSettingsService(store, nil, nil, nil)
 }
 
 // Keybindings returns the persisted shortcut overrides keyed by command id.
@@ -294,4 +298,34 @@ func (s *SettingsService) SetGithub(_ context.Context, in GithubSettings) error 
 		s.fetchers.SetSearchTTL(interval)
 	}
 	return nil
+}
+
+// Editor returns the configured editor command, or "" when none is set.
+func (s *SettingsService) Editor(context.Context) (string, error) {
+	cfg, err := s.store.Effective()
+	if err != nil {
+		return "", Wrap(err, KindInternal, "reading settings")
+	}
+	return cfg.Editor.Command, nil
+}
+
+// SetEditor persists the editor command. Empty clears the setting; anything
+// else must be a single word — a command name or path, never a command line —
+// the same rule agent commands follow (ADR 0061).
+func (s *SettingsService) SetEditor(_ context.Context, command string) error {
+	command = strings.TrimSpace(command)
+	if len(strings.Fields(command)) > 1 {
+		return Errorf(KindInvalid, "the editor command must be a single word, without flags")
+	}
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Editor.Command = command
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+// EditorChoices reports the known editor catalogue with each command resolved
+// against the subprocess PATH, for the Settings selector.
+func (s *SettingsService) EditorChoices(ctx context.Context) []EditorChoice {
+	return detectEditors(ctx, s.lookPath)
 }

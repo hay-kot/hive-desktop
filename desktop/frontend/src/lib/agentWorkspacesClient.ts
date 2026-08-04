@@ -32,6 +32,12 @@ export interface AgentWorkspace {
   notice: string
 }
 
+/** The configured "open in editor" target; an empty command means none is configured. */
+export interface AgentEditor {
+  command: string
+  title: string
+}
+
 export interface AgentWorkspacesPayload {
   root: string
   /** Non-empty when the configured root itself could not be created or opened. */
@@ -41,6 +47,7 @@ export interface AgentWorkspacesPayload {
   workspaces: AgentWorkspace[]
   /** The agent keys this build can launch — the workspace editor's choices. */
   agents: string[]
+  editor: AgentEditor
 }
 
 /** The manifest fields the in-app workspace editor writes. */
@@ -49,6 +56,23 @@ export interface WorkspaceEditRequest {
   name: string
   agent: string
   autonomy: string
+  mcps: string[]
+}
+
+/** One row of the merged MCP catalogue: shipped entries plus the user's mcps.yaml. */
+export interface MCPCatalogueEntry {
+  id: string
+  title: string
+  description: string
+  shipped: boolean
+  stability: string
+  /** The shipped id this user entry replaces, empty otherwise. */
+  shadows: string
+  transport: string
+  /** What the entry launches: the command line for stdio, the URL for http/sse. */
+  command: string
+  /** Why the entry will not work — a command that does not resolve on PATH. */
+  problem: string
 }
 
 /** One row of a workspace's session list. */
@@ -121,6 +145,15 @@ export interface AgentWorkspacesClient {
   createWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace>
   updateWorkspace(request: WorkspaceEditRequest): Promise<AgentWorkspace>
   deleteWorkspace(dir: string): Promise<void>
+  /** Launches the configured editor on the workspace directory, detached. */
+  openWorkspaceInEditor(dir: string): Promise<void>
+  /** Opens the workspace directory in the OS file manager. */
+  revealWorkspace(dir: string): Promise<void>
+  mcpCatalogue(): Promise<MCPCatalogueEntry[]>
+  /** Imports pasted MCP JSON into mcps.yaml; returns the added ids and the refreshed catalogue. */
+  importMCPServers(json: string): Promise<{ added: string[]; servers: MCPCatalogueEntry[] }>
+  /** Removes a user-declared server from mcps.yaml; returns the refreshed catalogue. */
+  removeMCPServer(id: string): Promise<MCPCatalogueEntry[]>
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
@@ -160,8 +193,13 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [] }
-      return { ...body, workspaces: (body.workspaces ?? []).map(normalizeWorkspace), agents: body.agents ?? [] }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], editor: { command: '', title: '' } }
+      return {
+        ...body,
+        workspaces: (body.workspaces ?? []).map(normalizeWorkspace),
+        agents: body.agents ?? [],
+        editor: body.editor ?? { command: '', title: '' },
+      }
     },
     async createWorkspace(request) {
       const body = await post<AgentWorkspace>('/workspaces/create', request)
@@ -180,6 +218,24 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async deleteWorkspace(dir) {
       await post('/workspaces/delete', { dir })
+    },
+    async openWorkspaceInEditor(dir) {
+      await post('/workspaces/open-in-editor', { dir })
+    },
+    async revealWorkspace(dir) {
+      await post('/workspaces/reveal', { dir })
+    },
+    async mcpCatalogue() {
+      const body = await post<{ servers: MCPCatalogueEntry[] | null }>('/mcps', {})
+      return body?.servers ?? []
+    },
+    async importMCPServers(json) {
+      const body = await post<{ added: string[] | null; servers: MCPCatalogueEntry[] | null }>('/mcps/import', { json })
+      return { added: body?.added ?? [], servers: body?.servers ?? [] }
+    },
+    async removeMCPServer(id) {
+      const body = await post<{ servers: MCPCatalogueEntry[] | null }>('/mcps/remove', { id })
+      return body?.servers ?? []
     },
     async sessions(workspace) {
       const body = await post<{ sessions: AgentSession[] | null }>('/sessions', { workspace })

@@ -125,6 +125,16 @@ type agentWorkspacesResponse struct {
 	// Agents lists the agent keys this build can launch — the choices the
 	// workspace editor offers.
 	Agents []string `json:"agents"`
+	// Editor is the configured "open in editor" target; an empty command means
+	// none is configured and the UI says so instead of offering the action.
+	Editor agentEditorView `json:"editor"`
+}
+
+// agentEditorView labels the workspaces/open-in-editor action: the configured
+// command and the display title the UI shows ("Open in Zed").
+type agentEditorView struct {
+	Command string `json:"command"`
+	Title   string `json:"title"`
 }
 
 // AgentWorkspaces lists every recognized workspace under the configured root.
@@ -140,6 +150,7 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 	if avErr := ctrl.core.AgentWorkspaces.Available(r.Context()); avErr != nil {
 		available, errMsg = false, agentErrorMessage(avErr)
 	}
+	editorCommand, editorTitle := ctrl.core.AgentWorkspaces.Editor(r.Context())
 	return server.JSON(w, http.StatusOK, agentWorkspacesResponse{
 		Root:        ctrl.core.RuntimePaths().AgentWorkspacesDir,
 		RootProblem: ctrl.core.AgentWorkspaces.RootProblem(r.Context()),
@@ -147,16 +158,18 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 		Error:       errMsg,
 		Workspaces:  toAgentWorkspaceViews(workspaces),
 		Agents:      nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
+		Editor:      agentEditorView{Command: editorCommand, Title: editorTitle},
 	})
 }
 
 // agentWorkspaceEditRequest carries the manifest fields the in-app editor
 // writes; anything else the manifest says is preserved in place.
 type agentWorkspaceEditRequest struct {
-	Dir      string `json:"dir"`
-	Name     string `json:"name"`
-	Agent    string `json:"agent"`
-	Autonomy string `json:"autonomy"`
+	Dir      string   `json:"dir"`
+	Name     string   `json:"name"`
+	Agent    string   `json:"agent"`
+	Autonomy string   `json:"autonomy"`
+	Mcps     []string `json:"mcps"`
 }
 
 func (b agentWorkspaceEditRequest) Validate() error {
@@ -169,7 +182,7 @@ func (b agentWorkspaceEditRequest) Validate() error {
 }
 
 func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
-	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy}
+	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy, MCPs: b.Mcps}
 }
 
 // AgentWorkspaceCreate makes a directory under the root with a fresh
@@ -255,6 +268,141 @@ func (ctrl *Controller) AgentWorkspaceDelete(w http.ResponseWriter, r *http.Requ
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+// agentWorkspaceTargetRequest names a workspace for an action on its
+// directory — open in editor, reveal in the file manager.
+type agentWorkspaceTargetRequest struct {
+	Dir string `json:"dir"`
+}
+
+func (b agentWorkspaceTargetRequest) Validate() error {
+	return criterio.Run("dir", b.Dir, criterio.Required)
+}
+
+// AgentWorkspaceOpenInEditor launches the configured editor (Settings ›
+// System) on the workspace directory.
+func (ctrl *Controller) AgentWorkspaceOpenInEditor(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentWorkspaceTargetRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.OpenWorkspaceInEditor(r.Context(), body.Dir); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// AgentWorkspaceReveal opens the workspace directory in the OS file manager.
+func (ctrl *Controller) AgentWorkspaceReveal(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentWorkspaceTargetRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.RevealWorkspace(r.Context(), body.Dir); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// agentMCPServerView is one row of the merged MCP catalogue: id, provenance,
+// and the resolved command line — nothing is enabled whose command the user
+// cannot read first (ADR 0061).
+type agentMCPServerView struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Shipped     bool   `json:"shipped"`
+	Stability   string `json:"stability"`
+	// Shadows is the shipped id this user entry replaces, empty otherwise.
+	Shadows   string `json:"shadows"`
+	Transport string `json:"transport"`
+	// Command is what the entry launches: the command line for stdio, the URL
+	// for http/sse.
+	Command string `json:"command"`
+	// Problem reports why the entry will not work — a stdio command that does
+	// not resolve on PATH.
+	Problem string `json:"problem"`
+}
+
+func (ctrl *Controller) mcpCatalogueViews(r *http.Request) []agentMCPServerView {
+	items := ctrl.core.AgentWorkspaces.MCPCatalogue(r.Context())
+	out := make([]agentMCPServerView, 0, len(items))
+	for _, item := range items {
+		out = append(out, agentMCPServerView{
+			ID: item.ID, Title: item.Title, Description: item.Description,
+			Shipped: item.Shipped, Stability: item.Stability, Shadows: item.Shadows,
+			Transport: item.Transport, Command: item.Command, Problem: item.Problem,
+		})
+	}
+	return out
+}
+
+type agentMCPCatalogueResponse struct {
+	Servers []agentMCPServerView `json:"servers"`
+}
+
+// AgentMCPCatalogue lists the merged MCP catalogue: shipped entries plus the
+// user's mcps.yaml, a user id shadowing a shipped one of the same name.
+func (ctrl *Controller) AgentMCPCatalogue(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentMCPCatalogueResponse{Servers: ctrl.mcpCatalogueViews(r)})
+}
+
+type agentMCPImportRequest struct {
+	// JSON is a pasted MCP configuration: claude's {"mcpServers": {...}}
+	// wrapper or a bare {"<id>": {...}} map of servers.
+	JSON string `json:"json"`
+}
+
+func (b agentMCPImportRequest) Validate() error {
+	return criterio.Run("json", b.JSON, criterio.Required)
+}
+
+type agentMCPImportResponse struct {
+	// Added names the imported server ids, sorted.
+	Added   []string             `json:"added"`
+	Servers []agentMCPServerView `json:"servers"`
+}
+
+// AgentMCPImport parses pasted MCP JSON into mcps.yaml and returns the
+// refreshed catalogue.
+func (ctrl *Controller) AgentMCPImport(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentMCPImportRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	added, err := ctrl.core.AgentWorkspaces.ImportMCPServers(r.Context(), body.JSON)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentMCPImportResponse{Added: nonNilStrings(added), Servers: ctrl.mcpCatalogueViews(r)})
+}
+
+type agentMCPRemoveRequest struct {
+	ID string `json:"id"`
+}
+
+func (b agentMCPRemoveRequest) Validate() error {
+	return criterio.Run("id", b.ID, criterio.Required)
+}
+
+// AgentMCPRemove deletes a user-declared server from mcps.yaml and returns
+// the refreshed catalogue. Shipped entries are refused — a workspace disables
+// one by dropping the id from its own mcps: list.
+func (ctrl *Controller) AgentMCPRemove(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentMCPRemoveRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.RemoveMCPServer(r.Context(), body.ID); err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentMCPCatalogueResponse{Servers: ctrl.mcpCatalogueViews(r)})
 }
 
 type agentSessionsRequest struct {

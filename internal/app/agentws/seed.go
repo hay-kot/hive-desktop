@@ -163,7 +163,7 @@ func SyncHiveWorkspaceSkills(root string, slugs []string) (bool, error) {
 	if bytes.Equal(raw, out) {
 		return false, nil
 	}
-	if err := writeManifestAtomic(path, out); err != nil {
+	if err := writeFileAtomic(path, out); err != nil {
 		return false, fmt.Errorf("hive workspace manifest: %w", err)
 	}
 	return true, nil

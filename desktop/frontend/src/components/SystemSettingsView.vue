@@ -4,7 +4,7 @@
 // actions, point-only overrides for the data and config directories that take
 // effect after a restart, and an About card with the build strip and
 // auto-update controls.
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -15,6 +15,7 @@ import SettingsPage from './settings/SettingsPage.vue'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
 import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
+import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
 import { useReportDialog } from '../composables/useReportDialog'
@@ -36,6 +37,9 @@ const {
   experimentalAgents,
   agentsRestartPending,
   setExperimentalAgents,
+  editorCommand,
+  editorChoices,
+  setEditorCommand,
   setAutoUpdate,
   checkForUpdates,
   refresh,
@@ -49,6 +53,20 @@ const {
   resetConfigDir,
   quit,
 } = useSystemSettings()
+
+// "None" plus every detected editor; a hand-authored command outside the
+// catalogue still lists (labelled by its own name) so the selector never
+// shows a value it cannot represent.
+const editorOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [{ value: '', label: 'None' }]
+  for (const choice of editorChoices.value) {
+    options.push({ value: choice.command, label: choice.found ? choice.title : `${choice.title} (not found)` })
+  }
+  if (editorCommand.value && !editorChoices.value.some((c) => c.command === editorCommand.value)) {
+    options.push({ value: editorCommand.value, label: editorCommand.value })
+  }
+  return options
+})
 
 onMounted(() => {
   void refresh()
@@ -152,6 +170,27 @@ onMounted(() => {
           @open="openPath(info.database.path)"
           @reveal="revealPath(info.database.path)"
         />
+    </SettingsSection>
+
+    <SettingsSection
+      title="Editor"
+      description="The editor 'Open in editor' actions launch — an agent workspace, for example."
+      boxed
+      testid="system-editor"
+    >
+      <SettingsRow
+        label="Default editor"
+        hint="Detected from the CLI launchers on your PATH (zed, code, cursor, subl). Any other single-word command can be set as editor.command in settings.yaml."
+      >
+        <AppSelect
+          :model-value="editorCommand"
+          :options="editorOptions"
+          aria-label="Default editor"
+          testid="system-editor-command"
+          class="min-w-[180px]"
+          @update:model-value="setEditorCommand"
+        />
+      </SettingsRow>
     </SettingsSection>
 
     <SettingsSection

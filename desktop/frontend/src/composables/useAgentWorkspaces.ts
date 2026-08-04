@@ -2,9 +2,11 @@ import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
 import {
   createAgentWorkspacesClient,
   getAgentsEndpoint,
+  type AgentEditor,
   type AgentSession,
   type AgentWorkspace,
   type AgentWorkspacesClient,
+  type MCPCatalogueEntry,
   type ResumeSessionRequest,
   type StartSessionRequest,
   type WorkspaceEditRequest,
@@ -30,6 +32,8 @@ const workspacesLoaded = ref(false)
 const workspacesError = ref<string | null>(null)
 const root = ref('')
 const agents = ref<string[]>([])
+const editor = ref<AgentEditor>({ command: '', title: '' })
+const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
 // rootProblem is the one signal from the workspaces payload this composable
 // tracks separately from the top-level available/reason: it is the
 // configured root path itself being unreachable (spec §14), a distinct axis
@@ -68,6 +72,7 @@ async function reloadWorkspaces(): Promise<void> {
     const payload = await client.value.workspaces()
     root.value = payload.root
     agents.value = payload.agents
+    editor.value = payload.editor
     rootProblem.value = payload.rootProblem
     workspaces.value = payload.workspaces
   } catch (e) {
@@ -127,6 +132,41 @@ async function updateWorkspace(request: WorkspaceEditRequest): Promise<AgentWork
   return view
 }
 
+// The MCP catalogue is loaded on demand — the workspace editor is its only
+// reader — and refreshed in place by an import or removal, whose responses
+// carry the merged set so no second round trip is needed.
+async function reloadMCPCatalogue(): Promise<void> {
+  await ensureProbed()
+  if (!client.value) return
+  try {
+    mcpCatalogue.value = await client.value.mcpCatalogue()
+  } catch {
+    // Keep the last-good rows, matching the reload functions above.
+  }
+}
+
+async function importMCPServers(json: string): Promise<string[]> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  const result = await client.value.importMCPServers(json)
+  mcpCatalogue.value = result.servers
+  return result.added
+}
+
+async function removeMCPServer(id: string): Promise<void> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  mcpCatalogue.value = await client.value.removeMCPServer(id)
+}
+
+async function openWorkspaceInEditor(dir: string): Promise<void> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  await client.value.openWorkspaceInEditor(dir)
+}
+
+async function revealWorkspace(dir: string): Promise<void> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  await client.value.revealWorkspace(dir)
+}
+
 async function startSession(request: StartSessionRequest): Promise<AgentSession> {
   if (!client.value) throw new Error('The Agents area is unavailable.')
   return await client.value.startSession(request)
@@ -170,6 +210,8 @@ export function useAgentWorkspaces(): {
   root: Ref<string>
   rootProblem: Ref<string>
   agents: Ref<string[]>
+  editor: Ref<AgentEditor>
+  mcpCatalogue: Ref<MCPCatalogueEntry[]>
   missingMCPs: Ref<string[]>
   ready: () => Promise<void>
   reloadWorkspaces: () => Promise<void>
@@ -177,6 +219,11 @@ export function useAgentWorkspaces(): {
   createWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
   updateWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
   deleteWorkspace: (dir: string) => Promise<void>
+  reloadMCPCatalogue: () => Promise<void>
+  importMCPServers: (json: string) => Promise<string[]>
+  removeMCPServer: (id: string) => Promise<void>
+  openWorkspaceInEditor: (dir: string) => Promise<void>
+  revealWorkspace: (dir: string) => Promise<void>
   startSession: (request: StartSessionRequest) => Promise<AgentSession>
   resumeSession: (request: ResumeSessionRequest) => Promise<AgentSession>
   closeSession: (id: number) => Promise<boolean>
@@ -187,10 +234,12 @@ export function useAgentWorkspaces(): {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem, agents, missingMCPs,
+    root, rootProblem, agents, editor, mcpCatalogue, missingMCPs,
     ready: ensureProbed,
     reloadWorkspaces, openWorkspace,
     createWorkspace, updateWorkspace, deleteWorkspace,
+    reloadMCPCatalogue, importMCPServers, removeMCPServer,
+    openWorkspaceInEditor, revealWorkspace,
     startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
   }
 }
@@ -208,5 +257,7 @@ export function resetAgentWorkspacesForTests(): void {
   root.value = ''
   rootProblem.value = ''
   agents.value = []
+  editor.value = { command: '', title: '' }
+  mcpCatalogue.value = []
   missingMCPs.value = []
 }

@@ -53,6 +53,8 @@ export type {
     AgentsEndpoint,
     AppearanceSettings,
     BuildInfo,
+    EditorChoice,
+    EditorSettings,
     ExperimentalSettings,
     FlowSummary,
     GithubSettings,

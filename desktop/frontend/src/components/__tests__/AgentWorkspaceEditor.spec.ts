@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AgentWorkspaceEditor from '../AgentWorkspaceEditor.vue'
-import type { AgentWorkspace } from '../../lib/agentWorkspacesClient'
+import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composables/useAgentWorkspaces'
+import type { AgentWorkspace, MCPCatalogueEntry } from '../../lib/agentWorkspacesClient'
 
 const demo: AgentWorkspace = {
   dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], problem: '', notice: '',
+}
+
+const playwright: MCPCatalogueEntry = {
+  id: 'playwright', title: 'Playwright', description: 'Browser automation', shipped: true,
+  stability: 'stable', shadows: '', transport: 'stdio', command: 'npx -y @playwright/mcp@latest', problem: '',
 }
 
 // The drawer teleports to the body.
@@ -19,7 +25,10 @@ function mountEditor(workspace: AgentWorkspace | null = demo) {
   })
 }
 
-beforeEach(() => { document.body.innerHTML = '' })
+beforeEach(() => {
+  document.body.innerHTML = ''
+  resetAgentWorkspacesForTests()
+})
 
 describe('AgentWorkspaceEditor', () => {
   it('keeps delete a quiet footer action that only emits after the inline confirm', async () => {
@@ -70,6 +79,59 @@ describe('AgentWorkspaceEditor', () => {
     const wrapper = mountEditor(null)
     expect(el('agent-workspace-editor-delete')).toBeNull()
     expect(el('agent-workspace-editor-save')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('save carries the toggled mcps list', async () => {
+    const { mcpCatalogue } = useAgentWorkspaces()
+    mcpCatalogue.value = [playwright]
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-mcp-playwright')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'] },
+    ]])
+    wrapper.unmount()
+  })
+
+  it('a declared id the catalogue no longer resolves still rows, marked missing', async () => {
+    const { mcpCatalogue } = useAgentWorkspaces()
+    mcpCatalogue.value = [playwright]
+    const wrapper = mountEditor({ ...demo, mcps: ['ghost'] })
+    await wrapper.vm.$nextTick()
+
+    const toggle = el<HTMLButtonElement>('agent-workspace-editor-mcp-ghost')
+    expect(toggle).not.toBeNull()
+    expect(toggle!.getAttribute('aria-checked')).toBe('true')
+    expect(el('agent-workspace-editor-mcp-remove-ghost')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('format json pretty-prints the paste box, and reports invalid input', async () => {
+    const wrapper = mountEditor()
+    el<HTMLButtonElement>('agent-workspace-editor-mcp-import')!.click()
+    await wrapper.vm.$nextTick()
+
+    const textarea = el<HTMLTextAreaElement>('agent-workspace-editor-mcp-import-text')!
+    textarea.value = '{"a":{"command":"npx"}}'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-mcp-import-format')!.click()
+    await wrapper.vm.$nextTick()
+    expect(textarea.value).toBe('{\n  "a": {\n    "command": "npx"\n  }\n}')
+    expect(el('agent-workspace-editor-mcp-error')).toBeNull()
+
+    textarea.value = 'not json'
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-mcp-import-format')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-mcp-error')).not.toBeNull()
     wrapper.unmount()
   })
 })

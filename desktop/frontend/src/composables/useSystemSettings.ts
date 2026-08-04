@@ -18,13 +18,15 @@ import {
   Status,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import {
+  EditorSettings as LoadEditorSettings,
   ExperimentalSettings as LoadExperimentalSettings,
+  SetEditor,
   SetExperimentalAgents,
   SetExperimentalTerminal,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 import { Enabled as TerminalModeEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import { Enabled as AgentsModeEnabled } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
-import type { BuildInfo, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
+import type { BuildInfo, EditorChoice, SystemInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -62,12 +64,17 @@ export function useSystemSettings() {
   const agentsModeRunning = ref(false)
   const agentsRestartPending = computed(() => experimentalAgents.value !== agentsModeRunning.value)
 
+  // The default-editor selection: the persisted command plus the detected
+  // choices the selector offers.
+  const editorCommand = ref('')
+  const editorChoices = ref<EditorChoice[]>([])
+
   async function refresh(): Promise<void> {
     loading.value = true
     error.value = ''
     try {
-      const [locations, buildInfo, status, experimental, terminalRunning, agentsRunning] = await Promise.all([
-        Info(), Build(), Status(), LoadExperimentalSettings(), TerminalModeEnabled(), AgentsModeEnabled(),
+      const [locations, buildInfo, status, experimental, editorSettings, terminalRunning, agentsRunning] = await Promise.all([
+        Info(), Build(), Status(), LoadExperimentalSettings(), LoadEditorSettings(), TerminalModeEnabled(), AgentsModeEnabled(),
       ])
       info.value = locations
       build.value = buildInfo
@@ -77,10 +84,26 @@ export function useSystemSettings() {
       terminalModeRunning.value = terminalRunning
       experimentalAgents.value = experimental.agents
       agentsModeRunning.value = agentsRunning
+      editorCommand.value = editorSettings.command
+      editorChoices.value = editorSettings.choices ?? []
     } catch (err) {
       error.value = errText(err)
     } finally {
       loading.value = false
+    }
+  }
+
+  // setEditorCommand persists the default-editor selection. On failure the
+  // previous value is restored so the selector never drifts from the backend.
+  async function setEditorCommand(command: string): Promise<void> {
+    const previous = editorCommand.value
+    editorCommand.value = command
+    error.value = ''
+    try {
+      await SetEditor(command)
+    } catch (err) {
+      editorCommand.value = previous
+      error.value = errText(err)
     }
   }
 
@@ -217,6 +240,9 @@ export function useSystemSettings() {
     experimentalAgents,
     agentsRestartPending,
     setExperimentalAgents,
+    editorCommand,
+    editorChoices,
+    setEditorCommand,
     setAutoUpdate,
     checkForUpdates,
     refresh,

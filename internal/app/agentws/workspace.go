@@ -15,8 +15,9 @@ type Autonomy string
 // root — the identity a session record stores, so a record survives a machine
 // whose root is somewhere else.
 //
-// It is read-only. Nothing in M1 or M2 writes a workspace manifest; see
-// Migration Notes for what a future writer must use instead of yaml.Marshal.
+// It is read-only: the manifest writer is write.go's node-tree editor
+// (WriteManifest), never a yaml.Marshal of this struct, which would destroy
+// comments, key order, and keys this build does not know.
 type Workspace struct {
 	Dir string `yaml:"-"`
 

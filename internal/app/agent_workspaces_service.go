@@ -5,15 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/colonyops/hive/pkg/osopen"
 	"github.com/google/uuid"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -66,10 +69,18 @@ type AgentWorkspacesService struct {
 	// rootProblem carries EnsureRoot's error, verbatim, when the configured
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
+	// execEnv resolves the PATH and environment the editor launch runs with
+	// (ADR 0041) — a desktop launch's own environment cannot find a CLI a
+	// package manager installed.
+	execEnv *execenv.Resolver
+	// editorCommand reads the configured editor from settings on every call,
+	// so a settings change applies without restarting. Empty means none
+	// configured.
+	editorCommand func(context.Context) (string, error)
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error)) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand}
 }
 
 // WorkspaceView is one row of the area's list. Autonomy is on it because a
@@ -502,14 +513,15 @@ func (s *AgentWorkspacesService) Agents(context.Context) []string {
 	return agents
 }
 
-// WorkspaceEdit names the manifest fields the in-app editor writes. MCPs,
-// skills, and anything else the manifest says are untouched — WriteManifest
-// edits the document in place, so they stay the user's.
+// WorkspaceEdit names the manifest fields the in-app editor writes. Skills
+// and anything else the manifest says are untouched — WriteManifest edits the
+// document in place, so they stay the user's.
 type WorkspaceEdit struct {
 	Dir      string
 	Name     string
 	Agent    string
 	Autonomy string
+	MCPs     []string
 }
 
 func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
@@ -525,16 +537,26 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 	if !agentws.Autonomy(req.Autonomy).IsValid() {
 		return Errorf(KindInvalid, "autonomy %q is not valid (expected %s)", req.Autonomy, strings.Join(agentws.AutonomyNames(), ", "))
 	}
+	seen := make(map[string]bool, len(req.MCPs))
+	for _, id := range req.MCPs {
+		if id == "" {
+			return Errorf(KindInvalid, "mcps entries must not be empty")
+		}
+		if seen[id] {
+			return Errorf(KindInvalid, "duplicate mcp %q", id)
+		}
+		seen[id] = true
+	}
 	return nil
 }
 
 // CreateWorkspace makes a directory under the root with a fresh manifest and
-// returns its view.
+// an AGENTS.md scaffold, and returns its view.
 func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req WorkspaceEdit) (WorkspaceView, error) {
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	if err := agentws.CreateWorkspace(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy)); err != nil {
+	if err := agentws.CreateWorkspace(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy), req.MCPs); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return WorkspaceView{}, Errorf(KindConflict, "workspace %q already exists", req.Dir)
 		}
@@ -552,10 +574,171 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 	if _, ok := s.workspaceStatus(req.Dir); !ok {
 		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
 	}
-	if err := agentws.WriteManifest(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy)); err != nil {
+	if err := agentws.WriteManifest(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy), req.MCPs); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
 	}
 	return s.reloadedView(ctx, req.Dir)
+}
+
+// MCPCatalogueItem is one row of the merged MCP catalogue as the UI shows it:
+// a shipped entry, a user mcps.yaml entry, or a user entry shadowing a
+// shipped one.
+type MCPCatalogueItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Shipped     bool   `json:"shipped"`
+	Stability   string `json:"stability"`
+	Shadows     string `json:"shadows"`
+	Transport   string `json:"transport"`
+	// Command is the resolved invocation — the command line for stdio, the
+	// URL for http/sse. Nothing is enabled whose command the user could not
+	// read first (ADR 0061 §5).
+	Command string `json:"command"`
+	Problem string `json:"problem"`
+}
+
+// MCPCatalogue lists the merged MCP catalogue — the choices a workspace
+// editor offers for its mcps: list.
+func (s *AgentWorkspacesService) MCPCatalogue(context.Context) []MCPCatalogueItem {
+	entries := s.store.Catalogue()
+	items := make([]MCPCatalogueItem, 0, len(entries))
+	for _, e := range entries {
+		title := e.Title
+		if title == "" {
+			title = e.ID
+		}
+		items = append(items, MCPCatalogueItem{
+			ID: e.ID, Title: title, Description: e.Description,
+			Shipped: e.Shipped, Stability: string(e.Stability), Shadows: e.Shadows,
+			Transport: string(e.Server.Transport),
+			Command:   resolvedCommandLine(e.Server),
+			Problem:   e.Problem,
+		})
+	}
+	return items
+}
+
+// ImportMCPServers parses pasted MCP JSON (claude's mcpServers wrapper or a
+// bare id-to-server map) into mcps.yaml and returns the added ids, sorted. An
+// id already declared in the library is a conflict — the file is where an
+// existing entry is changed — while shadowing a shipped id is allowed, the
+// same rule mcps.yaml itself follows.
+func (s *AgentWorkspacesService) ImportMCPServers(_ context.Context, raw string) ([]string, error) {
+	servers, err := agentws.ParseMCPImport([]byte(raw))
+	if err != nil {
+		return nil, Wrap(err, KindInvalid, "importing MCP servers")
+	}
+	if err := agentws.AddLibraryServers(s.store.Root(), servers); err != nil {
+		if errors.Is(err, agentws.ErrLibraryServerExists) {
+			return nil, Wrap(err, KindConflict, "importing MCP servers")
+		}
+		return nil, Wrap(err, KindInternal, "importing MCP servers")
+	}
+	if err := s.store.Reload(); err != nil {
+		return nil, Wrap(err, KindInternal, "reloading the MCP catalogue")
+	}
+	ids := make([]string, 0, len(servers))
+	for id := range servers {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+
+// RemoveMCPServer deletes a user-declared server from mcps.yaml. A shipped
+// entry cannot be removed — a workspace disables it by dropping the id from
+// its own mcps: list instead.
+func (s *AgentWorkspacesService) RemoveMCPServer(_ context.Context, id string) error {
+	found, err := agentws.RemoveLibraryServer(s.store.Root(), id)
+	if err != nil {
+		return Wrap(err, KindInternal, "removing MCP server %q", id)
+	}
+	if !found {
+		if _, shipped := mcpcatalog.All()[id]; shipped {
+			return Errorf(KindInvalid, "%q is a shipped MCP server; remove it from the workspace's own list instead", id)
+		}
+		return Errorf(KindNotFound, "MCP server %q is not declared in mcps.yaml", id)
+	}
+	if err := s.store.Reload(); err != nil {
+		return Wrap(err, KindInternal, "reloading the MCP catalogue")
+	}
+	return nil
+}
+
+// Editor reports the configured "open in editor" target: the command from
+// settings and the display title the UI labels the action with. An empty
+// command means none is configured.
+func (s *AgentWorkspacesService) Editor(ctx context.Context) (command, title string) {
+	if s.editorCommand == nil {
+		return "", ""
+	}
+	command, err := s.editorCommand(ctx)
+	if err != nil || command == "" {
+		return "", ""
+	}
+	return command, editorTitle(command)
+}
+
+// OpenWorkspaceInEditor launches the configured editor on the workspace
+// directory, detached — the editor outlives the request and Hive never waits
+// on it.
+func (s *AgentWorkspacesService) OpenWorkspaceInEditor(ctx context.Context, dir string) error {
+	workspaceDir, err := s.knownWorkspaceDir(dir)
+	if err != nil {
+		return err
+	}
+	command, _ := s.Editor(ctx)
+	if command == "" {
+		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › System")
+	}
+	path, err := s.execEnv.LookPath(ctx, command)
+	if err != nil {
+		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › System", command)
+	}
+	// WithoutCancel: the editor must outlive the request that launched it —
+	// a request-scoped context would kill it the moment the response is sent.
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), path, workspaceDir)
+	cmd.Env = s.execEnv.Environ(ctx)
+	if err := cmd.Start(); err != nil {
+		return Wrap(err, KindInternal, "launching %s", command)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
+}
+
+// RevealWorkspace opens the workspace directory in the OS file manager.
+func (s *AgentWorkspacesService) RevealWorkspace(_ context.Context, dir string) error {
+	workspaceDir, err := s.knownWorkspaceDir(dir)
+	if err != nil {
+		return err
+	}
+	return Wrap(osopen.Open(workspaceDir), KindInternal, "opening %s", workspaceDir)
+}
+
+// knownWorkspaceDir resolves dir to its absolute path, refusing anything that
+// is not a recognized workspace — the same guard checkAllowed gives
+// SystemService's open/reveal, because launching a program on an arbitrary
+// request-supplied path is not this API's to offer. A workspace with a broken
+// manifest still resolves: opening it in an editor is exactly how it gets
+// fixed.
+func (s *AgentWorkspacesService) knownWorkspaceDir(dir string) (string, error) {
+	if !validWorkspaceDir(dir) {
+		return "", Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+	}
+	if _, ok := s.workspaceStatus(dir); !ok {
+		return "", Errorf(KindNotFound, "workspace %q not found", dir)
+	}
+	return filepath.Join(s.store.Root(), dir), nil
+}
+
+// resolvedCommandLine renders what an entry actually launches, for display: a
+// shell-style command line for stdio, the URL for a remote server.
+func resolvedCommandLine(server mcpcatalog.Server) string {
+	if server.Transport == mcpcatalog.TransportStdio {
+		return strings.Join(append([]string{server.Command}, server.Args...), " ")
+	}
+	return server.URL
 }
 
 // reloadedView re-reads the store after a manifest write and returns dir's

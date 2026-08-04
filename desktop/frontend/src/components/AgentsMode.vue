@@ -248,6 +248,9 @@ async function saveWorkspace(request: WorkspaceEditRequest): Promise<void> {
   try {
     if (editingWorkspace.value) {
       await updateWorkspace(request)
+      // A changed mcps list only reaches .mcp.json through a regenerate, and
+      // the focus watcher won't fire for the already-selected workspace.
+      if (request.dir === selectedWorkspace.value) void openWorkspace(request.dir)
     } else {
       await createWorkspace(request)
       selectWorkspace(request.dir)

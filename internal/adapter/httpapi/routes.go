@@ -149,7 +149,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy) in place. Comments, key order, and keys the editor does not own — mcps, skills — survive the write.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps) in place. Comments, key order, and keys the editor does not own — skills and anything else — survive the write; an empty mcps removes the key.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
 			Errors: agentErrors("no such workspace"),
 		},
@@ -157,6 +157,31 @@ func (ctrl *Controller) agentOperations() []Op {
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
 			Request: agentWorkspaceDeleteRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
 			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open-in-editor", Summary: "Launch the configured editor (Settings › System) on the workspace directory, detached. Fails when no editor is configured or the command does not resolve on PATH.",
+			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceOpenInEditor,
+			Errors: agentErrors("no such workspace", ErrResp{Status: 400, When: "no editor is configured, or its command is not on PATH"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/reveal", Summary: "Open the workspace directory in the OS file manager.",
+			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceReveal,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps", Summary: "List the merged MCP catalogue: shipped entries plus the user's mcps.yaml, sorted by id, each with its stability, resolved command line, and any problem (a command that does not resolve on PATH). A user id shadowing a shipped one wins and says so.",
+			Response: agentMCPCatalogueResponse{}, Handler: ctrl.AgentMCPCatalogue,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps/import", Summary: "Parse pasted MCP JSON — claude's {\"mcpServers\": {...}} wrapper or a bare id-to-server map — into mcps.yaml and return the refreshed catalogue. An id already declared in mcps.yaml is a conflict; edit the file to change an existing entry.",
+			Request: agentMCPImportRequest{}, Response: agentMCPImportResponse{}, Handler: ctrl.AgentMCPImport,
+			Errors: agentErrors("", ErrResp{Status: 409, When: "a pasted id is already declared in mcps.yaml"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps/remove", Summary: "Delete a user-declared server from mcps.yaml and return the refreshed catalogue. Shipped entries are refused — a workspace disables one by dropping the id from its own mcps list.",
+			Request: agentMCPRemoveRequest{}, Response: agentMCPCatalogueResponse{}, Handler: ctrl.AgentMCPRemove,
+			Errors: agentErrors("no user-declared server of that id", ErrResp{Status: 400, When: "the id names a shipped entry"}),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions", Summary: "List a workspace's sessions without regenerating its artifacts, unlike workspaces/open. terminalId is empty for a session with no live terminal.",

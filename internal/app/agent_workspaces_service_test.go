@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
@@ -37,7 +38,7 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	awStore := agentws.NewStore(root)
 	require.NoError(t, awStore.Reload())
 
-	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "")
+	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil)
 }
 
 // liveAgentSessionCount is the test-side equivalent of the service's own
@@ -489,6 +490,84 @@ func TestCreateAndUpdateWorkspace(t *testing.T) {
 	require.ErrorContains(t, err, "not found")
 
 	assert.Equal(t, []string{"claude", "codex"}, svc.Agents(t.Context()))
+}
+
+func TestWorkspaceEditOwnsTheMCPList(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", MCPs: []string{"playwright"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"playwright"}, created.MCPs)
+	assert.FileExists(t, filepath.Join(root, "demo", "AGENTS.md"), "a created workspace starts with prose to shape")
+
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	require.NoError(t, err)
+	assert.Empty(t, updated.MCPs)
+
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", MCPs: []string{"playwright", "playwright"}})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func TestImportAndRemoveMCPServers(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	added, err := svc.ImportMCPServers(t.Context(), `{"mcpServers": {"paperless": {"command": "uvx", "args": ["paperless-mcp"]}}}`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"paperless"}, added)
+
+	catalogue := svc.MCPCatalogue(t.Context())
+	byID := make(map[string]MCPCatalogueItem, len(catalogue))
+	for _, item := range catalogue {
+		byID[item.ID] = item
+	}
+	require.Contains(t, byID, "paperless")
+	assert.Equal(t, "uvx paperless-mcp", byID["paperless"].Command)
+	assert.False(t, byID["paperless"].Shipped)
+	require.Contains(t, byID, "playwright", "the shipped catalogue is part of the merged view")
+	assert.True(t, byID["playwright"].Shipped)
+
+	_, err = svc.ImportMCPServers(t.Context(), `{"paperless": {"command": "uvx"}}`)
+	require.Error(t, err)
+	assert.Equal(t, KindConflict, KindOf(err))
+
+	require.NoError(t, svc.RemoveMCPServer(t.Context(), "paperless"))
+	err = svc.RemoveMCPServer(t.Context(), "paperless")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	err = svc.RemoveMCPServer(t.Context(), "playwright")
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err), "a shipped entry is disabled per workspace, never removed")
+}
+
+func TestOpenWorkspaceInEditor(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	err := svc.OpenWorkspaceInEditor(t.Context(), "demo")
+	require.Error(t, err, "no editor configured")
+	assert.Equal(t, KindInvalid, KindOf(err))
+
+	err = svc.RevealWorkspace(t.Context(), "ghost")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	fake := fakeAgentBinary(t, "true")
+	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
+		return "/usr/bin:/bin", nil
+	}})
+	svc.editorCommand = func(context.Context) (string, error) { return fake, nil }
+	command, title := svc.Editor(t.Context())
+	assert.Equal(t, fake, command)
+	assert.Equal(t, fake, title, "a command outside the known catalogue labels itself")
+	require.NoError(t, svc.OpenWorkspaceInEditor(t.Context(), "demo"))
 }
 
 func TestResizeSessionResizesTheLiveTerminal(t *testing.T) {

@@ -1,20 +1,28 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
-// DrawerSheet editor shell (the ActionEditor pattern). It writes only the
-// fields it shows — name, agent, autonomy (plus the directory name at
-// creation); mcps, skills, and hand-written comments in the YAML survive the
-// write untouched, which is why the hint points at the file for the rest.
-// Deleting the workspace also lives here — the editor is the workspace's
-// whole management surface, so its sidebar row needs no menu. Delete follows
-// FolderEditModal.vue's shape: a quiet footer action that expands into an
-// InlineConfirm over a dimmed, inert form instead of stacking a dialog.
+// DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
+// it shows — name, agent, autonomy, and the mcps list (plus the directory
+// name at creation); skills and hand-written comments in the YAML survive
+// the write untouched. The MCP rows come from the merged catalogue (shipped
+// entries plus mcps.yaml), and pasting MCP JSON lands new servers in
+// mcps.yaml before enabling them here — the library is shared, the toggle is
+// this workspace's own. Deleting the workspace also lives here — the editor
+// is the workspace's whole management surface, so its sidebar row needs no
+// menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
+// that expands into an InlineConfirm over a dimmed, inert form.
 import { computed, nextTick, onMounted, ref } from 'vue'
+import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
+import IconFolderOpen from '~icons/lucide/folder-open'
+import IconTrash2 from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
+import AppSwitch from './AppSwitch.vue'
 import BaseButton from './BaseButton.vue'
 import DrawerSheet from './DrawerSheet.vue'
 import InlineConfirm from './InlineConfirm.vue'
+import { CodeField } from '../pipeline/fields'
+import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import type { AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
@@ -26,12 +34,19 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
+const {
+  editor, mcpCatalogue,
+  reloadMCPCatalogue, importMCPServers, removeMCPServer,
+  openWorkspaceInEditor, revealWorkspace,
+} = useAgentWorkspaces()
+
 const creating = computed(() => !props.workspace)
 
 const dir = ref(props.workspace?.dir ?? '')
 const name = ref(props.workspace?.name ?? '')
 const agent = ref(props.workspace?.agent || props.agents[0] || '')
 const autonomy = ref(props.workspace?.autonomy || 'ask')
+const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
 
 const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
 const autonomyOptions: AppSelectOption[] = [
@@ -44,6 +59,109 @@ const valid = computed(() => !!name.value.trim() && !!agent.value && (!creating.
 
 const confirming = ref(false)
 
+// ── MCP rows ─────────────────────────────────────────────────────────────────
+// The catalogue's rows plus any declared id the catalogue no longer resolves,
+// so a hand-authored entry that went missing is visible and removable rather
+// than silently kept.
+interface MCPRow {
+  id: string
+  title: string
+  command: string
+  problem: string
+  shipped: boolean
+  stability: string
+  shadows: string
+  missing: boolean
+}
+
+const mcpRows = computed<MCPRow[]>(() => {
+  const rows: MCPRow[] = mcpCatalogue.value.map((e) => ({
+    id: e.id, title: e.title || e.id, command: e.command, problem: e.problem,
+    shipped: e.shipped, stability: e.stability, shadows: e.shadows, missing: false,
+  }))
+  const known = new Set(rows.map((r) => r.id))
+  for (const id of selectedMCPs.value) {
+    if (!known.has(id)) rows.push({ id, title: id, command: '', problem: '', shipped: false, stability: '', shadows: '', missing: true })
+  }
+  return rows
+})
+
+function mcpEnabled(id: string): boolean {
+  return selectedMCPs.value.includes(id)
+}
+
+function toggleMCP(id: string): void {
+  selectedMCPs.value = mcpEnabled(id)
+    ? selectedMCPs.value.filter((x) => x !== id)
+    : [...selectedMCPs.value, id]
+}
+
+const mcpError = ref('')
+
+async function removeServer(id: string): Promise<void> {
+  mcpError.value = ''
+  try {
+    await removeMCPServer(id)
+    selectedMCPs.value = selectedMCPs.value.filter((x) => x !== id)
+  } catch (failure) {
+    mcpError.value = failure instanceof Error ? failure.message : 'The server could not be removed.'
+  }
+}
+
+// ── Paste-in JSON import ─────────────────────────────────────────────────────
+const importOpen = ref(false)
+const importText = ref('')
+const importBusy = ref(false)
+const importPlaceholder = '{"mcpServers": {"my-server": {"command": "npx", "args": ["-y", "…"]}}}'
+
+function formatImportJSON(): void {
+  mcpError.value = ''
+  try {
+    importText.value = JSON.stringify(JSON.parse(importText.value), null, 2)
+  } catch (failure) {
+    mcpError.value = failure instanceof Error ? `Not valid JSON: ${failure.message}` : 'Not valid JSON.'
+  }
+}
+
+async function submitImport(): Promise<void> {
+  if (!importText.value.trim() || importBusy.value) return
+  importBusy.value = true
+  mcpError.value = ''
+  try {
+    const added = await importMCPServers(importText.value)
+    for (const id of added) {
+      if (!mcpEnabled(id)) selectedMCPs.value = [...selectedMCPs.value, id]
+    }
+    importText.value = ''
+    importOpen.value = false
+  } catch (failure) {
+    mcpError.value = failure instanceof Error ? failure.message : 'The pasted configuration could not be imported.'
+  } finally {
+    importBusy.value = false
+  }
+}
+
+// ── Open the directory outside the app ───────────────────────────────────────
+const actionError = ref('')
+
+async function openInEditor(): Promise<void> {
+  actionError.value = ''
+  try {
+    await openWorkspaceInEditor(props.workspace!.dir)
+  } catch (failure) {
+    actionError.value = failure instanceof Error ? failure.message : 'The editor could not be opened.'
+  }
+}
+
+async function reveal(): Promise<void> {
+  actionError.value = ''
+  try {
+    await revealWorkspace(props.workspace!.dir)
+  } catch (failure) {
+    actionError.value = failure instanceof Error ? failure.message : 'The directory could not be opened.'
+  }
+}
+
 function submit(): void {
   if (props.busy || confirming.value || !valid.value) return
   emit('save', {
@@ -51,6 +169,7 @@ function submit(): void {
     name: name.value.trim(),
     agent: agent.value,
     autonomy: autonomy.value,
+    mcps: selectedMCPs.value,
   })
 }
 
@@ -61,6 +180,7 @@ function cancel(): void {
 const nameInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 onMounted(async () => {
+  void reloadMCPCatalogue()
   await nextTick()
   ;(creating.value ? dirInput.value : nameInput.value)?.focus()
 })
@@ -89,6 +209,28 @@ onMounted(async () => {
     <!-- While a delete is pending the form recedes: dimmed and inert, so the
          two states can't be misread for each other (FolderEditModal's rule). -->
     <div class="flex flex-col gap-4 transition-opacity" :class="{ 'pointer-events-none opacity-45': confirming }">
+      <div v-if="!creating" class="flex flex-col gap-1.5">
+        <div class="flex items-center gap-2">
+          <button
+            v-if="editor.command"
+            type="button"
+            class="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-2.5 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text disabled:opacity-50"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-open-editor"
+            @click="openInEditor"
+          ><IconExternalLink class="size-3.5" />Open in {{ editor.title }}</button>
+          <button
+            type="button"
+            class="flex cursor-pointer items-center gap-1.5 rounded-[7px] border border-card px-2.5 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text disabled:opacity-50"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-reveal"
+            @click="reveal"
+          ><IconFolderOpen class="size-3.5" />Show in Finder</button>
+        </div>
+        <span v-if="!editor.command" class="text-xs text-text-4">Pick a default editor in Settings › System to open this directory in it.</span>
+        <p v-if="actionError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-action-error">{{ actionError }}</p>
+      </div>
+
       <div v-if="creating" class="flex flex-col gap-1.5">
         <label for="agent-workspace-dir" class="text-xs text-text-3">Directory name</label>
         <input
@@ -105,7 +247,7 @@ onMounted(async () => {
           data-testid="agent-workspace-editor-dir"
           @keydown.enter="submit"
         >
-        <span class="text-xs text-text-4">A new directory under the workspace root.</span>
+        <span class="text-xs text-text-4">A new directory under the workspace root, seeded with an AGENTS.md to shape.</span>
       </div>
 
       <div class="flex flex-col gap-1.5">
@@ -145,8 +287,77 @@ onMounted(async () => {
         />
       </div>
 
+      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-mcps">
+        <span class="text-xs text-text-3">MCP servers</span>
+        <div v-if="mcpRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
+          <div v-for="row in mcpRows" :key="row.id" class="flex items-start gap-2.5 px-3 py-2.5">
+            <AppSwitch
+              size="sm"
+              class="mt-0.5"
+              :model-value="mcpEnabled(row.id)"
+              :aria-label="`Enable ${row.title}`"
+              :disabled="busy"
+              :testid="`agent-workspace-editor-mcp-${row.id}`"
+              @update:model-value="toggleMCP(row.id)"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-[13px] text-text">{{ row.title }}</span>
+                <span
+                  class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4"
+                >{{ row.shipped ? row.stability : 'custom' }}</span>
+                <span v-if="row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
+              </div>
+              <div v-if="row.command" class="truncate font-mono text-[11px] text-text-4" :title="row.command">{{ row.command }}</div>
+              <div v-if="row.problem" class="text-[11px] text-severity-warning">{{ row.problem }}</div>
+              <div v-if="row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled ids without an entry are skipped at launch</div>
+            </div>
+            <button
+              v-if="!row.shipped && !row.missing"
+              type="button"
+              class="mt-0.5 shrink-0 cursor-pointer text-text-4 hover:text-severity-error disabled:opacity-50"
+              :title="`Remove ${row.title} from mcps.yaml (every workspace loses it)`"
+              :aria-label="`Remove ${row.title}`"
+              :disabled="busy"
+              :data-testid="`agent-workspace-editor-mcp-remove-${row.id}`"
+              @click="removeServer(row.id)"
+            ><IconTrash2 class="size-3.5" /></button>
+          </div>
+        </div>
+
+        <div v-if="importOpen" class="flex flex-col gap-1.5">
+          <CodeField
+            v-model="importText"
+            :rows="8"
+            :placeholder="importPlaceholder"
+            testid="agent-workspace-editor-mcp-import-text"
+          />
+          <div class="flex items-center gap-2">
+            <BaseButton size="sm" :busy="importBusy" :disabled="!importText.trim()" data-testid="agent-workspace-editor-mcp-import-submit" @click="submitImport">Add servers</BaseButton>
+            <BaseButton
+              variant="secondary"
+              size="sm"
+              :disabled="importBusy || !importText.trim()"
+              data-testid="agent-workspace-editor-mcp-import-format"
+              @click="formatImportJSON"
+            >Format JSON</BaseButton>
+            <BaseButton variant="secondary" size="sm" :disabled="importBusy" @click="importOpen = false">Cancel</BaseButton>
+          </div>
+          <span class="text-xs text-text-4">Pasted servers land in mcps.yaml — the library every workspace picks from — and switch on here.</span>
+        </div>
+        <button
+          v-else
+          type="button"
+          class="self-start cursor-pointer text-[12px] text-accent hover:underline"
+          :disabled="busy"
+          data-testid="agent-workspace-editor-mcp-import"
+          @click="importOpen = true"
+        >Add servers from JSON…</button>
+        <p v-if="mcpError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-mcp-error">{{ mcpError }}</p>
+      </div>
+
       <p v-if="!creating" class="text-xs leading-relaxed text-text-4">
-        MCP servers, skills, and anything else in agent-workspace.yaml stay as written — edit the file for those.
+        Skills and anything else in agent-workspace.yaml stay as written — edit the file for those.
       </p>
       <p
         v-if="error && !confirming"

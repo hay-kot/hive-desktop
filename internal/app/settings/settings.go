@@ -133,6 +133,15 @@ type PathsSettings struct {
 	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`
 }
 
+// EditorSettings names the editor "Open in editor" actions launch on a
+// directory. Command is a single word — a CLI launcher name (zed, code) or an
+// absolute path — never a command line: the same rule agent commands follow
+// (ADR 0061), so a flag cannot ride in through a settings string. Empty means
+// none configured.
+type EditorSettings struct {
+	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
+}
+
 // HTTPSettings configures the local loopback HTTP server that hosts both the
 // webhook listener and the agent API. On by default: it is loopback-only, so it
 // is reachable only from this machine.
@@ -232,6 +241,7 @@ type Settings struct {
 	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
 	Skills          SkillsSettings          `yaml:"skills"`
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
+	Editor          EditorSettings          `yaml:"editor,omitempty"`
 	Experimental    ExperimentalSettings    `yaml:"experimental,omitempty"`
 	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
 	Development     DevelopmentSettings     `yaml:"development"`
@@ -308,6 +318,9 @@ func (s Settings) Validate() error {
 	}
 	if s.Paths.Tmux != "" && !filepath.IsAbs(s.Paths.Tmux) {
 		return fmt.Errorf("paths.tmux must be an absolute path")
+	}
+	if len(strings.Fields(s.Editor.Command)) > 1 {
+		return fmt.Errorf("editor.command must be a single word — a command name or path, without flags")
 	}
 	switch s.Development.Mocks.Mode {
 	case MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke:

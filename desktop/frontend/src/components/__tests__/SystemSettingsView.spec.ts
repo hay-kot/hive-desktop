@@ -21,6 +21,8 @@ const mocks = vi.hoisted(() => ({
   ExperimentalSettings: vi.fn(),
   SetExperimentalTerminal: vi.fn(),
   SetExperimentalAgents: vi.fn(),
+  EditorSettings: vi.fn(),
+  SetEditor: vi.fn(),
   TerminalModeEnabled: vi.fn(),
   AgentsModeEnabled: vi.fn(),
 }))
@@ -45,6 +47,8 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   ExperimentalSettings: mocks.ExperimentalSettings,
   SetExperimentalTerminal: mocks.SetExperimentalTerminal,
   SetExperimentalAgents: mocks.SetExperimentalAgents,
+  EditorSettings: mocks.EditorSettings,
+  SetEditor: mocks.SetEditor,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Enabled: mocks.TerminalModeEnabled,
@@ -103,6 +107,11 @@ beforeEach(() => {
   mocks.ExperimentalSettings.mockResolvedValue({ terminal: false, agents: false })
   mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled, agents: false }))
   mocks.SetExperimentalAgents.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: false, agents: enabled }))
+  mocks.EditorSettings.mockResolvedValue({
+    command: '',
+    choices: [{ command: 'zed', title: 'Zed', found: true }, { command: 'code', title: 'VS Code', found: false }],
+  })
+  mocks.SetEditor.mockResolvedValue(undefined)
   mocks.TerminalModeEnabled.mockResolvedValue(false)
   mocks.AgentsModeEnabled.mockResolvedValue(false)
   document.body.innerHTML = ''
@@ -117,6 +126,15 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-data-dir-path"]').text()).toBe(DATA)
     expect(wrapper.find('[data-testid="system-database-path"]').text()).toContain('desktop-pipeline.db')
     expect(wrapper.find('[data-testid="system-data-dir-reset"]').exists()).toBe(false)
+  })
+
+  it('renders the default-editor selector with the persisted value', async () => {
+    mocks.Info.mockResolvedValue(info())
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="system-editor"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="system-editor-command"]').text()).toContain('None')
   })
 
   it('opens and reveals a location through the service', async () => {

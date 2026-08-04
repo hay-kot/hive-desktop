@@ -212,6 +212,40 @@ func (s *SettingsService) SetNotificationSettings(ctx context.Context, in Notifi
 	})
 }
 
+// EditorChoice is one editor the selector offers: its CLI command, display
+// title, and whether the command resolves on the subprocess PATH right now.
+type EditorChoice struct {
+	Command string `json:"command"`
+	Title   string `json:"title"`
+	Found   bool   `json:"found"`
+}
+
+// EditorSettings is the configured "open in editor" command plus the detected
+// choices the selector offers. Command is empty when none is configured; it
+// may name a command outside Choices when settings.yaml was authored by hand.
+type EditorSettings struct {
+	Command string         `json:"command"`
+	Choices []EditorChoice `json:"choices"`
+}
+
+func (s *SettingsService) EditorSettings(ctx context.Context) (EditorSettings, error) {
+	command, err := s.settings.Editor(ctx)
+	if err != nil {
+		return EditorSettings{}, err
+	}
+	detected := s.settings.EditorChoices(ctx)
+	choices := make([]EditorChoice, 0, len(detected))
+	for _, c := range detected {
+		choices = append(choices, EditorChoice{Command: c.Command, Title: c.Title, Found: c.Found})
+	}
+	return EditorSettings{Command: command, Choices: choices}, nil
+}
+
+// SetEditor persists the editor command; empty clears it.
+func (s *SettingsService) SetEditor(ctx context.Context, command string) error {
+	return s.settings.SetEditor(ctx, command)
+}
+
 func (s *SettingsService) GithubSettings(ctx context.Context) (GithubSettings, error) {
 	current, err := s.settings.Github(ctx)
 	if err != nil {

@@ -288,6 +288,7 @@ more expensive, which is the whole reason it is being done now.
   http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
   keybindings: {}
   paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
+  editor: {command: ""}             # single-word CLI launcher "Open in editor" actions run (zed, code, …); "" means none configured
   experimental: {terminal: false, agents: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR 0037), the Agents area (ADR 0061)
   development:
     mocks: {mode: live}
@@ -398,6 +399,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR 0039); empty searches `$PATH` then the usual package-manager prefixes |
+| `HIVE_DESKTOP_EDITOR_COMMAND` | Single-word CLI launcher "Open in editor" actions run on a directory (zed, code, cursor, subl, or a path); empty means none configured |
 | `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, read at startup |
 | `HIVE_DESKTOP_EXPERIMENTAL_AGENTS` | Opt into the Agents area (ships dark, ADR 0061); off by default, read at startup |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |

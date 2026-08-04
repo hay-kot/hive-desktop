@@ -1155,6 +1155,32 @@ written only when its bytes differ — the write-only-if-different rule is what
 makes byte-determinism observable (nothing to re-sync when nothing changed)
 and what makes concurrent generation from two machines safe (ADR 0062).
 
+A workspace created through the app also starts with an `AGENTS.md`
+scaffold — authored at birth, written exactly once, never regenerated
+(ADR 0064): overriding the default framing is editing the file, and deleting
+it deletes it. Hand-authored workspaces get no scaffold.
+
+The app writes authored YAML only through the node-tree editors in `write.go`
+and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
+order, and keys the writer does not own survive; `yaml.Marshal` is never the
+writer. The workspace editor owns `name`, `agent`, `autonomy`, and `mcps:` in
+the manifest (an empty list removes the key); `skills:` and everything else
+stay the user's. `mcps.yaml` gains entries through the same pattern —
+`ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
+bare id-to-server map), an id already declared is a conflict rather than an
+overwrite, and only user entries can be removed. The merged catalogue
+(shipped + user, stability, the resolved command line, a LookPath problem) is
+served on the agents API — the surface ADR 0061 §5's read-the-command-first
+mitigation runs through.
+
+Two directory actions ride the same token-guarded agents prefix, because
+launching a program is command execution (ADR 0036): open-in-editor runs the
+settings-configured editor (`editor.command`, a single word — the agent-command
+rule from ADR 0061 — resolved and launched through `execenv`, ADR 0041) on a
+recognized workspace's directory, and reveal opens it in the OS file manager.
+Both refuse a path that is not a known workspace, the same posture as
+`SystemService.checkAllowed`.
+
 A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
 `ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
 `agentws`'s launch table (`launch.go`) maps
