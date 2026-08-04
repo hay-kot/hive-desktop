@@ -9,10 +9,25 @@ import (
 // self-registration — gochecknoinits is enabled, and an explicit map is the
 // only form where the shipped set can be read off one file.
 //
-// It ships exactly one entry. A shipped entry is an endorsement (spec §7.3)
-// and a release to revise, so the set starts at one; mcps.yaml is the escape
-// hatch that makes that tolerable until a second entry is worth pinning here.
+// A shipped entry is an endorsement (spec §7.3) and a release to revise, so
+// the set grows reluctantly — first-party servers with a keyless, pinnable
+// invocation only; mcps.yaml is the escape hatch for everything else.
 var registry = map[string]Descriptor{
+	"chrome-devtools": {
+		Type:        "chrome-devtools",
+		Title:       "Chrome DevTools",
+		Description: "Browser debugging: read network requests, console output, and performance traces from a Chrome the agent controls.",
+		Icon:        "chrome",
+		Stability:   StabilityStable,
+		Server: Server{
+			Transport: TransportStdio,
+			Command:   "npx",
+			// -y for the same reason as playwright's below. @latest is the
+			// documented invocation (ChromeDevTools/chrome-devtools-mcp); Hive
+			// does not vendor a pinned version.
+			Args: []string{"-y", "chrome-devtools-mcp@latest"},
+		},
+	},
 	"playwright": {
 		Type:        "playwright",
 		Title:       "Playwright",
