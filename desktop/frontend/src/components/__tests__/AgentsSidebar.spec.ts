@@ -1,5 +1,5 @@
-import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentsSidebar from '../AgentsSidebar.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
@@ -57,9 +57,10 @@ describe('AgentsSidebar', () => {
   // Chat row menus and the delete confirmation teleport to <body>, and the
   // sidebar's list state is a module singleton — a wrapper left mounted keeps
   // reacting to the next test's data and re-teleports UI that then answers
-  // that test's document-level queries. Unmounting is the only reliable
-  // isolation; the body wipe just clears any stray nodes an unmount missed.
-  enableAutoUnmount(afterEach)
+  // that test's document-level queries. test-setup.ts's enableAutoUnmount is
+  // what tears wrappers down (registering it here too would throw — it is
+  // once-per-environment); the body wipe just clears any stray nodes an
+  // unmount missed.
 
   beforeEach(() => {
     document.body.innerHTML = ''
