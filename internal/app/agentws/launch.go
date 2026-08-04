@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -49,6 +50,13 @@ type AgentLaunch struct {
 	// the session relaunches fresh and the UI says the previous conversation
 	// could not be resumed.
 	Resume func(id string) []string
+
+	// HasConversation reports whether the agent holds a persisted conversation
+	// addressable by id; nil means Hive cannot tell and resume is attempted
+	// unconditionally. It exists because an agent may accept a session id at
+	// launch yet persist nothing until the first message — resuming such an id
+	// dies in the pane, and the caller would rather relaunch fresh.
+	HasConversation func(id string) bool
 }
 
 var (
@@ -83,8 +91,9 @@ var agentLaunches = map[string]AgentLaunch{
 			},
 			Bounded: true,
 		},
-		SessionArgs: func(id string) []string { return []string{"--session-id", id} },
-		Resume:      func(id string) []string { return []string{"--resume", id} },
+		SessionArgs:     func(id string) []string { return []string{"--session-id", id} },
+		Resume:          func(id string) []string { return []string{"--resume", id} },
+		HasConversation: claudeConversationExists,
 	},
 	"codex": {
 		Autonomy: map[Autonomy][]string{
@@ -112,6 +121,48 @@ var agentLaunches = map[string]AgentLaunch{
 func SupportsResume(agent string) bool {
 	launch, ok := agentLaunches[agent]
 	return ok && launch.Resume != nil
+}
+
+// HasConversation reports whether agent is known to hold a persisted
+// conversation under id — true when Hive cannot tell, so an uncertain caller
+// resumes and lets the agent report its own state.
+func HasConversation(agent, id string) bool {
+	launch, ok := agentLaunches[agent]
+	if !ok || launch.HasConversation == nil {
+		return true
+	}
+	return launch.HasConversation(id)
+}
+
+// claudeConversationExists reports whether claude persisted a conversation
+// under id. claude writes <config>/projects/<munged-cwd>/<session-id>.jsonl on
+// the first message of a conversation — never at launch — with config being
+// ~/.claude or $CLAUDE_CONFIG_DIR. The id is a uuid Hive minted, so matching
+// the bare filename across every project directory is collision-safe and
+// independent of claude's cwd-munging scheme.
+//
+// The check fails toward resuming: absence is only declared over a readable
+// projects tree, because a wrong "absent" silently abandons a real
+// conversation, while a wrong "present" merely reproduces the resume error
+// the caller would have hit anyway.
+func claudeConversationExists(id string) bool {
+	root := os.Getenv("CLAUDE_CONFIG_DIR")
+	if root == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return true
+		}
+		root = filepath.Join(home, ".claude")
+	}
+	projects := filepath.Join(root, "projects")
+	if info, err := os.Stat(projects); err != nil || !info.IsDir() {
+		return true
+	}
+	matches, err := filepath.Glob(filepath.Join(projects, "*", id+".jsonl"))
+	if err != nil {
+		return true
+	}
+	return len(matches) > 0
 }
 
 // MCPBounded reports whether agent's MCP wiring confines it to exactly the
@@ -173,7 +224,11 @@ func resolveAgainst(table map[string]AgentLaunch, command string, w Workspace, s
 	for i, word := range words {
 		quoted[i] = shellQuote(word)
 	}
-	return strings.Join(quoted, " "), nil
+	// The line runs under $SHELL -l -c, and a login shell's profile is free to
+	// cd somewhere else before -c executes; tmux's -c only sets the pane's
+	// initial directory. The explicit cd is what guarantees the agent starts
+	// in the workspace regardless of what the user's dotfiles do.
+	return "cd " + shellQuote(w.Dir) + " && " + strings.Join(quoted, " "), nil
 }
 
 // shellQuote wraps s for a POSIX login shell: single quotes, with embedded

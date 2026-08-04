@@ -2,6 +2,7 @@ package agentws
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -202,15 +203,42 @@ func TestLaunchLineQuotesShellMetacharacters(t *testing.T) {
 		t.Run(d, func(t *testing.T) {
 			t.Parallel()
 
-			w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: d}
+			// The line opens with cd into the workspace, so the dangerous name
+			// must be a real directory for the rest of it to execute at all.
+			dir := filepath.Join(t.TempDir(), d)
+			require.NoError(t, os.Mkdir(dir, 0o700))
+
+			w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: dir}
 			line, err := Resolve("echo", w, "sess", false)
 			require.NoError(t, err)
 
 			out, err := exec.Command("sh", "-c", line).CombinedOutput()
-			require.NoError(t, err)
+			require.NoError(t, err, string(out))
 			assert.Contains(t, string(out), d)
 		})
 	}
+}
+
+// TestLaunchLineStartsInTheWorkspaceDirectory proves the cd survives a shell
+// whose startup moved elsewhere — the failure mode that motivated it: tmux's
+// -c sets the pane's initial directory, but the login shell's profile runs
+// before -c's command and may cd away.
+func TestLaunchLineStartsInTheWorkspaceDirectory(t *testing.T) {
+	t.Parallel()
+
+	// A minimal table entry so the line is nothing but `cd … && pwd` — a real
+	// agent's flag set would be arguments pwd rejects.
+	table := map[string]AgentLaunch{"probe": {Autonomy: map[Autonomy][]string{AutonomyAsk: {}}}}
+	dir := t.TempDir()
+	w := Workspace{Agent: "probe", Autonomy: AutonomyAsk, Dir: dir}
+	line, err := resolveAgainst(table, "pwd", w, "sess", false)
+	require.NoError(t, err)
+
+	cmd := exec.Command("sh", "-c", line)
+	cmd.Dir = os.TempDir() // stand-in for a profile that moved the shell away
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, string(out))
+	assert.Contains(t, string(out), filepath.Base(dir))
 }
 
 func TestRejectsAMultiWordAgentCommand(t *testing.T) {
@@ -219,4 +247,32 @@ func TestRejectsAMultiWordAgentCommand(t *testing.T) {
 	w := Workspace{Agent: "claude", Autonomy: AutonomyAsk, Dir: "/tmp"}
 	_, err := Resolve("claude --dangerously-skip-permissions", w, "sess", false)
 	require.ErrorIs(t, err, ErrCommandNotASingleWord)
+}
+
+// TestClaudeConversationExistence pins the probe's fail-toward-resume
+// polarity: absence is declared only over a readable projects tree, because a
+// wrong "absent" abandons a real conversation while a wrong "present" merely
+// reproduces the resume error the probe exists to avoid.
+func TestClaudeConversationExistence(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	const id = "3f2c8a54-1111-4222-8333-444455556666"
+
+	assert.True(t, HasConversation("claude", id),
+		"no projects tree cannot confirm absence — resume and let claude report its own state")
+
+	projectDir := filepath.Join(cfg, "projects", "-some-workspace")
+	require.NoError(t, os.MkdirAll(projectDir, 0o700))
+	assert.False(t, HasConversation("claude", id),
+		"a readable projects tree without the file is a conversation that never persisted")
+
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, id+".jsonl"), []byte("{}\n"), 0o600))
+	assert.True(t, HasConversation("claude", id))
+}
+
+func TestHasConversationIsTrueWithoutAProbe(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, HasConversation("codex", "any-id"), "no probe means resume decides for itself")
+	assert.True(t, HasConversation("mystery-agent", "any-id"))
 }
