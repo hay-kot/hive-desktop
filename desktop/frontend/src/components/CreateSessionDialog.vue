@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, useId } from 'vue'
 import IconPlay from '~icons/lucide/play'
 import ActionInputFields from './ActionInputFields.vue'
 import AppSelect from './AppSelect.vue'
@@ -9,6 +9,8 @@ import RepositorySelect from './RepositorySelect.vue'
 import type { InputSpec } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/actions/models'
 import type { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import { useAutofocus } from '../composables/useAutofocus'
+import { formatCombo } from '../composables/useKeybindings'
+import { useSubmitShortcut } from '../composables/useSubmitShortcut'
 import { type ActionInputValues, initialActionInputs, validateActionInputs } from '../lib/actionInputs'
 
 // An interactive launch-session action can also declare inputs; the two
@@ -16,6 +18,10 @@ import { type ActionInputValues, initialActionInputs, validateActionInputs } fro
 const props = withDefaults(defineProps<{ actionLabel: string; options: SessionLaunchOptions; busy: boolean; error: string | null; inputs?: InputSpec[] }>(), { inputs: () => [] })
 const emit = defineEmits<{ close: []; submit: [input: { name: string; repository: string; agent?: string; inputs: ActionInputValues }] }>()
 
+// The footer sits outside the form, so the submit button claims it by id —
+// which is also what makes Enter in a single-line field submit.
+const formId = useId()
+const submitHint = formatCombo('mod+enter')
 const repository = ref(props.options.defaultRepository)
 const name = ref('')
 const agent = ref(props.options.defaultAgent)
@@ -52,6 +58,7 @@ function submit() {
 }
 
 useAutofocus(nameInput)
+useSubmitShortcut(submit)
 </script>
 
 <template>
@@ -63,7 +70,7 @@ useAutofocus(nameInput)
     testid="create-session-dialog"
     @close="emit('close')"
   >
-    <form class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
+    <form :id="formId" class="flex flex-col gap-3 px-5 py-4" @submit.prevent="submit">
       <div class="flex flex-col gap-1.5 text-xs font-medium text-text-2">Repository
         <RepositorySelect
           :model-value="repository"
@@ -88,7 +95,10 @@ useAutofocus(nameInput)
       <p v-if="validationError || error" class="text-xs text-severity-error" data-testid="create-session-error">{{ validationError || error }}</p>
     </form>
     <template #footer>
-      <BaseButton class="flex-1" :busy="busy" :disabled="!canSubmit" data-testid="create-session-submit" @click="submit">{{ busy ? 'Creating…' : 'Create session' }}</BaseButton>
+      <BaseButton class="flex-1" type="submit" :form="formId" :busy="busy" :disabled="!canSubmit" data-testid="create-session-submit">
+        {{ busy ? 'Creating…' : 'Create session' }}
+        <kbd v-if="!busy" class="rounded bg-black/15 px-1 py-0.5 font-mono text-[10.5px] leading-none">{{ submitHint }}</kbd>
+      </BaseButton>
       <BaseButton variant="secondary" :busy="busy" @click="emit('close')">Cancel</BaseButton>
     </template>
   </BaseModal>

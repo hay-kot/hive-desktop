@@ -47,6 +47,7 @@ type publisher struct {
 	options           publishOptions
 	workDir           string
 	keychainPath      string
+	notaryKeyPath     string
 	originalKeychains []string
 	// Stamped into every platform's binary, so all artifacts in a release
 	// report the same provenance.
@@ -54,10 +55,21 @@ type publisher struct {
 	buildDate string
 }
 
+// artifactRole separates the file the in-app updater downloads from the one a
+// human downloads to install. Both live in the same release prefix and the same
+// manifest platform entry; only macOS publishes a distinct installer.
+type artifactRole string
+
+const (
+	updateArtifact    artifactRole = "update"
+	installerArtifact artifactRole = "installer"
+)
+
 // releaseArtifact is one published file and the manifest metadata describing it.
-// A release produces one per platform key and registers them together.
+// A release produces one per platform key and role, and registers them together.
 type releaseArtifact struct {
 	platformKey string // manifest platforms key, e.g. "linux-amd64"
+	role        artifactRole
 	name        string // file name within the release prefix
 	path        string // local path
 	checksum    string // hex sha256
@@ -237,7 +249,11 @@ func (p *publisher) run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	artifacts := []releaseArtifact{macArtifact}
+	installer, err := p.packageInstaller(ctx)
+	if err != nil {
+		return err
+	}
+	artifacts := []releaseArtifact{macArtifact, installer}
 
 	// Every platform ships in this one publish; a later top-up publish would
 	// fail the manifest-advancement rule (decision 0028).
@@ -290,7 +306,7 @@ func (p *publisher) preflight(ctx context.Context) error {
 	// docker is required unconditionally: every release publishes Linux too, and
 	// the Linux binary is built in a container (the macOS host has no GTK4
 	// headers for CGO to link against).
-	tools := []string{"/usr/libexec/PlistBuddy", "codesign", "ditto", "docker", "mise", "openssl", "security", "/usr/bin/unzip"}
+	tools := []string{"/usr/libexec/PlistBuddy", "SetFile", "codesign", "ditto", "docker", "hdiutil", "mise", "openssl", "security", "/usr/bin/unzip"}
 	if !p.options.skipNotarize {
 		tools = append(tools, "xcrun")
 	}
@@ -537,17 +553,38 @@ type notaryResponse struct {
 }
 
 func (p *publisher) notarize(ctx context.Context) error {
-	fmt.Println("==> notarizing")
-	keyPath := filepath.Join(p.workDir, "ac_api_key.p8")
-	if err := decodeSecret(p.options.notaryKey, keyPath); err != nil {
-		return fmt.Errorf("decode AC_API_KEY: %w", err)
-	}
-	archive := filepath.Join(p.workDir, "notarize.zip")
+	fmt.Println("==> notarizing Hive.app")
 	app := filepath.Join("desktop", "bin", "Hive.app")
+	archive := filepath.Join(p.workDir, "notarize.zip")
 	if err := runCommand(ctx, "ditto", "-c", "-k", "--keepParent", app, archive); err != nil {
 		return err
 	}
-	output, err := commandOutput(ctx, "xcrun", "notarytool", "submit", archive, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID, "--output-format", "json")
+	return p.notarizeAndStaple(ctx, archive, app)
+}
+
+// notaryKeyFile materialises the App Store Connect key once per release, so a
+// second notarization round does not decode the secret again.
+func (p *publisher) notaryKeyFile() (string, error) {
+	if p.notaryKeyPath == "" {
+		path := filepath.Join(p.workDir, "ac_api_key.p8")
+		if err := decodeSecret(p.options.notaryKey, path); err != nil {
+			return "", fmt.Errorf("decode AC_API_KEY: %w", err)
+		}
+		p.notaryKeyPath = path
+	}
+	return p.notaryKeyPath, nil
+}
+
+// notarizeAndStaple submits one file to Apple's notary service, waits for a
+// verdict, and staples the resulting ticket to target. The two paths differ for
+// the app, which has to travel inside a zip but carries the ticket itself.
+func (p *publisher) notarizeAndStaple(ctx context.Context, submit, target string) error {
+	keyPath, err := p.notaryKeyFile()
+	if err != nil {
+		return err
+	}
+	credentials := []string{"--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID}
+	output, err := commandOutput(ctx, "xcrun", append([]string{"notarytool", "submit", submit, "--output-format", "json"}, credentials...)...)
 	if err != nil {
 		return err
 	}
@@ -563,7 +600,7 @@ func (p *publisher) notarize(ctx context.Context) error {
 	deadline := time.Now().Add(2 * time.Hour)
 	consecutiveErrors := 0
 	for time.Now().Before(deadline) {
-		output, err := commandOutput(ctx, "xcrun", "notarytool", "info", submission.ID, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID, "--output-format", "json")
+		output, err := commandOutput(ctx, "xcrun", append([]string{"notarytool", "info", submission.ID, "--output-format", "json"}, credentials...)...)
 		if err != nil {
 			consecutiveErrors++
 			fmt.Fprintf(os.Stderr, "    status check failed (%d/10)\n", consecutiveErrors)
@@ -579,13 +616,13 @@ func (p *publisher) notarize(ctx context.Context) error {
 			fmt.Printf("    status: %s\n", info.Status)
 			switch info.Status {
 			case "Accepted":
-				if err := runCommand(ctx, "xcrun", "stapler", "staple", app); err != nil {
+				if err := runCommand(ctx, "xcrun", "stapler", "staple", target); err != nil {
 					return err
 				}
-				return runCommand(ctx, "xcrun", "stapler", "validate", app)
+				return runCommand(ctx, "xcrun", "stapler", "validate", target)
 			case "In Progress":
 			case "Invalid", "Rejected":
-				_ = runCommand(ctx, "xcrun", "notarytool", "log", submission.ID, "--key", keyPath, "--key-id", p.options.notaryKeyID, "--issuer", p.options.notaryIssuerID)
+				_ = runCommand(ctx, "xcrun", append([]string{"notarytool", "log", submission.ID}, credentials...)...)
 				return fmt.Errorf("notarization failed: %s", info.Status)
 			default:
 				return fmt.Errorf("unexpected notarization status: %s", info.Status)
@@ -648,6 +685,7 @@ func (p *publisher) packageApp(ctx context.Context) (releaseArtifact, error) {
 	}
 	return releaseArtifact{
 		platformKey: "darwin-universal",
+		role:        updateArtifact,
 		name:        zipName,
 		path:        zipPath,
 		checksum:    checksum,
@@ -691,13 +729,9 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 		return err
 	}
 
-	platforms := make(map[string]platformManifest, len(artifacts))
-	for _, artifact := range artifacts {
-		platforms[artifact.platformKey] = platformManifest{
-			URL:    fmt.Sprintf("%s/%s/%s", p.options.downloadBase, releasePrefix, artifact.name),
-			SHA256: artifact.checksum,
-			Size:   artifact.size,
-		}
+	platforms, err := platformManifests(p.options.downloadBase, releasePrefix, artifacts)
+	if err != nil {
+		return err
 	}
 
 	pubDate := time.Now().UTC().Format(time.RFC3339)
@@ -723,17 +757,47 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 	}
 	fmt.Printf("Release %s published to the %s channel.\n", p.options.version, p.options.version.channel())
 	for _, artifact := range artifacts {
-		fmt.Printf("  %s: %s/%s/%s\n", artifact.platformKey, p.options.downloadBase, releasePrefix, artifact.name)
+		fmt.Printf("  %s (%s): %s/%s/%s\n", artifact.platformKey, artifact.role, p.options.downloadBase, releasePrefix, artifact.name)
 	}
 	fmt.Printf("  manifests updated: %s\n", strings.Join(p.options.version.affectedChannels(), " "))
 	return nil
 }
 
-func artifactContentType(name string) string {
-	if strings.HasSuffix(name, ".zip") {
-		return "application/zip"
+// platformManifests folds a release's artifacts into one manifest entry per
+// platform. A platform's update and installer artifacts occupy different fields
+// of the same entry, so the two never overwrite each other.
+func platformManifests(downloadBase, releasePrefix string, artifacts []releaseArtifact) (map[string]platformManifest, error) {
+	platforms := make(map[string]platformManifest)
+	for _, artifact := range artifacts {
+		url := fmt.Sprintf("%s/%s/%s", downloadBase, releasePrefix, artifact.name)
+		entry := platforms[artifact.platformKey]
+		switch artifact.role {
+		case updateArtifact:
+			entry.URL, entry.SHA256, entry.Size = url, artifact.checksum, artifact.size
+		case installerArtifact:
+			entry.InstallerURL, entry.InstallerSHA256, entry.InstallerSize = url, artifact.checksum, artifact.size
+		default:
+			return nil, fmt.Errorf("artifact %s has no role", artifact.name)
+		}
+		platforms[artifact.platformKey] = entry
 	}
-	return "application/gzip"
+	for key, entry := range platforms {
+		if err := validatePlatformManifest(key, entry); err != nil {
+			return nil, err
+		}
+	}
+	return platforms, nil
+}
+
+func artifactContentType(name string) string {
+	switch {
+	case strings.HasSuffix(name, ".zip"):
+		return "application/zip"
+	case strings.HasSuffix(name, ".dmg"):
+		return "application/x-apple-diskimage"
+	default:
+		return "application/gzip"
+	}
 }
 
 func (p *publisher) r2Endpoint(key string) string {

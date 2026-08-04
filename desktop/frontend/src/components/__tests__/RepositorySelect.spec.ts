@@ -103,6 +103,40 @@ describe('RepositorySelect', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
+  it('hands focus back to the trigger after choosing, so Tab reaches the next field', async () => {
+    const wrapper = mountSelect()
+    await openList(wrapper)
+    ;(wrapper.get('[data-testid="repo-search"]').element as HTMLInputElement).focus()
+
+    await wrapper.findAll('[data-testid="repo-option"]')[0].trigger('click')
+
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="repo"]').element)
+  })
+
+  it('hands focus back to the trigger on Escape', async () => {
+    const wrapper = mountSelect()
+    await openList(wrapper)
+    const search = wrapper.get('[data-testid="repo-search"]')
+    ;(search.element as HTMLInputElement).focus()
+
+    await search.trigger('keydown', { key: 'Escape' })
+
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="repo"]').element)
+  })
+
+  it('closes on Tab so focus moves on rather than into the list', async () => {
+    const wrapper = mountSelect()
+    await openList(wrapper)
+    const search = wrapper.get('[data-testid="repo-search"]')
+    ;(search.element as HTMLInputElement).focus()
+
+    await search.trigger('keydown', { key: 'Tab' })
+
+    expect(wrapper.find('[data-testid="repo-popover"]').exists()).toBe(false)
+    expect(document.activeElement).toBe(wrapper.get('[data-testid="repo"]').element)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
   it('says so when no repositories are configured', async () => {
     const wrapper = mount(RepositorySelect, {
       attachTo: document.body,

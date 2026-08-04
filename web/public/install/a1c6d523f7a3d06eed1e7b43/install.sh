@@ -90,6 +90,9 @@ resolve_from_channel() {
     || die "couldn't fetch the $CHANNEL manifest ($url)"
   VERSION="$(printf '%s\n' "$MANIFEST" | awk -F'"' '/"version":/ { print $4; exit }')"
   local key
+  # `url`, not `installer_url`: on macOS the manifest also advertises a .dmg,
+  # but that exists to give a browser download a drag-to-Applications window.
+  # This script already puts the app there, so the zip saves it a mount cycle.
   for key in $(platform_keys); do
     ART_URL="$(json_field "$key" url)"
     if [ -n "$ART_URL" ]; then

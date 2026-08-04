@@ -1052,11 +1052,11 @@ Three rules govern it, and each is a consequence of that:
   none — the pop-up always takes this path, since nothing about it wants to be
   addressable. A caller that already knows the id it wants to reattach to may
   supply its own instead (`Spec.ID`); a caller-supplied id collides with
-  `ErrIDInUse`, not a second terminal (ADR 0060) — no caller currently
+  `ErrIDInUse`, not a second terminal (ADR 0066) — no caller currently
   exercises this since the pop-up is the one caller left and always mints.
 - **The manager caps concurrent terminals at `maxConcurrentSessions` (8).**
   The terminal past the cap returns `ErrTooManyTerminals` and spawns no
-  process, and closing one makes room for the next (ADR 0060). Agent workspace
+  process, and closing one makes room for the next (ADR 0066). Agent workspace
   sessions have their own, separate cap now — a count of live `agentws-*` tmux
   sessions (ADR 0063) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves

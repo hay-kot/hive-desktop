@@ -68,12 +68,13 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0057](decisions/0057-the-sidebar-tree-is-the-only-window-list.md) | The sidebar tree is the only window list; the tab strip is deleted |
 | [0058](decisions/0058-flows-are-dry-run-against-supplied-input.md) | Flows are dry-run against supplied input, not deployed to be observed |
 | [0059](decisions/0059-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call |
-| [0060](decisions/0060-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
+| [0060](decisions/0060-macos-dmg-installer.md) | macOS ships an installer disk image beside the update zip |
 | [0061](decisions/0061-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority: no inherited profiles, a fail-closed autonomy table |
 | [0062](decisions/0062-workspace-directories-are-generated-and-disposable.md) | Workspace directories are generated and disposable: no drift tracking, deterministic regeneration, iCloud-tolerant |
 | [0063](decisions/0063-agent-workspace-sessions-are-tmux-sessions.md) | Agent workspace sessions are tmux sessions: the pivot off `ptyterm`, why, and what it costs |
 | [0064](decisions/0064-a-created-workspace-starts-with-an-agents-md-scaffold.md) | A created workspace starts with an AGENTS.md scaffold: authored at birth, never regenerated |
 | [0065](decisions/0065-the-open-chat-rides-the-route.md) | The open chat rides the route (`?chat`), and re-entry reattaches it — only when its tmux session is still live |
+| [0066](decisions/0066-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
 
 ## References
 

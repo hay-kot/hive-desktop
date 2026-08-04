@@ -31,7 +31,7 @@ const (
 	// maxConcurrentAgentSessions bounds live agentws-* tmux sessions across
 	// every workspace. Each session is an agent CLI spawning its own copy of
 	// every enabled MCP server, so with no idle reaping and no cap this is a
-	// fork bomb with a progress bar (ADR 0060 point 4, carried over from
+	// fork bomb with a progress bar (ADR 0066 point 4, carried over from
 	// ptyterm to this service now that sessions outlive the app on purpose).
 	maxConcurrentAgentSessions = 8
 

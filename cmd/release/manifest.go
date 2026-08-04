@@ -31,10 +31,18 @@ func siteBaseURL() string {
 
 var errManifestNotFound = errors.New("manifest not found")
 
+// platformManifest describes one platform's artifacts. url/sha256/size are the
+// update artifact the in-app updater downloads; the installer_* fields are the
+// human download, present only where the two differ (macOS ships a .dmg, and
+// the updater cannot consume one). They are optional: manifests published
+// before the installer existed have to keep parsing.
 type platformManifest struct {
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
-	Size   int64  `json:"size"`
+	URL             string `json:"url"`
+	SHA256          string `json:"sha256"`
+	Size            int64  `json:"size"`
+	InstallerURL    string `json:"installer_url,omitempty"`
+	InstallerSHA256 string `json:"installer_sha256,omitempty"`
+	InstallerSize   int64  `json:"installer_size,omitempty"`
 }
 
 type channelManifest struct {
@@ -113,16 +121,28 @@ func validateManifest(manifest channelManifest) error {
 }
 
 func validatePlatformManifest(key string, platform platformManifest) error {
-	if platform.URL == "" || platform.SHA256 == "" || platform.Size < 1 {
-		return fmt.Errorf("missing %s artifact metadata", key)
+	if err := validateArtifactMetadata(key, platform.URL, platform.SHA256, platform.Size); err != nil {
+		return err
 	}
-	artifactURL, err := url.Parse(platform.URL)
+	if platform.InstallerURL == "" && platform.InstallerSHA256 == "" && platform.InstallerSize == 0 {
+		return nil
+	}
+	// Partial installer metadata is worse than none: a consumer that reads the
+	// URL and skips the missing checksum would install unverified bytes.
+	return validateArtifactMetadata(key+" installer", platform.InstallerURL, platform.InstallerSHA256, platform.InstallerSize)
+}
+
+func validateArtifactMetadata(label, artifact, checksum string, size int64) error {
+	if artifact == "" || checksum == "" || size < 1 {
+		return fmt.Errorf("missing %s artifact metadata", label)
+	}
+	artifactURL, err := url.Parse(artifact)
 	if err != nil || artifactURL.Host == "" || (artifactURL.Scheme != "http" && artifactURL.Scheme != "https") {
-		return fmt.Errorf("invalid %s artifact URL", key)
+		return fmt.Errorf("invalid %s artifact URL", label)
 	}
-	checksum, err := hex.DecodeString(platform.SHA256)
-	if err != nil || len(checksum) != sha256.Size {
-		return fmt.Errorf("invalid %s SHA-256", key)
+	digest, err := hex.DecodeString(checksum)
+	if err != nil || len(digest) != sha256.Size {
+		return fmt.Errorf("invalid %s SHA-256", label)
 	}
 	return nil
 }
@@ -229,7 +249,14 @@ func verifyLive(ctx context.Context, version releaseVersion) error {
 
 	// Sorted so output and failures are deterministic across runs.
 	for _, key := range slices.Sorted(maps.Keys(platforms)) {
-		if err := verifyLiveArtifact(ctx, client, key, platforms[key]); err != nil {
+		entry := platforms[key]
+		if err := verifyLiveArtifact(ctx, client, key, entry.URL, entry.SHA256, entry.Size); err != nil {
+			return err
+		}
+		if entry.InstallerURL == "" {
+			continue
+		}
+		if err := verifyLiveArtifact(ctx, client, key+" installer", entry.InstallerURL, entry.InstallerSHA256, entry.InstallerSize); err != nil {
 			return err
 		}
 	}
@@ -239,34 +266,34 @@ func verifyLive(ctx context.Context, version releaseVersion) error {
 // verifyLiveArtifact downloads one published artifact and checks it against the
 // size and checksum the manifest advertises — the same values the in-app updater
 // will verify against, so a mismatch here is a broken update for that platform.
-func verifyLiveArtifact(ctx context.Context, client *http.Client, key string, artifact platformManifest) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifact.URL, nil)
+func verifyLiveArtifact(ctx context.Context, client *http.Client, label, artifactURL, checksum string, size int64) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, artifactURL, nil)
 	if err != nil {
-		return fmt.Errorf("create %s artifact request: %w", key, err)
+		return fmt.Errorf("create %s artifact request: %w", label, err)
 	}
 	req.Header.Set("User-Agent", "hive-desktop-release/1")
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("download %s artifact: %w", key, err)
+		return fmt.Errorf("download %s artifact: %w", label, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s artifact: HTTP %d", key, resp.StatusCode)
+		return fmt.Errorf("download %s artifact: HTTP %d", label, resp.StatusCode)
 	}
 	hash := sha256.New()
 	n, err := io.Copy(hash, resp.Body)
 	if err != nil {
-		return fmt.Errorf("hash %s artifact: %w", key, err)
+		return fmt.Errorf("hash %s artifact: %w", label, err)
 	}
 	actual := hex.EncodeToString(hash.Sum(nil))
-	if actual != artifact.SHA256 {
-		return fmt.Errorf("%s artifact checksum %s does not match manifest %s", key, actual, artifact.SHA256)
+	if actual != checksum {
+		return fmt.Errorf("%s artifact checksum %s does not match manifest %s", label, actual, checksum)
 	}
-	if n != artifact.Size {
-		return fmt.Errorf("%s artifact size %d does not match manifest %d", key, n, artifact.Size)
+	if n != size {
+		return fmt.Errorf("%s artifact size %d does not match manifest %d", label, n, size)
 	}
-	fmt.Printf("artifact: %s\n", artifact.URL)
-	fmt.Printf("  platform: %s\n", key)
+	fmt.Printf("artifact: %s\n", artifactURL)
+	fmt.Printf("  platform: %s\n", label)
 	fmt.Printf("  size: %d\n", n)
 	fmt.Printf("  sha256: %s\n", actual)
 	return nil

@@ -13,7 +13,7 @@ import (
 )
 
 // The ptyterm data plane, shared by every caller that addresses a terminal by
-// id (ADR 0060) — today the pop-up, and a workspace session once phase 5 lands.
+// id (ADR 0066) — today the pop-up, and a workspace session once phase 5 lands.
 // One socket carries exactly one terminal — the id is in the query string, not
 // in every frame — so output is a byte payload behind a single tag and
 // xterm.js writes it without a decode step.

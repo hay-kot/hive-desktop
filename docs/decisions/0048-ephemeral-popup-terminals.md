@@ -1,6 +1,6 @@
 # 0048 — Ephemeral pop-up terminals this process owns, beside the tmux ones it does not
 
-- **Status:** proposed; point 2 amended by [ADR 0060](0060-ptyterm-terminals-are-caller-addressed.md) — a caller may now supply the terminal's id rather than always receiving a minted one; [ADR 0063](0063-agent-workspace-sessions-are-tmux-sessions.md) moved agent workspace sessions off this backend onto tmux, so "the pop-up" below is now the only caller
+- **Status:** proposed; point 2 amended by [ADR 0066](0060-ptyterm-terminals-are-caller-addressed.md) — a caller may now supply the terminal's id rather than always receiving a minted one; [ADR 0063](0063-agent-workspace-sessions-are-tmux-sessions.md) moved agent workspace sessions off this backend onto tmux, so "the pop-up" below is now the only caller
 - **Date:** 2026-07-30
 
 ## Context

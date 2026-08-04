@@ -67,7 +67,7 @@ type MountOptions struct {
 	// 0048). Zero when its stream was not mounted.
 	PopupTerminal PopupTerminalTransport
 	// Agents carries the same for the Agents area's control plane and the
-	// shared ptyterm stream a workspace session rides (ADR 0060, ADR 0061).
+	// shared ptyterm stream a workspace session rides (ADR 0066, ADR 0061).
 	// Zero when its stream was not mounted.
 	Agents AgentsTransport
 	// TerminalEnabled is the experimental.terminal opt-in (ADR 0037). Off means

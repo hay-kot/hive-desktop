@@ -42,7 +42,7 @@ const (
 	// agent CLI spawning its own copy of every enabled MCP server, so with no
 	// idle reaping and no cap this is a fork bomb with a progress bar; the
 	// pop-up's former one-at-a-time behaviour was frontend policy, not a limit
-	// the manager enforced (ADR 0060).
+	// the manager enforced (ADR 0066).
 	maxConcurrentSessions = 8
 )
 
@@ -66,7 +66,7 @@ var (
 )
 
 // idPattern is the caller-id charset: safe as a map key today and, since a
-// workspace session's id is durable (ADR 0060), safe wherever a future caller
+// workspace session's id is durable (ADR 0066), safe wherever a future caller
 // wants to fold it into a path.
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 

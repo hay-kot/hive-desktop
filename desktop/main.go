@@ -177,7 +177,7 @@ func main() {
 		}
 		// The ptyterm data plane. It carries one terminal per socket rather than a
 		// session's window set (ADR 0045), and is addressed by an id a caller may
-		// supply as well as one this process mints (ADR 0060). Pop-ups only — an
+		// supply as well as one this process mints (ADR 0066). Pop-ups only — an
 		// agent workspace session rides the tmux stream above since ADR 0063.
 		if path, handler := httpapi.PTYStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}

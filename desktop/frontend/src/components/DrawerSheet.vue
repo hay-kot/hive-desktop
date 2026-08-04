@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
+import { useFocusTrap } from '../composables/useFocusTrap'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 
@@ -51,24 +52,7 @@ function onBackdropClick(): void {
 
 useEscapeToClose(close, { enabled: () => props.closeOnEscape })
 
-function focusableElements(): HTMLElement[] {
-  return Array.from(sheetRef.value?.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])') ?? [])
-}
-
-function trapFocus(event: KeyboardEvent): void {
-  if (!props.trapFocus || event.key !== 'Tab') return
-  const focusable = focusableElements()
-  if (!focusable.length) return
-  const first = focusable[0]
-  const last = focusable[focusable.length - 1]
-  if (event.shiftKey && document.activeElement === first) {
-    event.preventDefault()
-    last.focus()
-  } else if (!event.shiftKey && document.activeElement === last) {
-    event.preventDefault()
-    first.focus()
-  }
-}
+const { onKeydown: trapFocus } = useFocusTrap(sheetRef, { enabled: () => props.trapFocus })
 
 function startResize(event: PointerEvent): void {
   resizePanel?.startResize(event)

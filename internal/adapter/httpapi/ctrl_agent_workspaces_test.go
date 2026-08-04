@@ -43,7 +43,7 @@ func newAgentHarness(t *testing.T, agentsEnabled bool) *terminalHarness {
 		TerminalToken: testToken, Origins: origins, AgentsEnabled: agentsEnabled,
 	}).Handler())
 	// Sessions ride the shared ptyterm stream, not an agent-specific one
-	// (ADR 0060) — mounted the same way main.go mounts it whenever either
+	// (ADR 0066) — mounted the same way main.go mounts it whenever either
 	// token-guarded flag is on.
 	ptyStreamPath, ptyStream := PTYStreamHandler(core, testToken, origins, zerolog.Nop())
 	mux.Handle(ptyStreamPath, ptyStream)

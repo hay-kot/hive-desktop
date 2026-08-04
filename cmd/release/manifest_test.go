@@ -40,6 +40,49 @@ func TestFetchManifest(t *testing.T) {
 	}
 }
 
+// Installer metadata is optional so manifests published before the DMG existed
+// still parse, but a half-filled group is rejected: a consumer that read the URL
+// and skipped the missing checksum would install unverified bytes.
+func TestValidatePlatformManifestInstallerMetadata(t *testing.T) {
+	t.Parallel()
+
+	digest := strings.Repeat("a", 64)
+	base := platformManifest{URL: "https://example.com/Hive.zip", SHA256: digest, Size: 1}
+
+	tests := []struct {
+		name     string
+		mutate   func(*platformManifest)
+		wantErr  bool
+		platform platformManifest
+	}{
+		{name: "absent", mutate: func(*platformManifest) {}},
+		{name: "complete", mutate: func(p *platformManifest) {
+			p.InstallerURL, p.InstallerSHA256, p.InstallerSize = "https://example.com/Hive.dmg", digest, 2
+		}},
+		{name: "url without checksum", wantErr: true, mutate: func(p *platformManifest) {
+			p.InstallerURL, p.InstallerSize = "https://example.com/Hive.dmg", 2
+		}},
+		{name: "checksum without url", wantErr: true, mutate: func(p *platformManifest) {
+			p.InstallerSHA256, p.InstallerSize = digest, 2
+		}},
+		{name: "malformed checksum", wantErr: true, mutate: func(p *platformManifest) {
+			p.InstallerURL, p.InstallerSHA256, p.InstallerSize = "https://example.com/Hive.dmg", "not-hex", 2
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			platform := base
+			tt.mutate(&platform)
+			err := validatePlatformManifest("darwin-universal", platform)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("validatePlatformManifest() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestValidateManifestAdvancementChecksCascade(t *testing.T) {
 	t.Parallel()
 

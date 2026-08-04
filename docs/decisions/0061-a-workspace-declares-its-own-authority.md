@@ -154,7 +154,7 @@ theirs, once made.
 ## Reference
 
 Related decisions: ADR 0037 (the `experimental.agents` gate this feature
-ships behind), ADR 0060 (`ptyterm` caller-addressed terminals, which is how a
+ships behind), ADR 0066 (`ptyterm` caller-addressed terminals, which is how a
 workspace session's PTY is addressed), ADR 0021 (the agent HTTP API
 `hive-http-api` exposes), ADR 0036 (why the agent control plane is
 authenticated at all — the same terminal bearer token, because starting a

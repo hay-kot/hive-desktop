@@ -6,7 +6,7 @@
 ## Context
 
 Phase 5 shipped agent workspace sessions on `ptyterm`, the same backend the
-pop-up terminal uses (ADR 0060): a caller-addressed PTY this process owns
+pop-up terminal uses (ADR 0066): a caller-addressed PTY this process owns
 outright, id `agentws-<record id>`. Live use surfaced the defects that backend
 cannot fix: a PTY has no concept of "the current screen at this client's
 size," so a resize or a session switch replays whatever escape sequences the
@@ -64,7 +64,7 @@ a server-side process tree that outlives any one client, including this one.
 5. **The 8-session cap is now a live tmux fact, not a manager's in-memory
    set.** `maxConcurrentAgentSessions` counts `tmuxcc.Manager.SessionNames(ctx,
    "agentws-")` at launch time rather than a map `ptyterm.Manager` owned — the
-   same fork-bomb-with-a-progress-bar concern ADR 0060 point 4 raised, now
+   same fork-bomb-with-a-progress-bar concern ADR 0066 point 4 raised, now
    against a backend where "how many are open" is answered by the process
    that actually owns them.
 
@@ -101,7 +101,7 @@ a server-side process tree that outlives any one client, including this one.
   same 8-terminal cap, dying with the app. Nothing here grows either backend
   toward the other's job; an agent workspace session simply stopped being one
   of ptyterm's callers.
-- **"Every ptyterm terminal dies with the app" (ADR 0060) is still true of
+- **"Every ptyterm terminal dies with the app" (ADR 0066) is still true of
   every terminal ptyterm now serves** — the pop-up. It is no longer true of an
   agent workspace session, because that session is not ptyterm's anymore.
 
