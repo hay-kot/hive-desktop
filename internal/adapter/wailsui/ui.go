@@ -66,9 +66,16 @@ type MountOptions struct {
 	// PopupTerminal carries the same for the ephemeral pop-up terminal (ADR
 	// 0048). Zero when its stream was not mounted.
 	PopupTerminal PopupTerminalTransport
+	// Agents carries the same for the Agents area's control plane and the
+	// shared ptyterm stream a workspace session rides (ADR 0066, ADR 0061).
+	// Zero when its stream was not mounted.
+	Agents AgentsTransport
 	// TerminalEnabled is the experimental.terminal opt-in (ADR 0037). Off means
 	// the frontend never renders the way into terminal mode.
 	TerminalEnabled bool
+	// AgentsEnabled is the experimental.agents opt-in (ADR 0061). Off means the
+	// frontend never renders the way into the Agents area.
+	AgentsEnabled bool
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.
 	AutoUpdate bool
 	// UpdateChannel is the resolved release channel to follow.
@@ -165,6 +172,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewPerfService(core.Perf)),
 		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
 		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal, opts.TerminalEnabled)),
+		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents, opts.AgentsEnabled)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

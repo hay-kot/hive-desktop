@@ -20,7 +20,11 @@ const mocks = vi.hoisted(() => ({
   CheckNow: vi.fn(),
   ExperimentalSettings: vi.fn(),
   SetExperimentalTerminal: vi.fn(),
+  SetExperimentalAgents: vi.fn(),
+  EditorSettings: vi.fn(),
+  SetEditor: vi.fn(),
   TerminalModeEnabled: vi.fn(),
+  AgentsModeEnabled: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
@@ -42,9 +46,15 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   ExperimentalSettings: mocks.ExperimentalSettings,
   SetExperimentalTerminal: mocks.SetExperimentalTerminal,
+  SetExperimentalAgents: mocks.SetExperimentalAgents,
+  EditorSettings: mocks.EditorSettings,
+  SetEditor: mocks.SetEditor,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Enabled: mocks.TerminalModeEnabled,
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
+  Enabled: mocks.AgentsModeEnabled,
 }))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
@@ -94,9 +104,16 @@ beforeEach(() => {
   mocks.Status.mockResolvedValue(updateInfo())
   mocks.SetEnabled.mockResolvedValue(undefined)
   mocks.CheckNow.mockResolvedValue(updateInfo())
-  mocks.ExperimentalSettings.mockResolvedValue({ terminal: false })
-  mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled }))
+  mocks.ExperimentalSettings.mockResolvedValue({ terminal: false, agents: false })
+  mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled, agents: false }))
+  mocks.SetExperimentalAgents.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: false, agents: enabled }))
+  mocks.EditorSettings.mockResolvedValue({
+    command: '',
+    choices: [{ command: 'zed', title: 'Zed', found: true }, { command: 'code', title: 'VS Code', found: false }],
+  })
+  mocks.SetEditor.mockResolvedValue(undefined)
   mocks.TerminalModeEnabled.mockResolvedValue(false)
+  mocks.AgentsModeEnabled.mockResolvedValue(false)
   document.body.innerHTML = ''
 })
 
@@ -109,6 +126,15 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-data-dir-path"]').text()).toBe(DATA)
     expect(wrapper.find('[data-testid="system-database-path"]').text()).toContain('desktop-pipeline.db')
     expect(wrapper.find('[data-testid="system-data-dir-reset"]').exists()).toBe(false)
+  })
+
+  it('renders the default-editor selector with the persisted value', async () => {
+    mocks.Info.mockResolvedValue(info())
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="system-editor"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="system-editor-command"]').text()).toContain('None')
   })
 
   it('opens and reveals a location through the service', async () => {
@@ -258,6 +284,23 @@ describe('SystemSettingsView', () => {
     await flushPromises()
     expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
     expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
+  })
+
+  it('persists the agents opt-in independently of the terminal one and flags that a relaunch is pending', async () => {
+    mocks.Info.mockResolvedValue(info())
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="system-agents-restart"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="system-experimental-agents"]').trigger('click')
+    await flushPromises()
+
+    expect(mocks.SetExperimentalAgents).toHaveBeenCalledWith(true)
+    expect(wrapper.find('[data-testid="system-agents-restart"]').exists()).toBe(true)
+    // The terminal toggle is untouched by the agents one.
+    expect(mocks.SetExperimentalTerminal).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
   })
 
   it('reverts the terminal opt-in switch when the save fails', async () => {

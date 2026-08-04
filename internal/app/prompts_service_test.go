@@ -24,7 +24,7 @@ func newTestPromptsService(t *testing.T, port int) *PromptsService {
 	t.Helper()
 	b, err := settings.LoadBootstrap()
 	require.NoError(t, err)
-	paths := settings.ResolvePaths(b, "")
+	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
 	return newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", port))
 }
@@ -69,7 +69,7 @@ func TestCatalogSurvivesAnEmptyConfigRoot(t *testing.T) {
 
 func TestCatalogUsesConfiguredWebhookHost(t *testing.T) {
 	isolateConfig(t)
-	paths := settings.ResolvePaths(settings.Bootstrap{}, "")
+	paths := settings.ResolvePaths(settings.Bootstrap{}, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
 	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "::1", 24917))
 

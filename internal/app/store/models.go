@@ -19,6 +19,16 @@ type ActivityEvent struct {
 	Metadata  []byte `json:"metadata"`
 }
 
+type AgentWorkspaceSession struct {
+	ID             int64  `json:"id"`
+	Workspace      string `json:"workspace"`
+	Name           string `json:"name"`
+	Agent          string `json:"agent"`
+	AgentSessionID string `json:"agent_session_id"`
+	CreatedAt      int64  `json:"created_at"`
+	LastOpenedAt   int64  `json:"last_opened_at"`
+}
+
 type ConsumerOffset struct {
 	Consumer string `json:"consumer"`
 	Offset   int64  `json:"offset"`

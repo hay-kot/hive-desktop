@@ -44,6 +44,11 @@ skills:                    # the agent-skill installer (Settings ▸ Skills)
   targets:                 # per-agent directory override; omit for the default
     claude: {dir: ~/.claude/skills}
 
+editor:
+  command: ""              # single-word CLI launcher "Open in editor" actions run
+                           # on a directory (zed, code, cursor, subl, or a path);
+                           # "" means none configured
+
 development:
   mocks:
     mode: live             # live, feed, pipeline, onboarding, action-smoke

@@ -25,6 +25,7 @@ func TestLeafPackage_DoesNotImportDomainPackages(t *testing.T) {
 		"github.com/hay-kot/hive-desktop/internal/app/settings",
 		"github.com/hay-kot/hive-desktop/internal/app/flow",
 		"github.com/hay-kot/hive-desktop/internal/app/actions",
+		"github.com/hay-kot/hive-desktop/internal/app/agentws",
 	}
 
 	for _, dep := range deps {

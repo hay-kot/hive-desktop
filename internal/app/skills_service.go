@@ -308,6 +308,20 @@ func (s *SkillsService) view(ctx context.Context, in prompts.Input) (SkillsCatal
 	return SkillsCatalog{Skills: entries, Targets: targetInfos, AutoUpdate: cfg.Skills.AutoUpdate}, nil
 }
 
+// SkillSlugs lists every shipped skill's installed slug ("hive-" + id) — the
+// set the seeded hive workspace declares (agentws.SyncHiveWorkspaceSkills).
+func (s *SkillsService) SkillSlugs(ctx context.Context) ([]string, error) {
+	list, err := s.prompts.Catalog(ctx, prompts.Input{})
+	if err != nil {
+		return nil, err
+	}
+	slugs := make([]string, 0, len(list))
+	for _, p := range list {
+		slugs = append(slugs, skillSlug(p.ID))
+	}
+	return slugs, nil
+}
+
 // skillMap renders the current catalog as a lookup for the installer's sync.
 func (s *SkillsService) skillMap(ctx context.Context, in prompts.Input) (map[string]skills.Skill, error) {
 	list, err := s.prompts.Catalog(ctx, in)
@@ -319,6 +333,28 @@ func (s *SkillsService) skillMap(ctx context.Context, in prompts.Input) (map[str
 		out[p.ID] = toSkill(p)
 	}
 	return out, nil
+}
+
+// RenderSkill renders one listed prompt as a SKILL.md body for installation
+// into a workspace rather than into an agent's home directory. It renders
+// against the claude target: Target.Render needs one named target and all
+// four registered targets share one skillBodyTmpl today, so the choice is
+// arbitrary now — it stops being arbitrary the moment they diverge.
+func (s *SkillsService) RenderSkill(ctx context.Context, id string) (name, body string, err error) {
+	p, err := s.prompts.Render(ctx, id, prompts.Input{})
+	if err != nil {
+		return "", "", err
+	}
+	target, ok := skills.TargetByID("claude")
+	if !ok {
+		return "", "", Errorf(KindInternal, "unknown skill target %q", "claude")
+	}
+	skill := toSkill(p)
+	rendered, err := target.Render(skill)
+	if err != nil {
+		return "", "", Wrap(err, KindInternal, "rendering skill %q", id)
+	}
+	return skill.Name, rendered, nil
 }
 
 func (s *SkillsService) target(id string) (skills.Target, string, error) {

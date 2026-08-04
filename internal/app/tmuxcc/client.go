@@ -248,6 +248,24 @@ func (c *Client) Resize(ctx context.Context, cols, rows int) error {
 	return err
 }
 
+// Renegotiate re-votes the client size and refreshes the window set from
+// tmux's post-vote answer — the same vote-then-list order negotiate runs on a
+// fresh attach, for the same reason: a snapshot painted at a stale size tears
+// the moment the surface's own vote lands. The %layout-change notification is
+// asynchronous, so only an explicit list after the vote reads the size tmux
+// actually settled on.
+func (c *Client) Renegotiate(ctx context.Context, cols, rows int) error {
+	if err := c.Resize(ctx, cols, rows); err != nil {
+		return err
+	}
+	windows, err := c.listWindows(ctx)
+	if err != nil {
+		return err
+	}
+	c.ctrl.set(windows)
+	return nil
+}
+
 func (c *Client) SelectWindow(ctx context.Context, windowID string) error {
 	if err := c.requireWindow(windowID); err != nil {
 		return err

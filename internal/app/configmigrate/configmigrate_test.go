@@ -40,7 +40,7 @@ func decodeDoc(t *testing.T, raw []byte) map[string]any {
 func TestValidate_RegisteredSets(t *testing.T) {
 	t.Parallel()
 
-	sets := []Set{SettingsSet, FlowSet, ActionsSet}
+	sets := []Set{SettingsSet, FlowSet, ActionsSet, MCPLibrarySet, AgentWorkspaceSet}
 	for _, s := range sets {
 		t.Run(s.Name, func(t *testing.T) {
 			t.Parallel()

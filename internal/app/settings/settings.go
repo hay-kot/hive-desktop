@@ -113,6 +113,17 @@ type Appearance struct {
 // to off and is read once at startup — flipping one takes a relaunch.
 type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
+	// Agents gates the Agents area (spec-tracked as hc-49x3i833). Like Terminal
+	// it governs both a control plane and the PTY stream a session rides, both
+	// under the token-guarded /api/terminal/ prefix — see ADR 0061.
+	Agents bool `yaml:"agents" env:"HIVE_DESKTOP_EXPERIMENTAL_AGENTS"`
+}
+
+// AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
+// <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
+// configurable because iCloud Drive is an expected destination (spec §4.4).
+type AgentWorkspacesSettings struct {
+	Dir string `yaml:"dir,omitempty" env:"HIVE_DESKTOP_AGENT_WORKSPACES_DIR"`
 }
 
 // PathsSettings locates the external binaries the app execs. Each is the escape
@@ -120,6 +131,15 @@ type ExperimentalSettings struct {
 // shipped value — searches PATH and the usual package-manager prefixes.
 type PathsSettings struct {
 	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`
+}
+
+// EditorSettings names the editor "Open in editor" actions launch on a
+// directory. Command is a single word — a CLI launcher name (zed, code) or an
+// absolute path — never a command line: the same rule agent commands follow
+// (ADR 0061), so a flag cannot ride in through a settings string. Empty means
+// none configured.
+type EditorSettings struct {
+	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
 }
 
 // HTTPSettings configures the local loopback HTTP server that hosts both the
@@ -216,13 +236,15 @@ type Settings struct {
 	Notifications NotificationSettings `yaml:"notifications"`
 	// No omitempty: with terminal_show_windows off and nothing else set the
 	// struct is all-zero, and an omitted section would read back as defaults.
-	Appearance   Appearance           `yaml:"appearance"`
-	HTTP         HTTPSettings         `yaml:"http"`
-	Keybindings  map[string][]string  `yaml:"keybindings,omitempty"`
-	Skills       SkillsSettings       `yaml:"skills"`
-	Paths        PathsSettings        `yaml:"paths,omitempty"`
-	Experimental ExperimentalSettings `yaml:"experimental,omitempty"`
-	Development  DevelopmentSettings  `yaml:"development"`
+	Appearance      Appearance              `yaml:"appearance"`
+	HTTP            HTTPSettings            `yaml:"http"`
+	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
+	Skills          SkillsSettings          `yaml:"skills"`
+	Paths           PathsSettings           `yaml:"paths,omitempty"`
+	Editor          EditorSettings          `yaml:"editor,omitempty"`
+	Experimental    ExperimentalSettings    `yaml:"experimental,omitempty"`
+	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
+	Development     DevelopmentSettings     `yaml:"development"`
 
 	overrides map[string]bool
 }
@@ -296,6 +318,9 @@ func (s Settings) Validate() error {
 	}
 	if s.Paths.Tmux != "" && !filepath.IsAbs(s.Paths.Tmux) {
 		return fmt.Errorf("paths.tmux must be an absolute path")
+	}
+	if len(strings.Fields(s.Editor.Command)) > 1 {
+		return fmt.Errorf("editor.command must be a single word — a command name or path, without flags")
 	}
 	switch s.Development.Mocks.Mode {
 	case MockLive, MockFeed, MockPipeline, MockOnboarding, MockActionSmoke:

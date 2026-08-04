@@ -11,7 +11,7 @@ const encoder = new TextEncoder()
 
 const endpoint = {
   httpBaseURL: 'http://127.0.0.1:58006',
-  wsURL: 'ws://127.0.0.1:58006/api/terminal/popup/stream',
+  wsURL: 'ws://127.0.0.1:58006/api/terminal/pty/stream',
   token: 'tok-123',
 }
 
@@ -59,7 +59,7 @@ describe('createPopupTerminalClient', () => {
 
     createPopupTerminalClient(endpoint).openStream('t1')
 
-    expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/popup/stream?id=t1&token=tok-123&v=1')
+    expect(created[0]).toBe('ws://127.0.0.1:58006/api/terminal/pty/stream?id=t1&token=tok-123&v=1')
   })
 })
 

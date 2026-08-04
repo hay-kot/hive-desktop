@@ -26,8 +26,9 @@ func registerEvents() struct{} {
 	// producer tick appends at least one row; flows:updated fires after a
 	// flows/*.yaml directory reload (an external edit, or the app's own
 	// SaveFlow/SaveLayout — see buildFlowsStore); actions:updated fires after
-	// an actions.yml reload. All are wake-up signals: the frontend re-reads
-	// the relevant service on receipt.
+	// an actions.yml reload; agent-workspaces:updated fires after a workspace
+	// root reload. All are wake-up signals: the frontend re-reads the
+	// relevant service on receipt.
 	application.RegisterEvent[string]("connection:updated")
 	application.RegisterEvent[int64]("log:appended")
 	// inbox:updated fires after the flow engine commits at least one run. It
@@ -36,6 +37,7 @@ func registerEvents() struct{} {
 	application.RegisterEvent[string]("inbox:updated")
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
+	application.RegisterEvent[string]("agent-workspaces:updated")
 	application.RegisterEvent[string]("jobs:updated")
 	// window:focus and window:blur carry the current focus state. Consumers use
 	// them to update focus-sensitive UI without querying the native window.
@@ -94,6 +96,9 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
 			emitActionsUpdated()
+		}),
+		events.Subscribe(ctx, bus, "wailsui.agentworkspaces", events.Coalesce(), func(context.Context, events.AgentWorkspacesUpdated) {
+			emitAgentWorkspacesUpdated()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.connection", events.Coalesce(), func(_ context.Context, e events.ConnectionUpdated) {
 			emitConnectionUpdated(e.Provider)
@@ -233,6 +238,15 @@ func emitFlowsUpdated() {
 func emitActionsUpdated() {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("actions:updated", "changed")
+	}
+}
+
+// emitAgentWorkspacesUpdated wakes frontend consumers after a workspace root
+// reload, successful or not — see App.openAgentWorkspaces's publish-even-on-
+// failure shape.
+func emitAgentWorkspacesUpdated() {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("agent-workspaces:updated", "changed")
 	}
 }
 

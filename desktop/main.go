@@ -20,6 +20,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/report"
@@ -48,7 +49,7 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	paths := settings.ResolvePaths(bootstrap, "")
+	paths := settings.ResolvePaths(bootstrap, settings.ResolveOptions{})
 	level, err := settings.ResolveLogLevel()
 	if err != nil {
 		log.Fatal(err)
@@ -71,7 +72,10 @@ func main() {
 	// Mock mode can select an isolated flows directory, so finalize the path
 	// snapshot only after settings and environment precedence are resolved.
 	initialLogPath := paths.LogFile
-	paths = settings.ResolvePaths(bootstrap, cfg.MockMode())
+	paths = settings.ResolvePaths(bootstrap, settings.ResolveOptions{
+		MockMode:           cfg.MockMode(),
+		AgentWorkspacesDir: cfg.AgentWorkspaces.Dir,
+	})
 	if paths.LogFile != initialLogPath {
 		logCloser()
 		logger, logCloser, logErr = settings.NewLogger(paths.LogFile, level)
@@ -90,6 +94,9 @@ func main() {
 	}
 	if _, _, err := configmigrate.MigrateFile(configmigrate.ActionsSet, paths.ActionsPath, backupDir, &logger); err != nil {
 		logger.Warn().Err(err).Msg("actions.yml migration failed; using last-good")
+	}
+	if err := agentws.MigrateRoot(paths.AgentWorkspacesDir, backupDir, &logger); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace migration sweep failed; using last-good")
 	}
 
 	// A redirected API base means every item this run shows may be stale or
@@ -127,15 +134,17 @@ func main() {
 	}
 	ui.SeedMock(core)
 
-	// The terminal surface is the one part of the API that authenticates, so its
-	// token and CORS allowlist are minted here and handed to the two adapters
-	// that need them — the core carries neither (ADR 0036). Terminal mode ships
-	// dark behind experimental.terminal (ADR 0037): when off, no token is minted
-	// and neither terminal surface — the control-plane routes or the stream
-	// mount — exists on the loopback server.
+	// The terminal-guarded surfaces are the parts of the API that authenticate,
+	// so their token and CORS allowlist are minted here and handed to the
+	// adapters that need them — the core carries neither (ADR 0036). The token
+	// is minted whenever either experimental.terminal or experimental.agents is
+	// on, because both the agent control plane and the PTY stream a workspace
+	// session rides sit under the same token-guarded /api/terminal/ prefix as
+	// the tmux/pop-up terminal surface (ADR 0061). Off means neither surface's
+	// routes or stream mount exists on the loopback server (ADR 0037).
 	terminalToken := ""
 	var origins []string
-	if cfg.Experimental.Terminal {
+	if cfg.Experimental.Terminal || cfg.Experimental.Agents {
 		terminalToken, err = httpapi.MintTerminalToken()
 		if err != nil {
 			log.Fatal(err)
@@ -145,21 +154,34 @@ func main() {
 
 	// The agent HTTP API shares the loopback HTTP server with the webhook
 	// listener (ADR 0021); mount it before Start whenever that server is up.
-	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, terminalToken, origins).Handler()) {
+	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, httpapi.Options{
+		TerminalToken:   terminalToken,
+		Origins:         origins,
+		TerminalEnabled: cfg.Experimental.Terminal,
+		AgentsEnabled:   cfg.Experimental.Agents,
+	}).Handler()) {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}
 	terminal := wailsui.TerminalTransport{}
 	popupTerminal := wailsui.PopupTerminalTransport{}
+	agents := wailsui.AgentsTransport{}
 	if terminalToken != "" {
+		// A workspace session rides this same tmux stream a hive session's
+		// terminal does — it is a tmux session too, just not a hive one
+		// (ADR 0063) — addressed by the agentws-<id> name AgentWorkspacesService
+		// gives it rather than a hive slug. There is no agent-specific stream.
 		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
+			agents = wailsui.AgentsTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 		}
-		// The pop-up terminal's own stream. It carries one terminal per socket
-		// rather than a session's window set (ADR 0045).
-		if path, handler := httpapi.PopupTerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
+		// The ptyterm data plane. It carries one terminal per socket rather than a
+		// session's window set (ADR 0045), and is addressed by an id a caller may
+		// supply as well as one this process mints (ADR 0066). Pop-ups only — an
+		// agent workspace session rides the tmux stream above since ADR 0063.
+		if path, handler := httpapi.PTYStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}
-			logger.Info().Str("path", path).Msg("popup terminal WebSocket stream mounted")
+			logger.Info().Str("path", path).Msg("ptyterm WebSocket stream mounted")
 		}
 	}
 	// pprof shares the same server when enabled (ADR 0023).
@@ -176,6 +198,8 @@ func main() {
 		Terminal:        terminal,
 		PopupTerminal:   popupTerminal,
 		TerminalEnabled: cfg.Experimental.Terminal,
+		Agents:          agents,
+		AgentsEnabled:   cfg.Experimental.Agents,
 		AutoUpdate:      cfg.Updates.Enabled,
 		UpdateChannel: func(buildChannel string) string {
 			if cfg.Updates.Channel == "" {

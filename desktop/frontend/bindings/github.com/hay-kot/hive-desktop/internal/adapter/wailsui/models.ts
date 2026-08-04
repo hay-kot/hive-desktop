@@ -6,6 +6,26 @@
 import * as dispatch$0 from "../../app/dispatch/models.js";
 
 /**
+ * AgentsAvailability gates the Agents area. Like terminal mode, it depends on
+ * tmux — a session is a tmux session since ADR 0063 — so Available answers
+ * the same question TerminalService's does.
+ */
+export interface AgentsAvailability {
+    "available": boolean;
+    "reason": string;
+}
+
+/**
+ * AgentsEndpoint bootstraps the webview: control actions go to HTTPBaseURL
+ * with the bearer token, the data plane opens WSURL.
+ */
+export interface AgentsEndpoint {
+    "httpBaseURL": string;
+    "wsURL": string;
+    "token": string;
+}
+
+/**
  * AppearanceSettings is the frontend's presentation configuration. String
  * values are carried verbatim: the frontend owns each valid set and heals
  * unknown values, so an empty field means "nothing persisted yet" rather than
@@ -81,13 +101,34 @@ export interface BuildInfo {
 }
 
 /**
- * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Terminal is
- * the effective persisted value, not the running one: the flag is read at
- * startup, so the frontend compares it against TerminalService.Enabled to
- * know whether a relaunch is pending.
+ * EditorChoice is one editor the selector offers: its CLI command, display
+ * title, and whether the command resolves on the subprocess PATH right now.
+ */
+export interface EditorChoice {
+    "command": string;
+    "title": string;
+    "found": boolean;
+}
+
+/**
+ * EditorSettings is the configured "open in editor" command plus the detected
+ * choices the selector offers. Command is empty when none is configured; it
+ * may name a command outside Choices when settings.yaml was authored by hand.
+ */
+export interface EditorSettings {
+    "command": string;
+    "choices": EditorChoice[] | null;
+}
+
+/**
+ * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
+ * is the effective persisted value, not the running one: the flag is read at
+ * startup, so the frontend compares it against TerminalService.Enabled /
+ * AgentsService.Enabled to know whether a relaunch is pending.
  */
 export interface ExperimentalSettings {
     "terminal": boolean;
+    "agents": boolean;
 }
 
 /**

@@ -40,6 +40,7 @@ import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { sessionRepository } from './composables/useTerminalSessions'
 import { focusTerminalFilter, focusTerminalPane, focusTerminalTree, selectTerminalWindow } from './lib/terminalTree'
+import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
@@ -49,6 +50,7 @@ import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import { Enabled as TerminalModeEnabled } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import { Enabled as AgentsModeEnabled } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
@@ -71,6 +73,9 @@ const DevView = devMode ? defineAsyncComponent(() => import('./components/DevVie
 // and the hub must not pay for it at startup. Mounted only once the mode is
 // first entered — after which it stays mounted, same as the pop-up below.
 const TerminalMode = defineAsyncComponent(() => import('./components/TerminalMode.vue'))
+// Same reason: the Agents area's session pane pulls in xterm.js too, and it
+// ships behind experimental.agents.
+const AgentsMode = defineAsyncComponent(() => import('./components/AgentsMode.vue'))
 // Same reason, and mounted only once the pop-up is first asked for — after
 // which it stays mounted, because hiding it must not end the shell inside it.
 const PopupTerminal = defineAsyncComponent(() => import('./components/PopupTerminal.vue'))
@@ -656,53 +661,82 @@ watch(githubConnected, async (connected) => {
 
 // ── App mode ─────────────────────────────────────────────────────────────────
 // Inbox is the feed/flows/settings app; Code takes the whole frame under the
-// title bar. Terminal is a route (/terminal/:slug?), so the title-bar controls
-// stay live inside it — Activity, back/forward — and history traversal
-// restores the attached session. A relaunch still lands on the hub (the
-// webview loads with no hash), so no relaunch attaches a tmux control client
-// unprompted; re-entering the mode is what resumes the last session.
-const mode = computed<'hub' | 'terminal'>(() => (route.name === 'terminal' ? 'terminal' : 'hub'))
+// title bar; Agents is the third area, holding named workspaces (spec-tracked
+// as hc-49x3i833). Terminal and Agents are both routes (/terminal/:slug?,
+// /workspaces/:workspace?), so the title-bar controls stay live inside them —
+// Activity, back/forward — and history traversal restores where each was
+// left. A relaunch still lands on the hub (the webview loads with no hash),
+// so no relaunch attaches a tmux control client or an agent session
+// unprompted; re-entering a mode is what resumes it.
+const mode = computed<'hub' | 'terminal' | 'agents'>(() => {
+  if (route.name === 'terminal') return 'terminal'
+  if (route.name === 'agents') return 'agents'
+  return 'hub'
+})
 // Neither mode is on screen behind the loading frame, and a deep link to
-// /terminal must not mount the mode under it — the two are siblings now, not
-// branches of one chain.
+// /terminal or /workspaces must not mount the hub under it — the three are
+// siblings, not branches of one chain, so hubActive is written as the
+// positive case rather than "not terminal": a third route with no explicit
+// case here would otherwise render the hub underneath it.
 const shellLoaded = computed(() => profilesLoaded.value || !!profilesError.value)
 const terminalActive = computed(() => mode.value === 'terminal' && shellLoaded.value && !onboardingActive.value)
-const hubActive = computed(() => shellLoaded.value && !onboardingActive.value && !terminalActive.value)
+const agentsActive = computed(() => mode.value === 'agents' && shellLoaded.value && !onboardingActive.value)
+const hubActive = computed(() => mode.value === 'hub' && shellLoaded.value && !onboardingActive.value)
 
 // Terminal mode is mounted on first entry and never unmounted: its pool holds
 // live tmux control clients and xterm screens bound to the elements they were
 // opened on, so tearing the mode down paid a full re-attach — process spawn,
 // pane capture, scrollback replay, renderer claim — on the way back in, and
 // the pool ADR 0042 warms stopped dead at the mode boundary. Hiding it is a
-// view change, not the end of the shell (same rule as PopupTerminal).
+// view change, not the end of the shell (same rule as PopupTerminal). The
+// Agents area gets the same treatment for the same reason (ADR 0054): it
+// holds live PTYs bound to the elements they were opened on, so unmounting on
+// a trip to the hub would end every running session's pane. Its `active` prop
+// — not mount — is what will drive phase 8's activity poll.
 const terminalMounted = ref(false)
 watch(terminalActive, (active) => { if (active) terminalMounted.value = true }, { immediate: true })
+const agentsMounted = ref(false)
+watch(agentsActive, (active) => { if (active) agentsMounted.value = true }, { immediate: true })
 
 // Where each mode's toggle lands: the route that mode was last on, so a round
-// trip is not a trip to the default feed — or, on the terminal side, a pass
-// through the picker on the way back to the session that was already attached.
+// trip is not a trip to the default feed — or, on the terminal/agents side, a
+// pass through the picker on the way back to what was already open. The
+// agents path alone survives a reload (localStorage): it restores the focus
+// filter and the open chat, and ?chat reattaches only a still-live session
+// (ADR 0065) — never a relaunch — while a restored /terminal/:slug would
+// attach a tmux control client unconditionally, so terminal's stays
+// in-memory.
 let lastHubPath = ''
 let lastTerminalPath = ''
+const lastAgentsPath = useStorage('hive.mode.agents.path', '')
+if (!lastAgentsPath.value.startsWith('/workspaces')) lastAgentsPath.value = ''
 watch(() => route.fullPath, (path) => {
   if (!route.name) return
   if (route.name === 'terminal') lastTerminalPath = path
+  else if (route.name === 'agents') lastAgentsPath.value = path
   else lastHubPath = path
 }, { immediate: true })
 
 // Terminal mode ships dark (experimental.terminal, ADR 0037): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
 // separate axis — an enabled-but-unavailable terminal explains itself inside
-// the mode.
+// the mode. The Agents area follows the same shape behind experimental.agents
+// (ADR 0061).
 const terminalEnabled = ref(false)
+const agentsEnabled = ref(false)
 onMounted(() => {
   void TerminalModeEnabled().then((enabled) => { terminalEnabled.value = enabled }).catch((error) => {
     console.debug('Terminal enablement unavailable', error)
   })
+  void AgentsModeEnabled().then((enabled) => { agentsEnabled.value = enabled }).catch((error) => {
+    console.debug('Agents enablement unavailable', error)
+  })
 })
 
-function setMode(next: 'hub' | 'terminal'): void {
+function setMode(next: 'hub' | 'terminal' | 'agents'): void {
   if (next === mode.value) return
   if (next === 'terminal') void router.push(lastTerminalPath || { name: 'terminal' })
+  else if (next === 'agents') void router.push(lastAgentsPath.value || { name: 'agents' })
   else void router.push(lastHubPath || { name: 'feed' })
 }
 
@@ -713,7 +747,7 @@ const feedSidebarCollapsed = useStorage('hive.panel.sidebar.collapsed', false)
 const terminalSidebarCollapsed = useStorage('hive.panel.terminal.sidebar.collapsed', false)
 const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
-  !onboardingActive.value && !terminalActive.value &&
+  !onboardingActive.value && !terminalActive.value && !agentsActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
   !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
@@ -814,6 +848,8 @@ const runMap: Record<string, () => void | Promise<void>> = {
     terminalSidebarCollapsed.value = false
     void nextTick(focusTerminalFilter)
   },
+  'agents.focus-sidebar': focusAgentsList,
+  'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
   'window.hide': hideWindow,
 }
@@ -969,11 +1005,18 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // Reaching the session tree is the pane's other way out, so it fires over a
     // focused terminal too. Only this half of the pair does: the chord that
     // moves focus *into* a pane is unreachable from inside one, so it stays an
-    // ordinary command and tmux keeps it.
+    // ordinary command and tmux keeps it. The Agents area's session pane
+    // carries the same data-terminal-input-scope, so its own focus-sidebar
+    // chord needs the identical exception.
     //
     // A numbered window jump is the same case — it is only ever wanted from
     // inside the window you are leaving.
     if (id && terminalActive.value && (id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null)) {
+      e.preventDefault()
+      runCommand(id)
+      return
+    }
+    if (id && agentsActive.value && id === 'agents.focus-sidebar') {
       e.preventDefault()
       runCommand(id)
       return
@@ -1013,6 +1056,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (anyOverlayOpen.value && id !== 'palette.toggle') return
   if (command.context === 'feed' && !feedNavActive.value) return
   if (command.context === 'terminal' && !terminalActive.value) return
+  if (command.context === 'agents' && !agentsActive.value) return
 
   e.preventDefault()
   runCommand(id)
@@ -1058,6 +1102,7 @@ onUnmounted(() => {
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
         :terminal-enabled="terminalEnabled"
+        :agents-enabled="agentsEnabled"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -1116,6 +1161,13 @@ onUnmounted(() => {
         v-show="terminalActive"
         :active="terminalActive"
         :sidebar-collapsed="terminalSidebarCollapsed"
+      />
+      <!-- Same treatment as terminal mode, for the same reason (ADR 0054):
+           mount-once, hidden with v-show rather than unmounted. -->
+      <AgentsMode
+        v-if="agentsMounted"
+        v-show="agentsActive"
+        :active="agentsActive"
       />
       <!-- The spaces rail (ProfileRail) and TitleBar stay mounted across the
            feed<->flows switch; only the sidebar+main region swaps. This is

@@ -190,7 +190,7 @@ describe('PopupTerminal', () => {
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.getPopupTerminalEndpoint.mockResolvedValue({
       httpBaseURL: 'http://127.0.0.1:58006',
-      wsURL: 'ws://127.0.0.1:58006/api/terminal/popup/stream',
+      wsURL: 'ws://127.0.0.1:58006/api/terminal/pty/stream',
       token: 'tok',
     })
   })

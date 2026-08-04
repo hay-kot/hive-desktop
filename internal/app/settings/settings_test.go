@@ -50,6 +50,22 @@ func TestExperimentalTerminalYAMLThenEnvironment(t *testing.T) {
 	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"))
 }
 
+func TestExperimentalAgentsYAMLThenEnvironment(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("experimental:\n  agents: true\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.True(t, cfg.Experimental.Agents)
+	assert.False(t, cfg.Experimental.Terminal, "the two flags are independent")
+
+	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_AGENTS", "false")
+	cfg, err = LoadSettings()
+	require.NoError(t, err)
+	assert.False(t, cfg.Experimental.Agents, "the environment wins over settings.yaml")
+	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_AGENTS"))
+}
+
 func TestPathsTmuxYAMLThenEnvironment(t *testing.T) {
 	path := isolateSettings(t)
 	require.NoError(t, os.WriteFile(path, []byte("paths:\n  tmux: /opt/homebrew/bin/tmux\n"), 0o600))

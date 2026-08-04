@@ -30,6 +30,13 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
+// testAPIToken is a fixed stand-in for the per-run bearer token main.go mints.
+// testServer mounts with both token-guarded route groups on, so the
+// cross-cutting OpenAPI/index tests below exercise the full operations table
+// -- terminal, pop-up terminal, and agent workspaces -- for free, without a
+// second harness.
+const testAPIToken = "test-api-token"
+
 // testServer builds the app over a fresh config root. seedConfig, when given,
 // writes into that config dir before the app starts: actions.yml is read
 // eagerly at startup and afterwards only by an fsnotify watcher, so a
@@ -55,7 +62,9 @@ func testServer(t *testing.T, seedConfig ...func(t *testing.T, configDir string)
 	})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
-	return core, httpapi.New(core, zerolog.Nop(), "", nil).Handler()
+	return core, httpapi.New(core, zerolog.Nop(), httpapi.Options{
+		TerminalToken: testAPIToken, TerminalEnabled: true, AgentsEnabled: true,
+	}).Handler()
 }
 
 func seedItem(t *testing.T, core *app.App, profile, external, payload string) int64 {
@@ -117,7 +126,7 @@ func TestServedOverWebhookListener(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = core.Close() })
 
-	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core, zerolog.Nop(), "", nil).Handler()),
+	require.True(t, core.MountAPI(httpapi.PathPrefix, httpapi.New(core, zerolog.Nop(), httpapi.Options{}).Handler()),
 		"the webhook listener exists, so the API mounts")
 	seedItem(t, core, "p1", "PR_1", `{"repo":"acme/widgets","num":7}`)
 	require.NoError(t, core.Start(t.Context()))

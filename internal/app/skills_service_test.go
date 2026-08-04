@@ -3,6 +3,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/rs/zerolog"
@@ -17,7 +18,7 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	t.Helper()
 	b, err := settings.LoadBootstrap()
 	require.NoError(t, err)
-	paths := settings.ResolvePaths(b, "")
+	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
 	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", 24917))
 	installer, err := skills.NewInstaller(filepath.Join(t.TempDir(), "skills.json"))
@@ -53,6 +54,36 @@ func TestSkillsCatalogListsPromptsAsSkills(t *testing.T) {
 	for _, target := range catalog.Targets {
 		assert.Zero(t, target.Installed, "target %q", target.ID)
 	}
+}
+
+// TestSkillsCatalogIncludesAgentWorkspaces is touchpoint 12's acceptance
+// criterion: the agent-workspaces prompt needs no internal/app/skills edit to
+// yield a shipped skill, and the slug the prefix mints passes ValidateSkill's
+// name rules (skills/skills.go) before anything is ever written to disk.
+func TestSkillsCatalogIncludesAgentWorkspaces(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
+	require.NoError(t, err)
+
+	var found bool
+	for _, sk := range catalog.Skills {
+		if sk.ID != "agent-workspaces" {
+			continue
+		}
+		found = true
+		assert.Equal(t, "hive-agent-workspaces", sk.Name)
+		assert.NotEmpty(t, sk.Text)
+		require.NoError(t, skills.ValidateSkill(skills.Skill{
+			ID:          sk.ID,
+			Name:        sk.Name,
+			Title:       sk.Title,
+			Description: sk.Description,
+			Body:        sk.Text,
+		}))
+	}
+	assert.True(t, found, "agent-workspaces prompt is not in the skills catalog")
 }
 
 func TestSkillsInstallAndUninstallTarget(t *testing.T) {
@@ -183,6 +214,25 @@ func TestSkillsSyncMaintainsInstalledAgentsOnly(t *testing.T) {
 	assert.Equal(t, 1, res.Restored)
 	assert.FileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
 	assert.False(t, targetInfo(t, res.Catalog, "claude").NeedsSync)
+}
+
+func TestSkillsRenderSkillRendersAgainstTheClaudeTarget(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	name, body, err := svc.RenderSkill(t.Context(), "http-api")
+	require.NoError(t, err)
+	assert.Equal(t, "hive-http-api", name)
+	assert.Contains(t, body, "name: hive-http-api", "renders the claude target's SKILL.md frontmatter")
+	assert.True(t, strings.HasPrefix(body, "---\n"), "SKILL.md frontmatter must open the file")
+}
+
+func TestSkillsRenderSkillRejectsAnUnknownID(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	_, _, err := svc.RenderSkill(t.Context(), "nope")
+	require.Error(t, err)
 }
 
 func TestSkillsUnknownTargetRejected(t *testing.T) {

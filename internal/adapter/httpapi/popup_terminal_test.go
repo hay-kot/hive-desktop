@@ -21,7 +21,7 @@ func (h *terminalHarness) popupStreamURL(id, token, version string) string {
 	query.Set("id", id)
 	query.Set("token", token)
 	query.Set("v", version)
-	return "ws" + h.server.URL[len("http"):] + PopupTerminalStreamPath + "?" + query.Encode()
+	return "ws" + h.server.URL[len("http"):] + PTYStreamPath + "?" + query.Encode()
 }
 
 // The pop-up routes sit under the terminal prefix so they inherit its
@@ -94,7 +94,7 @@ func TestPopupTerminalResizeAlwaysCarriesASize(t *testing.T) {
 	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
 }
 
-func TestPopupTerminalStreamRejectsBadHandshakes(t *testing.T) {
+func TestPTYStreamRejectsBadHandshakes(t *testing.T) {
 	h := newTerminalHarness(t)
 
 	dial := func(t *testing.T, target string) int {
@@ -121,7 +121,7 @@ func TestPopupTerminalStreamRejectsBadHandshakes(t *testing.T) {
 // The whole path a pop-up actually takes: open over HTTP, stream over the
 // socket, and type into a shell this process owns. Everything below it is
 // tested without a transport, so this is the one place the two meet.
-func TestPopupTerminalOpensAndEchoesOverTheWire(t *testing.T) {
+func TestPTYStreamOpensAndEchoesOverTheWire(t *testing.T) {
 	h := newTerminalHarness(t)
 	dir := t.TempDir()
 

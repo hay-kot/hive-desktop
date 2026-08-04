@@ -20,6 +20,10 @@ export function AppearanceSettings(): $CancellablePromise<$models.AppearanceSett
     return $Call.ByID(2122138421);
 }
 
+export function EditorSettings(): $CancellablePromise<$models.EditorSettings> {
+    return $Call.ByID(4012793198);
+}
+
 export function ExperimentalSettings(): $CancellablePromise<$models.ExperimentalSettings> {
     return $Call.ByID(1419259869);
 }
@@ -46,6 +50,17 @@ export function MonospaceFonts(): $CancellablePromise<string[] | null> {
 
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
     return $Call.ByID(256290300);
+}
+
+/**
+ * SetEditor persists the editor command; empty clears it.
+ */
+export function SetEditor(command: string): $CancellablePromise<void> {
+    return $Call.ByID(442973939, command);
+}
+
+export function SetExperimentalAgents(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
+    return $Call.ByID(324482454, enabled);
 }
 
 export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {

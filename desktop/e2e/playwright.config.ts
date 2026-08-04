@@ -13,6 +13,9 @@ const feedPorts = {
   webkit: 8934,
   pipelineSmoke: 8935,
   actionSmoke: 8936,
+  // The one server serve.sh opts into experimental.agents per-server (not the
+  // global experimental.terminal export) -- see agents-unavailable.spec.ts.
+  agentsUnavailable: 8938,
 } as const
 
 export default defineConfig({
@@ -55,12 +58,12 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: ['**/source-to-commit.spec.ts', '**/actions.spec.ts'],
+      testIgnore: ['**/source-to-commit.spec.ts', '**/actions.spec.ts', '**/agents-unavailable.spec.ts'],
       use: { browserName: 'chromium', baseURL: `http://127.0.0.1:${feedPorts.chromium}` },
     },
     {
       name: 'webkit',
-      testIgnore: ['**/source-to-commit.spec.ts', '**/actions.spec.ts'],
+      testIgnore: ['**/source-to-commit.spec.ts', '**/actions.spec.ts', '**/agents-unavailable.spec.ts'],
       use: { browserName: 'webkit', baseURL: `http://127.0.0.1:${feedPorts.webkit}` },
     },
     {
@@ -72,6 +75,11 @@ export default defineConfig({
       name: 'action-smoke',
       testMatch: '**/actions.spec.ts',
       use: { browserName: 'chromium', baseURL: `http://127.0.0.1:${feedPorts.actionSmoke}` },
+    },
+    {
+      name: 'agents-unavailable',
+      testMatch: '**/agents-unavailable.spec.ts',
+      use: { browserName: 'chromium', baseURL: `http://127.0.0.1:${feedPorts.agentsUnavailable}` },
     },
   ],
 })

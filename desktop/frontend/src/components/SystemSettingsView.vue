@@ -4,7 +4,7 @@
 // actions, point-only overrides for the data and config directories that take
 // effect after a restart, and an About card with the build strip and
 // auto-update controls.
-import { onMounted } from 'vue'
+import { computed, onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -15,6 +15,7 @@ import SettingsPage from './settings/SettingsPage.vue'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
 import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
+import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
 import { useReportDialog } from '../composables/useReportDialog'
@@ -33,6 +34,12 @@ const {
   experimentalTerminal,
   terminalRestartPending,
   setExperimentalTerminal,
+  experimentalAgents,
+  agentsRestartPending,
+  setExperimentalAgents,
+  editorCommand,
+  editorChoices,
+  setEditorCommand,
   setAutoUpdate,
   checkForUpdates,
   refresh,
@@ -46,6 +53,20 @@ const {
   resetConfigDir,
   quit,
 } = useSystemSettings()
+
+// "None" plus every detected editor; a hand-authored command outside the
+// catalogue still lists (labelled by its own name) so the selector never
+// shows a value it cannot represent.
+const editorOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [{ value: '', label: 'None' }]
+  for (const choice of editorChoices.value) {
+    options.push({ value: choice.command, label: choice.found ? choice.title : `${choice.title} (not found)` })
+  }
+  if (editorCommand.value && !editorChoices.value.some((c) => c.command === editorCommand.value)) {
+    options.push({ value: editorCommand.value, label: editorCommand.value })
+  }
+  return options
+})
 
 onMounted(() => {
   void refresh()
@@ -152,6 +173,27 @@ onMounted(() => {
     </SettingsSection>
 
     <SettingsSection
+      title="Editor"
+      description="The editor 'Open in editor' actions launch — an agent workspace, for example."
+      boxed
+      testid="system-editor"
+    >
+      <SettingsRow
+        label="Default editor"
+        hint="Detected from the CLI launchers on your PATH (zed, code, cursor, subl). Any other single-word command can be set as editor.command in settings.yaml."
+      >
+        <AppSelect
+          :model-value="editorCommand"
+          :options="editorOptions"
+          aria-label="Default editor"
+          testid="system-editor-command"
+          class="min-w-[180px]"
+          @update:model-value="setEditorCommand"
+        />
+      </SettingsRow>
+    </SettingsSection>
+
+    <SettingsSection
       title="Experimental"
       description="Early features that ship off by default. Changes apply after restarting Hive."
       boxed
@@ -159,7 +201,7 @@ onMounted(() => {
     >
       <SettingsRow
         label="Terminal mode"
-        hint="Attach to a session's tmux windows inside the app, from the Inbox | Code switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
+        hint="Attach to a session's tmux windows inside the app, from the mode switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
       >
         <div class="flex items-center gap-2.5">
           <span
@@ -172,6 +214,24 @@ onMounted(() => {
             aria-label="Terminal mode"
             testid="system-experimental-terminal"
             @update:model-value="setExperimentalTerminal"
+          />
+        </div>
+      </SettingsRow>
+      <SettingsRow
+        label="Agents area"
+        hint="Run a CLI agent against a named workspace with its own MCP tool set, from the mode switch in the title bar. A workspace declares its own autonomy posture — nothing here inherits a coding session's flags."
+      >
+        <div class="flex items-center gap-2.5">
+          <span
+            v-if="agentsRestartPending"
+            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
+            data-testid="system-agents-restart"
+          >Restart to apply</span>
+          <AppSwitch
+            :model-value="experimentalAgents"
+            aria-label="Agents area"
+            testid="system-experimental-agents"
+            @update:model-value="setExperimentalAgents"
           />
         </div>
       </SettingsRow>

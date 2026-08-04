@@ -7,7 +7,7 @@ import {
   type RouterHistory,
 } from 'vue-router'
 
-export type AppRouteName = 'feed' | 'flows' | 'activity' | 'terminal' | 'application-settings' | 'profile-settings' | 'dev'
+export type AppRouteName = 'feed' | 'flows' | 'activity' | 'terminal' | 'agents' | 'application-settings' | 'profile-settings' | 'dev'
 
 // The one list of application settings sections. It builds the route's own
 // section matcher below and backs isApplicationSettingsSection, which App.vue
@@ -68,6 +68,15 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
       // restore the exact surface the user left.
       path: '/terminal/:slug?',
       name: 'terminal',
+      component: ShellPage,
+    },
+    {
+      // The Agents area is app-global too — a workspace has no repository and
+      // no profile. :workspace is the opened workspace directory name; ?chat
+      // names the session open in the pane, so a reload or mode re-entry
+      // reattaches it when it is still live (ADR 0065).
+      path: '/workspaces/:workspace?',
+      name: 'agents',
       component: ShellPage,
     },
     {

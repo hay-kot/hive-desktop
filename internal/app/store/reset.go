@@ -22,6 +22,7 @@ var resetTables = []string{
 	"activity_event",
 	"job",
 	"webhook_capture",
+	"agent_workspace_session",
 }
 
 // ResetAllState deletes every row from every mutable pipeline table, resets

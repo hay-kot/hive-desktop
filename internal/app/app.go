@@ -15,6 +15,7 @@ import (
 	"github.com/colonyops/hive/pkg/tmpl"
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -98,7 +99,8 @@ type App struct {
 	// on. Always non-nil; a disabled recorder is a no-op (ADR 0055).
 	Perf *PerfService
 
-	PopupTerminals *PopupTerminalsService
+	PopupTerminals  *PopupTerminalsService
+	AgentWorkspaces *AgentWorkspacesService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -117,12 +119,18 @@ type App struct {
 	// the same reason despite looking store-shaped: ActivityService and
 	// JobService above already front them, so nothing else may reach past
 	// those either.
-	actionStore   *actions.ActionStore
-	flowStore     *flow.FlowStore
-	activityStore *activity.Store
-	jobStore      *jobs.Store
-	fetchers      *ghsource.Fetchers
-	credentials   credentials.Store
+	actionStore         *actions.ActionStore
+	flowStore           *flow.FlowStore
+	agentWorkspaceStore *agentws.Store
+	// agentWorkspaceRootProblem carries EnsureRoot's error, verbatim, when the
+	// configured agent-workspace root could not be created or opened.
+	// openAgentWorkspaces sets it; the Agents area is what surfaces it to the
+	// user (phase 6) rather than silently creating a second root elsewhere.
+	agentWorkspaceRootProblem string
+	activityStore             *activity.Store
+	jobStore                  *jobs.Store
+	fetchers                  *ghsource.Fetchers
+	credentials               credentials.Store
 
 	// gitHubConnection acquires and releases GitHub credentials. It is one
 	// connector's, not the app's: nothing here is gated on it holding one.
@@ -166,6 +174,11 @@ type App struct {
 	sessions *dispatch.HiveSessionManager
 	hiveDB   *coredb.DB
 
+	// agentCommands is agentCommands(hiveCfg)'s result: hive's agent profiles
+	// projected onto their bare command, with Flags dropped (ADR 0061). Set
+	// in openHiveRuntime, alongside every other hiveCfg-derived field.
+	agentCommands map[string]string
+
 	// terminals owns one tmux control-mode client per attached session slug.
 	// Its context is the app's lifetime, not a request's (ADR 0036).
 	terminals *tmuxcc.Manager
@@ -197,12 +210,13 @@ type App struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	settings       settings.Settings
-	settingsStore  *settings.Store
-	paths          settings.Paths
-	flowsWatcher   *flow.FlowsWatcher
-	actionsWatcher *actions.ActionsWatcher
-	hiveBusCancel  context.CancelFunc
+	settings               settings.Settings
+	settingsStore          *settings.Store
+	paths                  settings.Paths
+	flowsWatcher           *flow.FlowsWatcher
+	actionsWatcher         *actions.ActionsWatcher
+	agentWorkspacesWatcher *agentws.Watcher
+	hiveBusCancel          context.CancelFunc
 }
 
 // New builds the core: the store, the domain stores and their watchers, the
@@ -211,7 +225,7 @@ type App struct {
 func New(ctx context.Context, cfg Config) (*App, error) {
 	if cfg.Paths.SettingsPath == "" {
 		b, _ := settings.LoadBootstrap()
-		cfg.Paths = settings.ResolvePaths(b, cfg.MockMode)
+		cfg.Paths = settings.ResolvePaths(b, settings.ResolveOptions{MockMode: cfg.MockMode})
 	}
 	if cfg.SettingsStore == nil {
 		cfg.SettingsStore = settings.NewStore(cfg.Paths.SettingsPath)
@@ -288,6 +302,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
 	a.openFlows(cfg.Paths.FlowsDir, cfg.Logger)
+	a.openAgentWorkspaces(cfg.Paths.AgentWorkspacesDir, cfg.Logger)
 	a.actionStore.SetUsageChecker(newActionUsage(a.flowStore, db))
 
 	a.gitHubConnection = buildGitHubConnection(cfg.MockMode, gitHubClient, a.credentials, func() {
@@ -332,7 +347,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
-	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers)
+	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.System = newSystemService(cfg.Paths)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
@@ -350,6 +365,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor)
+	a.syncHiveWorkspaceSkills()
 
 	return a, nil
 }
@@ -424,6 +441,9 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	if a.flowsWatcher != nil {
 		a.flowsWatcher.Start()
+	}
+	if a.agentWorkspacesWatcher != nil {
+		a.agentWorkspacesWatcher.Start()
 	}
 	if a.mock == "" {
 		a.outputs.Start(ctx)
@@ -562,6 +582,9 @@ func (a *App) Close() error {
 	if a.actionsWatcher != nil {
 		a.actionsWatcher.Close()
 	}
+	if a.agentWorkspacesWatcher != nil {
+		a.agentWorkspacesWatcher.Close()
+	}
 	a.Events.Close()
 
 	if a.Perf != nil {
@@ -655,6 +678,90 @@ func (a *App) openFlows(dir string, logger zerolog.Logger) {
 		return
 	}
 	a.flowsWatcher = watcher
+}
+
+// openAgentWorkspaces ensures the workspace root exists, seeds it — and,
+// only when EnsureRoot creates it for the first time, the Hive workspace too
+// — then loads it eagerly, with the same warn-and-keep-last-good shape and
+// the same publish-even-on-failure behaviour as openActions (app.go:610-637)
+// so the UI re-reads and sees the error.
+//
+// When EnsureRoot fails, root is a configured location Hive cannot reach (an
+// unmounted volume, a signed-out iCloud Drive) or one occupied by a file —
+// spec §14 says that is reported, not silently replaced with a second empty
+// root elsewhere. So nothing past that point may create root or anything
+// under it: no seed, no Hive workspace, no watcher (NewWatcher's own
+// MkdirAll would recreate exactly what EnsureRoot just refused to). The store
+// still gets built — its Reload on a missing root is already a valid, empty
+// snapshot — so the rest of the app has something non-nil to read; the
+// Agents area (phase 6) is what surfaces the unavailable root to the user.
+func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
+	created, err := agentws.EnsureRoot(root)
+	if err != nil {
+		logger.Warn().Err(err).Str("root", root).Str("setting", "agent_workspaces.dir").Msg("agent workspace root unavailable")
+		a.agentWorkspaceRootProblem = err.Error()
+		a.agentWorkspaceStore = agentws.NewStore(root)
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")
+		}
+		return
+	}
+
+	if _, err := agentws.SeedDefaultsIfMissing(root); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace defaults seed failed")
+	}
+	if created {
+		if err := agentws.SeedHiveWorkspace(root); err != nil {
+			logger.Warn().Err(err).Msg("hive workspace seed failed")
+		}
+	}
+
+	a.agentWorkspaceStore = agentws.NewStore(root)
+	if err := a.agentWorkspaceStore.Reload(); err != nil {
+		logger.Warn().Err(err).Msg("agent workspace root load failed; using last-good (likely empty) workspace set")
+	}
+
+	watcher, err := agentws.NewWatcher(root, func() {
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			logger.Warn().Err(err).Msg("agent workspace reload failed")
+		}
+		count := len(a.agentWorkspaceStore.List())
+		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
+	}, logger)
+	if err != nil {
+		logger.Warn().Err(err).Msg("agent workspace hot-reload unavailable")
+		return
+	}
+	a.agentWorkspacesWatcher = watcher
+}
+
+// syncHiveWorkspaceSkills keeps the seeded hive workspace's skills: list in
+// step with the shipped skill set, so the workspace that drives Hive Desktop
+// gains new skills on update without hand-editing its manifest. It runs after
+// the services are built because the slug set comes from the prompt catalog;
+// the sync itself is a no-op when the root was unavailable or the workspace
+// was deleted (spec §14).
+func (a *App) syncHiveWorkspaceSkills() {
+	if a.agentWorkspaceRootProblem != "" {
+		return
+	}
+	slugs, err := a.Skills.SkillSlugs(a.ctx)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("hive workspace skills sync: listing skills failed")
+		return
+	}
+	changed, err := agentws.SyncHiveWorkspaceSkills(a.agentWorkspaceStore.Root(), slugs)
+	if err != nil {
+		a.logger.Warn().Err(err).Msg("hive workspace skills sync failed")
+		return
+	}
+	// The watcher would pick the write up too, but reloading here means the
+	// first workspaces read of the run already sees the synced skill set.
+	if changed {
+		if err := a.agentWorkspaceStore.Reload(); err != nil {
+			a.logger.Warn().Err(err).Msg("agent workspace reload failed")
+		}
+	}
 }
 
 // PublishLogAppended announces that the event log grew and wakes the engine to
@@ -893,6 +1000,8 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.hiveBusCancel = cancel
 	go bus.Start(busCtx)
 
+	a.agentCommands = agentCommands(hiveCfg)
+
 	profile := hiveCfg.Agents.DefaultProfile()
 	renderer := tmpl.New(tmpl.Config{
 		ScriptPaths:  scripts.ScriptPaths(dataDir),
@@ -934,4 +1043,19 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, hiveCfg.Tmux.PollInterval)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
+}
+
+// agentCommands projects hive's agent profiles onto the one thing a workspace
+// may inherit from them. Flags are dropped here, at the seam, because hive's
+// profiles run --dangerously-skip-permissions and a workspace declares its own
+// authority instead (ADR 0061): agentws.Resolve validates the result is a
+// single shell word, so a profile whose Command carries flags (re-inheriting
+// through the back door this function exists to close) is refused at launch
+// naming the agent, rather than silently spliced into the line.
+func agentCommands(cfg *config.Config) map[string]string {
+	commands := make(map[string]string, len(cfg.Agents.Profiles))
+	for key, profile := range cfg.Agents.Profiles {
+		commands[key] = profile.CommandOrDefault(key)
+	}
+	return commands
 }

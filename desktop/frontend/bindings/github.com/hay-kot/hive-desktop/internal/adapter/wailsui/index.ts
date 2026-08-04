@@ -3,6 +3,7 @@
 
 import * as ActionsService from "./actionsservice.js";
 import * as ActivityService from "./activityservice.js";
+import * as AgentsService from "./agentsservice.js";
 import * as FlowsService from "./flowsservice.js";
 import * as GitHubService from "./githubservice.js";
 import * as GrafanaService from "./grafanaservice.js";
@@ -25,6 +26,7 @@ import * as WindowService from "./windowservice.js";
 export {
     ActionsService,
     ActivityService,
+    AgentsService,
     FlowsService,
     GitHubService,
     GrafanaService,
@@ -47,8 +49,12 @@ export {
 };
 
 export type {
+    AgentsAvailability,
+    AgentsEndpoint,
     AppearanceSettings,
     BuildInfo,
+    EditorChoice,
+    EditorSettings,
     ExperimentalSettings,
     FlowSummary,
     GithubSettings,

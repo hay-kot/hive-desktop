@@ -71,7 +71,7 @@ type StateReset struct {
 func NewStateResetHarness(db *store.DB, core *sql.DB, logger zerolog.Logger) *StateReset {
 	b, _ := settings.LoadBootstrap()
 	mock := settings.MockMode()
-	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, mock), logger)
+	return NewStateResetHarnessForInstance(db, core, mock, settings.ResolvePaths(b, settings.ResolveOptions{MockMode: mock}), logger)
 }
 
 // NewStateResetHarnessForInstance uses the composition-root runtime snapshot.

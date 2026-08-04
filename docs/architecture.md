@@ -75,6 +75,18 @@ individual choices; this document describes the shape everything fits into.
 > and bootstraps the webview (ADR 0036). See
 > [Terminal sessions](#terminal-sessions).
 >
+> Agent workspaces are a third driving surface, behind the same terminal
+> transport rather than a new one: `internal/app/agentws` owns a
+> generated-and-disposable on-disk root (ADR 0062) and drives sessions as tmux
+> sessions named `agentws-<record id>` — not hive ones, but riding the same
+> `tmuxcc.Manager` and tmux stream a hive session's terminal does, which is
+> what lets a session survive an app restart (ADR 0063); its control plane
+> rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
+> because it spawns processes too. `internal/app/mcpcatalog` is the shipped
+> MCP server registry it wires workspaces against. The whole area ships dark
+> behind `experimental.agents` (ADR 0061). See
+> [Agent workspaces](#agent-workspaces).
+>
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
 > see [Background lifecycle](#background-lifecycle)) and the MCP adapter — see
 > [Migration path](#migration-path). New work should move toward this shape
@@ -160,6 +172,7 @@ column is the section that specifies it.
 | A new **node type** | Registry, Factory Method, Single declaration | [Extension points](#extension-points) |
 | A new **action type** | Registry, Command, Strategy (the `Executor`) | [Extension points](#extension-points) |
 | A new **source connector** | Factory Method (`Descriptor` → instance), Declared capabilities, Value Object (credential `Ref`) | [Source connectors](#source-connectors) |
+| A new **MCP server type** | Registry, Single declaration (`Descriptor` + `mcpcatalog/docs/<type>.md`) | [Extension points](#extension-points) |
 | A new **script language** | Strategy behind the `ScriptRuntime` port, Registry | [Script nodes](#script-nodes) |
 | A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
 | A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
@@ -167,6 +180,7 @@ column is the section that specifies it.
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR 0036 |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
+| A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
 | A new **persisted field** | Config-vs-data boundary; Value Object for anything secret-bearing | [Config versus data](#config-versus-data), [Credentials](#credentials) |
 | An operation **spanning two domains** | Unit of Work — `db.Ctx(ctx)` to join the ambient transaction, never a second one | [Config versus data](#config-versus-data) |
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
@@ -291,6 +305,17 @@ internal/
       docs/                       # per-action-type markdown
     prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
       templates/                 #   .tmpl files the registry renders
+    mcpcatalog/                   # the shipped MCP server catalogue: Descriptor +
+                                  #   registry, following the connector precedent
+                                  #   (ADR 0012) with no config factory — a shipped
+                                  #   entry carries none in M1
+      docs/                       #   per-MCP-type markdown — read by the catalogue
+                                  #   AND by an LLM (ADR 0009)
+    agentws/                      # the agent-workspace root: mcps.yaml, .shared/,
+                                  #   one directory per workspace; Workspace/Library
+                                  #   parse+validate, the generator, the launch table
+                                  #   (autonomy flags, MCP wiring), the two-level
+                                  #   watcher (ADR 0061, ADR 0062)
     skills/                       # install prompts as agent SKILL.md files; a
                                   #   per-target registry (Go path+body templates),
                                   #   a state-dir install index, hash-based drift
@@ -333,7 +358,11 @@ internal/
                                   #   validated GET /api/openapi.json (ADR 0027).
                                   #   The terminal control plane is rows on that
                                   #   table; its per-session WebSocket data plane
-                                  #   is a separate raw mount (ADR 0036)
+                                  #   is a separate raw mount (ADR 0036). The
+                                  #   agent-workspace control plane sits under the
+                                  #   same /api/terminal/ prefix and authenticates
+                                  #   per handler, like every terminal route,
+                                  #   because it spawns processes too (ADR 0061)
     mcpsrv/                       # tools over App; in-memory transport for the agent
 
   web/                            # HTTP plumbing shared with cmd/devserver
@@ -359,7 +388,7 @@ every user-facing surface is an adapter inside the desktop binary.
 
 ## Extension points
 
-Five registries, all the same shape: an explicit map keyed by a type string,
+Six registries, all the same shape: an explicit map keyed by a type string,
 declared in one file, with per-type config carrying its own `Validate` when it
 has per-type config.
 
@@ -370,6 +399,7 @@ has per-type config.
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
+| **MCP server type** | `app/mcpcatalog` | a `Descriptor` carrying a fixed `Server` (transport, command/args/env or url/headers) and one registry line, plus `mcpcatalog/docs/<type>.md` — a registry↔docs bijection test fails an entry with no doc. This is the connector precedent (`app/sources`) extended minus its config factory: a shipped entry carries no per-workspace configuration in M1, so there is nothing for a factory to construct |
 
 ### Documentation is part of the declaration
 
@@ -536,6 +566,14 @@ User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 `$XDG_CONFIG_HOME/hive/desktop/` so it can be dotfiles-managed. App-local
 state (SQLite: items, triage, offsets, queued commands) lives under the data
 dir. Respect the boundary when adding persistence.
+
+The agent-workspace root (`AgentWorkspacesDir`, default
+`<ConfigDir>/workspaces`) is the one place this boundary is deliberately
+crossed: it resolves under the config root so it can be dotfiles-/iCloud-synced
+like `flows/`, but the directory itself is not small text — an agent writes
+into it and the generator reconciles disposable derived files alongside the
+authored ones (ADR 0062) — because ADR 0025's hash-in-config/blob-in-data
+asset split does not apply to a directory the agent itself writes into (D3).
 
 A profile's avatar is the worked example of an asset that straddles the two
 (ADR 0025): the normalized PNG is app-local state at
@@ -710,6 +748,22 @@ Two rules follow for anything new that spawns a process on the user's behalf:
 - **A streamed command's failure carries the opening of its stderr.** Hive
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
+
+### App modes
+
+The desktop shell has a fixed set of top-level modes — today Hub, Terminal,
+and Agents — that `App.vue` owns as a closed type (`'hub' | 'terminal' |
+'agents'`) rather than a boolean per mode. Each mode's `*Active` computed is a
+sibling of the others (`mode.value === '<name>' && shellLoaded.value &&
+!onboardingActive.value`), never an `else` branch of a two-way toggle — a
+third mode written as `!terminalActive` would render underneath whichever
+mode it collided with. `TitleBar` carries the same closed union for its
+switch, and `router.ts`'s routes each render a null `ShellPage` component
+because `App.vue`, not the router, owns what is on screen. A mode remembers
+the last route it was on (`lastTerminalPath`, `lastAgentsPath`) so returning
+to it resumes rather than resetting, and ships dark behind its own
+`experimental.*` opt-in, gated independently of the others (ADR 0037 is the
+mechanism; ADR 0061 is the Agents area's adoption of it).
 
 ### Terminal sessions
 
@@ -983,17 +1037,28 @@ the addon majors are pinned to the xterm core major, since they reach into
 #### Pop-up terminals
 
 `internal/app/ptyterm` is the *other* terminal backend, and the rule for which
-one serves a request is the session: **a terminal that belongs to a hive session
-is tmux's; a terminal that belongs to a moment is this one's** (ADR 0048). It
-owns a PTY and the process on the far end directly — no multiplexer, no
-discovered binary, no negotiation — and every terminal it opens dies with the
-app.
+one serves a request is the session: **a terminal that belongs to a hive
+session, or to an agent workspace's own durable session record, is tmux's; a
+terminal that belongs to a moment is this one's** (ADR 0048; ADR 0063 moved
+agent workspace sessions onto tmux, so the pop-up is `ptyterm`'s only caller
+now). It owns a PTY and the process on the far end directly — no multiplexer,
+no discovered binary, no negotiation — and every terminal it opens dies with
+the app.
 
 Three rules govern it, and each is a consequence of that:
 
-- **A pop-up is addressed by an id this process mints**, never by a slug.
-  Nothing else can attach to it and nothing outlives the run, so there is no
-  registry to keep in step with hive.
+- **A terminal is addressed by an id, and minting one is the default rather
+  than the rule.** `Open` mints an id (never a slug) when the caller supplies
+  none — the pop-up always takes this path, since nothing about it wants to be
+  addressable. A caller that already knows the id it wants to reattach to may
+  supply its own instead (`Spec.ID`); a caller-supplied id collides with
+  `ErrIDInUse`, not a second terminal (ADR 0066) — no caller currently
+  exercises this since the pop-up is the one caller left and always mints.
+- **The manager caps concurrent terminals at `maxConcurrentSessions` (8).**
+  The terminal past the cap returns `ErrTooManyTerminals` and spawns no
+  process, and closing one makes room for the next (ADR 0066). Agent workspace
+  sessions have their own, separate cap now — a count of live `agentws-*` tmux
+  sessions (ADR 0063) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves
   launcher cwd → session checkout → explicit path → home; the command runs
   through a login shell so the user's own PATH and aliases resolve it (ADR
@@ -1016,9 +1081,15 @@ Three rules govern it, and each is a consequence of that:
   snapping wider. A pane with no box to measure sends nothing and takes the
   server's default; it must never send a placeholder.
 - **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
-  covered by that prefix's bearer token and CORS policy. Its stream carries one
-  terminal per socket, so its frames carry no window or pane ids and are not the
-  tmux stream's.
+  covered by that prefix's bearer token and CORS policy for the same reason
+  (ADR 0036): a pop-up spawns a shell, which is arbitrary command execution.
+  Its data plane is `/api/terminal/pty/stream`, carrying one terminal per
+  socket, so its frames carry no window or pane ids and are not the tmux
+  stream's. `/api/terminal/agents/…` sits under the same prefix for the same
+  reason but is control-plane only since ADR 0063: an agent workspace
+  session's data plane is the tmux stream (`/api/terminal/stream`), the same
+  one a hive session's terminal rides, addressed by the tmux session name
+  `AgentWorkspacesService` gives it rather than a hive slug.
 - **Hiding the panel keeps the shell; exiting the shell takes the panel.** The
   toggle opens a terminal outright, returns to a running one, and hands focus
   back where it came from on the way out. Anything that adds a step between the
@@ -1063,6 +1134,84 @@ Three rules govern it, and each is a consequence of that:
 Do not build a shared interface across the two backends, and do not extend one
 because the other has something: they answer different questions, and the
 overlap in vocabulary is a coincidence of both being terminals.
+
+### Agent workspaces
+
+`internal/app/agentws` owns the on-disk agent-workspace root
+(`settings.Paths.AgentWorkspacesDir`, default `<ConfigDir>/workspaces`):
+`mcps.yaml`, `.shared/skills/`, and one directory per workspace. Every
+directory splits **authored** files a user (or an agent, via the
+`hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
+`docs/` — from **generated** ones `agentws.Generate` produces on every open —
+`CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.claude/skills/`,
+`.agents/skills/`, an empty `docs/` seed. ADR 0062 is the contract behind that
+split: generated output is disposable, never drift-tracked, and a hand edit to
+it is silently replaced on the next open — deliberately cheaper than the
+skill installer's hash-tracked model (ADR 0033), because Hive owns this whole
+subtree. `Generate` **reconciles** each of its owned trees to exactly what it
+computes rather than clearing and rewriting: a file no longer in the target
+set is removed, an emptied directory is pruned, and a file already present is
+written only when its bytes differ — the write-only-if-different rule is what
+makes byte-determinism observable (nothing to re-sync when nothing changed)
+and what makes concurrent generation from two machines safe (ADR 0062).
+
+A workspace created through the app also starts with an `AGENTS.md`
+scaffold — authored at birth, written exactly once, never regenerated
+(ADR 0064): overriding the default framing is editing the file, and deleting
+it deletes it. Hand-authored workspaces get no scaffold.
+
+The app writes authored YAML only through the node-tree editors in `write.go`
+and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
+order, and keys the writer does not own survive; `yaml.Marshal` is never the
+writer. The workspace editor owns `name`, `agent`, `autonomy`, and `mcps:` in
+the manifest (an empty list removes the key); `skills:` and everything else
+stay the user's. `mcps.yaml` gains entries through the same pattern —
+`ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
+bare id-to-server map), an id already declared is a conflict rather than an
+overwrite, and only user entries can be removed. The merged catalogue
+(shipped + user, stability, the resolved command line, a LookPath problem) is
+served on the agents API — the surface ADR 0061 §5's read-the-command-first
+mitigation runs through.
+
+Two directory actions ride the same token-guarded agents prefix, because
+launching a program is command execution (ADR 0036): open-in-editor runs the
+settings-configured editor (`editor.command`, a single word — the agent-command
+rule from ADR 0061 — resolved and launched through `execenv`, ADR 0041) on a
+recognized workspace's directory, and reveal opens it in the OS file manager.
+Both refuse a path that is not a known workspace, the same posture as
+`SystemService.checkAllowed`.
+
+A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
+`ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
+`agentws`'s launch table (`launch.go`) maps
+`(agent, autonomy)` to that agent's own CLI flags; an agent or posture with no
+table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). The
+table is also projected to the UI (`AutonomyFlags`): the editor's posture
+selector lays out every option with the exact flags it launches for the
+chosen agent, so `full` reads as the dangerous bypass it is, and a posture
+the launch would refuse is disabled rather than hidden. Those
+flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at
+the vendored seam (`agentCommands` in `app.go`) before they ever reach a
+workspace, and only `Command` crosses — validated as a single shell word, so a
+flag cannot re-enter through the command string either (ADR 0061).
+
+Each agent's MCP wiring (`MCPWiring`) is data, not a branch: a `File` the
+generator writes, a `Render` encoding the resolved servers into that file's
+format, and a `Bounded` flag reporting whether the wiring confines the agent
+to exactly the workspace's declared set. Claude's is bounded
+(`--strict-mcp-config` plus a generated `.mcp.json`); codex's is not — it has
+no CLI-level MCP flag, so its generated `.codex/config.toml` is loaded
+alongside whatever the user's own global codex config already has, and the UI
+states that rather than leaving an unbounded tool set looking identical to a
+bounded one.
+
+`agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
+or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is
+nested, so it maintains a watch at two levels — one on the root itself (which
+sees `mcps.yaml` and workspace directories appearing or disappearing) and one
+per workspace directory (which sees its `agent-workspace.yaml`). Nothing
+watches deeper: an agent writing into `docs/`, or the generator rewriting its
+own output on open, is invisible to it by design, not omission.
 
 ## Execution model
 

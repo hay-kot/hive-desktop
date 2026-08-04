@@ -160,6 +160,17 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 
 	if mc, ok := m.managed(slug); ok {
 		if _, dead := mc.client.exited(); !dead {
+			// A live client keeps the grid its original surface voted, which a
+			// re-attach from a differently-sized pane must not inherit: repaint
+			// at the stale size and the snapshot tears the moment the new
+			// surface's own vote lands — fullscreen being the worst case.
+			// Renegotiating first paints the repaint at the caller's size; 0x0
+			// attaches unsized and keeps whatever stands.
+			if cols > 0 && rows > 0 {
+				if err := mc.client.Renegotiate(ctx, cols, rows); err != nil {
+					return nil, err
+				}
+			}
 			if err := mc.client.Repaint(ctx); err != nil {
 				return nil, err
 			}

@@ -65,12 +65,16 @@ func (op Op) pattern() string {
 
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
-	// No token means terminal mode is off for this run (experimental.terminal,
-	// ADR 0037): the routes are absent rather than answering 503, so the route
-	// index and OpenAPI document never advertise a surface that cannot work.
-	if ctrl.terminalToken != "" {
+	// Off means the surface is absent rather than answering 503, so the route
+	// index and OpenAPI document never advertise something that cannot work
+	// (ADR 0037 point 2). The two flags gate independently: a build can ship
+	// agents without terminal mode or vice versa.
+	if ctrl.opts.TerminalEnabled {
 		ops = append(ops, ctrl.terminalOperations()...)
 		ops = append(ops, ctrl.popupTerminalOperations()...)
+	}
+	if ctrl.opts.AgentsEnabled {
+		ops = append(ops, ctrl.agentOperations()...)
 	}
 	return ops
 }
@@ -81,7 +85,7 @@ func (ctrl *Controller) operations() []Op {
 func (ctrl *Controller) popupTerminalOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: PopupTerminalPathPrefix + "open", Summary: "Open an ephemeral terminal and return it. The directory is resolved in order — the launcher's own cwd, sessionSlug's checkout, then dir (a leading ~ is expanded), then the user's home. command is a shell command line run through a login shell, so a user's aliases, functions and PATH resolve it; empty opens an interactive shell. launcher names a configured launcher (the launchers list in actions.yml) to open instead, and brings its own command. The terminal is this process's child: it has no name outside this run, nothing else can attach to it, and it ends when it is closed or when Hive exits. The data plane is a WebSocket served at " + PopupTerminalStreamPath + ", outside this operations table.",
+			Method: "POST", Path: PopupTerminalPathPrefix + "open", Summary: "Open an ephemeral terminal and return it. The directory is resolved in order — the launcher's own cwd, sessionSlug's checkout, then dir (a leading ~ is expanded), then the user's home. command is a shell command line run through a login shell, so a user's aliases, functions and PATH resolve it; empty opens an interactive shell. launcher names a configured launcher (the launchers list in actions.yml) to open instead, and brings its own command. The terminal is this process's child: it has no name outside this run, nothing else can attach to it, and it ends when it is closed or when Hive exits. The data plane is a WebSocket served at " + PTYStreamPath + ", outside this operations table.",
 			Request: popupOpenRequest{}, Response: popupTerminal{}, Handler: ctrl.PopupTerminalOpen,
 			Errors: popupTerminalErrors("no hive session carries that slug, or no launcher carries that id",
 				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
@@ -119,6 +123,123 @@ func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 	}
 	errs = append(errs, extra...)
 	return append(errs, ErrResp{Status: 503, When: "ephemeral terminals are unavailable: an unsupported platform or a server build"})
+}
+
+// agentOperations is the agent-workspace control plane: named, durable
+// workspaces where a CLI agent runs against a purpose-built MCP tool set
+// (spec-tracked as hc-49x3i833). Like popupTerminalOperations it rides the
+// terminal bearer token and CORS policy by sitting under TerminalPathPrefix —
+// starting a session spawns an agent CLI, which is arbitrary command
+// execution (ADR 0036, ADR 0061).
+func (ctrl *Controller) agentOperations() []Op {
+	return []Op{
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer. autonomyFlags maps agent → posture → the CLI flags that posture launches with (a posture absent from an agent's map is refused at launch); editor names the configured open-in-editor command, empty when none is set.",
+			Response: agentWorkspacesResponse{}, Handler: ctrl.AgentWorkspaces,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve.",
+			Request: agentWorkspaceOpenRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
+			Errors: agentErrors("no such workspace, or its manifest is invalid"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, agent, and autonomy posture.",
+			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceCreate,
+			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps) in place. Comments, key order, and keys the editor does not own — skills and anything else — survive the write; an empty mcps removes the key.",
+			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
+			Request: agentWorkspaceDeleteRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open-in-editor", Summary: "Launch the configured editor (Settings › System) on the workspace directory, detached. Fails when no editor is configured or the command does not resolve on PATH.",
+			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceOpenInEditor,
+			Errors: agentErrors("no such workspace", ErrResp{Status: 400, When: "no editor is configured, or its command is not on PATH"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/reveal", Summary: "Open the workspace directory in the OS file manager.",
+			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceReveal,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps", Summary: "List the merged MCP catalogue: shipped entries plus the user's mcps.yaml, sorted by id, each with its stability, resolved command line, and any problem (a command that does not resolve on PATH). A user id shadowing a shipped one wins and says so.",
+			Response: agentMCPCatalogueResponse{}, Handler: ctrl.AgentMCPCatalogue,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps/import", Summary: "Parse pasted MCP JSON — claude's {\"mcpServers\": {...}} wrapper or a bare id-to-server map — into mcps.yaml and return the refreshed catalogue. An id already declared in mcps.yaml is a conflict; edit the file to change an existing entry.",
+			Request: agentMCPImportRequest{}, Response: agentMCPImportResponse{}, Handler: ctrl.AgentMCPImport,
+			Errors: agentErrors("", ErrResp{Status: 409, When: "a pasted id is already declared in mcps.yaml"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps/remove", Summary: "Delete a user-declared server from mcps.yaml and return the refreshed catalogue. Shipped entries are refused — a workspace disables one by dropping the id from its own mcps list.",
+			Request: agentMCPRemoveRequest{}, Response: agentMCPCatalogueResponse{}, Handler: ctrl.AgentMCPRemove,
+			Errors: agentErrors("no user-declared server of that id", ErrResp{Status: 400, When: "the id names a shipped entry"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions", Summary: "List a workspace's sessions without regenerating its artifacts, unlike workspaces/open. terminalId is empty for a session with no live terminal.",
+			Request: agentSessionsRequest{}, Response: agentSessionsResponse{}, Handler: ctrl.AgentSessions,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/all", Summary: "List every session across every workspace, newest first in stable creation order — the sidebar's cross-workspace read, unlike sessions which scopes to one workspace.",
+			Response: agentSessionsAllResponse{}, Handler: ctrl.AgentSessionsAll,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/start", Summary: "Launch a new, named session in a workspace: resolves the workspace's agent, autonomy posture and MCP wiring into a command line, creates a detached tmux session named agentws-<id> running it, and attaches. cols/rows of 0x0 attach unsized. The data plane is the tmux stream at " + TerminalStreamPath + ", outside this operations table; windowId names the pane to frame input/output for.",
+			Request: agentSessionStartRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionStart,
+			Errors: agentErrors("no such workspace", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resume", Summary: "Reattach a session's live tmux session if it still has one, or relaunch it — resuming the agent's own conversation when it has a resume form (resumeAttempted), and starting a fresh one with a notice when it does not.",
+			Request: agentSessionResumeRequest{}, Response: agentSessionView{}, Handler: ctrl.AgentSessionResume,
+			Errors: agentErrors("no such session, or its workspace is gone", ErrResp{Status: 503, When: "tmux is unavailable: an unsupported platform, missing tmux, or a server build"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/close", Summary: "End a session's live tmux session and report whether there was one to close. The session record is untouched, so it still lists afterward.",
+			Request: agentSessionIDRequest{}, Response: agentSessionCloseResponse{}, Handler: ctrl.AgentSessionClose,
+			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/rename", Summary: "Set a session's display name. The record is the only thing touched — a live tmux session keeps its agentws-<id> name.",
+			Request: agentSessionRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionRename,
+			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/activity", Summary: "Classify live sessions from their captured tmux panes: ready, active, or approval — approval is the highest-urgency state. workspace scopes to one workspace; empty spans every workspace. A session with no live tmux session is omitted.",
+			Request: agentSessionActivityRequest{}, Response: agentSessionActivityResponse{}, Handler: ctrl.AgentSessionActivity,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a window resized event, which is what sets the grid.",
+			Request: agentSessionResizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionResize,
+			Errors: agentErrors("no such session, or it has no attached terminal"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/delete", Summary: "End any live terminal and delete a session's record.",
+			Request: agentSessionIDRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionDelete,
+			Errors: agentErrors("no such session"),
+		},
+	}
+}
+
+// agentErrors documents what every agent-workspace operation can answer
+// beyond the generic error: the bearer token these routes require, same as
+// every other terminal-prefixed route.
+func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
+	errs := []ErrResp{{Status: 401, When: "the Authorization: Bearer token is missing or wrong"}}
+	if notFound != "" {
+		errs = append(errs, ErrResp{Status: 404, When: notFound})
+	}
+	return append(errs, extra...)
 }
 
 func (ctrl *Controller) baseOperations() []Op {

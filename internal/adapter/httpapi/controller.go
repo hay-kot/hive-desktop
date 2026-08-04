@@ -36,24 +36,39 @@ type Controller struct {
 	log     zerolog.Logger
 	version http.HandlerFunc
 
-	// terminalToken and cors apply to the terminal operations alone. Both are
-	// composed in main.go — the core carries no transport credential (ADR 0036).
+	// terminalToken and cors apply to the token-guarded operations (terminal,
+	// pop-up terminal, and agent workspaces) alone. Both are composed in
+	// main.go — the core carries no transport credential (ADR 0036).
 	terminalToken string
 	cors          corsPolicy
+	opts          Options
 }
 
-// New builds the controller. terminalToken and origins govern the terminal
-// control plane only: every other operation here is deliberately
-// unauthenticated behind the loopback bind (ADR 0021). An empty terminalToken
-// means terminal mode is off for this run — its operations are not registered
-// at all (ADR 0037).
-func New(core *app.App, log zerolog.Logger, terminalToken string, origins []string) *Controller {
+// Options configures the token-guarded surfaces: the bearer token and CORS
+// allowlist every one of them shares, and which route groups are mounted at
+// all. TerminalEnabled and AgentsEnabled are independent axes — either alone
+// is enough for TerminalToken to be minted in main.go, because the agent
+// control plane and the PTY stream a workspace session rides sit under the
+// same token-guarded prefix as the tmux/pop-up terminal surface (ADR 0061).
+type Options struct {
+	TerminalToken   string
+	Origins         []string
+	TerminalEnabled bool
+	AgentsEnabled   bool
+}
+
+// New builds the controller. Every operation outside opts' route groups is
+// deliberately unauthenticated behind the loopback bind (ADR 0021).
+// TerminalEnabled/AgentsEnabled false means that group's operations are not
+// registered at all — off is absence, not a 503 (ADR 0037).
+func New(core *app.App, log zerolog.Logger, opts Options) *Controller {
 	return &Controller{
 		core:          core,
 		log:           log,
 		version:       web.VersionHandler("hive.desktop.api"),
-		terminalToken: terminalToken,
-		cors:          corsPolicy{origins: origins, log: log},
+		terminalToken: opts.TerminalToken,
+		cors:          corsPolicy{origins: opts.Origins, log: log},
+		opts:          opts,
 	}
 }
 
