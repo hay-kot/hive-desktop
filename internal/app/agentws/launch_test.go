@@ -123,6 +123,27 @@ func TestAutonomyMappingIsTotal(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoAutonomyMapping)
 }
 
+func TestAutonomyFlagsProjectsTheLaunchTable(t *testing.T) {
+	t.Parallel()
+
+	flags := AutonomyFlags()
+	require.Contains(t, flags, "claude")
+	require.Contains(t, flags, "codex")
+	assert.Empty(t, flags["claude"][AutonomyAsk])
+	assert.Equal(t, []string{"--permission-mode", "acceptEdits"}, flags["claude"][AutonomyAuto])
+	assert.Equal(t, []string{"--dangerously-skip-permissions"}, flags["claude"][AutonomyFull])
+	assert.Equal(t, []string{"--dangerously-bypass-approvals-and-sandbox"}, flags["codex"][AutonomyFull])
+
+	// The projection must mirror Resolve's own withholding: a posture the
+	// launch refuses is absent, never shown as launchable.
+	for agent, postures := range flags {
+		for posture := range postures {
+			_, err := Resolve(agent, Workspace{Agent: agent, Autonomy: posture, Dir: "/abs/demo"}, "sess", false)
+			assert.NoError(t, err, "agent %q posture %q is projected but refused", agent, posture)
+		}
+	}
+}
+
 func TestResolvePassesStrictMCPConfigForClaude(t *testing.T) {
 	t.Parallel()
 

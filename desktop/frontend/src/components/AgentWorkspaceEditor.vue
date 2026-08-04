@@ -15,6 +15,7 @@ import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
 import IconFolderOpen from '~icons/lucide/folder-open'
 import IconTrash2 from '~icons/lucide/trash-2'
+import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
@@ -35,7 +36,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue,
+  editor, mcpCatalogue, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
   openWorkspaceInEditor, revealWorkspace,
 } = useAgentWorkspaces()
@@ -49,11 +50,60 @@ const autonomy = ref(props.workspace?.autonomy || 'ask')
 const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
 
 const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
-const autonomyOptions: AppSelectOption[] = [
-  { value: 'ask', label: 'ask — approve every action' },
-  { value: 'auto', label: 'auto — edits allowed, asks for the rest' },
-  { value: 'full', label: 'full — no prompts' },
-]
+
+// Every posture is laid out as a radio card rather than a dropdown, so the
+// choice being made — especially full's dangerous bypass — is readable
+// before it is selected. The flags line is the launch table's own projection
+// for the chosen agent (ADR 0061): the UI shows what the posture actually
+// runs, never a euphemism, and a posture the launch would refuse is disabled.
+const AUTONOMY_META = [
+  {
+    value: 'ask',
+    label: 'Ask',
+    description: 'Every action needs your approval — the agent prompts before anything it is not sure of.',
+    danger: false,
+  },
+  {
+    value: 'auto',
+    label: 'Auto',
+    description: 'File edits are allowed without prompting; anything riskier still asks.',
+    danger: false,
+  },
+  {
+    value: 'full',
+    label: 'Full — dangerously skip permissions',
+    description: 'Bypasses the agent\'s permission prompts entirely. Unattended, it can take any action your user account can, including through every enabled MCP server.',
+    danger: true,
+  },
+] as const
+
+interface AutonomyOption {
+  value: string
+  label: string
+  description: string
+  danger: boolean
+  flags: string
+  unavailable: boolean
+}
+
+const autonomyOptions = computed<AutonomyOption[]>(() => {
+  const known = autonomyFlags.value[agent.value]
+  return AUTONOMY_META.map((meta) => {
+    const flags = known?.[meta.value]
+    return {
+      ...meta,
+      flags: flags?.length ? flags.join(' ') : '',
+      // Only a loaded table can rule a posture out; with nothing loaded the
+      // selector stays fully usable and simply shows no flag detail.
+      unavailable: !!known && !flags,
+    }
+  })
+})
+
+function selectAutonomy(option: AutonomyOption): void {
+  if (props.busy || option.unavailable) return
+  autonomy.value = option.value
+}
 
 const valid = computed(() => !!name.value.trim() && !!agent.value && (!creating.value || !!dir.value.trim()))
 
@@ -278,13 +328,49 @@ onMounted(async () => {
 
       <div class="flex flex-col gap-1.5">
         <span class="text-xs text-text-3">Autonomy</span>
-        <AppSelect
-          v-model="autonomy"
-          :options="autonomyOptions"
+        <div
+          role="radiogroup"
           aria-label="Autonomy"
-          testid="agent-workspace-editor-autonomy"
-          :disabled="busy"
-        />
+          class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised"
+          data-testid="agent-workspace-editor-autonomy"
+        >
+          <button
+            v-for="option in autonomyOptions"
+            :key="option.value"
+            type="button"
+            role="radio"
+            :aria-checked="autonomy === option.value"
+            :disabled="busy || option.unavailable"
+            class="flex items-start gap-2.5 px-3 py-2.5 text-left outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-not-allowed disabled:opacity-50 first:rounded-t-lg last:rounded-b-lg"
+            :class="[
+              busy || option.unavailable ? '' : 'cursor-pointer',
+              autonomy === option.value && option.danger ? 'bg-severity-warning-tint' : '',
+            ]"
+            :data-testid="`agent-workspace-editor-autonomy-${option.value}`"
+            @click="selectAutonomy(option)"
+          >
+            <span
+              class="mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-full border"
+              :class="autonomy === option.value ? 'border-accent' : 'border-strong'"
+            >
+              <span v-if="autonomy === option.value" class="size-1.5 rounded-full bg-accent" />
+            </span>
+            <span class="min-w-0 flex-1">
+              <span class="flex items-center gap-1.5">
+                <IconTriangleAlert v-if="option.danger" class="size-3.5 shrink-0 text-severity-warning" aria-hidden="true" />
+                <span class="text-[13px]" :class="option.danger ? 'text-severity-warning' : 'text-text'">{{ option.label }}</span>
+              </span>
+              <span class="mt-0.5 block text-[11.5px] leading-relaxed text-text-3">{{ option.description }}</span>
+              <span
+                v-if="option.flags"
+                class="mt-0.5 block truncate font-mono text-[11px]"
+                :class="option.danger ? 'text-severity-warning' : 'text-text-4'"
+                :title="option.flags"
+              >{{ agent }} {{ option.flags }}</span>
+              <span v-if="option.unavailable" class="mt-0.5 block text-[11px] text-text-4">not available for this agent</span>
+            </span>
+          </button>
+        </div>
       </div>
 
       <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-mcps">
@@ -357,7 +443,9 @@ onMounted(async () => {
       </div>
 
       <p v-if="!creating" class="text-xs leading-relaxed text-text-4">
-        Skills and anything else in agent-workspace.yaml stay as written — edit the file for those.
+        Saving rewrites these fields in agent-workspace.yaml and re-syncs the workspace's
+        generated files. Skills, comments, and anything else in the file stay as written —
+        edit the file for those.
       </p>
       <p
         v-if="error && !confirming"

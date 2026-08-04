@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -163,6 +164,27 @@ func claudeConversationExists(id string) bool {
 		return true
 	}
 	return len(matches) > 0
+}
+
+// AutonomyFlags projects the launch table for display: per agent, the CLI
+// flags each posture resolves to. A posture absent from an agent's map is one
+// Resolve would refuse — no autonomy mapping, or withheld because the agent
+// has no MCP wiring (ErrPostureUnavailable) — so a UI can disable exactly
+// what the launch would fail closed on. The slices are copies: nothing
+// reaches the table through the result.
+func AutonomyFlags() map[string]map[Autonomy][]string {
+	out := make(map[string]map[Autonomy][]string, len(agentLaunches))
+	for agent, launch := range agentLaunches {
+		postures := make(map[Autonomy][]string, len(launch.Autonomy))
+		for posture, flags := range launch.Autonomy {
+			if launch.MCP == nil && posture != AutonomyAsk {
+				continue
+			}
+			postures[posture] = slices.Clone(flags)
+		}
+		out[agent] = postures
+	}
+	return out
 }
 
 // MCPBounded reports whether agent's MCP wiring confines it to exactly the

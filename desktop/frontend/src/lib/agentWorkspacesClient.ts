@@ -47,6 +47,12 @@ export interface AgentWorkspacesPayload {
   workspaces: AgentWorkspace[]
   /** The agent keys this build can launch — the workspace editor's choices. */
   agents: string[]
+  /**
+   * agent → autonomy posture → the CLI flags that posture launches with, so
+   * the editor shows the real authority each option grants. A posture absent
+   * from an agent's map is refused at launch.
+   */
+  autonomyFlags: Record<string, Record<string, string[]>>
   editor: AgentEditor
 }
 
@@ -193,11 +199,12 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
   return {
     async workspaces() {
       const body = await post<AgentWorkspacesPayload>('/workspaces', {})
-      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], editor: { command: '', title: '' } }
+      if (!body) return { root: '', rootProblem: '', available: false, error: '', workspaces: [], agents: [], autonomyFlags: {}, editor: { command: '', title: '' } }
       return {
         ...body,
         workspaces: (body.workspaces ?? []).map(normalizeWorkspace),
         agents: body.agents ?? [],
+        autonomyFlags: body.autonomyFlags ?? {},
         editor: body.editor ?? { command: '', title: '' },
       }
     },

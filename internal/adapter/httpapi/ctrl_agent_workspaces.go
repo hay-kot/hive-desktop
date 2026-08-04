@@ -125,6 +125,11 @@ type agentWorkspacesResponse struct {
 	// Agents lists the agent keys this build can launch — the choices the
 	// workspace editor offers.
 	Agents []string `json:"agents"`
+	// AutonomyFlags maps agent → posture → the CLI flags that posture launches
+	// with, so the editor shows the real authority each option grants
+	// (--dangerously-skip-permissions reads as itself). A posture absent from
+	// an agent's map is one the launch would refuse.
+	AutonomyFlags map[string]map[string][]string `json:"autonomyFlags"`
 	// Editor is the configured "open in editor" target; an empty command means
 	// none is configured and the UI says so instead of offering the action.
 	Editor agentEditorView `json:"editor"`
@@ -151,14 +156,21 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 		available, errMsg = false, agentErrorMessage(avErr)
 	}
 	editorCommand, editorTitle := ctrl.core.AgentWorkspaces.Editor(r.Context())
+	autonomyFlags := ctrl.core.AgentWorkspaces.AutonomyFlags(r.Context())
+	for _, postures := range autonomyFlags {
+		for posture, flags := range postures {
+			postures[posture] = nonNilStrings(flags)
+		}
+	}
 	return server.JSON(w, http.StatusOK, agentWorkspacesResponse{
-		Root:        ctrl.core.RuntimePaths().AgentWorkspacesDir,
-		RootProblem: ctrl.core.AgentWorkspaces.RootProblem(r.Context()),
-		Available:   available,
-		Error:       errMsg,
-		Workspaces:  toAgentWorkspaceViews(workspaces),
-		Agents:      nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
-		Editor:      agentEditorView{Command: editorCommand, Title: editorTitle},
+		Root:          ctrl.core.RuntimePaths().AgentWorkspacesDir,
+		RootProblem:   ctrl.core.AgentWorkspaces.RootProblem(r.Context()),
+		Available:     available,
+		Error:         errMsg,
+		Workspaces:    toAgentWorkspaceViews(workspaces),
+		Agents:        nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
+		AutonomyFlags: autonomyFlags,
+		Editor:        agentEditorView{Command: editorCommand, Title: editorTitle},
 	})
 }
 

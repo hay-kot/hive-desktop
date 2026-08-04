@@ -82,6 +82,43 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
+  it('the autonomy selector lays out every posture with the flags it launches', async () => {
+    const { autonomyFlags } = useAgentWorkspaces()
+    autonomyFlags.value = {
+      claude: { ask: [], auto: ['--permission-mode', 'acceptEdits'], full: ['--dangerously-skip-permissions'] },
+    }
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    const full = el<HTMLButtonElement>('agent-workspace-editor-autonomy-full')!
+    expect(full.textContent).toContain('dangerously skip permissions')
+    expect(full.textContent).toContain('--dangerously-skip-permissions')
+    expect(full.getAttribute('aria-checked')).toBe('false')
+    expect(el('agent-workspace-editor-autonomy-ask')!.getAttribute('aria-checked')).toBe('true')
+
+    full.click()
+    await wrapper.vm.$nextTick()
+    expect(full.getAttribute('aria-checked')).toBe('true')
+
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [] },
+    ]])
+    wrapper.unmount()
+  })
+
+  it('a posture the launch table refuses for the agent is disabled', async () => {
+    const { autonomyFlags } = useAgentWorkspaces()
+    autonomyFlags.value = { claude: { ask: [] } }
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    const full = el<HTMLButtonElement>('agent-workspace-editor-autonomy-full')!
+    expect(full.disabled).toBe(true)
+    expect(full.textContent).toContain('not available for this agent')
+    wrapper.unmount()
+  })
+
   it('save carries the toggled mcps list', async () => {
     const { mcpCatalogue } = useAgentWorkspaces()
     mcpCatalogue.value = [playwright]

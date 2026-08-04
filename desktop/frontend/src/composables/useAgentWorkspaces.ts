@@ -5,6 +5,7 @@ import {
   type AgentEditor,
   type AgentSession,
   type AgentWorkspace,
+  type AgentWorkspaceOpenResult,
   type AgentWorkspacesClient,
   type MCPCatalogueEntry,
   type ResumeSessionRequest,
@@ -33,6 +34,7 @@ const workspacesError = ref<string | null>(null)
 const root = ref('')
 const agents = ref<string[]>([])
 const editor = ref<AgentEditor>({ command: '', title: '' })
+const autonomyFlags = ref<Record<string, Record<string, string[]>>>({})
 const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
 // rootProblem is the one signal from the workspaces payload this composable
 // tracks separately from the top-level available/reason: it is the
@@ -73,6 +75,7 @@ async function reloadWorkspaces(): Promise<void> {
     root.value = payload.root
     agents.value = payload.agents
     editor.value = payload.editor
+    autonomyFlags.value = payload.autonomyFlags
     rootProblem.value = payload.rootProblem
     workspaces.value = payload.workspaces
   } catch (e) {
@@ -93,15 +96,25 @@ async function reloadWorkspaces(): Promise<void> {
 // open keeps the last-good state; the workspace row's own problem field is
 // where a broken manifest reports itself.
 async function openWorkspace(dir: string): Promise<void> {
+  const result = await regenerateWorkspace(dir)
+  if (result) missingMCPs.value = result.missingMcps
+}
+
+// regenerateWorkspace re-syncs a workspace's generated files and folds its
+// fresh view into the list, without touching the focused workspace's
+// missing-MCP state — the save path for a workspace that is not currently
+// selected. Returns null on failure, keeping the last-good rows.
+async function regenerateWorkspace(dir: string): Promise<AgentWorkspaceOpenResult | null> {
   await ensureProbed()
-  if (!client.value) return
+  if (!client.value) return null
   try {
     const result = await client.value.openWorkspace(dir)
-    missingMCPs.value = result.missingMcps
     const idx = workspaces.value.findIndex((w) => w.dir === dir)
     if (idx >= 0) workspaces.value = [...workspaces.value.slice(0, idx), result.workspace, ...workspaces.value.slice(idx + 1)]
+    return result
   } catch {
     // Keep the last-good rows, matching the reload functions above.
+    return null
   }
 }
 
@@ -211,11 +224,13 @@ export function useAgentWorkspaces(): {
   rootProblem: Ref<string>
   agents: Ref<string[]>
   editor: Ref<AgentEditor>
+  autonomyFlags: Ref<Record<string, Record<string, string[]>>>
   mcpCatalogue: Ref<MCPCatalogueEntry[]>
   missingMCPs: Ref<string[]>
   ready: () => Promise<void>
   reloadWorkspaces: () => Promise<void>
   openWorkspace: (dir: string) => Promise<void>
+  regenerateWorkspace: (dir: string) => Promise<AgentWorkspaceOpenResult | null>
   createWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
   updateWorkspace: (request: WorkspaceEditRequest) => Promise<AgentWorkspace>
   deleteWorkspace: (dir: string) => Promise<void>
@@ -234,9 +249,9 @@ export function useAgentWorkspaces(): {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem, agents, editor, mcpCatalogue, missingMCPs,
+    root, rootProblem, agents, editor, autonomyFlags, mcpCatalogue, missingMCPs,
     ready: ensureProbed,
-    reloadWorkspaces, openWorkspace,
+    reloadWorkspaces, openWorkspace, regenerateWorkspace,
     createWorkspace, updateWorkspace, deleteWorkspace,
     reloadMCPCatalogue, importMCPServers, removeMCPServer,
     openWorkspaceInEditor, revealWorkspace,
@@ -258,6 +273,7 @@ export function resetAgentWorkspacesForTests(): void {
   rootProblem.value = ''
   agents.value = []
   editor.value = { command: '', title: '' }
+  autonomyFlags.value = {}
   mcpCatalogue.value = []
   missingMCPs.value = []
 }

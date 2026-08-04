@@ -513,6 +513,25 @@ func (s *AgentWorkspacesService) Agents(context.Context) []string {
 	return agents
 }
 
+// AutonomyFlags reports, per agent, the CLI flags each autonomy posture
+// launches with — the launch table projected for the editor, so a posture
+// shows the authority it actually grants (--dangerously-skip-permissions is
+// something to read, not a euphemism to hide; ADR 0061 §5's posture applied
+// to autonomy). A posture absent from an agent's map is one the launch would
+// refuse, which the editor disables.
+func (s *AgentWorkspacesService) AutonomyFlags(context.Context) map[string]map[string][]string {
+	table := agentws.AutonomyFlags()
+	out := make(map[string]map[string][]string, len(table))
+	for agent, postures := range table {
+		m := make(map[string][]string, len(postures))
+		for posture, flags := range postures {
+			m[string(posture)] = flags
+		}
+		out[agent] = m
+	}
+	return out
+}
+
 // WorkspaceEdit names the manifest fields the in-app editor writes. Skills
 // and anything else the manifest says are untouched — WriteManifest edits the
 // document in place, so they stay the user's.

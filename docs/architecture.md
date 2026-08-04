@@ -1185,7 +1185,11 @@ A workspace declares `autonomy: ask | auto | full`, omitted defaulting to
 `ask` since the M2 approval indicator makes it legible (hc-ou4o02zx §4) — and
 `agentws`'s launch table (`launch.go`) maps
 `(agent, autonomy)` to that agent's own CLI flags; an agent or posture with no
-table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). Those
+table entry fails closed (`ErrUnknownAgent`, `ErrNoAutonomyMapping`). The
+table is also projected to the UI (`AutonomyFlags`): the editor's posture
+selector lays out every option with the exact flags it launches for the
+chosen agent, so `full` reads as the dangerous bypass it is, and a posture
+the launch would refuse is disabled rather than hidden. Those
 flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at
 the vendored seam (`agentCommands` in `app.go`) before they ever reach a
 workspace, and only `Command` crosses — validated as a single shell word, so a

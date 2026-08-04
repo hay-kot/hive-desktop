@@ -43,7 +43,7 @@ const {
   checking, available, reason,
   workspaces, root, agents, missingMCPs,
   client, ready,
-  reloadWorkspaces, openWorkspace, deleteWorkspace,
+  reloadWorkspaces, openWorkspace, regenerateWorkspace, deleteWorkspace,
   createWorkspace, updateWorkspace,
   startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
 } = useAgentWorkspaces()
@@ -248,9 +248,13 @@ async function saveWorkspace(request: WorkspaceEditRequest): Promise<void> {
   try {
     if (editingWorkspace.value) {
       await updateWorkspace(request)
-      // A changed mcps list only reaches .mcp.json through a regenerate, and
-      // the focus watcher won't fire for the already-selected workspace.
+      // Saving re-syncs the workspace's generated files immediately — a
+      // changed mcps list only reaches .mcp.json through a regenerate, and
+      // neither the focus watcher (already selected) nor anything else
+      // (not selected) would fire one. The selected path also refreshes the
+      // missing-MCP banner; the unselected one must not touch it.
       if (request.dir === selectedWorkspace.value) void openWorkspace(request.dir)
+      else void regenerateWorkspace(request.dir)
     } else {
       await createWorkspace(request)
       selectWorkspace(request.dir)

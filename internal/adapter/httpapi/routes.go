@@ -134,7 +134,7 @@ func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 func (ctrl *Controller) agentOperations() []Op {
 	return []Op{
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces", Summary: "List every recognized agent workspace under the configured root, valid or not. A workspace whose manifest fails to parse still lists with its last-good name and agent, plus a problem explaining what is wrong. available/error report whether ephemeral terminals can run at all in this build; root is the configured workspace root regardless of that answer. autonomyFlags maps agent → posture → the CLI flags that posture launches with (a posture absent from an agent's map is refused at launch); editor names the configured open-in-editor command, empty when none is set.",
 			Response: agentWorkspacesResponse{}, Handler: ctrl.AgentWorkspaces,
 			Errors: agentErrors(""),
 		},
