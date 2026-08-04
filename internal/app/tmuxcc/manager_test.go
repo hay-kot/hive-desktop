@@ -155,11 +155,16 @@ func TestManagerAttachIsOneClientPerSlug(t *testing.T) {
 	first, err := m.Attach(t.Context(), "hive-demo", 80, 24)
 	require.NoError(t, err)
 	require.Len(t, first, 1)
+	firstClient, ok := m.Client("hive-demo")
+	require.True(t, ok)
 
 	second, err := m.Attach(t.Context(), "hive-demo", 80, 24)
 	require.NoError(t, err)
 	require.Equal(t, first, second)
-	require.Equal(t, 1, f.countCommands("list-windows"), "the second attach reuses the client")
+	secondClient, ok := m.Client("hive-demo")
+	require.True(t, ok)
+	require.Same(t, firstClient, secondClient, "the second attach reuses the client")
+	require.Equal(t, 2, f.countCommands("list-windows"), "the second attach re-lists so its caller gets tmux's post-vote sizes")
 }
 
 // Re-attaching to a live client is the transport-drop path: tmux never let go,
@@ -183,10 +188,17 @@ func TestManagerAttachRepaintsALiveClient(t *testing.T) {
 	require.Equal(t, "AGENT RUNNING", outputData(collect(t, ch, lifecycleIs(LifecycleAttached)), "@1"))
 	unsubscribe()
 
-	windows, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	// The re-attach may come from a differently-sized surface — the Agents
+	// pane resuming in fullscreen — so the live client renegotiates the
+	// caller's size before repainting, rather than keeping the stale vote,
+	// and reports the size tmux settled on rather than its stale window set.
+	// Height stays 1 so the repaint's snapshot stays a single line.
+	f.setWindows("@1 1 %1 200 1 claude")
+	windows, err := m.Attach(t.Context(), "hive-demo", 200, 55)
 	require.NoError(t, err)
 	require.Len(t, windows, 1)
-	require.Equal(t, 1, f.countCommands("refresh-client"), "the live client keeps the size it already voted")
+	require.Equal(t, 2, f.countCommands("refresh-client"), "a sized re-attach renegotiates before it repaints")
+	require.Equal(t, 200, windows[0].Width, "the re-attach reports tmux's post-vote size")
 
 	resumed, stop, err := m.Subscribe("hive-demo")
 	require.NoError(t, err)
