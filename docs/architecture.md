@@ -873,6 +873,36 @@ any of them (ADR 0057). A new style option takes the same route.
 keep in step with it, and a window's controls — close, rename, and the add on
 its session's row — live on the rows themselves (ADR 0057).
 
+**One tmux session in the tree belongs to no hive session: the scratch
+terminal** (ADR 0067). It is an ordinary tmux session under a reserved slug —
+`Scratch`, which hive's `Slugify` cannot mint because it lowercases before it
+replaces — so attach, the sweep, tabs, reorder, kill and the pool serve it
+unchanged, and the desktop owns only what creating it means: one session whose
+*working directory* is the user's home, which is therefore every tab's.
+`TerminalsService.Start` is where that branch lives, and `Scratch()` is the
+declaration the tree pins its section from. In the tree it is a group of one
+that draws its heading — Terminals — and its tabs where a repository draws its
+own heading and its sessions: the session row itself is not rendered, because a
+group that holds one session forever buys a level of nesting and names the same
+thing twice, so `Scratch` is a tmux name rather than anything on screen. Four
+rules follow from it having no hive record: it is created with `tmuxcc`'s own
+empty-command create, so its shell is an interactive login shell and the user's
+startup files — not this app's environment — are what put their tools on its
+PATH (ADR 0041); its liveness comes from the window sweep
+rather than from `SessionStatuses`, which is keyed by session id, and its tabs
+are listed whatever `terminal_show_windows` says because they *are* the section;
+`+` on its heading creates the session when tmux is holding none, which is
+scratch-only because starting a hive session runs its agent; and rename,
+recycle, delete, session details and configured actions are not offered, because
+each addresses a record that does not exist. Prune is untouched — it acts on hive's listing, which the
+scratch terminal is not in.
+
+**Adding a window does not require an attach.** A slug with no control client
+gets one from a one-shot, whose `-c` is spelled `#{session_path}`: tmux resolves
+an unset start-directory against the client running the command, and a one-shot
+command client is this process, so the window would otherwise open in the app's
+working directory rather than the session's.
+
 **The sidebar filter narrows what the tree draws and nothing else.** The
 attachable set still carries every session, because the watcher that follows a
 rename or a deletion reads it and a session filtered off the screen must not

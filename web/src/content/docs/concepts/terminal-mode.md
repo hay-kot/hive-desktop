@@ -30,6 +30,28 @@ missing when it isn't:
 Once it's on, the title bar carries a **Hub | Terminal** switch. The sidebar
 lists your sessions, and picking one attaches to it.
 
+## The scratch terminal
+
+The first section of the sidebar, above your repositories, is **Terminals**, and
+your own tabs are listed in it the way a repository lists its sessions. Behind it
+is a tmux session like any other, except that it belongs to no Hive session, no
+repository and no agent — it is there to poke at something.
+
+The `+` on that heading is how you use it: with nothing running it opens a shell
+in your home directory, and every tab after that opens there too. Tabs are the
+only multiplicity there is — there is one scratch terminal, and it keeps as many
+tabs as you open. Click a tab to go to it, drag it to reorder, double-click to
+rename it, and fold the whole section away from its heading.
+
+It outlives the app the way every tmux session does — close Hive, come back, and
+the tabs are still there, still running whatever you left. tmux calls the session
+`Scratch`, so `tmux attach -t Scratch` reaches it from a terminal.
+
+Its ⋯ menu carries **Start terminal** and **Kill terminal…** and nothing else:
+rename, recycle, delete and session details all act on a Hive session, and there
+isn't one behind this section. Killing it closes every tab and stops what is running
+in them; starting it again opens an empty one. **Prune** never touches it.
+
 ## Starting a session that has no terminal yet
 
 The tmux session behind a Hive session does not survive a reboot or a

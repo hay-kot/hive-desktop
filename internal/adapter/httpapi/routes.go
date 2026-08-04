@@ -365,7 +365,7 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("the slug names no reachable tmux session"),
 		},
 		{
-			Method: "POST", Path: "/api/terminal/start", Summary: "Spawn the tmux session a slug names, from the hive session's own spawn configuration — the windows, working directory and agent command hive itself would use — and report whether this call is what created it. A session tmux is already running answers started=false rather than being respawned. Starting runs the session's agent command, which is why it is a separate call from attach.",
+			Method: "POST", Path: "/api/terminal/start", Summary: "Spawn the tmux session a slug names, from the hive session's own spawn configuration — the windows, working directory and agent command hive itself would use — and report whether this call is what created it. A session tmux is already running answers started=false rather than being respawned. Starting runs the session's agent command, which is why it is a separate call from attach. The slug \"Scratch\" is reserved for the scratch terminal, which belongs to no hive session: starting it opens one window in the user's home directory, and so does every window added to it afterwards.",
 			Request: terminalSlugRequest{}, Response: terminalStartResponse{}, Handler: ctrl.TerminalStart,
 			Errors: terminalErrors("no hive session carries that slug",
 				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
@@ -381,9 +381,9 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("no terminal is attached for that slug"),
 		},
 		{
-			Method: "POST", Path: "/api/terminal/windows/new", Summary: "Create a window in the attached session and return its tmux window id.",
+			Method: "POST", Path: "/api/terminal/windows/new", Summary: "Create a window in a session and return its tmux window id. Attaching first is not required: a session with no control client gets its window from a one-shot, opened in the session's own working directory the same way an attached client's would be. A slug tmux is not running answers 404 — POST /api/terminal/start is what creates the session.",
 			Request: terminalSlugRequest{}, Response: terminalNewWindowResponse{}, Handler: ctrl.TerminalNewWindow,
-			Errors: terminalErrors("no terminal is attached for that slug"),
+			Errors: terminalErrors("the slug names no running tmux session"),
 		},
 		{
 			Method: "POST", Path: "/api/terminal/windows/close", Summary: "Kill one window of the attached session.",

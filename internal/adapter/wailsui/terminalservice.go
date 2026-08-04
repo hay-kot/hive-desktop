@@ -67,6 +67,13 @@ func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
 	return TerminalAvailability{Available: true}
 }
 
+// Scratch declares the scratch terminal the session tree pins above the
+// repositories: the tmux session to attach to, and what to call it. It is
+// constant for the run, so the tree reads it once beside the session list.
+func (s *TerminalService) Scratch(ctx context.Context) app.ScratchTerminal {
+	return s.terminals.Scratch(ctx)
+}
+
 // Endpoint reports where the terminal server is reachable, or KindUnavailable
 // while the loopback server is unbound or HTTP is disabled.
 func (s *TerminalService) Endpoint(ctx context.Context) (TerminalEndpoint, error) {

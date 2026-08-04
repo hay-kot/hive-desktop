@@ -1,5 +1,6 @@
 import { ref, type Ref } from 'vue'
 import { ListSessions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
+import { Scratch } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import { repoDisplayName } from '../lib/repositories'
 
 /**
@@ -16,12 +17,20 @@ export interface TerminalSessionRow {
   state: string
 }
 
-/** One repo group of the sidebar tree, keyed by the session's remote. */
+/**
+ * One group of the sidebar tree, keyed by the session's remote — or the pinned
+ * scratch section, which is `pinned` and belongs to no repository.
+ */
 export interface TerminalSessionGroup {
   key: string
   name: string
   sessions: TerminalSessionRow[]
+  pinned?: boolean
 }
+
+// The pinned section's key. It draws no header of its own — its one row is the
+// heading — so the name is only what the sidebar filter matches on.
+const SCRATCH_GROUP_KEY = 'scratch'
 
 // Mirrors the TUI's GroupSessionsByRepo: one group per remote, a "(no remote)"
 // group for sessions without one, groups and sessions alphabetical.
@@ -44,6 +53,23 @@ function groupDisplayName(remote: string): string {
   return repoDisplayName(remote) || '(no remote)'
 }
 
+/**
+ * The tree's groups: the scratch terminal's own section first, then one per
+ * repository. It is a group of one rather than a loose row so the tree stays
+ * group → session → window everywhere, and it is prepended rather than sorted
+ * in because pinned is the point — it must not move as repositories come and go.
+ * The section draws no header: its row is the heading, and what is listed under
+ * it are the tabs.
+ */
+export function terminalSessionGroups(
+  rows: TerminalSessionRow[],
+  scratch: TerminalSessionRow | null,
+): TerminalSessionGroup[] {
+  const repos = groupTerminalSessions(rows)
+  if (!scratch) return repos
+  return [{ key: SCRATCH_GROUP_KEY, name: scratch.name, sessions: [scratch], pinned: true }, ...repos]
+}
+
 // Module singletons: the rows are hive's session set, not one view's, and the
 // tree renders the last-known ones while reload() revalidates rather than
 // emptying and popping back in.
@@ -55,11 +81,19 @@ const error = ref<string | null>(null)
 // needs the difference to tell an empty list from one it has not read yet.
 const loaded = ref(false)
 
+// The scratch terminal as a row of the same shape, so everything keyed on a
+// session — the pool, the window listings, the keyboard walk — reaches it
+// without learning a second kind of row. It carries no repo and its slug is its
+// id, which no hive session id can collide with. Declared by the core rather
+// than assumed here, because the slug is what an attach addresses.
+const scratch = ref<TerminalSessionRow | null>(null)
+
 async function reload(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    sessions.value = (await ListSessions()) ?? []
+    const [rows] = await Promise.all([ListSessions(), loadScratch()])
+    sessions.value = rows ?? []
   } catch (e) {
     // Keep the last-good rows: a failed revalidation reports itself without
     // collapsing the tree it could not refresh.
@@ -67,6 +101,20 @@ async function reload(): Promise<void> {
   } finally {
     loading.value = false
     loaded.value = true
+  }
+}
+
+// Read once: it is a constant for the run. A failure leaves the tree without its
+// scratch section rather than without its sessions.
+async function loadScratch(): Promise<void> {
+  if (scratch.value) return
+  try {
+    const declared = await Scratch()
+    if (!declared?.slug) return
+    scratch.value = { id: declared.slug, name: declared.name, slug: declared.slug, repo: '', state: 'active' }
+  } catch {
+    // Terminal mode reports its own unavailability; a missing scratch row is
+    // not worth failing the session list over.
   }
 }
 
@@ -82,16 +130,18 @@ export function sessionRepository(slug: string): string {
 
 export function useTerminalSessions(): {
   sessions: Ref<TerminalSessionRow[]>
+  scratch: Ref<TerminalSessionRow | null>
   loading: Ref<boolean>
   loaded: Ref<boolean>
   error: Ref<string | null>
   reload: () => Promise<void>
 } {
-  return { sessions, loading, loaded, error, reload }
+  return { sessions, scratch, loading, loaded, error, reload }
 }
 
 export function resetTerminalSessionsForTests(): void {
   sessions.value = []
+  scratch.value = null
   loading.value = false
   loaded.value = false
   error.value = null

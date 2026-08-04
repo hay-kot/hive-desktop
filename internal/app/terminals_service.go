@@ -15,6 +15,28 @@ type terminalStarter interface {
 	StartTmuxSession(ctx context.Context, slug string) error
 }
 
+// ScratchSlug is the tmux session name of the scratch terminal — the one
+// terminal in the app that belongs to no piece of tracked work.
+//
+// It is a slug hive cannot mint: Slugify lowercases before it replaces, so no
+// session a user can name reaches a capital letter, and nothing hive creates can
+// therefore shadow the scratch session or be shadowed by it. `scratch` would
+// have been that session's slug the first time someone named one that.
+const ScratchSlug = "Scratch"
+
+// scratchName heads the section its tabs are listed in, which is the only place
+// it is drawn — plural because that is what is under it. `tmux ls` still says
+// Scratch, which is the name that has to be addressable.
+const scratchName = "Terminals"
+
+// ScratchTerminal declares the scratch terminal to the surfaces that draw it.
+// There is exactly one, it is created on first use, and it holds no hive
+// session, checkout or agent — its tabs are whatever the user opened.
+type ScratchTerminal struct {
+	Slug string `json:"slug"`
+	Name string `json:"name"`
+}
+
 // TerminalsService is the slug-keyed driving service both the HTTP and the
 // Wails adapter call. It holds no token, base URL or stream path: what the
 // terminal is reached over is the adapter's, not the core's (ADR 0036).
@@ -22,10 +44,18 @@ type TerminalsService struct {
 	manager *tmuxcc.Manager
 	metrics tmuxcc.MetricsSink
 	starter terminalStarter
+	home    func() (string, error)
 }
 
-func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink, starter terminalStarter) *TerminalsService {
-	return &TerminalsService{manager: manager, metrics: metrics, starter: starter}
+func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink, starter terminalStarter, home func() (string, error)) *TerminalsService {
+	return &TerminalsService{manager: manager, metrics: metrics, starter: starter, home: home}
+}
+
+// Scratch declares the scratch terminal. It is a constant rather than a probe:
+// whether tmux is holding the session is what Start and the window listing
+// answer, and a caller that draws the row needs it before either.
+func (s *TerminalsService) Scratch(_ context.Context) ScratchTerminal {
+	return ScratchTerminal{Slug: ScratchSlug, Name: scratchName}
 }
 
 // Available reports tmux/build/platform availability only. Whether the
@@ -68,6 +98,8 @@ func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows i
 // running is left alone: the probe is what keeps a spawn configuration the
 // desktop cannot drive — hive's command-based `spawn:` rather than `windows:` —
 // from failing a start for a session that needs none.
+//
+// ScratchSlug is the one slug this does not ask hive about — see startScratch.
 func (s *TerminalsService) Start(ctx context.Context, slug string) (bool, error) {
 	exists, err := s.manager.HasSession(ctx, slug)
 	if err != nil {
@@ -76,10 +108,29 @@ func (s *TerminalsService) Start(ctx context.Context, slug string) (bool, error)
 	if exists {
 		return false, nil
 	}
+	if slug == ScratchSlug {
+		return true, s.startScratch(ctx)
+	}
 	if err := s.starter.StartTmuxSession(ctx, slug); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// startScratch creates the scratch session here rather than through hive's spawn
+// configuration, which has nothing to say about it: there is no session record,
+// no remote for ResolveSpawn to match a rule against, and no checkout to open in.
+// What it gets instead is the user's home directory and an interactive login
+// shell — the same empty-command create an agent workspace's session uses, and
+// what makes the shell's own startup files, not this app's environment, decide
+// what is on PATH (ADR 0041). Home is the *session's* directory rather than that
+// first window's, so every tab opened in it later starts there too.
+func (s *TerminalsService) startScratch(ctx context.Context) error {
+	home, err := s.home()
+	if err != nil {
+		return Wrap(err, KindUnavailable, "finding your home directory to open the scratch terminal in")
+	}
+	return terminalError(s.manager.NewSession(ctx, ScratchSlug, home, ""), "starting the scratch terminal")
 }
 
 // Kill kills the tmux session slug names and reports whether there was one to
@@ -147,10 +198,19 @@ func (s *TerminalsService) SelectWindow(ctx context.Context, slug, windowID stri
 
 // NewWindow creates a window and returns its id; the tab set itself follows
 // from the notification tmux sends afterwards.
+//
+// Attaching is not a precondition. A session's windows are its own, and the row
+// offering a new one is offering it for the session rather than for what happens
+// to be on screen — so a slug with no control client is served by a one-shot in
+// the session's own directory, and the attach that follows lists what it made.
 func (s *TerminalsService) NewWindow(ctx context.Context, slug string) (string, error) {
-	client, err := s.client(slug)
-	if err != nil {
-		return "", err
+	client, ok := s.manager.Client(slug)
+	if !ok {
+		id, err := s.manager.NewWindow(ctx, slug)
+		if err != nil {
+			return "", terminalError(err, "creating a window in session %q", slug)
+		}
+		return id, nil
 	}
 	id, err := client.NewWindow(ctx)
 	if err != nil {

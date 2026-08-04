@@ -16,6 +16,12 @@ import type { MenuEntry } from '../types/menu'
 // own labelled section, so a second menu never has to be built beside this one.
 const props = defineProps<{
   session: SessionSummary
+  /**
+   * The scratch terminal, which has no hive session behind it: its tmux session
+   * is the whole thing, so there is nothing to rename, recycle, delete or show
+   * details of.
+   */
+  scratch?: boolean
   /** Host-contributed entries, appended under `extraLabel`. */
   extra?: MenuEntry[]
   extraLabel?: string
@@ -36,6 +42,12 @@ const emit = defineEmits<{
 
 const entries = computed<MenuEntry[]>(() => {
   const list: MenuEntry[] = []
+  if (props.scratch) {
+    return [
+      { kind: 'action', id: 'start', label: 'Start terminal', icon: IconPlay, testid: 'session-menu-start' },
+      { kind: 'action', id: 'kill', label: 'Kill terminal…', icon: IconSquare, testid: 'session-menu-kill' },
+    ]
+  }
   // The terminal's own lifecycle leads: starting a stopped session is also an
   // attach, and killing ends the terminal without touching the session itself —
   // which is what separates it from Recycle and Delete below. Only an active

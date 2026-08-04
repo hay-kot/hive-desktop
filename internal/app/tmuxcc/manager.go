@@ -289,6 +289,32 @@ func (m *Manager) RenameSession(ctx context.Context, from, to string) error {
 	return nil
 }
 
+// NewWindow creates a window in a session this app holds no control client for,
+// and returns its id. An attached client has its own NewWindow; this is for the
+// row a user pressed + on before anything attached to it.
+//
+// The directory is spelled out as the session's own, because tmux resolves an
+// unset start-directory against the *client* running the command — and a
+// one-shot command client is this process, so the window would open in the
+// app's working directory rather than where the session lives.
+func (m *Manager) NewWindow(ctx context.Context, slug string) (string, error) {
+	exists, err := m.HasSession(ctx, slug)
+	if err != nil {
+		return "", err
+	}
+	if !exists {
+		return "", fmt.Errorf("%w: %s is not running", ErrNotAttached, slug)
+	}
+	lines, err := m.oneShot(ctx, "new-window", "-t", slug, "-c", "#{session_path}", "-P", "-F", "#{window_id}")
+	if err != nil {
+		return "", fmt.Errorf("tmuxcc: new window in %s: %w", slug, err)
+	}
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) == "" {
+		return "", fmt.Errorf("tmuxcc: new-window returned no window id")
+	}
+	return strings.TrimSpace(lines[0]), nil
+}
+
 // HasSession reports whether tmux is running a session named slug. Attach and
 // start both ask before doing anything, so "there is no session" is a probe's
 // answer rather than a reading of an attach failure's message. A live client is
