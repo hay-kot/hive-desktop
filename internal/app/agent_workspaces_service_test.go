@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -177,7 +178,84 @@ func TestResumeReattachesTheSameTerminal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, started.TerminalID, resumed.TerminalID, "a resume within one run reattaches rather than spawning beside it")
 	assert.True(t, resumed.ResumeAttempted)
+	assert.Positive(t, resumed.Cols, "an attach must report tmux's granted grid, or the pane opens at the wrong size")
+	assert.Positive(t, resumed.Rows)
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc), "reattaching must not spawn a second terminal")
+}
+
+// TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh is the reported bug:
+// start a chat, send nothing, kill it, restart it. claude persists a
+// conversation file only on the first message, so passing --resume for the
+// untouched id would die in the pane on "No conversation found with session
+// ID". The relaunch must go fresh instead — and silently, because a fresh
+// launch IS the continuation of an empty conversation.
+func TestResumeOfANeverMessagedClaudeSessionRelaunchesFresh(t *testing.T) {
+	isolateConfig(t)
+	claudeCfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeCfg)
+	require.NoError(t, os.MkdirAll(filepath.Join(claudeCfg, "projects", "-elsewhere"), 0o700))
+
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	before, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	closed, err := svc.CloseSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, closed)
+
+	resumed, err := svc.ResumeSession(t.Context(), started.ID, 80, 24)
+	require.NoError(t, err)
+	assert.False(t, resumed.ResumeAttempted, "nothing was persisted, so this launch must not pass --resume")
+	assert.Empty(t, resumed.Notice, "an empty conversation relaunching fresh is a continuation, not a loss to announce")
+	assert.NotEmpty(t, resumed.TerminalID)
+
+	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.NotEqual(t, before.AgentSessionID, after.AgentSessionID,
+		"the fresh launch mints a fresh id — reusing one the agent might hold would wedge on 'already in use'")
+}
+
+// The counterpart: once the conversation file exists, a relaunch resumes it
+// under the same id.
+func TestResumeOfAMessagedClaudeSessionResumesById(t *testing.T) {
+	isolateConfig(t)
+	claudeCfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", claudeCfg)
+
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	rec, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	projectDir := filepath.Join(claudeCfg, "projects", "-demo")
+	require.NoError(t, os.MkdirAll(projectDir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(projectDir, rec.AgentSessionID+".jsonl"), []byte("{}\n"), 0o600))
+
+	closed, err := svc.CloseSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, closed)
+
+	resumed, err := svc.ResumeSession(t.Context(), started.ID, 80, 24)
+	require.NoError(t, err)
+	assert.True(t, resumed.ResumeAttempted)
+	assert.Empty(t, resumed.Notice)
+
+	after, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), started.ID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, rec.AgentSessionID, after.AgentSessionID, "a real resume keeps addressing the same conversation")
 }
 
 func TestCloseSessionEndsTheTerminalAndKeepsTheRecord(t *testing.T) {
@@ -325,4 +403,116 @@ func TestDeleteWorkspaceRemovesRecordsAndLeavesTheDirectory(t *testing.T) {
 
 	assert.DirExists(t, filepath.Join(root, "demo"))
 	assert.FileExists(t, filepath.Join(root, "demo", "agent-workspace.yaml"))
+}
+
+func TestAllSessionsSpansEveryWorkspaceInStableCreationOrder(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo-a", "version: 1\nname: Demo A\nagent: claude\nautonomy: ask\n")
+	writeAgentWorkspaceManifest(t, root, "demo-b", "version: 1\nname: Demo B\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	a1, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo-a", Name: "a1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	b1, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo-b", Name: "b1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+
+	// Resuming a1 touches last_opened_at but must not move its row: the list
+	// keeps creation order so the sidebar never reshuffles under the pointer.
+	_, err = svc.ResumeSession(t.Context(), a1.ID, 80, 24)
+	require.NoError(t, err)
+
+	all, err := svc.AllSessions(t.Context())
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	assert.Equal(t, b1.ID, all[0].ID)
+	assert.Equal(t, "demo-b", all[0].Workspace)
+	assert.Equal(t, a1.ID, all[1].ID)
+	assert.Equal(t, "demo-a", all[1].Workspace)
+}
+
+func TestRenameSession(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "New Chat", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.RenameSession(t.Context(), started.ID, "  fix the flaky test  "))
+	sessions, err := svc.Sessions(t.Context(), "demo")
+	require.NoError(t, err)
+	require.Len(t, sessions, 1)
+	assert.Equal(t, "fix the flaky test", sessions[0].Name, "the stored name is trimmed")
+	assert.Equal(t, started.TerminalID, sessions[0].TerminalID, "the live terminal is untouched by a rename")
+
+	err = svc.RenameSession(t.Context(), started.ID, "   ")
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+
+	err = svc.RenameSession(t.Context(), 999999, "ghost")
+	require.Error(t, err)
+	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
+func TestCreateAndUpdateWorkspace(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true", "codex": "true"})
+
+	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	require.NoError(t, err)
+	assert.Equal(t, "demo", created.Dir)
+	assert.Equal(t, "Demo", created.Name)
+	assert.Equal(t, "claude", created.Agent)
+	assert.Equal(t, "ask", created.Autonomy)
+	assert.FileExists(t, filepath.Join(root, "demo", "agent-workspace.yaml"))
+
+	_, err = svc.CreateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	require.ErrorContains(t, err, "already exists")
+
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Renamed", Agent: "codex", Autonomy: "auto"})
+	require.NoError(t, err)
+	assert.Equal(t, "Renamed", updated.Name)
+	assert.Equal(t, "codex", updated.Agent)
+	assert.Equal(t, "auto", updated.Autonomy)
+
+	list, err := svc.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.Equal(t, "Renamed", list[0].Name)
+
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "X", Agent: "no-such-agent", Autonomy: "ask"})
+	require.ErrorContains(t, err, "not configured")
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "missing", Name: "X", Agent: "claude", Autonomy: "ask"})
+	require.ErrorContains(t, err, "not found")
+
+	assert.Equal(t, []string{"claude", "codex"}, svc.Agents(t.Context()))
+}
+
+func TestResizeSessionResizesTheLiveTerminal(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": fakeAgentBinary(t, "cat")})
+
+	started, err := svc.StartSession(t.Context(), StartSession{Workspace: "demo", Name: "s1", Cols: 80, Rows: 24})
+	require.NoError(t, err)
+	require.NotEmpty(t, started.TerminalID)
+
+	require.NoError(t, svc.ResizeSession(t.Context(), started.ID, 120, 30))
+
+	client, ok := svc.terminals.Client(started.TerminalID)
+	require.True(t, ok)
+	// The %layout-change answering the vote is asynchronous; the window
+	// settles shortly after. Width is the assertable half — tmux may keep a
+	// row for its status line, so height is its call.
+	require.Eventually(t, func() bool {
+		windows := client.Windows()
+		return len(windows) > 0 && windows[0].Width == 120
+	}, 3*time.Second, 25*time.Millisecond, "the size vote must reach the tmux window")
+
+	err = svc.ResizeSession(t.Context(), started.ID+999, 80, 24)
+	require.Error(t, err)
 }

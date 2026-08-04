@@ -52,6 +52,12 @@ type agentSessionView struct {
 	// output on the windowed tmux wire. Set only by Start/Resume, which
 	// attach; a listing read leaves it empty even for a live session.
 	WindowID string `json:"windowId"`
+	// Cols and Rows are tmux's own size for that window at attach — the grid
+	// the pane must open at, which may differ from the cols/rows voted. 0
+	// means tmux has not reported one. Set only by Start/Resume, like
+	// windowId.
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
 	// ResumeAttempted is false when this launch could not even try to resume —
 	// the agent has no resume form.
 	ResumeAttempted bool `json:"resumeAttempted"`
@@ -90,7 +96,8 @@ func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
 func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
-		TerminalID: s.TerminalID, WindowID: s.WindowID, ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
+		TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
+		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
 	}
 }
 
@@ -115,6 +122,9 @@ type agentWorkspacesResponse struct {
 	Available   bool                 `json:"available"`
 	Error       string               `json:"error"`
 	Workspaces  []agentWorkspaceView `json:"workspaces"`
+	// Agents lists the agent keys this build can launch — the choices the
+	// workspace editor offers.
+	Agents []string `json:"agents"`
 }
 
 // AgentWorkspaces lists every recognized workspace under the configured root.
@@ -136,7 +146,58 @@ func (ctrl *Controller) AgentWorkspaces(w http.ResponseWriter, r *http.Request) 
 		Available:   available,
 		Error:       errMsg,
 		Workspaces:  toAgentWorkspaceViews(workspaces),
+		Agents:      nonNilStrings(ctrl.core.AgentWorkspaces.Agents(r.Context())),
 	})
+}
+
+// agentWorkspaceEditRequest carries the manifest fields the in-app editor
+// writes; anything else the manifest says is preserved in place.
+type agentWorkspaceEditRequest struct {
+	Dir      string `json:"dir"`
+	Name     string `json:"name"`
+	Agent    string `json:"agent"`
+	Autonomy string `json:"autonomy"`
+}
+
+func (b agentWorkspaceEditRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("dir", b.Dir, criterio.Required),
+		criterio.Run("name", b.Name, criterio.Required),
+		criterio.Run("agent", b.Agent, criterio.Required),
+		criterio.Run("autonomy", b.Autonomy, criterio.Required),
+	)
+}
+
+func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
+	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy}
+}
+
+// AgentWorkspaceCreate makes a directory under the root with a fresh
+// manifest and returns its view.
+func (ctrl *Controller) AgentWorkspaceCreate(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentWorkspaceEditRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	view, err := ctrl.core.AgentWorkspaces.CreateWorkspace(r.Context(), body.toEdit())
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, toAgentWorkspaceView(view))
+}
+
+// AgentWorkspaceUpdate rewrites the editable fields of a workspace's manifest
+// in place — comments and keys the editor does not own survive.
+func (ctrl *Controller) AgentWorkspaceUpdate(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentWorkspaceEditRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	view, err := ctrl.core.AgentWorkspaces.UpdateWorkspace(r.Context(), body.toEdit())
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, toAgentWorkspaceView(view))
 }
 
 type agentWorkspaceOpenRequest struct {
@@ -307,16 +368,40 @@ func (ctrl *Controller) AgentSessionClose(w http.ResponseWriter, r *http.Request
 	return server.JSON(w, http.StatusOK, agentSessionCloseResponse{Closed: closed})
 }
 
+type agentSessionRenameRequest struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
+func (b agentSessionRenameRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("id", b.ID, criterio.Positive[int64]()),
+		criterio.Run("name", b.Name, criterio.Required),
+	)
+}
+
+// AgentSessionRename sets a session's display name. The record is the only
+// thing touched — a live tmux session keeps its agentws-<id> name.
+func (ctrl *Controller) AgentSessionRename(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentSessionRenameRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.RenameSession(r.Context(), body.ID, body.Name); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 // agentSessionActivityRequest scopes activity classification to one
-// workspace, matching AgentSessions — the frontend polls whichever
-// workspace's session list is on screen.
+// workspace, or — with workspace empty — to every live session: the sidebar
+// lists all sessions at once, so its indicators poll the whole set.
 type agentSessionActivityRequest struct {
 	Workspace string `json:"workspace"`
 }
 
-func (b agentSessionActivityRequest) Validate() error {
-	return criterio.Run("workspace", b.Workspace, criterio.Required)
-}
+func (b agentSessionActivityRequest) Validate() error { return nil }
 
 type agentSessionActivityItem struct {
 	ID     int64  `json:"id"`
@@ -347,6 +432,38 @@ func (ctrl *Controller) AgentSessionActivity(w http.ResponseWriter, r *http.Requ
 	return server.JSON(w, http.StatusOK, agentSessionActivityResponse{Items: out})
 }
 
+// agentSessionResizeRequest votes a size for a session's attached control
+// client. Like start/resume's cols/rows this is a vote, not an applied size:
+// tmux answers over the stream with a window 'resized' event, and that event
+// is what sets the pane's grid.
+type agentSessionResizeRequest struct {
+	ID   int64 `json:"id"`
+	Cols int   `json:"cols"`
+	Rows int   `json:"rows"`
+}
+
+func (b agentSessionResizeRequest) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("id", b.ID, criterio.Positive[int64]()),
+		criterio.Run("cols", b.Cols, criterio.Positive[int]()),
+		criterio.Run("rows", b.Rows, criterio.Positive[int]()),
+	)
+}
+
+// AgentSessionResize votes a size for a session's attached control client —
+// the same renegotiation the Code view's panes cast on a host resize.
+func (ctrl *Controller) AgentSessionResize(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[agentSessionResizeRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.ResizeSession(r.Context(), body.ID, body.Cols, body.Rows); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
 // AgentSessionDelete ends any live terminal and deletes a session's record.
 func (ctrl *Controller) AgentSessionDelete(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentSessionIDRequest](ctrl, w, r)
@@ -358,6 +475,24 @@ func (ctrl *Controller) AgentSessionDelete(w http.ResponseWriter, r *http.Reques
 	}
 	w.WriteHeader(http.StatusNoContent)
 	return nil
+}
+
+type agentSessionsAllResponse struct {
+	Sessions []agentSessionView `json:"sessions"`
+}
+
+// AgentSessionsAll lists every session across every workspace, most recently
+// opened first — the cross-workspace read the Recents list uses, unlike
+// AgentSessions which scopes to one workspace.
+func (ctrl *Controller) AgentSessionsAll(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	sessions, err := ctrl.core.AgentWorkspaces.AllSessions(r.Context())
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, agentSessionsAllResponse{Sessions: toAgentSessionViews(sessions)})
 }
 
 // agentErrorMessage takes the user-facing message off a core error, matching

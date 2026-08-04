@@ -562,11 +562,12 @@ DELETE FROM node_kv WHERE flow_id = ?;
 DELETE FROM node_kv WHERE flow_id = ? AND node_id NOT IN (sqlc.slice(node_ids));
 
 -- name: ListAgentWorkspaceSessions :many
--- One workspace's sessions, most recently opened first: the order the area
--- lists them in.
+-- One workspace's sessions, newest record first. Creation order on purpose,
+-- not last_opened_at: resuming a chat must not reshuffle the sidebar under
+-- the pointer.
 SELECT * FROM agent_workspace_session
 WHERE workspace = ?
-ORDER BY last_opened_at DESC;
+ORDER BY id DESC;
 
 -- name: GetAgentWorkspaceSession :one
 SELECT * FROM agent_workspace_session WHERE id = ?;
@@ -586,8 +587,17 @@ UPDATE agent_workspace_session SET last_opened_at = ? WHERE id = ?;
 -- conversation actually running rather than the one it replaced.
 UPDATE agent_workspace_session SET agent_session_id = ? WHERE id = ?;
 
+-- name: RenameAgentWorkspaceSession :exec
+UPDATE agent_workspace_session SET name = ? WHERE id = ?;
+
 -- name: DeleteAgentWorkspaceSession :exec
 DELETE FROM agent_workspace_session WHERE id = ?;
 
 -- name: DeleteAgentWorkspaceSessionsByWorkspace :exec
 DELETE FROM agent_workspace_session WHERE workspace = ?;
+
+-- name: ListAllAgentWorkspaceSessions :many
+-- Every session across every workspace, newest record first: the same
+-- stable creation order the scoped list uses.
+SELECT * FROM agent_workspace_session
+ORDER BY id DESC;

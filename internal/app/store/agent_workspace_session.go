@@ -6,8 +6,8 @@ import (
 	"errors"
 )
 
-// ListAgentWorkspaceSessions returns one workspace's sessions, most recently
-// opened first.
+// ListAgentWorkspaceSessions returns one workspace's sessions, newest record
+// first — creation order, so a resume never reorders the list.
 func (db *DB) ListAgentWorkspaceSessions(ctx context.Context, workspace string) ([]AgentWorkspaceSession, error) {
 	rows, err := db.queries.ListAgentWorkspaceSessions(ctx, workspace)
 	return rows, wrap("listing agent workspace sessions", err)
@@ -59,6 +59,16 @@ func (db *DB) SetAgentWorkspaceSessionAgentID(ctx context.Context, id int64, age
 	}))
 }
 
+// RenameAgentWorkspaceSession sets a session's display name. Presentation
+// only: the tmux session name derives from the id, so a rename never touches
+// a live terminal.
+func (db *DB) RenameAgentWorkspaceSession(ctx context.Context, id int64, name string) error {
+	return wrap("renaming agent workspace session", db.queries.RenameAgentWorkspaceSession(ctx, RenameAgentWorkspaceSessionParams{
+		Name: name,
+		ID:   id,
+	}))
+}
+
 // DeleteAgentWorkspaceSession removes one session record. A record deleted
 // around a live terminal orphans a running agent, so the caller closes the
 // terminal first (AgentWorkspacesService.DeleteSession).
@@ -71,4 +81,12 @@ func (db *DB) DeleteAgentWorkspaceSession(ctx context.Context, id int64) error {
 // workspace deletes its session history, not the user's files.
 func (db *DB) DeleteAgentWorkspaceSessionsByWorkspace(ctx context.Context, workspace string) error {
 	return wrap("deleting agent workspace sessions by workspace", db.queries.DeleteAgentWorkspaceSessionsByWorkspace(ctx, workspace))
+}
+
+// ListAllAgentWorkspaceSessions returns every session across every
+// workspace, newest record first: the same stable creation order the scoped
+// list uses.
+func (db *DB) ListAllAgentWorkspaceSessions(ctx context.Context) ([]AgentWorkspaceSession, error) {
+	rows, err := db.queries.ListAllAgentWorkspaceSessions(ctx)
+	return rows, wrap("listing all agent workspace sessions", err)
 }

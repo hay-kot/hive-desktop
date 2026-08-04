@@ -144,6 +144,16 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
 		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/create", Summary: "Create a workspace: a new directory under the root with a fresh agent-workspace.yaml naming the given name, agent, and autonomy posture.",
+			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceCreate,
+			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy) in place. Comments, key order, and keys the editor does not own — mcps, skills — survive the write.",
+			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
+			Errors: agentErrors("no such workspace"),
+		},
+		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
 			Request: agentWorkspaceDeleteRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
 			Errors: agentErrors(""),
@@ -151,6 +161,11 @@ func (ctrl *Controller) agentOperations() []Op {
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions", Summary: "List a workspace's sessions without regenerating its artifacts, unlike workspaces/open. terminalId is empty for a session with no live terminal.",
 			Request: agentSessionsRequest{}, Response: agentSessionsResponse{}, Handler: ctrl.AgentSessions,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/all", Summary: "List every session across every workspace, newest first in stable creation order — the sidebar's cross-workspace read, unlike sessions which scopes to one workspace.",
+			Response: agentSessionsAllResponse{}, Handler: ctrl.AgentSessionsAll,
 			Errors: agentErrors(""),
 		},
 		{
@@ -169,9 +184,19 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no such session"),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/activity", Summary: "Classify each of a workspace's live sessions from its captured tmux pane: ready, active, or approval — approval is the highest-urgency state. A session with no live tmux session is omitted.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/rename", Summary: "Set a session's display name. The record is the only thing touched — a live tmux session keeps its agentws-<id> name.",
+			Request: agentSessionRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionRename,
+			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/activity", Summary: "Classify live sessions from their captured tmux panes: ready, active, or approval — approval is the highest-urgency state. workspace scopes to one workspace; empty spans every workspace. A session with no live tmux session is omitted.",
 			Request: agentSessionActivityRequest{}, Response: agentSessionActivityResponse{}, Handler: ctrl.AgentSessionActivity,
 			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/resize", Summary: "Vote a size for a session's attached control client, the same renegotiation the terminal pane casts on a host resize; tmux answers on the stream with a window resized event, which is what sets the grid.",
+			Request: agentSessionResizeRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionResize,
+			Errors: agentErrors("no such session, or it has no attached terminal"),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions/delete", Summary: "End any live terminal and delete a session's record.",

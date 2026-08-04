@@ -79,9 +79,12 @@ func TestAgentWorkspaceSession(t *testing.T) {
 		require.NoError(t, db.DeleteAgentWorkspaceSession(ctx, created.ID))
 	})
 
-	t.Run("ListIsNewestOpenedFirstAndScopedToOneWorkspace", func(t *testing.T) {
+	t.Run("ListIsNewestRecordFirstAndScopedToOneWorkspace", func(t *testing.T) {
+		// The first record carries the later last_opened_at on purpose: the
+		// order is creation order, so touching a session (resuming it) must
+		// not move its row.
 		_, err := db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
-			Workspace: "list-scope", Name: "older", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 1000,
+			Workspace: "list-scope", Name: "older", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 9000,
 		})
 		require.NoError(t, err)
 		_, err = db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
@@ -139,5 +142,49 @@ func TestAgentWorkspaceSession(t *testing.T) {
 		sessions, err := db.ListAgentWorkspaceSessions(ctx, "shared-name-scope")
 		require.NoError(t, err)
 		assert.Len(t, sessions, 2)
+	})
+
+	t.Run("ListAllOrdersAcrossWorkspacesByNewestRecord", func(t *testing.T) {
+		// last_opened_at values run counter to insertion order on purpose:
+		// the cross-workspace list keeps creation order too, so a resume
+		// never reshuffles it.
+		_, err := db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+			Workspace: "all-scope-a", Name: "first", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 3000,
+		})
+		require.NoError(t, err)
+		_, err = db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+			Workspace: "all-scope-b", Name: "second", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 1000,
+		})
+		require.NoError(t, err)
+		_, err = db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+			Workspace: "all-scope-a", Name: "third", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 2000,
+		})
+		require.NoError(t, err)
+
+		all, err := db.ListAllAgentWorkspaceSessions(ctx)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(all), 3, "carries every prior t.Run's rows too, since ListAll is unscoped")
+
+		var names []string
+		for _, s := range all {
+			if s.Workspace == "all-scope-a" || s.Workspace == "all-scope-b" {
+				names = append(names, s.Name)
+			}
+		}
+		assert.Equal(t, []string{"third", "second", "first"}, names, "newest record first regardless of workspace or last_opened_at")
+	})
+
+	t.Run("Rename", func(t *testing.T) {
+		created, err := db.CreateAgentWorkspaceSession(ctx, AgentWorkspaceSession{
+			Workspace: "demo", Name: "New Chat", Agent: "claude", CreatedAt: 1000, LastOpenedAt: 1000,
+		})
+		require.NoError(t, err)
+
+		require.NoError(t, db.RenameAgentWorkspaceSession(ctx, created.ID, "triage the flaky test"))
+		got, ok, err := db.GetAgentWorkspaceSession(ctx, created.ID)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "triage the flaky test", got.Name)
+		assert.Equal(t, created.AgentSessionID, got.AgentSessionID, "a rename touches only the name")
 	})
 }

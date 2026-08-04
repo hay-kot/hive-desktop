@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -105,11 +107,19 @@ type SessionView struct {
 	// (Sessions, Open) leaves it empty even for a live session, since nothing
 	// there attaches.
 	WindowID string `json:"windowId"`
+	// Cols and Rows are tmux's own size for that window at attach — whichever
+	// attached client tmux's window-size option picked, not necessarily the
+	// caller's cols/rows vote. The pane must open its grid at this size or the
+	// TUI's cursor-addressed output tears; 0 means tmux has not reported one.
+	// Set only by a call that attaches, like WindowID.
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
 	// ResumeAttempted is false when this launch could not even try to resume —
-	// the agent has no resume form. It is deliberately not named Resumed: Hive
-	// sees only pane content, so a pruned agent history would report a
-	// successful resume while the agent prints its own error in the pane,
-	// which is the "pretending it was" spec §6.2 forbids.
+	// the agent has no resume form, or it provably persisted nothing under the
+	// session's id to resume. It is deliberately not named Resumed: Hive sees
+	// only pane content, so a pruned agent history would report a successful
+	// resume while the agent prints its own error in the pane, which is the
+	// "pretending it was" spec §6.2 forbids.
 	ResumeAttempted bool `json:"resumeAttempted"`
 	// Notice carries a fresh-launch, unbounded-MCP or missing-MCP explanation.
 	Notice string `json:"notice"`
@@ -243,19 +253,31 @@ func (s *AgentWorkspacesService) Sessions(ctx context.Context, dir string) ([]Se
 	return views, nil
 }
 
-// SessionActivity captures each of workspace dir's live sessions' tmux pane
-// and classifies it with dispatch.ClassifyAgentScreen: capture-pane through
-// terminal.Detector, the same path SessionStatuses/FetchBatch already run for
-// hive's own sessions (hc-ou4o02zx) and the input the detector was tuned
-// against. A session with no live tmux session is omitted rather than
-// reported dead -- a row's TerminalID already carries that.
+// SessionActivity captures each live session's tmux pane and classifies it
+// with dispatch.ClassifyAgentScreen: capture-pane through terminal.Detector,
+// the same path SessionStatuses/FetchBatch already run for hive's own
+// sessions (hc-ou4o02zx) and the input the detector was tuned against. An
+// empty dir spans every workspace — the sidebar shows every session at once,
+// so its indicators poll the whole set the way the Code view's do; the work
+// is bounded by maxConcurrentAgentSessions either way. A session with no
+// live tmux session is omitted rather than reported dead -- a row's
+// TerminalID already carries that.
 func (s *AgentWorkspacesService) SessionActivity(ctx context.Context, dir string) ([]SessionActivityItem, error) {
-	if !validWorkspaceDir(dir) {
-		return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
-	}
-	records, err := s.db.ListAgentWorkspaceSessions(ctx, dir)
-	if err != nil {
-		return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
+	var records []store.AgentWorkspaceSession
+	var err error
+	if dir == "" {
+		records, err = s.db.ListAllAgentWorkspaceSessions(ctx)
+		if err != nil {
+			return nil, Wrap(err, KindInternal, "listing all sessions")
+		}
+	} else {
+		if !validWorkspaceDir(dir) {
+			return nil, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
+		}
+		records, err = s.db.ListAgentWorkspaceSessions(ctx, dir)
+		if err != nil {
+			return nil, Wrap(err, KindInternal, "listing sessions for workspace %q", dir)
+		}
 	}
 	items := make([]SessionActivityItem, 0, len(records))
 	for _, rec := range records {
@@ -302,14 +324,17 @@ func (s *AgentWorkspacesService) StartSession(ctx context.Context, req StartSess
 		return SessionView{}, Wrap(err, KindInternal, "creating session %q", req.Name)
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, req.Cols, req.Rows, false, true)
+	return s.launchTerminal(ctx, rec, workspaceDir, line, req.Cols, req.Rows, true, "")
 }
 
 // ResumeSession reattaches a session's live tmux session if it still has one
 // -- the persistence win: it works identically for codex, which has no
 // resume form of its own, because the process itself never stopped -- or
 // relaunches it, resuming the agent's own conversation when it has a resume
-// form and saying so when it does not (spec §6.2).
+// form and saying so when it does not (spec §6.2). A session the agent never
+// persisted a conversation for (closed before its first message) also
+// relaunches fresh, silently, instead of dying on the agent's own
+// unknown-session error.
 func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, cols, rows int) (SessionView, error) {
 	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
 	if err != nil {
@@ -325,7 +350,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		return SessionView{}, terminalError(err, "checking session %q", rec.Name)
 	}
 	if alive {
-		windowID, err := s.attach(ctx, name, cols, rows)
+		window, err := s.attach(ctx, name, cols, rows)
 		if err != nil {
 			return SessionView{}, err
 		}
@@ -334,7 +359,8 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-			LastOpenedAt: rec.LastOpenedAt, TerminalID: name, WindowID: windowID,
+			LastOpenedAt: rec.LastOpenedAt, TerminalID: name, WindowID: window.ID,
+			Cols: window.Width, Rows: window.Height,
 			ResumeAttempted: agentws.SupportsResume(rec.Agent),
 		}, nil
 	}
@@ -351,6 +377,21 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 	}
 
 	resumeAttempted := agentws.SupportsResume(ws.Agent)
+	var resumeNotice string
+	switch {
+	case !resumeAttempted:
+		resumeNotice = "the previous conversation could not be resumed; this is a fresh session"
+	case !agentws.HasConversation(ws.Agent, rec.AgentSessionID):
+		// The agent persisted nothing under this id — the session ended before
+		// its first message — so its resume form would die in the pane ("No
+		// conversation found with session ID"). A fresh launch IS the
+		// continuation of an empty conversation, so no notice either.
+		resumeAttempted = false
+	}
+	// A fresh relaunch mints a fresh id rather than reusing the record's: if
+	// the conversation probe were ever wrong, relaunching under an id the
+	// agent already holds would wedge every future resume on "session id
+	// already in use", while abandoning it merely orphans a recoverable file.
 	sessionID := rec.AgentSessionID
 	if !resumeAttempted {
 		sessionID = uuid.NewString()
@@ -369,7 +410,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		rec.AgentSessionID = sessionID
 	}
 
-	return s.launchTerminal(ctx, rec, workspaceDir, line, cols, rows, true, resumeAttempted)
+	return s.launchTerminal(ctx, rec, workspaceDir, line, cols, rows, resumeAttempted, resumeNotice)
 }
 
 // CloseSession ends a session's live tmux session and reports whether there
@@ -387,6 +428,24 @@ func (s *AgentWorkspacesService) CloseSession(ctx context.Context, id int64) (bo
 		return false, terminalError(err, "closing session %q", rec.Name)
 	}
 	return closed, nil
+}
+
+// RenameSession sets a session's display name. Purely a record edit: the
+// tmux session name derives from the id, so a live terminal keeps running
+// under the same name.
+func (s *AgentWorkspacesService) RenameSession(ctx context.Context, id int64, name string) error {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return Errorf(KindInvalid, "a session needs a name")
+	}
+	_, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	if err != nil {
+		return Wrap(err, KindInternal, "loading session %d", id)
+	}
+	if !ok {
+		return Errorf(KindNotFound, "session %d not found", id)
+	}
+	return Wrap(s.db.RenameAgentWorkspaceSession(ctx, id, name), KindInternal, "renaming session %d", id)
 }
 
 // DeleteSession ends any live tmux session, then removes the record. The
@@ -432,12 +491,114 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	return nil
 }
 
+// Agents lists the agent keys this build can launch, sorted — the choices a
+// workspace editor offers for its agent field.
+func (s *AgentWorkspacesService) Agents(context.Context) []string {
+	agents := make([]string, 0, len(s.commands))
+	for agent := range s.commands {
+		agents = append(agents, agent)
+	}
+	sort.Strings(agents)
+	return agents
+}
+
+// WorkspaceEdit names the manifest fields the in-app editor writes. MCPs,
+// skills, and anything else the manifest says are untouched — WriteManifest
+// edits the document in place, so they stay the user's.
+type WorkspaceEdit struct {
+	Dir      string
+	Name     string
+	Agent    string
+	Autonomy string
+}
+
+func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
+	if !validWorkspaceDir(req.Dir) {
+		return Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", req.Dir)
+	}
+	if strings.TrimSpace(req.Name) == "" {
+		return Errorf(KindInvalid, "a workspace needs a name")
+	}
+	if _, ok := s.commands[req.Agent]; !ok {
+		return Errorf(KindInvalid, "agent %q is not configured in this build", req.Agent)
+	}
+	if !agentws.Autonomy(req.Autonomy).IsValid() {
+		return Errorf(KindInvalid, "autonomy %q is not valid (expected %s)", req.Autonomy, strings.Join(agentws.AutonomyNames(), ", "))
+	}
+	return nil
+}
+
+// CreateWorkspace makes a directory under the root with a fresh manifest and
+// returns its view.
+func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req WorkspaceEdit) (WorkspaceView, error) {
+	if err := s.validateEdit(req); err != nil {
+		return WorkspaceView{}, err
+	}
+	if err := agentws.CreateWorkspace(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy)); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return WorkspaceView{}, Errorf(KindConflict, "workspace %q already exists", req.Dir)
+		}
+		return WorkspaceView{}, Wrap(err, KindInternal, "creating workspace %q", req.Dir)
+	}
+	return s.reloadedView(ctx, req.Dir)
+}
+
+// UpdateWorkspace rewrites the editable fields of an existing workspace's
+// manifest in place — comments and keys the editor does not own survive.
+func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req WorkspaceEdit) (WorkspaceView, error) {
+	if err := s.validateEdit(req); err != nil {
+		return WorkspaceView{}, err
+	}
+	if _, ok := s.workspaceStatus(req.Dir); !ok {
+		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
+	}
+	if err := agentws.WriteManifest(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy)); err != nil {
+		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
+	}
+	return s.reloadedView(ctx, req.Dir)
+}
+
+// reloadedView re-reads the store after a manifest write and returns dir's
+// fresh view, so the response reflects what actually landed on disk rather
+// than what was asked for.
+func (s *AgentWorkspacesService) reloadedView(_ context.Context, dir string) (WorkspaceView, error) {
+	if err := s.store.Reload(); err != nil {
+		return WorkspaceView{}, Wrap(err, KindInternal, "reloading workspaces")
+	}
+	st, ok := s.workspaceStatus(dir)
+	if !ok {
+		return WorkspaceView{}, Errorf(KindInternal, "workspace %q vanished after writing it", dir)
+	}
+	return workspaceView(st), nil
+}
+
+// ResizeSession votes a size for a session's attached control client — the
+// same refresh-client vote the Code view's panes cast. tmux answers over the
+// stream with a window 'resized' event, which is what actually sets the
+// pane's grid; see AgentsMode's resize wiring.
+func (s *AgentWorkspacesService) ResizeSession(ctx context.Context, id int64, cols, rows int) error {
+	rec, ok, err := s.db.GetAgentWorkspaceSession(ctx, id)
+	if err != nil {
+		return Wrap(err, KindInternal, "loading session %d", id)
+	}
+	if !ok {
+		return Errorf(KindNotFound, "session %d not found", id)
+	}
+	client, ok := s.terminals.Client(sessionName(rec.ID))
+	if !ok {
+		return Errorf(KindNotFound, "session %q has no attached terminal", rec.Name)
+	}
+	return terminalError(client.Resize(ctx, cols, rows), "resizing session %q", rec.Name)
+}
+
 // launchTerminal creates rec's tmux session fresh and attaches to it, gives it
 // earlyExitWindow to report that it already died, and assembles the notice
-// the UI shows. Both StartSession and ResumeSession's relaunch branch always
-// want a fresh session here — ResumeSession's still-alive branch attaches
-// directly instead, without going through this method.
-func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, dir, line string, cols, rows int, resumeRequested, resumeAttempted bool) (SessionView, error) {
+// the UI shows — resumeNotice is the caller's own words for a resume that
+// could not happen, empty when there is nothing to announce. Both
+// StartSession and ResumeSession's relaunch branch always want a fresh
+// session here — ResumeSession's still-alive branch attaches directly
+// instead, without going through this method.
+func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.AgentWorkspaceSession, dir, line string, cols, rows int, resumeAttempted bool, resumeNotice string) (SessionView, error) {
 	count, err := s.liveSessionCount(ctx)
 	if err != nil {
 		return SessionView{}, terminalError(err, "counting live agent sessions")
@@ -465,16 +626,17 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 		return view, nil
 	}
 
-	windowID, err := s.attach(ctx, name, cols, rows)
+	window, err := s.attach(ctx, name, cols, rows)
 	if err != nil {
 		return SessionView{}, err
 	}
 	view.TerminalID = name
-	view.WindowID = windowID
+	view.WindowID = window.ID
+	view.Cols, view.Rows = window.Width, window.Height
 
 	var notices []string
-	if resumeRequested && !resumeAttempted {
-		notices = append(notices, "the previous conversation could not be resumed; this is a fresh session")
+	if resumeNotice != "" {
+		notices = append(notices, resumeNotice)
 	}
 	if notice := mcpNotice(rec.Agent); notice != "" {
 		notices = append(notices, notice)
@@ -483,31 +645,32 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	return view, nil
 }
 
-// attach opens the control client for name and returns its active window's
-// id, wrapped in this service's error classification.
-func (s *AgentWorkspacesService) attach(ctx context.Context, name string, cols, rows int) (string, error) {
+// attach opens the control client for name and returns its active window —
+// id plus the size tmux granted, which the caller must surface so the pane
+// opens its grid at tmux's size rather than the size it asked for.
+func (s *AgentWorkspacesService) attach(ctx context.Context, name string, cols, rows int) (tmuxcc.Window, error) {
 	windows, err := s.terminals.Attach(ctx, name, cols, rows)
 	if err != nil {
-		return "", terminalError(err, "attaching to session %q", name)
+		return tmuxcc.Window{}, terminalError(err, "attaching to session %q", name)
 	}
-	return firstActiveWindowID(windows), nil
+	return firstActiveWindow(windows), nil
 }
 
-// firstActiveWindowID returns windows' active entry, or the first when none is
-// marked active, or "" when there are none. An agent workspace session's own
-// launch line never opens more than one window; a second one only ever comes
-// from the agent itself running tmux new-window inside its own session, which
-// this still addresses sensibly rather than erroring.
-func firstActiveWindowID(windows []tmuxcc.Window) string {
+// firstActiveWindow returns windows' active entry, or the first when none is
+// marked active, or a zero Window when there are none. An agent workspace
+// session's own launch line never opens more than one window; a second one
+// only ever comes from the agent itself running tmux new-window inside its
+// own session, which this still addresses sensibly rather than erroring.
+func firstActiveWindow(windows []tmuxcc.Window) tmuxcc.Window {
 	for _, w := range windows {
 		if w.Active {
-			return w.ID
+			return w
 		}
 	}
 	if len(windows) > 0 {
-		return windows[0].ID
+		return windows[0]
 	}
-	return ""
+	return tmuxcc.Window{}
 }
 
 // awaitEarlyExit gives a just-created tmux session earlyExitWindow to exit on
@@ -672,6 +835,21 @@ func skillIDFromSlug(slug string) (id string, ok bool) {
 	}
 	id = strings.TrimPrefix(slug, prefix)
 	return id, id != ""
+}
+
+// AllSessions lists every session across every workspace, newest record
+// first — the sidebar's cross-workspace read, unlike Sessions which scopes
+// to one workspace.
+func (s *AgentWorkspacesService) AllSessions(ctx context.Context) ([]SessionView, error) {
+	records, err := s.db.ListAllAgentWorkspaceSessions(ctx)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing all sessions")
+	}
+	views := make([]SessionView, 0, len(records))
+	for _, rec := range records {
+		views = append(views, s.sessionView(ctx, rec))
+	}
+	return views, nil
 }
 
 // agentLaunchError classifies an agentws launch-resolution failure by

@@ -1267,13 +1267,52 @@ func (q *Queries) ListActivityEvents(ctx context.Context, arg ListActivityEvents
 const listAgentWorkspaceSessions = `-- name: ListAgentWorkspaceSessions :many
 SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session
 WHERE workspace = ?
-ORDER BY last_opened_at DESC
+ORDER BY id DESC
 `
 
-// One workspace's sessions, most recently opened first: the order the area
-// lists them in.
+// One workspace's sessions, newest record first. Creation order on purpose,
+// not last_opened_at: resuming a chat must not reshuffle the sidebar under
+// the pointer.
 func (q *Queries) ListAgentWorkspaceSessions(ctx context.Context, workspace string) ([]AgentWorkspaceSession, error) {
 	rows, err := q.db.QueryContext(ctx, listAgentWorkspaceSessions, workspace)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AgentWorkspaceSession{}
+	for rows.Next() {
+		var i AgentWorkspaceSession
+		if err := rows.Scan(
+			&i.ID,
+			&i.Workspace,
+			&i.Name,
+			&i.Agent,
+			&i.AgentSessionID,
+			&i.CreatedAt,
+			&i.LastOpenedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllAgentWorkspaceSessions = `-- name: ListAllAgentWorkspaceSessions :many
+SELECT id, workspace, name, agent, agent_session_id, created_at, last_opened_at FROM agent_workspace_session
+ORDER BY id DESC
+`
+
+// Every session across every workspace, newest record first: the same
+// stable creation order the scoped list uses.
+func (q *Queries) ListAllAgentWorkspaceSessions(ctx context.Context) ([]AgentWorkspaceSession, error) {
+	rows, err := q.db.QueryContext(ctx, listAllAgentWorkspaceSessions)
 	if err != nil {
 		return nil, err
 	}
@@ -2173,6 +2212,20 @@ func (q *Queries) ReadEventsFrom(ctx context.Context, arg ReadEventsFromParams) 
 		return nil, err
 	}
 	return items, nil
+}
+
+const renameAgentWorkspaceSession = `-- name: RenameAgentWorkspaceSession :exec
+UPDATE agent_workspace_session SET name = ? WHERE id = ?
+`
+
+type RenameAgentWorkspaceSessionParams struct {
+	Name string `json:"name"`
+	ID   int64  `json:"id"`
+}
+
+func (q *Queries) RenameAgentWorkspaceSession(ctx context.Context, arg RenameAgentWorkspaceSessionParams) error {
+	_, err := q.db.ExecContext(ctx, renameAgentWorkspaceSession, arg.Name, arg.ID)
+	return err
 }
 
 const rerunOutputCommand = `-- name: RerunOutputCommand :one
