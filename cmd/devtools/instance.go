@@ -24,6 +24,7 @@ const launchMarkerEnv = "HIVE_DESKTOP_LAUNCH_ENV"
 var launchKeys = []string{
 	settings.EnvDataDir,
 	settings.EnvConfigDir,
+	settings.EnvAgentWorkspacesDir,
 	settings.EnvGitHubAPIBase,
 	settings.EnvLogLevel,
 	settings.EnvHTTPEnabled,
@@ -164,6 +165,7 @@ func (d *devtools) prepare(fresh bool) error {
 
 	dataDir := filepath.Join(d.instanceDir, "data")
 	configDir := filepath.Join(d.instanceDir, "config")
+	agentWorkspacesDir := filepath.Join(configDir, "workspaces")
 	if created {
 		if err := d.seedData(sourcePaths.DataDir, dataDir); err != nil {
 			return err
@@ -171,6 +173,11 @@ func (d *devtools) prepare(fresh bool) error {
 		if err := d.seedConfig(sourcePaths.ConfigDir, configDir); err != nil {
 			return err
 		}
+	}
+	defaultInstalledWorkspaces := filepath.Join(sourcePaths.ConfigDir, "workspaces")
+	replaceAgentWorkspaces := created && filepath.Clean(sourcePaths.AgentWorkspacesDir) != filepath.Clean(defaultInstalledWorkspaces)
+	if err := d.seedAgentWorkspaces(sourcePaths.AgentWorkspacesDir, agentWorkspacesDir, replaceAgentWorkspaces); err != nil {
+		return err
 	}
 
 	cfg, err := settings.NewStore(filepath.Join(configDir, "settings.yaml")).Persisted()
@@ -205,6 +212,7 @@ func (d *devtools) prepare(fresh bool) error {
 		settings.EnvDataDir:              dataDir,
 		settings.EnvHiveDataDir:          sourcePaths.DataDir,
 		settings.EnvConfigDir:            configDir,
+		settings.EnvAgentWorkspacesDir:   agentWorkspacesDir,
 		settings.EnvGitHubAPIBase:        devproxy.BaseURL(proxyListen),
 		settings.EnvLogLevel:             "debug",
 		settings.EnvHTTPEnabled:          "true",
@@ -370,8 +378,10 @@ func removeRegularFile(path string) error {
 func installedPaths() (settings.Paths, error) {
 	dataDir, hadDataDir := os.LookupEnv(settings.EnvDataDir)
 	configDir, hadConfigDir := os.LookupEnv(settings.EnvConfigDir)
+	agentWorkspacesDir, hadAgentWorkspacesDir := os.LookupEnv(settings.EnvAgentWorkspacesDir)
 	_ = os.Unsetenv(settings.EnvDataDir)
 	_ = os.Unsetenv(settings.EnvConfigDir)
+	_ = os.Unsetenv(settings.EnvAgentWorkspacesDir)
 	defer func() {
 		if hadDataDir {
 			_ = os.Setenv(settings.EnvDataDir, dataDir)
@@ -379,13 +389,21 @@ func installedPaths() (settings.Paths, error) {
 		if hadConfigDir {
 			_ = os.Setenv(settings.EnvConfigDir, configDir)
 		}
+		if hadAgentWorkspacesDir {
+			_ = os.Setenv(settings.EnvAgentWorkspacesDir, agentWorkspacesDir)
+		}
 	}()
 
 	bootstrap, err := settings.LoadBootstrap()
 	if err != nil {
 		return settings.Paths{}, fmt.Errorf("load installed bootstrap: %w", err)
 	}
-	return settings.ResolvePaths(bootstrap, settings.ResolveOptions{}), nil
+	paths := settings.ResolvePaths(bootstrap, settings.ResolveOptions{})
+	cfg, err := settings.NewStore(paths.SettingsPath).Persisted()
+	if err != nil {
+		return settings.Paths{}, fmt.Errorf("load installed settings: %w", err)
+	}
+	return settings.ResolvePaths(bootstrap, settings.ResolveOptions{AgentWorkspacesDir: cfg.AgentWorkspaces.Dir}), nil
 }
 
 // freePorts allocates count distinct free loopback ports, none of them in
@@ -516,6 +534,30 @@ func (d *devtools) seedConfig(source, destination string) error {
 	_ = os.Remove(filepath.Join(destination, "bootstrap.yaml"))
 	// The settings schema intentionally broke; do not seed an old flat file.
 	_ = os.Remove(filepath.Join(destination, "settings.yaml"))
+	return nil
+}
+
+func (d *devtools) seedAgentWorkspaces(source, destination string, replace bool) error {
+	info, err := os.Lstat(destination)
+	if err == nil && !replace && info.IsDir() {
+		return nil
+	}
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err == nil {
+		if err := os.RemoveAll(destination); err != nil {
+			return err
+		}
+	}
+	if _, err := os.Stat(source); errors.Is(err, fs.ErrNotExist) {
+		return os.MkdirAll(destination, 0o755)
+	} else if err != nil {
+		return err
+	}
+	if err := copyTreeMaterialized(source, destination, make(map[string]bool)); err != nil {
+		return fmt.Errorf("copy installed agent workspaces: %w", err)
+	}
 	return nil
 }
 

@@ -46,6 +46,8 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(tools.instanceDir, "data"), launch[settings.EnvDataDir])
 	assert.Equal(t, filepath.Join(tools.instanceDir, "config"), launch[settings.EnvConfigDir])
+	assert.Equal(t, filepath.Join(tools.instanceDir, "config", "workspaces"), launch[settings.EnvAgentWorkspacesDir])
+	assert.DirExists(t, launch[settings.EnvAgentWorkspacesDir])
 	vite, err := strconv.Atoi(launch["WAILS_VITE_PORT"])
 	require.NoError(t, err)
 	wails, err := strconv.Atoi(launch["WAILS_SERVER_PORT"])
@@ -103,6 +105,27 @@ func TestPrepareMaterializesConfigSymlinks(t *testing.T) {
 	assert.True(t, info.IsDir())
 	assert.Zero(t, info.Mode()&os.ModeSymlink)
 	assert.FileExists(t, filepath.Join(copied, "flow.yaml"))
+}
+
+func TestPrepareCopiesConfiguredAgentWorkspaces(t *testing.T) {
+	tools, _, sourceConfig := testDevtools(t)
+	external := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(external, "personal"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(external, "personal", "agent-workspace.yaml"), []byte("workspace"), 0o600))
+	require.NoError(t, os.MkdirAll(sourceConfig, 0o755))
+	settingsYAML := "version: 1\nagent_workspaces:\n  dir: " + external + "\n"
+	require.NoError(t, os.WriteFile(filepath.Join(sourceConfig, "settings.yaml"), []byte(settingsYAML), 0o600))
+
+	require.NoError(t, tools.withLock(func() error { return tools.prepare(false) }))
+	launch, err := tools.readLaunchIfPresent()
+	require.NoError(t, err)
+	copied := filepath.Join(tools.instanceDir, "config", "workspaces")
+	assert.Equal(t, copied, launch[settings.EnvAgentWorkspacesDir])
+	assert.FileExists(t, filepath.Join(copied, "personal", "agent-workspace.yaml"))
+
+	t.Setenv(settings.EnvAgentWorkspacesDir, filepath.Join(t.TempDir(), "ambient"))
+	require.NoError(t, tools.withLock(func() error { return tools.prepare(true) }))
+	assert.FileExists(t, filepath.Join(copied, "personal", "agent-workspace.yaml"))
 }
 
 func TestFreshAndResetRefuseActiveLaunch(t *testing.T) {
@@ -227,6 +250,7 @@ func TestPrepareRegeneratesStaleLaunchEnv(t *testing.T) {
 	launch, err := tools.readLaunchIfPresent()
 	require.NoError(t, err)
 	assert.Equal(t, "true", launch[settings.EnvHTTPEnabled])
+	assert.Equal(t, filepath.Join(tools.instanceDir, "config", "workspaces"), launch[settings.EnvAgentWorkspacesDir])
 }
 
 // Development is proxied by default (ADR 0017): prepare must write the API base

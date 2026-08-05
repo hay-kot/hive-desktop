@@ -64,7 +64,10 @@ it; `desktop:dev:fresh` safely deletes and reseeds it; and
 worktree-local path, a regular ownership marker, and no root symlink. An atomic,
 stale-recoverable worktree lock serializes these operations, and fresh/reset
 refuse while either configured development server is active. Config snapshots materialize symlink
-targets instead of preserving links back into installed configuration.
+targets instead of preserving links back into installed configuration. The
+configured agent-workspace root is snapshotted into the instance separately and
+pinned there through `HIVE_DESKTOP_AGENT_WORKSPACES_DIR`, so a configured File
+Provider path cannot be reopened by a development process.
 `cmd/devtools prepare` atomically writes paths and resolved ports to the
 root-level, gitignored `launch.env`. The `desktop:dev` mise task loads that
 non-secret file followed by optional gitignored `overrides.env`; setup and a
@@ -99,9 +102,9 @@ Vite cannot accept an already-open listener.
   not have that race.
 - Worktree-local data is discoverable and reusable, but it can be large and
   must remain ignored.
-- Development data/config/ports are isolated; the OS keychain and fixed
-  bootstrap pointer are not. Mock mode is the safe default for fully isolated
-  development until credential namespaces become instance-aware.
+- Development data/config/workspaces/ports are isolated; the OS keychain and
+  fixed bootstrap pointer are not. Mock mode is the safe default for fully
+  isolated development until credential namespaces become instance-aware.
 - **Update (2026-07-28):** `hive.db` resolves through a separate `HiveDataDir`
   (defaulting to `DataDir`, so production and e2e are unchanged), and
   `desktop:dev` points `HIVE_DESKTOP_HIVE_DATA_DIR` at the installed hive data

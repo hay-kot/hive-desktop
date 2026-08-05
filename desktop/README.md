@@ -315,9 +315,12 @@ marker/path/symlink checks, and `desktop:dev:reset` safely removes it. A
 short-lived worktree lock serializes preparation and destructive operations;
 fresh/reset also refuse while either configured development server is active.
 Config symlink targets are materialized into the snapshot rather than retained
-as links to installed state. Separate worktrees therefore have separate config, data, databases and
-logs. Explicit `HIVE_DESKTOP_DATA_DIR` / `HIVE_DESKTOP_CONFIG_DIR` values still
-win.
+as links to installed state. The configured agent-workspace root is copied to
+`.hive-desktop/config/workspaces` and pinned there by
+`HIVE_DESKTOP_AGENT_WORKSPACES_DIR` in `launch.env`, including when the installed
+root is in iCloud Drive or another File Provider. Separate worktrees therefore
+have separate config, workspaces, data, databases and logs. Explicit
+`HIVE_DESKTOP_DATA_DIR` / `HIVE_DESKTOP_CONFIG_DIR` values still win.
 
 `development.vite` uses the required `127.0.0.1` host because Wails constructs
 its frontend URL with localhost; its port defaults to `0`. `development.wails`
