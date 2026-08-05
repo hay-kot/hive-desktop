@@ -79,7 +79,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0068](decisions/0068-tmux-runs-in-the-resolved-environment.md) | tmux is spawned in the resolved environment, because a login shell is not an interactive one |
 | [0069](decisions/0069-settings-sections-name-the-surface-they-change.md) | Settings sections name the surface they change; shared values live in General and experimental is a posture, not a category |
 | [0070](decisions/0070-an-item-session-link-is-desktop-state-keyed-on-item-coordinates.md) | An item↔session link is desktop state, keyed on the item's coordinates |
-| [0071](decisions/0071-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read, and the Go job splits so its steps overlap |
+| [0071](decisions/0071-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read; the jobs split to overlap, `-race` moves to the main run, and `mise run ci` mirrors the whole gate locally |
 
 ## References
 
