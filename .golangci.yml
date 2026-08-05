@@ -159,9 +159,18 @@ linters:
       # forbidigo has no per-rule path filter, so the scope of the three rules
       # above is carved here. The adapter and package main are where
       # application.Get, context.Background and the emit helpers belong.
+      #
+      # Directory rules match "(^|/)dir/", never "^dir/": golangci-lint reports
+      # a file relative to a base it derives from the position the Go build
+      # cache recorded, and that cache is content-addressed and shared between
+      # checkouts of this module. A second clone that compiles the same package
+      # first owns the recorded path, so the other one is handed
+      # "../hive-desktop-xxxxxx/cmd/main.go" and every anchored exclusion
+      # silently stops matching. CI never sees it -- its cache is cold -- so it
+      # surfaces only as a local gate that fails on untouched code.
       - path: internal/adapter/wailsui/
         linters: [forbidigo]
-      - path: ^desktop/
+      - path: (^|/)desktop/
         linters: [forbidigo]
       # app.App holds the application's lifetime context. containedctx exists
       # to stop a *request* context being stashed on a service, and it still
@@ -174,7 +183,7 @@ linters:
       # cmd/ holds one-shot build tooling (the release publisher, the vendor
       # sync), not the app. A main() is a legitimate context root, and a git
       # subprocess in a build tool needs no cancellation plumbing.
-      - path: ^cmd/
+      - path: (^|/)cmd/
         linters: [forbidigo, noctx, contextcheck]
       # httptest.NewRequest and http.Post in tests. Rewriting seven test
       # helpers to thread a context they do not use buys nothing; noctx exists
