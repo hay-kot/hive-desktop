@@ -6,6 +6,11 @@ const DEFAULT_POLL_INTERVAL_MS = 1500
 
 const statuses = ref<Record<string, SessionStatus>>({})
 const pollIntervalMs = ref(DEFAULT_POLL_INTERVAL_MS)
+// Whether a poll has ever finished. An empty status map cannot answer that, and
+// a view that narrows on liveness has to tell "nothing is running" from "we have
+// not asked yet". Set whatever the poll returned: a probe that keeps failing
+// must not leave such a view waiting forever.
+const loaded = ref(false)
 let requestSequence = 0
 let pollGeneration = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
@@ -32,6 +37,7 @@ async function reload(): Promise<void> {
     // A transient tmux probe failure must not erase the last status the user saw.
   } finally {
     if (request && activeRequest === request) activeRequest = undefined
+    if (sequence === requestSequence) loaded.value = true
   }
 }
 
@@ -57,16 +63,18 @@ function stopPolling(): void {
 
 export function useSessionStatuses(): {
   statuses: Ref<Record<string, SessionStatus>>
+  loaded: Ref<boolean>
   pollIntervalMs: Ref<number>
   reload: () => Promise<void>
   startPolling: () => void
   stopPolling: () => void
 } {
-  return { statuses, pollIntervalMs, reload, startPolling, stopPolling }
+  return { statuses, loaded, pollIntervalMs, reload, startPolling, stopPolling }
 }
 
 export function resetSessionStatusesForTests(): void {
   stopPolling()
   statuses.value = {}
+  loaded.value = false
   pollIntervalMs.value = DEFAULT_POLL_INTERVAL_MS
 }

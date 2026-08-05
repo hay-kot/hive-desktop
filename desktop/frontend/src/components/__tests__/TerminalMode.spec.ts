@@ -1685,6 +1685,124 @@ describe('TerminalMode', () => {
     })
   })
 
+  // The other half of the narrowing: the query picks a session by name, this
+  // picks by whether tmux is holding one.
+  describe('narrowing the tree to what is running', () => {
+    const TWO_REPOS = [
+      { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
+      { id: '3', name: 'landing copy', slug: 'site-landing-copy', repo: 'hay-kot/haykot.dev', state: 'active' },
+    ]
+
+    function running(byID: Record<string, boolean>) {
+      mocks.SessionStatuses.mockResolvedValue({
+        items: Object.entries(byID).map(([sessionId, isRunning]) => ({ sessionId, running: isRunning, windows: [] })),
+        pollIntervalMs: 60_000,
+      })
+    }
+
+    function slugs(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): (string | undefined)[] {
+      return sessionRows(wrapper).map((row) => row.attributes('data-slug'))
+    }
+
+    function repos(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): DOMWrapper<Element>[] {
+      return wrapper.findAll('[data-testid="terminal-repo-group"]')
+    }
+
+    async function pick(wrapper: { get: (s: string) => Pick<DOMWrapper<Element>, 'trigger'> }, testid: string) {
+      await wrapper.get('[data-testid="terminal-sessions-menu-toggle"]').trigger('click')
+      await wrapper.get(`[data-testid="${testid}"]`).trigger('click')
+      await flushPromises()
+    }
+
+    // The repo header is the noise a dormant repository contributes, so it goes
+    // with its sessions rather than staying behind as an empty heading.
+    it('drops a repository with nothing running, and brings it back on Show all', async () => {
+      mocks.ListSessions.mockResolvedValue(TWO_REPOS)
+      running({ 1: true, 3: false })
+      const { wrapper } = await mountAvailable()
+      expect(repos(wrapper)).toHaveLength(2)
+
+      await pick(wrapper, 'terminal-sessions-running-only')
+      expect(repos(wrapper).map((group) => group.attributes('data-repo'))).toEqual(['hay-kot/hive'])
+      expect(slugs(wrapper)).toEqual(['hive-fix-parser'])
+
+      await wrapper.get('[data-testid="terminal-sessions-running-clear"]').trigger('click')
+      expect(repos(wrapper).map((group) => group.attributes('data-repo'))).toEqual(['hay-kot/haykot.dev', 'hay-kot/hive'])
+      wrapper.unmount()
+    })
+
+    // Same rule the query follows: narrowing is a way to look at the list, not
+    // a way to detach.
+    it('keeps the attached session on screen while the filter hides it', async () => {
+      running({ 1: true, 2: false })
+      const { wrapper, router } = await mountAvailable()
+      await sessionRows(wrapper)[0].trigger('click')
+      await flushPromises()
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
+
+      await pick(wrapper, 'terminal-sessions-running-only')
+
+      expect(slugs(wrapper)).toEqual(['hive-fix-parser'])
+      expect(router.currentRoute.value.path).toBe('/terminal/hive-bump-deps')
+      expect(shownWindow(wrapper)).toBe('@1')
+      wrapper.unmount()
+    })
+
+    // The pinned section is exempt from the filter, so it cannot stand in as
+    // something the filter found — the note has to name the reason the tree is
+    // bare, and it is not the (empty) query.
+    it('says the tree is bare because nothing is running, not because nothing matched', async () => {
+      running({ 1: false, 2: false })
+      const { wrapper } = await mountAvailable()
+
+      await pick(wrapper, 'terminal-sessions-running-only')
+
+      expect(slugs(wrapper)).toEqual([])
+      expect(wrapper.get('[data-testid="terminal-sessions-no-matches"]').text()).toBe('No sessions are running.')
+      wrapper.unmount()
+    })
+
+    // A tree that is short because it was narrowed reads exactly like one that
+    // is short because the sessions are gone — and the filter outlives the run.
+    it('names what it is holding back until it is cleared', async () => {
+      mocks.ListSessions.mockResolvedValue(TWO_REPOS)
+      running({ 1: true, 3: false })
+      const { wrapper } = await mountAvailable()
+      expect(wrapper.find('[data-testid="terminal-sessions-running-note"]').exists()).toBe(false)
+
+      await pick(wrapper, 'terminal-sessions-running-only')
+      expect(wrapper.get('[data-testid="terminal-sessions-running-note"]').text()).toContain('Running sessions only · 1 hidden')
+
+      await wrapper.get('[data-testid="terminal-sessions-running-clear"]').trigger('click')
+      expect(wrapper.find('[data-testid="terminal-sessions-running-note"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    it('keeps the filter across a relaunch', async () => {
+      const first = await mountAvailable()
+      await pick(first.wrapper, 'terminal-sessions-running-only')
+      first.wrapper.unmount()
+
+      const { wrapper } = await mountAvailable()
+      expect(wrapper.get('[data-testid="terminal-sessions-running-note"]').text()).toContain('Running sessions only')
+      expect(slugs(wrapper)).toEqual(['hive-bump-deps', 'hive-fix-parser'])
+      wrapper.unmount()
+    })
+
+    it('folds every repository group at once, and unfolds them again', async () => {
+      mocks.ListSessions.mockResolvedValue(TWO_REPOS)
+      const { wrapper } = await mountAvailable()
+
+      await pick(wrapper, 'terminal-sessions-collapse-all')
+      expect(repos(wrapper).map((group) => group.attributes('aria-expanded'))).toEqual(['false', 'false'])
+      expect(slugs(wrapper)).toEqual([])
+
+      await pick(wrapper, 'terminal-sessions-expand-all')
+      expect(slugs(wrapper)).toEqual(['site-landing-copy', 'hive-fix-parser'])
+      wrapper.unmount()
+    })
+  })
+
   // An arrow is a click on the neighbouring row — there is no cursor running
   // ahead of the selection and no Enter to commit.
   describe('keyboard navigation in the tree', () => {
