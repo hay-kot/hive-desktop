@@ -882,6 +882,34 @@ describe('TerminalMode', () => {
   // Adding a window is a property of the session, not of what is on screen, so
   // an unattached row offers it too — through the slug-keyed call, since there
   // is no control client to route it through yet.
+  // The last window closing kills the tmux session, which empties the live tab
+  // set that was standing in front of the listing. Nothing the listing sweep
+  // watches moves on a death, so without a trigger of its own the subtree falls
+  // back to a cached listing of windows tmux no longer holds.
+  it('re-sweeps a subtree when its session ends, so dead windows leave the tree', async () => {
+    let listing: Record<string, FakeWindow[]> = {
+      'hive-fix-parser': [{ windowId: '@1', name: 'zsh', active: true, width: 80, height: 24 }],
+    }
+    const listWindows = vi.fn(async (slugs: string[]) => Object.fromEntries(
+      slugs.filter((slug) => listing[slug]).map((slug) => [slug, listing[slug]])))
+    mocks.createTerminalClient.mockReturnValue({ listWindows })
+    const { wrapper, session } = await mountAvailable()
+
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(2)
+
+    // tmux killed the session with its last window, so the live tabs go and
+    // the listing behind them is now a listing of nothing.
+    listing = {}
+    session.tabs.value = []
+    session.status.value = 'ended'
+    await flushPromises()
+
+    expect(wrapper.findAll('[data-testid="terminal-window-row"]')).toHaveLength(0)
+    expect(wrapper.findAll('[data-testid="terminal-listed-window-row"]')).toHaveLength(0)
+  })
+
   it('adds a window to an unattached session and selects it', async () => {
     const newWindow = vi.fn(async () => ({ windowId: '@5' }))
     mocks.createTerminalClient.mockReturnValue({ listWindows: fakeListWindows(), newWindow })
