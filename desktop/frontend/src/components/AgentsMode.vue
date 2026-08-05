@@ -3,9 +3,9 @@
 // filtered by the focused workspace) beside a pane the terminal owns under a
 // slim status bar naming the open session's workspace. Focusing a workspace
 // is a filter, not a container — changing it never
-// tears down a live pane. The one pane the shell itself draws is pre-attach:
-// no PTY exists yet, so it states where the session will start and lets the
-// workspace be picked when none is focused. What is borrowed from
+// tears down a live pane. The one pane the shell itself draws is the zero
+// state: no PTY exists yet, so it says what a chat is and offers to start one,
+// which NewChatDialog then asks for. What is borrowed from
 // TerminalMode.vue is narrower — the aside/main split, plus (since ADR agent-workspace-sessions-are-tmux-sessions)
 // the pane's xterm wiring itself: a session is a tmux session, addressed and
 // framed exactly like a hive one, just not discovered through hive.
@@ -20,12 +20,11 @@ import IconCode from '~icons/lucide/code'
 import IconFolder from '~icons/lucide/folder'
 import IconFolderOpen from '~icons/lucide/folder-open'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
-import IconX from '~icons/lucide/x'
 import AgentsSidebar from './AgentsSidebar.vue'
 import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
-import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
 import ChatRenameDialog from './ChatRenameDialog.vue'
+import NewChatDialog from './NewChatDialog.vue'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useTerminalFont } from '../composables/useTerminalFont'
@@ -164,44 +163,24 @@ watch(() => props.active, (active) => {
 }, { immediate: true })
 
 // ── New chat ─────────────────────────────────────────────────────────────────
-// Two entry points, one policy (the design's own recommendation): the
-// sidebar's + starts silently in the focused workspace, and opens the
-// pre-attach panel only when nothing is focused. The panel is also what an
-// idle pane shows, so creation is always one gesture away without a bar over
-// the terminal.
+// The sidebar's + and the idle pane's button both open the same dialog,
+// prefilled with the focused workspace, so the pane never doubles as a form.
+// Launching stays the pane's: the dialog closes on submit and the opening
+// overlay — then the zero state, if it fails — is what reports it.
 const newSessionOpen = ref(false)
-const newSessionName = ref('')
-const newSessionWorkspaceOverride = ref<string | null>(null)
 const startingSession = ref(false)
 
 const defaultWorkspaceDir = computed(() => selectedWorkspace.value || recents.value[0]?.workspace || workspaces.value[0]?.dir || '')
-const newSessionWorkspace = computed({
-  get: () => newSessionWorkspaceOverride.value ?? defaultWorkspaceDir.value,
-  set: (dir: string) => { newSessionWorkspaceOverride.value = dir },
-})
-const workspaceOptions = computed<AppSelectOption[]>(() => workspaces.value.map((ws) => ({ value: ws.dir, label: ws.name || ws.dir })))
-const showNewSessionPanel = computed(() => (term.value ? newSessionOpen.value : paneStatus.value !== 'opening'))
 
 const DEFAULT_CHAT_NAME = 'New Chat'
-const newSessionNameEl = ref<HTMLInputElement | null>(null)
 
 function handleNewSessionRequest(): void {
-  if (selectedWorkspace.value) {
-    void startNewSession(selectedWorkspace.value, DEFAULT_CHAT_NAME)
-    return
-  }
-  // An idle pane shows the pre-attach panel already, so opening it is not
-  // always a visible change — moving focus into the form is what answers
-  // the click either way.
   newSessionOpen.value = true
-  void nextTick(() => newSessionNameEl.value?.focus())
 }
 
-async function submitNewSession(): Promise<void> {
-  const workspace = newSessionWorkspace.value
-  if (!workspace || startingSession.value) return
-  await startNewSession(workspace, newSessionName.value.trim() || DEFAULT_CHAT_NAME)
-  newSessionName.value = ''
+async function submitNewSession(input: { workspace: string; name: string }): Promise<void> {
+  newSessionOpen.value = false
+  await startNewSession(input.workspace, input.name || DEFAULT_CHAT_NAME)
 }
 
 // The focus filter follows a new session so its row is visible in the list
@@ -417,7 +396,6 @@ async function revealPaneWorkspace(): Promise<void> {
 async function launchIntoPane(workspace: string, action: (size: { cols?: number; rows?: number }) => Promise<AgentSession>): Promise<void> {
   if (!client.value || paneStatus.value === 'opening') return
   teardownPane()
-  newSessionOpen.value = false
   openSessionId.value = null
   paneWorkspaceDir.value = workspace
   paneActionError.value = ''
@@ -567,7 +545,7 @@ function exited(): void {
 }
 
 // Any other end of the stream clears the pane the same way — a dead screen is
-// not worth keeping — but says why in the pre-attach panel.
+// not worth keeping — but says why in the zero state.
 function fail(why: string): void {
   teardownPane()
   paneStatus.value = 'idle'
@@ -756,66 +734,32 @@ onBeforeUnmount(() => {
               <IconLoaderCircle class="size-3.5 animate-spin" aria-hidden="true" />Opening…
             </p>
           </div>
+          <!-- The zero state: no PTY exists, so the pane says what a chat is,
+               carries whatever ended the last one, and offers the same new-chat
+               gesture the sidebar's + does. -->
           <div
-            v-else-if="showNewSessionPanel"
+            v-else-if="paneStatus === 'idle'"
             class="hive-scroll absolute inset-0 z-10 overflow-y-auto bg-app"
-            data-testid="agents-new-session-panel"
+            data-testid="agents-pane-empty"
           >
             <div class="flex min-h-full items-center justify-center px-8 py-10">
-              <div class="w-full max-w-[420px]">
-                <div class="flex items-start justify-between gap-2">
-                  <h2 class="text-[15px] font-semibold text-text">New chat</h2>
-                  <button
-                    v-if="term"
-                    type="button"
-                    class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-                    aria-label="Back to the open chat"
-                    data-testid="agents-new-session-dismiss"
-                    @click="newSessionOpen = false"
-                  ><IconX class="size-3.5" /></button>
-                </div>
-                <p class="mt-1.5 text-xs leading-relaxed text-text-3">
+              <div class="flex w-full max-w-[380px] flex-col items-center gap-3 text-center">
+                <IconBot class="size-6 text-text-4" />
+                <h2 class="text-[13.5px] font-semibold text-text">No chat open</h2>
+                <p class="text-xs leading-relaxed text-text-3">
                   A chat is an agent attached to a workspace's directory. It launches with the
                   workspace's agent, autonomy, and MCP servers.
                 </p>
-                <form class="mt-5 flex flex-col gap-4" @submit.prevent="submitNewSession">
-                  <label class="flex flex-col gap-1.5">
-                    <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-text-4">Workspace</span>
-                    <AppSelect
-                      v-model="newSessionWorkspace"
-                      :options="workspaceOptions"
-                      placeholder="No workspaces yet"
-                      aria-label="Workspace for the new chat"
-                      testid="agents-new-session-workspace"
-                      :disabled="!workspaces.length"
-                    />
-                  </label>
-                  <label class="flex flex-col gap-1.5">
-                    <span class="font-mono text-[10px] uppercase tracking-[0.12em] text-text-4">Name</span>
-                    <input
-                      ref="newSessionNameEl"
-                      v-model="newSessionName"
-                      type="text"
-                      placeholder="Optional — defaults to New Chat"
-                      aria-label="New chat name"
-                      class="rounded-[6px] border border-card bg-app px-2.5 py-1.5 text-[13px] text-text outline-none placeholder:text-text-4"
-                      data-testid="agents-new-session-name"
-                    >
-                  </label>
-                  <p v-if="!workspaces.length" class="text-xs leading-relaxed text-text-3">
-                    No workspaces yet. Author one under {{ root }}.
-                  </p>
-                  <p v-if="paneError" class="text-xs leading-relaxed text-severity-error" data-testid="agents-pane-error">{{ paneError }}</p>
-                  <div>
-                    <BaseButton
-                      type="submit"
-                      size="sm"
-                      :busy="startingSession"
-                      :disabled="!newSessionWorkspace"
-                      data-testid="agents-new-session-start"
-                    >Start chat</BaseButton>
-                  </div>
-                </form>
+                <p v-if="!workspaces.length" class="text-xs leading-relaxed text-text-3">
+                  No workspaces yet. Author one under {{ root }}.
+                </p>
+                <p v-if="paneError" class="text-xs leading-relaxed text-severity-error" data-testid="agents-pane-error">{{ paneError }}</p>
+                <BaseButton
+                  size="sm"
+                  :disabled="!workspaces.length"
+                  data-testid="agents-new-session-open"
+                  @click="handleNewSessionRequest"
+                >New chat</BaseButton>
               </div>
             </div>
           </div>
@@ -832,6 +776,15 @@ onBeforeUnmount(() => {
       @close="workspaceEditorOpen = false"
       @save="saveWorkspace"
       @delete="deleteWorkspaceFromEditor"
+    />
+
+    <NewChatDialog
+      v-if="newSessionOpen"
+      :workspaces="workspaces"
+      :initial-workspace="defaultWorkspaceDir"
+      :root="root"
+      @close="newSessionOpen = false"
+      @submit="submitNewSession"
     />
 
     <ChatRenameDialog
