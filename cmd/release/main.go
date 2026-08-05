@@ -143,6 +143,9 @@ func prepare(ctx context.Context, channel, candidate string) error {
 	if err := validatePrepareSource(ctx); err != nil {
 		return err
 	}
+	if err := verifyMigrationOrder(ctx); err != nil {
+		return err
+	}
 	versions, manifests, err := releaseVersions(ctx)
 	if err != nil {
 		return err
@@ -193,6 +196,13 @@ func prepare(ctx context.Context, channel, candidate string) error {
 		} else {
 			fmt.Printf("current-%s: empty\n", currentChannel)
 		}
+	}
+	return nil
+}
+
+func verifyMigrationOrder(ctx context.Context) error {
+	if err := quietCommand(ctx, "./scripts/check-migration-order.sh"); err != nil {
+		return fmt.Errorf("verify migration order: %w", err)
 	}
 	return nil
 }
