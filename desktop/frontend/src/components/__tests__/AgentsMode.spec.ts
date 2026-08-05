@@ -1,8 +1,9 @@
 import { createMemoryHistory } from 'vue-router'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentsMode from '../AgentsMode.vue'
 import AgentsSidebar from '../AgentsSidebar.vue'
+import NewChatDialog from '../NewChatDialog.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { createAppRouter } from '../../router'
@@ -136,13 +137,21 @@ async function mountAgentsMode(path = '/workspaces') {
   return { wrapper, router }
 }
 
+// Starting a chat is the sidebar's + followed by the dialog it opens; the
+// dialog teleports, so the mode-level tests drive it through its component.
+async function startChat(wrapper: VueWrapper, workspace = 'web-app', name = '') {
+  wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
+  await flushPromises()
+  wrapper.findComponent(NewChatDialog).vm.$emit('submit', { workspace, name })
+  await flushPromises()
+}
+
 // The status bar only exists over a launching or live pane, so every bar test
-// starts a chat the way the sidebar does.
+// starts a chat first.
 async function mountWithOpenChat(client = fakeClient()) {
   mocks.createAgentWorkspacesClient.mockReturnValue(client)
   const { wrapper, router } = await mountAgentsMode('/workspaces/web-app')
-  wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
-  await flushPromises()
+  await startChat(wrapper)
   return { wrapper, router, client }
 }
 
@@ -189,8 +198,7 @@ describe('AgentsMode', () => {
     const { wrapper } = await mountAgentsMode('/workspaces/web-app')
     expect(wrapper.find('[data-testid="agents-pane-statusbar"]').exists()).toBe(false)
 
-    wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
-    await flushPromises()
+    await startChat(wrapper)
 
     expect(wrapper.get('[data-testid="agents-pane-statusbar-workspace"]').text()).toBe('Web App')
     const openInEditor = wrapper.get('[data-testid="agents-pane-statusbar-open-editor"]')
@@ -294,10 +302,52 @@ describe('AgentsMode', () => {
     mocks.createAgentWorkspacesClient.mockReturnValue(client)
     const { wrapper } = await mountAgentsMode('/workspaces/web-app')
 
-    wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
-    await flushPromises()
+    await startChat(wrapper)
 
     expect(wrapper.get('[data-testid="agents-pane-error"]').text())
       .toBe('the session exited immediately; check that the agent CLI is installed and on PATH')
+  })
+
+  // The idle pane is a zero state, not a form: it explains itself and hands
+  // the new-chat gesture to the same dialog the sidebar's + opens.
+  it('offers the new-chat dialog from the idle pane', async () => {
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+    expect(wrapper.find('[data-testid="agents-pane-empty"]').exists()).toBe(true)
+    expect(wrapper.findComponent(NewChatDialog).exists()).toBe(false)
+
+    await wrapper.get('[data-testid="agents-new-session-open"]').trigger('click')
+
+    expect(wrapper.findComponent(NewChatDialog).exists()).toBe(true)
+  })
+
+  // The + is a dialog opener, not a launch: nothing starts until the dialog
+  // submits, and what it submits is what starts.
+  it('starts the chat the dialog names, in the workspace it names', async () => {
+    const client = fakeClient()
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
+    await flushPromises()
+    expect(client.startSession).not.toHaveBeenCalled()
+    expect(wrapper.findComponent(NewChatDialog).props('initialWorkspace')).toBe('web-app')
+
+    wrapper.findComponent(NewChatDialog).vm.$emit('submit', { workspace: 'api', name: 'Ship it' })
+    await flushPromises()
+
+    expect(client.startSession).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'api', name: 'Ship it' }))
+    expect(wrapper.findComponent(NewChatDialog).exists()).toBe(false)
+  })
+
+  // An unnamed chat is still a named chat — the default is applied at launch,
+  // not left to the backend.
+  it('defaults an unnamed chat to New Chat', async () => {
+    const client = fakeClient()
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+
+    await startChat(wrapper)
+
+    expect(client.startSession).toHaveBeenCalledWith(expect.objectContaining({ name: 'New Chat' }))
   })
 })
