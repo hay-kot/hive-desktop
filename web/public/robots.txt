@@ -1,3 +1,5 @@
 User-agent: *
 Allow: /
 Disallow: /install/
+
+Sitemap: https://hivedesktop.com/sitemap.xml
