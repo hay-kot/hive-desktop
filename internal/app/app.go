@@ -297,7 +297,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		cancel()
 		return nil, err
 	}
-	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path})
+	a.terminals = tmuxcc.NewManager(runCtx, tmuxcc.ManagerOptions{Logger: cfg.Logger, Binary: a.tmux.Path, Environ: a.execEnv.Environ})
 	a.popupTerminals = ptyterm.NewManager(ptyterm.ManagerOptions{Environ: a.execEnv.Environ})
 
 	a.openActions(cfg.Paths.ActionsPath, cfg.Logger)
@@ -1027,7 +1027,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 
 	var statusService *hive.StatusService
 	if cfg.MockMode == "" && cfg.Settings.Experimental.Terminal {
-		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path))}
+		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path, a.execEnv.Environ))}
 		if hiveCfg.Tmux.CaptureRecording.Enabled {
 			recorder, recorderErr := terminaltmux.NewJSONCaptureRecorder(hiveCfg.TmuxCaptureRecordingsDir())
 			if recorderErr != nil {

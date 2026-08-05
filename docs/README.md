@@ -76,6 +76,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0065](decisions/0065-the-open-chat-rides-the-route.md) | The open chat rides the route (`?chat`), and re-entry reattaches it — only when its tmux session is still live |
 | [0066](decisions/0066-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
 | [0067](decisions/0067-the-scratch-terminal-is-a-tmux-session-the-desktop-owns.md) | The scratch terminal is a tmux session the desktop owns, pinned above the repositories |
+| [0068](decisions/0068-tmux-runs-in-the-resolved-environment.md) | tmux is spawned in the resolved environment, because a login shell is not an interactive one |
 
 ## References
 

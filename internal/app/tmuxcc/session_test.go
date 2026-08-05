@@ -16,14 +16,16 @@ import (
 // does not need to know about.
 type fakeSessionCommands struct {
 	calls   [][]string
+	envs    [][]string
 	present map[string]bool
 	capture []string
 	names   []string
 	failure error
 }
 
-func (f *fakeSessionCommands) run(_ context.Context, _ string, args ...string) ([]string, error) {
+func (f *fakeSessionCommands) run(_ context.Context, _ string, env []string, args ...string) ([]string, error) {
 	f.calls = append(f.calls, args)
+	f.envs = append(f.envs, env)
 	if len(args) == 0 {
 		return nil, nil
 	}
@@ -74,6 +76,27 @@ func TestManagerNewSessionOpensAnInteractiveShellForAnEmptyCommand(t *testing.T)
 		{"has-session", "-t", "agentws-1"},
 		{"new-session", "-d", "-s", "agentws-1", "-c", "/work/dir", "--", resolveLoginShell(), "-l"},
 	}, cmds.calls)
+}
+
+// A session's pane inherits the environment of the client that created it, so
+// the resolved PATH has to be on the new-session command itself: the login
+// shell it execs is non-interactive and never reads the file the PATH is
+// usually set in (ADR 0068).
+func TestManagerNewSessionRunsWithTheResolvedEnvironment(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{}
+	resolved := []string{"PATH=/opt/homebrew/bin:/usr/bin", "HOME=/Users/agent"}
+	m := newTestManager(t, nil, ManagerOptions{
+		runTmux: cmds.run,
+		Environ: func(context.Context) []string { return resolved },
+	})
+
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude"))
+	require.Len(t, cmds.envs, 2)
+	for _, env := range cmds.envs {
+		require.Equal(t, resolved, env)
+	}
 }
 
 func TestManagerNewSessionRejectsAnExistingName(t *testing.T) {

@@ -3,6 +3,7 @@ package tmuxcc
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -29,9 +30,15 @@ type ManagerOptions struct {
 	// need a relaunch. nil means $PATH.
 	Binary func() (string, error)
 
+	// Environ answers the environment tmux is spawned with — execenv's resolved
+	// PATH in the app, whatever a test hands it otherwise. nil means this
+	// process's own. It is the same hook ptyterm.ManagerOptions carries, held
+	// separately because the two backends share no interface (ADR 0048).
+	Environ func(context.Context) []string
+
 	versionProbe func(context.Context, string) (string, error)
 	newProcess   func(Options) process
-	runTmux      func(context.Context, string, ...string) ([]string, error)
+	runTmux      func(context.Context, string, []string, ...string) ([]string, error)
 }
 
 // managedClient carries the generation its registration was made under, so a
@@ -47,9 +54,10 @@ type Manager struct {
 	log         zerolog.Logger
 	metrics     MetricsSink
 	locate      func() (string, error)
+	environ     func(context.Context) []string
 	probe       func(context.Context, string) (string, error)
 	newProcess  func(Options) process
-	run         func(context.Context, string, ...string) ([]string, error)
+	run         func(context.Context, string, []string, ...string) ([]string, error)
 	bufferBytes int
 
 	// The app-lifetime context lives in this closure rather than in a field:
@@ -78,6 +86,7 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 		log:         opts.Logger,
 		metrics:     opts.Metrics,
 		locate:      opts.Binary,
+		environ:     opts.Environ,
 		probe:       opts.versionProbe,
 		newProcess:  opts.newProcess,
 		run:         opts.runTmux,
@@ -91,6 +100,9 @@ func NewManager(ctx context.Context, opts ManagerOptions) *Manager {
 	}
 	if m.locate == nil {
 		m.locate = func() (string, error) { return defaultBinary, nil }
+	}
+	if m.environ == nil {
+		m.environ = func(context.Context) []string { return os.Environ() }
 	}
 	if m.probe == nil {
 		m.probe = tmuxVersion
@@ -195,6 +207,7 @@ func (m *Manager) Attach(ctx context.Context, slug string, cols, rows int) ([]Wi
 		Cols:        cols,
 		Rows:        rows,
 		Binary:      binary,
+		Environ:     m.environ(ctx),
 		BufferBytes: m.bufferBytes,
 		Metrics:     m.metrics,
 		Logger:      m.log,
@@ -412,11 +425,15 @@ func (m *Manager) ListAllWindows(ctx context.Context, slugs []string) (map[strin
 // oneShot runs a one-shot tmux command with the binary the availability probe
 // resolved (ADR 0039) — never a bare "tmux", which a desktop launch may not
 // have on $PATH. Callers go through Available first, which is what sets it.
+//
+// The resolved environment goes with it because a pane inherits the client
+// that created it, so this is what puts an agent binary on NewSession's PATH
+// (ADR 0068).
 func (m *Manager) oneShot(ctx context.Context, args ...string) ([]string, error) {
 	m.mu.Lock()
 	binary := m.binary
 	m.mu.Unlock()
-	return m.run(ctx, binary, args...)
+	return m.run(ctx, binary, m.environ(ctx), args...)
 }
 
 // Detach closes slug's client. Unknown slugs are a no-op.

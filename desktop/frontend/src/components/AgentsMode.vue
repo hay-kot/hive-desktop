@@ -439,11 +439,14 @@ async function launchIntoPane(workspace: string, action: (size: { cols?: number;
     const result = await action(size ?? {})
     openSessionId.value = result.id
     if (!result.terminalId || !result.windowId) {
-      // An immediate exit, or a resume with no live tmux session to reattach
-      // and no resume form to relaunch through -- the row's own notice
-      // explains why; there is nothing here to attach the pane to.
+      // The session died before it could be attached to. Nothing is left to
+      // render, and the launch's own notice is the only account of why: the
+      // listing this row is redrawn from reports no notice at all, so
+      // dropping it here is what made an unlaunchable agent look like a click
+      // that did nothing. teardownPane clears paneError, so it is set after.
       teardownPane()
       paneStatus.value = 'idle'
+      paneError.value = result.notice || 'The session exited before it could be opened.'
       return
     }
     // The grid opens at the size tmux granted at attach — not the size this

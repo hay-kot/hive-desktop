@@ -19,11 +19,14 @@ var ErrSessionExists = errors.New("tmuxcc: session already exists")
 // an argv — the same contract ptyterm.Spec.Command uses (ADR 0041): tmux execs
 // the login shell directly with -c command as its own argv (more than one
 // trailing argument after new-session's flags is executed as-is, never
-// re-parsed by a shell), so the shell's own startup files are what resolve an
-// agent binary's PATH, aliases and functions. Empty command opens an
-// interactive login shell instead. This package still holds no environment
-// policy of its own for it (ADR 0048's sibling-backend split from ptyterm) —
-// the login shell is what does that work here, same as it does for ptyterm.
+// re-parsed by a shell), so the shell's aliases and functions resolve.
+// Empty command opens an interactive login shell instead.
+//
+// A login shell with -c is not an interactive one, so zsh reads .zprofile but
+// not .zshrc — the file a PATH is as often set in (ADR 0068). The environment
+// tmux itself is spawned with is therefore load-bearing rather than incidental:
+// a pane inherits the client that created it, so ManagerOptions.Environ is the
+// floor under whatever the startup files that do run add to it.
 func (m *Manager) NewSession(ctx context.Context, name, dir, command string) error {
 	if err := m.Available(ctx); err != nil {
 		return err

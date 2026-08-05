@@ -11,7 +11,7 @@ import (
 
 func TestCommanderUsesResolvedBinaryForEveryCommand(t *testing.T) {
 	resolved := "/opt/homebrew/bin/tmux"
-	commander := NewCommander(func() (string, error) { return resolved, nil })
+	commander := NewCommander(func() (string, error) { return resolved, nil }, nil)
 	var gotBinary string
 	var gotArgs []string
 	commander.output = func(_ context.Context, binary string, args ...string) ([]byte, error) {
@@ -35,7 +35,7 @@ func TestCommanderRetriesResolutionAfterFailure(t *testing.T) {
 			return "", errors.New("not installed")
 		}
 		return "/usr/local/bin/tmux", nil
-	})
+	}, nil)
 
 	assert.False(t, commander.Available())
 	available = true

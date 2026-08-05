@@ -186,7 +186,7 @@ column is the section that specifies it.
 | A new **dependency on something outside** | Consumer-defined interface in the package that calls it | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
-| A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH | [Subprocess environment](#subprocess-environment) |
+| A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH, and never a login shell in place of it | [Subprocess environment](#subprocess-environment) |
 | A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR 0032 |
 
 If what you are building is not on this list, it is probably a service method
@@ -738,13 +738,26 @@ substitutes for asking. `internal/app/execenv` asks the login shell once per run
 worked) and layers this process's PATH and the ADR 0039 prefixes behind it; a
 probe that fails degrades to exactly what the app could reach before.
 
-Two rules follow for anything new that spawns a process on the user's behalf:
+Three rules follow for anything new that spawns a process on the user's behalf:
 
 - **Take the environment from `execenv`, and resolve the binary through it too.**
   `os/exec` searches the *calling* process's PATH and ignores `Cmd.Env`, so
   setting the environment alone still fails to start a command only the resolved
   PATH knows about. `app.envExecutor` is the worked example; it is also why
   Hive's vendored `executil.RealExecutor` is not used.
+- **A login shell in front of the command is not a substitute for it** (ADR
+  0068). `$SHELL -l -c <line>` — what both terminal backends run a command
+  through — is a login shell but not an interactive one, so zsh reads
+  `.zprofile` and never `.zshrc`, which is where a PATH is as often set. Both
+  backends therefore take an `Environ` hook wired to the resolver
+  (`tmuxcc.ManagerOptions.Environ`, `ptyterm.ManagerOptions.Environ`), and the
+  hook is written twice rather than extracted: ADR 0048 keeps the two backends
+  siblings with no shared interface. What the resolver supplies is the **floor**
+  — the login startup files that do run may still override it. For tmux the hook
+  reaches the client rather than the session, because a pane inherits the
+  environment of the client that created it; setting `Cmd.Env` on the
+  `new-session` command is what puts an agent binary on its PATH, and no
+  `new-session -e` plumbing is involved.
 - **A streamed command's failure carries the opening of its stderr.** Hive
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
@@ -775,7 +788,11 @@ them is the constraint (ADR 0036):
   command FIFO, notification dispatch, `%output` octal decode, one client per
   slug over `tmux -C attach`, and a per-session fan-out broker. **No transport
   and no UI** — it is driven over injectable process pipes, so it is testable
-  without tmux, HTTP or Wails. `Manager` owns an app-lifetime context and joins
+  without tmux, HTTP or Wails. It holds no environment *policy* either, but it
+  does take an environment: `ManagerOptions.Environ` is wired to `execenv` at
+  the composition root and is what every tmux it execs runs with (ADR 0068) —
+  see [Subprocess environment](#subprocess-environment).
+  `Manager` owns an app-lifetime context and joins
   the App-owned lifecycle behind a `stopOnce` (PR rule 8), and also runs the
   one-shot commands that keep a slug and its tmux session in step
   (`RenameSession`) — through the same `$TMUX` socket resolution an attach uses,
@@ -887,8 +904,9 @@ group that holds one session forever buys a level of nesting and names the same
 thing twice, so `Scratch` is a tmux name rather than anything on screen. Four
 rules follow from it having no hive record: it is created with `tmuxcc`'s own
 empty-command create, so its shell is an interactive login shell and the user's
-startup files — not this app's environment — are what put their tools on its
-PATH (ADR 0041); its liveness comes from the window sweep
+startup files are what put their tools on its PATH — over the resolved
+environment underneath, which an interactive shell has no need of (ADR 0041,
+ADR 0068); its liveness comes from the window sweep
 rather than from `SessionStatuses`, which is keyed by session id, and its tabs
 are listed whatever `terminal_show_windows` says because they *are* the section;
 `+` on its heading creates the session when tmux is holding none, which is
@@ -1091,8 +1109,9 @@ Three rules govern it, and each is a consequence of that:
   sessions (ADR 0063) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves
   launcher cwd → session checkout → explicit path → home; the command runs
-  through a login shell so the user's own PATH and aliases resolve it (ADR
-  0041), and empty means an interactive shell. A named launcher is that spec
+  through a login shell so the user's own aliases resolve it, over `execenv`'s
+  resolved environment as the floor rather than instead of it (ADR 0041, ADR
+  0068), and empty means an interactive shell. A named launcher is that spec
   with config in front of it — add the config, not another launch path.
 - **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
   (ADR 0049). It is deliberately *not* an action: every surface in the `targets`

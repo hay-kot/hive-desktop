@@ -26,6 +26,7 @@ const defaultBinary = "tmux"
 type execProcess struct {
 	slug   string
 	binary string
+	env    []string
 
 	mu     sync.Mutex
 	cmd    *exec.Cmd
@@ -36,7 +37,12 @@ type execProcess struct {
 }
 
 func newExecProcess(opts Options) process {
-	return &execProcess{slug: opts.Slug, binary: opts.Binary, stderr: &cappedBuffer{max: 4 << 10}}
+	return &execProcess{
+		slug:   opts.Slug,
+		binary: opts.Binary,
+		env:    detachedEnv(opts.Environ),
+		stderr: &cappedBuffer{max: 4 << 10},
+	}
 }
 
 // Start ignores ctx deliberately: the control client outlives the attach
@@ -53,7 +59,7 @@ func (p *execProcess) Start(context.Context) (io.Writer, io.Reader, error) {
 		args = append([]string{"-S", socket}, args...)
 	}
 	cmd := exec.Command(p.binary, args...) //nolint:noctx // lifetime is teardown-managed, see above
-	cmd.Env = detachedEnv()
+	cmd.Env = p.env
 	cmd.Stderr = p.stderr
 
 	stdin, err := cmd.StdinPipe()
@@ -108,8 +114,12 @@ func (p *execProcess) Kill() error {
 // clients attach to — see Start for why the socket is passed explicitly —
 // returning stdout as lines and folding tmux's own complaint into the error,
 // since that is all a failed has-session or rename-session reports.
-func runTmux(ctx context.Context, binary string, args ...string) ([]string, error) {
-	out, err := outputTmux(ctx, binary, args...)
+//
+// env is what the command client runs with, and a new-session's pane inherits
+// it: a tmux pane takes its environment from the client that created it, so
+// this is the only place the app can put anything on an agent's PATH.
+func runTmux(ctx context.Context, binary string, env []string, args ...string) ([]string, error) {
+	out, err := outputTmux(ctx, binary, env, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +130,7 @@ func runTmux(ctx context.Context, binary string, args ...string) ([]string, erro
 	return strings.Split(trimmed, "\n"), nil
 }
 
-func outputTmux(ctx context.Context, binary string, args ...string) ([]byte, error) {
+func outputTmux(ctx context.Context, binary string, env []string, args ...string) ([]byte, error) {
 	if binary == "" {
 		binary = defaultBinary
 	}
@@ -128,7 +138,7 @@ func outputTmux(ctx context.Context, binary string, args ...string) ([]byte, err
 		args = append([]string{"-S", socket}, args...)
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
-	cmd.Env = detachedEnv()
+	cmd.Env = detachedEnv(env)
 	stderr := &cappedBuffer{max: 4 << 10}
 	cmd.Stderr = stderr
 	out, err := cmd.Output()
@@ -151,10 +161,14 @@ func socketFromTMUX(v string) string {
 	return socket
 }
 
-// detachedEnv drops the inherited tmux client variables so the control client
-// attaches as an independent client rather than nesting.
-func detachedEnv() []string {
-	env := os.Environ()
+// detachedEnv drops base's tmux client variables so the command runs as an
+// independent client rather than nesting. A nil base is this process's own
+// environment, which is what a caller outside the app's composition root gets.
+func detachedEnv(base []string) []string {
+	env := base
+	if env == nil {
+		env = os.Environ()
+	}
 	out := make([]string, 0, len(env))
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") {
