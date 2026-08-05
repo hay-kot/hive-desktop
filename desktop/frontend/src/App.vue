@@ -39,13 +39,13 @@ import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { sessionRepository } from './composables/useTerminalSessions'
-import { focusTerminalFilter, focusTerminalPane, focusTerminalTree, selectTerminalWindow } from './lib/terminalTree'
+import { closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalTree, newTerminalWindow, selectTerminalWindow, stepTerminalWindow } from './lib/terminalTree'
 import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
 import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, launcherActionID, terminalWindowPosition } from './keybindings/catalog'
+import { commands as bindableCommands, launcherActionID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -862,6 +862,10 @@ const runMap: Record<string, () => void | Promise<void>> = {
     terminalSidebarCollapsed.value = false
     void nextTick(focusTerminalFilter)
   },
+  'terminal.new-window': newTerminalWindow,
+  'terminal.close-window': closeTerminalWindow,
+  'terminal.next-window': () => stepTerminalWindow(1),
+  'terminal.prev-window': () => stepTerminalWindow(-1),
   'agents.focus-sidebar': focusAgentsList,
   'agents.focus-pane': focusAgentsPane,
   'session.new': () => openNewSession(sessionRepository(onScreenSessionSlug.value)),
@@ -893,6 +897,15 @@ const catalogById = computed(() => new Map(bindableCommands.value.map((command) 
 const feedNavActive = computed(() =>
   route.name === 'feed' && !onboardingActive.value && !terminalActive.value && !!activeProfile.value,
 )
+
+function contextActive(context: CommandContext): boolean {
+  switch (context) {
+    case 'feed': return feedNavActive.value
+    case 'terminal': return terminalActive.value
+    case 'agents': return agentsActive.value
+    case 'global': return true
+  }
+}
 
 // While an overlay owns the screen, only the palette toggle stays live.
 const anyOverlayOpen = computed(() =>
@@ -1035,14 +1048,19 @@ function onGlobalKeydown(e: KeyboardEvent): void {
       runCommand(id)
       return
     }
-    // The palette is the way back out of a pane, so it fires over one too — but
+    // The commands the catalog marks `escapesPane` — the palette, which is the
+    // way back out of a pane, and the window lifecycle — fire over one too, but
     // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
     // answers. A bare Ctrl+K stays with the pane; it is readline's
-    // kill-to-end-of-line.
-    if (isTerminalTarget(e.target) && kb.resolve(terminalEscapeCombo(e) ?? '') === 'palette.toggle') {
-      e.preventDefault()
-      togglePalette()
-      return
+    // kill-to-end-of-line, and Ctrl+T is its transpose.
+    if (isTerminalTarget(e.target)) {
+      const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')
+      const command = escaped ? catalogById.value.get(escaped) : undefined
+      if (escaped && command?.escapesPane && contextActive(command.context)) {
+        e.preventDefault()
+        runCommand(escaped)
+        return
+      }
     }
   }
 
@@ -1068,9 +1086,7 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   if (isEditableTarget(e.target) && !hasModifier) return
 
   if (anyOverlayOpen.value && id !== 'palette.toggle') return
-  if (command.context === 'feed' && !feedNavActive.value) return
-  if (command.context === 'terminal' && !terminalActive.value) return
-  if (command.context === 'agents' && !agentsActive.value) return
+  if (!contextActive(command.context)) return
 
   e.preventDefault()
   runCommand(id)

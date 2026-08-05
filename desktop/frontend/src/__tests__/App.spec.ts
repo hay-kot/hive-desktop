@@ -12,7 +12,7 @@ import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAva
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
 import { applicationSettingsSections, createAppRouter } from '../router'
-import { setTerminalTreeHandles } from '../lib/terminalTree'
+import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
 
 const mocks = vi.hoisted(() => ({
   // flowsservice
@@ -229,6 +229,28 @@ function terminalOnScreen(wrapper: VueWrapper): boolean {
 function agentsOnScreen(wrapper: VueWrapper): boolean {
   const mode = wrapper.find('[data-testid="agents-mode"]')
   return mode.exists() && !(mode.attributes('style') ?? '').includes('display: none')
+}
+
+// Stands in for TerminalMode's registration. Every handle is a spy so a test
+// only has to name the one it asserts on, and a command that reached the wrong
+// handle still shows up.
+function stubTerminalTree(overrides: Partial<TerminalTreeHandles> = {}): TerminalTreeHandles {
+  const handles: TerminalTreeHandles = {
+    focusTree: vi.fn(), focusPane: vi.fn(), focusFilter: vi.fn(),
+    selectWindow: vi.fn(), newWindow: vi.fn(), closeWindow: vi.fn(), stepWindow: vi.fn(),
+    ...overrides,
+  }
+  setTerminalTreeHandles(handles)
+  return handles
+}
+
+// A pane in the document, so a keydown dispatched on it reads as one a focused
+// terminal would have taken.
+function focusedPane(): HTMLElement {
+  const pane = document.createElement('div')
+  pane.setAttribute('data-terminal-input-scope', '')
+  document.body.append(pane)
+  return pane
 }
 
 describe('App', () => {
@@ -1400,12 +1422,8 @@ describe('App', () => {
     await router.push('/terminal/hive-fix-parser')
     await flushPromises()
 
-    const focusTree = vi.fn()
-    setTerminalTreeHandles({ focusTree, focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow: vi.fn() })
-
-    const pane = document.createElement('div')
-    pane.setAttribute('data-terminal-input-scope', '')
-    document.body.append(pane)
+    const { focusTree } = stubTerminalTree()
+    const pane = focusedPane()
 
     const event = new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true, bubbles: true, cancelable: true })
     pane.dispatchEvent(event)
@@ -1426,12 +1444,8 @@ describe('App', () => {
     await router.push('/terminal/hive-fix-parser')
     await flushPromises()
 
-    const selectWindow = vi.fn()
-    setTerminalTreeHandles({ focusTree: vi.fn(), focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow })
-
-    const pane = document.createElement('div')
-    pane.setAttribute('data-terminal-input-scope', '')
-    document.body.append(pane)
+    const { selectWindow } = stubTerminalTree()
+    const pane = focusedPane()
 
     const event = new KeyboardEvent('keydown', { key: '3', metaKey: true, bubbles: true, cancelable: true })
     pane.dispatchEvent(event)
@@ -1452,17 +1466,14 @@ describe('App', () => {
     await router.push('/terminal/hive-fix-parser')
     await flushPromises()
 
-    const focusFilter = vi.fn()
-    setTerminalTreeHandles({ focusTree: vi.fn(), focusPane: vi.fn(), focusFilter, selectWindow: vi.fn() })
+    const { focusFilter } = stubTerminalTree()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '/' }))
     await flushPromises()
     expect(focusFilter).toHaveBeenCalled()
 
-    focusFilter.mockClear()
-    const pane = document.createElement('div')
-    pane.setAttribute('data-terminal-input-scope', '')
-    document.body.append(pane)
+    vi.mocked(focusFilter).mockClear()
+    const pane = focusedPane()
     pane.dispatchEvent(new KeyboardEvent('keydown', { key: '/', bubbles: true }))
     await flushPromises()
     expect(focusFilter).not.toHaveBeenCalled()
@@ -1472,20 +1483,92 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('leaves the focus chords alone outside terminal mode', async () => {
+  it('leaves the terminal chords alone outside terminal mode', async () => {
     const wrapper = await mountApp()
-    const focusTree = vi.fn()
-    const selectWindow = vi.fn()
-    setTerminalTreeHandles({ focusTree, focusPane: vi.fn(), focusFilter: vi.fn(), selectWindow })
+    const { focusTree, selectWindow, newWindow } = stubTerminalTree()
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', metaKey: true }))
     window.dispatchEvent(new KeyboardEvent('keydown', { key: '2', metaKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true }))
     await flushPromises()
 
     expect(focusTree).not.toHaveBeenCalled()
     expect(selectWindow).not.toHaveBeenCalled()
+    expect(newWindow).not.toHaveBeenCalled()
 
     setTerminalTreeHandles(null)
+    wrapper.unmount()
+  })
+
+  // The tab chords are dispatched from wherever focus is: the tree answers them
+  // as an ordinary terminal-context command.
+  it('runs the window lifecycle chords from the session tree', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const { newWindow, closeWindow, stepWindow } = stubTerminalTree()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', metaKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '}', metaKey: true, shiftKey: true }))
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '{', metaKey: true, shiftKey: true }))
+    await flushPromises()
+
+    expect(newWindow).toHaveBeenCalledTimes(1)
+    expect(closeWindow).toHaveBeenCalledTimes(1)
+    expect(stepWindow).toHaveBeenNthCalledWith(1, 1)
+    expect(stepWindow).toHaveBeenNthCalledWith(2, -1)
+
+    setTerminalTreeHandles(null)
+    wrapper.unmount()
+  })
+
+  // The pane is where you are when you want another tab, so the chords fire
+  // over one — on Command, and on Ctrl+Shift where there is no Command.
+  it('runs the window lifecycle chords over a focused terminal, on either platform spelling', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const { newWindow, closeWindow, stepWindow } = stubTerminalTree()
+    const pane = focusedPane()
+
+    const event = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(event)
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'W', ctrlKey: true, shiftKey: true, bubbles: true }))
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: '}', ctrlKey: true, shiftKey: true, bubbles: true }))
+    await flushPromises()
+
+    expect(newWindow).toHaveBeenCalledTimes(1)
+    expect(closeWindow).toHaveBeenCalledTimes(1)
+    expect(stepWindow).toHaveBeenCalledWith(1)
+    expect(event.defaultPrevented).toBe(true)
+
+    setTerminalTreeHandles(null)
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // The reason the tab chords escape rather than pierce: where `mod` is Ctrl,
+  // Ctrl+T is readline's transpose-chars and Ctrl+W its unix-word-rubout.
+  it('leaves a focused terminal the bare Ctrl form of the window chords', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    const { newWindow, closeWindow } = stubTerminalTree()
+    const pane = focusedPane()
+
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 't', ctrlKey: true, bubbles: true }))
+    pane.dispatchEvent(new KeyboardEvent('keydown', { key: 'w', ctrlKey: true, bubbles: true }))
+    await flushPromises()
+
+    expect(newWindow).not.toHaveBeenCalled()
+    expect(closeWindow).not.toHaveBeenCalled()
+
+    setTerminalTreeHandles(null)
+    pane.remove()
     wrapper.unmount()
   })
 

@@ -1017,6 +1017,19 @@ window is closed, so `⌘3` is the third row rather than window 3. A session wit
 fewer windows ignores the chord instead of clamping to the last: the chord means
 one window, not whichever is nearest.
 
+**The window lifecycle is four bindable commands, not handlers on the mode.**
+`terminal.new-window`, `terminal.close-window`, `terminal.next-window` and
+`terminal.prev-window` act on the attached session and its active window,
+dispatched from App.vue through `lib/terminalTree`'s handles like every other
+`terminal.*` command — so they answer from the session tree and from a focused
+pane alike, and rebinding them is an ordinary settings change. Two things they
+do not share with the numbered jumps: they **escape** a pane rather than pierce
+it (see Pop-up terminals), and next/prev **wrap**, where the tree's own walk
+clamps — a session's windows are a ring in every terminal emulator, and there is
+nowhere else for "next" to go from the last one. A window this view created
+takes focus when tmux announces it; one another client opened does not, because
+it must not pull the keyboard out of the pane in front of the user.
+
 **Window order is tmux's, and a reorder is a move rather than a swap.**
 `POST /api/terminal/windows/move` takes a window id and the index it ends up at,
 because a reorder means a destination and not a neighbour; the core reads the
@@ -1246,19 +1259,28 @@ Three rules govern it, and each is a consequence of that:
   toggle opens a terminal outright, returns to a running one, and hands focus
   back where it came from on the way out. Anything that adds a step between the
   shortcut and a prompt is working against what this is for.
-- **A focused pane keeps every key it can use, and five things get one back.**
-  The pop-up toggle and any launcher chord, because the combo that opens one has
-  to close it; the command palette, because it is the way back out of a pane;
-  `terminal.focus-sidebar`, because it is the way back to the session tree; and
-  `terminal.select-window-1` … `-9`, because a jump between windows is only ever
-  wanted from inside the one being left. The palette is the only one gated on
-  modifiers rather than on the binding alone — `terminalEscapeCombo` claims
-  Command chords, and Ctrl+Shift where there is no Command, dropping that Shift
-  so one configured `mod+k` matches on both. A bare Ctrl+K is readline's
-  kill-to-end-of-line and stays with the pane. Anything else added here has to
-  answer why a pane may not have the key.
+- **A focused pane keeps every key it can use, and a short list gets one back**
+  — in two ways, which is the distinction to get right before adding to it.
 
-  Piercing is two-sided: the dispatcher must act on the chord *and* xterm's
+  A command **pierces** when it is claimed on the binding alone: the pop-up
+  toggle and any launcher chord, because the combo that opens one has to close
+  it; `terminal.focus-sidebar`, because it is the way back to the session tree;
+  and `terminal.select-window-1` … `-9`, because a jump between windows is only
+  ever wanted from inside the one being left. Where `mod` is Ctrl these take a
+  readline chord away from the pane, which is the price of a chord that has to
+  work from inside one.
+
+  A command **escapes** when the catalog marks it `escapesPane`: it is claimed
+  through `terminalEscapeCombo`, which takes Command chords and Ctrl+Shift where
+  there is no Command, dropping that Shift so one configured combo matches on
+  both. The palette is one, because it is the way back out of a pane, and so is
+  the window lifecycle — `terminal.new-window`, `-close-window`, `-next-window`,
+  `-prev-window`. That is what leaves a bare Ctrl+K as readline's
+  kill-to-end-of-line and Ctrl+T as its transpose-chars while ⌘K and ⌘T are the
+  app's. Prefer escaping: piercing is for a chord the escape form cannot carry.
+  Anything added either way has to answer why a pane may not have the key.
+
+  Both are two-sided: the dispatcher must act on the chord *and* xterm's
   `attachCustomKeyEventHandler` must decline it, or the pane writes it to tmux
   as well. Both sides resolve through the live keymap, so a rebind moves them
   together.

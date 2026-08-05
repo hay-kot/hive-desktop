@@ -37,9 +37,16 @@ A command's context decides where an unmodified combo fires:
 A focused terminal pane is a context of its own: it keeps every key it can use,
 so a shortcut does not fire over one. The exceptions are the pop-up terminal's
 toggle, any launcher's chord, `terminal.focus-sidebar`, the numbered window
-jumps, and the command palette — and the palette only on modifiers a terminal
-never wants, which is Command on macOS and Ctrl+Shift elsewhere (a bare Ctrl+K
-is readline's kill-to-end-of-line and stays with the pane).
+jumps, the command palette, and the window lifecycle
+(`terminal.new-window`, `terminal.close-window`, `terminal.next-window`,
+`terminal.prev-window`).
+
+The palette and the window lifecycle fire over a pane only on modifiers a
+terminal never wants: Command on macOS, Ctrl+Shift elsewhere. Bind them with
+`mod` as usual and both spellings match — `terminal.new-window: [mod+t]` is
+⌘T on macOS and Ctrl+Shift+T elsewhere, so a bare Ctrl+T stays readline's
+transpose-chars, as a bare Ctrl+K stays its kill-to-end-of-line. From the
+session tree, where nothing owns the keyboard, the plain binding fires.
 
 A combo resolves to exactly one command: the first in the table below that
 claims it. Context narrows *when* a command fires, it does not let two commands

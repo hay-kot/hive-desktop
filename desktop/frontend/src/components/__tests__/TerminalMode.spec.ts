@@ -9,7 +9,7 @@ import { resetTerminalSessionsForTests } from '../../composables/useTerminalSess
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
-import { focusTerminalFilter, paneMayAutoFocus, selectTerminalWindow } from '../../lib/terminalTree'
+import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
 
 const mocks = vi.hoisted(() => ({
@@ -451,6 +451,62 @@ describe('TerminalMode', () => {
     session.select.mockClear()
     selectTerminalWindow(3)
     await flushPromises()
+    expect(session.select).not.toHaveBeenCalled()
+  })
+
+  // Wrapping is the difference from the numbered jumps: a session's windows are
+  // a ring, so next from the last lands on the first rather than doing nothing.
+  it('walks the attached session’s windows and wraps at either end', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    stepTerminalWindow(1)
+    await flushPromises()
+    expect(session.select).toHaveBeenCalledWith('@2')
+    expect(paneMayAutoFocus.value).toBe(true)
+
+    session.select.mockClear()
+    session.activeWindowId.value = '@2'
+    stepTerminalWindow(1)
+    await flushPromises()
+    expect(session.select).toHaveBeenCalledWith('@1')
+
+    session.select.mockClear()
+    stepTerminalWindow(-1)
+    await flushPromises()
+    expect(session.select).toHaveBeenCalledWith('@1')
+  })
+
+  it('opens and closes windows on the attached session from the keymap', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    newTerminalWindow()
+    await flushPromises()
+    // Through the attached session's own client, which is what makes the new
+    // window the active one.
+    expect(session.newWindow).toHaveBeenCalled()
+    expect(paneMayAutoFocus.value).toBe(true)
+
+    closeTerminalWindow()
+    await flushPromises()
+    expect(session.closeWindow).toHaveBeenCalledWith('@1')
+  })
+
+  // Nothing is attached before a row is picked, so the chords have no window to
+  // name and must not reach for one.
+  it('ignores the window chords while no session is attached', async () => {
+    const { session } = await mountAvailable()
+
+    newTerminalWindow()
+    closeTerminalWindow()
+    stepTerminalWindow(1)
+    await flushPromises()
+
+    expect(session.newWindow).not.toHaveBeenCalled()
+    expect(session.closeWindow).not.toHaveBeenCalled()
     expect(session.select).not.toHaveBeenCalled()
   })
 

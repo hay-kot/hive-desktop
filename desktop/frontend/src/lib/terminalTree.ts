@@ -2,12 +2,11 @@ import { ref, type Ref } from 'vue'
 
 // The seam between the global keymap and terminal mode's session tree.
 //
-// `terminal.focus-sidebar` / `terminal.focus-pane` and the numbered window
-// jumps are dispatched by App.vue like every other bindable command, but they
-// act on state that lives inside TerminalMode — the tree's DOM rows, the
-// attached session's window strip, its xterm. This module is where the two
-// meet: the sidebar publishes its handles, and the dispatcher calls whatever is
-// published.
+// The `terminal.*` commands are dispatched by App.vue like every other bindable
+// command, but they act on state that lives inside TerminalMode — the tree's
+// DOM rows, the attached session's window list, its xterm. This module is where
+// the two meet: the sidebar publishes its handles, and the dispatcher calls
+// whatever is published.
 //
 // A plain module registry rather than a composable: it holds no lifecycle of
 // its own, so the sidebar sets and clears it from its own mount hooks instead
@@ -25,6 +24,15 @@ export interface TerminalTreeHandles {
    * work in it. A session with fewer windows ignores the call.
    */
   selectWindow(position: number): void
+  /** Open a window in the attached session and go to work in it. */
+  newWindow(): void
+  /** Close the attached session's active window. */
+  closeWindow(): void
+  /**
+   * Go to the window `delta` places along the list from the active one,
+   * wrapping at either end.
+   */
+  stepWindow(delta: number): void
 }
 
 let handles: TerminalTreeHandles | null = null
@@ -60,4 +68,16 @@ export function focusTerminalFilter(): void {
 
 export function selectTerminalWindow(position: number): void {
   handles?.selectWindow(position)
+}
+
+export function newTerminalWindow(): void {
+  handles?.newWindow()
+}
+
+export function closeTerminalWindow(): void {
+  handles?.closeWindow()
+}
+
+export function stepTerminalWindow(delta: number): void {
+  handles?.stepWindow(delta)
 }
