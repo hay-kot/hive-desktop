@@ -62,7 +62,7 @@ type NotifyCommand struct {
 // Output is one committed side effect of a flow run.
 type Output struct {
 	Sink          Sink            `json:"sink"`
-	Key           string          `json:"key,omitempty"`           // feed external ID only
+	Key           string          `json:"key,omitempty"`           // the item's external ID; not set by a keyless snapshot boundary
 	OccurrenceKey string          `json:"occurrenceKey,omitempty"` // action dedup key only
 	Payload       json.RawMessage `json:"payload,omitempty"`       // action payload only
 	SourceKind    string          `json:"sourceKind,omitempty"`
@@ -199,8 +199,11 @@ func (db *DB) CommitBatch(ctx context.Context, b CommitBatch) error {
 					return fmt.Errorf("claiming feed membership %s/%s: %w", out.Sink.TargetID, out.Key, err)
 				}
 			case SinkKindAction:
+				// The dedup key is the occurrence key, so the row cannot be
+				// traced back to its item by key alone.
 				if err := q.EnqueueOutputCommand(ctx, EnqueueOutputCommandParams{
 					ActionID: out.Sink.TargetID, Key: out.OccurrenceKey, Payload: []byte(out.Payload), CreatedAt: now,
+					ProfileID: b.Consumer, SourceKind: out.SourceKind, SourceScope: out.SourceScope, ExternalID: out.Key,
 				}); err != nil {
 					return fmt.Errorf("enqueuing output_command %s/%s: %w", out.Sink.TargetID, out.OccurrenceKey, err)
 				}

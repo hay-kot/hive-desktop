@@ -2,13 +2,17 @@ package app
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/rs/zerolog"
 )
 
 // Job action ids label session jobs in the jobs UI.
@@ -40,6 +44,7 @@ type sessionManager interface {
 
 type sessionStatusSource interface {
 	SessionStatuses(context.Context) (dispatch.SessionStatusSnapshot, error)
+	RunningSessions(ctx context.Context, ids []string) (map[string]bool, error)
 }
 
 // sessionTmux renames the live tmux session behind a slug. Hive's rename
@@ -55,6 +60,14 @@ type sessionJobRunner interface {
 	Track(ctx context.Context, label, actionID, target string, fn func(context.Context) error) int64
 }
 
+// itemSessionStore is the durable item↔session association: which sessions an
+// inbox item spawned, and the removal of links to sessions hive no longer has.
+type itemSessionStore interface {
+	ItemRefByID(ctx context.Context, itemID int64) (store.ItemRef, error)
+	ItemSessions(ctx context.Context, ref store.ItemRef) ([]store.ItemSession, error)
+	UnlinkItemSessions(ctx context.Context, sessionIDs []string) error
+}
+
 // SessionsService is the desktop's session surface: the New Session form's
 // launch path, read plus lifecycle management of the sessions that exist, and
 // the configured actions a terminal session or window offers.
@@ -64,24 +77,34 @@ type SessionsService struct {
 	statuses   sessionStatusSource
 	tmux       sessionTmux
 	jobs       sessionJobRunner
+	links      itemSessionStore
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
 	recorder   activity.Recorder
+	logger     zerolog.Logger
 }
 
-func newSessionsService(
-	launcher sessionLauncher,
-	manager sessionManager,
-	statuses sessionStatusSource,
-	tmux sessionTmux,
-	jobs sessionJobRunner,
-	catalog *actions.ActionStore,
-	dispatcher *dispatch.Dispatcher,
-	recorder activity.Recorder,
-) *SessionsService {
+// sessionsDeps is what SessionsService is built from. A struct rather than a
+// parameter list: the service reaches enough subsystems that a positional call
+// stopped saying which nil was which.
+type sessionsDeps struct {
+	launcher   sessionLauncher
+	manager    sessionManager
+	statuses   sessionStatusSource
+	tmux       sessionTmux
+	jobs       sessionJobRunner
+	links      itemSessionStore
+	catalog    *actions.ActionStore
+	dispatcher *dispatch.Dispatcher
+	recorder   activity.Recorder
+	logger     zerolog.Logger
+}
+
+func newSessionsService(deps sessionsDeps) *SessionsService {
 	return &SessionsService{
-		launcher: launcher, manager: manager, statuses: statuses, tmux: tmux, jobs: jobs,
-		catalog: catalog, dispatcher: dispatcher, recorder: recorder,
+		launcher: deps.launcher, manager: deps.manager, statuses: deps.statuses, tmux: deps.tmux,
+		jobs: deps.jobs, links: deps.links, catalog: deps.catalog, dispatcher: deps.dispatcher,
+		recorder: deps.recorder, logger: deps.logger,
 	}
 }
 
@@ -121,6 +144,81 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 		return dispatch.SessionStatusSnapshot{}, Wrap(err, KindInternal, "reading session status")
 	}
 	return statuses, nil
+}
+
+// ItemSessions returns the hive sessions an inbox item spawned, newest first,
+// joined to the state hive reports for them now. The read is also what
+// reconciles (ADR 0060).
+func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
+	if s.manager == nil || s.links == nil {
+		return nil, Errorf(KindUnavailable, "session links are unavailable")
+	}
+	ref, err := s.links.ItemRefByID(ctx, itemID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, Wrap(err, KindNotFound, "inbox item %d not found", itemID)
+		}
+		return nil, Wrap(err, KindInternal, "reading inbox item %d", itemID)
+	}
+	links, err := s.links.ItemSessions(ctx, ref)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing sessions for item %d", itemID)
+	}
+	if len(links) == 0 {
+		return []dispatch.ItemSessionView{}, nil
+	}
+
+	sessions, err := s.manager.ListSessions(ctx)
+	if err != nil {
+		return nil, Wrap(err, KindInternal, "listing sessions")
+	}
+	known := make(map[string]dispatch.SessionSummary, len(sessions))
+	for _, summary := range sessions {
+		known[summary.ID] = summary
+	}
+
+	views := make([]dispatch.ItemSessionView, 0, len(links))
+	ids := make([]string, 0, len(links))
+	var gone []string
+	for _, link := range links {
+		summary, ok := known[link.SessionID]
+		if !ok {
+			gone = append(gone, link.SessionID)
+			continue
+		}
+		ids = append(ids, summary.ID)
+		views = append(views, dispatch.ItemSessionView{
+			ID:        summary.ID,
+			Name:      summary.Name,
+			Slug:      summary.Slug,
+			Repo:      summary.Repo,
+			State:     summary.State,
+			CreatedAt: time.UnixMilli(link.CreatedAt),
+		})
+	}
+	if err := s.links.UnlinkItemSessions(ctx, gone); err != nil {
+		// The view above is already correct without the prune; failing the read
+		// over a cleanup would hide the sessions that do still exist.
+		s.logger.Warn().Err(err).Int64("item_id", itemID).Msg("dropping links to deleted sessions")
+	}
+
+	// No status source is data, not a failure: nothing reads as running, which
+	// is what "we cannot see tmux from here" honestly looks like.
+	if s.statuses == nil {
+		return views, nil
+	}
+	running, err := s.statuses.RunningSessions(ctx, ids)
+	if err != nil {
+		// Same reason as the prune above: the views are already correct
+		// without liveness, and failing the read blanks a pane that had an
+		// answer.
+		s.logger.Warn().Err(err).Int64("item_id", itemID).Msg("reading session status")
+		return views, nil
+	}
+	for i := range views {
+		views[i].Running = running[views[i].ID]
+	}
+	return views, nil
 }
 
 // SessionDetail reads one session in full.
@@ -175,11 +273,24 @@ func (s *SessionsService) CreateSession(ctx context.Context, req dispatch.Create
 		return 0, Wrap(err, KindInvalid, "session name")
 	}
 
+	// A form drafted from an item links the session back to it. An item that
+	// has gone (pruned between opening the form and submitting it) launches
+	// unlinked rather than refusing the session the user asked for.
+	var origin store.ItemRef
+	if req.ItemID != 0 && s.links != nil {
+		resolved, err := s.links.ItemRefByID(ctx, req.ItemID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, Wrap(err, KindInternal, "reading inbox item %d", req.ItemID)
+		}
+		origin = resolved
+	}
+
 	launch := dispatch.LaunchSessionRequest{
 		Name:   name,
 		Prompt: strings.TrimSpace(req.Prompt),
 		Agent:  strings.TrimSpace(req.Agent),
 		Repo:   repo,
+		Origin: origin,
 	}
 	jobID := s.jobs.Track(ctx, "Create session", newSessionJobActionID, name, func(bg context.Context) error {
 		if _, err := s.launcher.LaunchSession(bg, launch); err != nil {

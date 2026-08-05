@@ -59,8 +59,9 @@
       },
       {
         "sink": { "kind": "action", "targetId": "triage-it" },
-        "occurrenceKey": "oc-c",
+        "key": "c", "occurrenceKey": "oc-c",
         "payload": { "n": 3 },
+        "sourceKind": "github", "sourceScope": "search",
         "sourceTopic": ""
       }
     ],

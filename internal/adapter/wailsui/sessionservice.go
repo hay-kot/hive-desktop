@@ -56,6 +56,12 @@ func (s *SessionService) SessionDetail(ctx context.Context, id string) (dispatch
 	return s.sessions.SessionDetail(ctx, id)
 }
 
+// ItemSessions returns the sessions an inbox item spawned, newest first, with
+// the state hive reports for each now. Slug is the attach target.
+func (s *SessionService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
+	return s.sessions.ItemSessions(ctx, itemID)
+}
+
 // SessionRisk reports the uncommitted or unpushed work a delete or recycle
 // would discard, for the confirmation that precedes one.
 func (s *SessionService) SessionRisk(ctx context.Context, id string) (dispatch.SessionRisk, error) {

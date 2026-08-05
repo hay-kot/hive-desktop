@@ -320,8 +320,8 @@ RETURNING *;
 -- name: EnqueueOutputCommand :exec
 -- Deduped on (action_id, key): a replayed commit batch enqueues the same
 -- action invocation at most once (see idx_output_command_action_key).
-INSERT INTO output_command (action_id, key, payload, status, created_at)
-VALUES (?, ?, ?, 'pending', ?)
+INSERT INTO output_command (action_id, key, payload, status, created_at, profile_id, source_kind, source_scope, external_id)
+VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING;
 
 -- name: ListRunnableOutputCommands :many
@@ -342,18 +342,32 @@ LIMIT ?;
 
 -- name: ConfirmOutputCommand :one
 -- Explicit detail invocation creates work or claims a queued flow command.
--- Terminal/running commands remain deduplicated.
-INSERT INTO output_command (action_id, key, payload, status, created_at)
-VALUES (?, ?, ?, 'running', ?)
-ON CONFLICT DO UPDATE SET status = 'running'
+-- Terminal/running commands remain deduplicated. Claiming a queued command
+-- keeps the origin the enqueue recorded when that names an item, and takes the
+-- caller's only when it does not. The four columns move together: a mix of one
+-- row's profile and another's external id would be a reference to no item at
+-- all, which is worse than either.
+INSERT INTO output_command (action_id, key, payload, status, created_at, profile_id, source_kind, source_scope, external_id)
+VALUES (?, ?, ?, 'running', ?, ?, ?, ?, ?)
+ON CONFLICT DO UPDATE SET
+    status = 'running',
+    profile_id = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                      THEN output_command.profile_id ELSE excluded.profile_id END,
+    source_kind = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                       THEN output_command.source_kind ELSE excluded.source_kind END,
+    source_scope = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                        THEN output_command.source_scope ELSE excluded.source_scope END,
+    external_id = CASE WHEN output_command.profile_id <> '' AND output_command.external_id <> ''
+                       THEN output_command.external_id ELSE excluded.external_id END
 WHERE output_command.status = 'pending'
 RETURNING *;
 
 -- name: RerunOutputCommand :one
 -- An explicit user confirmation creates a separate command so prior execution
 -- diagnostics and Activity links remain intact.
-INSERT INTO output_command (action_id, key, payload, status, created_at, is_rerun)
-SELECT sqlc.arg(action_id), sqlc.arg(key), sqlc.arg(payload), 'running', sqlc.arg(created_at), 1
+INSERT INTO output_command (action_id, key, payload, status, created_at, is_rerun, profile_id, source_kind, source_scope, external_id)
+SELECT sqlc.arg(action_id), sqlc.arg(key), sqlc.arg(payload), 'running', sqlc.arg(created_at), 1,
+       sqlc.arg(profile_id), sqlc.arg(source_kind), sqlc.arg(source_scope), sqlc.arg(external_id)
 WHERE EXISTS (
     SELECT 1 FROM output_command
     WHERE action_id = sqlc.arg(action_id) AND key = sqlc.arg(key)
@@ -387,6 +401,34 @@ WHERE id = ?;
 -- name: MarkOutputCommandFailed :exec
 UPDATE output_command SET status = 'failed', attempts = attempts + 1, last_error = ?, stdout = ?, stderr = ?
 WHERE id = ?;
+
+-- name: LinkItemSession :exec
+-- A session hive already minted an id for, so a re-link is the same row.
+INSERT INTO item_session (session_id, profile_id, source_kind, source_scope, external_id, created_at)
+VALUES (?, ?, ?, ?, ?, ?)
+ON CONFLICT (session_id) DO NOTHING;
+
+-- name: ListItemSessions :many
+-- Newest first: a re-run appends a session rather than replacing one, so the
+-- most recent attempt leads.
+SELECT * FROM item_session
+WHERE profile_id = ? AND source_kind = ? AND source_scope = ? AND external_id = ?
+ORDER BY created_at DESC, session_id DESC;
+
+-- name: DeleteItemSession :exec
+DELETE FROM item_session WHERE session_id = ?;
+
+-- name: DeleteItemSessionsByProfile :exec
+DELETE FROM item_session WHERE profile_id = ?;
+
+-- name: RescopeItemSessions :exec
+-- Follows an inbox row whose source_scope was healed (see
+-- resolveInboxItemScoped), so links keyed on the old scope stay reachable.
+UPDATE item_session SET source_scope = sqlc.arg(source_scope)
+WHERE profile_id = sqlc.arg(profile_id)
+  AND source_kind = sqlc.arg(source_kind)
+  AND source_scope = ''
+  AND external_id = sqlc.arg(external_id);
 
 -- name: InsertNodeRun :exec
 INSERT INTO node_run (flow_id, node_id, ok, in_count, out_count, drop_count, err, ended_at, dur_ms)

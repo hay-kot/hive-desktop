@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import DetailPane from '../DetailPane.vue'
 import type { ActionView } from '../../types/action'
 import type { InboxItem } from '../../types/feed'
+import type { ItemSessionView } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const item: InboxItem = {
   id: 42, profileId: 'triage', sourceKind: 'github', sourceScope: 'colonyops/hive', externalId: 'pr-42', title: 'Add desktop shell', url: 'https://github.com/hay-kot/hive-desktop/pull/42',
@@ -24,6 +25,44 @@ describe('DetailPane', () => {
     expect(wrapper.get('[data-testid="detail-body"]').find('h2').exists()).toBe(true)
     await wrapper.get('[data-testid="detail-body"] a').trigger('click')
     expect(wrapper.emitted('open-url')).toEqual([['https://example.com']])
+  })
+
+  const session = (patch: Partial<ItemSessionView> = {}): ItemSessionView => ({
+    id: 's1', name: 'review-42', slug: 'review-42', repo: 'colonyops/hive',
+    state: 'active', running: true, createdAt: new Date().toISOString(), ...patch,
+  })
+
+  it('omits the sessions section for an item that spawned none', () => {
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions: [] } })
+    expect(wrapper.find('[data-testid="item-sessions"]').exists()).toBe(false)
+  })
+
+  it('lists linked sessions with their liveness and links through to the slug', async () => {
+    const sessions = [session(), session({ id: 's2', name: 'review-42-rerun', slug: 'review-42-rerun', running: false })]
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions, canAttachSession: true } })
+    const rows = wrapper.get('[data-testid="item-sessions"]')
+    expect(rows.text()).toContain('review-42')
+    expect(rows.text()).toContain('running')
+    expect(rows.text()).toContain('idle')
+
+    await wrapper.get('[data-testid="item-session-s1"]').trigger('click')
+    expect(wrapper.emitted('open-session')).toEqual([['review-42']])
+  })
+
+  it('does not offer to attach a session with no checkout left', async () => {
+    const sessions = [session({ state: 'recycled', running: false })]
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions, canAttachSession: true } })
+    expect(wrapper.get('[data-testid="item-sessions"]').text()).toContain('recycled')
+    await wrapper.get('[data-testid="item-session-s1"]').trigger('click')
+    expect(wrapper.emitted('open-session')).toBeUndefined()
+  })
+
+  // Terminal mode ships dark (ADR 0037): with it off there is nowhere to
+  // attach, so the rows stay a record of what ran.
+  it('does not offer to attach while terminal mode is off', async () => {
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions: [session()] } })
+    await wrapper.get('[data-testid="item-session-s1"]').trigger('click')
+    expect(wrapper.emitted('open-session')).toBeUndefined()
   })
 
   it('formats a current event as now, never now ago', () => {

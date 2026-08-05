@@ -122,10 +122,17 @@ mise run --force generate
 # -N registers files the generators created that the checkout lacks, for the
 # same reason check:bindings and check:vendor do it: plain git diff cannot see
 # an untracked file, so a brand-new enum or query output would pass unnoticed.
-# The diff is against HEAD because that same git add stages any deletion the
-# generators made, which a worktree-only diff would then report as clean.
+# It also registers a deletion the generators made, which would otherwise read
+# as clean.
+#
+# The diff is against the index, not HEAD. This runs as a pre-commit hook, where
+# HEAD is the *previous* commit and generated output that legitimately changed
+# in the commit being made differs from it — diffing HEAD there reports every
+# schema change as stale. Against the index the question is the right one: after
+# regenerating, does the working tree still match what is staged? At pre-push
+# and in CI the tree is committed, so index and HEAD agree and nothing changes.
 git add -N internal/app
-git diff HEAD --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
+git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }

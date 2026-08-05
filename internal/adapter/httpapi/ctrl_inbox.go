@@ -9,6 +9,7 @@ import (
 	"github.com/hay-kot/httpkit/server"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/web/extractors"
 )
@@ -116,7 +117,7 @@ func (ctrl *Controller) InboxItemEvents(w http.ResponseWriter, r *http.Request) 
 	if err != nil {
 		return err
 	}
-	itemID, err := ctrl.resolveItemID(r.Context(), q)
+	itemID, err := ctrl.resolveItemID(r.Context(), q.ItemID, q.ExternalID, q.Profile)
 	if err != nil {
 		return err
 	}
@@ -127,22 +128,55 @@ func (ctrl *Controller) InboxItemEvents(w http.ResponseWriter, r *http.Request) 
 	return server.JSON(w, http.StatusOK, eventsResponse{Events: events})
 }
 
+type ItemSessionsQuery struct {
+	ItemID     int64  `schema:"itemId"     desc:"Inbox item id; 404 if no such item. Provide this or externalId."`
+	ExternalID string `schema:"externalId" desc:"External id resolving to one item; provide this or itemId. If it matches items in more than one profile, add 'profile' to disambiguate, else the response is 409."`
+	Profile    string `schema:"profile"    desc:"Profile id used to disambiguate an externalId that matches multiple profiles."`
+}
+
+func (q ItemSessionsQuery) Validate() error {
+	return criterio.ValidateStruct(
+		criterio.Run("itemId", q.ItemID,
+			criterio.When(q.ExternalID == "", requiredWithout[int64]("externalId"))),
+	)
+}
+
+type itemSessionsResponse struct {
+	Sessions []dispatch.ItemSessionView `json:"sessions"`
+}
+
+func (ctrl *Controller) InboxItemSessions(w http.ResponseWriter, r *http.Request) error {
+	q, err := extractors.Query[ItemSessionsQuery](r)
+	if err != nil {
+		return err
+	}
+	itemID, err := ctrl.resolveItemID(r.Context(), q.ItemID, q.ExternalID, q.Profile)
+	if err != nil {
+		return err
+	}
+	sessions, err := ctrl.core.Sessions.ItemSessions(r.Context(), itemID)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, itemSessionsResponse{Sessions: sessions})
+}
+
 // resolveItemID accepts an explicit itemId, or an externalId that must resolve
 // to exactly one item.
-func (ctrl *Controller) resolveItemID(ctx context.Context, q EventsQuery) (int64, error) {
-	if q.ItemID != 0 {
-		return q.ItemID, nil
+func (ctrl *Controller) resolveItemID(ctx context.Context, itemID int64, externalID, profile string) (int64, error) {
+	if itemID != 0 {
+		return itemID, nil
 	}
-	items, err := ctrl.core.Inbox.FindItems(ctx, q.Profile, q.ExternalID)
+	items, err := ctrl.core.Inbox.FindItems(ctx, profile, externalID)
 	if err != nil {
 		return 0, err
 	}
 	switch len(items) {
 	case 0:
-		return 0, app.Errorf(app.KindNotFound, "no item with external id %q", q.ExternalID)
+		return 0, app.Errorf(app.KindNotFound, "no item with external id %q", externalID)
 	case 1:
 		return items[0].ID, nil
 	default:
-		return 0, app.Errorf(app.KindConflict, "external id %q matches %d items; add profile to disambiguate", q.ExternalID, len(items))
+		return 0, app.Errorf(app.KindConflict, "external id %q matches %d items; add profile to disambiguate", externalID, len(items))
 	}
 }

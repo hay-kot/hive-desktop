@@ -67,9 +67,24 @@ describe('useNewSession', () => {
     const s = useNewSession()
     await s.openBlank()
     await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude' })
-    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude' })
+    expect(mocks.CreateSession).toHaveBeenCalledWith({ repository: 'acme/site', name: 'fix-crash', prompt: 'go', agent: 'claude', itemId: 0 })
     expect(s.open.value).toBe(false)
     expect(useToasts().toasts.value.at(-1)?.message).toContain('fix-crash')
+  })
+
+  // The session a form drafted from an item creates is recorded against that
+  // item, so the detail pane can link through to it later.
+  it('submits the item a draft came from, and nothing for a blank form', async () => {
+    mocks.NewSessionDraft.mockResolvedValue({ repository: 'acme/site', name: 'fix-crash', prompt: 'Fix the crash' })
+    mocks.CreateSession.mockResolvedValue(7)
+    const s = useNewSession()
+    await s.openFromItem(item)
+    await s.submit({ repository: 'acme/site', name: 'fix-crash', prompt: 'go' })
+    expect(mocks.CreateSession).toHaveBeenCalledWith(expect.objectContaining({ itemId: 7 }))
+
+    await s.openBlank()
+    await s.submit({ repository: 'acme/site', name: 'other', prompt: 'go' })
+    expect(mocks.CreateSession).toHaveBeenLastCalledWith(expect.objectContaining({ itemId: 0 }))
   })
 
   it('surfaces a validation error without closing', async () => {

@@ -1026,6 +1026,29 @@ destructive is gated on `SessionRisk`, whose payload names the uncommitted or
 unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
 
+**A session this app created for an inbox item stays findable from that item**
+(ADR 0070). The association is `item_session` in `desktop-pipeline.db`, keyed by
+hive's session id — never written into hive's own record, whose model must not
+learn what an inbox item is. Four rules are load-bearing:
+
+- **The item is named by its coordinates** (`profile_id`, `source_kind`,
+  `source_scope`, `external_id`), not by `inbox_item.id`, and the table has no
+  foreign key. A replay deletes and rebuilds every row a profile owns, so a row
+  id would drop the associations on an ordinary flow edit. Anything that
+  rewrites those columns has to move the links with them —
+  `resolveInboxItemScoped`'s scope heal does, and `PurgeProfile` drops them.
+- **Nothing about the session is mirrored.** `SessionsService.ItemSessions`
+  reads name, slug, repo, state and liveness from hive on every call, so a
+  session renamed outside the app cannot be shown under its old name.
+- **The read is what reconciles.** A link hive cannot account for is dropped —
+  but only behind a *successful* listing, because a failed one is not evidence a
+  session is gone.
+- **The item an action ran against travels on the `output_command` row.** Its
+  dedup key is the occurrence key, which names no item, so `actionSinks` carries
+  the source identity the way `notifySinks` already does and the enqueue records
+  it. `OutputData.Origin` is how it reaches an executor; a launcher records the
+  link and never fails the launch over it.
+
 **The user's own operations on a session are `actions.yml` entries, not a second
 config** (ADR 0047). An action declares its surfaces in `targets:` — `item`
 (the default, and what every pre-terminal action means), `session`, `window` —
@@ -1483,6 +1506,9 @@ migration:
 - `node_kv` — a function node's dedup/change-detection memory. Replay is
   deliberately KV-inert, so a lost seen-set cannot be recomputed; dropping
   it re-fires every notify-once branch.
+- `item_session` — which hive sessions an item started. The session survives
+  independently and carries no back-reference this app reads, so a dropped link
+  cannot be rebuilt from either side.
 
 Everything else (`event_log`, `feed_membership_claim`, `node_run`,
 `source_head`, `consumer_offset`, `activity_event`, `job`) is derived or

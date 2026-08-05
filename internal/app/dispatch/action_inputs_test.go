@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
+	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 func inputAction(id, actionType string, cfg actions.ActionConfig, inputs ...actions.InputSpec) actions.Action {
@@ -93,7 +94,7 @@ func TestWorker_ConfirmThreadsCollectedInputsToTheExecutor(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{"ignore": action},
 		NewDispatcher(map[string]Executor{"shell": exec}), 0, zerolog.Nop())
 
-	view, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{"title":"Fix bug"}`),
+	view, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{},
 		ActionInvocationInput{Inputs: map[string]string{"reason": "flapping"}})
 	require.NoError(t, err)
 	assert.Equal(t, "done", view.Status)
@@ -113,7 +114,7 @@ func TestWorker_MissingRequiredInputFailsWithoutDispatching(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{"ignore": action},
 		NewDispatcher(map[string]Executor{"shell": exec}), 0, zerolog.Nop())
 
-	_, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{}`), ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "ignore", "item-1", []byte(`{}`), store.ItemRef{}, ActionInvocationInput{})
 	require.ErrorContains(t, err, `input "reason" is required`)
 	assert.Equal(t, 0, exec.callCount())
 }

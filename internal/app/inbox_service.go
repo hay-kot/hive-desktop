@@ -211,7 +211,14 @@ func (s *InboxService) InvokeAction(ctx context.Context, req InvokeActionRequest
 	if s.worker == nil {
 		return dispatch.ActionRunView{}, Errorf(KindUnavailable, "action execution is unavailable")
 	}
-	view, err := s.worker.Confirm(ctx, req.ActionID, item.ID, item.Payload, req.Input)
+	// The command's key is the action item's id, which is not enough to find
+	// the row again; the item's own identity rides along so a session this
+	// invocation creates stays reachable from the item that asked for it.
+	origin, err := s.db.ItemRefByID(ctx, req.ItemID)
+	if err != nil {
+		return dispatch.ActionRunView{}, Wrap(err, KindInternal, "reading inbox item %d", req.ItemID)
+	}
+	view, err := s.worker.Confirm(ctx, req.ActionID, item.ID, item.Payload, origin, req.Input)
 	if err != nil {
 		return dispatch.ActionRunView{}, s.confirmError(err, req.ActionID)
 	}

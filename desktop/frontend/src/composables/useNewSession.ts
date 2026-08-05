@@ -16,6 +16,12 @@ const error = ref<string | null>(null)
 const options = ref<SessionLaunchOptionsView | null>(null)
 const initial = ref<Draft>({ repository: '', name: '', prompt: '' })
 
+// The item the open form was drafted from, so the session it creates is
+// recorded against that item. 0 for a blank form. It is not a form field: the
+// backend resolves the item's identity from this id and never takes it from
+// the client, and the user cannot retarget a draft at a different item.
+const itemID = ref(0)
+
 // SessionLaunchOptions scans every configured workspace directory (a git call
 // per repo), slow enough that a click blocked on it visibly lags. The last
 // result opens the dialog instantly; the refresh lands behind it.
@@ -40,6 +46,7 @@ export function resetNewSessionForTests(): void {
   busy.value = false
   error.value = null
   options.value = null
+  itemID.value = 0
 }
 
 function message(e: unknown, fallback: string): string {
@@ -64,6 +71,7 @@ export function useNewSession() {
       const opts = await resolveOptions()
       options.value = opts
       initial.value = { repository: preferred || opts.defaultRepository || '', name: '', prompt: '' }
+      itemID.value = 0
       open.value = true
     } catch (e) {
       showToast(message(e, 'Could not load session options.'), { severity: 'error' })
@@ -84,6 +92,7 @@ export function useNewSession() {
         name: draft.name,
         prompt: draft.prompt,
       }
+      itemID.value = item.id
       open.value = true
     } catch (e) {
       showToast(message(e, 'Could not prepare the session.'), { severity: 'error' })
@@ -97,6 +106,7 @@ export function useNewSession() {
     open.value = false
     options.value = null
     error.value = null
+    itemID.value = 0
   }
 
   async function submit(input: { repository: string; name: string; prompt: string; agent?: string }): Promise<void> {
@@ -106,10 +116,11 @@ export function useNewSession() {
     try {
       // Creation (including any clone) runs as a background job; its outcome
       // shows in the titlebar jobs chip. Only validation errors reject here.
-      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '' })
+      await CreateSession({ repository: input.repository, name: input.name, prompt: input.prompt, agent: input.agent ?? '', itemId: itemID.value })
       showToast(`Creating session ${input.name}…`, { severity: 'info' })
       open.value = false
       options.value = null
+      itemID.value = 0
     } catch (e) {
       error.value = message(e, 'Could not start the session.')
     } finally {

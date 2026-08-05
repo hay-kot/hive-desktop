@@ -18,8 +18,11 @@ func (db *DB) ListRunnableOutputCommandsAfter(ctx context.Context, afterID int64
 	return rows, wrap("listing runnable output commands", err)
 }
 
-func (db *DB) ConfirmOutputCommand(ctx context.Context, actionID, key string, payload []byte) (OutputCommand, bool, error) {
-	row, err := db.queries.ConfirmOutputCommand(ctx, ConfirmOutputCommandParams{ActionID: actionID, Key: key, Payload: payload, CreatedAt: time.Now().UnixMilli()})
+func (db *DB) ConfirmOutputCommand(ctx context.Context, actionID, key string, payload []byte, ref ItemRef) (OutputCommand, bool, error) {
+	row, err := db.queries.ConfirmOutputCommand(ctx, ConfirmOutputCommandParams{
+		ActionID: actionID, Key: key, Payload: payload, CreatedAt: time.Now().UnixMilli(),
+		ProfileID: ref.ProfileID, SourceKind: ref.SourceKind, SourceScope: ref.SourceScope, ExternalID: ref.ExternalID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		existing, lookupErr := db.queries.GetLatestOutputCommandForAction(ctx, GetLatestOutputCommandForActionParams{ActionID: actionID, Key: key})
 		return existing, false, wrap("getting existing output command", lookupErr)
@@ -27,8 +30,11 @@ func (db *DB) ConfirmOutputCommand(ctx context.Context, actionID, key string, pa
 	return row, err == nil, wrap("confirming output command", err)
 }
 
-func (db *DB) RerunOutputCommand(ctx context.Context, actionID, key string, payload []byte) (OutputCommand, error) {
-	row, err := db.queries.RerunOutputCommand(ctx, RerunOutputCommandParams{ActionID: actionID, Key: key, Payload: payload, CreatedAt: time.Now().UnixMilli()})
+func (db *DB) RerunOutputCommand(ctx context.Context, actionID, key string, payload []byte, ref ItemRef) (OutputCommand, error) {
+	row, err := db.queries.RerunOutputCommand(ctx, RerunOutputCommandParams{
+		ActionID: actionID, Key: key, Payload: payload, CreatedAt: time.Now().UnixMilli(),
+		ProfileID: ref.ProfileID, SourceKind: ref.SourceKind, SourceScope: ref.SourceScope, ExternalID: ref.ExternalID,
+	})
 	if errors.Is(err, sql.ErrNoRows) {
 		// %w deliberately: the boundary classifies this by unwrapping, and
 		// without it a rerun-without-a-prior-run reports as an internal
@@ -36,6 +42,13 @@ func (db *DB) RerunOutputCommand(ctx context.Context, actionID, key string, payl
 		return OutputCommand{}, fmt.Errorf("action %q cannot rerun for %q without a completed prior run: %w", actionID, key, err)
 	}
 	return row, wrap("rerunning output command", err)
+}
+
+// ItemRef is the inbox item this command was routed from. A command with no
+// inbox origin — a notify command, or an action invoked from a surface that
+// has no item behind it — returns a zero ref, which reads as not Known.
+func (c OutputCommand) ItemRef() ItemRef {
+	return ItemRef{ProfileID: c.ProfileID, SourceKind: c.SourceKind, SourceScope: c.SourceScope, ExternalID: c.ExternalID}
 }
 
 func (db *DB) OutputCommand(ctx context.Context, id int64) (OutputCommand, error) {

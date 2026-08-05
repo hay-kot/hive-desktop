@@ -182,13 +182,13 @@ func TestWorker_ConfirmRequiresApprovalBeforeRerunningCompletedCommand(t *testin
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.True(t, view.ConfirmationRequired)
 	assert.Equal(t, 1, exec.callCount(), "the duplicate must not execute before confirmation")
 	assert.Equal(t, "Fix bug", exec.calls[0].Payload["title"], "the worker preserves the queued command payload")
 
-	rerun, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), ActionInvocationInput{Rerun: true})
+	rerun, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"changed"}`), store.ItemRef{}, ActionInvocationInput{Rerun: true})
 	require.NoError(t, err)
 	assert.False(t, rerun.ConfirmationRequired)
 	assert.Equal(t, "done", rerun.Status)
@@ -212,7 +212,7 @@ func TestWorker_ConfirmRecordsJobLifecycleWithoutReplay(t *testing.T) {
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
-	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Begin", "Running", "Done"}, recorder.calls)
 	assert.Equal(t, "Test action", recorder.label)
@@ -221,7 +221,7 @@ func TestWorker_ConfirmRecordsJobLifecycleWithoutReplay(t *testing.T) {
 	assert.Positive(t, recorder.commandID)
 
 	recorder.calls = nil
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{}`), ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.True(t, view.ConfirmationRequired)
 	assert.Empty(t, recorder.calls, "an unconfirmed rerun must not create a phantom job")
@@ -234,7 +234,7 @@ func TestWorker_ConfirmUnknownActionRecordsQueuedFailure(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{}, NewDispatcher(nil), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
 
-	_, err := worker.Confirm(t.Context(), "missing", "item-1", []byte(`{}`), ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "missing", "item-1", []byte(`{}`), store.ItemRef{}, ActionInvocationInput{})
 	require.Error(t, err)
 	assert.Equal(t, []string{"Begin", "Fail"}, recorder.calls)
 	assert.Equal(t, "missing", recorder.label)
@@ -248,7 +248,7 @@ func TestWorker_ConfirmCreatesCommandWhenNoActionNodeProducedOne(t *testing.T) {
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)},
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 
-	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), ActionInvocationInput{})
+	_, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Equal(t, 1, exec.callCount())
 
@@ -388,7 +388,7 @@ func TestWorker_ConfirmFailureReturnsPersistedDiagnostics(t *testing.T) {
 	recorder := &fakeJobRecorder{}
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.SetJobRecorder(recorder)
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err, "an attempted side-effect failure is returned as a persisted view")
 	assert.Equal(t, "failed", view.Status)
 	assert.Equal(t, "boom", view.Error)
@@ -403,7 +403,7 @@ func TestWorker_DoesNotRetryInterruptedInteractiveCommandAfterReopen(t *testing.
 	db, err := store.Open(t.Context(), dir, store.DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, db, "review-action", "item-1", `{"title":"Fix bug"}`)
-	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`))
+	_, created, err := db.ConfirmOutputCommand(t.Context(), "review-action", "item-1", []byte(`{}`), store.ItemRef{})
 	require.NoError(t, err)
 	require.True(t, created)
 	require.NoError(t, db.Close())
@@ -427,7 +427,7 @@ func TestWorker_BoundsExecutorDiagnosticsBeforePersistence(t *testing.T) {
 	noisy := strings.Repeat("x", maxExecutionStreamBytes+1)
 	exec := &fakeExecutor{result: ExecutionResult{Log: ExecutionLog{Stdout: noisy, Stderr: noisy}}}
 	worker := NewWorker(db, fakeActionLister{"review-action": launchSessionAction("review-action", false)}, NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
-	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), ActionInvocationInput{})
+	view, err := worker.Confirm(t.Context(), "review-action", "item-1", []byte(`{"title":"Fix bug"}`), store.ItemRef{}, ActionInvocationInput{})
 	require.NoError(t, err)
 	assert.Len(t, view.Stdout, maxExecutionStreamBytes)
 	assert.Len(t, view.Stderr, maxExecutionStreamBytes)

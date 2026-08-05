@@ -344,6 +344,7 @@ func TestPipelineService_ConfirmedLaunchSessionExecutesRealActionPath(t *testing
 	require.NoError(t, err)
 	require.Equal(t, []dispatch.LaunchSessionRequest{{
 		Name: "review-pr-pr-1", Prompt: "Review Fix it", Repo: "git@example/repo.git",
+		Origin: store.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "pr-1"},
 	}}, launcher.calls)
 
 	var status string
