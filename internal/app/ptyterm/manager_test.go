@@ -102,7 +102,10 @@ func TestOpenIsAlwaysANewTerminal(t *testing.T) {
 func TestCommandRunsThroughTheShell(t *testing.T) {
 	m := testManager(t)
 
-	term, err := m.Open(t.Context(), Spec{Dir: t.TempDir(), Command: "echo one && echo two"})
+	// `cat` blocks on the PTY so the terminal outlives the subscribe. Without
+	// it the shell exits in a millisecond, the manager forgets the terminal,
+	// and Subscribe loses the race on a loaded machine.
+	term, err := m.Open(t.Context(), Spec{Dir: t.TempDir(), Command: "echo one && echo two && cat"})
 	require.NoError(t, err)
 	require.Equal(t, "echo", term.Title)
 
