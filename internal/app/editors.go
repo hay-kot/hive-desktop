@@ -38,7 +38,7 @@ func editorTitle(command string) string {
 
 // detectEditors reports the known catalogue with each command resolved
 // through lookPath — the resolver's, so the answer matches what a launch
-// would actually find (ADR 0041), not the desktop process's own PATH.
+// would actually find (ADR subprocess-environment), not the desktop process's own PATH.
 func detectEditors(ctx context.Context, lookPath func(context.Context, string) (string, error)) []EditorChoice {
 	if lookPath == nil {
 		lookPath = func(_ context.Context, name string) (string, error) { return exec.LookPath(name) }

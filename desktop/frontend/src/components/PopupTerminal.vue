@@ -17,7 +17,7 @@ import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import '@xterm/xterm/css/xterm.css'
 
 // The floating pop-up terminal: one PTY this process owns, rendered over
-// whatever is on screen (ADR 0048). Hiding it leaves the shell running — the
+// whatever is on screen (ADR ephemeral-popup-terminals). Hiding it leaves the shell running — the
 // panel is a view of the terminal, not the terminal's lifetime — so the only
 // things that end it are the process exiting, End, and quitting Hive.
 
@@ -54,7 +54,7 @@ let fit: FitAddon | null = null
 let observer: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | undefined
 // An atlas renderer is live on the pane. False after a claim that did not
-// survive, which is what makes the next reveal retry it (ADR 0045).
+// survive, which is what makes the next reveal retry it (ADR terminal-renderer-claimed-on-activation).
 let rendered = false
 // The launch the pane on screen belongs to. Behind launchSeq means someone has
 // asked for a different terminal since, and the pane is showing the wrong one.
@@ -281,7 +281,7 @@ function openLink(uri: string): void {
 const linkHandler: ILinkHandler = { activate: (_event, uri) => openLink(uri) }
 
 // A failed claim leaves `rendered` false, which is what makes the next reveal
-// retry it rather than leaving the pane on the DOM renderer (ADR 0045).
+// retry it rather than leaving the pane on the DOM renderer (ADR terminal-renderer-claimed-on-activation).
 function loadRenderer(target: Terminal): void {
   claimAtlasRenderer(target, (addon) => disposers.push(addon), (claimed) => { rendered = claimed })
 }
@@ -297,13 +297,13 @@ async function reveal(): Promise<void> {
   // Asking for the pop-up is asking for a terminal, so a panel with none live
   // opens one rather than showing an empty box with a button in it. A live one
   // that belongs to an earlier launch is replaced: the caller asked for a
-  // different terminal, and one pop-up is open at a time (ADR 0048).
+  // different terminal, and one pop-up is open at a time (ADR ephemeral-popup-terminals).
   if (status.value !== 'live' || renderedSeq !== launchSeq.value) {
     if (status.value !== 'opening') await openTerminal()
     return
   }
   // A renderer claim that failed earlier gets another chance every time the
-  // pane comes back on screen (ADR 0045).
+  // pane comes back on screen (ADR terminal-renderer-claimed-on-activation).
   if (!rendered && term.value) loadRenderer(term.value)
   term.value?.focus()
 }
@@ -319,7 +319,7 @@ watch([visible, launchSeq], ([open]) => {
 watch(theme, () => { if (term.value) term.value.options.theme = xtermTheme() })
 // The faces have to be resident before xterm re-measures its cell against them,
 // or it measures the outgoing font and the atlas caches glyphs at the wrong
-// metrics (ADR 0038).
+// metrics (ADR terminal-atlas-renderer).
 watch(
   [fontSizePx, fontFamily, fontWeight, fontWeightBold, lineHeight, letterSpacing],
   async ([px, family, weight, weightBold, height, spacing]) => {

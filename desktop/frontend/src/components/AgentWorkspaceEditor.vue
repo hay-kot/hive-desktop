@@ -54,7 +54,7 @@ const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => (
 // Every posture is laid out as a radio card rather than a dropdown, so the
 // choice being made — especially full's dangerous bypass — is readable
 // before it is selected. The flags line is the launch table's own projection
-// for the chosen agent (ADR 0061): the UI shows what the posture actually
+// for the chosen agent (ADR a-workspace-declares-its-own-authority): the UI shows what the posture actually
 // runs, never a euphemism, and a posture the launch would refuse is disabled.
 const AUTONOMY_META = [
   {

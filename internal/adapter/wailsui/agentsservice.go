@@ -10,16 +10,16 @@ import (
 
 // AgentsTransport is what the Agents area needs that the core does not hold:
 // the per-run bearer token and the path its tmux stream is mounted at. Both
-// are composed in main.go and handed here (ADR 0036). It shares the terminal
+// are composed in main.go and handed here (ADR terminal-transport). It shares the terminal
 // surface's token and stream because a workspace session is a tmux session
-// too, just not a hive one (ADR 0063).
+// too, just not a hive one (ADR agent-workspace-sessions-are-tmux-sessions).
 type AgentsTransport struct {
 	Token      string
 	StreamPath string
 }
 
 // AgentsAvailability gates the Agents area. Like terminal mode, it depends on
-// tmux — a session is a tmux session since ADR 0063 — so Available answers
+// tmux — a session is a tmux session since ADR agent-workspace-sessions-are-tmux-sessions — so Available answers
 // the same question TerminalService's does.
 type AgentsAvailability struct {
 	Available bool   `json:"available"`
@@ -51,7 +51,7 @@ func NewAgentsService(workspaces *app.AgentWorkspacesService, webhooks *app.Webh
 	return &AgentsService{workspaces: workspaces, webhooks: webhooks, transport: transport, enabled: enabled}
 }
 
-// Enabled reports the experimental.agents opt-in (ADR 0061 / ADR 0037). The
+// Enabled reports the experimental.agents opt-in (ADR a-workspace-declares-its-own-authority / ADR terminal-experimental-gate). The
 // frontend renders the way into the Agents area only when it is on;
 // availability stays a separate axis, because an enabled-but-unavailable area
 // explains itself inside the mode instead of hiding the way in.

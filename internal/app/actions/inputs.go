@@ -35,7 +35,7 @@ const maxInputNameLen = 64
 //
 // Inputs are an envelope field rather than per-type config: every action type
 // renders over the same OutputData, so one declaration gives a new action type
-// the invocation form with nothing further to wire (ADR 0043).
+// the invocation form with nothing further to wire (ADR action-declared-inputs).
 type InputSpec struct {
 	// Name is the template key: `{{ .Inputs.<name> }}`.
 	Name string `json:"name" yaml:"name"`

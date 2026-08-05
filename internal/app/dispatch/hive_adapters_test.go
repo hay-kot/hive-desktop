@@ -328,7 +328,7 @@ func TestHiveSessionManagerRenameReSlugsTheSession(t *testing.T) {
 	assert.Equal(t, "Review 82", detail.Name)
 	// The slug moving is the hazard the desktop compensates for: it is the tmux
 	// session name, and hive renames the record without renaming tmux. See
-	// app.SessionsService.RenameSession and ADR 0038.
+	// app.SessionsService.RenameSession and ADR terminal-atlas-renderer.
 	assert.Equal(t, "review-82", detail.Slug)
 	assert.Equal(t, "/tmp/review-81", detail.Path, "the directory keeps the slug it was cloned under")
 }

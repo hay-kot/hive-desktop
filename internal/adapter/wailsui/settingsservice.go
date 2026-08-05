@@ -62,12 +62,12 @@ type AppearanceSettings struct {
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached
-	// for instant switching (ADR 0042). Carried verbatim; the frontend heals
+	// for instant switching (ADR terminal-attach-pool). Carried verbatim; the frontend heals
 	// anything outside 1-6 to the default, 3.
 	TerminalPoolSize int `json:"terminalPoolSize"`
 }
 
-// ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
+// ExperimentalSettings carries the ships-dark opt-ins (ADR terminal-experimental-gate). Each field
 // is the effective persisted value, not the running one: the flag is read at
 // startup, so the frontend compares it against TerminalService.Enabled /
 // AgentsService.Enabled to know whether a relaunch is pending.

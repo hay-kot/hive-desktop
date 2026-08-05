@@ -10,7 +10,7 @@ import (
 )
 
 // sessions/all rides the same terminal bearer token and CORS policy as every
-// other agent-workspace route (ADR 0061) — it sits in the same operations
+// other agent-workspace route (ADR a-workspace-declares-its-own-authority) — it sits in the same operations
 // table, but this proves the wiring rather than assuming it.
 func TestAgentSessionsAllRequiresTheBearerToken(t *testing.T) {
 	h := newAgentHarness(t, true)
@@ -45,7 +45,7 @@ func TestAgentSessionsAllListsOverTheWireAsAnEmptyArray(t *testing.T) {
 }
 
 // Off means the route does not exist, not that it needs auth — the same
-// ADR 0037 point 2 rule TestAgentRoutesAbsentWhenDisabled proves for the rest
+// ADR terminal-experimental-gate point 2 rule TestAgentRoutesAbsentWhenDisabled proves for the rest
 // of the agent-workspace surface.
 func TestAgentSessionsAllRouteAbsentWhenDisabled(t *testing.T) {
 	h := newAgentHarness(t, false)

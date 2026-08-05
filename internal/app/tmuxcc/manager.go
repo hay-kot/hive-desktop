@@ -33,7 +33,7 @@ type ManagerOptions struct {
 	// Environ answers the environment tmux is spawned with — execenv's resolved
 	// PATH in the app, whatever a test hands it otherwise. nil means this
 	// process's own. It is the same hook ptyterm.ManagerOptions carries, held
-	// separately because the two backends share no interface (ADR 0048).
+	// separately because the two backends share no interface (ADR ephemeral-popup-terminals).
 	Environ func(context.Context) []string
 
 	versionProbe func(context.Context, string) (string, error)
@@ -423,12 +423,12 @@ func (m *Manager) ListAllWindows(ctx context.Context, slugs []string) (map[strin
 }
 
 // oneShot runs a one-shot tmux command with the binary the availability probe
-// resolved (ADR 0039) — never a bare "tmux", which a desktop launch may not
+// resolved (ADR tmux-discovery) — never a bare "tmux", which a desktop launch may not
 // have on $PATH. Callers go through Available first, which is what sets it.
 //
 // The resolved environment goes with it because a pane inherits the client
 // that created it, so this is what puts an agent binary on NewSession's PATH
-// (ADR 0068).
+// (ADR tmux-runs-in-the-resolved-environment).
 func (m *Manager) oneShot(ctx context.Context, args ...string) ([]string, error) {
 	m.mu.Lock()
 	binary := m.binary

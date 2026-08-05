@@ -64,7 +64,7 @@ type Env struct {
 	// the webhook listener, at the /mcp path. Empty when no port is resolved.
 	MCPEndpoint string
 	// MCPEnabled reports whether the loopback HTTP server is on. It is the same
-	// http.enabled flag as the webhook listener (one server, ADR 0021).
+	// http.enabled flag as the webhook listener (one server, ADR agent-http-api).
 	MCPEnabled bool
 	// AgentWorkspacesDir is the agent-workspace root: mcps.yaml, .shared/, and
 	// one directory per workspace live under it.

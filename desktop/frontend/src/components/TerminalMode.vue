@@ -1217,7 +1217,7 @@ async function newWindowIn(row: TerminalSessionRow): Promise<void> {
     // what opens its first tab, so + is the whole affordance and starting is
     // what it means while tmux is holding nothing. `started` is the server's
     // answer rather than the tree's, which may not have swept yet. A hive
-    // session is never started from here — that runs its agent (ADR 0044) — and
+    // session is never started from here — that runs its agent (ADR terminal-start-is-an-offered-action) — and
     // one tmux is not running says so.
     if (isScratch(row) && (await transport.start(row.slug)).started) return
     await transport.newWindow(row.slug)
@@ -1814,7 +1814,7 @@ onBeforeUnmount(() => {
         <!-- A session with no tmux session behind it has nothing to attach to
              yet, so the chrome stays out of the way and the panel below does
              the talking. The sidebar tree is the only window list — there is
-             no tab strip to keep in step with it (ADR 0057). -->
+             no tab strip to keep in step with it (ADR the-sidebar-tree-is-the-only-window-list). -->
         <template v-if="visible && !notStarted">
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
 

@@ -15,7 +15,7 @@ import (
 // Op is one HTTP operation. The operations table is what the mux is built
 // from, and Summary/Request/Response/Errors document each route where it is
 // declared. They no longer feed a generated document: the agent-facing surface
-// this adapter used to describe is the MCP server's now (ADR 0073), and what
+// this adapter used to describe is the MCP server's now (ADR mcp-replaces-the-agent-facing-http-api), and what
 // is left here is the Wails frontend's own transport plus the liveness probe —
 // consumers that read hand-written clients, not an OpenAPI spec.
 type Op struct {
@@ -51,7 +51,7 @@ func (op Op) pattern() string {
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
 	// Off means the surface is absent rather than answering 503, so a disabled
-	// feature has no route at all (ADR 0037 point 2). The two flags gate
+	// feature has no route at all (ADR terminal-experimental-gate point 2). The two flags gate
 	// independently: a build can ship agents without terminal mode or vice versa.
 	if ctrl.opts.TerminalEnabled {
 		ops = append(ops, ctrl.terminalOperations()...)
@@ -64,7 +64,7 @@ func (ctrl *Controller) operations() []Op {
 }
 
 // popupTerminalOperations is the ephemeral surface: terminals this process owns
-// outright, opened on demand and addressed by an id it mints (ADR 0048). They
+// outright, opened on demand and addressed by an id it mints (ADR ephemeral-popup-terminals). They
 // ride the terminal bearer token and CORS policy by sitting under its prefix.
 func (ctrl *Controller) popupTerminalOperations() []Op {
 	return []Op{
@@ -114,7 +114,7 @@ func popupTerminalErrors(notFound string, extra ...ErrResp) []ErrResp {
 // (spec-tracked as hc-49x3i833). Like popupTerminalOperations it rides the
 // terminal bearer token and CORS policy by sitting under TerminalPathPrefix —
 // starting a session spawns an agent CLI, which is arbitrary command
-// execution (ADR 0036, ADR 0061).
+// execution (ADR terminal-transport, ADR a-workspace-declares-its-own-authority).
 func (ctrl *Controller) agentOperations() []Op {
 	return []Op{
 		{
@@ -227,7 +227,7 @@ func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
 }
 
 // baseOperations is what is left of this adapter's own surface after the
-// agent-facing API moved to MCP (ADR 0073): a liveness probe and the running
+// agent-facing API moved to MCP (ADR mcp-replaces-the-agent-facing-http-api): a liveness probe and the running
 // build. Both stay HTTP because they answer the question "is the app up, and
 // which build is it?" — one a shell script or a health check asks with a plain
 // GET, and a JSON-RPC handshake is the wrong shape for it. Everything an agent

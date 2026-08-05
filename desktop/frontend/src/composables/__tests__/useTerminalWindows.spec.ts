@@ -673,7 +673,7 @@ describe('useTerminalWindows', () => {
 
   // Every pooled session mounts a pane per window, so claiming a context at
   // mount spends one per background tab and walks the page past WebKit's
-  // limit — where the context it costs is some other pane's. ADR 0045.
+  // limit — where the context it costs is some other pane's. ADR terminal-renderer-claimed-on-activation.
   it('claims a renderer for the window on screen, and for the rest on activation', async () => {
     const { session } = await attached()
 
@@ -726,7 +726,7 @@ describe('useTerminalWindows', () => {
   // after the first paint stays wrong; xterm never re-measures on a font load.
   // Both weights and the italic of each: xterm measures its cell once on open
   // and the atlas caches whatever was resident, so a face arriving later stays
-  // wrong until the atlas is cleared. ADR 0038.
+  // wrong until the atlas is cleared. ADR terminal-atlas-renderer.
   it('preloads every face a pane can draw with before it attaches', async () => {
     const { client } = await attached()
 

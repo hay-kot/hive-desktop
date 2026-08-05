@@ -14,7 +14,7 @@ import (
 // metricsSource polls one node's PromQL query, emitting one message per tick
 // keyed by the node id, carrying the whole query result. A downstream function
 // node can split that result into one durable feed item per series under a key
-// it mints (ADR 0035), or leave it as the single node-level item this emits.
+// it mints (ADR function-node-per-entity-feed-items), or leave it as the single node-level item this emits.
 type metricsSource struct {
 	fetcher *fetcher
 	dsUID   string

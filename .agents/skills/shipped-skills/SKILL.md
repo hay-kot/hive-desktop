@@ -7,9 +7,9 @@ compatibility: Requires Go and mise. Editing a template changes generated output
 # Change a shipped skill
 
 A shipped skill is a **rendered prompt**, not a file. `internal/app/prompts`
-owns the text (ADR 0009) and `internal/app/skills` installs it as a `SKILL.md`
+owns the text (ADR go-owned-llm-prompts) and `internal/app/skills` installs it as a `SKILL.md`
 into the directories coding agents scan, keeping it in sync by content hash
-(ADR 0033). `app.SkillsService` composes the two: slug is `hive-<prompt id>`
+(ADR skill-installer). `app.SkillsService` composes the two: slug is `hive-<prompt id>`
 and the frontmatter description is the prompt's description plus
 `Use when configuring this in Hive Desktop (<target>).`
 

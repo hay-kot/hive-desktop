@@ -60,11 +60,21 @@ sources = [
 outputs = { auto = true }
 run = "sqlc generate"
 
-# Aggregate only. The two generators write disjoint files, so mise running
+[tasks."generate:adr-index"]
+description = "Regenerate the decision index from docs/decisions/"
+sources = ["docs/decisions/*.md"]
+outputs = ["docs/decisions/README.md"]
+run = "go run ./cmd/adr index"
+
+# Aggregate only. The three generators write disjoint files, so mise running
 # `depends` in parallel is safe here.
 [tasks.generate]
 description = "Run all code generators (vendored hivecore is generated upstream)"
-depends = ["generate:enums", "generate:sqlc"]
+depends = ["generate:enums", "generate:sqlc", "generate:adr-index"]
+
+[tasks."adr:new"]
+description = 'Start a new ADR: mise run adr:new -- "The decision, as a sentence"'
+run = "go run ./cmd/adr new"
 
 [tasks.test]
 description = "Run all go tests"
@@ -117,10 +127,10 @@ run = "go mod tidy"
 # generation finishes before anything reads its output. The second group is
 # safe to run concurrently — all four only read.
 [tasks.check]
-description = "Full Go gate: generated code, migrations, tidy, lint, test"
+description = "Full Go gate: generated code, ADRs, migrations, tidy, lint, test"
 run = [
   { tasks = ["check:generate"] },
-  { tasks = ["check:migrations", "check:tidy", "lint", "test"] },
+  { tasks = ["check:adr", "check:migrations", "check:tidy", "lint", "test"] },
 ]
 
 # Everything CI runs, in one command, so an agent can answer "will CI pass?"
@@ -136,7 +146,7 @@ run = [
 description = "Run every check CI runs (Go + frontend), locally"
 run = [
   { tasks = ["check:generate"] },
-  { tasks = ["check:bindings", "check:vendor", "check:migrations", "check:tidy"] },
+  { tasks = ["check:bindings", "check:vendor", "check:adr", "check:migrations", "check:tidy"] },
   { tasks = ["lint", "test", "check:deadcode", "check:vuln"] },
   { tasks = ["desktop:frontend:deps"] },
   { tasks = ["desktop:build:frontend", "desktop:test:frontend"] },
@@ -145,6 +155,10 @@ run = [
 [tasks."check:migrations"]
 description = "Verify SQLite migrations are ordered and released history is immutable"
 run = "./scripts/check-migration-order.sh"
+
+[tasks."check:adr"]
+description = "Verify ADR ids, metadata, citations, and the generated index"
+run = "go run ./cmd/adr check"
 
 [tasks."check:tidy"]
 description = "Verify go.mod/go.sum are tidy without rewriting them"
@@ -156,7 +170,7 @@ go mod tidy -diff || {
 """
 
 [tasks."check:generate"]
-description = "Verify generated code (enums, sqlc) matches its sources"
+description = "Verify generated code (enums, sqlc, ADR index) matches its sources"
 run = """
 mise run --force generate
 # -N registers files the generators created that the checkout lacks, for the
@@ -171,8 +185,8 @@ mise run --force generate
 # schema change as stale. Against the index the question is the right one: after
 # regenerating, does the working tree still match what is staged? At pre-push
 # and in CI the tree is committed, so index and HEAD agree and nothing changes.
-git add -N internal/app
-git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
+git add -N internal/app docs/decisions
+git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go docs/decisions/README.md || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }
@@ -251,7 +265,7 @@ dir = "desktop"
 env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exec(command='git branch --show-current') }}" }
 # The runner goes through `devtools run` rather than being exec'd directly: it
 # leaves the app running when the terminal closes, and it only ever SIGKILLs
-# the app. See cmd/devtools/devsession.go and ADR 0046.
+# the app. See cmd/devtools/devsession.go and ADR shutdown-is-signalled-and-bounded.
 run = """
 test -f ../launch.env || {
   echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2

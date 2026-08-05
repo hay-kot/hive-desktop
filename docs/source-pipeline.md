@@ -99,7 +99,7 @@ There is still one ticker, so the floor is quantized to it, and a skipped source
 produces nothing at all rather than an empty snapshot. `Producer.Refresh`, what
 a manual refresh calls, ignores every floor. A source whose `Produce` fails is
 recorded in Activity as `RefreshFailed`, at most once an hour while it stays
-broken (ADR 0072).
+broken (ADR a-command-is-a-source).
 
 Ingestion performs source-head comparison, classification, item upsert,
 optional event append, transport-log append, and source-head update in one
@@ -118,7 +118,7 @@ policy.
 
 `sources.webhook` nodes are push-driven and bypass the producer entirely
 (docs/decisions/0007, 0014, and 0019). The listener shares one loopback `http`
-server with the agent API, on by default (ADR 0021). When `http.enabled` is true
+server with the agent API, on by default (ADR agent-http-api). When `http.enabled` is true
 it binds `http.host` (loopback-only) and `http.port`; port `0` asks the OS to
 select the port directly, and the running endpoint reports the selected address.
 Typed process overrides are `HIVE_DESKTOP_HTTP_ENABLED`,
@@ -195,7 +195,7 @@ wires: []
 ```
 
 Source node types are namespaced `sources.<name>` and come from the connector
-registry (`internal/app/sources`, ADR 0012) rather than being listed in the
+registry (`internal/app/sources`, ADR source-connector-registry) rather than being listed in the
 flow package; the rest are declared in `flow` directly. Supported node types
 are:
 
@@ -231,7 +231,7 @@ applies to manual triage, not to an item’s source identity or event history.
 
 ## Engine and membership replay
 
-The engine runs in Go (`internal/app/runtime`, ADRs 0010 and 0011) and walks
+The engine runs in Go (`internal/app/runtime`, ADRs goja-script-runtime and flow-engine-in-go) and walks
 the flow as a DAG, evaluating `function` nodes through goja. `runtime.Engine`
 drives it: it installs a runner per enabled flow at startup, reinstalls them
 when the flow set changes, and drains on every append. Nothing about execution
@@ -242,7 +242,7 @@ offset is a no-op. A feed output whose inbox row is written under the empty
 pre-#63 scope is healed onto its account scope during the commit; one whose key
 resolves to no row at all is minted from the payload it carried — the row behind
 a per-entity item a `function` node split out under a key that never went
-through ingest (ADR 0035). A key-less output has no identity to mint under and
+through ingest (ADR function-node-per-entity-feed-items). A key-less output has no identity to mint under and
 is skipped and logged rather than failing the batch, so no unresolvable item can
 wedge the consumer at one offset. `Discard` values are accounting input rather than persisted
 rows: their aggregate is reflected in each node run’s drop count. Action
@@ -279,12 +279,12 @@ be changed in Keybinding Settings.
 `actions.yml` is the global desktop action catalog. Its `launch-session`,
 `shell`, `publish-message`, and `clipboard` action types are validated before
 execution. Both flow outputs and detail-pane invocations use the durable
-output-command queue, except `clipboard`, which renders without one (ADR 0029).
+output-command queue, except `clipboard`, which renders without one (ADR clipboard-action-type).
 Background commands retry up to the configured limit; command output
 and failure diagnostics are retained with the command record.
 
 An action may declare `inputs` — values collected from the user when it is
-invoked and rendered into its templates as `.Inputs.<name>` (ADR 0043). An
+invoked and rendered into its templates as `.Inputs.<name>` (ADR action-declared-inputs). An
 action with a required input that has no default cannot run headlessly, so a
 flow `action` node may not reference it.
 

@@ -253,7 +253,7 @@ func TestPrepareRegeneratesStaleLaunchEnv(t *testing.T) {
 	assert.Equal(t, filepath.Join(tools.instanceDir, "config", "workspaces"), launch[settings.EnvAgentWorkspacesDir])
 }
 
-// Every ships-dark opt-in (ADR 0037) is on in development. A feature gated off
+// Every ships-dark opt-in (ADR terminal-experimental-gate) is on in development. A feature gated off
 // here is one nobody exercises while it is being built, and an absent flag
 // presents as the feature being broken rather than switched off — the Agents
 // area's routes simply do not mount, so a session cannot launch and nothing
@@ -268,7 +268,7 @@ func TestPrepareEnablesEveryExperimentalOptIn(t *testing.T) {
 	assert.Equal(t, "true", launch[settings.EnvExperimentalAgents])
 }
 
-// Development is proxied by default (ADR 0017): prepare must write the API base
+// Development is proxied by default (ADR devserver-github-proxy): prepare must write the API base
 // into launch.env so a worktree opts in with no manual step, and it must take
 // the address from the checked-in devserver config.
 func TestPrepareWritesProxyAPIBase(t *testing.T) {

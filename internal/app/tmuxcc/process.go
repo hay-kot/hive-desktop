@@ -20,7 +20,7 @@ type process interface {
 
 // defaultBinary is the fallback when no caller resolved one: what $PATH says.
 // This package holds no discovery policy — locating tmux is the composition
-// root's job (ADR 0039).
+// root's job (ADR tmux-discovery).
 const defaultBinary = "tmux"
 
 type execProcess struct {

@@ -35,7 +35,7 @@ const migratedFileHeader = "# rewritten by a config migration; original comments
 //     half-written artifact and no backup.
 //
 // backupDir is caller-supplied and MUST be outside any watched flows/actions
-// directory (callers pass <StateDir>/migration-backups) — see ADR 0032 for why
+// directory (callers pass <StateDir>/migration-backups) — see ADR yaml-config-migration for why
 // the startup pass is the sole writer.
 func MigrateFile(set Set, path, backupDir string, log *zerolog.Logger) (data []byte, changed bool, err error) {
 	l := safeLog(log)

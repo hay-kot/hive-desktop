@@ -25,7 +25,7 @@ const client: ShallowRef<PopupTerminalClient | null> = shallowRef(null)
 const request = ref<PopupTerminalRequest>({})
 
 // Bumped whenever a *different* launch is asked for. One pop-up is open at a
-// time (ADR 0048), so asking for lazygit while a shell is up replaces it rather
+// time (ADR ephemeral-popup-terminals), so asking for lazygit while a shell is up replaces it rather
 // than opening beside it — and the panel watches this to know which it is.
 const launchSeq = ref(0)
 

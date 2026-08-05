@@ -5,7 +5,7 @@ import { expect, test } from './fixtures.js'
 // is observable end to end: TerminalsService.Available -> KindUnavailable ->
 // TerminalService.Available{available:false, reason} -> the panel.
 //
-// What it guards is the ADR 0037 rule that the Terminal toggle is never
+// What it guards is the ADR terminal-experimental-gate rule that the Terminal toggle is never
 // disabled: a build that cannot run tmux must explain itself inside the mode
 // rather than leaving a dead button in the title bar. A regression that gates
 // the toggle on availability, or that lets the unavailable probe throw instead
@@ -58,7 +58,7 @@ test('terminal mode explains its own unavailability and hands the frame back', a
   await expect(page.getByTestId('terminal-unavailable')).toBeVisible()
   await expect(reason).not.toBeEmpty()
 
-  // Hidden, not unmounted (ADR 0054): the pool behind the mode holds live tmux
+  // Hidden, not unmounted (ADR terminal-mode-is-hidden-not-unmounted): the pool behind the mode holds live tmux
   // clients and xterm screens, so a trip to the hub is a display flip.
   await hubToggle.click()
   await expect(page.getByTestId('terminal-mode')).toBeHidden()

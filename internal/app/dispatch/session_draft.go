@@ -41,7 +41,7 @@ const DefaultSessionPromptTemplate = `{{ .Title }}
 {{ .Body }}
 {{- end }}`
 
-// SessionPromptData is the canonical item contract (ADR 0008) the session
+// SessionPromptData is the canonical item contract (ADR canonical-item-contract) the session
 // prompt template renders over. Keep in sync with the frontend's
 // canonicalPayload (lib/itemPresentation.ts).
 type SessionPromptData struct {

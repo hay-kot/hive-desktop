@@ -31,7 +31,7 @@ const (
 	// maxConcurrentAgentSessions bounds live agentws-* tmux sessions across
 	// every workspace. Each session is an agent CLI spawning its own copy of
 	// every enabled MCP server, so with no idle reaping and no cap this is a
-	// fork bomb with a progress bar (ADR 0066 point 4, carried over from
+	// fork bomb with a progress bar (ADR ptyterm-terminals-are-caller-addressed point 4, carried over from
 	// ptyterm to this service now that sessions outlive the app on purpose).
 	maxConcurrentAgentSessions = 8
 
@@ -62,7 +62,7 @@ type AgentWorkspacesService struct {
 	skills    *SkillsService
 	// commands is agentCommands' result (app.go): hive's configured agent
 	// profiles projected onto their bare command, with Flags dropped at the
-	// seam (ADR 0061). An agent key absent here is unknown to hive at all;
+	// seam (ADR a-workspace-declares-its-own-authority). An agent key absent here is unknown to hive at all;
 	// present here but absent from agentws's launch table is the second,
 	// distinct refusal.
 	commands map[string]string
@@ -70,7 +70,7 @@ type AgentWorkspacesService struct {
 	// root could not be created or opened at startup -- empty otherwise.
 	rootProblem string
 	// execEnv resolves the PATH and environment the editor launch runs with
-	// (ADR 0041) — a desktop launch's own environment cannot find a CLI a
+	// (ADR subprocess-environment) — a desktop launch's own environment cannot find a CLI a
 	// package manager installed.
 	execEnv *execenv.Resolver
 	// editorCommand reads the configured editor from settings on every call,
@@ -129,7 +129,7 @@ type WorkspaceView struct {
 	// Notice mirrors SessionView.Notice's MCP explanation, shown on the
 	// workspace row itself: an agent whose wiring cannot bound its tool set to
 	// what the workspace declares says so before any session is even started
-	// (spec §7.2, ADR 0061).
+	// (spec §7.2, ADR a-workspace-declares-its-own-authority).
 	Notice string `json:"notice"`
 }
 
@@ -141,7 +141,7 @@ type SessionView struct {
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
 	// TerminalID is the tmux session name (agentws-<id>) a live session rides,
-	// addressed on the same tmux stream terminal mode uses (ADR 0036); empty
+	// addressed on the same tmux stream terminal mode uses (ADR terminal-transport); empty
 	// when nothing is running.
 	TerminalID string `json:"terminalId"`
 	// WindowID is TerminalID's active tmux window at the moment this session
@@ -549,7 +549,7 @@ func (s *AgentWorkspacesService) Agents(context.Context) []string {
 // AutonomyFlags reports, per agent, the CLI flags each autonomy posture
 // launches with — the launch table projected for the editor, so a posture
 // shows the authority it actually grants (--dangerously-skip-permissions is
-// something to read, not a euphemism to hide; ADR 0061 §5's posture applied
+// something to read, not a euphemism to hide; ADR a-workspace-declares-its-own-authority §5's posture applied
 // to autonomy). A posture absent from an agent's map is one the launch would
 // refuse, which the editor disables.
 func (s *AgentWorkspacesService) AutonomyFlags(context.Context) map[string]map[string][]string {
@@ -645,7 +645,7 @@ type MCPCatalogueItem struct {
 	Transport   string `json:"transport"`
 	// Command is the resolved invocation — the command line for stdio, the
 	// URL for http/sse. Nothing is enabled whose command the user could not
-	// read first (ADR 0061 §5).
+	// read first (ADR a-workspace-declares-its-own-authority §5).
 	Command string `json:"command"`
 	Problem string `json:"problem"`
 }

@@ -85,7 +85,7 @@ func (s *ActionsService) Delete(ctx context.Context, id string) error {
 
 // The launchers half of actions.yml. It is served by this service rather than
 // one of its own because it is the same file, the same store and the same wake
-// on change — the launchers are simply the other list in it (ADR 0049). List
+// on change — the launchers are simply the other list in it (ADR launchers-are-their-own-list-in-actions-yml). List
 // answers for both, so there is no LaunchersList here.
 
 func (s *ActionsService) CreateLauncher(_ context.Context, l actions.Launcher) (actions.Launcher, error) {
@@ -276,7 +276,7 @@ func WebhookBaseURLAt(host string, port int) string {
 }
 
 // MCPEndpointAt is the URL of the agent MCP server — the same loopback server
-// the webhook listener uses (ADR 0021), at the /mcp path (ADR 0073). It lives
+// the webhook listener uses (ADR agent-http-api), at the /mcp path (ADR mcp-replaces-the-agent-facing-http-api). It lives
 // here, not in the adapter, because the prompt text and a workspace's
 // generated .mcp.json both embed it; the /mcp literal avoids an import cycle
 // back into the adapter.

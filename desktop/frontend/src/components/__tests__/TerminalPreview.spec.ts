@@ -111,7 +111,7 @@ describe('TerminalPreview', () => {
 
   // The preview only means anything if it rasterises the way a pane does, and
   // box drawing is the difference: the DOM renderer takes it from the font
-  // rather than stroking it to the cell. ADR 0038.
+  // rather than stroking it to the cell. ADR terminal-atlas-renderer.
   it('claims an atlas renderer, after opening rather than before', async () => {
     await preview()
 
@@ -122,7 +122,7 @@ describe('TerminalPreview', () => {
   })
 
   // xterm measures its cell on open() and never re-measures, and the atlas
-  // caches what was resident, so a face arriving late stays wrong. ADR 0038.
+  // caches what was resident, so a face arriving late stays wrong. ADR terminal-atlas-renderer.
   it('makes the faces resident before it opens', async () => {
     await preview()
 

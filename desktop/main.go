@@ -137,12 +137,12 @@ func main() {
 
 	// The terminal-guarded surfaces are the parts of the API that authenticate,
 	// so their token and CORS allowlist are minted here and handed to the
-	// adapters that need them — the core carries neither (ADR 0036). The token
+	// adapters that need them — the core carries neither (ADR terminal-transport). The token
 	// is minted whenever either experimental.terminal or experimental.agents is
 	// on, because both the agent control plane and the PTY stream a workspace
 	// session rides sit under the same token-guarded /api/terminal/ prefix as
-	// the tmux/pop-up terminal surface (ADR 0061). Off means neither surface's
-	// routes or stream mount exists on the loopback server (ADR 0037).
+	// the tmux/pop-up terminal surface (ADR a-workspace-declares-its-own-authority). Off means neither surface's
+	// routes or stream mount exists on the loopback server (ADR terminal-experimental-gate).
 	terminalToken := ""
 	var origins []string
 	if cfg.Experimental.Terminal || cfg.Experimental.Agents {
@@ -154,7 +154,7 @@ func main() {
 	}
 
 	// The agent HTTP API shares the loopback HTTP server with the webhook
-	// listener (ADR 0021); mount it before Start whenever that server is up.
+	// listener (ADR agent-http-api); mount it before Start whenever that server is up.
 	if core.MountAPI(httpapi.PathPrefix, httpapi.New(core, logger, httpapi.Options{
 		TerminalToken:   terminalToken,
 		Origins:         origins,
@@ -164,7 +164,7 @@ func main() {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
 	}
 
-	// The MCP server is the agent-facing surface (ADR 0073); what stays on
+	// The MCP server is the agent-facing surface (ADR mcp-replaces-the-agent-facing-http-api); what stays on
 	// /api/ is the frontend's terminal control planes and the liveness probe.
 	// It needs no token — it spawns nothing — and no teardown branch: the
 	// server is stateless, so no session outlives a request.
@@ -177,7 +177,7 @@ func main() {
 	if terminalToken != "" {
 		// A workspace session rides this same tmux stream a hive session's
 		// terminal does — it is a tmux session too, just not a hive one
-		// (ADR 0063) — addressed by the agentws-<id> name AgentWorkspacesService
+		// (ADR agent-workspace-sessions-are-tmux-sessions) — addressed by the agentws-<id> name AgentWorkspacesService
 		// gives it rather than a hive slug. There is no agent-specific stream.
 		if path, handler := httpapi.TerminalStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			terminal = wailsui.TerminalTransport{Token: terminalToken, StreamPath: path}
@@ -185,15 +185,15 @@ func main() {
 			logger.Info().Str("path", path).Msg("terminal WebSocket stream mounted")
 		}
 		// The ptyterm data plane. It carries one terminal per socket rather than a
-		// session's window set (ADR 0045), and is addressed by an id a caller may
-		// supply as well as one this process mints (ADR 0066). Pop-ups only — an
-		// agent workspace session rides the tmux stream above since ADR 0063.
+		// session's window set (ADR terminal-renderer-claimed-on-activation), and is addressed by an id a caller may
+		// supply as well as one this process mints (ADR ptyterm-terminals-are-caller-addressed). Pop-ups only — an
+		// agent workspace session rides the tmux stream above since ADR agent-workspace-sessions-are-tmux-sessions.
 		if path, handler := httpapi.PTYStreamHandler(core, terminalToken, origins, logger); core.MountAPI(path, handler) {
 			popupTerminal = wailsui.PopupTerminalTransport{Token: terminalToken, StreamPath: path}
 			logger.Info().Str("path", path).Msg("ptyterm WebSocket stream mounted")
 		}
 	}
-	// pprof shares the same server when enabled (ADR 0023).
+	// pprof shares the same server when enabled (ADR pprof-debug-endpoint).
 	if cfg.Development.Pprof.Enabled && core.MountAPI(httpapi.PprofPathPrefix, httpapi.PprofHandler()) {
 		logger.Info().Str("path", httpapi.PprofPathPrefix).Msg("pprof debug endpoint mounted")
 	}

@@ -202,21 +202,21 @@ func (d *devtools) prepare(fresh bool) error {
 		return fmt.Errorf("resolve Wails port: %w", err)
 	}
 	// The webhook listener boots on so an agent can push deliveries and reach
-	// the agent HTTP API, which shares this port (ADR 0021). Preserved across
+	// the agent HTTP API, which shares this port (ADR agent-http-api). Preserved across
 	// prepares by the reuse path above.
 	webhookPorts, err := freePorts(1, vitePort, wailsPort)
 	if err != nil {
 		return fmt.Errorf("resolve webhook port: %w", err)
 	}
 	webhookPort := webhookPorts[0]
-	// Development runs through the shared proxy by default (ADR 0017): the
+	// Development runs through the shared proxy by default (ADR devserver-github-proxy): the
 	// address comes from the checked-in devserver config, so changing the port
 	// there reaches every worktree without editing this. Opting out is setting
 	// the same variable empty in the gitignored overrides.env, which mise loads
 	// after launch.env.
 	proxyListen := devproxy.ListenFromConfig(d.worktree)
 
-	// Every ships-dark opt-in (ADR 0037) is on here. A feature gated off in
+	// Every ships-dark opt-in (ADR terminal-experimental-gate) is on here. A feature gated off in
 	// development is one nobody exercises while it is being built, and an
 	// absent flag presents as the feature being broken rather than switched
 	// off — the Agents area's routes simply do not mount, so a session cannot

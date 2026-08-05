@@ -26,7 +26,7 @@ func (h *terminalHarness) popupStreamURL(id, token, version string) string {
 
 // The pop-up routes sit under the terminal prefix so they inherit its
 // bearer-token gate rather than declaring a second one. A regression here would
-// leave arbitrary command execution unauthenticated (ADR 0036).
+// leave arbitrary command execution unauthenticated (ADR terminal-transport).
 func TestPopupTerminalControlPlaneRequiresTheBearerToken(t *testing.T) {
 	h := newTerminalHarness(t)
 	body := map[string]any{"id": "nothing-here"}

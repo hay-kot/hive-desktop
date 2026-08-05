@@ -17,7 +17,7 @@ import (
 // with the frontend's DEFAULT_ITEM_KIND (lib/itemPresentation.ts), which
 // feeds the actions editor's autocomplete. Matching is case-insensitive, so
 // a hand-written applies_to: [item] works too. See
-// docs/decisions/0008-canonical-item-contract.md.
+// docs/decisions/2026-07-24-canonical-item-contract.md.
 const DefaultItemKind = "Item"
 
 // DecodedActionItem is the canonical action-item projection of a persisted

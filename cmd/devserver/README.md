@@ -5,7 +5,7 @@ A development-only proxy between desktop instances and the GitHub API. It does t
 1. **Caches GitHub responses** across every dev instance and every restart, so N worktrees share one rate-limit budget instead of each burning their own.
 2. **Simulates events** — config-driven overlays rewrite what GitHub appears to say, and a webhook pusher injects payloads that never came from GitHub at all. A dashboard drives both.
 
-Not shipped, not imported by the app, loopback-only. Design rationale: [ADR 0017](../../docs/decisions/0017-devserver-github-proxy.md).
+Not shipped, not imported by the app, loopback-only. Design rationale: [ADR devserver-github-proxy](../../docs/decisions/2026-07-26-devserver-github-proxy.md).
 
 ## Quick start
 
@@ -45,7 +45,7 @@ The app logs a warning at startup when the override is set, and every proxied re
 GitHub's limits are **per token**, so concurrent dev instances share one budget. Three things make development worse than the shipped app:
 
 - `LiveProvider`'s cache is in-memory, and `wails3 dev` restarts the Go process on every backend edit
-- each worktree owns an isolated data root (ADR 0014), so two instances share no fetch results
+- each worktree owns an isolated data root (ADR desktop-configuration), so two instances share no fetch results
 - `ConfirmTerminal` batches every absent item into one aliased GraphQL request per 100, but the client never caches it — it fires fresh every tick
 
 devserver also stores ETags and revalidates with `If-None-Match`. A 304 costs no primary quota, so even an expired entry is usually far cheaper than a refetch. The client itself has none of this ([#62](https://github.com/hay-kot/hive-desktop/issues/62)).
@@ -183,15 +183,15 @@ Unknown JSON fields are rejected, so a typo in a hand-written call fails loudly 
 
 ## Webhook pusher
 
-Targets point at a running instance's local webhook listener. Get the base URL from **Settings ▸ Webhooks** (the port is random per install — see ADR 0007) and append a `sources.webhook` node's path. The `secret` must match that node's configured secret.
+Targets point at a running instance's local webhook listener. Get the base URL from **Settings ▸ Webhooks** (the port is random per install — see ADR local-webhook-listener) and append a `sources.webhook` node's path. The `secret` must match that node's configured secret.
 
-A payload keyed on a stable top-level `id` updates the same inbox item on re-delivery; without one the listener hashes the body, so every push is a new item. Payloads that follow the [canonical item contract](../../docs/decisions/0008-canonical-item-contract.md) render as first-party feed rows.
+A payload keyed on a stable top-level `id` updates the same inbox item on re-delivery; without one the listener hashes the body, so every push is a new item. Payloads that follow the [canonical item contract](../../docs/decisions/2026-07-24-canonical-item-contract.md) render as first-party feed rows.
 
 ## Cache location and lifetime
 
 The cache lives at `$XDG_CACHE_HOME/hive/devserver/cache.db` (`~/.cache/hive/devserver/cache.db` by default), and **survives restarts** — that is why it is SQLite rather than a map. Entries keep their fetch time, so a restart inside the TTL serves straight from disk, and one past it revalidates with `If-None-Match` for a 304 that costs no quota.
 
-The path is deliberately independent of the desktop's data root. That root is the app's state, and ADR 0014 gives each worktree an isolated copy that `desktop:dev:reset` exists to delete — deriving the cache from it would give every worktree its own cache and discard it on reset, losing both the sharing and the persistence the cache exists for. Override with `cache.path` in config if you want it elsewhere.
+The path is deliberately independent of the desktop's data root. That root is the app's state, and ADR desktop-configuration gives each worktree an isolated copy that `desktop:dev:reset` exists to delete — deriving the cache from it would give every worktree its own cache and discard it on reset, losing both the sharing and the persistence the cache exists for. Override with `cache.path` in config if you want it elsewhere.
 
 Overlays, observed items, stats, and the activity log are all in-memory and reset on restart. Only responses persist. Delete the file or hit **purge cache** any time; it costs one API call per entry to rebuild.
 

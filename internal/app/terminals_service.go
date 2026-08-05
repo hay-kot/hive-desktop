@@ -39,7 +39,7 @@ type ScratchTerminal struct {
 
 // TerminalsService is the slug-keyed driving service both the HTTP and the
 // Wails adapter call. It holds no token, base URL or stream path: what the
-// terminal is reached over is the adapter's, not the core's (ADR 0036).
+// terminal is reached over is the adapter's, not the core's (ADR terminal-transport).
 type TerminalsService struct {
 	manager *tmuxcc.Manager
 	metrics tmuxcc.MetricsSink
@@ -75,7 +75,7 @@ func (s *TerminalsService) Available(ctx context.Context) error {
 //
 // A slug tmux is not running is a KindNotFound the caller is expected to answer
 // with Start — attaching never spawns on its own, because spawning runs the
-// session's agent command and that is the user's call to make (ADR 0044). That
+// session's agent command and that is the user's call to make (ADR terminal-start-is-an-offered-action). That
 // answer comes from a has-session probe rather than from a dead control
 // stream's message, which is unclassifiable and reads as an internal fault.
 func (s *TerminalsService) Attach(ctx context.Context, slug string, cols, rows int) ([]tmuxcc.Window, error) {
@@ -123,7 +123,7 @@ func (s *TerminalsService) Start(ctx context.Context, slug string) (bool, error)
 // What it gets instead is the user's home directory and an interactive login
 // shell — the same empty-command create an agent workspace's session uses, and
 // what makes the shell's own startup files, not this app's environment, decide
-// what is on PATH (ADR 0041). Home is the *session's* directory rather than that
+// what is on PATH (ADR subprocess-environment). Home is the *session's* directory rather than that
 // first window's, so every tab opened in it later starts there too.
 func (s *TerminalsService) startScratch(ctx context.Context) error {
 	home, err := s.home()

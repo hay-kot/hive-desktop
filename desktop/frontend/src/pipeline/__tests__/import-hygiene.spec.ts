@@ -3,7 +3,7 @@
 // This used to police the boundary between a node's editor module and its
 // worker-side runtime.ts. There is no worker-side runtime any more: the flow
 // engine is `internal/app/runtime`, and a node type's execution is a Go
-// registry line (ADR 0011). What the frontend still owns is the editor —
+// registry line (ADR flow-engine-in-go). What the frontend still owns is the editor —
 // config.ts, editor.vue, index.ts.
 //
 // The failure this guards against is a quiet one. Adding a runtime.ts back

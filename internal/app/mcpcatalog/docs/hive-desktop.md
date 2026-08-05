@@ -4,7 +4,7 @@ The `hive-desktop` MCP server is this install itself. It is how a workspace's
 agent observes and operates the running app — reading the inbox, feeds,
 profiles and action catalog, forcing a source refresh, and dry-running a flow
 — instead of reading `desktop-pipeline.db` or editing config files blind
-(ADR 0073).
+(ADR mcp-replaces-the-agent-facing-http-api).
 
 It is the only shipped entry that is not a third-party program: there is
 nothing to install and nothing to fetch, because the server is already running
@@ -28,7 +28,7 @@ would fail silently inside the agent's own `/mcp` output.
 
 The server requires no token. It sits behind the loopback bind and spawns no
 processes — session control stays on the HTTP adapter's token-guarded terminal
-prefix (ADR 0036, ADR 0061).
+prefix (ADR terminal-transport, ADR a-workspace-declares-its-own-authority).
 
 ## Stability
 

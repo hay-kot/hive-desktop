@@ -66,7 +66,7 @@ const {
   recents, recentsLoaded, recentsError, reloadRecents,
 } = useAgentSessionsAll()
 
-// Both lists are module singletons (ADR 0061's shared-composable pattern),
+// Both lists are module singletons (ADR a-workspace-declares-its-own-authority's shared-composable pattern),
 // so this and AgentsMode's own workspaces reload can race harmlessly on
 // activation — last response wins, and both fetch the same idempotent read.
 watch(() => props.active, (active) => {

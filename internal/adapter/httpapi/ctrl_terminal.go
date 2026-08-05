@@ -32,7 +32,7 @@ const (
 
 // MintTerminalToken returns a fresh per-run bearer token for the terminal
 // surface. It is minted in the composition root, held in memory, never logged
-// and never persisted (ADR 0036).
+// and never persisted (ADR terminal-transport).
 func MintTerminalToken() (string, error) {
 	raw := make([]byte, terminalTokenBytes)
 	if _, err := rand.Read(raw); err != nil {
@@ -347,7 +347,7 @@ func terminalBody[T any](ctrl *Controller, w http.ResponseWriter, r *http.Reques
 // requireTerminalToken checks Authorization: Bearer against the per-run token.
 // The terminal endpoints authenticate while their siblings deliberately do not:
 // a terminal is arbitrary command execution, which no other route on this
-// surface offers (ADR 0036).
+// surface offers (ADR terminal-transport).
 func requireTerminalToken(r *http.Request, token string) error {
 	if token == "" {
 		return app.Errorf(app.KindUnavailable, "the terminal control plane is not configured")

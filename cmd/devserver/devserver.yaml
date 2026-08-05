@@ -57,7 +57,7 @@ cache:
 
 # ── Webhook pusher ───────────────────────────────────────────────────────────
 # Payloads are ready to use; targets are not, because the desktop's webhook
-# port is drawn at random per install (ADR 0007). Take the base URL from
+# port is drawn at random per install (ADR local-webhook-listener). Take the base URL from
 # Settings ▸ Webhooks, append a sources.webhook node's path, and uncomment:
 #
 #   targets:
@@ -67,7 +67,7 @@ cache:
 webhooks:
   # A stable top-level "id" makes re-delivery update the same inbox item;
   # without one the listener hashes the body, so every push is a new item.
-  # Following the canonical item contract (ADR 0008) renders the payload as a
+  # Following the canonical item contract (ADR canonical-item-contract) renders the payload as a
   # first-party feed row rather than a bare title.
   payloads:
     pr-opened:

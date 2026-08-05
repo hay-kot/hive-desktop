@@ -147,7 +147,7 @@ interface TabRuntime {
   disposers: IDisposable[]
   // An atlas renderer is live on this terminal. False after a context loss the
   // canvas claim did not survive, which is what makes the next activation
-  // retry instead of leaving the pane on the DOM renderer. ADR 0045.
+  // retry instead of leaving the pane on the DOM renderer. ADR terminal-renderer-claimed-on-activation.
   rendered?: boolean
   // The last value written to the tab's reactive `scrolledUp`, held raw so the
   // per-line refresh can tell "unchanged" without touching a Vue proxy. See
@@ -248,7 +248,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     // Weight and family move the advance width as much as size does, and
     // spacing moves the cell without touching the glyph, so all six re-vote —
     // and the faces have to be resident before xterm re-measures against them,
-    // or it measures the outgoing font (ADR 0038).
+    // or it measures the outgoing font (ADR terminal-atlas-renderer).
     watch(
       [fontSizePx, fontFamily, fontWeight, fontWeightBold, lineHeight, letterSpacing],
       async ([px, family, weight, weightBold, height, spacing]) => {
@@ -390,7 +390,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   // A GL context is claimed when a window is first shown, not when its pane
   // mounts. Mounting covers every window of every pooled session, which spends
   // a context per background tab and pushes WebKit past its per-page limit on
-  // each attach — and the pane it then kills is somebody else's. ADR 0045.
+  // each attach — and the pane it then kills is somebody else's. ADR terminal-renderer-claimed-on-activation.
   function showRenderer(windowId: string): void {
     const state = runtime.get(windowId)
     const tab = findTab(windowId)
@@ -821,7 +821,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     disposeTabs()
     scope.stop()
     // Intentional teardown releases the control client; only an unexpected drop
-    // leaves tmux attached (ADR 0036 / decision D5).
+    // leaves tmux attached (ADR terminal-transport / decision D5).
     void client.detach(slug).catch(() => {})
   }
 
@@ -888,7 +888,7 @@ function message(error: unknown, fallback: string): string {
 }
 
 // A failed claim leaves state.rendered false, which is what makes showRenderer
-// try again the next time the pane is shown (ADR 0045).
+// try again the next time the pane is shown (ADR terminal-renderer-claimed-on-activation).
 function loadRenderer(state: TabRuntime, term: Terminal): void {
   claimAtlasRenderer(
     term,

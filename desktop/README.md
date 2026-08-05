@@ -166,29 +166,29 @@ notifications:
 appearance:
   theme: ""
   terminal_font_size: "" # small, medium, large, xl, or xxl; empty means medium
-  terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR 0056)
+  terminal_font_family: "" # any installed monospace family; empty is the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font)
   terminal_font_weight: 0 # 300, 350, 400, 600, or 700; 0 means the default, 350
   terminal_font_weight_bold: 0 # the weight bold cells draw at; 0 means the default, 700
-  terminal_line_height: 0 # 1 to 1.6 in tenths; 0 means the default, 1.2 (ADR 0051)
-  terminal_letter_spacing: 0 # extra tracking in device pixels, 0 to 3 (ADR 0051)
+  terminal_line_height: 0 # 1 to 1.6 in tenths; 0 means the default, 1.2 (ADR terminal-line-height-and-letter-spacing)
+  terminal_letter_spacing: 0 # extra tracking in device pixels, 0 to 3 (ADR terminal-line-height-and-letter-spacing)
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
-  terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR 0042)
+  terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR terminal-attach-pool)
 http:
-  enabled: true # loopback server: webhook listener + agent API (ADR 0021)
+  enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1
   port: 0 # the OS chooses
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
 paths:
-  tmux: "" # absolute path to tmux; empty discovers it (ADR 0039)
+  tmux: "" # absolute path to tmux; empty discovers it (ADR tmux-discovery)
 experimental:
-  terminal: false # terminal mode ships dark (ADR 0037); read at startup
+  terminal: false # terminal mode ships dark (ADR terminal-experimental-gate); read at startup
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke
   instance:
     id: ""
   github:
-    api_base: "" # loopback-only devserver override (ADR 0017)
+    api_base: "" # loopback-only devserver override (ADR devserver-github-proxy)
   vite:
     host: 127.0.0.1
     port: 0
@@ -196,7 +196,7 @@ development:
     host: 127.0.0.1
     port: 0
   pprof:
-    enabled: false # mounts on the loopback HTTP server when on (ADR 0023)
+    enabled: false # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
   debug:
     pause_ingest: 0s
     pause_commit: 0s
@@ -206,7 +206,7 @@ development:
 to configure it: left empty, the app searches `$PATH` and then the prefixes
 package managers install into (Homebrew, MacPorts, Nix), because a desktop
 launch does not inherit the shell's `$PATH` — macOS gives an `.app` bundle
-`/usr/bin:/bin:/usr/sbin:/sbin` (ADR 0039). Set it only for an install those
+`/usr/bin:/bin:/usr/sbin:/sbin` (ADR tmux-discovery). Set it only for an install those
 misses; it must be absolute, a configured path that does not work is an error
 rather than a fallback to a different tmux, and changing it takes a relaunch.
 Installing tmux does not: a failed lookup is retried, so only a successful one

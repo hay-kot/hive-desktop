@@ -13,7 +13,7 @@ import (
 // the set grows reluctantly — first-party servers with a keyless, pinnable
 // invocation only; mcps.yaml is the escape hatch for everything else.
 var registry = map[string]Descriptor{
-	// The desktop's own MCP server (ADR 0073) — the surface an agent drives
+	// The desktop's own MCP server (ADR mcp-replaces-the-agent-facing-http-api) — the surface an agent drives
 	// the app through, and the reason a workspace's agent can read this
 	// install's inbox at all. Its URL is this run's loopback endpoint, so the
 	// declaration carries none; see Descriptor.RuntimeURL.

@@ -6,8 +6,8 @@ import { expect, test } from './fixtures.js'
 // this spec run against any of the harness's existing servers with zero
 // plumbing of its own: it asserts the off state, which is the default.
 //
-// The title bar's mode group renders on "either flag is on" (ADR 0037 /
-// ADR 0061), not on terminal specifically — this feed server carries
+// The title bar's mode group renders on "either flag is on" (ADR terminal-experimental-gate /
+// ADR a-workspace-declares-its-own-authority), not on terminal specifically — this feed server carries
 // experimental.terminal, so the group and its Code segment are present. What
 // this guards is that the Agents segment specifically stays absent while its
 // own flag is off, rather than the either-flag rule accidentally exposing it.

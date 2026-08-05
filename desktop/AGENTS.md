@@ -63,7 +63,7 @@ internal/app/             # the headless core — no transport, no Wails
   sources/                # the connector registry — registry.go is the whole map
     connector/            # the vocabulary a connector is declared in
     github/               # the GitHub connector; feed/ is its fetch layer,
-                          #   ghclient/ its owned HTTP client (ADR 0015 —
+                          #   ghclient/ its owned HTTP client (ADR owned-github-client —
                           #   nothing outside internal/hivecore imports the
                           #   vendored github.Client anymore)
     webhook/              # the webhook connector and its local ingress
@@ -83,7 +83,7 @@ helpers), `types/`. TS bindings to Go services are **generated** into
 `internal/app/runtime` owns graph execution and `runtime.Engine` (a field on
 `App`) drives it: it installs a runner per enabled flow at startup, reinstalls
 on a flows change, and drains the event log on every append — all with this
-window closed (ADRs 0010, 0011). **Do not add node execution logic to the
+window closed (ADRs goja-script-runtime, flow-engine-in-go). **Do not add node execution logic to the
 frontend.** A new node
 type gets its editor (`nodes/<type>/{config.ts,editor.vue,index.ts}`) here,
 and its schema, validation, docs *and execution* in Go. See `architecture.md`
@@ -95,7 +95,7 @@ directory.** `internal/app/sources` holds a `connector.Descriptor` per
 connector — type, title, credentials provider, pull/push mode, stability,
 capabilities, config schema — and `flow`'s node registry, `runtime`'s
 behaviour registry and **Settings ▸ Integrations** all *derive* their source
-entries from it (ADR 0012). Source node types are namespaced:
+entries from it (ADR source-connector-registry). Source node types are namespaced:
 `sources.github`, `sources.webhook`. A new connector still needs a
 `nodes/<type>/` editor entry here until forms are schema-driven, but nothing
 else — it gets its Integrations card for free, and `useIntegrations` supplies
@@ -126,7 +126,7 @@ mise run devserver         # the shared GitHub proxy desktop:dev routes through
 
 `desktop:dev` goes through `cmd/devserver` by default — `launch.env` carries the
 API base, and one proxy serves every worktree so concurrent streams share a
-rate-limit budget and a response cache (ADR 0017). Leave `mise run devserver`
+rate-limit budget and a response cache (ADR devserver-github-proxy). Leave `mise run devserver`
 running; starting a second parks it as a standby that takes over if the first
 stops. Nothing preflights the proxy — if it is not answering, GitHub calls fail
 as transport errors in the log. To use real GitHub, set
@@ -164,7 +164,7 @@ verification concern — it cannot be checked headlessly.
 ### Measuring a slow interaction
 
 `usePerf` records spans to `perf.jsonl` under the state directory for later
-analysis (ADR 0055). It is on in `desktop:dev` via `launch.env` and off in a
+analysis (ADR ui-performance-spans-are-recorded-to-jsonl). It is on in `desktop:dev` via `launch.env` and off in a
 shipped build, so instrumentation can be added freely to chase something and
 left in place — a disabled recorder costs a boolean check.
 
@@ -195,7 +195,7 @@ rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
   batch of log messages, and the exact `CommitBatch` they are worth. A change
   to routing, sink tagging or node-run accounting belongs in one of these; they
   are cheaper to read than the engine and they were the proof the port off the
-  browser engine was faithful (ADR 0011).
+  browser engine was faithful (ADR flow-engine-in-go).
 - **E2E** (`mise run desktop:e2e`): **Docker-only.** Builds the digest-pinned
   Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright inside it
   against private feed / onboarding / pipeline / action-smoke server instances.
@@ -284,26 +284,26 @@ more expensive, which is the whole reason it is being done now.
   polling: {interval: 5m}
   updates: {enabled: true, channel: ""}
   notifications: {enabled: true, delivery: auto, sound: true}
-  appearance: {theme: "", terminal_font_size: "", terminal_font_family: "", terminal_font_weight: 0, terminal_font_weight_bold: 0, terminal_line_height: 0, terminal_letter_spacing: 0, terminal_show_windows: true, terminal_pool_size: 3}   # terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_font_family: an installed monospace family, "" = the bundled JetBrains Mono (ADR 0056); terminal_font_weight/_bold: 300/350/400/600/700, 0 = the defaults 350/700 (ADR 0050); terminal_line_height: 1 to 1.6 in tenths, 0 = the default 1.2, and terminal_letter_spacing: 0-3 extra device pixels of tracking (ADR 0051); terminal_show_windows lists every session's windows in the terminal sidebar; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR 0042)
-  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR 0021)
+  appearance: {theme: "", terminal_font_size: "", terminal_font_family: "", terminal_font_weight: 0, terminal_font_weight_bold: 0, terminal_line_height: 0, terminal_letter_spacing: 0, terminal_show_windows: true, terminal_pool_size: 3}   # terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_font_family: an installed monospace family, "" = the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font); terminal_font_weight/_bold: 300/350/400/600/700, 0 = the defaults 350/700 (ADR terminal-typography-is-configurable); terminal_line_height: 1 to 1.6 in tenths, 0 = the default 1.2, and terminal_letter_spacing: 0-3 extra device pixels of tracking (ADR terminal-line-height-and-letter-spacing); terminal_show_windows lists every session's windows in the terminal sidebar; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR terminal-attach-pool)
+  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR agent-http-api)
   keybindings: {}
-  paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR 0039)
+  paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR tmux-discovery)
   editor: {command: ""}             # single-word CLI launcher "Open in editor" actions run (zed, code, …); "" means none configured
-  experimental: {terminal: false, agents: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR 0037), the Agents area (ADR 0061)
+  experimental: {terminal: false, agents: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR terminal-experimental-gate), the Agents area (ADR a-workspace-declares-its-own-authority)
   development:
     mocks: {mode: live}
     instance: {id: ""}
-    github: {api_base: ""}   # loopback-only devserver override (ADR 0017)
+    github: {api_base: ""}   # loopback-only devserver override (ADR devserver-github-proxy)
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
-    pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR 0023)
-    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR 0055); desktop:dev turns it on
+    pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
+    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl); desktop:dev turns it on
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
   The loopback HTTP server (webhook listener + agent API) is on by default and
   allocates directly through port `0`. Pprof is off by default; when enabled it
-  mounts `/debug/pprof/` on that same server (`httpapi.PprofHandler`, ADR 0023),
+  mounts `/debug/pprof/` on that same server (`httpapi.PprofHandler`, ADR pprof-debug-endpoint),
   so it has no address of its own and needs `http.enabled`. Dev uses
   `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
   runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
@@ -311,7 +311,7 @@ more expensive, which is the whole reason it is being done now.
   server is active. `prepare` writes non-secret `launch.env`; the `desktop:dev`
   mise task loads it followed by optional gitignored `overrides.env`, then
   starts Wails through `devtools run`, which owns the session's teardown so a
-  closed terminal cannot leave the app running (ADR 0046).
+  closed terminal cannot leave the app running (ADR shutdown-is-signalled-and-bounded).
   Data/config/ports are isolated, but the OS keychain,
   the fixed bootstrap pointer, and `hive.db` are shared: dev sets
   `HIVE_DESKTOP_HIVE_DATA_DIR` to the installed hive data dir so sessions created
@@ -388,29 +388,29 @@ persisted by UI writes.
 | `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
 | `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE` | Terminal font size preset (`small`/`medium`/`large`/`xl`/`xxl`); empty means medium |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY` | Terminal font family — any installed monospace family; empty is the bundled JetBrains Mono. Icons come from a bundled symbol face behind whatever is chosen (ADR 0056) |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY` | Terminal font family — any installed monospace family; empty is the bundled JetBrains Mono. Icons come from a bundled symbol face behind whatever is chosen (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font) |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT` | Weight normal terminal text draws at (`300`/`350`/`400`/`600`/`700`); `0` means the default, 350 |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD` | Weight bold terminal text draws at; `0` means the default, 700 |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT` | Cell-height multiplier (`1` to `1.6` in tenths); `0` means the default, 1.2 (ADR 0051) |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING` | Extra tracking in device pixels (`0` to `3`); `0` is also the default (ADR 0051) |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT` | Cell-height multiplier (`1` to `1.6` in tenths); `0` means the default, 1.2 (ADR terminal-line-height-and-letter-spacing) |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING` | Extra tracking in device pixels (`0` to `3`); `0` is also the default (ADR terminal-line-height-and-letter-spacing) |
 | `HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS` | List every active session's windows in the terminal sidebar, not just the attached one's; on by default |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE` | Sessions the terminal view keeps attached for instant switching (1-6, ADR 0042); values outside the range read as the default, 3 |
+| `HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE` | Sessions the terminal view keeps attached for instant switching (1-6, ADR terminal-attach-pool); values outside the range read as the default, 3 |
 | `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
 | `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
-| `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR 0039); empty searches `$PATH` then the usual package-manager prefixes |
+| `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR tmux-discovery); empty searches `$PATH` then the usual package-manager prefixes |
 | `HIVE_DESKTOP_EDITOR_COMMAND` | Single-word CLI launcher "Open in editor" actions run on a directory (zed, code, cursor, subl, or a path); empty means none configured |
-| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR 0037); off by default, read at startup. **`launch.env` sets it true** — every ships-dark opt-in is on in development |
-| `HIVE_DESKTOP_EXPERIMENTAL_AGENTS` | Opt into the Agents area (ships dark, ADR 0061); off by default, read at startup. **`launch.env` sets it true**; set it false in `overrides.env` to gate the area off locally |
+| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR terminal-experimental-gate); off by default, read at startup. **`launch.env` sets it true** — every ships-dark opt-in is on in development |
+| `HIVE_DESKTOP_EXPERIMENTAL_AGENTS` | Opt into the Agents area (ships dark, ADR a-workspace-declares-its-own-authority); off by default, read at startup. **`launch.env` sets it true**; set it false in `overrides.env` to gate the area off locally |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
-| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR 0017). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
+| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR devserver-github-proxy). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR 0023); off by default, needs `http.enabled` |
-| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR 0055). Off by default; `launch.env` sets it so `desktop:dev` records |
+| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR pprof-debug-endpoint); off by default, needs `http.enabled` |
+| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl). Off by default; `launch.env` sets it so `desktop:dev` records |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |

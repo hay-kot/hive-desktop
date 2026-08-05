@@ -1,6 +1,6 @@
 # Distribution Reference
 
-Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [0003](decisions/0003-r2-manifest-distribution.md) (R2 + manifests), [0004](decisions/0004-release-channels.md) (channels), [0024](decisions/0024-in-app-problem-reporting.md) (problem reporting).
+Concrete infrastructure and runbook for shipping the desktop app. Decisions behind this: [r2-manifest-distribution](decisions/2026-07-23-r2-manifest-distribution.md) (R2 + manifests), [release-channels](decisions/2026-07-23-release-channels.md) (channels), [in-app-problem-reporting](decisions/2026-07-27-in-app-problem-reporting.md) (problem reporting).
 
 ## Infrastructure
 
@@ -35,7 +35,7 @@ One `SHA256SUMS` lists every artifact in the release. A single publish writes th
 
 | Platform | Artifact | Notes |
 | -------- | -------- | ----- |
-| `darwin-universal` | `.dmg` holding `Hive.app` + an `/Applications` symlink | **The human download.** Universal binary, Developer ID signed, notarized + stapled — the image itself, not just the app inside (decision [0060](decisions/0060-macos-dmg-installer.md)) |
+| `darwin-universal` | `.dmg` holding `Hive.app` + an `/Applications` symlink | **The human download.** Universal binary, Developer ID signed, notarized + stapled — the image itself, not just the app inside (decision [macos-dmg-installer](decisions/2026-08-03-macos-dmg-installer.md)) |
 | `darwin-universal` | `.zip` of `Hive.app` | **The update artifact.** Same signed, notarized, stapled app; the updater cannot consume a disk image |
 | `linux-amd64` | `.tar.gz` of a single `hive-desktop` binary | Unsigned; integrity comes from the manifest sha256 |
 | `linux-arm64` | `.tar.gz` of a single `hive-desktop` binary | Same, built for aarch64 |
@@ -88,7 +88,7 @@ Private-beta signups POST to `/api/subscribe`; the worker validates the address,
 
 ## Install script
 
-The one-line installer ([ADR 0026](decisions/0026-install-script.md)) is a static asset served by the same worker and shipped by `deploy-web.yml`:
+The one-line installer ([ADR install-script](decisions/2026-07-27-install-script.md)) is a static asset served by the same worker and shipped by `deploy-web.yml`:
 
 ```
 curl -fsSL https://hivedesktop.com/install/a1c6d523f7a3d06eed1e7b43/install.sh | bash
@@ -101,7 +101,7 @@ It detects OS+arch, resolves the channel's latest build from the **same manifest
 
 ## Problem reporting
 
-The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The reporter chooses what to attach: basic info (build/system info, a bounded log tail, connected accounts) as one group, and settings/flows/actions individually — each config surface is secret-scrubbed before it is included (ADR 0024). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
+The app's "Report a problem" dialog (System settings ▸ Diagnostics) gzips a redacted diagnostic bundle and POSTs it to `/api/report` on the same worker, which stores it in the private `hive-desktop-reports` bucket. The reporter chooses what to attach: basic info (build/system info, a bounded log tail, connected accounts) as one group, and settings/flows/actions individually — each config surface is secret-scrubbed before it is included (ADR in-app-problem-reporting). The endpoint requires a shared bearer token, `Content-Encoding: gzip`, and a ≤5 MB body, and writes the object key from its own clock: `reports/YYYY/MM/DD/<report-id>.json.gz`.
 
 **One-time setup to enable it:**
 
@@ -137,13 +137,13 @@ gunzip -c report.json.gz | jq .
 
 ## Publish flow
 
-The pipeline is the Go CLI in `cmd/release`. **A release publishes every platform at once, from one machine** — there is no CI publishing workflow (decision [0028](decisions/0028-linux-tarball-distribution.md)). `publish`:
+The pipeline is the Go CLI in `cmd/release`. **A release publishes every platform at once, from one machine** — there is no CI publishing workflow (decision [linux-tarball-distribution](decisions/2026-07-27-linux-tarball-distribution.md)). `publish`:
 
 1. builds the universal .app, Developer ID signs it with an ephemeral keychain, notarizes + staples it, packages without macOS AppleDouble metadata, and verifies the extracted archive's signature and stapled ticket;
 2. builds the installer `.dmg` from that stapled app, signs it, notarizes and staples **the image** (a second Apple round trip), then mounts it and asserts the layout the user will see;
 3. builds `linux-amd64` and `linux-arm64` in a container, asserting each binary carries the version stamp and each tarball still satisfies the updater's single-entry rule;
 4. writes one `SHA256SUMS` covering all four, uploads them to `releases/<semver>/`, writes one channel manifest naming all of them, and verifies every published artifact — installer included — against the manifest it just wrote;
-5. records the release on GitHub ([0034](decisions/0034-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
+5. records the release on GitHub ([github-tags-and-releases](decisions/2026-07-29-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
 
 Publishing everything in one process is what keeps the manifest-advancement rule (below) usable: a second publish topping up another platform would be rejected for not advancing the version the first just set. It also means a release needs macOS, a running Docker, **and** an authenticated `gh` on the same machine. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
@@ -185,7 +185,7 @@ Installing into `/Applications` is what the in-app updater expects — an app le
 
 ## Installing on Linux
 
-Linux ships a plain tarball, deliberately — no `.deb`, `.rpm`, AppImage, or repository (decision [0028](decisions/0028-linux-tarball-distribution.md)). Download it, verify it, and put the binary somewhere on `PATH` **that your user owns**, which is what makes in-app updates work:
+Linux ships a plain tarball, deliberately — no `.deb`, `.rpm`, AppImage, or repository (decision [linux-tarball-distribution](decisions/2026-07-27-linux-tarball-distribution.md)). Download it, verify it, and put the binary somewhere on `PATH` **that your user owns**, which is what makes in-app updates work:
 
 ```bash
 VER=1.4.0

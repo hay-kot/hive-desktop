@@ -4,7 +4,7 @@
 // feature holds, not a category of settings, so each opt-in sits on the pane
 // for the feature it gates rather than in a shared Experimental list.
 //
-// The flags are read once at startup (ADRs 0037, 0061), so a change is pending
+// The flags are read once at startup (ADRs terminal-experimental-gate, a-workspace-declares-its-own-authority), so a change is pending
 // until the app is relaunched — `restartPending` is what says so.
 import AppSwitch from '../AppSwitch.vue'
 import BaseBadge from '../BaseBadge.vue'

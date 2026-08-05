@@ -8,7 +8,7 @@ import { resetAgentSessionsAllForTests } from '../../composables/useAgentSession
 import { createAppRouter } from '../../router'
 
 // App.vue mounts AgentsMode once and hides it with v-show on a trip to the
-// hub (ADR 0054): the component itself must never re-key or v-if anything
+// hub (ADR terminal-mode-is-hidden-not-unmounted): the component itself must never re-key or v-if anything
 // internal to props.active, or a v-show'd parent would still pay for a
 // rebuild on every round trip. This asserts that at the component level —
 // App.spec.ts separately proves the parent uses v-show rather than v-if.

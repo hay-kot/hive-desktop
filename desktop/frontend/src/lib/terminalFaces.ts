@@ -7,7 +7,7 @@
 export const TERMINAL_FONT = 'JetBrains Mono'
 
 // Agent TUIs draw powerline and devicon glyphs no text font covers. This one
-// covers nothing else, so it sits behind whatever renders the text (ADR 0056).
+// covers nothing else, so it sits behind whatever renders the text (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font).
 export const SYMBOL_FONT = 'Symbols Nerd Font Mono'
 
 // A private-use glyph, to warm the symbol face. It carries no space and no
@@ -47,7 +47,7 @@ const faceLoads = new Map<string, Promise<void>>()
  *
  * xterm measures its cell when a Terminal opens and never re-measures when a
  * face arrives later, and an atlas renderer caches the glyphs it rasterised
- * from whatever was resident (ADR 0038) — so both weights belong here, not just
+ * from whatever was resident (ADR terminal-atlas-renderer) — so both weights belong here, not just
  * the normal one, the italics of each with them, and the symbol face too: an
  * icon rasterised before it arrives is cached as tofu for the pane's life.
  */

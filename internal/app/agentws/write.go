@@ -19,8 +19,8 @@ import (
 // deliberately package-local, the same self-containment flow and actions keep.
 
 // agentsScaffold is the AGENTS.md a created workspace starts with. It is
-// written exactly once, at creation, and is authored from then on (ADR 0062
-// §3, ADR 0064): the user or the agent overrides it by editing the file, and
+// written exactly once, at creation, and is authored from then on (ADR workspace-directories-are-generated-and-disposable
+// §3, ADR a-created-workspace-starts-with-an-agents-md-scaffold): the user or the agent overrides it by editing the file, and
 // nothing ever regenerates it — the same rule the seeded hive workspace's
 // AGENTS.md follows.
 const agentsScaffold = `# %[1]s

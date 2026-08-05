@@ -12,7 +12,7 @@ function errText(err: unknown): string {
 }
 
 // useExperimentalSettings drives the ships-dark opt-ins that gate whole modes:
-// terminal (ADR 0037) and agents (ADR 0061). Each is read once at startup, so a
+// terminal (ADR terminal-experimental-gate) and agents (ADR a-workspace-declares-its-own-authority). Each is read once at startup, so a
 // toggle tracks two values — what is persisted and what this run mounted — and
 // they differ exactly while a relaunch is pending.
 //

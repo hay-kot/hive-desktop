@@ -18,7 +18,7 @@ var (
 	// registry, so no user library needed rewriting for it.
 	MCPLibrarySet = Set{Name: "mcps", Baseline: 1, Current: 1}
 	// AgentWorkspaceSet covers agent-workspace.yaml. Version 2 renames the
-	// skill slug the MCP cut-over retired (ADR 0073).
+	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api).
 	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 2, Migrations: []Migration{
 		{To: 2, Migrate: renameHTTPAPISkill},
 	}}
@@ -27,7 +27,7 @@ var (
 // renameHTTPAPISkill rewrites the retired hive-http-api skill slug to hive-mcp.
 //
 // The prompt behind it became the MCP prompt when the agent-facing HTTP API was
-// deleted (ADR 0073), and a workspace's skills: list carries the installed slug.
+// deleted (ADR mcp-replaces-the-agent-facing-http-api), and a workspace's skills: list carries the installed slug.
 // Without this, opening a workspace that declared the old one fails outright —
 // resolveSkills refuses a slug no prompt id backs, so one stale entry takes the
 // whole workspace down rather than degrading.

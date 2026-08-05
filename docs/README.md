@@ -4,84 +4,15 @@ Documentation for the hive-desktop monorepo.
 
 ## Decisions
 
-Notable architecture/infrastructure decisions are recorded as ADRs in [`decisions/`](decisions/). New decisions get the next number; superseded ADRs are marked, not deleted.
+Notable architecture/infrastructure decisions are recorded as ADRs in
+[`decisions/`](decisions/) — **[the index lives there](decisions/README.md)** and is
+generated, not hand-maintained.
 
-| # | Decision |
-| - | -------- |
-| [0001](decisions/0001-monorepo-structure.md) | Product monorepo structure and clean import from hive |
-| [0002](decisions/0002-vendor-hive-internals.md) | Vendor hive `internal/` packages via sync tool |
-| [0003](decisions/0003-r2-manifest-distribution.md) | Distribution and auto-update via R2 + channel manifests |
-| [0004](decisions/0004-release-channels.md) | Release channels: stable, beta, dev |
-| [0005](decisions/0005-web-workers-static-assets.md) | Landing page as Cloudflare Workers static assets |
-| [0006](decisions/0006-lefthook-quality-gates.md) | Quality gates enforced by lefthook git hooks |
-| [0007](decisions/0007-local-webhook-listener.md) | Local webhook listener for generic pipeline ingress |
-| [0008](decisions/0008-canonical-item-contract.md) | Canonical inbox item contract |
-| [0009](decisions/0009-go-owned-llm-prompts.md) | LLM prompts owned by Go, node docs live with the schema |
-| [0010](decisions/0010-goja-script-runtime.md) | goja for function nodes, behind a ScriptRuntime port |
-| [0011](decisions/0011-flow-engine-in-go.md) | The flow engine moves to Go |
-| [0012](decisions/0012-source-connector-registry.md) | Source connectors are declared, not sniffed |
-| [0013](decisions/0013-credential-store.md) | Credentials are keyed by account, in a store of our own |
-| [0014](decisions/0014-desktop-configuration.md) | Typed desktop configuration and worktree-local development instances |
-| [0015](decisions/0015-owned-github-client.md) | The desktop owns its GitHub client |
-| [0016](decisions/0016-webhook-listener-placement.md) | The webhook listener stays in the core as push ingress |
-| [0017](decisions/0017-devserver-github-proxy.md) | Development GitHub proxy and event simulator |
-| [0018](decisions/0018-source-http-toolkit.md) | A shared HTTP toolkit for source connectors |
-| [0019](decisions/0019-batched-absence-confirmation.md) | Batched, keyed GitHub absence confirmation |
-| [0020](decisions/0020-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
-| [0021](decisions/0021-agent-http-api.md) | Agent-facing HTTP API (control surface: read, reload, mutate) sharing the webhook port — agent surface superseded by 0070 |
-| [0022](decisions/0022-http-handler-conventions.md) | HTTP handler conventions: errchain, extractors, criterio validation |
-| [0023](decisions/0023-pprof-debug-endpoint.md) | pprof debug endpoint mounted on the shared loopback HTTP server |
-| [0024](decisions/0024-in-app-problem-reporting.md) | In-app problem reporting: redacted diagnostics to a private R2 bucket |
-| [0025](decisions/0025-profile-images.md) | Profile images: normalized PNG in the data dir, hash-referenced from the flow |
-| [0026](decisions/0026-install-script.md) | One-line install script served behind an obscure path |
-| [0027](decisions/0027-self-describing-agent-api.md) | Self-describing agent API: one operations table backs the mux, a GET /api index, and a generated OpenAPI document — superseded by 0070 |
-| [0028](decisions/0028-linux-tarball-distribution.md) | Linux ships as a tarball, not a package |
-| [0029](decisions/0029-clipboard-action-type.md) | Clipboard action type with a render-only, non-durable invocation path |
-| [0030](decisions/0030-commit-resilience-and-scope-backfill.md) | Commit resilience, pre-#63 scope backfill by self-healing lookup, and superseded-snapshot retention |
-| [0031](decisions/0031-webhook-source-image-marks.md) | Webhook source image marks: content-addressed PNG in the data dir, hash in the flow |
-| [0032](decisions/0032-yaml-config-migration.md) | Forward-only in-place YAML config migration |
-| [0033](decisions/0033-skill-installer.md) | Skill installer: install the paste-ready prompts as agent skills, kept in sync by content hash |
-| [0034](decisions/0034-github-tags-and-releases.md) | Publish GitHub tags and Releases as the source-side record of a desktop release |
-| [0035](decisions/0035-function-node-per-entity-feed-items.md) | Per-entity feed items by function-node fan-out: mint the inbox row at commit for a synthesized feed key |
-| [0036](decisions/0036-terminal-transport.md) | Terminal transport: REST control plane on httpapi, one binary WebSocket per session |
-| [0037](decisions/0037-terminal-experimental-gate.md) | Terminal mode ships dark behind an experimental settings opt-in |
-| [0038](decisions/0038-terminal-atlas-renderer.md) | Terminal panes render through an atlas renderer, not xterm's DOM renderer |
-| [0039](decisions/0039-tmux-discovery.md) | Discover the tmux binary instead of trusting $PATH |
-| [0040](decisions/0040-session-rename-keeps-slug-and-tmux-in-step.md) | A session rename renames its tmux session, keeping slug and tmux name in step |
-| [0041](decisions/0041-subprocess-environment.md) | Run the user's commands (session hooks, shell actions) in the user's PATH |
-| [0042](decisions/0042-terminal-attach-pool.md) | Terminal view pools live attaches and swaps sessions on first paint |
-| [0043](decisions/0043-action-declared-inputs.md) | Actions declare their inputs on the envelope, collected by one generic invocation form |
-| [0044](decisions/0044-terminal-start-is-an-offered-action.md) | A session's terminal is started and killed on purpose, never as a side effect of attaching |
-| [0045](decisions/0045-terminal-renderer-claimed-on-activation.md) | A terminal pane claims its atlas renderer on activation, not on mount |
-| [0046](decisions/0046-shutdown-is-signalled-and-bounded.md) | Shutdown is signalled, bounded, and owned above the dev runner |
-| [0046](decisions/0046-terminal-first-paint-carries-scrollback.md) | First paint carries bounded scrollback and restores the cursor |
-| [0047](decisions/0047-actions-target-terminal-sessions-and-windows.md) | An action declares which surfaces it targets; a terminal action runs without a durable command |
-| [0048](decisions/0048-ephemeral-popup-terminals.md) | Ephemeral pop-up terminals this process owns, beside the tmux ones it does not |
-| [0049](decisions/0049-launchers-are-their-own-list-in-actions-yml.md) | A pop-up terminal launcher is its own list in actions.yml, not an action |
-| [0050](decisions/0050-terminal-typography-is-configurable.md) | Terminal typography is configurable, and the bundled face carries five weights |
-| [0051](decisions/0051-terminal-line-height-and-letter-spacing.md) | Terminal line height and letter spacing are settings, and line height defaults to 1.2 |
-| [0052](decisions/0052-attach-paints-the-active-window-first.md) | Attach paints the active window first and defers the rest to the client's own lifetime |
-| [0053](decisions/0053-queued-terminal-output-coalesces.md) | Queued terminal output coalesces per pane, so batching costs no latency |
-| [0054](decisions/0054-terminal-mode-is-hidden-not-unmounted.md) | Terminal mode is hidden on a trip to the hub, never unmounted |
-| [0055](decisions/0055-ui-performance-spans-are-recorded-to-jsonl.md) | UI performance spans are recorded as raw JSONL, not aggregated metrics |
-| [0056](decisions/0056-bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font.md) | The bundled faces are JetBrains Mono, Inter, and a symbol font |
-| [0057](decisions/0057-the-sidebar-tree-is-the-only-window-list.md) | The sidebar tree is the only window list; the tab strip is deleted |
-| [0058](decisions/0058-flows-are-dry-run-against-supplied-input.md) | Flows are dry-run against supplied input, not deployed to be observed |
-| [0059](decisions/0059-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call |
-| [0060](decisions/0060-macos-dmg-installer.md) | macOS ships an installer disk image beside the update zip |
-| [0061](decisions/0061-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority: no inherited profiles, a fail-closed autonomy table |
-| [0062](decisions/0062-workspace-directories-are-generated-and-disposable.md) | Workspace directories are generated and disposable: no drift tracking, deterministic regeneration, iCloud-tolerant |
-| [0063](decisions/0063-agent-workspace-sessions-are-tmux-sessions.md) | Agent workspace sessions are tmux sessions: the pivot off `ptyterm`, why, and what it costs |
-| [0064](decisions/0064-a-created-workspace-starts-with-an-agents-md-scaffold.md) | A created workspace starts with an AGENTS.md scaffold: authored at birth, never regenerated |
-| [0065](decisions/0065-the-open-chat-rides-the-route.md) | The open chat rides the route (`?chat`), and re-entry reattaches it — only when its tmux session is still live |
-| [0066](decisions/0066-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped |
-| [0067](decisions/0067-the-scratch-terminal-is-a-tmux-session-the-desktop-owns.md) | The scratch terminal is a tmux session the desktop owns, pinned above the repositories |
-| [0068](decisions/0068-tmux-runs-in-the-resolved-environment.md) | tmux is spawned in the resolved environment, because a login shell is not an interactive one |
-| [0069](decisions/0069-settings-sections-name-the-surface-they-change.md) | Settings sections name the surface they change; shared values live in General and experimental is a posture, not a category |
-| [0070](decisions/0070-an-item-session-link-is-desktop-state-keyed-on-item-coordinates.md) | An item↔session link is desktop state, keyed on the item's coordinates |
-| [0071](decisions/0071-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read; the jobs split to overlap, `-race` moves to the main run, and `mise run ci` mirrors the whole gate locally |
-| [0072](decisions/0072-a-command-is-a-source.md) | A command is a source: `sources.exec` runs a CLI on the tick and ingests its stdout as a snapshot |
-| [0073](decisions/0073-mcp-replaces-the-agent-facing-http-api.md) | The MCP server replaces the agent-facing HTTP API: stateless tools over App at /mcp, unauthenticated behind loopback |
+An ADR is identified by its filename, `YYYY-MM-DD-slug.md`. Nothing allocates a
+number, so two branches can add one without colliding, and prose cites the slug
+alone: `(ADR terminal-transport)`. Start one with `mise run adr:new -- "Title"`;
+`mise run check:adr` verifies the ids, the citations, and the index. Superseded
+ADRs are marked, not deleted.
 
 ## References
 

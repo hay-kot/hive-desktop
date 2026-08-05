@@ -1,6 +1,6 @@
 // Package sourcemark stores a source node's custom feed mark as a normalized
 // square PNG under the app data dir, content-addressed by hash. A node's config
-// records the hash; a missing file falls back to the node's glyph. See ADR 0031.
+// records the hash; a missing file falls back to the node's glyph. See ADR webhook-source-image-marks.
 package sourcemark
 
 import (

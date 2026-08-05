@@ -10,7 +10,7 @@ import (
 
 // PopupTerminalTransport is what the pop-up needs that the core does not hold:
 // the per-run bearer token and the path its WebSocket is mounted at. Both are
-// composed in main.go and handed here (ADR 0036). It shares the terminal's
+// composed in main.go and handed here (ADR terminal-transport). It shares the terminal's
 // token because it shares the terminal's path prefix.
 type PopupTerminalTransport struct {
 	Token      string

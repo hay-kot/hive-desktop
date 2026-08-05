@@ -148,7 +148,7 @@ func (s *SessionsService) SessionStatuses(ctx context.Context) (dispatch.Session
 
 // ItemSessions returns the hive sessions an inbox item spawned, newest first,
 // joined to the state hive reports for them now. The read is also what
-// reconciles (ADR 0060).
+// reconciles (ADR macos-dmg-installer).
 func (s *SessionsService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
 	if s.manager == nil || s.links == nil {
 		return nil, Errorf(KindUnavailable, "session links are unavailable")
@@ -386,7 +386,7 @@ func (s *SessionsService) StartTmuxSession(ctx context.Context, slug string) err
 		return Errorf(KindConflict, "session %q is %s, so there is no checkout left to open a terminal in", detail.Name, detail.State)
 	}
 	// Hive spawns under the slug it derives from the name, so a record whose two
-	// disagree would create a tmux session nothing is attaching to (ADR 0040).
+	// disagree would create a tmux session nothing is attaching to (ADR session-rename-keeps-slug-and-tmux-in-step).
 	if spawned := dispatch.SlugifySessionName(detail.Name); spawned != slug {
 		return Errorf(KindConflict, "session %q would start as %q, not %q", detail.Name, spawned, slug)
 	}

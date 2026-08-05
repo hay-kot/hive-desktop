@@ -25,7 +25,7 @@ mise install                       # toolchain + git hooks (lefthook)
 cd desktop/frontend && npm ci      # frontend deps, for the desktop app and its tests
 ```
 
-`mise install` also installs the git hooks, so a fresh clone gets the quality gates with no extra step (`mise run setup` re-installs them on demand). `mise tasks` lists every gate and build task. Hooks format staged Go files on commit and run `mise run check` (generated-code drift, tidy, lint, test) on push — see [`docs/decisions/0006-lefthook-quality-gates.md`](docs/decisions/0006-lefthook-quality-gates.md).
+`mise install` also installs the git hooks, so a fresh clone gets the quality gates with no extra step (`mise run setup` re-installs them on demand). `mise tasks` lists every gate and build task. Hooks format staged Go files on commit and run `mise run check` (generated-code drift, tidy, lint, test) on push — see [`docs/decisions/2026-07-23-lefthook-quality-gates.md`](docs/decisions/2026-07-23-lefthook-quality-gates.md).
 
 Installing the hooks sets this clone's `core.hooksPath` to its own `.git/hooks`, which takes precedence over a global `core.hooksPath` — global hooks will not run in this repo.
 
@@ -35,4 +35,4 @@ Architecture and infrastructure decisions are recorded as ADRs in [`docs/decisio
 
 ## Extraction status
 
-The desktop app is imported (see the import commit for the source SHA), and the release pipeline is ported: R2 upload + channel manifests (ADR 0003/0004) via the Go CLI in `cmd/release`, the tag-triggered publish workflow, and the manifest-polling in-app updater. The desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.
+The desktop app is imported (see the import commit for the source SHA), and the release pipeline is ported: R2 upload + channel manifests (ADR r2-manifest-distribution/0004) via the Go CLI in `cmd/release`, the tag-triggered publish workflow, and the manifest-polling in-app updater. The desktop still needs removal from `colonyops/hive`. The full plan lives in the hive context directory: `plans/2026-07-23-hive-desktop-repo-extraction.md`.

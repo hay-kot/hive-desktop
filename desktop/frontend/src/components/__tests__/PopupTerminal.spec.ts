@@ -221,7 +221,7 @@ describe('PopupTerminal', () => {
     expect(xterm.FakeTerminal.instances).toHaveLength(1)
   })
 
-  // One pop-up is open at a time (ADR 0048), so asking for lazygit while a
+  // One pop-up is open at a time (ADR ephemeral-popup-terminals), so asking for lazygit while a
   // shell is up is a request to see lazygit — not to be handed the shell back.
   it('replaces the live terminal when a different launch is asked for', async () => {
     const { client } = await mountPanel()
@@ -305,7 +305,7 @@ describe('PopupTerminal', () => {
     expect(opened.options.fontWeight).toBe(400)
     expect(opened.options.fontWeightBold).toBe(defaultTerminalFontWeightBold)
     // The faces have to be resident before the Terminal is constructed: xterm
-    // measures its cell on open and never re-measures (ADR 0038).
+    // measures its cell on open and never re-measures (ADR terminal-atlas-renderer).
     expect(mocks.loadTerminalFaces).toHaveBeenCalledWith('Menlo', expect.any(Number), 400, defaultTerminalFontWeightBold)
 
     setTerminalFontFamily(TERMINAL_FONT)
