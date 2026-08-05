@@ -6,10 +6,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/mcpcatalog"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 )
 
 func testEnv() Env {
@@ -259,4 +261,42 @@ func TestRenderIsDeterministic(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equalf(t, first.Text, second.Text, "prompt %q is not deterministic", id)
 	}
+}
+
+// TestSettingsPromptSchemaParses feeds the settings prompt's own schema block to
+// the same strict decoder the app loads settings.yaml with. The block is
+// hand-written prose rather than generated from the struct, so it is the one
+// prompt that can drift without any other test noticing — and it did: it
+// documented a `webhooks:` section that has never existed, said the listener
+// defaulted off when it defaults on, and omitted `experimental:` entirely, so an
+// agent following it wrote a file the app rejects.
+func TestSettingsPromptSchemaParses(t *testing.T) {
+	prompt, err := newTestService(t).Render("settings", testInput())
+	require.NoError(t, err)
+
+	schema := fencedBlock(t, prompt.Text, "yaml")
+
+	decoder := yaml.NewDecoder(strings.NewReader(schema))
+	decoder.KnownFields(true)
+	var cfg settings.Settings
+	require.NoError(t, decoder.Decode(&cfg), "the documented schema is not loadable settings.yaml")
+
+	// Documenting a key the app ignores is the same failure in the other
+	// direction, so assert the values the block claims are the real defaults.
+	defaults := settings.DefaultSettings()
+	assert.True(t, cfg.HTTP.Enabled, "schema shows http.enabled: true")
+	assert.Equal(t, defaults.HTTP.Enabled, cfg.HTTP.Enabled, "http default drifted from the schema block")
+	assert.False(t, cfg.Experimental.Terminal, "schema shows experimental.terminal: false")
+	assert.False(t, cfg.Experimental.Agents, "schema shows experimental.agents: false")
+	assert.Equal(t, defaults.Experimental, cfg.Experimental, "experimental defaults drifted from the schema block")
+}
+
+// fencedBlock returns the first ```<lang> block in text.
+func fencedBlock(t *testing.T, text, lang string) string {
+	t.Helper()
+	_, after, found := strings.Cut(text, "```"+lang+"\n")
+	require.Truef(t, found, "no ```%s block in the prompt", lang)
+	body, _, found := strings.Cut(after, "```")
+	require.Truef(t, found, "unterminated ```%s block", lang)
+	return body
 }
