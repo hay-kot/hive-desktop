@@ -21,6 +21,12 @@ CI runs on pushes to `main` as well as on pull requests. The run exists to leave
 
 The `go` job is split in two. `go` keeps the drift checks, the build, and the race-detector tests; `go-quality` takes `golangci-lint`, `check:deadcode`, and `check:vuln`. `golangci-lint` runs first in `go-quality` because it is the only one of the three that reports a compile error legibly. `desktop-frontend` splits the same way, into a `vue-tsc`/vite build job and a vitest job.
 
+`-race` moves off the PR path and onto the main run. Profiling put the whole suite at 49s of sequential execution (11.8s of it `cmd/release`'s disk-image test, which skips on Linux), against a 97s CI step — the gap is race-instrumented compilation and linking of 81 test binaries, and dropping the flag took a CI-shaped local run from 43.1s to 17.2s. Merges to main still run `test:race`, so a data race is caught before a release rather than before a review. The two invocations are `mise run test` and `mise run test:race` rather than inline flags, so the workflow and the local task cannot disagree about what "the tests" means.
+
+Two tests that waited on real timers became `testing/synctest` bubbles: the tmuxcc broker/manager pump-teardown pair and the mock GitHub device flow. That is worth ~2s and was not the reason for the change — the reason is that `synctest.Wait()` plus a fake-clock `time.Sleep(finalDelivery)` asserts the pump exits *at* its bounded window, where `require.Eventually` could only poll a 5s ceiling and pass for the wrong reason. The suite's other real-time waits are not eligible: `execenv` spawns login shells and the `agentws`/`actions` watchers take real fsnotify events, neither of which synctest can bubble.
+
+A `mise run ci` task runs every gate the workflow runs, so an agent can answer "will CI pass?" in ~20s locally instead of pushing and waiting minutes. It is the superset `check` does not cover — bindings, vendor drift, deadcode, govulncheck, and the frontend — and is deliberately not a git hook, because it needs the network and a built frontend.
+
 Package installation stays uncached. `libgtk-4-dev` and `libwebkitgtk-6.0-dev` pull a dependency tree with `ldconfig` triggers and postinstall scripts, and a subtly incomplete restore surfaces as an unrelated-looking cgo failure. ~30s per job is not worth buying with that failure mode.
 
 ## Consequences
@@ -31,3 +37,5 @@ Package installation stays uncached. `libgtk-4-dev` and `libwebkitgtk-6.0-dev` p
 - Four jobs now pay toolchain setup where two did. Machine time goes up; wall clock, which is what a PR waits on, goes down.
 - A cache-relevant change — the Go toolchain, `go.sum`, the mise tool pins — still costs one cold run, now on main rather than on whichever PR happened to land first.
 - Rerunning a stale PR against a much newer main can restore a cache built from a distant tree. Go's content-addressed build cache makes that a partial hit rather than a wrong one.
+- A data race now surfaces on main rather than in review. The window is one merge, and `mise run test:race` reproduces it locally, but it is a real reduction in what a PR proves.
+- `mise run ci` and `.github/workflows/ci.yml` are two lists that have to agree. The task calls the same mise tasks the workflow does, so a gate added as a task lands in both; a gate added as an inline `run:` step in the workflow lands in neither.

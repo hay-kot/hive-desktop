@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -329,21 +330,29 @@ func TestBrokerCloseFreesAPumpParkedOnAStalledSubscriber(t *testing.T) {
 	// Deliberately not parallel: it counts this package's live goroutines.
 	before := clientGoroutines()
 
-	b := newBroker(backlogBounds{}, nil)
-	ch, _ := b.subscribe()
-	for range 8 {
-		b.publish(outputEvent("@1", "x"))
-	}
-	b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "overflow"})
+	// synctest.Wait returns once the pump is durably blocked, which is the
+	// state this is about; polling for it only ever approximated that.
+	synctest.Test(t, func(t *testing.T) {
+		b := newBroker(backlogBounds{}, nil)
+		ch, _ := b.subscribe()
+		for range 8 {
+			b.publish(outputEvent("@1", "x"))
+		}
+		b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "overflow"})
 
-	require.Eventually(t, func() bool { return clientGoroutines() > before }, 2*time.Second, time.Millisecond,
-		"the pump should be parked on the unread channel")
+		synctest.Wait()
+		require.Greater(t, clientGoroutines(), before, "the pump should be parked on the unread channel")
 
-	b.close()
+		b.close()
 
-	require.Eventually(t, func() bool { return clientGoroutines() <= before }, 5*time.Second, 5*time.Millisecond,
-		"the pump outlived the closed broker")
-	_ = ch
+		// The pump gives the stalled subscriber finalDelivery to catch up before
+		// it abandons the send; on the fake clock that window costs nothing, and
+		// asserting past exactly it is tighter than polling a 5s ceiling was.
+		time.Sleep(finalDelivery)
+		synctest.Wait()
+		require.LessOrEqual(t, clientGoroutines(), before, "the pump outlived the closed broker")
+		_ = ch
+	})
 }
 
 // clientGoroutines counts the long-lived goroutines this package starts. Tests

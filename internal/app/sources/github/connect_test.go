@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -261,20 +262,22 @@ func TestMockConnectionModes(t *testing.T) {
 func TestMockConnectionDeviceFlowAutoGrants(t *testing.T) {
 	t.Parallel()
 
-	changed := make(chan struct{}, 1)
-	conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() { changed <- struct{}{} })
+	synctest.Test(t, func(t *testing.T) {
+		changed := make(chan struct{}, 1)
+		conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() { changed <- struct{}{} })
 
-	info, err := conn.StartDeviceFlow(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, "7B4C-Q22F", info.UserCode)
+		info, err := conn.StartDeviceFlow(t.Context())
+		require.NoError(t, err)
+		assert.Equal(t, "7B4C-Q22F", info.UserCode)
 
-	select {
-	case <-changed:
-	case <-time.After(5 * time.Second):
-		t.Fatal("mock device flow did not grant")
-	}
-	assert.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
-	assert.Equal(t, "octocat", conn.Status(t.Context()).Login)
+		select {
+		case <-changed:
+		case <-time.After(5 * time.Second):
+			t.Fatal("mock device flow did not grant")
+		}
+		assert.Equal(t, ghsource.StateConnected, conn.Status(t.Context()).State)
+		assert.Equal(t, "octocat", conn.Status(t.Context()).Login)
+	})
 }
 
 // A mock connection that only flipped a status flag would leave the credential
@@ -294,19 +297,21 @@ func TestMockConnectionConnectsAndDisconnectsTheCredential(t *testing.T) {
 
 	t.Run("onboarding starts disconnected and connects on grant", func(t *testing.T) {
 		t.Parallel()
-		creds := credentials.NewMemoryStore()
-		changed := make(chan struct{}, 1)
-		conn := ghsource.NewMockConnection(false, creds, func() { changed <- struct{}{} })
-		assert.Empty(t, storedToken(t, creds))
+		synctest.Test(t, func(t *testing.T) {
+			creds := credentials.NewMemoryStore()
+			changed := make(chan struct{}, 1)
+			conn := ghsource.NewMockConnection(false, creds, func() { changed <- struct{}{} })
+			assert.Empty(t, storedToken(t, creds))
 
-		_, err := conn.StartDeviceFlow(t.Context())
-		require.NoError(t, err)
-		select {
-		case <-changed:
-		case <-time.After(5 * time.Second):
-			t.Fatal("mock device flow did not grant")
-		}
-		assert.Equal(t, "mock-token", storedToken(t, creds))
+			_, err := conn.StartDeviceFlow(t.Context())
+			require.NoError(t, err)
+			select {
+			case <-changed:
+			case <-time.After(5 * time.Second):
+				t.Fatal("mock device flow did not grant")
+			}
+			assert.Equal(t, "mock-token", storedToken(t, creds))
+		})
 	})
 
 	t.Run("disconnect clears it", func(t *testing.T) {
@@ -321,26 +326,28 @@ func TestMockConnectionConnectsAndDisconnectsTheCredential(t *testing.T) {
 func TestMockConnectionCancelPreventsLateGrant(t *testing.T) {
 	t.Parallel()
 
-	changed := make(chan struct{}, 1)
-	conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() {
+	synctest.Test(t, func(t *testing.T) {
+		changed := make(chan struct{}, 1)
+		conn := ghsource.NewMockConnection(false, credentials.NewMemoryStore(), func() {
+			select {
+			case changed <- struct{}{}:
+			default:
+			}
+		})
+
+		_, err := conn.StartDeviceFlow(t.Context())
+		require.NoError(t, err)
+		conn.CancelDeviceFlow()
+
+		time.Sleep(2 * time.Second) // fake clock: past the mock grant delay (1.5s)
+
+		assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 		select {
-		case changed <- struct{}{}:
+		case <-changed:
+			t.Fatal("onChange fired after cancel")
 		default:
 		}
 	})
-
-	_, err := conn.StartDeviceFlow(t.Context())
-	require.NoError(t, err)
-	conn.CancelDeviceFlow()
-
-	time.Sleep(2 * time.Second) // past the mock grant delay (1.5s)
-
-	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
-	select {
-	case <-changed:
-		t.Fatal("onChange fired after cancel")
-	default:
-	}
 }
 
 func TestMockConnectionSetTokenAndDisconnect(t *testing.T) {

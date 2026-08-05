@@ -63,8 +63,12 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # -race roughly doubles the suite, and it is the single largest cost in
+      # this job. Merges to main still run it (that job is not on anyone's
+      # critical path), so a data race is caught before a release rather than
+      # before a review.
       - name: Test
-        run: go test ./... -race
+        run: mise run ${{ github.event_name == 'push' && 'test:race' || 'test' }}
 
   go-quality:
     runs-on: ubuntu-latest
