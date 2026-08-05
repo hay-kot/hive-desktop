@@ -61,7 +61,7 @@ func (s *AgentsService) Enabled(ctx context.Context) bool { return s.enabled }
 // composes ptyterm availability with the transport's own reachability.
 func (s *AgentsService) Available(ctx context.Context) AgentsAvailability {
 	if !s.enabled {
-		return AgentsAvailability{Reason: "The Agents area is off. Turn it on in Settings ▸ System, then relaunch Hive."}
+		return AgentsAvailability{Reason: "The Agents area is off. Turn it on in Settings ▸ Agents, then relaunch Hive."}
 	}
 	if err := s.workspaces.Available(ctx); err != nil {
 		return AgentsAvailability{Reason: reasonFor(err)}

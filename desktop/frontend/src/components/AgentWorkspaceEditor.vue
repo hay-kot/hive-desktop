@@ -277,7 +277,7 @@ onMounted(async () => {
             @click="reveal"
           ><IconFolderOpen class="size-3.5" />Show in Finder</button>
         </div>
-        <span v-if="!editor.command" class="text-xs text-text-4">Pick a default editor in Settings › System to open this directory in it.</span>
+        <span v-if="!editor.command" class="text-xs text-text-4">Pick a default editor in Settings › General to open this directory in it.</span>
         <p v-if="actionError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-action-error">{{ actionError }}</p>
       </div>
 

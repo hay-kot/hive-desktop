@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// A single on-disk location row inside a grouped System-settings card: a
+// A single on-disk location row inside a grouped settings card: a
 // leading type icon, the label and monospace path on one line, and quiet
 // icon-only actions. Copy is handled locally (no backend); open/reveal/
 // change/reset are emitted for the parent to route through the SystemService.

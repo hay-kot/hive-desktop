@@ -4,7 +4,6 @@ import SystemSettingsView from '../SystemSettingsView.vue'
 
 const mocks = vi.hoisted(() => ({
   Info: vi.fn(),
-  Build: vi.fn(),
   OpenPath: vi.fn(),
   RevealPath: vi.fn(),
   ChooseDirectory: vi.fn(),
@@ -14,21 +13,9 @@ const mocks = vi.hoisted(() => ({
   ClearConfigDir: vi.fn(),
   Quit: vi.fn(),
   SetText: vi.fn(),
-  OpenURL: vi.fn(),
-  Status: vi.fn(),
-  SetEnabled: vi.fn(),
-  CheckNow: vi.fn(),
-  ExperimentalSettings: vi.fn(),
-  SetExperimentalTerminal: vi.fn(),
-  SetExperimentalAgents: vi.fn(),
-  EditorSettings: vi.fn(),
-  SetEditor: vi.fn(),
-  TerminalModeEnabled: vi.fn(),
-  AgentsModeEnabled: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Info: mocks.Info,
-  Build: mocks.Build,
   OpenPath: mocks.OpenPath,
   RevealPath: mocks.RevealPath,
   ChooseDirectory: mocks.ChooseDirectory,
@@ -38,51 +25,9 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   ClearConfigDir: mocks.ClearConfigDir,
   Quit: mocks.Quit,
 }))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice', () => ({
-  Status: mocks.Status,
-  SetEnabled: mocks.SetEnabled,
-  CheckNow: mocks.CheckNow,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
-  ExperimentalSettings: mocks.ExperimentalSettings,
-  SetExperimentalTerminal: mocks.SetExperimentalTerminal,
-  SetExperimentalAgents: mocks.SetExperimentalAgents,
-  EditorSettings: mocks.EditorSettings,
-  SetEditor: mocks.SetEditor,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
-  Enabled: mocks.TerminalModeEnabled,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
-  Enabled: mocks.AgentsModeEnabled,
-}))
 vi.mock('@wailsio/runtime', () => ({
   Clipboard: { SetText: mocks.SetText },
-  Browser: { OpenURL: mocks.OpenURL },
 }))
-
-function updateInfo(overrides: Record<string, unknown> = {}) {
-  return {
-    enabled: true,
-    available: false,
-    currentVersion: '1.4.0',
-    latestVersion: '',
-    notes: '',
-    releaseUrl: '',
-    ...overrides,
-  }
-}
-
-function buildInfo(overrides: Record<string, unknown> = {}) {
-  return {
-    version: '1.4.0',
-    commit: 'abc1234',
-    date: '2026-07-01T12:00:00Z',
-    repoUrl: 'https://github.com/hay-kot/hive-desktop',
-    releaseUrl: 'https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0',
-    ...overrides,
-  }
-}
 
 const DATA = '/home/u/.local/share/hive'
 const LOG = '/home/u/.local/share/hive/desktop/desktop.log'
@@ -94,26 +39,13 @@ function info(overrides: Record<string, unknown> = {}) {
     configDir: { path: '/home/u/.config/hive/desktop', exists: true, overridden: false },
     logFile: { path: LOG, exists: false, overridden: false },
     database: { path: DB, exists: true, overridden: false },
+    agentWorkspaces: { path: '/home/u/.config/hive/desktop/workspaces', exists: true, overridden: false },
     ...overrides,
   }
 }
 
 beforeEach(() => {
   vi.clearAllMocks()
-  mocks.Build.mockResolvedValue(buildInfo())
-  mocks.Status.mockResolvedValue(updateInfo())
-  mocks.SetEnabled.mockResolvedValue(undefined)
-  mocks.CheckNow.mockResolvedValue(updateInfo())
-  mocks.ExperimentalSettings.mockResolvedValue({ terminal: false, agents: false })
-  mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled, agents: false }))
-  mocks.SetExperimentalAgents.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: false, agents: enabled }))
-  mocks.EditorSettings.mockResolvedValue({
-    command: '',
-    choices: [{ command: 'zed', title: 'Zed', found: true }, { command: 'code', title: 'VS Code', found: false }],
-  })
-  mocks.SetEditor.mockResolvedValue(undefined)
-  mocks.TerminalModeEnabled.mockResolvedValue(false)
-  mocks.AgentsModeEnabled.mockResolvedValue(false)
   document.body.innerHTML = ''
 })
 
@@ -126,15 +58,6 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-data-dir-path"]').text()).toBe(DATA)
     expect(wrapper.find('[data-testid="system-database-path"]').text()).toContain('desktop-pipeline.db')
     expect(wrapper.find('[data-testid="system-data-dir-reset"]').exists()).toBe(false)
-  })
-
-  it('renders the default-editor selector with the persisted value', async () => {
-    mocks.Info.mockResolvedValue(info())
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-editor"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="system-editor-command"]').text()).toContain('None')
   })
 
   it('opens and reveals a location through the service', async () => {
@@ -194,128 +117,6 @@ describe('SystemSettingsView', () => {
     expect(wrapper.find('[data-testid="system-restart-banner"]').exists()).toBe(false)
   })
 
-  it('renders the build info and links to the repo and GitHub release', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.OpenURL.mockResolvedValue(undefined)
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-build-version"]').text()).toBe('1.4.0')
-    expect(wrapper.find('[data-testid="system-build-commit"]').text()).toBe('abc1234')
-    expect(wrapper.find('[data-testid="system-build-date"]').text()).toBe('2026-07-01T12:00:00Z')
-
-    await wrapper.find('[data-testid="system-build-repo"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop')
-
-    await wrapper.find('[data-testid="system-build-release"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0')
-  })
-
-  it('keeps the repo link but hides the release link for dev builds', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.Build.mockResolvedValue(buildInfo({ version: 'dev', releaseUrl: '' }))
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-build-version"]').text()).toBe('dev')
-    expect(wrapper.find('[data-testid="system-build-repo"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="system-build-release"]').exists()).toBe(false)
-  })
-
-  it('toggles automatic updates through the service', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.Status.mockResolvedValue(updateInfo({ enabled: true }))
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="system-auto-update"]').trigger('click')
-    expect(mocks.SetEnabled).toHaveBeenCalledWith(false)
-  })
-
-  it('checks for updates and shows an available result inline', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.CheckNow.mockResolvedValue(updateInfo({ available: true, latestVersion: '1.5.0' }))
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="system-check-update"]').trigger('click')
-    await flushPromises()
-    expect(mocks.CheckNow).toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="system-update-available"]').text()).toContain('1.5.0')
-  })
-
-  it('shows up to date after a check finds nothing', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.CheckNow.mockResolvedValue(updateInfo({ available: false }))
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="system-check-update"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="system-update-uptodate"]').exists()).toBe(true)
-  })
-
-  it('persists the terminal opt-in and flags that a relaunch is pending', async () => {
-    mocks.Info.mockResolvedValue(info())
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    // Persisted off, running off: nothing pending.
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
-
-    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(true)
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
-  })
-
-  it('shows no restart hint when the persisted opt-in matches the running app', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.ExperimentalSettings.mockResolvedValue({ terminal: true })
-    mocks.TerminalModeEnabled.mockResolvedValue(true)
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
-
-    // Turning it off is a change against the running app, so it is pending too.
-    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
-    await flushPromises()
-    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(true)
-  })
-
-  it('persists the agents opt-in independently of the terminal one and flags that a relaunch is pending', async () => {
-    mocks.Info.mockResolvedValue(info())
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-agents-restart"]').exists()).toBe(false)
-
-    await wrapper.find('[data-testid="system-experimental-agents"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.SetExperimentalAgents).toHaveBeenCalledWith(true)
-    expect(wrapper.find('[data-testid="system-agents-restart"]').exists()).toBe(true)
-    // The terminal toggle is untouched by the agents one.
-    expect(mocks.SetExperimentalTerminal).not.toHaveBeenCalled()
-    expect(wrapper.find('[data-testid="system-terminal-restart"]').exists()).toBe(false)
-  })
-
-  it('reverts the terminal opt-in switch when the save fails', async () => {
-    mocks.Info.mockResolvedValue(info())
-    mocks.SetExperimentalTerminal.mockRejectedValue(new Error('disk is read-only'))
-    const wrapper = mount(SystemSettingsView)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="system-experimental-terminal"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="system-experimental-terminal"]').attributes('aria-checked')).toBe('false')
-    expect(wrapper.find('[data-testid="system-error"]').text()).toContain('disk is read-only')
-  })
-
   it('quits the app from the restart banner', async () => {
     mocks.Info.mockResolvedValue(info({ dataDir: { path: '/icloud/hive', exists: true, overridden: true } }))
     mocks.ClearDataDir.mockResolvedValue(undefined)
@@ -328,5 +129,15 @@ describe('SystemSettingsView', () => {
 
     await wrapper.find('[data-testid="system-quit"]').trigger('click')
     expect(mocks.Quit).toHaveBeenCalled()
+  })
+
+  // The workspace root is a location like the others, but it belongs to the
+  // Agents pane: System is the install, not everything with a path.
+  it('leaves the agent-workspace root to the Agents pane', async () => {
+    mocks.Info.mockResolvedValue(info())
+    const wrapper = mount(SystemSettingsView)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="agents-workspace-root"]').exists()).toBe(false)
   })
 })

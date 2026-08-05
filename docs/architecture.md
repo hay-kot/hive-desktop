@@ -657,6 +657,25 @@ production is unchanged). Development sets `HIVE_DESKTOP_HIVE_DATA_DIR` to the
 installed hive data dir, so `hive.db` is shared in dev too while the desktop's
 own state stays worktree-isolated. ADR 0014 records the configuration decision.
 
+### Settings panes
+
+Application settings are sectioned by **the surface a value changes**, not by
+kind (ADR 0069). A value one surface uses lives on that surface's pane, named
+for it (Terminal, Agents); a value several use lives in **General** (the editor
+command); **System** is this install — storage, diagnostics, the problem
+reporter; **About** is the running build. Experimental is a posture, not a
+category: a ships-dark opt-in (ADR 0037) renders on the pane for the feature it
+gates, through `settings/ExperimentalToggle.vue`.
+
+The section list is one list. `applicationSettingsSections` in `router.ts`
+builds the route matcher and backs `isApplicationSettingsSection`, which
+`App.vue` uses to resolve `:section`; adding or renaming a section is that list
+plus `categoryMeta` and `navGroups` in `SettingsView.vue`, and a spec asserts
+every section appears in exactly one nav group so a partial edit fails rather
+than shipping a pane that is routable but unreachable. Error and empty-state
+copy that names a pane is part of the section's contract — moving one means
+updating the strings that point at it.
+
 ### Background lifecycle
 
 Long-running subsystems — producer, output worker, retention, watchers, the
@@ -883,7 +902,7 @@ keep across a trip to the hub can now simply live in the component.
 
 **Terminal style is a setting, not pane chrome.** Text size, family, weights,
 line height and tracking are all `appearance.terminal_*` settings written from
-Settings ▸ Appearance ▸ Terminal, and the pane carries no duplicate control for
+Settings ▸ Terminal, and the pane carries no duplicate control for
 any of them (ADR 0057). A new style option takes the same route.
 
 **The sidebar tree is a session's only window list.** There is no tab strip to

@@ -607,7 +607,7 @@ describe('App', () => {
     await wrapper.find('[data-testid="application-settings"]').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('application-settings')
-    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-general"]').exists()).toBe(true)
 
     await wrapper.find('[data-testid="settings-category-integrations"]').trigger('click')
     await flushPromises()
@@ -618,7 +618,7 @@ describe('App', () => {
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('application-settings')
     expect(router.currentRoute.value.params.section).toBe('')
-    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-general"]').exists()).toBe(true)
 
     router.back()
     await flushPromises()
