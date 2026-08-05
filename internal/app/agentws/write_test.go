@@ -15,8 +15,11 @@ func TestWriteManifestPreservesCommentsAndUntouchedKeys(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.Mkdir(dir, 0o700))
+	// Current-version, because MigrateRoot runs at startup before anything
+	// loads a manifest: WriteManifest only stamps a version onto a file it
+	// creates, so an editable file is always already at Current.
 	original := `# hand-authored: do not lose me
-version: 1
+version: 2
 name: Demo
 # the agent that runs here
 agent: claude
@@ -51,7 +54,7 @@ func TestWriteManifestOwnsTheMCPsKey(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.Mkdir(dir, 0o700))
-	original := "version: 1\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\n"
+	original := "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(original), 0o600))
 
 	require.NoError(t, WriteManifest(root, "demo", "Demo", "claude", AutonomyAsk, []string{"playwright", "home-assistant"}))

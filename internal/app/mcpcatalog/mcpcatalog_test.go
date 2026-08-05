@@ -49,10 +49,16 @@ func TestEveryDescriptorRendersAServer(t *testing.T) {
 		require.Containsf(t, TransportNames(), server.Transport.String(),
 			"MCP type %q declares transport %q, not one of %v", mcpType, server.Transport, TransportNames())
 
-		switch server.Transport {
-		case TransportStdio:
+		switch {
+		case server.Transport == TransportStdio:
 			assert.NotEmptyf(t, server.Command, "MCP type %q is stdio but has no Command", mcpType)
-		case TransportHttp, TransportSse:
+		case descriptor.RuntimeURL:
+			// This install's own endpoint: the port is allocated at startup,
+			// so a URL here would be a guess. It is filled in when the
+			// catalogue is rendered, and must be absent until then.
+			assert.Emptyf(t, server.URL,
+				"MCP type %q declares RuntimeURL but ships a static URL, which would be served instead of the live one", mcpType)
+		case server.Transport == TransportHttp, server.Transport == TransportSse:
 			assert.NotEmptyf(t, server.URL, "MCP type %q is %s but has no URL", mcpType, server.Transport)
 		}
 	}

@@ -92,7 +92,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 
 	ws := testWorkspace()
 	ws.MCPs = []string{"alpha-local", "zulu-remote"}
-	skills := []RenderedSkill{{Slug: "hive-http-api", Body: "# HTTP API\n"}}
+	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}}
 
 	inA := GenerateInput{Dir: dirA, Shared: filepath.Join(rootA, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
 	inB := GenerateInput{Dir: dirB, Shared: filepath.Join(rootB, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
@@ -139,7 +139,7 @@ func TestGenerateDoesNotRewriteUnchangedFiles(t *testing.T) {
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "# Demo\n")
 
 	ws := testWorkspace()
-	skills := []RenderedSkill{{Slug: "hive-http-api", Body: "# HTTP\n"}}
+	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}}
 	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
 
 	_, err := Generate(in)
@@ -149,8 +149,8 @@ func TestGenerateDoesNotRewriteUnchangedFiles(t *testing.T) {
 		"CLAUDE.md",
 		".mcp.json",
 		filepath.Join(".codex", "config.toml"),
-		filepath.Join(".claude", "skills", "hive-http-api", "SKILL.md"),
-		filepath.Join(".agents", "skills", "hive-http-api", "SKILL.md"),
+		filepath.Join(".claude", "skills", "hive-mcp", "SKILL.md"),
+		filepath.Join(".agents", "skills", "hive-mcp", "SKILL.md"),
 	}
 	before := mtimes(t, dir, paths...)
 
@@ -170,7 +170,7 @@ func TestGenerateReplacesGeneratedAndLeavesAuthored(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "# Demo\n")
-	writeFile(t, filepath.Join(dir, manifestFileName), "version: 1\nname: Demo\nagent: claude\nautonomy: ask\n")
+	writeFile(t, filepath.Join(dir, manifestFileName), "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
 	writeFile(t, filepath.Join(dir, "docs", "notes.md"), "agent notes\n")
 
 	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: testServers()}
@@ -219,21 +219,21 @@ func TestGenerateRemovesASkillNoLongerDeclared(t *testing.T) {
 	in := GenerateInput{
 		Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(),
 		Servers: map[string]mcpcatalog.Server{},
-		Skills:  []RenderedSkill{{Slug: "hive-http-api", Body: "# HTTP\n"}},
+		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 	}
 	_, err := Generate(in)
 	require.NoError(t, err)
-	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-http-api", "SKILL.md"))
-	assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "hive-http-api", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp", "SKILL.md"))
 
 	in.Skills = nil
 	_, err = Generate(in)
 	require.NoError(t, err)
 
-	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "hive-http-api", "SKILL.md"))
-	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "hive-http-api"))
-	assert.NoFileExists(t, filepath.Join(dir, ".agents", "skills", "hive-http-api", "SKILL.md"))
-	assert.NoDirExists(t, filepath.Join(dir, ".agents", "skills", "hive-http-api"))
+	assert.NoFileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
+	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp"))
+	assert.NoFileExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp", "SKILL.md"))
+	assert.NoDirExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp"))
 }
 
 // TestSharedSkillsAreShadowedByTheWorkspace is D-D: on a slug collision the
@@ -244,18 +244,18 @@ func TestSharedSkillsAreShadowedByTheWorkspace(t *testing.T) {
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	shared := filepath.Join(root, ".shared")
-	writeFile(t, filepath.Join(shared, "skills", "hive-http-api", "SKILL.md"), "# shared version\n")
+	writeFile(t, filepath.Join(shared, "skills", "hive-mcp", "SKILL.md"), "# shared version\n")
 
 	in := GenerateInput{
 		Dir: dir, Shared: shared, Workspace: testWorkspace(),
 		Servers: map[string]mcpcatalog.Server{},
-		Skills:  []RenderedSkill{{Slug: "hive-http-api", Body: "# workspace version\n"}},
+		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# workspace version\n"}},
 	}
 	res, err := Generate(in)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"hive-http-api"}, res.ShadowedSkills)
+	assert.Equal(t, []string{"hive-mcp"}, res.ShadowedSkills)
 
-	data, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "hive-http-api", "SKILL.md"))
+	data, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
 	require.NoError(t, err)
 	assert.Equal(t, "# workspace version\n", string(data))
 }
@@ -287,12 +287,12 @@ func TestSharedSkillsInstallWithoutCollision(t *testing.T) {
 		in := GenerateInput{
 			Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(),
 			Servers: map[string]mcpcatalog.Server{},
-			Skills:  []RenderedSkill{{Slug: "hive-http-api", Body: "# HTTP\n"}},
+			Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 		}
 		res, err := Generate(in)
 		require.NoError(t, err)
 		assert.Empty(t, res.ShadowedSkills)
-		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-http-api", "SKILL.md"))
+		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
 		entries, err := os.ReadDir(filepath.Join(dir, ".claude", "skills"))
 		require.NoError(t, err)
 		assert.Len(t, entries, 1)

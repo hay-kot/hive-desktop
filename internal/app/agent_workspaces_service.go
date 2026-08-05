@@ -77,10 +77,43 @@ type AgentWorkspacesService struct {
 	// so a settings change applies without restarting. Empty means none
 	// configured.
 	editorCommand func(context.Context) (string, error)
+	// mcpEndpoint reads this run's own MCP endpoint URL, empty when the
+	// loopback server is down. Read per call rather than captured, because the
+	// listener's port is not known when this service is built and can change
+	// if it rebinds.
+	mcpEndpoint func(context.Context) string
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error)) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpEndpoint func(context.Context) string) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpEndpoint: mcpEndpoint}
+}
+
+// catalogue is the store's merged catalogue with this install's own entry
+// resolved. mcpcatalog ships hive-desktop carrying no URL, because the
+// loopback port is allocated at startup (Descriptor.RuntimeURL), so the live
+// endpoint is substituted here — and an entry that cannot be resolved reports
+// why rather than rendering an address nothing answers, the same posture
+// problemFor takes for a command that is not on PATH.
+func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.CatalogueEntry {
+	entries := s.store.Catalogue()
+	endpoint := ""
+	if s.mcpEndpoint != nil {
+		endpoint = s.mcpEndpoint(ctx)
+	}
+	for i, entry := range entries {
+		descriptor, ok := mcpcatalog.Lookup(entry.ID)
+		// Shipped is false for a user entry shadowing this id, and the user's
+		// own URL is then what they asked for.
+		if !ok || !entry.Shipped || !descriptor.RuntimeURL {
+			continue
+		}
+		if endpoint == "" {
+			entries[i].Problem = "the local HTTP server is not running; set http.enabled in settings.yaml"
+			continue
+		}
+		entries[i].Server.URL = endpoint
+	}
+	return entries
 }
 
 // WorkspaceView is one row of the area's list. Autonomy is on it because a
@@ -221,7 +254,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		Dir:       workspaceDir,
 		Shared:    filepath.Join(s.store.Root(), ".shared"),
 		Workspace: ws,
-		Servers:   s.resolveServers(ws),
+		Servers:   s.resolveServers(ctx, ws),
 		Skills:    rendered,
 	})
 	if err != nil {
@@ -619,8 +652,8 @@ type MCPCatalogueItem struct {
 
 // MCPCatalogue lists the merged MCP catalogue — the choices a workspace
 // editor offers for its mcps: list.
-func (s *AgentWorkspacesService) MCPCatalogue(context.Context) []MCPCatalogueItem {
-	entries := s.store.Catalogue()
+func (s *AgentWorkspacesService) MCPCatalogue(ctx context.Context) []MCPCatalogueItem {
+	entries := s.catalogue(ctx)
 	items := make([]MCPCatalogueItem, 0, len(entries))
 	for _, e := range entries {
 		title := e.Title
@@ -908,9 +941,9 @@ func (s *AgentWorkspacesService) liveSessionCount(ctx context.Context) (int, err
 // catalogue. An id with no catalogue entry is simply omitted here; Generate
 // itself reports it in MissingMCPs by comparing ws.MCPs against this map, so
 // there is nothing to track twice.
-func (s *AgentWorkspacesService) resolveServers(ws agentws.Workspace) map[string]mcpcatalog.Server {
+func (s *AgentWorkspacesService) resolveServers(ctx context.Context, ws agentws.Workspace) map[string]mcpcatalog.Server {
 	byID := make(map[string]mcpcatalog.Server, len(ws.MCPs))
-	for _, entry := range s.store.Catalogue() {
+	for _, entry := range s.catalogue(ctx) {
 		byID[entry.ID] = entry.Server
 	}
 	servers := make(map[string]mcpcatalog.Server, len(ws.MCPs))
@@ -924,7 +957,7 @@ func (s *AgentWorkspacesService) resolveServers(ws agentws.Workspace) map[string
 
 // resolveSkills renders a workspace's declared skill slugs through
 // SkillsService.RenderSkill, which takes the underlying prompt id
-// ("http-api") rather than the installed slug ("hive-http-api") skillSlug
+// ("mcp") rather than the installed slug ("hive-mcp") skillSlug
 // mints — so a declared slug is unminted here before rendering.
 func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.Workspace) ([]agentws.RenderedSkill, error) {
 	if len(ws.Skills) == 0 {

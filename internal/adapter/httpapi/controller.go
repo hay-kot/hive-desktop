@@ -1,22 +1,29 @@
-// Package httpapi is the agent-facing HTTP adapter over app.App: a loopback
-// control surface an agent drives to observe and operate the app without
-// reading SQLite or the config files directly. It began as read + reload
-// (ADR 0021) and is growing toward full agentic control — reads, reloads, and
-// mutations like setting a profile's avatar — the same core methods a future
-// MCP adapter will expose as tools. It mounts onto the webhook listener's
-// loopback server, which also hosts the optional pprof handler (ADR 0023).
+// Package httpapi is the HTTP adapter over app.App, mounted on the webhook
+// listener's loopback server, which also hosts the optional pprof handler
+// (ADR 0023).
 //
-// The surface is self-describing (ADR 0027): one operations table
-// (Controller.operations) is the single source the mux, the GET /api route
-// index, and the GET /api/openapi.json document are all built from, so an agent
-// discovers the API in one call rather than reverse-engineering the binary.
+// It serves two unrelated things, and the split is the point:
+//
+// The terminal, pop-up terminal and agent-workspace control planes under
+// /api/terminal/ are the Wails frontend's own transport, not an agent surface.
+// They authenticate with a per-run bearer token because each of them spawns a
+// process (ADR 0036, ADR 0061), and their data planes are raw WebSocket mounts
+// outside the operations table.
+//
+// /api/status and /api/version are the liveness probe — the plain-GET way to
+// ask whether the app is up and which build it is, which a shell script or a
+// health check needs and JSON-RPC is the wrong shape for.
+//
+// What is *not* here any more is the agent-facing control surface this package
+// began as (ADR 0021, ADR 0027). Inbox, feeds, profiles, actions, source
+// refresh and flow dry runs are tools on the MCP server now
+// (internal/adapter/mcpsrv, ADR 0073), and so is the self-description the
+// OpenAPI document used to provide.
 package httpapi
 
 import (
-	"fmt"
 	"net/http"
 
-	"github.com/hay-kot/criterio"
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
@@ -25,11 +32,6 @@ import (
 
 // PathPrefix is where App mounts this handler on the webhook listener.
 const PathPrefix = "/api/"
-
-const (
-	defaultListLimit  = 200
-	defaultEventLimit = 50
-)
 
 type Controller struct {
 	core    *app.App
@@ -57,8 +59,8 @@ type Options struct {
 	AgentsEnabled   bool
 }
 
-// New builds the controller. Every operation outside opts' route groups is
-// deliberately unauthenticated behind the loopback bind (ADR 0021).
+// New builds the controller. The liveness routes are deliberately
+// unauthenticated behind the loopback bind (ADR 0021).
 // TerminalEnabled/AgentsEnabled false means that group's operations are not
 // registered at all — off is absence, not a 503 (ADR 0037).
 func New(core *app.App, log zerolog.Logger, opts Options) *Controller {
@@ -69,25 +71,5 @@ func New(core *app.App, log zerolog.Logger, opts Options) *Controller {
 		terminalToken: opts.TerminalToken,
 		cors:          corsPolicy{origins: opts.Origins, log: log},
 		opts:          opts,
-	}
-}
-
-func requiredWith[T comparable](other string) criterio.Validator[T] {
-	return func(val T) error {
-		var zero T
-		if val == zero {
-			return fmt.Errorf("is required when %s is set", other)
-		}
-		return nil
-	}
-}
-
-func requiredWithout[T comparable](other string) criterio.Validator[T] {
-	return func(val T) error {
-		var zero T
-		if val == zero {
-			return fmt.Errorf("is required when %s is not set", other)
-		}
-		return nil
 	}
 }

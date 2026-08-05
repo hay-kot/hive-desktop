@@ -56,16 +56,21 @@ individual choices; this document describes the shape everything fits into.
 > resulting settings and immutable path snapshot. Development state is local to
 > each worktree under `.hive-desktop/` (ADR 0014).
 >
-> Partly built: the first HTTP adapter exists —
-> `internal/adapter/httpapi` is an agent-facing control surface over `app.App`
-> (read, reload, and mutations like setting a profile avatar), mounted onto a
-> single loopback `http` server (on by default) that also hosts the webhook
-> listener, rather than owning one (ADR 0021). It is self-describing: one
-> operations table registers the routes and serves a `GET /api` index plus a
-> generated, schema-validated `GET /api/openapi.json` (ADR 0027). It grows toward
-> full agentic control, with the same core methods and reflected schemas later
-> exposed as MCP tools. The full REST + SSE product surface and the MCP adapter
-> are still absent.
+> The agent-facing surface is MCP: `internal/adapter/mcpsrv` serves the app's
+> capabilities as tools over `app.App`, on the same single loopback `http`
+> server (on by default) that hosts the webhook listener (ADR 0021). It is
+> stateless, so it holds nothing between requests and joins no lifecycle, and
+> it is unauthenticated behind the loopback bind because it spawns nothing
+> (ADR 0073). It replaced the REST control surface that preceded it, whose
+> routes and generated OpenAPI document are deleted rather than deprecated —
+> `tools/list`, inferred from the same Go types the handlers take, is what
+> makes it self-describing now.
+>
+> `internal/adapter/httpapi` remains, narrowed to two things that are not an
+> agent surface: the Wails frontend's terminal, pop-up-terminal and
+> agent-workspace control planes under `/api/terminal/` (token-guarded, because
+> each spawns a process), and `/api/status` + `/api/version` as the plain-GET
+> liveness probe. The full REST + SSE product surface is still absent.
 >
 > Terminal mode is the second driving transport: `internal/app/tmuxcc` is a
 > transport-free tmux control-mode client with an App-owned lifecycle,
@@ -88,9 +93,8 @@ individual choices; this document describes the shape everything fits into.
 > [Agent workspaces](#agent-workspaces).
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
-> see [Background lifecycle](#background-lifecycle)) and the MCP adapter — see
-> [Migration path](#migration-path). New work should move toward this shape
-> rather than extending the current one.
+> see [Background lifecycle](#background-lifecycle)). New work should move
+> toward this shape rather than extending the current one.
 
 ## The shape
 
@@ -133,7 +137,8 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
-| **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body`/`Query` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR 0022. |
+| **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR 0022. |
+| **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. See ADR 0073. |
 | **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR 0036. |
 | **Anti-Corruption Layer** (DDD) | the `internal/hivecore` seam | Declare a narrow local interface describing only what we need, let the vendored concrete type satisfy it structurally, convert types at the seam. An upstream signature change then breaks one adapter file rather than the app. The idiom is `hive_adapters.go`. |
 | **Bounded Context** (DDD) | `app` vs `internal/hivecore` | Two models that must not merge. `hive` is a separate external product with its own vocabulary; its types stop at the ACL and never appear in an `app` signature. This is also why the vendored code is read-only. |
@@ -176,7 +181,8 @@ column is the section that specifies it.
 | A new **script language** | Strategy behind the `ScriptRuntime` port, Registry | [Script nodes](#script-nodes) |
 | A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
 | A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
-| A new **HTTP endpoint** | Error chain — `errchain` handler, `web/extractors` input, `ctrl_*.go` + routes in one place | ADR 0022 |
+| A new **agent capability** | Tool table — one row in `mcpsrv/tools.go`, a typed input struct, a thin `App` call | ADR 0073 |
+| A new **HTTP endpoint** | Error chain — `errchain` handler, `web/extractors` input, `ctrl_*.go` + routes in one place. Only for the frontend's own transport: an agent capability is a tool | ADR 0022, ADR 0073 |
 | A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR 0036 |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
@@ -346,24 +352,31 @@ internal/
       terminalservice.go          # Available + Endpoint: the terminal's gate and
                                   #   webview bootstrap (ADR 0036)
       e2e/                        # state-reset and smoke middleware
-    httpapi/                      # REST + SSE, mounted via ServeHTTP at a Route.
-                                  #   Built: an agent-facing control surface
-                                  #   (read, reload, mutate — e.g. profile
-                                  #   avatars, webhook node feed-mark images)
-                                  #   on the shared loopback http server that also
-                                  #   hosts the webhook listener (ADR 0021), in
-                                  #   the errchain shape (ADR 0022): routes.go +
-                                  #   ctrl_*.go per resource. One operations table
-                                  #   backs the mux, GET /api, and a generated,
-                                  #   validated GET /api/openapi.json (ADR 0027).
-                                  #   The terminal control plane is rows on that
-                                  #   table; its per-session WebSocket data plane
-                                  #   is a separate raw mount (ADR 0036). The
-                                  #   agent-workspace control plane sits under the
-                                  #   same /api/terminal/ prefix and authenticates
-                                  #   per handler, like every terminal route,
-                                  #   because it spawns processes too (ADR 0061)
-    mcpsrv/                       # tools over App; in-memory transport for the agent
+    httpapi/                      # Mounted via ServeHTTP at a Route on the shared
+                                  #   loopback http server that also hosts the
+                                  #   webhook listener (ADR 0021), in the errchain
+                                  #   shape (ADR 0022): routes.go + ctrl_*.go per
+                                  #   resource, one operations table backing the
+                                  #   mux. NOT an agent surface — that moved to
+                                  #   mcpsrv (ADR 0073). What is left: the terminal
+                                  #   control plane as rows on that table, its
+                                  #   per-session WebSocket data plane as a separate
+                                  #   raw mount (ADR 0036), the agent-workspace
+                                  #   control plane under the same /api/terminal/
+                                  #   prefix authenticating per handler because it
+                                  #   spawns processes too (ADR 0061), and
+                                  #   /api/status + /api/version as the plain-GET
+                                  #   liveness probe
+    mcpsrv/                       # THE AGENT SURFACE: tools over App, served over
+                                  #   Streamable HTTP at /mcp on that same loopback
+                                  #   server (ADR 0073). tools.go is the tool table
+                                  #   — metadata only, one place; tool_*.go per
+                                  #   domain hold typed inputs and thin App calls;
+                                  #   errors.go maps app.Kind once. Stateless, so
+                                  #   no session outlives a request and there is no
+                                  #   lifecycle to unwind; unauthenticated behind
+                                  #   the loopback bind because nothing here spawns
+                                  #   a process
 
   web/                            # HTTP plumbing shared with cmd/devserver
                                   #   (ADR 0022): error wire shape, version
@@ -414,8 +427,10 @@ This is the pattern every extension point should follow, and it is the
 strongest existing evidence for the direction in this document: one
 declaration in Go, consumed across the language boundary, enforced by a test
 rather than by discipline. Extend it — a source connector's config schema
-should feed the editor form and, later, an MCP tool's input schema from the
-same source.
+should feed the editor form from the same source it already feeds the node
+drawer from. Note that an MCP tool's input schema is *not* reflected from these
+declarations: the SDK's inferrer reads the `jsonschema` tag differently and
+rejects the invopop form, so `mcpsrv` declares its own input types (ADR 0073).
 
 ### Source connectors
 
@@ -452,7 +467,7 @@ specified rather than left to grow. ADR 0012 records why.
   source owns. A connector that can fail partway decodes its whole result
   before the first `emit`, so a run cannot half-succeed — and where truncation
   is possible it fails rather than truncates, because truncated-but-parseable
-  output *is* a short snapshot. ADR 0072.
+  output *is* a short snapshot. ADR 0073.
 - **Cadence is a floor on the instance, not a second scheduler.** There is one
   ticker (`settings.polling.interval`); an instance whose cost does not suit it
   sets `Instance.MinInterval` and the producer skips it until it is due,
@@ -474,7 +489,7 @@ specified rather than left to grow. ADR 0012 records why.
   `actions.yml`'s shell executor and `function` nodes' JavaScript, so the
   boundary is the directory, not the node — but a command built from fetched
   data would move it, which is why it is forbidden rather than discouraged
-  (ADR 0072).
+  (ADR 0073).
 
 Connector type strings are namespaced — `sources.github`, `sources.webhook` —
 so connectors group and sort together everywhere node types are enumerated:
@@ -820,7 +835,7 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
 - **A command on a timer takes the resolver's answer, never its own probe**
-  (ADR 0072). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
+  (ADR 0073). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
   would charge each one the user's version-manager initialization and make a
   slow rc file a randomly-blown timeout. The resolver probes once per run and
   remembers; that is the whole point of it. Aliases are the deliberate cost —
@@ -1361,8 +1376,8 @@ browser routed. That split made the desktop window a hard dependency of flow
 execution and put the correctness-critical parts — topological order,
 fan-out, offset advancement, commit atomicity — out of reach of any headless
 surface. Consolidating in Go is what made the dry-run surface possible: one
-execution path an editor preview, an HTTP caller and a future MCP tool each
-drive identically, rather than a second implementation of routing semantics.
+execution path an editor preview and the `execute_flow` MCP tool each drive
+identically, rather than a second implementation of routing semantics.
 
 `Runner.Run` returns the `CommitBatch` a batch of messages is worth and
 **does not commit it**. Reading the log and applying the batch belong to the
@@ -1519,11 +1534,12 @@ The target is reached in this order; each step is independently shippable.
    graph from its caller.
 7. **Adapters** — HTTP and MCP mounted in-process; plugs for lifecycle
    (the lifecycle half is blocked on appkit — see
-   [Background lifecycle](#background-lifecycle)). **In progress:** the HTTP
-   slice is an agent-facing control surface (read, reload, and mutations like
-   profile avatars) on a shared loopback `http` server (on by default) that
-   also hosts the webhook listener (ADR 0021), growing toward full agentic
-   control; the full REST + SSE surface and MCP are still to come.
+   [Background lifecycle](#background-lifecycle)). **Done** for the agent
+   surface: `mcpsrv` serves tools over `App` at `/mcp` on the shared loopback
+   server (ADR 0073), and the REST control surface it replaced is deleted.
+   `httpapi` remains for the frontend's terminal transport and the liveness
+   probe. The full REST + SSE *product* surface is still to come, as is the
+   plugs lifecycle.
 
 ### Data that must survive
 

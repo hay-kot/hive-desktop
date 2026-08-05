@@ -95,7 +95,7 @@ name: Hive
 agent: claude
 autonomy: ask
 skills:
-  - hive-http-api
+  - hive-mcp
 `
 
 const hiveAgentsMD = `# Hive

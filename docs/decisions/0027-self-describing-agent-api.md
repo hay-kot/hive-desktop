@@ -1,7 +1,16 @@
 # 0027 — Self-describing agent API: route index and generated OpenAPI
 
-- **Status:** accepted
+- **Status:** superseded by [0073](0073-mcp-replaces-the-agent-facing-http-api.md)
 - **Date:** 2026-07-27
+
+> **Superseded (2026-08-05):** the route index and the generated OpenAPI
+> document are deleted along with the surface they described (ADR 0073). The
+> requirement they existed to meet — *an agent must be able to ask the running
+> server what it serves, and the answer must be generated from the server's own
+> types so it cannot drift* — is unchanged and is met by MCP's `tools/list`,
+> whose input schemas are inferred from the same Go structs the handlers take.
+> The operations table survives as the mux's source for the terminal control
+> planes, but it no longer backs a generated document.
 
 ## Context
 

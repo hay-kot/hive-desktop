@@ -18,6 +18,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/adapter/httpapi"
+	"github.com/hay-kot/hive-desktop/internal/adapter/mcpsrv"
 	"github.com/hay-kot/hive-desktop/internal/adapter/wailsui"
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
@@ -161,6 +162,14 @@ func main() {
 		AgentsEnabled:   cfg.Experimental.Agents,
 	}).Handler()) {
 		logger.Info().Msg("agent HTTP API mounted at /api/")
+	}
+
+	// The MCP server is the agent-facing surface (ADR 0073); what stays on
+	// /api/ is the frontend's terminal control planes and the liveness probe.
+	// It needs no token — it spawns nothing — and no teardown branch: the
+	// server is stateless, so no session outlives a request.
+	if core.MountAPI(mcpsrv.PathPrefix, mcpsrv.New(core, logger, mcpsrv.Options{Version: version}).Handler()) {
+		logger.Info().Str("path", mcpsrv.PathPrefix).Msg("agent MCP server mounted")
 	}
 	terminal := wailsui.TerminalTransport{}
 	popupTerminal := wailsui.PopupTerminalTransport{}

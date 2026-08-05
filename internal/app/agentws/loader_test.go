@@ -27,7 +27,7 @@ func TestConfigRoundTrip(t *testing.T) {
 			Agent:    "claude",
 			Autonomy: AutonomyAsk,
 			MCPs:     []string{"home-assistant"},
-			Skills:   []string{"hive-http-api"},
+			Skills:   []string{"hive-mcp"},
 		}
 		require.NoError(t, w.Validate())
 
@@ -75,7 +75,7 @@ func TestStrictDecodeRejectsUnknownFields(t *testing.T) {
 
 	t.Run("Workspace", func(t *testing.T) {
 		t.Parallel()
-		_, err := parseWorkspace([]byte("version: 1\nname: X\nagent: claude\nautonomy: ask\nfoo: bar\n"))
+		_, err := parseWorkspace([]byte("version: 2\nname: X\nagent: claude\nautonomy: ask\nfoo: bar\n"))
 		require.Error(t, err)
 	})
 
@@ -93,7 +93,7 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 	dir := filepath.Join(root, "homeassistant")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	path := filepath.Join(dir, manifestFileName)
-	require.NoError(t, os.WriteFile(path, []byte("version: 1\nname: X\nagent: claude\nautonomy: ask\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("version: 2\nname: X\nagent: claude\nautonomy: ask\n"), 0o600))
 
 	w, err := LoadWorkspace(path)
 	require.NoError(t, err)
@@ -105,7 +105,7 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 func TestAutonomyDefaultsToAsk(t *testing.T) {
 	t.Parallel()
 
-	w, err := parseWorkspace([]byte("version: 1\nname: X\nagent: claude\n"))
+	w, err := parseWorkspace([]byte("version: 2\nname: X\nagent: claude\n"))
 	require.NoError(t, err)
 	assert.Equal(t, AutonomyAsk, w.Autonomy)
 }

@@ -68,7 +68,7 @@ func TestWorkspaceValidate(t *testing.T) {
 	t.Run("DuplicateSkillRejected", func(t *testing.T) {
 		t.Parallel()
 		w := validWorkspace()
-		w.Skills = []string{"hive-http-api", "hive-http-api"}
+		w.Skills = []string{"hive-mcp", "hive-mcp"}
 		require.Error(t, w.Validate())
 	})
 

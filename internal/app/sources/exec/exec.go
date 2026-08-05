@@ -5,7 +5,7 @@
 //
 // It is the pull counterpart to the webhook connector's push, and it carries
 // the property a webhook structurally cannot: stdout is the complete current
-// set, so an item that stops appearing is authoritatively gone. See ADR 0072
+// set, so an item that stops appearing is authoritatively gone. See ADR 0073
 // for the trust, failure and cadence decisions the shape rests on.
 package exec
 

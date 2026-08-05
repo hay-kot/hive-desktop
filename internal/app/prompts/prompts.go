@@ -60,12 +60,12 @@ type Env struct {
 	WebhookBaseURL string
 	// WebhookEnabled reports whether the listener is configured on.
 	WebhookEnabled bool
-	// APIBaseURL is the agent HTTP API's base URL — the same loopback server as
-	// the webhook listener, under the /api prefix. Empty when no port is resolved.
-	APIBaseURL string
-	// APIEnabled reports whether the loopback HTTP server is on. It is the same
+	// MCPEndpoint is the agent MCP server's URL — the same loopback server as
+	// the webhook listener, at the /mcp path. Empty when no port is resolved.
+	MCPEndpoint string
+	// MCPEnabled reports whether the loopback HTTP server is on. It is the same
 	// http.enabled flag as the webhook listener (one server, ADR 0021).
-	APIEnabled bool
+	MCPEnabled bool
 	// AgentWorkspacesDir is the agent-workspace root: mcps.yaml, .shared/, and
 	// one directory per workspace live under it.
 	AgentWorkspacesDir string
@@ -155,12 +155,12 @@ var definitions = []definition{
 		data:        webhookSourcesData,
 	},
 	{
-		id:          "http-api",
-		title:       "Agent HTTP API",
-		description: "Point a coding agent at this install's live loopback HTTP API — the route index and OpenAPI document it reads to drive the app directly, without editing config files.",
-		target:      func(env Env) string { return env.APIBaseURL },
+		id:          "mcp",
+		title:       "Agent MCP server",
+		description: "Point a coding agent at this install's live MCP server — the tools it calls to drive the app directly, without editing config files.",
+		target:      func(env Env) string { return env.MCPEndpoint },
 		listed:      true,
-		data:        httpAPIData,
+		data:        mcpData,
 	},
 	{
 		id:          "keybindings",
@@ -376,9 +376,9 @@ func settingsData(Env, Input) (map[string]any, error) {
 	return map[string]any{}, nil
 }
 
-// httpAPIData needs nothing beyond Env — the prompt points at the live,
-// self-describing endpoints rather than restating the routes.
-func httpAPIData(Env, Input) (map[string]any, error) {
+// mcpData needs nothing beyond Env — the prompt points at the live server,
+// which describes its own tools, rather than restating them.
+func mcpData(Env, Input) (map[string]any, error) {
 	return map[string]any{}, nil
 }
 

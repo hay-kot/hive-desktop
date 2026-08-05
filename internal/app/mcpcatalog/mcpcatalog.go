@@ -44,4 +44,12 @@ type Descriptor struct {
 	// only as a string (Workspace.MCPs []string), so there is nothing a config
 	// could ever be decoded from.
 	Server Server
+	// RuntimeURL marks a server whose URL is this install's own and is
+	// therefore resolved when the catalogue is rendered rather than declared
+	// here — the loopback port is allocated at startup, so no static value
+	// could be right. Server.URL is empty in the registry for such an entry
+	// and is filled in before a workspace or the UI ever sees it; an entry
+	// whose URL cannot be resolved reports that as a Problem rather than
+	// rendering a URL that does not answer.
+	RuntimeURL bool
 }

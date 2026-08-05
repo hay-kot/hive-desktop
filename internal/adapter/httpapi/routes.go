@@ -12,23 +12,16 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/web/mid"
 )
 
-// RawBinary marks a request or response body as raw bytes of one of the given
-// media types rather than JSON. Note is a one-line human description surfaced
-// in both the route index and the OpenAPI requestBody.
-type RawBinary struct {
-	Media []string
-	Note  string
-}
-
-// Op is one HTTP operation. The operations table is the single source the mux,
-// the GET /api index, and the OpenAPI document are all built from, so none can
-// drift. Request and Response are each a zero-value struct (a JSON body,
-// reflected into a schema), a RawBinary, or nil (no body).
+// Op is one HTTP operation. The operations table is what the mux is built
+// from, and Summary/Request/Response/Errors document each route where it is
+// declared. They no longer feed a generated document: the agent-facing surface
+// this adapter used to describe is the MCP server's now (ADR 0073), and what
+// is left here is the Wails frontend's own transport plus the liveness probe —
+// consumers that read hand-written clients, not an OpenAPI spec.
 type Op struct {
 	Method   string
 	Path     string
 	Summary  string
-	Query    any // struct whose `schema`-tagged fields become query parameters
 	Request  any
 	Response any
 	Status   int       // success status; 0 means 200
@@ -43,18 +36,10 @@ type ErrResp struct {
 	When   string
 }
 
-func (op Op) successStatus() int {
-	if op.Status == 0 {
-		return http.StatusOK
-	}
-	return op.Status
-}
-
 // pattern is the ServeMux pattern this op registers under. A path ending in "/"
-// is anchored with {$} so it matches only that exact path: the index lives at
-// the mount root /api/ (a request for /api is redirected there by the listener
-// that mounts this handler), and without the anchor it would become a subtree
-// that swallows every otherwise-unmatched /api/… request instead of 404ing.
+// is anchored with {$} so it matches only that exact path rather than becoming
+// a subtree that swallows every otherwise-unmatched /api/… request instead of
+// 404ing.
 func (op Op) pattern() string {
 	path := op.Path
 	if strings.HasSuffix(path, "/") {
@@ -65,10 +50,9 @@ func (op Op) pattern() string {
 
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
-	// Off means the surface is absent rather than answering 503, so the route
-	// index and OpenAPI document never advertise something that cannot work
-	// (ADR 0037 point 2). The two flags gate independently: a build can ship
-	// agents without terminal mode or vice versa.
+	// Off means the surface is absent rather than answering 503, so a disabled
+	// feature has no route at all (ADR 0037 point 2). The two flags gate
+	// independently: a build can ship agents without terminal mode or vice versa.
 	if ctrl.opts.TerminalEnabled {
 		ops = append(ops, ctrl.terminalOperations()...)
 		ops = append(ops, ctrl.popupTerminalOperations()...)
@@ -242,16 +226,14 @@ func agentErrors(notFound string, extra ...ErrResp) []ErrResp {
 	return append(errs, extra...)
 }
 
+// baseOperations is what is left of this adapter's own surface after the
+// agent-facing API moved to MCP (ADR 0073): a liveness probe and the running
+// build. Both stay HTTP because they answer the question "is the app up, and
+// which build is it?" — one a shell script or a health check asks with a plain
+// GET, and a JSON-RPC handshake is the wrong shape for it. Everything an agent
+// drives is a tool on the MCP server now.
 func (ctrl *Controller) baseOperations() []Op {
 	return []Op{
-		{
-			Method: "GET", Path: "/api/", Summary: "List every route this API serves, with a link to the OpenAPI document.",
-			Response: apiIndex{}, Handler: ctrl.APIIndex,
-		},
-		{
-			Method: "GET", Path: openAPIPath, Summary: "The OpenAPI description of this API; servers are set to the address it was fetched from.",
-			Handler: ctrl.OpenAPI,
-		},
 		{
 			Method: "GET", Path: "/api/version", Summary: "Report the running build's VCS identity.",
 			Response: struct {
@@ -262,107 +244,6 @@ func (ctrl *Controller) baseOperations() []Op {
 		{
 			Method: "GET", Path: "/api/status", Summary: "Report whether the webhook listener is running and on which host and port.",
 			Response: statusResponse{}, Handler: ctrl.Status,
-		},
-		{
-			Method: "GET", Path: "/api/feeds", Summary: "List a profile's feeds with unread and archived counts.",
-			Query: FeedsQuery{}, Response: feedsResponse{}, Handler: ctrl.Feeds,
-			Errors: []ErrResp{{Status: 422, When: "the query failed validation (profile is required)"}},
-		},
-		{
-			Method: "GET", Path: "/api/inbox", Summary: "List a profile's inbox items, optionally filtered by feed or external id; each item carries a feedId (the claiming feed, empty when unrouted) and a payload of the source's raw JSON.",
-			Query: InboxQuery{}, Response: itemsResponse{}, Handler: ctrl.InboxList,
-			Errors: []ErrResp{{Status: 422, When: "the query failed validation (profile is required when feed is set)"}},
-		},
-		{
-			Method: "GET", Path: "/api/inbox/events", Summary: "List one inbox item's lifecycle events, resolved by itemId or a unique externalId; each event's detail is source-specific raw JSON.",
-			Query: EventsQuery{}, Response: eventsResponse{}, Handler: ctrl.InboxItemEvents,
-			Errors: []ErrResp{
-				{Status: 422, When: "neither itemId nor externalId was given"},
-				{Status: 404, When: "no item matches the externalId"},
-				{Status: 409, When: "the externalId matches items in more than one profile; add profile to disambiguate"},
-			},
-		},
-		{
-			Method: "GET", Path: "/api/inbox/sessions", Summary: "List the hive sessions one inbox item created, newest first, each with the state hive reports for it now; slug is the tmux session name an attach targets. Links to sessions hive no longer has are dropped as a side effect of this read.",
-			Query: ItemSessionsQuery{}, Response: itemSessionsResponse{}, Handler: ctrl.InboxItemSessions,
-			Errors: []ErrResp{
-				{Status: 422, When: "neither itemId nor externalId was given"},
-				{Status: 404, When: "no item matches the externalId, or the itemId does not exist"},
-				{Status: 409, When: "the externalId matches items in more than one profile; add profile to disambiguate"},
-				{Status: 503, When: "session links are unavailable"},
-			},
-		},
-		{
-			Method: "POST", Path: "/api/sources/refresh", Summary: "Force one producer tick across all sources, dropping fetch caches; returns aggregate totals, not a per-source breakdown.",
-			Response: refreshResponse{}, Handler: ctrl.SourcesRefresh,
-			Errors: []ErrResp{{Status: 503, When: "no producer is available (e.g. mock mode)"}},
-		},
-		{
-			Method: "GET", Path: "/api/actions", Summary: "List the action catalog with the actions.yml it was loaded from and whether the file on disk currently parses; an invalid edit leaves the previous catalog in effect and reports its error here.",
-			Response: actionsResponse{}, Handler: ctrl.Actions,
-		},
-		{
-			Method: "GET", Path: "/api/profiles", Summary: "List every profile with its load status and whether it has an avatar.",
-			Response: profilesResponse{}, Handler: ctrl.Profiles,
-		},
-		{
-			Method: "POST", Path: "/api/profiles", Summary: "Create a profile, seeded with the starter graph when exactly one GitHub account is connected.",
-			Request: createProfileRequest{}, Response: profileView{}, Status: http.StatusCreated, Handler: ctrl.CreateProfile,
-			Errors: []ErrResp{{Status: 422, When: "name is missing or invalid"}},
-		},
-		{
-			Method: "DELETE", Path: "/api/profiles/{id}", Summary: "Delete a profile, its flow files, its avatar, and its inbox state.",
-			Status: http.StatusNoContent, Handler: ctrl.DeleteProfile,
-		},
-		{
-			Method: "GET", Path: "/api/profiles/{id}/image", Summary: "Return a profile's avatar as a 128x128 PNG, or 404 when it has none.",
-			Response: RawBinary{Media: []string{"image/png"}}, Handler: ctrl.GetProfileImage,
-			Errors: []ErrResp{{Status: 404, When: "the profile has no image, or no such profile"}},
-		},
-		{
-			Method: "PUT", Path: "/api/profiles/{id}/image", Summary: "Set a profile's avatar from the raw request body; the image is normalized to a 128x128 PNG.",
-			Request: RawBinary{
-				Media: []string{"image/png", "image/jpeg", "image/gif", "image/webp"},
-				Note:  "Send the image as the raw request body (PNG, JPEG, GIF, or WebP) — not multipart/form-data.",
-			}, Response: profileView{}, Handler: ctrl.SetProfileImage,
-			Errors: []ErrResp{
-				{Status: 400, When: "the body was unreadable or not a supported image"},
-				{Status: 404, When: "no such profile"},
-			},
-		},
-		{
-			Method: "DELETE", Path: "/api/profiles/{id}/image", Summary: "Clear a profile's avatar so its rail reverts to the letter chip.",
-			Response: profileView{}, Handler: ctrl.ClearProfileImage,
-		},
-		{
-			Method: "POST", Path: "/api/flows/execute", Summary: "Dry-run a flow against input you supply and report what every node did, committing nothing — no feed membership, inbox rows, notifications, queued actions or durable kv. Name the flow with exactly one of flowId (an installed flow, enabled or not), flow (a flow document as a JSON object, same schema as flows/<id>.yaml, version included) or flowYaml (that document as YAML text), so an unsaved edit can be executed before it is deployed. messages are delivered to nodeId — any node, not only a source, which is how one function node is exercised in isolation against a captured payload; a message carrying a Snapshot expands into its items and declares feed reconciliation exactly as a poll would, and an empty Snapshot is still a snapshot. Sources never fetch: a source node relays what you inject. Envelope fields you leave empty are filled in — ID gets a synthetic one, and Topic the source's own topic when injecting at a source node. kv seeds an in-memory sandbox (nodeId -> key -> value) that is the whole world a kv.get sees, so notify-once logic is testable against a known starting state; what the run would have written comes back in kvMutations. Each node reports what it received, what it emitted per output port (including ports with no wire behind them), its drops, timing, console output, and a structured error with line and column for a script failure.",
-			Request: flowExecuteRequest{}, Response: flowExecuteResponse{}, Handler: ctrl.FlowExecute,
-			Errors: []ErrResp{
-				{Status: 400, When: "the flow document did not parse or validate, the flow cannot be built (a script that does not compile, a graph that is not a DAG), or nodeId names no node in it"},
-				{Status: 404, When: "flowId names no installed flow"},
-				{Status: 422, When: "the body failed validation (not exactly one flow source, or a missing nodeId or messages)"},
-			},
-		},
-		{
-			Method: "GET", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Return a webhook source node's feed-mark image as a 128x128 PNG, or 404 when it has none.",
-			Response: RawBinary{Media: []string{"image/png"}}, Handler: ctrl.GetNodeImage,
-			Errors: []ErrResp{{Status: 404, When: "the node has no image, or no such flow or node"}},
-		},
-		{
-			Method: "PUT", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Set a webhook source node's feed-mark image from the raw request body; it is normalized to a 128x128 PNG and shown on the source's items instead of its icon.",
-			Request: RawBinary{
-				Media: []string{"image/png", "image/jpeg", "image/gif", "image/webp"},
-				Note:  "Send the image as the raw request body (PNG, JPEG, GIF, or WebP) — not multipart/form-data.",
-			}, Response: nodeImageView{}, Handler: ctrl.SetNodeImage,
-			Errors: []ErrResp{
-				{Status: 400, When: "the body was unreadable or not a supported image, or the node is not a webhook source"},
-				{Status: 404, When: "no such flow or node"},
-			},
-		},
-		{
-			Method: "DELETE", Path: "/api/flows/{flowId}/nodes/{nodeId}/image", Summary: "Clear a webhook source node's feed-mark image so it reverts to its icon.",
-			Response: nodeImageView{}, Handler: ctrl.ClearNodeImage,
-			Errors: []ErrResp{{Status: 404, When: "no such flow or node"}},
 		},
 	}
 }

@@ -28,13 +28,13 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0018](decisions/0018-source-http-toolkit.md) | A shared HTTP toolkit for source connectors |
 | [0019](decisions/0019-batched-absence-confirmation.md) | Batched, keyed GitHub absence confirmation |
 | [0020](decisions/0020-devserver-agent-control-api.md) | devserver agent-facing control API (runtime scenarios, inline targets, discovery) |
-| [0021](decisions/0021-agent-http-api.md) | Agent-facing HTTP API (control surface: read, reload, mutate) sharing the webhook port |
+| [0021](decisions/0021-agent-http-api.md) | Agent-facing HTTP API (control surface: read, reload, mutate) sharing the webhook port — agent surface superseded by 0070 |
 | [0022](decisions/0022-http-handler-conventions.md) | HTTP handler conventions: errchain, extractors, criterio validation |
 | [0023](decisions/0023-pprof-debug-endpoint.md) | pprof debug endpoint mounted on the shared loopback HTTP server |
 | [0024](decisions/0024-in-app-problem-reporting.md) | In-app problem reporting: redacted diagnostics to a private R2 bucket |
 | [0025](decisions/0025-profile-images.md) | Profile images: normalized PNG in the data dir, hash-referenced from the flow |
 | [0026](decisions/0026-install-script.md) | One-line install script served behind an obscure path |
-| [0027](decisions/0027-self-describing-agent-api.md) | Self-describing agent API: one operations table backs the mux, a GET /api index, and a generated OpenAPI document |
+| [0027](decisions/0027-self-describing-agent-api.md) | Self-describing agent API: one operations table backs the mux, a GET /api index, and a generated OpenAPI document — superseded by 0070 |
 | [0028](decisions/0028-linux-tarball-distribution.md) | Linux ships as a tarball, not a package |
 | [0029](decisions/0029-clipboard-action-type.md) | Clipboard action type with a render-only, non-durable invocation path |
 | [0030](decisions/0030-commit-resilience-and-scope-backfill.md) | Commit resilience, pre-#63 scope backfill by self-healing lookup, and superseded-snapshot retention |
@@ -81,6 +81,7 @@ Notable architecture/infrastructure decisions are recorded as ADRs in [`decision
 | [0070](decisions/0070-an-item-session-link-is-desktop-state-keyed-on-item-coordinates.md) | An item↔session link is desktop state, keyed on the item's coordinates |
 | [0071](decisions/0071-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read; the jobs split to overlap, `-race` moves to the main run, and `mise run ci` mirrors the whole gate locally |
 | [0072](decisions/0072-a-command-is-a-source.md) | A command is a source: `sources.exec` runs a CLI on the tick and ingests its stdout as a snapshot |
+| [0073](decisions/0073-mcp-replaces-the-agent-facing-http-api.md) | The MCP server replaces the agent-facing HTTP API: stateless tools over App at /mcp, unauthenticated behind loopback |
 
 ## References
 

@@ -220,10 +220,10 @@ func TestSkillsRenderSkillRendersAgainstTheClaudeTarget(t *testing.T) {
 	isolateConfig(t)
 	svc := newTestSkillsService(t)
 
-	name, body, err := svc.RenderSkill(t.Context(), "http-api")
+	name, body, err := svc.RenderSkill(t.Context(), "mcp")
 	require.NoError(t, err)
-	assert.Equal(t, "hive-http-api", name)
-	assert.Contains(t, body, "name: hive-http-api", "renders the claude target's SKILL.md frontmatter")
+	assert.Equal(t, "hive-mcp", name)
+	assert.Contains(t, body, "name: hive-mcp", "renders the claude target's SKILL.md frontmatter")
 	assert.True(t, strings.HasPrefix(body, "---\n"), "SKILL.md frontmatter must open the file")
 }
 

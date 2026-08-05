@@ -1,6 +1,6 @@
 ---
 name: shipped-skills
-description: Change the agent skills Hive Desktop installs into a user's ~/.claude, ~/.codex, ~/.pi, and ~/.agents — the hive-flows, hive-actions, hive-settings, hive-keybindings, hive-webhook-sources, hive-http-api SKILL.md files. Use when editing what one of those says, adding a new one, or adding a target agent directory.
+description: Change the agent skills Hive Desktop installs into a user's ~/.claude, ~/.codex, ~/.pi, and ~/.agents — the hive-flows, hive-actions, hive-settings, hive-keybindings, hive-webhook-sources, hive-mcp SKILL.md files. Use when editing what one of those says, adding a new one, or adding a target agent directory.
 compatibility: Requires Go and mise. Editing a template changes generated output — never edit an installed SKILL.md under a user's home directory.
 ---
 

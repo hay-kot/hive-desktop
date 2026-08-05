@@ -24,7 +24,7 @@ const maxEnvVars = 32
 // Config is a command source node's configuration.
 //
 // The command is a fixed string, never a template: nothing ingested, fetched,
-// or otherwise off-machine can influence what runs. See ADR 0072 — that
+// or otherwise off-machine can influence what runs. See ADR 0073 — that
 // invariant is what keeps this node as trusted as the file it is written in
 // and no more.
 type Config struct {
