@@ -99,7 +99,7 @@ There is still one ticker, so the floor is quantized to it, and a skipped source
 produces nothing at all rather than an empty snapshot. `Producer.Refresh`, what
 a manual refresh calls, ignores every floor. A source whose `Produce` fails is
 recorded in Activity as `RefreshFailed`, at most once an hour while it stays
-broken (ADR 0073).
+broken (ADR 0072).
 
 Ingestion performs source-head comparison, classification, item upsert,
 optional event append, transport-log append, and source-head update in one

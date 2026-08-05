@@ -1,42 +1,44 @@
 package mcpsrv
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
 type nodeImageInput struct {
-	FlowID string `json:"flowId" jsonschema:"Profile (flow) id the node belongs to."`
-	NodeID string `json:"nodeId" jsonschema:"Node id within that flow."`
+	ProfileID string `json:"profileId" jsonschema:"Profile id from list_profiles."`
+	NodeID    string `json:"nodeId"    jsonschema:"Node id within that profile's flow; ids come from get_flow."`
 }
 
 type setNodeImageInput struct {
-	FlowID      string `json:"flowId"      jsonschema:"Profile (flow) id the node belongs to."`
-	NodeID      string `json:"nodeId"      jsonschema:"Node id within that flow."`
+	ProfileID   string `json:"profileId"   jsonschema:"Profile id from list_profiles."`
+	NodeID      string `json:"nodeId"      jsonschema:"Node id within that profile's flow; ids come from get_flow."`
 	ImageBase64 string `json:"imageBase64" jsonschema:"The image as base64 (PNG, JPEG, GIF or WebP). A data: URL is accepted and its prefix ignored."`
 }
 
 // nodeImageView reports which node a feed-mark image belongs to and whether one
 // is set; the bytes come from get_node_image.
 type nodeImageView struct {
-	FlowID   string `json:"flowId"`
-	NodeID   string `json:"nodeId"`
-	HasImage bool   `json:"hasImage"`
+	ProfileID string `json:"profileId"`
+	NodeID    string `json:"nodeId"`
+	HasImage  bool   `json:"hasImage"`
 }
 
 func (ctrl *Controller) GetNodeImage(ctx context.Context, _ *mcp.CallToolRequest, in nodeImageInput) (*mcp.CallToolResult, any, error) {
-	data, err := ctrl.core.Flows.NodeImage(ctx, in.FlowID, in.NodeID)
+	data, err := ctrl.core.Flows.NodeImage(ctx, in.ProfileID, in.NodeID)
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
 	if len(data) == 0 {
-		return nil, nil, ctrl.toolError(app.Errorf(app.KindNotFound, "node %q in flow %q has no image", in.NodeID, in.FlowID))
+		return nil, nil, ctrl.toolError(app.Errorf(app.KindNotFound, "node %q in profile %q has no image", in.NodeID, in.ProfileID))
 	}
 	return pngResult(data), nil, nil
 }
@@ -46,17 +48,62 @@ func (ctrl *Controller) SetNodeImage(ctx context.Context, _ *mcp.CallToolRequest
 	if err != nil {
 		return nil, nodeImageView{}, ctrl.toolError(err)
 	}
-	if _, err := ctrl.core.Flows.SetNodeImage(ctx, in.FlowID, in.NodeID, raw); err != nil {
+	if _, err := ctrl.core.Flows.SetNodeImage(ctx, in.ProfileID, in.NodeID, raw); err != nil {
 		return nil, nodeImageView{}, ctrl.toolError(err)
 	}
-	return nil, nodeImageView{FlowID: in.FlowID, NodeID: in.NodeID, HasImage: true}, nil
+	return nil, nodeImageView{ProfileID: in.ProfileID, NodeID: in.NodeID, HasImage: true}, nil
 }
 
 func (ctrl *Controller) ClearNodeImage(ctx context.Context, _ *mcp.CallToolRequest, in nodeImageInput) (*mcp.CallToolResult, nodeImageView, error) {
-	if err := ctrl.core.Flows.ClearNodeImage(ctx, in.FlowID, in.NodeID); err != nil {
+	if err := ctrl.core.Flows.ClearNodeImage(ctx, in.ProfileID, in.NodeID); err != nil {
 		return nil, nodeImageView{}, ctrl.toolError(err)
 	}
-	return nil, nodeImageView{FlowID: in.FlowID, NodeID: in.NodeID, HasImage: false}, nil
+	return nil, nodeImageView{ProfileID: in.ProfileID, NodeID: in.NodeID, HasImage: false}, nil
+}
+
+// flowView is a profile's graph as this adapter reports it. It exists because
+// nothing else on the surface exposes a node id, and every id-taking argument
+// here — execute_flow's nodeId, the node-image tools' — needs one.
+//
+// A profile whose file does not parse still answers, with valid=false and the
+// load error, matching list_profiles: the graph you cannot run is exactly the
+// one you need to read.
+type flowView struct {
+	ID       string      `json:"id"`
+	Name     string      `json:"name"`
+	Enabled  bool        `json:"enabled"`
+	Valid    bool        `json:"valid"`
+	Error    string      `json:"error,omitempty"`
+	Warnings []string    `json:"warnings,omitempty"`
+	Nodes    []flow.Node `json:"nodes"`
+	Wires    []flow.Wire `json:"wires"`
+}
+
+// GetFlow's Out type is `any` because flow.Node's wire shape comes from its
+// MarshalJSON, which flattens each node's per-type config to the top level. An
+// inferred schema would describe the Go struct instead, and so would be wrong
+// about every node it claimed to describe.
+func (ctrl *Controller) GetFlow(ctx context.Context, _ *mcp.CallToolRequest, in profileInput) (*mcp.CallToolResult, any, error) {
+	for _, st := range ctrl.core.Flows.Statuses(ctx) {
+		if st.ID != in.ProfileID {
+			continue
+		}
+		view := flowView{
+			ID: st.ID, Name: st.Flow.Name, Enabled: st.Flow.Enabled, Valid: st.Valid,
+			Warnings: st.Warnings, Nodes: st.Flow.Nodes, Wires: st.Flow.Wires,
+		}
+		if st.Err != nil {
+			view.Error = st.Err.Error()
+		}
+		if view.Nodes == nil {
+			view.Nodes = []flow.Node{}
+		}
+		if view.Wires == nil {
+			view.Wires = []flow.Wire{}
+		}
+		return nil, view, nil
+	}
+	return nil, nil, ctrl.toolError(app.Errorf(app.KindNotFound, "profile %q not found", in.ProfileID))
 }
 
 // executeFlowInput is one dry run. Exactly one of flowId, flow and flowYaml
@@ -75,12 +122,27 @@ type executeFlowInput struct {
 	// outputs; nothing is installed under it.
 	FlowIDOverride string `json:"flowIdOverride,omitempty" jsonschema:"The id an inline document runs under; scopes node KV and output feed ids only, and installs nothing."`
 
-	NodeID   string        `json:"nodeId"   jsonschema:"The node messages are delivered to — any node, not only a source."`
+	NodeID   string        `json:"nodeId"   jsonschema:"The node messages are delivered to — any node, not only a source. Node ids come from get_flow."`
 	Messages []flowMessage `json:"messages" jsonschema:"The messages to deliver."`
 	// KV seeds the sandbox: node id -> key -> value. Durable KV is neither read
 	// nor written, so this is the whole world a kv.get sees.
 	KV map[string]map[string]any `json:"kv,omitempty" jsonschema:"Seeds an in-memory KV sandbox as nodeId -> key -> value; durable KV is neither read nor written."`
+	// Detail controls how many copies of each message body come back.
+	Detail string `json:"detail,omitempty" jsonschema:"How much of each message body to report — one of summary, emitted (the default) or full."`
 }
+
+// detailEmitted is execute_flow's own middle rung between the surface-wide
+// detailSummary and detailFull: each node's emitted messages but not its
+// received ones. A node's input is its upstream's output, and the entry node's
+// is what the caller just sent, so received is derivable everywhere.
+//
+// The levels exist because a message costs one copy per hop it survives: every
+// node reports it in received and again in emitted, so one 3KB payload through
+// a five-node chain leaves as ~30KB, and a snapshot dry run multiplies that by
+// its item count. They never touch the run's outputs, feed snapshots, kv
+// mutations, counters, drops, console output or errors — those are one entry
+// per thing that happened, not one per hop.
+const detailEmitted = "emitted"
 
 // flowMessage mirrors store.Msg for the wire. It exists because store.Msg
 // carries its raw JSON as json.RawMessage, whose Go type is []byte, and the
@@ -115,10 +177,45 @@ type executeFlowResult struct {
 	// FlowID is the flow that ran — the installed id, or the id an inline
 	// document ran under.
 	FlowID string `json:"flowId"`
+	// Detail echoes the level this result was rendered at, so a caller reading
+	// a node with no received list can tell "omitted" from "empty".
+	Detail string `json:"detail"`
 	// Warnings are the soft diagnostics parsing an inline document produced,
 	// the same ones a file load reports.
 	Warnings []string `json:"warnings,omitempty"`
 	runtime.DryRunResult
+	// Nodes shadows DryRunResult.Nodes with the traces trimmed to Detail. The
+	// embedded field is still encoded by its own name, so the shadow has to
+	// carry the same JSON name to replace rather than duplicate it — Go
+	// resolves the conflict in favour of the shallower field.
+	Nodes []nodeTraceView `json:"nodes"`
+}
+
+// nodeTraceView is one node's trace with its two message lists under the
+// caller's control. Both are pointers so the three states stay distinct: absent
+// means this detail level did not report it, [] means the node genuinely had
+// none — a distinction a plain slice with omitempty collapses, and the run's
+// collections are non-nil precisely so tooling can count them.
+type nodeTraceView struct {
+	runtime.NodeTrace
+	Received *[]store.Msg            `json:"received,omitempty"`
+	Emitted  *[]runtime.PortEmission `json:"emitted,omitempty"`
+}
+
+// traceViews trims each node's message lists to what detail reports.
+func traceViews(traces []runtime.NodeTrace, detail string) []nodeTraceView {
+	out := make([]nodeTraceView, len(traces))
+	for i, trace := range traces {
+		view := nodeTraceView{NodeTrace: trace}
+		if detail == detailFull {
+			view.Received = &traces[i].Received
+		}
+		if detail != detailSummary {
+			view.Emitted = &traces[i].Emitted
+		}
+		out[i] = view
+	}
+	return out
 }
 
 func (ctrl *Controller) ExecuteFlow(ctx context.Context, _ *mcp.CallToolRequest, in executeFlowInput) (*mcp.CallToolResult, any, error) {
@@ -151,10 +248,13 @@ func (ctrl *Controller) ExecuteFlow(ctx context.Context, _ *mcp.CallToolRequest,
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
+	detail := cmp.Or(in.Detail, detailEmitted)
 	return nil, executeFlowResult{
 		FlowID:       result.FlowID,
+		Detail:       detail,
 		Warnings:     result.Warnings,
 		DryRunResult: result.Run,
+		Nodes:        traceViews(result.Run.Nodes, detail),
 	}, nil
 }
 
@@ -173,6 +273,11 @@ func validateFlowSource(in executeFlowInput) error {
 	}
 	if len(in.Messages) == 0 {
 		return app.Errorf(app.KindInvalid, "messages must not be empty")
+	}
+	switch in.Detail {
+	case "", detailSummary, detailEmitted, detailFull:
+	default:
+		return app.Errorf(app.KindInvalid, "detail must be one of %q, %q or %q", detailSummary, detailEmitted, detailFull)
 	}
 	return nil
 }

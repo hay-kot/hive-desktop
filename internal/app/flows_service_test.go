@@ -5,6 +5,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
@@ -133,14 +135,59 @@ func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *test
 	require.NoError(t, err)
 
 	require.NoError(t, service.Delete(t.Context(), created.ID))
-	// The second call is the files-first retry path: the yaml file is already
-	// gone, but PurgeProfile remains an idempotent no-op.
-	require.NoError(t, service.Delete(t.Context(), created.ID))
 	for _, table := range []string{"inbox_item", "event_log", "consumer_offset", "source_head"} {
 		var count int
 		require.NoError(t, db.Conn().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM "+table).Scan(&count))
 		assert.Zero(t, count, table)
 	}
+
+	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), created.ID)),
+		"with the files and the rows both gone there is nothing left to delete")
+}
+
+// The files-first retry path: a delete whose purge failed leaves the flow file
+// gone and the rows behind, and the id is the only handle left on them — so the
+// retry has to be accepted even though nothing on disk backs it any more.
+func TestFlowsServiceDeleteRetriesAPurgeThatLeftRowsBehind(t *testing.T) {
+	db, err := store.Open(t.Context(), t.TempDir(), store.DefaultOpenOptions())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	flows := flow.NewFlowStore(t.TempDir(), nil)
+	service := newFlowsService(flows, db, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
+	created, err := service.Create(t.Context(), "Profile")
+	require.NoError(t, err)
+	_, err = db.Queries().InsertInboxItem(t.Context(), store.InsertInboxItemParams{
+		ProfileID: created.ID, SourceKind: "github", ExternalID: "item", Payload: []byte(`{}`), Lifecycle: "active",
+	})
+	require.NoError(t, err)
+
+	// Stand in for the interrupted delete: the files went, the purge did not.
+	require.NoError(t, flows.Delete(created.ID))
+
+	require.NoError(t, service.Delete(t.Context(), created.ID))
+	var count int
+	require.NoError(t, db.Conn().QueryRowContext(t.Context(), "SELECT COUNT(*) FROM inbox_item").Scan(&count))
+	assert.Zero(t, count)
+}
+
+// A profile whose flow file does not parse still exists — deleting it is how
+// that gets resolved, so the delete must not be gated on the file loading.
+func TestFlowsServiceDeleteRemovesAProfileThatDoesNotParse(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.yaml"), []byte("version: 1\nnodes: [\n"), 0o600))
+	flows := flow.NewFlowStore(dir, nil)
+	service := newFlowsService(flows, nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
+
+	err := service.Delete(t.Context(), "broken")
+	assert.Equal(t, KindUnavailable, KindOf(err), "no store is wired, so only the purge is refused")
+	assert.NoFileExists(t, filepath.Join(dir, "broken.yaml"))
+}
+
+func TestFlowsServiceDeleteReportsAnUnknownProfileAsNotFound(t *testing.T) {
+	flows := flow.NewFlowStore(t.TempDir(), nil)
+	service := newFlowsService(flows, nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
+
+	assert.Equal(t, KindNotFound, KindOf(service.Delete(t.Context(), "never-existed")))
 }
 
 func TestFlowsServiceCreateSeedsWithTheOneConnectedAccount(t *testing.T) {

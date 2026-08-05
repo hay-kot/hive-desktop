@@ -3,6 +3,9 @@ package mcpsrv
 import (
 	"cmp"
 	"context"
+	"encoding/json"
+	"maps"
+	"slices"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -19,10 +22,31 @@ type listFeedsInput struct {
 	Profile string `json:"profile" jsonschema:"Profile id to list feeds for; ids come from list_profiles."`
 }
 
-type feedsResult struct {
-	Feeds []store.FeedInboxCount `json:"feeds"`
+// feedView is one feed and what has landed in it. Name comes from the graph and
+// the counts from inbox membership, so a feed can appear with either half
+// missing — see ListFeeds.
+type feedView struct {
+	ID string `json:"id"`
+	// Declared is false for a feed that only inbox rows still claim: its node
+	// was removed from the graph but its items were never reassigned.
+	Declared bool   `json:"declared"`
+	Name     string `json:"name,omitempty"`
+	Total    int64  `json:"total"`
+	Unread   int64  `json:"unread"`
+	Archived int64  `json:"archived"`
 }
 
+type feedsResult struct {
+	Feeds []feedView `json:"feeds"`
+}
+
+// ListFeeds lists a profile's feeds: the ones its graph declares, joined onto
+// inbox counts, plus any feed only the counts know about.
+//
+// The counts alone omit a declared feed nothing has landed in yet, which makes
+// an empty feed and a misspelled one the same answer. The graph alone would
+// hide a feed whose node was deleted out from under its items. Neither half is
+// authoritative on its own, so this reports the union and says which is which.
 func (ctrl *Controller) ListFeeds(ctx context.Context, _ *mcp.CallToolRequest, in listFeedsInput) (*mcp.CallToolResult, feedsResult, error) {
 	if in.Profile == "" {
 		return nil, feedsResult{}, ctrl.toolError(app.Errorf(app.KindInvalid, "profile is required"))
@@ -31,7 +55,34 @@ func (ctrl *Controller) ListFeeds(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, feedsResult{}, ctrl.toolError(err)
 	}
-	return nil, feedsResult{Feeds: counts}, nil
+	byID := make(map[string]store.FeedInboxCount, len(counts))
+	for _, c := range counts {
+		byID[c.FeedID] = c
+	}
+
+	f, err := ctrl.core.Flows.Get(ctx, in.Profile)
+	if err != nil && (len(counts) == 0 || app.KindOf(err) != app.KindNotFound) {
+		return nil, feedsResult{}, ctrl.toolError(err)
+	}
+
+	feeds := make([]feedView, 0, len(f.Nodes)+len(counts))
+	for _, node := range f.FeedNodes() {
+		id := f.FeedID(node.ID)
+		count := byID[id]
+		delete(byID, id)
+		feeds = append(feeds, feedView{
+			ID: id, Declared: true, Name: cmp.Or(node.Name, node.ID),
+			Total: count.Total, Unread: count.Unread, Archived: count.Archived,
+		})
+	}
+	undeclared := slices.Sorted(maps.Keys(byID))
+	for _, id := range undeclared {
+		count := byID[id]
+		feeds = append(feeds, feedView{
+			ID: id, Total: count.Total, Unread: count.Unread, Archived: count.Archived,
+		})
+	}
+	return nil, feedsResult{Feeds: feeds}, nil
 }
 
 type listInboxInput struct {
@@ -40,18 +91,25 @@ type listInboxInput struct {
 	Feed       string `json:"feed,omitempty"       jsonschema:"Feed id from list_feeds (e.g. hive/desktop-prs) to return only that feed's items."`
 	Archived   bool   `json:"archived,omitempty"   jsonschema:"When true, list archived items instead of active ones."`
 	Limit      int    `json:"limit,omitempty"      jsonschema:"Maximum items to return; defaults to 200."`
+	Detail     string `json:"detail,omitempty"     jsonschema:"summary (the default) omits each item's raw source payload; full includes it, and its size is the source's to decide."`
 }
 
 // inboxItemView is the store view plus the feed that claims the item, so a flat
 // listing can answer "which feed is this in?" — a store.InboxItemView carries no
 // feed id of its own.
+//
+// Payload shadows the embedded field so it can be omitted rather than nulled;
+// it is the one field here whose size the source decides, and a listing repeats
+// it per item. Everything else is this app's own vocabulary and is bounded.
 type inboxItemView struct {
 	store.InboxItemView
-	FeedID string `json:"feedId"`
+	FeedID  string           `json:"feedId"`
+	Payload *json.RawMessage `json:"payload,omitempty"`
 }
 
 type itemsResult struct {
-	Items []inboxItemView `json:"items"`
+	Items  []inboxItemView `json:"items"`
+	Detail string          `json:"detail"`
 }
 
 // The Out type is `any` here and on the other tools answering with store views.
@@ -68,12 +126,13 @@ func (ctrl *Controller) ListInbox(ctx context.Context, _ *mcp.CallToolRequest, i
 	if in.Limit < 0 {
 		return nil, nil, ctrl.toolError(app.Errorf(app.KindInvalid, "limit must be positive"))
 	}
+	detail, err := readDetail(in.Detail)
+	if err != nil {
+		return nil, nil, ctrl.toolError(err)
+	}
 	limit := cmp.Or(in.Limit, defaultListLimit)
 
-	var (
-		items []store.InboxItemView
-		err   error
-	)
+	var items []store.InboxItemView
 	switch {
 	case in.ExternalID != "":
 		items, err = ctrl.core.Inbox.FindItems(ctx, in.Profile, in.ExternalID)
@@ -87,17 +146,60 @@ func (ctrl *Controller) ListInbox(ctx context.Context, _ *mcp.CallToolRequest, i
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
+	if len(items) == 0 {
+		if err := ctrl.explainEmptyScope(ctx, in.Profile, in.Feed); err != nil {
+			return nil, nil, ctrl.toolError(err)
+		}
+	}
 
-	views, err := ctrl.itemsWithFeed(ctx, items)
+	views, err := ctrl.itemsWithFeed(ctx, items, detail)
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
-	return nil, itemsResult{Items: views}, nil
+	return nil, itemsResult{Items: views, Detail: detail}, nil
+}
+
+// readDetail resolves a read tool's detail argument. These tools have no middle
+// rung: there is one source-supplied field on each and it is either there or
+// not.
+func readDetail(detail string) (string, error) {
+	switch detail {
+	case "":
+		return detailSummary, nil
+	case detailSummary, detailFull:
+		return detail, nil
+	default:
+		return "", app.Errorf(app.KindInvalid, "detail must be %q or %q", detailSummary, detailFull)
+	}
+}
+
+// explainEmptyScope turns an empty listing into not_found when the profile or
+// feed it named does not exist, so "nothing has landed here" and "you named the
+// wrong thing" stop being the same answer.
+//
+// It runs only after the query came back empty, never before it. A profile
+// whose flow file was deleted while its inbox rows survived is a state worth
+// being able to read, and gating the query on the graph would make exactly that
+// state invisible. An empty profile is the deliberate unscoped read.
+func (ctrl *Controller) explainEmptyScope(ctx context.Context, profile, feed string) error {
+	if profile == "" {
+		return nil
+	}
+	f, err := ctrl.core.Flows.Get(ctx, profile)
+	if err != nil || feed == "" {
+		return err
+	}
+	for _, node := range f.FeedNodes() {
+		if f.FeedID(node.ID) == feed {
+			return nil
+		}
+	}
+	return app.Errorf(app.KindNotFound, "profile %q declares no feed %q", profile, feed)
 }
 
 // itemsWithFeed annotates each item with the feed that claims it (empty when
 // unrouted), resolved in one query so the listing avoids an N+1.
-func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []store.InboxItemView) ([]inboxItemView, error) {
+func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []store.InboxItemView, detail string) ([]inboxItemView, error) {
 	ids := make([]int64, len(items))
 	for i, it := range items {
 		ids[i] = it.ID
@@ -109,6 +211,9 @@ func (ctrl *Controller) itemsWithFeed(ctx context.Context, items []store.InboxIt
 	out := make([]inboxItemView, len(items))
 	for i, it := range items {
 		out[i] = inboxItemView{InboxItemView: it, FeedID: feeds[it.ID]}
+		if detail == detailFull {
+			out[i].Payload = &items[i].Payload
+		}
 	}
 	return out, nil
 }
@@ -118,10 +223,19 @@ type listEventsInput struct {
 	ExternalID string `json:"externalId,omitempty" jsonschema:"External id resolving to one item; provide this or itemId."`
 	Profile    string `json:"profile,omitempty"    jsonschema:"Profile id used to disambiguate an externalId that matches items in more than one profile."`
 	Limit      int    `json:"limit,omitempty"      jsonschema:"Maximum events to return; defaults to 50."`
+	Detail     string `json:"detail,omitempty"     jsonschema:"summary (the default) omits each event's raw source-specific detail; full includes it."`
+}
+
+// eventView drops each event's raw detail at summary, for the reason
+// inboxItemView drops a payload: it is source-supplied and repeats per event.
+type eventView struct {
+	store.InboxEventView
+	Detail *json.RawMessage `json:"detail,omitempty"`
 }
 
 type eventsResult struct {
-	Events []store.InboxEventView `json:"events"`
+	Events []eventView `json:"events"`
+	Detail string      `json:"detail"`
 }
 
 func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallToolRequest, in listEventsInput) (*mcp.CallToolResult, any, error) {
@@ -131,6 +245,10 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 	if in.Limit < 0 {
 		return nil, nil, ctrl.toolError(app.Errorf(app.KindInvalid, "limit must be positive"))
 	}
+	detail, err := readDetail(in.Detail)
+	if err != nil {
+		return nil, nil, ctrl.toolError(err)
+	}
 	itemID, err := ctrl.resolveItemID(ctx, in)
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
@@ -139,7 +257,14 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
-	return nil, eventsResult{Events: events}, nil
+	views := make([]eventView, len(events))
+	for i, event := range events {
+		views[i] = eventView{InboxEventView: event}
+		if detail == detailFull {
+			views[i].Detail = &events[i].Detail
+		}
+	}
+	return nil, eventsResult{Events: views, Detail: detail}, nil
 }
 
 // resolveItemID accepts an explicit itemId, or an externalId that must resolve

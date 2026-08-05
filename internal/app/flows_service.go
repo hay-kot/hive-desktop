@@ -55,6 +55,47 @@ func (s *FlowsService) notifyUpdated() {
 	}
 }
 
+// requireProfile resolves an id to its parsed flow, or reports KindNotFound.
+// Every method taking a profile id goes through this or requireProfileExists,
+// so a typo is answered the same way everywhere rather than by whatever the
+// underlying write happened to do with a missing file.
+func (s *FlowsService) requireProfile(id string) (flow.Flow, error) {
+	f, ok := s.flows.Get(id)
+	if !ok {
+		return flow.Flow{}, Errorf(KindNotFound, "profile %q not found", id)
+	}
+	return f, nil
+}
+
+// requireProfileExists is requireProfile for the operations that do not need
+// the graph. A profile whose file does not parse still exists — it lists with
+// valid=false, and renaming or deleting it is how that gets resolved — so
+// those operations must not be gated on it loading.
+func (s *FlowsService) requireProfileExists(id string) error {
+	if !s.flows.Exists(id) {
+		return Errorf(KindNotFound, "profile %q not found", id)
+	}
+	return nil
+}
+
+// requireDeletable is requireProfileExists widened by whatever the last delete
+// may have left behind. See Delete.
+func (s *FlowsService) requireDeletable(ctx context.Context, id string) error {
+	if s.flows.Exists(id) {
+		return nil
+	}
+	if s.db != nil {
+		items, err := s.db.ListAllInboxItems(ctx, id, 1)
+		if err != nil {
+			return Wrap(err, KindInternal, "reading inbox rows for profile %q", id)
+		}
+		if len(items) > 0 {
+			return nil
+		}
+	}
+	return Errorf(KindNotFound, "profile %q not found", id)
+}
+
 // Statuses returns one status per flow file — valid and invalid alike — so a
 // broken file shows up with its error instead of silently vanishing.
 func (s *FlowsService) Statuses(context.Context) []flow.FlowStatus {
@@ -79,7 +120,7 @@ func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error)
 	}
 	f, err := s.flows.Create(name, seed)
 	if err != nil {
-		return flow.Flow{}, Wrap(err, KindInvalid, "creating flow %q", name)
+		return flow.Flow{}, Wrap(err, KindInvalid, "creating profile %q", name)
 	}
 	s.notifyUpdated()
 	return f, nil
@@ -94,9 +135,9 @@ func (s *FlowsService) Create(_ context.Context, name string) (flow.Flow, error)
 // Appending a second starter graph onto a graph someone has since edited is
 // not a mistake they can undo.
 func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, error) {
-	f, ok := s.flows.Get(id)
-	if !ok {
-		return flow.Flow{}, Errorf(KindNotFound, "flow %q not found", id)
+	f, err := s.requireProfile(id)
+	if err != nil {
+		return flow.Flow{}, err
 	}
 	if len(f.Nodes) > 0 {
 		return flow.Flow{}, Errorf(KindInvalid, "workspace %q already has nodes", id)
@@ -112,16 +153,16 @@ func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, err
 	seed := starterSeed(credential)
 	f.Nodes, f.Wires = seed.Nodes, seed.Wires
 	if err := s.flows.Save(f); err != nil {
-		return flow.Flow{}, Wrap(err, KindInvalid, "seeding flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInvalid, "seeding profile %q", id)
 	}
 	if err := s.flows.SaveLayout(id, seed.Layout); err != nil {
-		return flow.Flow{}, Wrap(err, KindInternal, "saving layout for flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInternal, "saving layout for profile %q", id)
 	}
 	s.notifyUpdated()
 
 	seeded, ok := s.flows.Get(id)
 	if !ok {
-		return flow.Flow{}, Errorf(KindInternal, "flow %q vanished while seeding", id)
+		return flow.Flow{}, Errorf(KindInternal, "profile %q vanished while seeding", id)
 	}
 	return seeded, nil
 }
@@ -129,9 +170,12 @@ func (s *FlowsService) SeedStarter(_ context.Context, id string) (flow.Flow, err
 // Rename changes a flow's display name while preserving its stable id and
 // graph definition.
 func (s *FlowsService) Rename(_ context.Context, id, name string) (flow.Flow, error) {
+	if err := s.requireProfileExists(id); err != nil {
+		return flow.Flow{}, err
+	}
 	f, err := s.flows.Rename(id, name)
 	if err != nil {
-		return flow.Flow{}, Wrap(err, KindInvalid, "renaming flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInvalid, "renaming profile %q", id)
 	}
 	s.notifyUpdated()
 	return f, nil
@@ -140,20 +184,35 @@ func (s *FlowsService) Rename(_ context.Context, id, name string) (flow.Flow, er
 // SetEnabled controls whether a flow participates in polling and execution
 // while preserving its feed data and graph definition.
 func (s *FlowsService) SetEnabled(_ context.Context, id string, enabled bool) (flow.Flow, error) {
+	if err := s.requireProfileExists(id); err != nil {
+		return flow.Flow{}, err
+	}
 	f, err := s.flows.SetEnabled(id, enabled)
 	if err != nil {
-		return flow.Flow{}, Wrap(err, KindInvalid, "updating flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInvalid, "updating profile %q", id)
 	}
 	s.notifyUpdated()
 	return f, nil
 }
 
-// Delete removes a flow's files before purging its durable state, in that
-// order. FlowStore.Delete treats an already-missing file as success, which is
-// what makes a retry after a files-first partial deletion idempotent.
+// Delete removes a profile's files before purging its durable state, in that
+// order.
+//
+// Deleting something that is not there is KindNotFound rather than a silent
+// success. This is the one irreversible operation on the surface, so a caller
+// that mistyped an id has to learn that nothing was deleted — a constant
+// success answer is indistinguishable from having destroyed the wrong profile.
+//
+// "Not there" means no flow file *and* no inbox rows, which is what keeps the
+// files-first retry working: a deletion whose purge failed leaves the rows
+// behind, and refusing the retry would strand them with no id left to name
+// them by.
 func (s *FlowsService) Delete(ctx context.Context, id string) error {
+	if err := s.requireDeletable(ctx, id); err != nil {
+		return err
+	}
 	if err := s.flows.Delete(id); err != nil {
-		return Wrap(err, KindInvalid, "deleting flow %q", id)
+		return Wrap(err, KindInvalid, "deleting profile %q", id)
 	}
 	// A leftover avatar is orphaned data, never a reason to fail the delete.
 	_ = s.images.Delete(id)
@@ -161,31 +220,27 @@ func (s *FlowsService) Delete(ctx context.Context, id string) error {
 	if s.db == nil {
 		return Errorf(KindUnavailable, "the desktop store is unavailable")
 	}
-	return Wrap(s.db.PurgeProfile(ctx, id), KindInternal, "purging inbox rows for flow %q", id)
+	return Wrap(s.db.PurgeProfile(ctx, id), KindInternal, "purging inbox rows for profile %q", id)
 }
 
 // Get returns one flow's full definition for the editor.
 func (s *FlowsService) Get(_ context.Context, id string) (flow.Flow, error) {
-	f, ok := s.flows.Get(id)
-	if !ok {
-		return flow.Flow{}, Errorf(KindNotFound, "flow %q not found", id)
-	}
-	return f, nil
+	return s.requireProfile(id)
 }
 
 // Save validates and persists a flow's definition. An invalid flow is
 // rejected and the last-good file on disk — and the served flow — are left
 // untouched.
 func (s *FlowsService) Save(_ context.Context, f flow.Flow) error {
-	return Wrap(s.flows.Save(f), KindInvalid, "saving flow %q", f.ID)
+	return Wrap(s.flows.Save(f), KindInvalid, "saving profile %q", f.ID)
 }
 
 // SetProfileImage normalizes raw into the square avatar the rail draws, stores
 // it under the data dir, and records its content hash on the flow. Replacing
 // an existing image overwrites it.
 func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte) (flow.Flow, error) {
-	if _, ok := s.flows.Get(id); !ok {
-		return flow.Flow{}, Errorf(KindNotFound, "flow %q not found", id)
+	if _, err := s.requireProfile(id); err != nil {
+		return flow.Flow{}, err
 	}
 	hash, err := s.images.Set(id, raw)
 	if err != nil {
@@ -196,7 +251,7 @@ func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte)
 		// The bytes landed but the reference did not; drop the orphan so a
 		// retry starts clean and nothing renders an unreferenced file.
 		_ = s.images.Delete(id)
-		return flow.Flow{}, Wrap(err, KindInternal, "recording image for flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInternal, "recording image for profile %q", id)
 	}
 	s.notifyUpdated()
 	return f, nil
@@ -206,9 +261,12 @@ func (s *FlowsService) SetProfileImage(_ context.Context, id string, raw []byte)
 // so the rail stops drawing it even if the file removal that follows fails,
 // leaving at worst an orphaned file the next set or delete reclaims.
 func (s *FlowsService) ClearProfileImage(_ context.Context, id string) (flow.Flow, error) {
+	if _, err := s.requireProfile(id); err != nil {
+		return flow.Flow{}, err
+	}
 	f, err := s.flows.SetImage(id, "")
 	if err != nil {
-		return flow.Flow{}, Wrap(err, KindInvalid, "clearing image for flow %q", id)
+		return flow.Flow{}, Wrap(err, KindInternal, "clearing image for profile %q", id)
 	}
 	_ = s.images.Delete(id)
 	s.notifyUpdated()
@@ -219,7 +277,7 @@ func (s *FlowsService) ClearProfileImage(_ context.Context, id string) (flow.Flo
 func (s *FlowsService) ProfileImage(_ context.Context, id string) ([]byte, error) {
 	data, ok, err := s.images.Get(id)
 	if err != nil {
-		return nil, Wrap(err, KindInternal, "reading image for flow %q", id)
+		return nil, Wrap(err, KindInternal, "reading image for profile %q", id)
 	}
 	if !ok {
 		return nil, nil
@@ -275,13 +333,13 @@ func (s *FlowsService) NodeImage(_ context.Context, flowID, nodeID string) ([]by
 func mapNodeImageError(err error, flowID, nodeID string) error {
 	switch {
 	case errors.Is(err, flow.ErrFlowNotFound):
-		return Errorf(KindNotFound, "flow %q not found", flowID)
+		return Errorf(KindNotFound, "profile %q not found", flowID)
 	case errors.Is(err, flow.ErrNodeNotFound):
-		return Errorf(KindNotFound, "node %q not found in flow %q", nodeID, flowID)
+		return Errorf(KindNotFound, "node %q not found in profile %q", nodeID, flowID)
 	case errors.Is(err, flow.ErrNodeNotImageMarkable):
 		return Errorf(KindInvalid, "node %q does not support an image mark (only webhook sources do)", nodeID)
 	default:
-		return Wrap(err, KindInvalid, "setting image for node %q in flow %q", nodeID, flowID)
+		return Wrap(err, KindInvalid, "setting image for node %q in profile %q", nodeID, flowID)
 	}
 }
 
@@ -293,9 +351,9 @@ func mapImageError(err error) error {
 	case errors.Is(err, profileimg.ErrEmpty):
 		return Errorf(KindInvalid, "No image was provided.")
 	case errors.Is(err, profileimg.ErrUnsupported):
-		return Errorf(KindInvalid, "That file isn't a supported image. Use PNG, JPEG, GIF, or WebP.")
+		return Errorf(KindInvalid, "Unsupported image format. Use PNG, JPEG, GIF, or WebP.")
 	case errors.Is(err, profileimg.ErrTooLarge):
-		return Errorf(KindInvalid, "That image is too large. Choose a smaller file.")
+		return Errorf(KindInvalid, "That image is too large. Choose a smaller one.")
 	default:
 		return Wrap(err, KindInternal, "processing image")
 	}
@@ -308,7 +366,7 @@ func (s *FlowsService) Layout(_ context.Context, id string) flow.Layout {
 }
 
 func (s *FlowsService) SaveLayout(_ context.Context, id string, layout flow.Layout) error {
-	return Wrap(s.flows.SaveLayout(id, layout), KindInternal, "saving layout for flow %q", id)
+	return Wrap(s.flows.SaveLayout(id, layout), KindInternal, "saving layout for profile %q", id)
 }
 
 // Sidebar returns how a flow's feed nodes are grouped into folders and
@@ -319,5 +377,5 @@ func (s *FlowsService) Sidebar(_ context.Context, id string) flow.SidebarLayout 
 }
 
 func (s *FlowsService) SaveSidebar(_ context.Context, id string, layout flow.SidebarLayout) error {
-	return Wrap(s.flows.SaveSidebar(id, layout), KindInternal, "saving sidebar for flow %q", id)
+	return Wrap(s.flows.SaveSidebar(id, layout), KindInternal, "saving sidebar for profile %q", id)
 }

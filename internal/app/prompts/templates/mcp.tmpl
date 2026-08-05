@@ -2,9 +2,9 @@ Drive Hive Desktop directly through its local MCP server, instead of — or
 alongside — editing its config files.
 {{template "app" .}}
 This install also runs an MCP server whose tools observe and operate the app:
-list and create profiles, read the inbox and feeds, set a profile avatar, force
-a source refresh, and dry-run a flow against a payload you supply — without
-editing the files above.
+list and create profiles, read a profile's graph, read the inbox and feeds, set
+a profile avatar, force a source refresh, and dry-run a flow against a payload
+you supply — without editing the files above.
 {{if not .Env.MCPEnabled}}
 NOTE: the server is currently **disabled** in this install's settings. Set
 `http.enabled: true` in {{.Env.SettingsPath}} to turn it on; until then nothing
@@ -25,6 +25,9 @@ actually accepts.
 Conventions those schemas assume:
 
 - A failing tool answers with an error result whose text opens with a stable machine string — `invalid`, `not_found`, `conflict`, `unavailable`, `unauthenticated`, `internal` — followed by the detail. Branch on that, never on the prose.
+- Every id-taking argument names a profile, and `list_profiles` is where profile ids come from. `get_flow` turns one into its graph, which is where node ids come from — `execute_flow` and the node-image tools take those.
+- A thing that does not exist is `not_found`, not an empty collection. An empty list means nothing has landed there, never that you named the wrong profile, feed or item.
 - Images go in as base64 and come back as images: `set_profile_image` takes base64 bytes (a `data:` URL is accepted, prefix and all), while `get_profile_image` answers with the PNG itself.
+- Any tool that would answer with source-supplied JSON takes a `detail` argument and defaults to `summary`, which omits it. A payload is as large as the source made it and gets repeated per item or per node, so ask for `full` only once you have narrowed the read. Each answer echoes the level it used.
 - Reads and dry runs are safe to repeat. `execute_flow` commits nothing in particular — no feed membership, inbox rows, notifications, queued actions or durable kv — so use it to test a flow edit, including one you have not saved, instead of deploying and waiting for a poll.
 {{template "task" .}}

@@ -96,7 +96,14 @@ func (ctrl *Controller) ClearProfileImage(ctx context.Context, _ *mcp.CallToolRe
 // GetProfileImage answers with an image content block rather than a structured
 // value, so a model that can see images gets the avatar itself instead of a
 // base64 blob it has to describe.
+//
+// Both failures are not_found and they must not read alike: "has no image"
+// asserts the profile exists, so a mistyped id has to be answered as a
+// mistyped id rather than as an avatar-less profile.
 func (ctrl *Controller) GetProfileImage(ctx context.Context, _ *mcp.CallToolRequest, in profileInput) (*mcp.CallToolResult, any, error) {
+	if _, err := ctrl.core.Flows.Get(ctx, in.ProfileID); err != nil {
+		return nil, nil, ctrl.toolError(err)
+	}
 	data, err := ctrl.core.Flows.ProfileImage(ctx, in.ProfileID)
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)

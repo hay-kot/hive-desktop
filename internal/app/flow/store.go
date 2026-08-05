@@ -88,6 +88,25 @@ func (s *FlowStore) Get(id string) (Flow, bool) {
 	return f, ok
 }
 
+// Exists reports whether a flow file backs id, parsing or not. It is a weaker
+// question than Get's: a file that fails to validate has no Flow to return but
+// is very much there, and deleting or renaming it is how that gets fixed.
+func (s *FlowStore) Exists(id string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.ensureLoadedLocked()
+
+	if _, ok := s.flows[id]; ok {
+		return true
+	}
+	for filename := range s.errs {
+		if flowIDFromFilename(filename) == id {
+			return true
+		}
+	}
+	return false
+}
+
 // ParseDocument parses a flow document that is not on disk, resolving its
 // references the same way a loaded file's are. Nothing is written and the
 // store's own snapshot is untouched — this is how an unsaved edit is checked,

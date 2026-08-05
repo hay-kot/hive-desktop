@@ -142,7 +142,7 @@ func TestToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 	}
 
 	assert.ElementsMatch(t, []string{
-		"get_status", "list_profiles", "list_feeds", "list_inbox",
+		"get_status", "list_profiles", "get_flow", "list_feeds", "list_inbox",
 		"list_inbox_item_events", "list_actions", "refresh_sources",
 		"create_profile", "delete_profile",
 		"get_profile_image", "set_profile_image", "clear_profile_image",
@@ -199,6 +199,69 @@ func TestProfileLifecycle(t *testing.T) {
 	assert.NotContains(t, ids, created.ID)
 }
 
+// Nothing else on the surface reports a node id, and execute_flow's nodeId and
+// the node-image tools all require one — so without this the headline tool
+// cannot be driven from the server alone.
+func TestGetFlowReportsNodeIDsAndWires(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	var got struct {
+		ID    string `json:"id"`
+		Valid bool   `json:"valid"`
+		Nodes []struct {
+			ID   string `json:"id"`
+			Type string `json:"type"`
+			Path string `json:"path"`
+		} `json:"nodes"`
+		Wires []struct {
+			From string `json:"from"`
+			To   string `json:"to"`
+		} `json:"wires"`
+	}
+	call(t, session, "get_flow", map[string]any{"profileId": "hooks"}, &got)
+
+	assert.Equal(t, "hooks", got.ID)
+	assert.True(t, got.Valid)
+	require.Len(t, got.Nodes, 2)
+	assert.Equal(t, "hook", got.Nodes[0].ID)
+	assert.Equal(t, "sources.webhook", got.Nodes[0].Type)
+	assert.Equal(t, "ci", got.Nodes[0].Path, "a node's own config is flattened onto it, as it is on disk")
+	require.Len(t, got.Wires, 1)
+	assert.Equal(t, "hook", got.Wires[0].From)
+	assert.Equal(t, "inbox", got.Wires[0].To)
+}
+
+// The graph you cannot run is the one you most need to read, so a profile whose
+// file does not parse answers with its error rather than not_found.
+func TestGetFlowReportsAProfileThatDoesNotParse(t *testing.T) {
+	_, session := testSession(t, func(t *testing.T, configDir string) {
+		t.Helper()
+		flowsDir := filepath.Join(configDir, "flows")
+		require.NoError(t, os.MkdirAll(flowsDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(flowsDir, "broken.yaml"), []byte("version: 1\nnodes: [\n"), 0o600))
+	})
+
+	var got struct {
+		ID    string `json:"id"`
+		Valid bool   `json:"valid"`
+		Error string `json:"error"`
+		Nodes []any  `json:"nodes"`
+	}
+	call(t, session, "get_flow", map[string]any{"profileId": "broken"}, &got)
+
+	assert.False(t, got.Valid)
+	assert.NotEmpty(t, got.Error, "the load error is the whole point of answering at all")
+	assert.Empty(t, got.Nodes)
+}
+
+func TestGetFlowReportsAnUnknownProfileAsNotFound(t *testing.T) {
+	_, session := testSession(t)
+
+	assert.Contains(t, callErr(t, session, "get_flow", map[string]any{"profileId": "nope"}),
+		string(app.KindNotFound))
+}
+
 func TestListInboxReturnsSeededItemsWithTheirFeed(t *testing.T) {
 	core, session := testSession(t)
 	seedItem(t, core, "hive", "ext-1", `{"n":1}`)
@@ -210,11 +273,116 @@ func TestListInboxReturnsSeededItemsWithTheirFeed(t *testing.T) {
 			Payload    json.RawMessage `json:"payload"`
 		} `json:"items"`
 	}
-	call(t, session, "list_inbox", map[string]any{"profile": "hive"}, &got)
+	call(t, session, "list_inbox", map[string]any{"profile": "hive", "detail": "full"}, &got)
 
 	require.Len(t, got.Items, 1)
 	assert.Equal(t, "ext-1", got.Items[0].ExternalID)
 	assert.JSONEq(t, `{"n":1}`, string(got.Items[0].Payload))
+}
+
+// A payload is as large as the source made it and a listing repeats it per
+// item, so the level that is safe against a real feed has to be the default —
+// a tool that answers happily in a test and blows a client's limit against
+// production data is a tool nobody can rely on.
+func TestListInboxOmitsPayloadsByDefault(t *testing.T) {
+	core, session := testSession(t)
+	seedItem(t, core, "hive", "ext-1", `{"n":1}`)
+
+	var got struct {
+		Detail string `json:"detail"`
+		Items  []struct {
+			ExternalID string           `json:"externalId"`
+			Title      string           `json:"title"`
+			Lifecycle  string           `json:"lifecycle"`
+			Payload    *json.RawMessage `json:"payload"`
+		} `json:"items"`
+	}
+	call(t, session, "list_inbox", map[string]any{"profile": "hive"}, &got)
+
+	assert.Equal(t, "summary", got.Detail, "the level is echoed so an omitted payload is never read as an absent one")
+	require.Len(t, got.Items, 1)
+	assert.Nil(t, got.Items[0].Payload)
+	assert.Equal(t, "ext-1", got.Items[0].ExternalID, "everything the app itself names still comes back")
+	assert.NotEmpty(t, got.Items[0].Lifecycle)
+}
+
+func TestListInboxItemEventsOmitsEventDetailByDefault(t *testing.T) {
+	core, session := testSession(t)
+	id := seedItem(t, core, "hive", "ext-1", `{}`)
+
+	var got struct {
+		Detail string `json:"detail"`
+	}
+	call(t, session, "list_inbox_item_events", map[string]any{"itemId": id}, &got)
+	assert.Equal(t, "summary", got.Detail)
+
+	assert.Contains(t, callErr(t, session, "list_inbox_item_events", map[string]any{"itemId": id, "detail": "emitted"}),
+		string(app.KindInvalid), "a read has no middle rung — the payload is there or it is not")
+}
+
+// A feed exists because a node declares it, not because something has landed in
+// it. Reporting only the feeds with rows makes a real-but-empty feed, a
+// nonexistent one and a typo the same answer.
+func TestListFeedsIncludesADeclaredFeedNothingHasLandedIn(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	var got struct {
+		Feeds []struct {
+			ID       string `json:"id"`
+			Declared bool   `json:"declared"`
+			Name     string `json:"name"`
+			Total    int64  `json:"total"`
+		} `json:"feeds"`
+	}
+	call(t, session, "list_feeds", map[string]any{"profile": "hooks"}, &got)
+
+	require.Len(t, got.Feeds, 1)
+	assert.Equal(t, "hooks/inbox", got.Feeds[0].ID)
+	assert.True(t, got.Feeds[0].Declared)
+	assert.Equal(t, "Inbox", got.Feeds[0].Name)
+	assert.Zero(t, got.Feeds[0].Total)
+}
+
+func TestListFeedsReportsAnUnknownProfileAsNotFound(t *testing.T) {
+	_, session := testSession(t)
+
+	assert.Contains(t, callErr(t, session, "list_feeds", map[string]any{"profile": "nope"}),
+		string(app.KindNotFound))
+}
+
+// An empty listing is only explained after the query comes back empty. A
+// profile whose flow file is gone but whose inbox rows survived is a state
+// worth being able to read, and gating the read on the graph would hide it.
+func TestListInboxReadsAProfileWithRowsButNoFlow(t *testing.T) {
+	core, session := testSession(t)
+	seedItem(t, core, "orphaned", "ext-orphan", `{}`)
+
+	var got struct {
+		Items []struct {
+			ExternalID string `json:"externalId"`
+		} `json:"items"`
+	}
+	call(t, session, "list_inbox", map[string]any{"profile": "orphaned"}, &got)
+	require.Len(t, got.Items, 1)
+	assert.Equal(t, "ext-orphan", got.Items[0].ExternalID)
+}
+
+func TestListInboxReportsAnUnknownProfileOrFeedAsNotFound(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	assert.Contains(t, callErr(t, session, "list_inbox", map[string]any{"profile": "nope"}),
+		string(app.KindNotFound), "a typo'd profile is not an empty inbox")
+	assert.Contains(t, callErr(t, session, "list_inbox", map[string]any{"profile": "hooks", "feed": "hooks/nope"}),
+		string(app.KindNotFound), "a feed the graph does not declare is not an empty feed")
+}
+
+func TestListInboxItemEventsReportsAnUnknownItemIDAsNotFound(t *testing.T) {
+	_, session := testSession(t)
+
+	assert.Contains(t, callErr(t, session, "list_inbox_item_events", map[string]any{"itemId": 9999}),
+		string(app.KindNotFound))
 }
 
 func TestListInboxRequiresProfileWhenFeedIsSet(t *testing.T) {
@@ -305,17 +473,17 @@ func TestNodeImageLifecycle(t *testing.T) {
 	core, session := testSession(t)
 	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
 
-	target := map[string]any{"flowId": "hooks", "nodeId": "hook"}
+	target := map[string]any{"profileId": "hooks", "nodeId": "hook"}
 
 	var set struct {
-		FlowID   string `json:"flowId"`
-		NodeID   string `json:"nodeId"`
-		HasImage bool   `json:"hasImage"`
+		ProfileID string `json:"profileId"`
+		NodeID    string `json:"nodeId"`
+		HasImage  bool   `json:"hasImage"`
 	}
 	call(t, session, "set_node_image", map[string]any{
-		"flowId": "hooks", "nodeId": "hook", "imageBase64": onePixelPNG,
+		"profileId": "hooks", "nodeId": "hook", "imageBase64": onePixelPNG,
 	}, &set)
-	assert.Equal(t, "hooks", set.FlowID)
+	assert.Equal(t, "hooks", set.ProfileID)
 	assert.Equal(t, "hook", set.NodeID)
 	assert.True(t, set.HasImage)
 
@@ -506,6 +674,43 @@ func TestProfileImageRoundTripsThroughBase64(t *testing.T) {
 	assert.False(t, cleared.HasImage)
 }
 
+// delete_profile is the only irreversible tool here, so its answer must never
+// be a constant: a mistyped id has to be distinguishable from a deletion.
+func TestDeleteProfileReportsAnUnknownProfileAsNotFound(t *testing.T) {
+	_, session := testSession(t)
+
+	assert.Contains(t, callErr(t, session, "delete_profile", map[string]any{"profileId": "this-never-existed"}),
+		string(app.KindNotFound))
+}
+
+// The two failures must not read alike: "has no image" asserts the profile
+// exists, so answering it for a mistyped id sends the caller looking for an
+// avatar rather than for their typo.
+func TestProfileImageDistinguishesAMissingProfileFromAMissingAvatar(t *testing.T) {
+	_, session := testSession(t)
+
+	var created struct {
+		ID string `json:"id"`
+	}
+	call(t, session, "create_profile", map[string]any{"name": "Work"}, &created)
+
+	assert.Contains(t, callErr(t, session, "get_profile_image", map[string]any{"profileId": created.ID}),
+		"has no image")
+	missing := callErr(t, session, "get_profile_image", map[string]any{"profileId": "nope"})
+	assert.Contains(t, missing, string(app.KindNotFound))
+	assert.NotContains(t, missing, "has no image")
+}
+
+// An app.Error's Msg is written as a context prefix, so dropping its wrapped
+// cause leaves an agent holding a dangling phrase with no reason in it.
+func TestAToolErrorCarriesTheWrappedCause(t *testing.T) {
+	_, session := testSession(t)
+
+	msg := callErr(t, session, "clear_profile_image", map[string]any{"profileId": "nope"})
+	assert.Contains(t, msg, string(app.KindNotFound), "a missing profile is not an invalid request")
+	assert.Contains(t, msg, "not found")
+}
+
 // A data URL is accepted because an agent handed one by another tool will
 // otherwise forget to strip the prefix.
 func TestSetProfileImageAcceptsADataURL(t *testing.T) {
@@ -569,6 +774,7 @@ func TestExecuteFlowDeliversAnObjectPayloadAndCommitsNothing(t *testing.T) {
 		"flowYaml":       inlineFlowYAML,
 		"flowIdOverride": "scratch",
 		"nodeId":         "fn",
+		"detail":         "full",
 		"messages": []map[string]any{{
 			"ID": "1", "Topic": "t", "Payload": map[string]any{"a": 1},
 		}},
@@ -583,6 +789,103 @@ func TestExecuteFlowDeliversAnObjectPayloadAndCommitsNothing(t *testing.T) {
 	for _, st := range core.Flows.Statuses(t.Context()) {
 		assert.NotEqual(t, "scratch", st.ID, "a dry run must not install the flow it ran")
 	}
+}
+
+// A message costs one copy per hop unless the caller says otherwise: every node
+// reports it in received and again in emitted, so a payload through a real
+// graph comes back many times over. The default drops received, which is
+// derivable from the upstream's emitted, and counts drops bodies entirely.
+func TestExecuteFlowDetailControlsHowManyCopiesOfAPayloadComeBack(t *testing.T) {
+	_, session := testSession(t)
+
+	run := func(t *testing.T, detail string) (nodes []struct {
+		NodeID   string `json:"nodeId"`
+		In       int    `json:"in"`
+		Received *[]any `json:"received"`
+		Emitted  *[]any `json:"emitted"`
+	}, level string,
+	) {
+		t.Helper()
+		args := map[string]any{
+			"flowYaml": inlineFlowYAML, "flowIdOverride": "scratch", "nodeId": "fn",
+			"messages": []map[string]any{{"ID": "1", "Topic": "t", "Payload": map[string]any{"a": 1}}},
+		}
+		if detail != "" {
+			args["detail"] = detail
+		}
+		var got struct {
+			Detail string `json:"detail"`
+			Nodes  []struct {
+				NodeID   string `json:"nodeId"`
+				In       int    `json:"in"`
+				Received *[]any `json:"received"`
+				Emitted  *[]any `json:"emitted"`
+			} `json:"nodes"`
+		}
+		call(t, session, "execute_flow", args, &got)
+		require.NotEmpty(t, got.Nodes)
+		return got.Nodes, got.Detail
+	}
+
+	t.Run("default omits received", func(t *testing.T) {
+		nodes, level := run(t, "")
+		assert.Equal(t, "emitted", level, "the level is echoed so absent and empty stay distinguishable")
+		assert.Nil(t, nodes[0].Received)
+		assert.NotNil(t, nodes[0].Emitted)
+	})
+
+	t.Run("summary omits both but keeps the counters", func(t *testing.T) {
+		nodes, level := run(t, "summary")
+		assert.Equal(t, "summary", level)
+		assert.Nil(t, nodes[0].Received)
+		assert.Nil(t, nodes[0].Emitted)
+		assert.Equal(t, 1, nodes[0].In, "what each node did is still reported, only the bodies are gone")
+	})
+
+	t.Run("full keeps both", func(t *testing.T) {
+		nodes, level := run(t, "full")
+		assert.Equal(t, "full", level)
+		assert.NotNil(t, nodes[0].Received)
+		assert.NotNil(t, nodes[0].Emitted)
+	})
+}
+
+// A terminal emits nothing, and that has to arrive as [] rather than as an
+// absent key: absent is what "this detail level did not report it" means, and
+// the run's collections are non-nil precisely so tooling can count them.
+func TestExecuteFlowDistinguishesAnEmptyEmissionFromAnOmittedOne(t *testing.T) {
+	core, session := testSession(t)
+	require.NoError(t, core.Flows.Save(t.Context(), webhookFlow()))
+
+	var got struct {
+		Nodes []struct {
+			NodeID  string `json:"nodeId"`
+			Emitted *[]any `json:"emitted"`
+		} `json:"nodes"`
+	}
+	call(t, session, "execute_flow", map[string]any{
+		"flowId": "hooks", "nodeId": "hook",
+		"messages": []map[string]any{{"Key": "k", "Payload": map[string]any{"a": 1}}},
+	}, &got)
+
+	var terminal *[]any
+	for _, node := range got.Nodes {
+		if node.NodeID == "inbox" {
+			terminal = node.Emitted
+		}
+	}
+	require.NotNil(t, terminal, "the feed terminal reported no emitted key at all")
+	assert.Empty(t, *terminal)
+}
+
+func TestExecuteFlowRejectsAnUnknownDetailLevel(t *testing.T) {
+	_, session := testSession(t)
+
+	msg := callErr(t, session, "execute_flow", map[string]any{
+		"flowYaml": inlineFlowYAML, "nodeId": "fn", "detail": "verbose",
+		"messages": []map[string]any{{"ID": "1"}},
+	})
+	assert.Contains(t, msg, string(app.KindInvalid))
 }
 
 // An input the schema rejects never reaches the handler — the SDK validates

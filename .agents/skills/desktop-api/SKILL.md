@@ -68,13 +68,16 @@ force the poll, then read and retry a few times:
 ```bash
 call refresh_sources
 for i in $(seq 1 10); do
-  hit=$(call list_inbox '{"profile":"'"$P"'"}' \
+  hit=$(call list_inbox '{"profile":"'"$P"'","detail":"full","limit":50}' \
     | jq --arg repo acme/widgets --argjson num 42 \
         '[.items[] | select(.payload.repo==$repo and .payload.num==$num)][0]')
   [ "$hit" != "null" ] && echo "$hit" | jq '{lifecycle, sourceState, unread, reason: .payload.reason}' && break
   sleep 1
 done
 ```
+
+Selecting on payload fields is what `detail: "full"` is for, and why this
+narrows with `limit` — see [Read tools](#4-read-tools) before widening it.
 
 A **webhook push** appends directly (no refresh needed) — push via devserver,
 then read + retry the same way.
@@ -83,13 +86,32 @@ then read + retry the same way.
 
 ```bash
 call list_profiles                                    # ids to scope everything else by
-call list_inbox '{"profile":"'"$P"'"}'                # newest first; payload carries repo/num/reason/state
+call get_flow '{"profileId":"'"$P"'"}'                # the graph: node ids, types, wires
+call list_inbox '{"profile":"'"$P"'"}'                # newest first; title/state/lifecycle, no payloads
 call list_inbox '{"profile":"'"$P"'","feed":"'"$FEED"'"}'                  # presence == routed there
 call list_inbox '{"profile":"'"$P"'","feed":"'"$FEED"'","archived":true}'
-call list_inbox '{"externalId":"'"$EXT"'"}'           # a GitHub global node id, NOT repo#num
-call list_feeds '{"profile":"'"$P"'"}'                # per-feed counts
+call list_inbox '{"externalId":"'"$EXT"'","detail":"full"}'  # a GitHub global node id, NOT repo#num
+call list_feeds '{"profile":"'"$P"'"}'                # every declared feed, counts joined on
 call list_inbox_item_events '{"itemId":'"$ID"'}'      # one item's history
 ```
+
+`get_flow` is where node ids come from — `execute_flow`'s `nodeId` and the
+node-image tools take them, and nothing else on the surface reports one.
+
+**Payloads are opt-in.** `list_inbox` and `list_inbox_item_events` default to
+`detail: "summary"`, which omits the raw source payload — a PR body alone is
+kilobytes and a listing repeats it per item, so a whole feed at `"full"` runs to
+megabytes and will blow a tool-response limit. Narrow *first* (by `feed`, by
+`externalId`, or with `limit`), then ask for `"full"`. Everything the app itself
+names — `title`, `url`, `lifecycle`, `sourceState`, `unread`, `feedId`,
+timestamps — is in the summary. Each answer echoes the `detail` it used, so an
+omitted payload is never mistaken for an absent one.
+
+A missing thing is `not_found`, never an empty collection: a profile id, a feed
+id or an item id that resolves to nothing is an error, so an empty list always
+means "nothing has landed here". `list_feeds` reports a declared feed at zero
+rather than omitting it, and marks `declared: false` on a feed only stale inbox
+rows still claim.
 
 ## 5. Test a flow without deploying it
 
@@ -117,8 +139,15 @@ call execute_flow '{
   against a known starting state. The real store is neither read nor written, so
   repeated calls give the same answer; what the run *would* have stored comes
   back in `.kvMutations`, and what it would have committed in `.outputs`.
+- **Keep the response bounded** with `detail`. A payload is reported once per
+  node it reaches, so a real one through a deep graph comes back many times
+  over. `"emitted"` (the default) drops each node's `received` — it is the
+  upstream's `emitted`; `"counts"` drops message bodies entirely and is what a
+  snapshot run wants; `"full"` restores both.
 - `console.log` in a function node is readable here and nowhere else — a live
   run discards it.
+- A script error's `line` and the positions inside its `message` and `stack` are
+  all relative to the `on_message` body, not to the wrapper the engine compiles.
 
 ## 6. Did my config edit load?
 
@@ -144,8 +173,9 @@ select(.id=="…") | .clipboard.textTemplate`.
   on that, never on the prose.
 - **Match on the payload**, not the external id: `external_id` is the source's
   own id (a GitHub global node id), while the devserver and your test think in
-  `repo`/`num`. Filter `.items[] | select(.payload.repo==… and .payload.num==…)`.
-  The same external id can exist across profiles/scopes, so by-id reads return a
+  `repo`/`num`. Filter `.items[] | select(.payload.repo==… and .payload.num==…)`
+  — which needs `detail: "full"`, so scope the read before you widen it. The
+  same external id can exist across profiles/scopes, so by-id reads return a
   slice.
 - **Reload only helps pull sources.** `refresh_sources` re-polls
   `sources.github`; it does nothing for webhook-fed feeds (those append on

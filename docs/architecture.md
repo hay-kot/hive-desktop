@@ -138,7 +138,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
 | **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR 0022. |
-| **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. See ADR 0073. |
+| **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. Three contracts hold across the whole surface, because an agent has no UI to disambiguate from: an id that resolves to nothing is `not_found` and never an empty collection; a mutation's answer is never a constant, so a caller can tell it happened; and a field whose size the *source* decides — an item payload, an event detail, a dry run's messages — is behind a `detail` argument that defaults to omitting it, with the level echoed on the answer. See ADR 0073. |
 | **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR 0036. |
 | **Anti-Corruption Layer** (DDD) | the `internal/hivecore` seam | Declare a narrow local interface describing only what we need, let the vendored concrete type satisfy it structurally, convert types at the seam. An upstream signature change then breaks one adapter file rather than the app. The idiom is `hive_adapters.go`. |
 | **Bounded Context** (DDD) | `app` vs `internal/hivecore` | Two models that must not merge. `hive` is a separate external product with its own vocabulary; its types stop at the ACL and never appear in an `app` signature. This is also why the vendored code is read-only. |
@@ -467,7 +467,7 @@ specified rather than left to grow. ADR 0012 records why.
   source owns. A connector that can fail partway decodes its whole result
   before the first `emit`, so a run cannot half-succeed — and where truncation
   is possible it fails rather than truncates, because truncated-but-parseable
-  output *is* a short snapshot. ADR 0073.
+  output *is* a short snapshot. ADR 0072.
 - **Cadence is a floor on the instance, not a second scheduler.** There is one
   ticker (`settings.polling.interval`); an instance whose cost does not suit it
   sets `Instance.MinInterval` and the producer skips it until it is due,
@@ -489,7 +489,7 @@ specified rather than left to grow. ADR 0012 records why.
   `actions.yml`'s shell executor and `function` nodes' JavaScript, so the
   boundary is the directory, not the node — but a command built from fetched
   data would move it, which is why it is forbidden rather than discouraged
-  (ADR 0073).
+  (ADR 0072).
 
 Connector type strings are namespaced — `sources.github`, `sources.webhook` —
 so connectors group and sort together everywhere node types are enumerated:
@@ -835,7 +835,7 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
 - **A command on a timer takes the resolver's answer, never its own probe**
-  (ADR 0073). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
+  (ADR 0072). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
   would charge each one the user's version-manager initialization and make a
   slow rc file a randomly-blown timeout. The resolver probes once per run and
   remembers; that is the whole point of it. Aliases are the deliberate cost —

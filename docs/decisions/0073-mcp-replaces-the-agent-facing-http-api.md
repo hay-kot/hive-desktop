@@ -28,6 +28,37 @@ afterwards would have to be added twice or be silently missing from one.
 
 ## Decision
 
+> **Amended 2026-08-05, after the surface was exercised end to end.** Three
+> contracts were added, each closing a case where a tool answered a question
+> the caller had not asked. They now bind every tool, not only the ones that
+> were wrong:
+>
+> 1. **An id that resolves to nothing is `not_found`, never an empty
+>    collection.** A typo, a real-but-empty scope and a nonexistent one were
+>    one indistinguishable response. Where a scope can legitimately outlive its
+>    declaration — inbox rows whose profile was deleted — the read still runs
+>    first and the emptiness is only *explained* afterwards, so tightening the
+>    contract never hides state.
+> 2. **A mutation's answer is never a constant.** `delete_profile` returned
+>    `{"deleted": true}` unconditionally, which on the one irreversible tool is
+>    indistinguishable from having destroyed the wrong thing.
+> 3. **A response carrying source-supplied JSON takes a `detail` argument and
+>    defaults to the level that is safe against real data.** This surfaced
+>    twice — `execute_flow` reporting every message once per node per
+>    direction, and `list_inbox` returning 150KB for a 47-item feed — because
+>    it is one problem: the size of an inbox item's payload, an event's detail
+>    and a dry run's messages is set by the source, not by anything here, and
+>    every listing multiplies it. A cap would truncate silently; the level is
+>    the caller's to raise, and each answer echoes the one it used so an
+>    omitted field is never read as an absent one. `summary` and `full` mean
+>    the same thing on every tool; a tool may add rungs between them.
+>
+> The adapter also renders an `app.Error`'s wrapped cause rather than its `Msg`
+> alone — the split `MarshalJSON` makes for the frontend. `Msg` is written as a
+> context prefix, so dropping the cause hands an agent a dangling phrase with
+> no reason in it, and the consumer here is a model debugging its own call on
+> the user's machine.
+
 **The MCP server is the agent-facing surface. The REST surface that served that
 role is deleted, not deprecated.**
 
