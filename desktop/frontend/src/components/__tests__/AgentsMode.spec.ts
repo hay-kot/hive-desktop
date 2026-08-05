@@ -279,4 +279,25 @@ describe('AgentsMode', () => {
 
     expect(wrapper.get('[data-testid="agents-pane-statusbar-error"]').text()).toBe('the directory is gone')
   })
+
+  // A session that dies before the attach answers 200 with no terminalId and
+  // the reason in its notice. The listing carries no notice, so this response
+  // is the only place it exists — dropping it made a failed launch look like a
+  // click that did nothing.
+  it('reports the launch notice when a session exits before it can be attached', async () => {
+    const client = fakeClient()
+    client.startSession.mockResolvedValue({
+      id: 7, workspace: 'web-app', name: 'New Chat', agent: 'claude', lastOpenedAt: 0,
+      terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true,
+      notice: 'the session exited immediately; check that the agent CLI is installed and on PATH',
+    })
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('request-new-session')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="agents-pane-error"]').text())
+      .toBe('the session exited immediately; check that the agent CLI is installed and on PATH')
+  })
 })

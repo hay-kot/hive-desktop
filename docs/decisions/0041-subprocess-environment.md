@@ -1,6 +1,6 @@
 # 0041 — Run the user's commands in the user's PATH
 
-- **Status:** accepted
+- **Status:** accepted; the last consequence below is superseded by [ADR 0068](0068-tmux-runs-in-the-resolved-environment.md)
 - **Date:** 2026-07-30
 
 ## Context
@@ -83,8 +83,10 @@ supplies, and the desktop supplies `io.Discard`, so the shell's own
 - The PATH a run resolved is logged (`info` for the source, `debug` for the
   value), so a problem report (ADR 0024) says which environment a failing hook
   actually had.
-- Anything the app spawns that does not go through `envExecutor` or
+- ~~Anything the app spawns that does not go through `envExecutor` or
   `dispatch.ShellExecutor` still gets the inherited environment —
   `tmuxcc`'s control client is the live example, and it does not need the PATH
   because ADR 0039 hands it an absolute binary and tmux's own panes start login
-  shells.
+  shells.~~ **Superseded by ADR 0068.** A pane's login shell is not an
+  interactive one, so it never reads the file the PATH is usually set in;
+  `tmuxcc` takes the resolved environment too.

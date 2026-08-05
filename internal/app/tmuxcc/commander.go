@@ -13,8 +13,19 @@ type Commander struct {
 }
 
 // NewCommander builds the one-shot adapter around the app's tmux resolver.
-func NewCommander(locate func() (string, error)) *Commander {
-	return &Commander{locate: locate, output: outputTmux}
+// environ is the same hook ManagerOptions carries, so status detection runs
+// with the environment control-mode attaches do; nil means this process's own.
+func NewCommander(locate func() (string, error), environ func(context.Context) []string) *Commander {
+	return &Commander{
+		locate: locate,
+		output: func(ctx context.Context, binary string, args ...string) ([]byte, error) {
+			var env []string
+			if environ != nil {
+				env = environ(ctx)
+			}
+			return outputTmux(ctx, binary, env, args...)
+		},
+	}
 }
 
 func (c *Commander) Available() bool {

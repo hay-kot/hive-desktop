@@ -164,6 +164,12 @@ func (h *terminalHarness) dial(t *testing.T, slug string) *websocket.Conn {
 		_ = dialResp.Body.Close()
 	}
 	require.NoError(t, err)
+	// The webview the app actually runs in imposes no read limit; this client
+	// defaults to 32 KiB, under half of one maximally coalesced output frame. A
+	// subscriber that falls behind is exactly when the broker merges hardest, so
+	// keeping the default would have the test kill its own connection mid-flood
+	// and read none of the frames after it.
+	conn.SetReadLimit(-1)
 	t.Cleanup(func() { _ = conn.CloseNow() })
 	return conn
 }

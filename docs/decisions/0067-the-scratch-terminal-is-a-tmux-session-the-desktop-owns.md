@@ -1,6 +1,6 @@
 # 0067 — The scratch terminal is a tmux session the desktop owns, pinned above the repositories
 
-- **Status:** proposed
+- **Status:** proposed; §4's closing claim amended by [ADR 0068](0068-tmux-runs-in-the-resolved-environment.md)
 - **Date:** 2026-08-03
 
 ## Context
@@ -53,7 +53,12 @@ by the remote a scratch session would not have.
    create execs `$SHELL -l` (the same empty-command create an agent workspace
    session uses), and tmux's own default for a window with no command is a login
    shell too, so every tab reads the user's startup files and resolves its own
-   PATH. This package holds no environment policy, and should not grow one.
+   PATH. ~~This package holds no environment policy, and should not grow one.~~
+   *ADR 0068 grew it one: an agent's `-c` launch line runs in a login shell that
+   is **not** interactive and reads no `.zshrc`, so `tmuxcc` now spawns tmux in
+   the resolved environment. Nothing above changes — the scratch terminal's
+   shell is interactive, its startup files still decide its PATH, and the
+   resolved environment is only the floor under them.*
 
 5. **It is a pinned section of the session tree, headed like a repository and
    listing its tabs where a repository lists its sessions.** The tree is

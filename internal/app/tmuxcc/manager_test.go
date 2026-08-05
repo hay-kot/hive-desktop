@@ -127,6 +127,33 @@ func TestManagerRunsTheLocatedBinary(t *testing.T) {
 	require.Equal(t, []string{located}, attached)
 }
 
+// The control client gets the resolved environment too, and detachedEnv trims
+// only the client variables from it — an inherited PATH would otherwise be all
+// a Dock launch's attach has (ADR 0068).
+func TestManagerAttachRunsWithTheResolvedEnvironment(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	spawn := f.factory()
+
+	var attached []string
+	m := newTestManager(t, nil, ManagerOptions{
+		Environ: func(context.Context) []string {
+			return []string{"PATH=/opt/homebrew/bin", "TMUX=/tmp/other,1,0", "TMUX_PANE=%9"}
+		},
+		newProcess: func(opts Options) process {
+			attached = detachedEnv(opts.Environ)
+			return spawn(opts)
+		},
+	})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+	require.Equal(t, []string{"PATH=/opt/homebrew/bin"}, attached,
+		"the resolved PATH survives; the client variables that would nest the attach do not")
+}
+
 func TestManagerUnavailableWhenTmuxIsNotFound(t *testing.T) {
 	t.Parallel()
 
@@ -455,14 +482,16 @@ func TestManagerAttachAfterStopIsUnavailable(t *testing.T) {
 type fakeTmuxCommands struct {
 	calls    [][]string
 	binaries []string
+	envs     [][]string
 	absent   bool
 	failure  error
 	windows  []string
 }
 
-func (f *fakeTmuxCommands) run(_ context.Context, binary string, args ...string) ([]string, error) {
+func (f *fakeTmuxCommands) run(_ context.Context, binary string, env []string, args ...string) ([]string, error) {
 	f.calls = append(f.calls, args)
 	f.binaries = append(f.binaries, binary)
+	f.envs = append(f.envs, env)
 	switch {
 	case len(args) > 0 && args[0] == "has-session" && f.absent:
 		return nil, errors.New("can't find session")
