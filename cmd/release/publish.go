@@ -303,6 +303,10 @@ func (p *publisher) writeChecksums(artifacts []releaseArtifact) error {
 }
 
 func (p *publisher) preflight(ctx context.Context) error {
+	if err := verifyMigrationOrder(ctx); err != nil {
+		return err
+	}
+
 	// docker is required unconditionally: every release publishes Linux too, and
 	// the Linux binary is built in a container (the macOS host has no GTK4
 	// headers for CGO to link against).

@@ -171,10 +171,11 @@ mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notariz
 
 Rules enforced by the publisher:
 1. Release preparation requires a clean, current `main`. Publishing requires the same state. Source state is checked again immediately before upload.
-2. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
-3. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
-4. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
-5. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
+2. SQLite migrations must be contiguous, and every migration present in the latest reachable `desktop-v*` tag must remain at the same path with the same contents. Both `prepare` and `publish` run `scripts/check-migration-order.sh` before release work begins.
+3. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
+4. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
+5. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+6. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
 
 ## Installing on macOS
 

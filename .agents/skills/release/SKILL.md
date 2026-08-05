@@ -44,8 +44,10 @@ Reject missing or unknown channels instead of guessing.
 
    Stop and explain the mismatch if any check fails. Do not stash, reset, merge,
    pull, switch branches, or discard work automatically.
-4. Select and validate the candidate with the Go release CLI. If no explicit
-   version was supplied, run:
+4. Select and validate the candidate with the Go release CLI. `prepare` also
+   runs `scripts/check-migration-order.sh`, which rejects gaps and any change to
+   a SQLite migration already present in the latest reachable desktop release
+   tag. If no explicit version was supplied, run:
 
    ```bash
    go run ./cmd/release prepare <channel>

@@ -94,13 +94,17 @@ run = "go mod tidy"
 # Ordered, not `depends`: mise runs `depends` in parallel, and check:generate
 # rewrites the .go files that lint and test read. A run list is sequential, so
 # generation finishes before anything reads its output. The second group is
-# safe to run concurrently — all three only read.
+# safe to run concurrently — all four only read.
 [tasks.check]
-description = "Full Go gate: generated code, tidy, lint, test"
+description = "Full Go gate: generated code, migrations, tidy, lint, test"
 run = [
   { tasks = ["check:generate"] },
-  { tasks = ["check:tidy", "lint", "test"] },
+  { tasks = ["check:migrations", "check:tidy", "lint", "test"] },
 ]
+
+[tasks."check:migrations"]
+description = "Verify SQLite migrations are ordered and released history is immutable"
+run = "./scripts/check-migration-order.sh"
 
 [tasks."check:tidy"]
 description = "Verify go.mod/go.sum are tidy without rewriting them"
