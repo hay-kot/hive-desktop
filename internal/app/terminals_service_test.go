@@ -8,8 +8,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -19,59 +17,24 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
+	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
 // These tests drive a real tmux server: whether to attach or to offer a start
 // is a decision about what tmux is holding, and a faked one would only prove the
-// fake. Each gets its own TMUX_TMPDIR and an unconditional kill-server, so they
-// never touch a developer's live tmux.
-
-var tmuxVersion = regexp.MustCompile(`(\d+)\.(\d+)`)
-
-func requireTmux(t *testing.T) {
-	t.Helper()
-	// A tmux client resolves its server from $TMUX before TMUX_TMPDIR, so a
-	// missed scrub would kill-server the tmux hosting this very process.
-	if os.Getenv("TMUX") != "" {
-		t.Skip("running inside tmux; the real-tmux tests run in CI or Docker only")
-	}
-	out, err := exec.CommandContext(t.Context(), "tmux", "-V").Output()
-	if err != nil {
-		t.Skip("tmux is not installed")
-	}
-	match := tmuxVersion.FindStringSubmatch(string(out))
-	if match == nil {
-		t.Skipf("could not read a version from %q", strings.TrimSpace(string(out)))
-	}
-	major, _ := strconv.Atoi(match[1])
-	minor, _ := strconv.Atoi(match[2])
-	if major < 3 || (major == 3 && minor < 2) {
-		t.Skipf("tmux %d.%d is older than the 3.2 control-mode floor", major, minor)
-	}
-}
+// fake. See internal/tmuxtest for how they are kept away from a developer's own.
 
 // privateTmux points every tmux command in the test — the service's included —
 // at a server of its own, and returns a runner for the fixture's commands.
 func privateTmux(t *testing.T) func(args ...string) error {
 	t.Helper()
-	requireTmux(t)
+	socket := tmuxtest.Private(t)
 
-	// t.TempDir() bakes the test name into the path, and a tmux socket is a unix
-	// socket bound by the ~104 byte sun_path limit — on macOS the two overflow it.
-	dir, err := os.MkdirTemp("", "hvtmux") //nolint:usetesting // socket path length, see above
-	require.NoError(t, err)
-	t.Setenv("TMUX_TMPDIR", dir)
-
-	run := func(args ...string) error {
-		cmd := exec.Command("tmux", args...) //nolint:noctx // cleanup runs past the test context
-		cmd.Env = os.Environ()
+	return func(args ...string) error {
+		cmd := exec.Command("tmux", append([]string{"-S", socket}, args...)...) //nolint:noctx // cleanup runs past the test context
+		cmd.Env = tmuxtest.ScrubbedEnv()
 		return cmd.Run()
 	}
-	t.Cleanup(func() {
-		_ = run("kill-server")
-		_ = os.RemoveAll(dir)
-	})
-	return run
 }
 
 func newTestTerminals(t *testing.T, starter terminalStarter) *TerminalsService {
