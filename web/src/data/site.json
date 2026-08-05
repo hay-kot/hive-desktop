@@ -1,11 +1,11 @@
 {
   "brand": {
     "name": "Hive",
-    "tagline": "feeds in, triaged work out"
+    "tagline": "one queue, one ping"
   },
   "version": "v0.4 beta",
   "betaBadge": "Private beta",
-  "description": "Hive pulls the GitHub work you care about into one inbox, then runs flows that filter it, hand an item to a coding agent, or fire a command.",
+  "description": "Hive watches GitHub, Grafana and your webhooks, routes them through rules your coding agent wrote, and interrupts you exactly once per real change.",
   "nav": [
     { "label": "Features", "href": "#features" },
     { "label": "How it works", "href": "#flow" },
@@ -20,5 +20,5 @@
     { "label": "Join beta", "href": "#beta" },
     { "label": "Get early access", "href": "#beta", "accent": true }
   ],
-  "copyrightSuffix": "Hive · feeds in, triaged work out"
+  "copyrightSuffix": "Hive · one queue, one ping"
 }

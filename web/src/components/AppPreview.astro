@@ -71,37 +71,6 @@ const { titlebar, spaces, sidebar, search, tabs, view, items, detail } = preview
 
         <div class="sidebar__scroll">
         <div class="sidebar__block">
-          <div class="row row--active">
-            <span class="navicon navicon--accent"><Icon name="list" size={11} /></span>
-            <span class="row__label">{sidebar.views.inbox.label}</span>
-            <span class="row__count mono is-hot">{sidebar.views.inbox.count}</span>
-          </div>
-
-          <div class="row">
-            <span class="navicon"><Icon name="folder" size={11} /></span>
-            <span class="row__label row__label--folder">{sidebar.views.moreLabel}</span>
-            <span class="row__chevron">
-              <Icon name={sidebar.views.moreCollapsed ? "chevron-right" : "chevron-down"} size={12} />
-            </span>
-          </div>
-
-          {
-            !sidebar.views.moreCollapsed && (
-              <div class="children">
-                {sidebar.views.more.map((label) => (
-                  <div class="row">
-                    <span class="navicon">
-                      <Icon name="list" size={11} />
-                    </span>
-                    <span class="row__label">{label}</span>
-                  </div>
-                ))}
-              </div>
-            )
-          }
-        </div>
-
-        <div class="sidebar__block">
           <div class="grouplabel mono">
             <Icon name="rss" size={11} />
             {sidebar.feedsLabel}
@@ -139,6 +108,14 @@ const { titlebar, spaces, sidebar, search, tabs, view, items, detail } = preview
               ),
             )
           }
+        </div>
+
+        <div class="sidebar__block">
+          <div class="row row--muted">
+            <span class="navicon"><Icon name="trash" size={11} /></span>
+            <span class="row__label">{sidebar.trash.label}</span>
+            <span class="row__count mono">{sidebar.trash.count}</span>
+          </div>
         </div>
         </div>
 
@@ -573,6 +550,10 @@ const { titlebar, spaces, sidebar, search, tabs, view, items, detail } = preview
     background: var(--line-2);
     color: var(--amber);
     font-weight: 500;
+  }
+
+  .row--muted {
+    color: var(--text-dim);
   }
 
   .navicon {

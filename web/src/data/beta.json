@@ -1,7 +1,7 @@
 {
   "status": "Now onboarding · private beta",
   "titleLines": ["Request access.", "Get your install link."],
-  "body": "There's no public download yet. Drop your email and we'll send an invite with the one-line installer for macOS (Linux is next). New builds ship weekly.",
+  "body": "There's no public download yet. Drop your email and we'll send an invite with the one-line installer for macOS or Linux. New builds ship weekly.",
   "perks": [
     { "icon": "✓", "accent": "green", "label": "One-line install" },
     { "icon": "⚡", "accent": "amber", "label": "Weekly builds" },

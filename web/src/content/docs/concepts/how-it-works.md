@@ -22,12 +22,20 @@ hot-reloaded, so an edit takes effect without a restart.
 A source watches something and emits observations:
 
 - **GitHub source** — either a **search** query (any GitHub search, e.g.
-  `is:open is:pr review-requested:@me`) or your **notifications** inbox.
+  `is:open is:pr review-requested:@me`) or your **notifications** inbox. Each
+  connected account polls independently, with its own cache and rate-limit
+  budget.
+- **Grafana metrics source** — a PromQL expression against a datasource,
+  emitting one item per series. *Experimental.*
+- **Grafana alerts source** — one item per firing Grafana-managed alert, keyed
+  by fingerprint and archived automatically when the alert stops firing.
+  *Experimental.*
 - **Webhook source** — external systems POST JSON to a local endpoint; useful
   for wiring in tools beyond GitHub.
 
-GitHub sources are **polled** on a schedule (every 5 minutes by default); only
-changed observations produce work.
+GitHub and Grafana sources are **polled** on a schedule (every 5 minutes by
+default); only changed observations produce work. Webhook sources are pushed to,
+so they land as soon as the delivery arrives.
 
 ## Feeds and triage
 

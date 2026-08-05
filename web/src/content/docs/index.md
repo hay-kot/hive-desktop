@@ -5,17 +5,20 @@ group: Getting started
 order: 0
 ---
 
-Hive Desktop pulls the GitHub work you care about — pull requests, issues,
-review requests, and notifications — into one inbox, then runs **flows** that
-filter it, hand an item to a coding agent, or fire a command. Instead of
-refreshing a dozen GitHub tabs, you triage a single feed.
+Hive Desktop pulls the work you care about — pull requests, issues, review
+requests, notifications, firing alerts, and anything that can POST a webhook —
+into one local queue, then runs **flows** that filter it, hand an item to a
+coding agent, or fire a command. Instead of refreshing a dozen tabs, you triage
+a single set of feeds.
 
 ## The mental model
 
 A **workspace** is a flow: sources on one side, a feed on the other, and
 optional filters, actions, and notifications in between.
 
-- **Sources** watch GitHub — a search query, or your notification inbox.
+- **Sources** watch something and emit observations — a GitHub search query or
+  notification inbox, a Grafana alert rule or PromQL expression, or a local
+  webhook endpoint your own scripts post to.
 - **Feeds** are the lists in the sidebar where matching items land.
 - **Actions** are commands you run on an item (review a PR, open it in your
   editor, launch an agent session).

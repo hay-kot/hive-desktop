@@ -197,13 +197,6 @@ const previewSchema = z.object({
   sidebar: z.object({
     title: z.string(),
     sources: z.string(),
-    views: z.object({
-      inbox: z.object({ label: z.string(), count: z.string() }),
-      moreLabel: z.string(),
-      /** The app persists this folder's open/closed state; drawn closed here. */
-      moreCollapsed: z.boolean().optional(),
-      more: z.array(z.string()),
-    }),
     feedsLabel: z.string(),
     /** A row is either a feed or a folder holding feeds — one level deep. */
     feeds: z.array(
@@ -212,6 +205,9 @@ const previewSchema = z.object({
         children: z.array(feedRow).optional(),
       }),
     ),
+    /** Feeds are the app's only primary destinations; Trash sits under them as
+     * a de-emphasised utility surface. There is no aggregate inbox view. */
+    trash: feedRow,
     footer: z.object({ title: z.string(), subtitle: z.string() }),
   }),
   search: z.object({ placeholder: z.string() }),

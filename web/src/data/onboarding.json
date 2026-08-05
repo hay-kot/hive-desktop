@@ -1,19 +1,19 @@
 {
   "eyebrow": "Onboarding",
-  "title": "Set up by talking to your agent",
-  "body": "Every feed, filter and action is just a node in a YAML file. Because the config is code, you can hand it to the coding agent you already use. Hive ships the prompt that teaches it the schema, so you describe how you work and it writes the flow.",
+  "title": "Your agent already knows the schema",
+  "body": "Every feed, filter and action is a node in a YAML file. Hive renders skill files out of its own live node registry and installs them into the coding agents you already run — so describing what you want watched is the whole of the setup.",
   "steps": [
     {
       "title": "Connect GitHub",
       "body": "Sign in with the device flow, or paste a token. Either way it goes straight to your OS keychain. Hive never keeps a copy."
     },
     {
-      "title": "Copy the prompt",
-      "body": "The flow editor's deploy menu has <code>Copy prompt</code>. It builds a schema-complete brief: every node type, its options and defaults, plus a worked example."
+      "title": "Turn on skills",
+      "body": "In <code>Settings ▸ Agents ▸ Skills</code>, pick the agents you use. Hive writes schema-complete skill files into <code>~/.claude</code>, <code>~/.codex</code>, <code>~/.pi</code> and <code>~/.agents</code> — generated from the node types this build actually has, and refreshed on every launch. Anything you edit yourself is reported, never overwritten."
     },
     {
-      "title": "Let it write the flow",
-      "body": "Paste it into your agent, describe the work you want surfaced, and it writes <code>flows/&lt;id&gt;.yaml</code>. Hive picks the file up live. Review it on the canvas and deploy."
+      "title": "Describe the work",
+      "body": "Tell your agent what you want surfaced. It writes <code>flows/&lt;id&gt;.yaml</code> against the schema it just learned and dry-runs it against real input without touching live state. Hive picks the file up live — review it on the canvas and deploy."
     }
   ],
   "editor": {
@@ -22,8 +22,8 @@
   },
   "pills": [
     { "icon": "◆", "accent": "green2", "label": "Versioned config: diff it, PR it" },
-    { "icon": "⚡", "accent": "amber", "label": "Hot reload: bad files flagged, not applied" },
-    { "icon": "✦", "accent": "violet", "label": "Built around your real workflow" }
+    { "icon": "⚡", "accent": "amber", "label": "Hot reload: broken files flagged, last good stays live" },
+    { "icon": "✦", "accent": "violet", "label": "Skills regenerate as the app gains node types" }
   ],
   "footnote": "Prefer to do it yourself? Every feed, filter and action can also be created and edited by hand, on the canvas or straight in the YAML."
 }
