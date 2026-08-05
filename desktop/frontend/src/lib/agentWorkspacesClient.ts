@@ -1,7 +1,7 @@
 // The Agents area's control-plane transport: plain fetch calls against
 // /api/terminal/agents/*, using the bearer token AgentsService.Endpoint()
 // hands the webview (internal/adapter/httpapi/ctrl_agent_workspaces.go). The
-// data plane is the tmux stream terminal mode uses (ADR 0063) — a session is
+// data plane is the tmux stream terminal mode uses (ADR agent-workspace-sessions-are-tmux-sessions) — a session is
 // a tmux session, just not a hive one — so this module reuses
 // terminalClient's openStream(name)/decodeFrame/encodeInputFrames as-is
 // rather than reimplementing the windowed wire: openStream is a stateless
@@ -173,7 +173,7 @@ export interface AgentWorkspacesClient {
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
-  /** The shared tmux stream a session's terminalId addresses (ADR 0063). */
+  /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
 

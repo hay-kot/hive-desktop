@@ -67,13 +67,13 @@ type MountOptions struct {
 	// 0048). Zero when its stream was not mounted.
 	PopupTerminal PopupTerminalTransport
 	// Agents carries the same for the Agents area's control plane and the
-	// shared ptyterm stream a workspace session rides (ADR 0066, ADR 0061).
+	// shared ptyterm stream a workspace session rides (ADR ptyterm-terminals-are-caller-addressed, ADR a-workspace-declares-its-own-authority).
 	// Zero when its stream was not mounted.
 	Agents AgentsTransport
-	// TerminalEnabled is the experimental.terminal opt-in (ADR 0037). Off means
+	// TerminalEnabled is the experimental.terminal opt-in (ADR terminal-experimental-gate). Off means
 	// the frontend never renders the way into terminal mode.
 	TerminalEnabled bool
-	// AgentsEnabled is the experimental.agents opt-in (ADR 0061). Off means the
+	// AgentsEnabled is the experimental.agents opt-in (ADR a-workspace-declares-its-own-authority). Off means the
 	// frontend never renders the way into the Agents area.
 	AgentsEnabled bool
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.

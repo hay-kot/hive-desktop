@@ -5,7 +5,7 @@
 //
 // It is the pull counterpart to the webhook connector's push, and it carries
 // the property a webhook structurally cannot: stdout is the complete current
-// set, so an item that stops appearing is authoritatively gone. See ADR 0072
+// set, so an item that stops appearing is authoritatively gone. See ADR a-command-is-a-source
 // for the trust, failure and cadence decisions the shape rests on.
 package exec
 
@@ -22,7 +22,7 @@ const SourceKind = "exec"
 
 // Environment supplies the environment the command runs in. A desktop launch
 // inherits PATH=/usr/bin:/bin:/usr/sbin:/sbin, and the commands worth polling
-// live wherever a package manager put them (ADR 0041).
+// live wherever a package manager put them (ADR subprocess-environment).
 type Environment interface {
 	Environ(ctx context.Context) []string
 }

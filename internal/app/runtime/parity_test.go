@@ -23,7 +23,7 @@ import (
 // same expected commit. That TypeScript engine and its parity spec are long
 // gone; this file is now the only thing that runs these fixtures, and a
 // change to routing, sink tagging or node-run accounting still belongs in one
-// of them (ADR 0011).
+// of them (ADR flow-engine-in-go).
 //
 // Two fields are normalized away before comparing, and only two. durMs is
 // wall-clock. err is the engine's own wording for a thrown value — a detail

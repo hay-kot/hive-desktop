@@ -5,7 +5,7 @@
 // so it dies with the app; nothing can attach to it from outside, and closing
 // it is the end of whatever was running. That is the trade a pop-up shell wants
 // and the reason these are not the terminals hive sessions run in, which are
-// tmux's and outlive the app (ADR 0048).
+// tmux's and outlive the app (ADR ephemeral-popup-terminals).
 package ptyterm
 
 import (
@@ -42,7 +42,7 @@ const (
 	// agent CLI spawning its own copy of every enabled MCP server, so with no
 	// idle reaping and no cap this is a fork bomb with a progress bar; the
 	// pop-up's former one-at-a-time behaviour was frontend policy, not a limit
-	// the manager enforced (ADR 0066).
+	// the manager enforced (ADR ptyterm-terminals-are-caller-addressed).
 	maxConcurrentSessions = 8
 )
 
@@ -66,7 +66,7 @@ var (
 )
 
 // idPattern is the caller-id charset: safe as a map key today and, since a
-// workspace session's id is durable (ADR 0066), safe wherever a future caller
+// workspace session's id is durable (ADR ptyterm-terminals-are-caller-addressed), safe wherever a future caller
 // wants to fold it into a path.
 var idPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
 
@@ -370,7 +370,7 @@ func (m *Manager) dropLocked(id string) {
 
 // argv is what actually gets exec'd. Everything runs through a login shell so
 // the user's startup files do, which is also what gives a terminal the PATH
-// their own terminal has (ADR 0041) — execenv's resolved environment is the
+// their own terminal has (ADR subprocess-environment) — execenv's resolved environment is the
 // floor under it, not a replacement for it.
 func (m *Manager) argv(command string) []string {
 	shell := m.shell

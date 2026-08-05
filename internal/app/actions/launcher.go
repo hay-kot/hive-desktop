@@ -7,14 +7,14 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/icons"
 )
 
-// Launcher is a named command that opens in the pop-up terminal (ADR 0048),
+// Launcher is a named command that opens in the pop-up terminal (ADR ephemeral-popup-terminals),
 // reached from the command palette or a keybinding of its own.
 //
 // It shares actions.yml with the action catalog — one file, one loader, one
 // watcher, one place a user edits — but it is not an action and does not
 // pretend to be one: it never reaches the dispatcher, has no executor, no exit
 // status and no job, and none of the action envelope (`targets`, `applies_to`,
-// `show_in_detail`, `inputs`) means anything to it (ADR 0049).
+// `show_in_detail`, `inputs`) means anything to it (ADR launchers-are-their-own-list-in-actions-yml).
 //
 // Neither Command nor Cwd is a template. There is no triggering item to render
 // over, and none is needed: the command runs through a login shell in the

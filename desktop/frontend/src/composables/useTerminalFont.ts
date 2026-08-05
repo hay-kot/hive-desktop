@@ -50,7 +50,7 @@ export const terminalFontWeightLabels: Record<TerminalFontWeight, string> = {
 }
 
 // Semilight, half a step under Regular. Terminal panes rasterise through a
-// canvas atlas (ADR 0038) and Canvas2D text does not inherit the
+// canvas atlas (ADR terminal-atlas-renderer) and Canvas2D text does not inherit the
 // `-webkit-font-smoothing: antialiased` the rest of the app is drawn with, so a
 // face renders heavier here than the same face does in the DOM — which is what
 // #181 reports as "everything is bold". Regular is what that issue was filed
@@ -62,7 +62,7 @@ export const defaultTerminalFontWeightBold: TerminalFontWeight = 700
 // Multiplies the cell height. Box drawing still meets the cell edges above 1:
 // the atlas strokes a custom glyph across the padded cell and offsets it by
 // exactly what the renderer centres the char box by, so the two cancel
-// (ADR 0051).
+// (ADR terminal-line-height-and-letter-spacing).
 export const terminalLineHeights = [1, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6] as const
 export type TerminalLineHeight = (typeof terminalLineHeights)[number]
 

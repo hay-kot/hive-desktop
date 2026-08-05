@@ -20,7 +20,7 @@ import (
 
 // newAgentHarness mirrors newTerminalHarness (terminal_test.go) but mounts
 // with AgentsEnabled controlling the new route group and TerminalEnabled left
-// off — the two flags gate independently (ADR 0061), so a passing assertion
+// off — the two flags gate independently (ADR a-workspace-declares-its-own-authority), so a passing assertion
 // here must not be riding the terminal surface's own gate.
 func newAgentHarness(t *testing.T, agentsEnabled bool) *terminalHarness {
 	t.Helper()
@@ -43,7 +43,7 @@ func newAgentHarness(t *testing.T, agentsEnabled bool) *terminalHarness {
 		TerminalToken: testToken, Origins: origins, AgentsEnabled: agentsEnabled,
 	}).Handler())
 	// Sessions ride the shared ptyterm stream, not an agent-specific one
-	// (ADR 0066) — mounted the same way main.go mounts it whenever either
+	// (ADR ptyterm-terminals-are-caller-addressed) — mounted the same way main.go mounts it whenever either
 	// token-guarded flag is on.
 	ptyStreamPath, ptyStream := PTYStreamHandler(core, testToken, origins, zerolog.Nop())
 	mux.Handle(ptyStreamPath, ptyStream)
@@ -67,7 +67,7 @@ func (h *terminalHarness) get(t *testing.T, path string) *http.Response {
 }
 
 // The agent routes sit under the terminal prefix so they inherit its
-// bearer-token gate rather than declaring a second one (ADR 0061): starting a
+// bearer-token gate rather than declaring a second one (ADR a-workspace-declares-its-own-authority): starting a
 // session spawns an agent CLI, arbitrary command execution just as a pop-up
 // shell or a tmux attach is. Both a body route and the shared PTY stream a
 // session rides must enforce it.
@@ -120,7 +120,7 @@ func TestAgentWorkspacesListsOverTheWire(t *testing.T) {
 	assert.NotEmpty(t, body.Root, "root is the configured workspace root regardless of availability")
 }
 
-// Off means the routes do not exist, not that they 401 -- the same ADR 0037
+// Off means the routes do not exist, not that they 401 -- the same ADR terminal-experimental-gate
 // point 2 rule the terminal surface follows, now proven for the second
 // independent flag.
 func TestAgentRoutesAbsentWhenDisabled(t *testing.T) {

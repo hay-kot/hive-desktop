@@ -29,7 +29,7 @@ const shellKillGrace = 2 * time.Second
 
 // ExecEnvironment supplies the environment a spawned command runs in. A shell
 // action's command is the user's own, so it needs the PATH their terminal has
-// rather than the one a desktop launch inherits (ADR 0041).
+// rather than the one a desktop launch inherits (ADR subprocess-environment).
 type ExecEnvironment interface {
 	Environ(ctx context.Context) []string
 }

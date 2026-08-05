@@ -122,7 +122,7 @@ describe('sources.webhook editor', () => {
     expect(warning).toContain('Missing canonical item fields')
     expect(warning).toContain('id, kind, repo, title, url')
     expect(warning).toContain('renders minimally')
-    expect(warning).toContain('ADR 0008')
+    expect(warning).toContain('ADR canonical-item-contract')
     expect(warning).toContain('auto-archive')
   })
 

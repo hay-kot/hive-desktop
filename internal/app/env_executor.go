@@ -14,7 +14,7 @@ import (
 )
 
 // envExecutor is Hive's shell executor running its children in the environment
-// execenv resolves (ADR 0041). Session hooks are the user's own commands and
+// execenv resolves (ADR subprocess-environment). Session hooks are the user's own commands and
 // reach it as `sh -c`, so without this they run with the PATH a desktop launch
 // inherits and a session cannot be created at all on a machine whose tools came
 // from a package manager. It replaces executil.RealExecutor rather than

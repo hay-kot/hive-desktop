@@ -12,11 +12,11 @@ import (
 
 // The agent-workspace control plane sits under TerminalPathPrefix for exactly
 // the reason the pop-up surface does: starting a session spawns an agent CLI,
-// which is arbitrary command execution just as a pop-up shell is (ADR 0036),
+// which is arbitrary command execution just as a pop-up shell is (ADR terminal-transport),
 // and mounting it here is what gives it the terminal bearer token and CORS
 // policy without a second rule. Sessions are tmux sessions named
 // agentws-<record id> and ride the shared tmux data plane at
-// TerminalStreamPath (ADR 0063) — there is no agent-specific stream. Start and
+// TerminalStreamPath (ADR agent-workspace-sessions-are-tmux-sessions) — there is no agent-specific stream. Start and
 // Resume attach server-side and return the active window id alongside the
 // session name, because the generic /api/terminal/attach control route is
 // gated by experimental.terminal, which the Agents area must not depend on.
@@ -24,7 +24,7 @@ const AgentWorkspacesPathPrefix = TerminalPathPrefix + "agents/"
 
 // agentWorkspaceView is one row of the area's workspace list. Autonomy and
 // MCPs are on it because a workspace that can actuate the physical world says
-// so where it is opened, not where it was configured (spec §7.2, ADR 0061).
+// so where it is opened, not where it was configured (spec §7.2, ADR a-workspace-declares-its-own-authority).
 type agentWorkspaceView struct {
 	Dir      string   `json:"dir"`
 	Name     string   `json:"name"`
@@ -321,7 +321,7 @@ func (ctrl *Controller) AgentWorkspaceReveal(w http.ResponseWriter, r *http.Requ
 
 // agentMCPServerView is one row of the merged MCP catalogue: id, provenance,
 // and the resolved command line — nothing is enabled whose command the user
-// cannot read first (ADR 0061).
+// cannot read first (ADR a-workspace-declares-its-own-authority).
 type agentMCPServerView struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`

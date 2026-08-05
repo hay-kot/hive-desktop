@@ -6,7 +6,7 @@
 // tears down a live pane. The one pane the shell itself draws is pre-attach:
 // no PTY exists yet, so it states where the session will start and lets the
 // workspace be picked when none is focused. What is borrowed from
-// TerminalMode.vue is narrower — the aside/main split, plus (since ADR 0063)
+// TerminalMode.vue is narrower — the aside/main split, plus (since ADR agent-workspace-sessions-are-tmux-sessions)
 // the pane's xterm wiring itself: a session is a tmux session, addressed and
 // framed exactly like a hive one, just not discovered through hive.
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
@@ -79,7 +79,7 @@ let observer: ResizeObserver | null = null
 let resizeTimer: ReturnType<typeof setTimeout> | undefined
 let rendered = false
 const disposers: IDisposable[] = []
-// The tmux wire is windowed (ADR 0063): every frame in and out of the pane's
+// The tmux wire is windowed (ADR agent-workspace-sessions-are-tmux-sessions): every frame in and out of the pane's
 // socket names the window it belongs to, so the pane has to know which one is
 // its own for the life of one attach.
 let paneWindowId = ''
@@ -222,7 +222,7 @@ async function resumeRow(session: AgentSession): Promise<void> {
   await launchIntoPane(session.workspace, (size) => resumeSession({ id: session.id, ...size }))
 }
 
-// ── The open chat rides the route (?chat, ADR 0065) ──────────────────────────
+// ── The open chat rides the route (?chat, ADR the-open-chat-rides-the-route) ──────────────────────────
 // A reload keeps the hash and the toggle's remembered path keeps the query,
 // so the route names the pane's session the way /terminal names its surface,
 // and coming back to the area reattaches it. Only a chat whose tmux session

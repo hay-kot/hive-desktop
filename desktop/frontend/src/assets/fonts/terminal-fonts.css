@@ -1,11 +1,11 @@
 /*
- * The two faces the terminal stack is built from (ADR 0056).
+ * The two faces the terminal stack is built from (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font).
  *
  * JetBrains Mono v2.304 (OFL-1.1, (c) 2020 The JetBrains Mono Project Authors)
  * as its variable roman and italic, converted to WOFF2. Variable rather than
  * static cuts: the weight setting offers 300/350/400/600/700 and JetBrains Mono
  * ships no 350, so a static set would resolve Semilight to Light and make the
- * default weight a no-op — the exact failure ADR 0050 bundled five static
+ * default weight a no-op — the exact failure ADR terminal-typography-is-configurable bundled five static
  * Cascadia faces to avoid.
  *
  * Symbols Nerd Font Mono v3.4.0 (OFL-1.1, https://github.com/ryanoasis/nerd-fonts)

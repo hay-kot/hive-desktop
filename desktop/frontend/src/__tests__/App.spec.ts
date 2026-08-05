@@ -1330,7 +1330,7 @@ describe('App', () => {
     expect(agentsOnScreen(wrapper)).toBe(false)
     expect(wrapper.find('[data-testid="profile-tile"]').exists()).toBe(true)
     // Hidden, not unmounted: leaving the area must not end a live session's
-    // pane (ADR 0054).
+    // pane (ADR terminal-mode-is-hidden-not-unmounted).
     expect(wrapper.find('[data-testid="agents-mode"]').exists()).toBe(true)
 
     wrapper.unmount()

@@ -20,7 +20,7 @@ func dryRunScripts() *runtime.ScriptRegistry {
 	return registry
 }
 
-// fanOutFlow is the shape ADR 0035 introduced and the shape a dry run exists to
+// fanOutFlow is the shape ADR function-node-per-entity-feed-items introduced and the shape a dry run exists to
 // verify: a source feeding a function node that splits one message into one
 // feed item per entity.
 func fanOutFlow(onMessage string) flow.Flow {

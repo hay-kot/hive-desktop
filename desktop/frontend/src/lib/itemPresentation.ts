@@ -67,7 +67,7 @@ export type KindStyle = 'pr' | 'issue' | 'neutral'
  *  the untyped ones, and they show up in the actions editor's autocomplete
  *  like any other kind. Must stay in sync with Go's DefaultItemKind
  *  (internal/app/dispatch/action_item.go) — the action gate matches
- *  against the same value. See docs/decisions/0008-canonical-item-contract.md. */
+ *  against the same value. See docs/decisions/2026-07-24-canonical-item-contract.md. */
 export const DEFAULT_ITEM_KIND = 'Item'
 
 /** Canonical kind — what applies_to matches against. Never empty:

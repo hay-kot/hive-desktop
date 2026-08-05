@@ -6,7 +6,7 @@ compatibility: Requires a running desktop instance built from this worktree. The
 
 # Observe the pipeline through the MCP server
 
-The desktop exposes its capabilities as MCP tools over `app.App` (ADR 0073), so
+The desktop exposes its capabilities as MCP tools over `app.App` (ADR mcp-replaces-the-agent-facing-http-api), so
 a test asserts against a supported surface instead of `desktop-pipeline.db`.
 One loopback `http` server (on by default) serves webhook push (`/hooks/…`),
 the MCP server (`/mcp`), and the liveness probe (`/api/status`) on one port.
@@ -117,7 +117,7 @@ rows still claim.
 ## 5. Test a flow without deploying it
 
 `execute_flow` runs a flow against input you supply and returns what every node
-did, committing nothing (ADR 0058). Reach for it *before* the deploy → refresh
+did, committing nothing (ADR flows-are-dry-run-against-supplied-input). Reach for it *before* the deploy → refresh
 → read loop above: that loop writes feed membership, `kv` and notifications to
 answer a question about a script, and it cannot tell a bug from "hasn't polled
 yet".

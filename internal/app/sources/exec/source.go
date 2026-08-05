@@ -38,7 +38,7 @@ const killGrace = 2 * time.Second
 // items. It emits one message per item — not one per run carrying the whole
 // output — because per-item identity is what makes absence, lifecycle and
 // notifications work; a function node splitting one message afterwards gets
-// none of those (ADR 0035, ADR 0072).
+// none of those (ADR function-node-per-entity-feed-items, ADR a-command-is-a-source).
 type source struct {
 	id      string
 	topic   string

@@ -104,7 +104,7 @@ linters:
                 ValidateSessionName there for the trivial-wrapper case
                 (wrapping session.Slugify/session.ValidateName so
                 launch_session_executor.go doesn't import hivecore for two
-                helper calls). ADR 0015 ported the GitHub client out of
+                helper calls). ADR owned-github-client ported the GitHub client out of
                 hivecore entirely because it had leaked into exported
                 signatures across three files; this rule exists so that
                 boundary doesn't regrow one import at a time. If this file

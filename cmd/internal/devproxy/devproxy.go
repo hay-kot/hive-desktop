@@ -2,7 +2,7 @@
 // where the development GitHub proxy listens, and how to tell whether one is
 // already running there.
 //
-// It exists because the proxy is a singleton by design (ADR 0017). devserver
+// It exists because the proxy is a singleton by design (ADR devserver-github-proxy). devserver
 // needs to know if it is a duplicate launch, and devtools needs to point a
 // worktree's launch.env at the same address and fail loudly when nothing is
 // listening. Duplicating either fact would let the two drift into a setup
@@ -110,7 +110,7 @@ func ListenFromConfig(root string) string {
 
 // EnvAPIBase names the desktop setting this package's address feeds. It is
 // duplicated from internal/app/settings rather than imported because
-// cmd/devserver must not depend on an app package for a string (ADR 0017: the
+// cmd/devserver must not depend on an app package for a string (ADR devserver-github-proxy: the
 // app does not import devserver and devserver does not import the app), and
 // both binaries need the name — devtools to read it, devserver to name it in
 // the hint it prints at startup. cmd/devtools imports both packages and asserts

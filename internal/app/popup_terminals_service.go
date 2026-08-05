@@ -45,8 +45,8 @@ type PopupLauncher struct {
 
 // PopupTerminalsService opens ephemeral terminals: a shell, or a command run
 // through one, that this process owns outright and that ends when it is closed
-// or when the app exits (ADR 0048). It holds no token, base URL or stream path
-// — what it is reached over is the adapter's (ADR 0036).
+// or when the app exits (ADR ephemeral-popup-terminals). It holds no token, base URL or stream path
+// — what it is reached over is the adapter's (ADR terminal-transport).
 type PopupTerminalsService struct {
 	manager   *ptyterm.Manager
 	directory terminalDirectory
@@ -98,7 +98,7 @@ func (s *PopupTerminalsService) Open(ctx context.Context, req OpenPopupTerminal)
 }
 
 // applyLauncher folds a named launcher into the launch spec it stands for — a
-// launcher is that spec with config in front of it and nothing more (ADR 0049).
+// launcher is that spec with config in front of it and nothing more (ADR launchers-are-their-own-list-in-actions-yml).
 // A configured cwd wins over the session's checkout, which is what pins a
 // launcher to one directory; without one the launcher follows the session.
 func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupTerminal, error) {

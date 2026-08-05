@@ -7,7 +7,7 @@ import * as dispatch$0 from "../../app/dispatch/models.js";
 
 /**
  * AgentsAvailability gates the Agents area. Like terminal mode, it depends on
- * tmux — a session is a tmux session since ADR 0063 — so Available answers
+ * tmux — a session is a tmux session since ADR agent-workspace-sessions-are-tmux-sessions — so Available answers
  * the same question TerminalService's does.
  */
 export interface AgentsAvailability {
@@ -68,7 +68,7 @@ export interface AppearanceSettings {
 
     /**
      * TerminalPoolSize is how many sessions the terminal view keeps attached
-     * for instant switching (ADR 0042). Carried verbatim; the frontend heals
+     * for instant switching (ADR terminal-attach-pool). Carried verbatim; the frontend heals
      * anything outside 1-6 to the default, 3.
      */
     "terminalPoolSize": number;
@@ -121,7 +121,7 @@ export interface EditorSettings {
 }
 
 /**
- * ExperimentalSettings carries the ships-dark opt-ins (ADR 0037). Each field
+ * ExperimentalSettings carries the ships-dark opt-ins (ADR terminal-experimental-gate). Each field
  * is the effective persisted value, not the running one: the flag is read at
  * startup, so the frontend compares it against TerminalService.Enabled /
  * AgentsService.Enabled to know whether a relaunch is pending.

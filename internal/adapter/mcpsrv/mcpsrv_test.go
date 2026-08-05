@@ -496,7 +496,7 @@ func TestRefreshSourcesIsUnavailableInMockMode(t *testing.T) {
 	assert.Contains(t, msg, string(app.KindUnavailable))
 }
 
-// The webhook source's feed mark is the second asset shape (ADR 0031), keyed
+// The webhook source's feed mark is the second asset shape (ADR webhook-source-image-marks), keyed
 // by content hash rather than by id, and it round-trips through the same
 // base64-in/image-out contract the avatar does.
 func TestNodeImageLifecycle(t *testing.T) {

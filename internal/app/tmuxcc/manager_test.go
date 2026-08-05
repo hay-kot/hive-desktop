@@ -99,7 +99,7 @@ func TestManagerAttachValidatesInput(t *testing.T) {
 }
 
 // A tmux found outside $PATH is only useful if both the probe and the attach
-// exec it; a bare "tmux" in either one is the bug this guards (ADR 0039).
+// exec it; a bare "tmux" in either one is the bug this guards (ADR tmux-discovery).
 func TestManagerRunsTheLocatedBinary(t *testing.T) {
 	t.Parallel()
 
@@ -130,7 +130,7 @@ func TestManagerRunsTheLocatedBinary(t *testing.T) {
 
 // The control client gets the resolved environment too, and detachedEnv trims
 // only the client variables from it — an inherited PATH would otherwise be all
-// a Dock launch's attach has (ADR 0068).
+// a Dock launch's attach has (ADR tmux-runs-in-the-resolved-environment).
 func TestManagerAttachRunsWithTheResolvedEnvironment(t *testing.T) {
 	t.Parallel()
 
@@ -598,7 +598,7 @@ func TestManagerListAllWindowsAsksTmuxOnceForEverySlug(t *testing.T) {
 	// serves used to cost two of each per session.
 	require.Equal(t, [][]string{{"list-windows", "-a", "-F", sessionWindowsFormat}}, cmds.calls)
 	// The one-shot must exec the binary the probe resolved, not a bare "tmux"
-	// $PATH may not have (ADR 0039).
+	// $PATH may not have (ADR tmux-discovery).
 	require.Equal(t, []string{"/opt/homebrew/bin/tmux"}, cmds.binaries)
 }
 

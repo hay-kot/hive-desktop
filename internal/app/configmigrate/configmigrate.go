@@ -6,7 +6,7 @@
 // error for them.
 //
 // A migration re-marshals the document from a generic map, so comments,
-// formatting, and key order are NOT preserved (ADR 0032). The comment-preserving
+// formatting, and key order are NOT preserved (ADR yaml-config-migration). The comment-preserving
 // normal-save writers (flow.SaveFlow, the actions store CRUD) are unaffected —
 // they are never routed through here.
 package configmigrate

@@ -122,7 +122,7 @@ curl -XPOST localhost:7777/_ctl/webhooks/push -d '{
 
 A stable top-level `id` makes a re-push update the same inbox item; drive it to a
 terminal `state` (`resolved`/`closed`/`done`) to archive it. Payloads following
-the canonical item contract (ADR 0008) render as first-party feed rows. A
+the canonical item contract (ADR canonical-item-contract) render as first-party feed rows. A
 configured payload can be used instead of an inline body via
 `"payload":"pr-opened"` with optional `"overrides":{...}`.
 

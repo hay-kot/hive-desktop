@@ -303,7 +303,7 @@ async function onCopyPrompt(): Promise<void> {
           data-testid="sources.webhook-editor-shape-warning"
         >
           Missing canonical item fields: <span class="font-mono">{{ missingFields.join(', ') }}</span> — the item
-          still ingests, but renders minimally in feeds (see ADR 0008). Add a <span class="font-mono">function</span>
+          still ingests, but renders minimally in feeds (see ADR canonical-item-contract). Add a <span class="font-mono">function</span>
           node to reshape it, or copy the LLM prompt below to have one written for you. Adding
           <span class="font-mono">state</span> also enables auto-archive.
         </div>

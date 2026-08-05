@@ -170,7 +170,7 @@ func (s *SettingsService) SetTerminalPoolSize(_ context.Context, size int) error
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// ExperimentalSettings are the ships-dark opt-ins (ADR 0037). Each flag is
+// ExperimentalSettings are the ships-dark opt-ins (ADR terminal-experimental-gate). Each flag is
 // read once at startup, so a persisted change applies on the next launch.
 type ExperimentalSettings struct {
 	Terminal bool
@@ -311,7 +311,7 @@ func (s *SettingsService) Editor(context.Context) (string, error) {
 
 // SetEditor persists the editor command. Empty clears the setting; anything
 // else must be a single word — a command name or path, never a command line —
-// the same rule agent commands follow (ADR 0061).
+// the same rule agent commands follow (ADR a-workspace-declares-its-own-authority).
 func (s *SettingsService) SetEditor(_ context.Context, command string) error {
 	command = strings.TrimSpace(command)
 	if len(strings.Fields(command)) > 1 {

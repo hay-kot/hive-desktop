@@ -29,7 +29,7 @@ individual choices; this document describes the shape everything fits into.
 > `runtime/js` implements the `ScriptRuntime` port with goja, and
 > `runtime.Engine` — constructed by and driven from `App` — runs it: a runner
 > per enabled flow, reinstalled on a flows change, draining the log on every
-> append (ADRs 0010 and 0011). The browser engine is gone, and with it the six
+> append (ADRs goja-script-runtime and flow-engine-in-go). The browser engine is gone, and with it the six
 > RPCs that existed only to feed it. Flow execution no longer depends on a
 > window being open.
 >
@@ -39,29 +39,29 @@ individual choices; this document describes the shape everything fits into.
 > where their dependencies live. The producer reads a capability off the
 > instance instead of type-asserting for it, and `flow`'s node registry and
 > `runtime`'s behaviour registry both derive their source entries from it, so
-> adding a connector is a change to `sources/` alone (ADR 0012). GitHub's
+> adding a connector is a change to `sources/` alone (ADR source-connector-registry). GitHub's
 > connector owns its HTTP client end to end (`sources/github/ghclient`) rather
 > than routing through the vendored `hivecore/github` package, and nothing
-> outside `internal/hivecore` imports that package anymore (ADR 0015).
+> outside `internal/hivecore` imports that package anymore (ADR owned-github-client).
 >
 > Credentials are keyed by account: `app/credentials` stores a value per
 > `Ref{Provider, Account}` in the OS keychain with a separate index of refs,
 > a source node names the account it fetches as, and lookup is generic while
 > acquisition stays with the connector. GitHub is one connector among them
 > rather than a login — nothing is gated on being connected to it, and
-> Settings ▸ Integrations is a projection of the same registry (ADR 0013).
+> Settings ▸ Integrations is a projection of the same registry (ADR credential-store).
 >
 > Desktop configuration is one nested typed schema: startup resolves safe
 > defaults, strict YAML and `HIVE_DESKTOP_*` overrides once, then injects the
 > resulting settings and immutable path snapshot. Development state is local to
-> each worktree under `.hive-desktop/` (ADR 0014).
+> each worktree under `.hive-desktop/` (ADR desktop-configuration).
 >
 > The agent-facing surface is MCP: `internal/adapter/mcpsrv` serves the app's
 > capabilities as tools over `app.App`, on the same single loopback `http`
-> server (on by default) that hosts the webhook listener (ADR 0021). It is
+> server (on by default) that hosts the webhook listener (ADR agent-http-api). It is
 > stateless, so it holds nothing between requests and joins no lifecycle, and
 > it is unauthenticated behind the loopback bind because it spawns nothing
-> (ADR 0073). It replaced the REST control surface that preceded it, whose
+> (ADR mcp-replaces-the-agent-facing-http-api). It replaced the REST control surface that preceded it, whose
 > routes and generated OpenAPI document are deleted rather than deprecated —
 > `tools/list`, inferred from the same Go types the handlers take, is what
 > makes it self-describing now.
@@ -77,19 +77,19 @@ individual choices; this document describes the shape everything fits into.
 > `app.TerminalsService` is the slug-keyed driving service, `httpapi` carries
 > both the REST control plane and the per-session binary WebSocket data plane on
 > the same loopback server, and the wailsui `TerminalService` gates the feature
-> and bootstraps the webview (ADR 0036). See
+> and bootstraps the webview (ADR terminal-transport). See
 > [Terminal sessions](#terminal-sessions).
 >
 > Agent workspaces are a third driving surface, behind the same terminal
 > transport rather than a new one: `internal/app/agentws` owns a
-> generated-and-disposable on-disk root (ADR 0062) and drives sessions as tmux
+> generated-and-disposable on-disk root (ADR workspace-directories-are-generated-and-disposable) and drives sessions as tmux
 > sessions named `agentws-<record id>` — not hive ones, but riding the same
 > `tmuxcc.Manager` and tmux stream a hive session's terminal does, which is
-> what lets a session survive an app restart (ADR 0063); its control plane
+> what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions); its control plane
 > rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
 > because it spawns processes too. `internal/app/mcpcatalog` is the shipped
 > MCP server registry it wires workspaces against. The whole area ships dark
-> behind `experimental.agents` (ADR 0061). See
+> behind `experimental.agents` (ADR a-workspace-declares-its-own-authority). See
 > [Agent workspaces](#agent-workspaces).
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
@@ -137,9 +137,9 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | **Ports & Adapters** / Hexagonal | the `app` ↔ `adapter` boundary | Driven ports (core → outside) get an interface defined in `app`. Driving ports (outside → core) get **no interface** — adapters depend on concrete types. See [the Go amendment](#the-go-amendment-to-hexagonal). |
 | **Facade** (GoF) — as Application Service | `app.App` | One entry point aggregating per-domain services, so a caller never cherry-picks raw dependencies. Mirrors vendored `hivecore/hive/app.go`: *"Commands and TUI consume App instead of cherry-picking raw dependencies."* |
 | **Adapter** (GoF) | `wailsui`, `httpapi`, `mcpsrv` | A bound method builds a request and calls a service. More than ~5 lines of logic means it belongs in `app`. Transport vocabulary — status codes, exit codes, wire encodings — stops here. |
-| **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR 0022. |
-| **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. Three contracts hold across the whole surface, because an agent has no UI to disambiguate from: an id that resolves to nothing is `not_found` and never an empty collection; a mutation's answer is never a constant, so a caller can tell it happened; and a field whose size the *source* decides — an item payload, an event detail, a dry run's messages — is behind a `detail` argument that defaults to omitting it, with the level echoed on the answer. See ADR 0073. |
-| **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR 0036. |
+| **Error chain** (httpkit `errchain`) | every HTTP surface: `httpapi`, devserver control | Handlers are `func(w, r) error` behind one `web/mid.Errors` middleware that maps error types to responses exactly once — no handler writes a status inline. Input enters only through `web/extractors` (`Body` decode + the struct's criterio `Validate`). Per-resource `ctrl_*.go` files, routes registered in one place. See ADR http-handler-conventions. |
+| **Tool table** | `mcpsrv` | One file declares every MCP tool — name, title, description — and nothing else; the handler beside it is a thin call into `App`. Input schemas are *inferred from the handler's typed input struct*, never hand-written, so a tool cannot advertise a field its handler does not accept. A store type whose `jsonschema` tags were written for the OpenAPI reflector cannot be a tool's input or output type: the SDK's inferrer rejects a `WORD=`-prefixed tag, and `json.RawMessage` infers as an array. Declare an adapter-local type and convert at the seam. Three contracts hold across the whole surface, because an agent has no UI to disambiguate from: an id that resolves to nothing is `not_found` and never an empty collection; a mutation's answer is never a constant, so a caller can tell it happened; and a field whose size the *source* decides — an item payload, an event detail, a dry run's messages — is behind a `detail` argument that defaults to omitting it, with the level echoed on the answer. See ADR mcp-replaces-the-agent-facing-http-api. |
+| **Data-plane mount** | streaming surfaces on the loopback server: the terminal WebSocket | A surface that streams bytes is a raw `http.Handler` mounted at its own prefix via `App.MountAPI` — never a row in the errchain operations table, which cannot frame a hijacked socket. Its request/response half stays REST on `httpapi`; only what needs latency or backpressure rides the socket. It authenticates itself if it must, because the errchain surface around it is deliberately unauthenticated. See ADR terminal-transport. |
 | **Anti-Corruption Layer** (DDD) | the `internal/hivecore` seam | Declare a narrow local interface describing only what we need, let the vendored concrete type satisfy it structurally, convert types at the seam. An upstream signature change then breaks one adapter file rather than the app. The idiom is `hive_adapters.go`. |
 | **Bounded Context** (DDD) | `app` vs `internal/hivecore` | Two models that must not merge. `hive` is a separate external product with its own vocabulary; its types stop at the ACL and never appear in an `app` signature. This is also why the vendored code is read-only. |
 
@@ -161,7 +161,7 @@ Domain-Driven Design, (Go) an idiom specific to the language.
 | --- | --- | --- |
 | **Value Object** (DDD) | `Ref{Provider, Account}`, `Sink` | Immutable, compared by value, self-validating, no identity of its own. A credential reference is a `Ref`, never a bare string. Credential *values* are plain strings — see [Credentials](#credentials). |
 | **Consumer-defined interfaces** (Go) | every dependency edge | The interface belongs to the package that *uses* it, not the one that implements it. Keep it to the methods actually called. House style: `ingest.Appender`, `OutputCommandStore`, `FlowLister`, `flow.Refs`. Never define an interface "for mocking" on the implementor side. |
-| **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR 0009. This is the pattern every new extension point should extend. |
+| **Single declaration, many consumers** | node and action types, later connector config | One Go declaration — schema plus prose — feeds the editor form, the node drawer, and an LLM. A bijection test fails if a registered type has no doc. ADR go-owned-llm-prompts. This is the pattern every new extension point should extend. |
 | **Typed errors, mapped once per adapter** | every boundary | Core returns an error carrying a `Kind`; each adapter maps `Kind` to its own vocabulary exactly once. Nothing anywhere matches on error *text*. |
 | **Options struct** (Go) | store and subsystem constructors | `store.DefaultOpenOptions()`, `activity.Options{Emit: …}`. A new optional dependency is a field on the options struct, not a new constructor. |
 | **One instance per process** | producer, output worker, flow engine | Constructed once by `App` and injected. Deliberately **not** GoF Singleton: no global access point and no lazy self-construction — the constraint is "exactly one exists", not "anyone can reach it". Two would double-poll sources and re-execute actions. |
@@ -181,9 +181,9 @@ column is the section that specifies it.
 | A new **script language** | Strategy behind the `ScriptRuntime` port, Registry | [Script nodes](#script-nodes) |
 | A new **bound method / RPC** | Facade, Adapter, Typed errors | [Placement rules](#placement-rules), rules 1–4 |
 | A new **HTTP, MCP or CLI surface** | Adapter, Ports & Adapters (driving side — no interface) | [The Go amendment](#the-go-amendment-to-hexagonal) |
-| A new **agent capability** | Tool table — one row in `mcpsrv/tools.go`, a typed input struct, a thin `App` call | ADR 0073 |
-| A new **HTTP endpoint** | Error chain — `errchain` handler, `web/extractors` input, `ctrl_*.go` + routes in one place. Only for the frontend's own transport: an agent capability is a tool | ADR 0022, ADR 0073 |
-| A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR 0036 |
+| A new **agent capability** | Tool table — one row in `mcpsrv/tools.go`, a typed input struct, a thin `App` call | ADR mcp-replaces-the-agent-facing-http-api |
+| A new **HTTP endpoint** | Error chain — `errchain` handler, `web/extractors` input, `ctrl_*.go` + routes in one place. Only for the frontend's own transport: an agent capability is a tool | ADR http-handler-conventions, ADR mcp-replaces-the-agent-facing-http-api |
+| A new **streaming endpoint** (WebSocket/SSE) | Data-plane mount — raw handler at its own prefix, REST control plane beside it | [Terminal sessions](#terminal-sessions), ADR terminal-transport |
 | A new **event** | Observer — payload in core, degraded to a wake-up in `wailsui` | [Events](#events) |
 | A new **background subsystem** | One instance per process, App-owned lifecycle (plugs once unblocked) | [Background lifecycle](#background-lifecycle) |
 | A new **app mode** | Closed union over sibling active flags — never an `else` branch | [App modes](#app-modes) |
@@ -193,7 +193,7 @@ column is the section that specifies it.
 | Anything touching **vendored code** | Anti-Corruption Layer, Bounded Context — wrap, never edit | [Layers and the dependency rule](#layers-and-the-dependency-rule) |
 | A new **outbound HTTP call from a source** | `sources/sourcehttp` over `appkit/httpclient` — never a bespoke client | [Source HTTP](#source-http) |
 | A new **command the app spawns on the user's behalf** | Resolved environment — `execenv` supplies `Cmd.Env` and resolves the binary; never the inherited PATH, and never a login shell in place of it | [Subprocess environment](#subprocess-environment) |
-| A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR 0032 |
+| A **breaking config schema change** | Forward-only YAML migration runner (per-file `version:`, comment-not-preserving rewrite, backup under StateDir) | [Config versus data](#config-versus-data), ADR yaml-config-migration |
 
 If what you are building is not on this list, it is probably a service method
 on `App` — see [Placement rules](#placement-rules).
@@ -274,7 +274,7 @@ internal/
     events/                       # typed bus
     flow/                         # flow YAML: parse, validate, save, watch, layout
       docs/                       # per-node-type markdown — read by the node drawer
-                                  #   AND by an LLM (ADR 0009)
+                                  #   AND by an LLM (ADR go-owned-llm-prompts)
     runtime/                      # graph engine
       runtime.go                  #   package doc, Runner Options — no DB writes;
                                   #   durable KV reads via the KVReader port
@@ -288,7 +288,7 @@ internal/
       js/                         # goja implementation
       testdata/parity/            # the engine's own regression fixtures
     fonts/                        # the installed-monospace-family scan the
-                                  #   terminal's font picker reads (ADR 0050)
+                                  #   terminal's font picker reads (ADR terminal-typography-is-configurable)
     icons/                        # curated feed glyph set — a leaf, shared by
                                   #   flow's feed node and the webhook connector
     sources/                      # connector registry
@@ -296,11 +296,11 @@ internal/
       connector/                  #   the vocabulary — a leaf, so a connector can
                                   #   name it without importing the registry back
       sourcehttp/                 #   the HTTP toolkit every source client is
-                                  #   built over — a lighter leaf (ADR 0018)
+                                  #   built over — a lighter leaf (ADR source-http-toolkit)
       github/                     #   Descriptor + Config + Factory
         feed/                     #   fetch layer: per-account response cache,
                                   #   conditional requests, rate-limit cooldown
-        ghclient/                 #   the owned GitHub HTTP client (ADR 0015)
+        ghclient/                 #   the owned GitHub HTTP client (ADR owned-github-client)
       webhook/                    #   Descriptor + Config + Factory; local ingress
     ingest/                       # producer loop, classification, absence, snapshots
       resolver.go                 #   the flow set -> live connector instances
@@ -309,39 +309,39 @@ internal/
                                   #   declared — consumer-defined, no notify/ package
     actions/                      # actions.yml catalog, watcher, editable model
       docs/                       # per-action-type markdown
-    prompts/                      # Go-owned LLM prompt templates + registry (ADR 0009)
+    prompts/                      # Go-owned LLM prompt templates + registry (ADR go-owned-llm-prompts)
       templates/                 #   .tmpl files the registry renders
     mcpcatalog/                   # the shipped MCP server catalogue: Descriptor +
                                   #   registry, following the connector precedent
-                                  #   (ADR 0012) with no config factory — a shipped
+                                  #   (ADR source-connector-registry) with no config factory — a shipped
                                   #   entry carries none in M1
       docs/                       #   per-MCP-type markdown — read by the catalogue
-                                  #   AND by an LLM (ADR 0009)
+                                  #   AND by an LLM (ADR go-owned-llm-prompts)
     agentws/                      # the agent-workspace root: mcps.yaml, .shared/,
                                   #   one directory per workspace; Workspace/Library
                                   #   parse+validate, the generator, the launch table
                                   #   (autonomy flags, MCP wiring), the two-level
-                                  #   watcher (ADR 0061, ADR 0062)
+                                  #   watcher (ADR a-workspace-declares-its-own-authority, ADR workspace-directories-are-generated-and-disposable)
     skills/                       # install prompts as agent SKILL.md files; a
                                   #   per-target registry (Go path+body templates),
                                   #   a state-dir install index, hash-based drift
-                                  #   sync that never clobbers a user edit (ADR 0033)
+                                  #   sync that never clobbers a user edit (ADR skill-installer)
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
                                   #   slug, fan-out broker — no transport, no UI
     tmuxbin/                      # where the tmux binary is: paths.tmux, then
-                                  #   PATH, then package prefixes (ADR 0039)
+                                  #   PATH, then package prefixes (ADR tmux-discovery)
     ptyterm/                      # ephemeral terminals: a PTY and the process on
                                   #   the far end, id-keyed, dying with the app —
-                                  #   what the pop-up runs on (ADR 0048)
+                                  #   what the pop-up runs on (ADR ephemeral-popup-terminals)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
-                                  #   process's, then those prefixes (ADR 0041)
+                                  #   process's, then those prefixes (ADR subprocess-environment)
     jobs/  activity/              # observability domains
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
-                                  #   and no dependencies (ADR 0055)
+                                  #   and no dependencies (ADR ui-performance-spans-are-recorded-to-jsonl)
     settings/                     # settings.yaml, paths, bootstrap pointer file
     store/                        # sqlc, migrations, queries
 
@@ -350,26 +350,26 @@ internal/
       events.go                   # bus subscriber → Emit, per-event delivery policy
       windowservice.go  tray.go  focusstate.go  updater.go  notify.go
       terminalservice.go          # Available + Endpoint: the terminal's gate and
-                                  #   webview bootstrap (ADR 0036)
+                                  #   webview bootstrap (ADR terminal-transport)
       e2e/                        # state-reset and smoke middleware
     httpapi/                      # Mounted via ServeHTTP at a Route on the shared
                                   #   loopback http server that also hosts the
-                                  #   webhook listener (ADR 0021), in the errchain
-                                  #   shape (ADR 0022): routes.go + ctrl_*.go per
+                                  #   webhook listener (ADR agent-http-api), in the errchain
+                                  #   shape (ADR http-handler-conventions): routes.go + ctrl_*.go per
                                   #   resource, one operations table backing the
                                   #   mux. NOT an agent surface — that moved to
-                                  #   mcpsrv (ADR 0073). What is left: the terminal
+                                  #   mcpsrv (ADR mcp-replaces-the-agent-facing-http-api). What is left: the terminal
                                   #   control plane as rows on that table, its
                                   #   per-session WebSocket data plane as a separate
-                                  #   raw mount (ADR 0036), the agent-workspace
+                                  #   raw mount (ADR terminal-transport), the agent-workspace
                                   #   control plane under the same /api/terminal/
                                   #   prefix authenticating per handler because it
-                                  #   spawns processes too (ADR 0061), and
+                                  #   spawns processes too (ADR a-workspace-declares-its-own-authority), and
                                   #   /api/status + /api/version as the plain-GET
                                   #   liveness probe
     mcpsrv/                       # THE AGENT SURFACE: tools over App, served over
                                   #   Streamable HTTP at /mcp on that same loopback
-                                  #   server (ADR 0073). tools.go is the tool table
+                                  #   server (ADR mcp-replaces-the-agent-facing-http-api). tools.go is the tool table
                                   #   — metadata only, one place; tool_*.go per
                                   #   domain hold typed inputs and thin App calls;
                                   #   errors.go maps app.Kind once. Stateless, so
@@ -379,7 +379,7 @@ internal/
                                   #   a process
 
   web/                            # HTTP plumbing shared with cmd/devserver
-                                  #   (ADR 0022): error wire shape, version
+                                  #   (ADR http-handler-conventions): error wire shape, version
                                   #   handler; mid/ (error + logger middleware),
                                   #   extractors/ (Body/Query decode + validate)
 
@@ -408,7 +408,7 @@ has per-type config.
 | Extension | Registry | Adding one means |
 | --- | --- | --- |
 | **Node type** | `app/flow` + `app/runtime` | config struct + `Inputs`/`Outputs`/`Validate` and one line in `flow`'s registry; one line in `runtime`'s behaviour registry saying what it does with a message (relay, sink, or process); `flow/docs/<type>.md`; plus `nodes/<type>/{config.ts,editor.vue,index.ts}` for the editor. A test fails if a type is in one registry and not the other |
-| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR 0043, ADR 0047). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration. A thing that does not dispatch at all is not an action type: the pop-up launchers are their own list in the same file, with their own struct and no envelope (ADR 0049) |
+| **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR action-declared-inputs, ADR actions-target-terminal-sessions-and-windows). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration. A thing that does not dispatch at all is not an action type: the pop-up launchers are their own list in the same file, with their own struct and no envelope (ADR launchers-are-their-own-list-in-actions-yml) |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
 | **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
@@ -430,12 +430,12 @@ rather than by discipline. Extend it — a source connector's config schema
 should feed the editor form from the same source it already feeds the node
 drawer from. Note that an MCP tool's input schema is *not* reflected from these
 declarations: the SDK's inferrer reads the `jsonschema` tag differently and
-rejects the invopop form, so `mcpsrv` declares its own input types (ADR 0073).
+rejects the invopop form, so `mcpsrv` declares its own input types (ADR mcp-replaces-the-agent-facing-http-api).
 
 ### Source connectors
 
 The connector interface is the one most likely to age badly, so it is
-specified rather than left to grow. ADR 0012 records why.
+specified rather than left to grow. ADR source-connector-registry records why.
 
 - **Declaration is separate from instance.** `connector.Descriptor` carries
   type name, title, mode, stability level, declared capabilities, and a config
@@ -461,13 +461,13 @@ specified rather than left to grow. ADR 0012 records why.
 - **Absence confirmation is batched, not per-item.** A connector's
   `AbsenceConfirmer` is asked once per tick over the whole absent set;
   verdicts return keyed by external id, not positionally, and a terminal
-  verdict removes the item from the tracked set permanently. See ADR 0019.
+  verdict removes the item from the tracked set permanently. See ADR batched-absence-confirmation.
 - **A failed `Produce` is not an empty snapshot.** A successful call is
   authoritative, so returning nil on a broken fetch archives every item the
   source owns. A connector that can fail partway decodes its whole result
   before the first `emit`, so a run cannot half-succeed — and where truncation
   is possible it fails rather than truncates, because truncated-but-parseable
-  output *is* a short snapshot. ADR 0072.
+  output *is* a short snapshot. ADR a-command-is-a-source.
 - **Cadence is a floor on the instance, not a second scheduler.** There is one
   ticker (`settings.polling.interval`); an instance whose cost does not suit it
   sets `Instance.MinInterval` and the producer skips it until it is due,
@@ -489,7 +489,7 @@ specified rather than left to grow. ADR 0012 records why.
   `actions.yml`'s shell executor and `function` nodes' JavaScript, so the
   boundary is the directory, not the node — but a command built from fetched
   data would move it, which is why it is forbidden rather than discouraged
-  (ADR 0072).
+  (ADR a-command-is-a-source).
 
 Connector type strings are namespaced — `sources.github`, `sources.webhook` —
 so connectors group and sort together everywhere node types are enumerated:
@@ -597,7 +597,7 @@ workspace is the one thing that exists without a credential, so it goes first,
 and connecting is what seeds its starter graph. Bypassing that step is possible
 past a warning, and lands on a feed whose empty state points at Settings ▸
 Integrations — itself a projection of the connector registry, joined to what
-the credential store holds. ADR 0013 records why this is a new store rather
+the credential store holds. ADR credential-store records why this is a new store rather
 than an extension of the vendored single-slot one.
 
 ### Config versus data
@@ -612,11 +612,11 @@ The agent-workspace root (`AgentWorkspacesDir`, default
 crossed: it resolves under the config root so it can be dotfiles-/iCloud-synced
 like `flows/`, but the directory itself is not small text — an agent writes
 into it and the generator reconciles disposable derived files alongside the
-authored ones (ADR 0062) — because ADR 0025's hash-in-config/blob-in-data
+authored ones (ADR workspace-directories-are-generated-and-disposable) — because ADR profile-images's hash-in-config/blob-in-data
 asset split does not apply to a directory the agent itself writes into (D3).
 
 A profile's avatar is the worked example of an asset that straddles the two
-(ADR 0025): the normalized PNG is app-local state at
+(ADR profile-images): the normalized PNG is app-local state at
 `<StateDir>/assets/profiles/<flow-id>.png` (`internal/app/profileimg`), while
 the flow YAML records only its content hash (`image:`). Config stays small and
 text; a reference with no file — a config synced to a machine without its data
@@ -626,7 +626,7 @@ editor: `FlowStore.Save` preserves whatever the loaded flow declares, since the
 editor round-trips only `{id, name, enabled, nodes, wires}` and would otherwise
 drop the key.
 
-A webhook source's image mark (ADR 0031) is the same asset shape with the
+A webhook source's image mark (ADR webhook-source-image-marks) is the same asset shape with the
 reference in a different place. Its normalized PNG is app-local state
 (`internal/app/sourcemark`), keyed by **content hash** rather than by id because
 it is uploaded before the graph save that records it; the webhook node's
@@ -639,7 +639,7 @@ orphaned blobs are left in place rather than reference-counted.
 `notifications`, `appearance`, `http`, `keybindings`, `skills`,
 `experimental`, and
 `development` sections. `experimental` holds ships-dark feature opt-ins
-(ADR 0037), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
+(ADR terminal-experimental-gate), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof
@@ -649,7 +649,7 @@ value but are never written into YAML by an unrelated settings edit.
 
 `settings.yaml`, `flows/*.yaml`, and `actions.yml` each carry a top-level
 `version:` and are migrated forward in place at startup by
-`internal/app/configmigrate` (ADR 0032) — a per-file, integer-versioned runner
+`internal/app/configmigrate` (ADR yaml-config-migration) — a per-file, integer-versioned runner
 distinct from the SQLite schema migrations (`internal/hivecore/data/migrate`)
 that track applied versions in a table.
 
@@ -679,7 +679,7 @@ The `desktop:dev` mise task loads it followed by optional gitignored
 does not interpret developer overrides.
 
 `devtools run` supervises the dev runner because the runner does not supervise
-itself on the way out (ADR 0046): it puts the app and Vite in process groups of
+itself on the way out (ADR shutdown-is-signalled-and-bounded): it puts the app and Vite in process groups of
 their own, so a closing terminal signals neither, and the runner dies on SIGHUP
 before it can tear them down — leaving the app running with no dev session
 behind it. The supervisor answers the signal instead: it asks the app to shut
@@ -698,12 +698,12 @@ from it. Their locations resolve independently: `desktop-pipeline.db` follows
 `DataDir`, while `hive.db` follows `HiveDataDir` (defaulting to `DataDir`, so
 production is unchanged). Development sets `HIVE_DESKTOP_HIVE_DATA_DIR` to the
 installed hive data dir, so `hive.db` is shared in dev too while the desktop's
-own state stays worktree-isolated. ADR 0014 records the configuration decision.
+own state stays worktree-isolated. ADR desktop-configuration records the configuration decision.
 
 ### Settings panes
 
 Application settings are sectioned by **the surface a value changes**, not by
-kind, and the nav groups are the app's own modes (ADR 0069):
+kind, and the nav groups are the app's own modes (ADR settings-sections-name-the-surface-they-change):
 
 | Group | Sections |
 | --- | --- |
@@ -717,7 +717,7 @@ A value one surface uses lives on that surface's pane; a value several use lives
 in **General** (the editor command); **System** is this install — storage,
 diagnostics, the problem reporter; **About** is the running build. There is no
 leftover group — a section that fits nowhere means the grouping is wrong.
-Experimental is a posture, not a category: a ships-dark opt-in (ADR 0037)
+Experimental is a posture, not a category: a ships-dark opt-in (ADR terminal-experimental-gate)
 renders on the pane for the feature it gates, through
 `settings/ExperimentalToggle.vue`.
 
@@ -747,13 +747,13 @@ install-before-appenders constraint needs expressed, not worked around.
 Until appkit offers signal opt-out and ordered start, the standing pattern
 is **App-owned lifecycle**: every subsystem exposes an idempotent,
 context-taking `Stop` behind a `stopOnce` (the webhook listener is the
-template — ADR 0016), `App.Start` starts them in dependency order, and
+template — ADR webhook-listener-placement), `App.Start` starts them in dependency order, and
 `App.Close` unwinds them in reverse. `main` holds none of it.
 
 `development.pprof` is typed and defaulted off. The endpoint has no lifecycle
 of its own: when enabled, `httpapi.PprofHandler()` mounts on the shared
-loopback HTTP server (ADR 0021) beside the agent API, torn down with it, so
-there is no second listener and no teardown branch in `main` (ADR 0023). The
+loopback HTTP server (ADR agent-http-api) beside the agent API, torn down with it, so
+there is no second listener and no teardown branch in `main` (ADR pprof-debug-endpoint). The
 config is `{ enabled }` only — the address is the shared server's, so pprof
 requires `http.enabled`, and a disabled endpoint has no route at all.
 
@@ -762,7 +762,7 @@ client with composable middleware, **adopted** — see below) and `mapx`.
 
 ### Source HTTP
 
-**Every source client is built over `sources/sourcehttp`** (ADR 0018), which
+**Every source client is built over `sources/sourcehttp`** (ADR source-http-toolkit), which
 is itself built over `appkit/httpclient`. Nothing constructs a bespoke
 `*http.Client` to reach a provider API.
 
@@ -797,18 +797,18 @@ they should look like — the package is an extraction from one implementation
 and should grow by evidence, not by anticipation.
 
 The app's other outbound HTTP — the updater, `cmd/release`, and the
-problem-report uploader (`report.Uploader`, ADR 0024) — is not a source and has
+problem-report uploader (`report.Uploader`, ADR in-app-problem-reporting) — is not a source and has
 not adopted it.
 
 ### Subprocess environment
 
 **A command the user wrote runs in the PATH the user has, not the one the app
-inherited** (ADR 0041). A desktop launch's environment is the launcher's —
+inherited** (ADR subprocess-environment). A desktop launch's environment is the launcher's —
 macOS gives an `.app` bundle `/usr/bin:/bin:/usr/sbin:/sbin` — and session hooks
 and shell actions are an open set of user commands, so no list of prefixes
 substitutes for asking. `internal/app/execenv` asks the login shell once per run
 (`$SHELL -ilc /usr/bin/env`, timed out, the answer kept whether or not it
-worked) and layers this process's PATH and the ADR 0039 prefixes behind it; a
+worked) and layers this process's PATH and the ADR tmux-discovery prefixes behind it; a
 probe that fails degrades to exactly what the app could reach before.
 
 Three rules follow for anything new that spawns a process on the user's behalf:
@@ -824,7 +824,7 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   `.zprofile` and never `.zshrc`, which is where a PATH is as often set. Both
   backends therefore take an `Environ` hook wired to the resolver
   (`tmuxcc.ManagerOptions.Environ`, `ptyterm.ManagerOptions.Environ`), and the
-  hook is written twice rather than extracted: ADR 0048 keeps the two backends
+  hook is written twice rather than extracted: ADR ephemeral-popup-terminals keeps the two backends
   siblings with no shared interface. What the resolver supplies is the **floor**
   — the login startup files that do run may still override it. For tmux the hook
   reaches the client rather than the session, because a pane inherits the
@@ -835,7 +835,7 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
 - **A command on a timer takes the resolver's answer, never its own probe**
-  (ADR 0072). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
+  (ADR a-command-is-a-source). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
   would charge each one the user's version-manager initialization and make a
   slow rc file a randomly-blown timeout. The resolver probes once per run and
   remembers; that is the whole point of it. Aliases are the deliberate cost —
@@ -855,14 +855,14 @@ switch, and `router.ts`'s routes each render a null `ShellPage` component
 because `App.vue`, not the router, owns what is on screen. A mode remembers
 the last route it was on (`lastTerminalPath`, `lastAgentsPath`) so returning
 to it resumes rather than resetting, and ships dark behind its own
-`experimental.*` opt-in, gated independently of the others (ADR 0037 is the
-mechanism; ADR 0061 is the Agents area's adoption of it).
+`experimental.*` opt-in, gated independently of the others (ADR terminal-experimental-gate is the
+mechanism; ADR a-workspace-declares-its-own-authority is the Agents area's adoption of it).
 
 ### Terminal sessions
 
 Terminal mode attaches one tmux control-mode client per Hive session, keyed by
 the session **slug** (the tmux session name). Four pieces, and the split between
-them is the constraint (ADR 0036):
+them is the constraint (ADR terminal-transport):
 
 - **`internal/app/tmuxcc`** — the protocol: line framer, `%begin`/`%end`/`%error`
   command FIFO, notification dispatch, `%output` octal decode, one client per
@@ -870,7 +870,7 @@ them is the constraint (ADR 0036):
   and no UI** — it is driven over injectable process pipes, so it is testable
   without tmux, HTTP or Wails. It holds no environment *policy* either, but it
   does take an environment: `ManagerOptions.Environ` is wired to `execenv` at
-  the composition root and is what every tmux it execs runs with (ADR 0068) —
+  the composition root and is what every tmux it execs runs with (ADR tmux-runs-in-the-resolved-environment) —
   see [Subprocess environment](#subprocess-environment).
   `Manager` owns an app-lifetime context and joins
   the App-owned lifecycle behind a `stopOnce` (PR rule 8), and also runs the
@@ -884,7 +884,7 @@ them is the constraint (ADR 0036):
   set, size and name bounds) so a `Kind` is chosen without matching error text,
   and it holds **no** token, base URL or stream path: the core stays
   transport-neutral. **Attach never spawns; `Start` and `Kill` are the terminal's
-  lifecycle** (ADR 0044) — spawning runs the session's agent command, and the
+  lifecycle** (ADR terminal-start-is-an-offered-action) — spawning runs the session's agent command, and the
   view attaches without a click. A slug tmux is not running is a `KindNotFound`
   decided by a `has-session` probe, never by reading a dead control stream's
   message, and the frontend turns it into a panel offering to start. What a
@@ -899,17 +899,17 @@ them is the constraint (ADR 0036):
   [Data-plane mount](#named-patterns).
 - **`adapter/wailsui.TerminalService`** — `Enabled`, `Available` and `Endpoint`,
   the frontend's only gate and bootstrap. `Enabled` reports the
-  `experimental.terminal` opt-in (ADR 0037) — off means the Hub|Terminal toggle
+  `experimental.terminal` opt-in (ADR terminal-experimental-gate) — off means the Hub|Terminal toggle
   never renders. `Available` must answer while the loopback
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
 
 **A first paint is a pane's scrollback, its screen at exactly the window's
-height, and its cursor** (ADR 0046) — three tmux commands per pane, replayed
+height, and its cursor** (ADR terminal-first-paint-carries-scrollback) — three tmux commands per pane, replayed
 as one byte stream into a fresh emulator. **An attach paints the active window
 and answers; the rest are painted straight after on the client's own lifetime**
-(ADR 0052). `capture-pane -e` is what a first paint costs — 7.5x the same
+(ADR attach-paints-the-active-window-first). `capture-pane -e` is what a first paint costs — 7.5x the same
 capture without escape reconstruction, linear in scrollback depth — so painting
 every window before answering made attach latency scale with a session's window
 count for panes the renderer could not show. A deferred pane is held from
@@ -942,7 +942,7 @@ vote is a fresh attach's alone — a live client keeps the one it already cast.
 in.** tmux caps a `%output` at 2KB, so a busy pane produces ~14.5k events a
 second and every fixed per-frame cost downstream is multiplied by that. The
 broker folds an incoming output into the last queued event for the same pane
-(ADR 0053). It costs no latency because a merge is only possible when a second
+(ADR queued-terminal-output-coalesces). It costs no latency because a merge is only possible when a second
 event is already waiting — a consumer keeping up sees every event whole — and
 it never merges into the head, which `pump` may already be delivering. Byte
 accounting is unchanged, so the overflow bound trips at the same volume.
@@ -950,11 +950,11 @@ accounting is unchanged, so the overflow bound trips at the same volume.
 The frontend holds a small LRU pool of live attaches rather than one:
 switching sessions hides the outgoing panes instead of detaching, and a cold
 attach keeps the outgoing screen until the incoming one has painted, so a
-switch never blanks the pane (ADR 0042). Detach fires on eviction, explicit
+switch never blanks the pane (ADR terminal-attach-pool). Detach fires on eviction, explicit
 close, the session leaving the listing, and view unmount — not on switch.
 
 **Terminal mode is mounted on first entry and hidden, never unmounted, on the
-way back to the hub** (ADR 0054) — the same rule the pop-up panel follows, and
+way back to the hub** (ADR terminal-mode-is-hidden-not-unmounted) — the same rule the pop-up panel follows, and
 for the same reason: an unmount is what makes the pool pay for itself again.
 The mode takes an `active` prop, and that, not mount, is what starts the
 status poll and the window-listing sweep and what revalidates the session tree.
@@ -964,14 +964,14 @@ keep across a trip to the hub can now simply live in the component.
 **Terminal style is a setting, not pane chrome.** Text size, family, weights,
 line height and tracking are all `appearance.terminal_*` settings written from
 Settings ▸ Terminal, and the pane carries no duplicate control for
-any of them (ADR 0057). A new style option takes the same route.
+any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option takes the same route.
 
 **The sidebar tree is a session's only window list.** There is no tab strip to
 keep in step with it, and a window's controls — close, rename, and the add on
-its session's row — live on the rows themselves (ADR 0057).
+its session's row — live on the rows themselves (ADR the-sidebar-tree-is-the-only-window-list).
 
 **One tmux session in the tree belongs to no hive session: the scratch
-terminal** (ADR 0067). It is an ordinary tmux session under a reserved slug —
+terminal** (ADR the-scratch-terminal-is-a-tmux-session-the-desktop-owns). It is an ordinary tmux session under a reserved slug —
 `Scratch`, which hive's `Slugify` cannot mint because it lowercases before it
 replaces — so attach, the sweep, tabs, reorder, kill and the pool serve it
 unchanged, and the desktop owns only what creating it means: one session whose
@@ -985,8 +985,8 @@ thing twice, so `Scratch` is a tmux name rather than anything on screen. Four
 rules follow from it having no hive record: it is created with `tmuxcc`'s own
 empty-command create, so its shell is an interactive login shell and the user's
 startup files are what put their tools on its PATH — over the resolved
-environment underneath, which an interactive shell has no need of (ADR 0041,
-ADR 0068); its liveness comes from the window sweep
+environment underneath, which an interactive shell has no need of (ADR subprocess-environment,
+ADR tmux-runs-in-the-resolved-environment); its liveness comes from the window sweep
 rather than from `SessionStatuses`, which is keyed by session id, and its tabs
 are listed whatever `terminal_show_windows` says because they *are* the section;
 `+` on its heading creates the session when tmux is holding none, which is
@@ -1061,7 +1061,7 @@ live tmux session name**, and the desktop is what keeps it that way. Hive's
 `app.SessionsService.RenameSession` renames the tmux session first, writes the
 record second, and rolls the tmux rename back if that write fails — with a slug
 collision rejected up front, because hive checks none and the table has no
-uniqueness constraint. ADR 0040. A change that gives the slug a second identity,
+uniqueness constraint. ADR session-rename-keeps-slug-and-tmux-in-step. A change that gives the slug a second identity,
 or that makes something else the attach target, has to revisit that ADR rather
 than work around it.
 
@@ -1077,7 +1077,7 @@ unpushed work at stake and whether recycling this session is really a delete (it
 is, for a worktree session).
 
 **A session this app created for an inbox item stays findable from that item**
-(ADR 0070). The association is `item_session` in `desktop-pipeline.db`, keyed by
+(ADR an-item-session-link-is-desktop-state-keyed-on-item-coordinates). The association is `item_session` in `desktop-pipeline.db`, keyed by
 hive's session id — never written into hive's own record, whose model must not
 learn what an inbox item is. Four rules are load-bearing:
 
@@ -1100,7 +1100,7 @@ learn what an inbox item is. Four rules are load-bearing:
   link and never fails the launch over it.
 
 **The user's own operations on a session are `actions.yml` entries, not a second
-config** (ADR 0047). An action declares its surfaces in `targets:` — `item`
+config** (ADR actions-target-terminal-sessions-and-windows). An action declares its surfaces in `targets:` — `item`
 (the default, and what every pre-terminal action means), `session`, `window` —
 and `SessionsService` owns the three methods behind them: `TerminalActionViews`,
 `InvokeTerminalAction`, `RenderTerminalClipboardAction`. Three rules are
@@ -1131,7 +1131,7 @@ resolved path travels on `Options.Binary`. Hive session spawning execs tmux from
 vendored code, so it gets the same binary through `app.tmuxExecutor`, a
 decorator over `executil.Executor` that substitutes the command name `tmux`.
 
-The whole surface ships dark behind `experimental.terminal` (ADR 0037): when
+The whole surface ships dark behind `experimental.terminal` (ADR terminal-experimental-gate): when
 off, `main.go` mints no token and neither the control-plane routes nor the
 stream mount exist. The bearer token is minted per run in `desktop/main.go` and
 passed to the two
@@ -1171,7 +1171,7 @@ On the frontend, a pane on screen **always renders through an atlas renderer** �
 WebGL, falling back to 2D canvas — because only an atlas renderer strokes box
 drawing and underlines to the cell's device-pixel bounds; xterm's DOM renderer
 cannot join either across cells at any size or device pixel ratio. Four rules
-follow and are the ones to keep (ADRs 0038, 0045): the renderer is claimed after
+follow and are the ones to keep (ADRs terminal-atlas-renderer, terminal-renderer-claimed-on-activation): the renderer is claimed after
 `term.open()` and never before, and **when the window is first shown rather than
 when its pane mounts** — the pool mounts a pane per window of every attached
 session, and claiming at mount spends a GL context per background tab and walks
@@ -1190,7 +1190,7 @@ the addon majors are pinned to the xterm core major, since they reach into
 `internal/app/ptyterm` is the *other* terminal backend, and the rule for which
 one serves a request is the session: **a terminal that belongs to a hive
 session, or to an agent workspace's own durable session record, is tmux's; a
-terminal that belongs to a moment is this one's** (ADR 0048; ADR 0063 moved
+terminal that belongs to a moment is this one's** (ADR ephemeral-popup-terminals; ADR agent-workspace-sessions-are-tmux-sessions moved
 agent workspace sessions onto tmux, so the pop-up is `ptyterm`'s only caller
 now). It owns a PTY and the process on the far end directly — no multiplexer,
 no discovered binary, no negotiation — and every terminal it opens dies with
@@ -1203,21 +1203,21 @@ Three rules govern it, and each is a consequence of that:
   none — the pop-up always takes this path, since nothing about it wants to be
   addressable. A caller that already knows the id it wants to reattach to may
   supply its own instead (`Spec.ID`); a caller-supplied id collides with
-  `ErrIDInUse`, not a second terminal (ADR 0066) — no caller currently
+  `ErrIDInUse`, not a second terminal (ADR ptyterm-terminals-are-caller-addressed) — no caller currently
   exercises this since the pop-up is the one caller left and always mints.
 - **The manager caps concurrent terminals at `maxConcurrentSessions` (8).**
   The terminal past the cap returns `ErrTooManyTerminals` and spawns no
-  process, and closing one makes room for the next (ADR 0066). Agent workspace
+  process, and closing one makes room for the next (ADR ptyterm-terminals-are-caller-addressed). Agent workspace
   sessions have their own, separate cap now — a count of live `agentws-*` tmux
-  sessions (ADR 0063) — since they are no longer this manager's terminals.
+  sessions (ADR agent-workspace-sessions-are-tmux-sessions) — since they are no longer this manager's terminals.
 - **A launch is a directory and a shell command line.** The directory resolves
   launcher cwd → session checkout → explicit path → home; the command runs
   through a login shell so the user's own aliases resolve it, over `execenv`'s
-  resolved environment as the floor rather than instead of it (ADR 0041, ADR
+  resolved environment as the floor rather than instead of it (ADR subprocess-environment, ADR
   0068), and empty means an interactive shell. A named launcher is that spec
   with config in front of it — add the config, not another launch path.
 - **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
-  (ADR 0049). It is deliberately *not* an action: every surface in the `targets`
+  (ADR launchers-are-their-own-list-in-actions-yml). It is deliberately *not* an action: every surface in the `targets`
   vocabulary dispatches and a pop-up does not, so it shares the file — one
   loader, one watcher, one last-good reload — and none of the action envelope.
   Its `command` and `cwd` are used as written rather than rendered, because a
@@ -1234,11 +1234,11 @@ Three rules govern it, and each is a consequence of that:
   server's default; it must never send a placeholder.
 - **`/api/terminal/popup/…` is its own path space under the terminal prefix**,
   covered by that prefix's bearer token and CORS policy for the same reason
-  (ADR 0036): a pop-up spawns a shell, which is arbitrary command execution.
+  (ADR terminal-transport): a pop-up spawns a shell, which is arbitrary command execution.
   Its data plane is `/api/terminal/pty/stream`, carrying one terminal per
   socket, so its frames carry no window or pane ids and are not the tmux
   stream's. `/api/terminal/agents/…` sits under the same prefix for the same
-  reason but is control-plane only since ADR 0063: an agent workspace
+  reason but is control-plane only since ADR agent-workspace-sessions-are-tmux-sessions: an agent workspace
   session's data plane is the tmux stream (`/api/terminal/stream`), the same
   one a hive session's terminal rides, addressed by the tmux session name
   `AgentWorkspacesService` gives it rather than a hive slug.
@@ -1296,20 +1296,20 @@ directory splits **authored** files a user (or an agent, via the
 `hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
 `docs/` — from **generated** ones `agentws.Generate` produces on every open —
 `CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.claude/skills/`,
-`.agents/skills/`, an empty `docs/` seed. ADR 0062 is the contract behind that
+`.agents/skills/`, an empty `docs/` seed. ADR workspace-directories-are-generated-and-disposable is the contract behind that
 split: generated output is disposable, never drift-tracked, and a hand edit to
 it is silently replaced on the next open — deliberately cheaper than the
-skill installer's hash-tracked model (ADR 0033), because Hive owns this whole
+skill installer's hash-tracked model (ADR skill-installer), because Hive owns this whole
 subtree. `Generate` **reconciles** each of its owned trees to exactly what it
 computes rather than clearing and rewriting: a file no longer in the target
 set is removed, an emptied directory is pruned, and a file already present is
 written only when its bytes differ — the write-only-if-different rule is what
 makes byte-determinism observable (nothing to re-sync when nothing changed)
-and what makes concurrent generation from two machines safe (ADR 0062).
+and what makes concurrent generation from two machines safe (ADR workspace-directories-are-generated-and-disposable).
 
 A workspace created through the app also starts with an `AGENTS.md`
 scaffold — authored at birth, written exactly once, never regenerated
-(ADR 0064): overriding the default framing is editing the file, and deleting
+(ADR a-created-workspace-starts-with-an-agents-md-scaffold): overriding the default framing is editing the file, and deleting
 it deletes it. Hand-authored workspaces get no scaffold.
 
 The app writes authored YAML only through the node-tree editors in `write.go`
@@ -1322,13 +1322,13 @@ stay the user's. `mcps.yaml` gains entries through the same pattern —
 bare id-to-server map), an id already declared is a conflict rather than an
 overwrite, and only user entries can be removed. The merged catalogue
 (shipped + user, stability, the resolved command line, a LookPath problem) is
-served on the agents API — the surface ADR 0061 §5's read-the-command-first
+served on the agents API — the surface ADR a-workspace-declares-its-own-authority §5's read-the-command-first
 mitigation runs through.
 
 Two directory actions ride the same token-guarded agents prefix, because
-launching a program is command execution (ADR 0036): open-in-editor runs the
+launching a program is command execution (ADR terminal-transport): open-in-editor runs the
 settings-configured editor (`editor.command`, a single word — the agent-command
-rule from ADR 0061 — resolved and launched through `execenv`, ADR 0041) on a
+rule from ADR a-workspace-declares-its-own-authority — resolved and launched through `execenv`, ADR subprocess-environment) on a
 recognized workspace's directory, and reveal opens it in the OS file manager.
 Both refuse a path that is not a known workspace, the same posture as
 `SystemService.checkAllowed`.
@@ -1345,7 +1345,7 @@ the launch would refuse is disabled rather than hidden. Those
 flags come from nowhere else: hive's own `AgentProfile.Flags` are dropped at
 the vendored seam (`agentCommands` in `app.go`) before they ever reach a
 workspace, and only `Command` crosses — validated as a single shell word, so a
-flag cannot re-enter through the command string either (ADR 0061).
+flag cannot re-enter through the command string either (ADR a-workspace-declares-its-own-authority).
 
 Each agent's MCP wiring (`MCPWiring`) is data, not a branch: a `File` the
 generator writes, a `Render` encoding the resolved servers into that file's
@@ -1391,7 +1391,7 @@ console output and structured script errors come back; the outputs and KV
 mutations a live run would have committed come back beside them. `FlowsService`
 builds a throwaway `Runner` over a `MemoryKV` for each call, because a `Runner`
 carries function-node `state` between messages and the engine's installed one
-must not be mutated by a debugging call. ADR 0058.
+must not be mutated by a debugging call. ADR flows-are-dry-run-against-supplied-input.
 
 The engine never *writes* the database. Its one read path is the `KVReader`
 driven port behind a function node's `kv` object — durable per-node key-value
@@ -1427,7 +1427,7 @@ mistake would lose messages the last-known-good version handles.
 `internal/app/runtime/testdata/parity/*.json` are the engine's fixtures: a
 flow, a batch, and the exact commit it is worth. They began as the proof the
 port off the browser engine was faithful, and a change to routing, sink tagging
-or accounting still belongs in one. ADR 0011.
+or accounting still belongs in one. ADR flow-engine-in-go.
 
 ### Script nodes
 
@@ -1471,7 +1471,7 @@ arrays, empty objects, and key order without bridge helpers or sentinels.
 The message envelope is a fixed set of fields. A property attached to `msg`
 itself is not carried downstream — that envelope is also what an HTTP or MCP
 surface serialises — so per-message data belongs in the opaque `msg.Payload`.
-ADR 0010.
+ADR goja-script-runtime.
 
 ## Rules for every PR
 
@@ -1505,7 +1505,7 @@ The target is reached in this order; each step is independently shippable.
    orchestration currently stranded in `package main` (`InvokeAction`, the
    action usage checker's raw SQL, poll-interval validation). **Done.**
 3. **Go flow engine + goja**, with parity tests against the TypeScript engine
-   before cutover. The largest step. **Done.** ADRs 0010 and 0011. The shared
+   before cutover. The largest step. **Done.** ADRs goja-script-runtime and flow-engine-in-go. The shared
    fixtures both engines had to satisfy live on in
    `internal/app/runtime/testdata/parity/` as the engine's own regression
    suite.
@@ -1519,13 +1519,13 @@ The target is reached in this order; each step is independently shippable.
    survive Wails' JSON bridge. `Msg.ID` stays a string, but for an unrelated
    reason that outlived the RPCs — the goja script boundary, where a JS number
    would truncate an offset past 2^53 (see [Script nodes](#script-nodes)).
-5. **Source registry** — **Done.** ADR 0012. `connector.Descriptor` declares a
+5. **Source registry** — **Done.** ADR source-connector-registry. `connector.Descriptor` declares a
    connector and `connector.Factory` constructs it; capabilities are read off
    the instance rather than type-asserted; `flow`'s and `runtime`'s registries
    derive their source entries. Node types are namespaced (`sources.github`,
    `sources.webhook`), which breaks the `type:` discriminator in any existing
    `flows/*.yaml`.
-6. **Credentials** — **Done.** ADR 0013. `Ref{Provider, Account}`, the
+6. **Credentials** — **Done.** ADR credential-store. `Ref{Provider, Account}`, the
    keychain-backed store and its ref index, one fetcher per account, and
    GitHub demoted from a login to a connector. A source node's `credential:`
    is required, which breaks any existing `flows/*.yaml` a second time.
@@ -1536,7 +1536,7 @@ The target is reached in this order; each step is independently shippable.
    (the lifecycle half is blocked on appkit — see
    [Background lifecycle](#background-lifecycle)). **Done** for the agent
    surface: `mcpsrv` serves tools over `App` at `/mcp` on the shared loopback
-   server (ADR 0073), and the REST control surface it replaced is deleted.
+   server (ADR mcp-replaces-the-agent-facing-http-api), and the REST control surface it replaced is deleted.
    `httpapi` remains for the frontend's terminal transport and the liveness
    probe. The full REST + SSE *product* surface is still to come, as is the
    plugs lifecycle.
@@ -1546,7 +1546,7 @@ The target is reached in this order; each step is independently shippable.
 Breaking changes to DB schema are acceptable and carried forward by the
 table-tracked SQLite migration runner. Breaking changes to config **format**
 (`settings.yaml`, `flows/*.yaml`, `actions.yml`) are carried forward the same
-way, but by the separate per-file migration runner (ADR 0032) rather than by
+way, but by the separate per-file migration runner (ADR yaml-config-migration) rather than by
 breaking. Three things are not rebuildable and must be carried across any
 migration:
 
@@ -1577,7 +1577,7 @@ These are deliberately unresolved; revisit when the relevant work starts.
 - **Command placement** — per-domain service methods with request structs
   (current plan, matching `hivecore/hive/app.go`) versus a flat
   `app/command` + `app/query` package that gives MCP and CLI generation one
-  place to enumerate. The httpapi operations table (ADR 0027) is an
+  place to enumerate. The httpapi operations table (ADR self-describing-agent-api) is an
   adapter-local precedent for the enumeration side, not a resolution of where
   the commands live.
 - **`adapter/` as a grouping directory** versus flat `internal/wailsui`,

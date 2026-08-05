@@ -81,7 +81,7 @@ func TestManagerNewSessionOpensAnInteractiveShellForAnEmptyCommand(t *testing.T)
 // A session's pane inherits the environment of the client that created it, so
 // the resolved PATH has to be on the new-session command itself: the login
 // shell it execs is non-interactive and never reads the file the PATH is
-// usually set in (ADR 0068).
+// usually set in (ADR tmux-runs-in-the-resolved-environment).
 func TestManagerNewSessionRunsWithTheResolvedEnvironment(t *testing.T) {
 	t.Parallel()
 

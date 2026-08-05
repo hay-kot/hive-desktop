@@ -6,7 +6,7 @@ import { expect, test } from './fixtures.js'
 // the Agents area too: AgentWorkspacesService.Available -> KindUnavailable ->
 // AgentsService.Available{available:false, reason} -> the mode.
 //
-// What it guards is ADR 0037's "the toggle is never disabled" rule, now
+// What it guards is ADR terminal-experimental-gate's "the toggle is never disabled" rule, now
 // proven for a third segment: a build that cannot run a PTY at all must
 // explain itself inside the Agents area rather than leaving a dead button in
 // the title bar. This is the only agent path observable in the server build —
@@ -59,7 +59,7 @@ test('the Agents area explains its own unavailability and hands the frame back',
   await expect(page.getByTestId('agents-unavailable')).toBeVisible()
   await expect(reason).not.toBeEmpty()
 
-  // Hidden, not unmounted (ADR 0054): a trip to the hub is a display flip.
+  // Hidden, not unmounted (ADR terminal-mode-is-hidden-not-unmounted): a trip to the hub is a display flip.
   await hubToggle.click()
   await expect(page.getByTestId('agents-mode')).toBeHidden()
   await expect(hubToggle).toHaveAttribute('aria-pressed', 'true')

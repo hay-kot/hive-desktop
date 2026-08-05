@@ -366,6 +366,6 @@ func TestMockConnectionSetTokenAndDisconnect(t *testing.T) {
 	assert.Equal(t, ghsource.StateDisconnected, conn.Status(t.Context()).State)
 }
 
-// The development override (ADR 0017) is only useful if it actually reaches
+// The development override (ADR devserver-github-proxy) is only useful if it actually reaches
 // the client both callers share, so assert the request lands on the
 // substitute base rather than api.github.com.

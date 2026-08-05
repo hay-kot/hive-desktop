@@ -6,7 +6,7 @@ import (
 )
 
 // ItemRef identifies an inbox item by inbox_item's own UNIQUE key rather than
-// by its row id, which ActivateReplay does not preserve (ADR 0060).
+// by its row id, which ActivateReplay does not preserve (ADR macos-dmg-installer).
 type ItemRef struct {
 	ProfileID   string `json:"profileId"`
 	SourceKind  string `json:"sourceKind"`

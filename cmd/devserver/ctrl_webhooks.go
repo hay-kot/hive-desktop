@@ -20,7 +20,7 @@ import (
 type pushRequest struct {
 	// Target is either a configured target's name (a JSON string) or an inline
 	// {url, secret} object. Inline exists because the desktop's webhook port is
-	// drawn at random per install (ADR 0007), so no target can be committed to
+	// drawn at random per install (ADR local-webhook-listener), so no target can be committed to
 	// config — an agent reads the base URL from Settings ▸ Webhooks and supplies
 	// it here.
 	Target targetRef `json:"target"`
@@ -125,7 +125,7 @@ func (c *Control) Push(w http.ResponseWriter, r *http.Request) error {
 
 // validateLoopbackURL rejects an inline webhook target that is not a loopback
 // http(s) URL. devserver POSTs a secret-bearing body to it, and the desktop's
-// listener binds loopback only (ADR 0007, 0017), so a non-loopback target is
+// listener binds loopback only (ADR local-webhook-listener, 0017), so a non-loopback target is
 // either a mistake or an attempt to make dev tooling reach off the machine.
 func validateLoopbackURL(raw string) error {
 	parsed, err := url.Parse(raw)

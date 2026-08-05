@@ -97,7 +97,7 @@ type App struct {
 	Report       *ReportService
 	Terminals    *TerminalsService
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
-	// on. Always non-nil; a disabled recorder is a no-op (ADR 0055).
+	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
 	Perf *PerfService
 
 	PopupTerminals  *PopupTerminalsService
@@ -176,24 +176,24 @@ type App struct {
 	hiveDB   *coredb.DB
 
 	// agentCommands is agentCommands(hiveCfg)'s result: hive's agent profiles
-	// projected onto their bare command, with Flags dropped (ADR 0061). Set
+	// projected onto their bare command, with Flags dropped (ADR a-workspace-declares-its-own-authority). Set
 	// in openHiveRuntime, alongside every other hiveCfg-derived field.
 	agentCommands map[string]string
 
 	// terminals owns one tmux control-mode client per attached session slug.
-	// Its context is the app's lifetime, not a request's (ADR 0036).
+	// Its context is the app's lifetime, not a request's (ADR terminal-transport).
 	terminals *tmuxcc.Manager
 
-	// popupTerminals owns the ephemeral terminals a pop-up opens (ADR 0048).
+	// popupTerminals owns the ephemeral terminals a pop-up opens (ADR ephemeral-popup-terminals).
 	// They are this process's children, so unlike tmux's they end with Close.
 	popupTerminals *ptyterm.Manager
 
 	// tmux is the one place the tmux binary is discovered, shared by the
-	// terminal's control clients and Hive's session spawning (ADR 0039).
+	// terminal's control clients and Hive's session spawning (ADR tmux-discovery).
 	tmux *tmuxbin.Resolver
 
 	// execEnv is the environment every command the app spawns on the user's
-	// behalf runs in — session hooks, git, shell actions (ADR 0041).
+	// behalf runs in — session hooks, git, shell actions (ADR subprocess-environment).
 	execEnv *execenv.Resolver
 
 	// pollInterval is the validated, clamped interval the producer polls on.
@@ -254,7 +254,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 
 	// One client template backs both the fetch layer and the connect flow, so a
 	// development instance pointed at cmd/devserver never splits its traffic
-	// between the proxy and real GitHub. The API base is the ADR 0017 dev
+	// between the proxy and real GitHub. The API base is the ADR devserver-github-proxy dev
 	// override and is empty in shipped builds; the OAuth base is never
 	// redirected, so the device flow still reaches github.com.
 	gitHubOpts := []ghclient.Option{ghclient.WithLogger(cfg.Logger)}
@@ -511,7 +511,7 @@ func (a *App) RuntimePaths() settings.Paths { return a.paths }
 // loopback server is not running. It is what lets a workspace declare
 // hive-desktop in its mcps: list and get an address that actually answers —
 // mcpcatalog ships that entry with no URL, because the port is allocated at
-// startup (ADR 0073).
+// startup (ADR mcp-replaces-the-agent-facing-http-api).
 func (a *App) mcpEndpoint(ctx context.Context) string {
 	if a.Webhooks == nil {
 		return ""
@@ -561,7 +561,7 @@ func (a *App) Close() error {
 	// Before the webhook listener: a terminal WebSocket has hijacked its
 	// connection, which http.Server.Shutdown neither tracks nor closes, so the
 	// socket has to be brought down by closing the streams behind it first
-	// (ADR 0036). The context is a fresh one for the same reason Shutdown's is.
+	// (ADR terminal-transport). The context is a fresh one for the same reason Shutdown's is.
 	if a.terminals != nil {
 		stopCtx, cancel := context.WithTimeout(context.WithoutCancel(a.ctx), 3*time.Second)
 		_ = a.terminals.Stop(stopCtx)
@@ -1071,7 +1071,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 // agentCommands projects hive's agent profiles onto the one thing a workspace
 // may inherit from them. Flags are dropped here, at the seam, because hive's
 // profiles run --dangerously-skip-permissions and a workspace declares its own
-// authority instead (ADR 0061): agentws.Resolve validates the result is a
+// authority instead (ADR a-workspace-declares-its-own-authority): agentws.Resolve validates the result is a
 // single shell word, so a profile whose Command carries flags (re-inheriting
 // through the back door this function exists to close) is refused at launch
 // naming the agent, rather than silently spliced into the line.

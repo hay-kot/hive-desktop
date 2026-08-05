@@ -5,7 +5,7 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
 // How many sessions the terminal view keeps attached at once for instant
-// switching (ADR 0042). A module singleton like useTerminalShowWindows,
+// switching (ADR terminal-attach-pool). A module singleton like useTerminalShowWindows,
 // shared by SettingsView's control and TerminalMode's pool; settings.yaml is
 // the only store.
 export const terminalPoolSizes = [1, 2, 3, 4, 5, 6] as const

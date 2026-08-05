@@ -49,7 +49,7 @@ func TestValidate_RegisteredSets(t *testing.T) {
 	}
 }
 
-// The MCP cut-over (ADR 0073) retired the hive-http-api skill slug. A workspace
+// The MCP cut-over (ADR mcp-replaces-the-agent-facing-http-api) retired the hive-http-api skill slug. A workspace
 // still declaring it fails to open outright — resolveSkills refuses a slug no
 // prompt id backs — so the rename has to happen before the manifest is loaded.
 func TestAgentWorkspace_RenamesTheRetiredHTTPAPISkill(t *testing.T) {

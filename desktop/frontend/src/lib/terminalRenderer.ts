@@ -9,7 +9,7 @@ import type { ITerminalAddon, Terminal } from '@xterm/xterm'
  * The DOM renderer paints box drawing from the font's own glyphs and underlines
  * as text-decoration on per-cell inline-block spans, so neither joins across
  * cells at any font size or device pixel ratio. An atlas renderer strokes both
- * to the cell's own device-pixel bounds. ADR 0038.
+ * to the cell's own device-pixel bounds. ADR terminal-atlas-renderer.
  *
  * Call this **after** `term.open(host)`, never before: an unopened Terminal
  * makes the addon defer its activation to `open()` via `onWillOpen`, which
@@ -21,7 +21,7 @@ import type { ITerminalAddon, Terminal } from '@xterm/xterm'
  * restore a renderer on the way out. `record` reports whether one is live, on
  * the claim and again after a context loss — a failed claim is recorded rather
  * than swallowed so the caller's next reveal can retry it, which is the
- * invariant ADR 0045 asks of every path that claims a renderer.
+ * invariant ADR terminal-renderer-claimed-on-activation asks of every path that claims a renderer.
  */
 export function claimAtlasRenderer(
   term: Terminal,

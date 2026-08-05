@@ -16,14 +16,14 @@ var ErrSessionExists = errors.New("tmuxcc: session already exists")
 
 // NewSession creates a detached tmux session named name, in dir, running
 // command through a login shell. command is a shell command line rather than
-// an argv — the same contract ptyterm.Spec.Command uses (ADR 0041): tmux execs
+// an argv — the same contract ptyterm.Spec.Command uses (ADR subprocess-environment): tmux execs
 // the login shell directly with -c command as its own argv (more than one
 // trailing argument after new-session's flags is executed as-is, never
 // re-parsed by a shell), so the shell's aliases and functions resolve.
 // Empty command opens an interactive login shell instead.
 //
 // A login shell with -c is not an interactive one, so zsh reads .zprofile but
-// not .zshrc — the file a PATH is as often set in (ADR 0068). The environment
+// not .zshrc — the file a PATH is as often set in (ADR tmux-runs-in-the-resolved-environment). The environment
 // tmux itself is spawned with is therefore load-bearing rather than incidental:
 // a pane inherits the client that created it, so ManagerOptions.Environ is the
 // floor under whatever the startup files that do run add to it.
@@ -88,7 +88,7 @@ func (m *Manager) SessionNames(ctx context.Context, prefix string) ([]string, er
 
 // loginShellArgv is the argv new-session execs instead of the default shell:
 // $SHELL -l, plus -c command when one is given. It is deliberately not shared
-// with ptyterm's near-identical logic — ADR 0048 keeps tmuxcc and ptyterm
+// with ptyterm's near-identical logic — ADR ephemeral-popup-terminals keeps tmuxcc and ptyterm
 // sibling backends with no shared interface, and this is that same
 // command-line contract implemented for the other one.
 func loginShellArgv(command string) []string {

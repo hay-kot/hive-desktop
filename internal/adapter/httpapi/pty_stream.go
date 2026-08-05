@@ -13,7 +13,7 @@ import (
 )
 
 // The ptyterm data plane, shared by every caller that addresses a terminal by
-// id (ADR 0066) — today the pop-up, and a workspace session once phase 5 lands.
+// id (ADR ptyterm-terminals-are-caller-addressed) — today the pop-up, and a workspace session once phase 5 lands.
 // One socket carries exactly one terminal — the id is in the query string, not
 // in every frame — so output is a byte payload behind a single tag and
 // xterm.js writes it without a decode step.
@@ -26,7 +26,7 @@ import (
 const (
 	// PTYStreamPath is the data plane's mount path, under TerminalPathPrefix so
 	// the bearer token and CORS policy already guarding the terminal surface
-	// cover it (ADR 0048 point 4).
+	// cover it (ADR ephemeral-popup-terminals point 4).
 	PTYStreamPath = "/api/terminal/pty/stream"
 
 	popupFrameOutput byte = 0x00

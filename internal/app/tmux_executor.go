@@ -10,7 +10,7 @@ import (
 )
 
 // tmuxExecutor is Hive's shell executor with one substitution: a `tmux` command
-// runs the binary discovery found (ADR 0039). Session spawn, recycle and kill
+// runs the binary discovery found (ADR tmux-discovery). Session spawn, recycle and kill
 // all exec tmux by bare name from vendored code, so a desktop launch — whose
 // PATH holds no Homebrew or Nix prefix — cannot create a session at all without
 // this. Decorating the interface is what keeps internal/hivecore untouched.
@@ -41,7 +41,7 @@ func (e tmuxExecutor) RunDirStream(ctx context.Context, dir string, stdout, stde
 
 // resolve rewrites only the bare name, and only when discovery succeeds. A
 // failed lookup passes `tmux` through to the inner executor, which searches
-// the probe-derived PATH (ADR 0041) — a last-resort rescue for a tmux only
+// the probe-derived PATH (ADR subprocess-environment) — a last-resort rescue for a tmux only
 // the login shell knows about — before the user sees the OS's own "not found".
 func (e tmuxExecutor) resolve(cmd string) string {
 	if cmd != "tmux" {

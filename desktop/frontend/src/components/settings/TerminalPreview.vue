@@ -12,8 +12,8 @@ import '@xterm/xterm/css/xterm.css'
 // settings above it are only legible through the thing they configure: Canvas2D
 // does not inherit the `-webkit-font-smoothing: antialiased` the rest of the app
 // draws with, so a face renders heavier here than the same face does in the DOM
-// (ADR 0050), and box drawing is stroked to cell bounds rather than taken from
-// the font (ADR 0038). A CSS mock would be wrong in exactly the two places these
+// (ADR terminal-typography-is-configurable), and box drawing is stroked to cell bounds rather than taken from
+// the font (ADR terminal-atlas-renderer). A CSS mock would be wrong in exactly the two places these
 // settings are for.
 
 const {
@@ -26,7 +26,7 @@ const {
 } = useTerminalFont()
 const { theme } = useTheme()
 
-// The line-height check ADR 0051 leaves to the eye: a box whose verticals must
+// The line-height check ADR terminal-line-height-and-letter-spacing leaves to the eye: a box whose verticals must
 // meet across rows, block glyphs that must tile, and a run of prose long enough
 // to judge tracking against. The powerline segment is what the bundled symbol
 // face answers, so a family picked here that lacks one shows the fallback.
@@ -60,7 +60,7 @@ let disposed = false
 
 onMounted(async () => {
   // Before the Terminal is constructed: xterm measures its cell on open() and
-  // never re-measures, and the atlas caches whatever was resident (ADR 0038).
+  // never re-measures, and the atlas caches whatever was resident (ADR terminal-atlas-renderer).
   await loadTerminalFaces(fontFamily.value, fontSizePx.value, fontWeight.value, fontWeightBold.value)
   if (disposed || !host.value) return
 

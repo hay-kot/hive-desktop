@@ -5,7 +5,7 @@
 // and shell actions are the user's own commands, written against the PATH their
 // terminal has, so running them with the inherited one fails on anything a
 // package manager, a version manager or a language toolchain installed
-// (ADR 0041).
+// (ADR subprocess-environment).
 package execenv
 
 import (
@@ -39,7 +39,7 @@ var systemDirs = []string{
 
 // SearchDirs returns those prefixes plus the per-user ones. It is where a
 // binary lives when the environment does not say: tmuxbin searches the list for
-// one executable (ADR 0039), and the resolver appends it to PATH.
+// one executable (ADR tmux-discovery), and the resolver appends it to PATH.
 func SearchDirs() []string {
 	home, err := os.UserHomeDir()
 	if err != nil {

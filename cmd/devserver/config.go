@@ -285,7 +285,7 @@ func validateMutations(m Mutations) error {
 // $XDG_CACHE_HOME/hive/devserver/cache.db, falling back to ~/.cache.
 //
 // The cache dir, not the data dir, and deliberately blind to the desktop's
-// own data root. That root is the *app's* state, and ADR 0014 gives every
+// own data root. That root is the *app's* state, and ADR desktop-configuration gives every
 // worktree its own isolated copy that `desktop:dev:fresh` and
 // `desktop:dev:reset` exist to delete. Deriving from it would put the cache
 // somewhere different for every worktree and throw it away on reset —

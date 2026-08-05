@@ -496,7 +496,7 @@ func writeConfig(t *testing.T, body string) string {
 }
 
 // TestDefaultCachePathIsIsolatedFromAppState pins the cache to the XDG cache
-// dir and, specifically, off the desktop's data root. ADR 0014 gives every
+// dir and, specifically, off the desktop's data root. ADR desktop-configuration gives every
 // worktree an isolated instance that desktop:dev:reset exists to delete, so
 // deriving from it would give every worktree a different cache and discard it
 // on reset — losing the sharing and persistence the cache exists for.

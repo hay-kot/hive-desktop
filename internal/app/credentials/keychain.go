@@ -16,7 +16,7 @@ import (
 // keyringService is the keychain service every desktop credential is filed
 // under. The account within it is the Ref's string form, which is what gives
 // the store the provider and account dimensions a single-slot token store
-// cannot represent — the shape ADR 0013 replaced.
+// cannot represent — the shape ADR credential-store replaced.
 const keyringService = "sh.hive.desktop"
 
 // KeychainStore keeps values in the OS keychain and refs in a JSON index

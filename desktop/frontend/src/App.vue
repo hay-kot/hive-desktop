@@ -688,9 +688,9 @@ const hubActive = computed(() => mode.value === 'hub' && shellLoaded.value && !o
 // live tmux control clients and xterm screens bound to the elements they were
 // opened on, so tearing the mode down paid a full re-attach — process spawn,
 // pane capture, scrollback replay, renderer claim — on the way back in, and
-// the pool ADR 0042 warms stopped dead at the mode boundary. Hiding it is a
+// the pool ADR terminal-attach-pool warms stopped dead at the mode boundary. Hiding it is a
 // view change, not the end of the shell (same rule as PopupTerminal). The
-// Agents area gets the same treatment for the same reason (ADR 0054): it
+// Agents area gets the same treatment for the same reason (ADR terminal-mode-is-hidden-not-unmounted): it
 // holds live PTYs bound to the elements they were opened on, so unmounting on
 // a trip to the hub would end every running session's pane. Its `active` prop
 // — not mount — is what will drive phase 8's activity poll.
@@ -704,7 +704,7 @@ watch(agentsActive, (active) => { if (active) agentsMounted.value = true }, { im
 // pass through the picker on the way back to what was already open. The
 // agents path alone survives a reload (localStorage): it restores the focus
 // filter and the open chat, and ?chat reattaches only a still-live session
-// (ADR 0065) — never a relaunch — while a restored /terminal/:slug would
+// (ADR the-open-chat-rides-the-route) — never a relaunch — while a restored /terminal/:slug would
 // attach a tmux control client unconditionally, so terminal's stays
 // in-memory.
 let lastHubPath = ''
@@ -718,11 +718,11 @@ watch(() => route.fullPath, (path) => {
   else lastHubPath = path
 }, { immediate: true })
 
-// Terminal mode ships dark (experimental.terminal, ADR 0037): until the probe
+// Terminal mode ships dark (experimental.terminal, ADR terminal-experimental-gate): until the probe
 // answers true, the toggle into it does not render at all. Availability is a
 // separate axis — an enabled-but-unavailable terminal explains itself inside
 // the mode. The Agents area follows the same shape behind experimental.agents
-// (ADR 0061).
+// (ADR a-workspace-declares-its-own-authority).
 const terminalEnabled = ref(false)
 const agentsEnabled = ref(false)
 onMounted(() => {
@@ -794,7 +794,7 @@ const onScreenSessionSlug = computed(() =>
   (route.name === 'terminal' && typeof route.params.slug === 'string' ? route.params.slug : ''))
 
 // The pop-up terminal opens in the checkout of whichever session is on screen,
-// and in the user's home when none is (ADR 0048). The panel is mounted on first
+// and in the user's home when none is (ADR ephemeral-popup-terminals). The panel is mounted on first
 // use and stays mounted: hiding it is a view change, not the end of the shell.
 const popupTerminal = usePopupTerminal()
 const popupTerminalMounted = ref(false)
@@ -827,7 +827,7 @@ const { sessions: itemSessions, load: loadItemSessions, refresh: refreshItemSess
 watch(() => selectedItem.value?.id ?? null, (itemID) => { void loadItemSessions(itemID) }, { immediate: true })
 useWailsEvent('jobs:updated', () => { void refreshItemSessions() })
 
-// Attaching is terminal mode's job; the route is the attach state (ADR 0036),
+// Attaching is terminal mode's job; the route is the attach state (ADR terminal-transport),
 // so linking through is a navigation and nothing here touches tmux.
 function openItemSession(slug: string): void {
   void router.push({ name: 'terminal', params: { slug } })
@@ -1176,7 +1176,7 @@ onUnmounted(() => {
         :active="terminalActive"
         :sidebar-collapsed="terminalSidebarCollapsed"
       />
-      <!-- Same treatment as terminal mode, for the same reason (ADR 0054):
+      <!-- Same treatment as terminal mode, for the same reason (ADR terminal-mode-is-hidden-not-unmounted):
            mount-once, hidden with v-show rather than unmounted. -->
       <AgentsMode
         v-if="agentsMounted"

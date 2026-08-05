@@ -46,8 +46,8 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
 // mode is the app-level Inbox|Code|Agents switch. The group renders once any
-// second mode is enabled — terminalEnabled (ADR 0037) or agentsEnabled
-// (ADR 0061) — with each optional segment carrying its own v-if, and once a
+// second mode is enabled — terminalEnabled (ADR terminal-experimental-gate) or agentsEnabled
+// (ADR a-workspace-declares-its-own-authority) — with each optional segment carrying its own v-if, and once a
 // segment is rendered it is never disabled, because an unavailable terminal
 // or Agents area explains itself inside the mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run

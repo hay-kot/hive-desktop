@@ -4,7 +4,7 @@
 // data, and pushes webhook payloads at a running instance's local listener.
 //
 // It is development tooling: loopback only, no credentials of its own, and
-// nothing in the shipped app depends on it. See README.md and ADR 0017.
+// nothing in the shipped app depends on it. See README.md and ADR devserver-github-proxy.
 package main
 
 import (
@@ -139,7 +139,7 @@ func newHandler(control *Control, proxy *Proxy, logger zerolog.Logger) http.Hand
 }
 
 // awaitListener binds addr, standing by until it is free. The proxy is a
-// singleton (ADR 0017), so the first process to bind serves every worktree and
+// singleton (ADR devserver-github-proxy), so the first process to bind serves every worktree and
 // the rest park here instead of exiting: when the live one stops, a standby
 // takes over and the worktrees still pointed at the port keep working.
 //

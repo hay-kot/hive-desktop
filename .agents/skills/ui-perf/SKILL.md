@@ -7,7 +7,7 @@ compatibility: Requires a desktop instance from this worktree with development.p
 # Measure a slow UI interaction
 
 `usePerf` records **spans** — one completed operation with a duration, a name,
-and free-form attributes — to a JSONL file the Go side owns (ADR 0055). Every
+and free-form attributes — to a JSONL file the Go side owns (ADR ui-performance-spans-are-recorded-to-jsonl). Every
 sample is kept; nothing is aggregated at write time, so the outlier that is
 usually the actual bug survives to the analysis step.
 
@@ -17,7 +17,7 @@ Pick the right tool first:
   open, a fetch whose cost is unclear — is this skill. It measures what the user
   actually waits for, RPC and render included.
 - **A hot *Go* path** — CPU in the producer, the flow engine, a store query — is
-  pprof (ADR 0023), enabled with `development.pprof.enabled` and mounted at
+  pprof (ADR pprof-debug-endpoint), enabled with `development.pprof.enabled` and mounted at
   `/debug/pprof/` on the loopback server. These numbers are not comparable;
   a span includes time pprof never sees.
 
@@ -159,7 +159,7 @@ Remove what was pure noise; keep what would help the next investigation.
 ## Guardrails
 
 - **Do not add aggregation, a summary endpoint, or a metrics exporter.** The raw
-  file is the interface by decision (ADR 0055) — the reasoning against
+  file is the interface by decision (ADR ui-performance-spans-are-recorded-to-jsonl) — the reasoning against
   pre-aggregated metrics is in that ADR, so read it before proposing one.
 - **Do not interpolate varying values into `name`.** It is the single most
   common way to make a run unanalyzable.

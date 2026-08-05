@@ -103,7 +103,7 @@ type Appearance struct {
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached at
-	// once for instant switching (ADR 0042). Like the other appearance values it
+	// once for instant switching (ADR terminal-attach-pool). Like the other appearance values it
 	// is carried verbatim and healed by the frontend: anything outside 1-6 reads
 	// as the default, 3.
 	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
@@ -115,7 +115,7 @@ type ExperimentalSettings struct {
 	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
 	// Agents gates the Agents area (spec-tracked as hc-49x3i833). Like Terminal
 	// it governs both a control plane and the PTY stream a session rides, both
-	// under the token-guarded /api/terminal/ prefix — see ADR 0061.
+	// under the token-guarded /api/terminal/ prefix — see ADR a-workspace-declares-its-own-authority.
 	Agents bool `yaml:"agents" env:"HIVE_DESKTOP_EXPERIMENTAL_AGENTS"`
 }
 
@@ -127,7 +127,7 @@ type AgentWorkspacesSettings struct {
 }
 
 // PathsSettings locates the external binaries the app execs. Each is the escape
-// hatch for an install discovery does not know about (ADR 0039): empty — the
+// hatch for an install discovery does not know about (ADR tmux-discovery): empty — the
 // shipped value — searches PATH and the usual package-manager prefixes.
 type PathsSettings struct {
 	Tmux string `yaml:"tmux,omitempty" env:"HIVE_DESKTOP_PATHS_TMUX"`
@@ -136,7 +136,7 @@ type PathsSettings struct {
 // EditorSettings names the editor "Open in editor" actions launch on a
 // directory. Command is a single word — a CLI launcher name (zed, code) or an
 // absolute path — never a command line: the same rule agent commands follow
-// (ADR 0061), so a flag cannot ride in through a settings string. Empty means
+// (ADR a-workspace-declares-its-own-authority), so a flag cannot ride in through a settings string. Empty means
 // none configured.
 type EditorSettings struct {
 	Command string `yaml:"command,omitempty" env:"HIVE_DESKTOP_EDITOR_COMMAND"`
@@ -183,13 +183,13 @@ type ServerSettings struct {
 }
 
 // PprofSettings gates the pprof endpoint; when enabled it mounts on the shared
-// HTTP server (ADR 0023), so it has no host/port of its own.
+// HTTP server (ADR pprof-debug-endpoint), so it has no host/port of its own.
 type PprofSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED"`
 }
 
 // PerfSettings gates the UI performance recorder, which appends spans the
-// frontend emits to perf.jsonl under the state directory (ADR 0055). Off in a
+// frontend emits to perf.jsonl under the state directory (ADR ui-performance-spans-are-recorded-to-jsonl). Off in a
 // shipped build; desktop:dev turns it on through launch.env.
 type PerfSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
@@ -206,7 +206,7 @@ type DebugSettings struct {
 const EnvGitHubAPIBase = "HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE"
 
 // GitHubDevSettings redirects the GitHub REST/GraphQL base at cmd/devserver,
-// the development caching proxy and event simulator (ADR 0017). Empty — the
+// the development caching proxy and event simulator (ADR devserver-github-proxy). Empty — the
 // shipped value — means api.github.com.
 //
 // Only the API base moves. The OAuth base stays github.com: a device-flow
@@ -347,7 +347,7 @@ func (s Settings) Validate() error {
 	if s.Development.Instance.ID != "" && strings.ContainsAny(s.Development.Instance.ID, `/\\`) {
 		return fmt.Errorf("development.instance.id must not contain path separators")
 	}
-	// Loopback-only, for the same reason the webhook listener is (ADR 0007):
+	// Loopback-only, for the same reason the webhook listener is (ADR local-webhook-listener):
 	// this value redirects an authenticated GitHub client, so the only host
 	// allowed to receive that traffic is one on this machine. Because it is
 	// enforced here, it holds for a value arriving from settings.yaml and from

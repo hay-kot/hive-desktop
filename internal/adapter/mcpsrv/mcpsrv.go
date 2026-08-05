@@ -1,22 +1,22 @@
 // Package mcpsrv is the agent-facing MCP adapter over app.App: the desktop's
 // capabilities as MCP tools, served over Streamable HTTP on the same loopback
-// server that hosts the webhook listener (ADR 0021). It replaces the REST
+// server that hosts the webhook listener (ADR agent-http-api). It replaces the REST
 // control surface that preceded it — an agent discovers what the app can do
-// through tools/list rather than an OpenAPI document (ADR 0073).
+// through tools/list rather than an OpenAPI document (ADR mcp-replaces-the-agent-facing-http-api).
 //
 // Two properties are load-bearing:
 //
 // The server is stateless, so every request carries its own short-lived
 // session. Nothing here holds a client between calls, which is what lets the
 // adapter join no lifecycle at all: there are no long-lived SSE streams for
-// App.Close to unwind, and the shutdown hazard ADR 0036 records for the
+// App.Close to unwind, and the shutdown hazard ADR terminal-transport records for the
 // terminal WebSocket does not arise.
 //
 // The tool set is reads and safe mutations only. Anything that spawns a
 // process — terminal and agent-workspace session control — stays on httpapi's
 // token-guarded terminal prefix, which is why this surface can keep the
-// unauthenticated-behind-loopback posture the REST API had (ADR 0036,
-// ADR 0061).
+// unauthenticated-behind-loopback posture the REST API had (ADR terminal-transport,
+// ADR a-workspace-declares-its-own-authority).
 package mcpsrv
 
 import (

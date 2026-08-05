@@ -2,7 +2,7 @@ name: CI
 
 # The push trigger exists to seed caches, not for post-merge signal: a PR run
 # can only restore caches from its own ref scope or from the default branch's,
-# so without a run on main every PR starts cold. See ADR 0071.
+# so without a run on main every PR starts cold. See ADR ci-runs-on-main-to-seed-the-cache-prs-read.
 on:
   pull_request:
   push:
@@ -23,7 +23,7 @@ env:
 jobs:
   # Split from go-quality so the race-detector test run and the analysis tools
   # overlap rather than queue; both pay the toolchain setup, which is the cost
-  # the split trades against. See ADR 0071.
+  # the split trades against. See ADR ci-runs-on-main-to-seed-the-cache-prs-read.
   go:
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +33,7 @@ jobs:
       # Linux (GTK3 is opt-in via -tags gtk3, which nothing here passes).
       # tmux is a test dependency, not a build one: the terminal integration
       # tests attach a real control-mode client and skip themselves without it,
-      # which would silently drop the only proof the transport works (ADR 0036).
+      # which would silently drop the only proof the transport works (ADR terminal-transport).
       - name: Install Linux desktop build dependencies
         run: sudo apt-get update -q && sudo apt-get install -y -q libgtk-4-dev libwebkitgtk-6.0-dev tmux
 
@@ -59,6 +59,12 @@ jobs:
 
       - name: Check vendored hivecore matches the pinned hive commit
         run: mise run check:vendor
+
+      # Two branches can add an ADR without git conflicting, so nothing but this
+      # would notice a duplicate slug, a citation left pointing at a renamed
+      # decision, or an index that was merged but not regenerated.
+      - name: Check ADR ids, citations, and index
+        run: mise run check:adr
 
       - name: Build
         run: go build ./...

@@ -60,7 +60,7 @@ describe('loadTerminalFaces', () => {
   })
 
   // xterm measures its cell once on open and the atlas caches what was
-  // resident, so a bold or italic face arriving late stays wrong. ADR 0038.
+  // resident, so a bold or italic face arriving late stays wrong. ADR terminal-atlas-renderer.
   it('loads both weights and the italic of each', async () => {
     await loadTerminalFaces('', 13, 300, 700)
 

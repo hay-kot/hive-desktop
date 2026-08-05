@@ -12,7 +12,7 @@ import (
 
 // The pop-up surface sits under TerminalPathPrefix so the bearer token and the
 // CORS policy that guard the terminal control plane cover it without a second
-// rule — a PTY is arbitrary command execution just as tmux is (ADR 0036). What
+// rule — a PTY is arbitrary command execution just as tmux is (ADR terminal-transport). What
 // is behind it is not a tmux session and is addressed by id rather than by
 // slug, so it is its own path space rather than more verbs on the tmux one.
 const (

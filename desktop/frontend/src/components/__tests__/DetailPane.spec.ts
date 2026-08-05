@@ -57,7 +57,7 @@ describe('DetailPane', () => {
     expect(wrapper.emitted('open-session')).toBeUndefined()
   })
 
-  // Terminal mode ships dark (ADR 0037): with it off there is nowhere to
+  // Terminal mode ships dark (ADR terminal-experimental-gate): with it off there is nowhere to
   // attach, so the rows stay a record of what ran.
   it('does not offer to attach while terminal mode is off', async () => {
     const wrapper = mount(DetailPane, { props: { item, actions, sessions: [session()] } })
