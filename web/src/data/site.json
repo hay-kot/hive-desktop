@@ -10,12 +10,14 @@
     { "label": "Features", "href": "#features" },
     { "label": "How it works", "href": "#flow" },
     { "label": "The app", "href": "#surfaces" },
+    { "label": "Compare", "href": "/compare" },
     { "label": "Docs", "href": "/docs" },
     { "label": "Pricing", "href": "#pricing" }
   ],
   "navCta": { "label": "Request access", "href": "#beta" },
   "footerLinks": [
     { "label": "Docs", "href": "/docs" },
+    { "label": "Compare", "href": "/compare" },
     { "label": "GitHub", "href": null },
     { "label": "Changelog", "href": null },
     { "label": "Join beta", "href": "#beta" },

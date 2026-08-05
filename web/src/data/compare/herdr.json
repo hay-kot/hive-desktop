@@ -1,0 +1,187 @@
+{
+  "slug": "herdr",
+  "them": {
+    "name": "Herdr",
+    "url": "https://herdr.dev",
+    "quote": "the runtime your coding agents live on — laptop, desktop, or a box you rent",
+    "summary": "A terminal multiplexer written in Rust that runs inside the terminal you already use. It knows which of its panes hold coding agents and what state each one is in, keeps them alive on a background server through reboots and dropped connections, and lets you attach to that server from somewhere else over SSH."
+  },
+  "thesis": "Herdr runs the agents you started. Hive decides which work reaches you in the first place.",
+  "description": "Herdr is where your agents live. Hive is where your work arrives. What each one is actually for, and where each loses.",
+  "complement": false,
+  "verdict": {
+    "chooseThem": [
+      "You need agent sessions that survive a closed lid, a dropped network, or a reboot.",
+      "You want to reach those sessions from somewhere else over SSH.",
+      "You run many different agent CLIs and want session restore across all of them.",
+      "You want it free, open source, and inside the terminal you already have."
+    ],
+    "chooseUs": [
+      "Your day is set by review requests, CI and alerting rather than by a task you already picked.",
+      "You want GitHub, firing alerts and webhook deliveries in one queue.",
+      "You want a notification you can trust instead of a sidebar you have to keep looking at.",
+      "You want the routing rules to be files you can diff, and that your coding agent can write."
+    ]
+  },
+  "us": "Hive is a desktop app that watches things outside your machine — GitHub search and notifications, Grafana alerts and PromQL, and a local endpoint anything can POST to — and routes what arrives through rules you own into feeds you triage. An item can then launch an agent session, run a command, or publish a message.",
+  "difference": {
+    "title": "Different layer, not different features",
+    "body": [
+      "Herdr's event universe is the processes it started. It has no GitHub integration, no webhook ingress, and nothing that polls anything — because that is not the job it took. It assumes you already know what work to do, and makes running that work reliable and reachable.",
+      "Hive's job begins one step earlier, on the question Herdr does not ask: of everything that happened since you last looked, what deserves you? That is why the two barely overlap in the part that matters, and why running both is a coherent setup rather than a redundant one."
+    ]
+  },
+  "theirWins": [
+    {
+      "title": "Sessions that genuinely persist",
+      "body": "A background server keeps agents running through lid-close, network loss and reboot, and brings the layout back afterwards. Hive's chats are tmux sessions too, so they survive closing the app — but nothing reattaches them for you across a reboot."
+    },
+    {
+      "title": "Remote access",
+      "body": "Attach to the same session from anything with a keyboard over SSH. Hive is a desktop app; there is no thin client and no remote attach."
+    },
+    {
+      "title": "It is a real multiplexer",
+      "body": "Split panes, mouse-first navigation, a large plugin ecosystem, and layout export. Hive's Code mode attaches to tmux and lists windows; it has no split panes and ships experimental."
+    },
+    {
+      "title": "Breadth of agent support",
+      "body": "Session restore through official session references for roughly sixteen agent CLIs. Hive launches two: Claude Code and Codex."
+    },
+    {
+      "title": "Free and open source",
+      "body": "Apache-2.0 as of August 2026, with no paid tier. Hive is proprietary and costs money."
+    }
+  ],
+  "ourWins": [
+    {
+      "title": "It watches things off your machine",
+      "body": "GitHub search across multiple accounts, your notification inbox, Grafana alerts keyed by fingerprint, PromQL expressions, and webhook deliveries on a local endpoint. Polling honours conditional requests and GitHub's own poll-interval hints."
+    },
+    {
+      "title": "Notifications that are engineered",
+      "body": "Herdr raises no OS notifications at all — agent state lives in its sidebar, which means seeing it requires looking at it. Hive raises system banners deduplicated on the change itself, floored by a cooldown, and dropped rather than replayed in a burst if they went stale while you were away."
+    },
+    {
+      "title": "A durable queue, not a view of processes",
+      "body": "Items persist with read, archive and ignore state that survives editing the rules around them. Change a filter and the queue recomputes without losing an item or its history."
+    },
+    {
+      "title": "Rules you own and can hand to an agent",
+      "body": "Nine node types wired on a canvas and stored as YAML in your dotfiles, with a JavaScript function node and durable per-node memory. Hive installs generated skill files into your coding agent's config directory so it can write those rules for you."
+    }
+  ],
+  "rows": [
+    {
+      "label": "Sessions reattach themselves after a reboot",
+      "them": {
+        "value": "yes"
+      },
+      "us": {
+        "value": "no",
+        "note": "tmux keeps them; Hive won't restore them for you"
+      }
+    },
+    {
+      "label": "Remote attach over SSH",
+      "them": {
+        "value": "yes"
+      },
+      "us": {
+        "value": "no",
+        "note": "desktop app only"
+      }
+    },
+    {
+      "label": "Split panes",
+      "them": {
+        "value": "yes"
+      },
+      "us": {
+        "value": "no"
+      }
+    },
+    {
+      "label": "Runs inside your existing terminal",
+      "them": {
+        "value": "yes"
+      },
+      "us": {
+        "value": "no",
+        "note": "it is the window"
+      }
+    },
+    {
+      "label": "Open source",
+      "them": {
+        "value": "yes",
+        "note": "Apache-2.0 as of Aug 2026"
+      },
+      "us": {
+        "value": "no",
+        "note": "proprietary, one-time license"
+      }
+    },
+    {
+      "label": "Agent CLIs with session restore",
+      "them": {
+        "value": "yes",
+        "note": "roughly sixteen"
+      },
+      "us": {
+        "value": "partial",
+        "note": "launches Claude Code and Codex"
+      }
+    },
+    {
+      "label": "Ingests GitHub, alerts or webhooks",
+      "them": {
+        "value": "no",
+        "source": "https://herdr.dev/docs/integrations/",
+        "note": "integrations are agent CLIs, not event sources"
+      },
+      "us": {
+        "value": "yes"
+      }
+    },
+    {
+      "label": "OS notifications",
+      "them": {
+        "value": "no",
+        "source": "https://herdr.dev/docs/agents/",
+        "note": "state is shown in its own sidebar"
+      },
+      "us": {
+        "value": "yes",
+        "note": "dedup, cooldown, staleness dropping"
+      }
+    },
+    {
+      "label": "A durable queue of incoming work",
+      "them": {
+        "value": "n/a",
+        "note": "manages sessions, not intake"
+      },
+      "us": {
+        "value": "yes"
+      }
+    },
+    {
+      "label": "Routing rules as files you can diff",
+      "them": {
+        "value": "n/a"
+      },
+      "us": {
+        "value": "yes",
+        "note": "YAML in your config directory"
+      }
+    }
+  ],
+  "both": {
+    "title": "Run both",
+    "body": "They do not overlap where it counts. Let Herdr own where your agents live and how you reach them; let Hive own which work should reach you. Hive can launch a session from an item, and what happens to that session afterwards is Herdr's business, not Hive's."
+  },
+  "closing": "Herdr answers where your agents live. Hive answers which work should reach you. If you already know what to type into the agent, you do not need Hive. If GitHub, CI and your alerting decide your day for you, Herdr will not help — that is the part Hive does.",
+  "verifiedAt": "2026-08-05",
+  "theirVersion": "v0.8.0"
+}

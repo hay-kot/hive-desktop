@@ -1,6 +1,7 @@
 import type { APIRoute } from "astro";
 import { getCollection } from "astro:content";
 
+import { comparisons } from "../data/compare";
 import { docHref } from "../lib/docs";
 
 /**
@@ -11,7 +12,12 @@ import { docHref } from "../lib/docs";
  */
 export const GET: APIRoute = async ({ site }) => {
   const docs = await getCollection("docs", ({ data }) => !data.draft);
-  const paths = ["/", ...docs.map(docHref)];
+  const paths = [
+    "/",
+    "/compare",
+    ...comparisons.map((entry) => `/compare/${entry.slug}`),
+    ...docs.map(docHref),
+  ];
   const urls = paths.map((path) => `  <url><loc>${new URL(path, site)}</loc></url>`);
 
   return new Response(

@@ -1,0 +1,140 @@
+---
+import Footer from "../../components/Footer.astro";
+import Nav from "../../components/Nav.astro";
+import SignupDialog from "../../components/SignupDialog.astro";
+import { comparisons, hub } from "../../data/compare";
+import Base from "../../layouts/Base.astro";
+---
+
+<Base title={`${hub.title} · Hive`} description={hub.description}>
+  <Nav />
+  <main class="shell hub">
+    <header class="hub__head">
+      <div class="eyebrow">{hub.eyebrow}</div>
+      <h1 class="hub__title">{hub.title}</h1>
+      <p class="hub__intro">{hub.intro}</p>
+    </header>
+
+    <div class="hub__grid">
+      {
+        comparisons.map((entry) => (
+          <a class="card" href={`/compare/${entry.slug}`}>
+            <h2 class="card__title">
+              Hive {entry.complement ? "with" : "vs"} {entry.them.name}
+            </h2>
+            <p class="card__thesis">{entry.thesis}</p>
+            <div class="card__foot mono">Checked {entry.verifiedAt} →</div>
+          </a>
+        ))
+      }
+    </div>
+
+    <section class="argument">
+      <h2 class="argument__title">{hub.argument.title}</h2>
+      {hub.argument.body.map((para) => <p class="argument__body">{para}</p>)}
+    </section>
+  </main>
+  <Footer />
+  <SignupDialog />
+</Base>
+
+<style>
+  .hub {
+    padding-block: 72px 40px;
+  }
+
+  .hub__head {
+    max-width: 720px;
+    margin-bottom: 36px;
+  }
+
+  .hub__title {
+    margin-top: 12px;
+    font-size: clamp(30px, 4.6vw, 44px);
+    font-weight: 600;
+    letter-spacing: -0.03em;
+  }
+
+  .hub__intro {
+    margin-top: 18px;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+
+  .hub__grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px;
+  }
+
+  @media (max-width: 760px) {
+    .hub__grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 24px 24px 20px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    color: inherit;
+    text-decoration: none;
+    transition:
+      transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.3s;
+  }
+
+  .card:hover {
+    transform: translateY(-3px);
+    border-color: #565863;
+  }
+
+  .card__title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .card__thesis {
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+
+  .card__foot {
+    margin-top: auto;
+    padding-top: 12px;
+    font-size: 11px;
+    color: var(--text-ghost);
+  }
+
+  .argument {
+    margin-top: 56px;
+    max-width: 720px;
+  }
+
+  .argument__title {
+    font-size: clamp(20px, 2.6vw, 26px);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin-bottom: 16px;
+  }
+
+  .argument__body {
+    font-size: 14.5px;
+    line-height: 1.7;
+    color: var(--text-muted);
+    text-wrap: pretty;
+  }
+
+  .argument__body + .argument__body {
+    margin-top: 14px;
+  }
+</style>
