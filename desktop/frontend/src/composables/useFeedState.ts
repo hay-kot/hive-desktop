@@ -309,10 +309,13 @@ export function useFeedState() {
       const imageHashByNode: Record<string, string> = {}
       const countByKind = new Map<string, number>()
       for (const n of nodes) {
-        if (n.type === 'sources.webhook' && n.icon) icons[n.id] = n.icon
-        if (n.type === 'sources.webhook' && n.image) imageHashByNode[n.id] = n.image
         const nodeSourceKind = sourceKindForNodeType(n.type)
-        if (nodeSourceKind) countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
+        if (!nodeSourceKind) continue
+        // Keyed by node id because that is the sourceScope every source node
+        // carrying its own mark ingests under.
+        if (n.icon) icons[n.id] = n.icon
+        if (n.image) imageHashByNode[n.id] = n.image
+        countByKind.set(nodeSourceKind, (countByKind.get(nodeSourceKind) ?? 0) + 1)
       }
       sourceIcons.value = icons
       // Resolve mark hashes to data URLs; a stale resolve is dropped by feedsSeq.

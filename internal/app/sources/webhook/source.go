@@ -10,6 +10,7 @@ package webhook
 import (
 	"fmt"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 )
 
@@ -18,7 +19,7 @@ import (
 // exists so the listener can resolve which nodes serve a path and with what
 // classification.
 func NewFactory() connector.Factory {
-	events := classifier{}
+	events := canonical.Classifier{}
 
 	return connector.Factory{
 		New: func(node connector.Node, cfg connector.Config) (connector.Instance, error) {

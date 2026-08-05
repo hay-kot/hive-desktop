@@ -30,6 +30,7 @@ var feed = map[string]bool{
 	"package":          true,
 	"rocket":           true,
 	"clock":            true,
+	"terminal":         true,
 }
 
 // launcher is the scoped set of glyphs a pop-up terminal launcher may carry in

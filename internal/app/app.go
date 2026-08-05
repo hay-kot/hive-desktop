@@ -32,6 +32,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/skills"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
+	execsource "github.com/hay-kot/hive-desktop/internal/app/sources/exec"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
@@ -796,7 +797,7 @@ func (a *App) RefreshSources(ctx context.Context) (ingest.TickSummary, error) {
 	if a.fetchers != nil {
 		a.fetchers.InvalidateAll()
 	}
-	return a.producer.Tick(ctx), nil
+	return a.producer.Refresh(ctx), nil
 }
 
 // MountAPI mounts h onto the loopback webhook listener at prefix so the HTTP API
@@ -839,15 +840,16 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.execEnv), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, env execsource.Environment) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
-		webhook.Descriptor.Type: webhook.NewFactory(),
+		webhook.Descriptor.Type:    webhook.NewFactory(),
+		execsource.Descriptor.Type: execsource.NewFactory(env),
 	}
 	// Mock modes have no fetchers, so the GitHub connector has nothing to
 	// construct instances over and is left out of the map: resolving one logs

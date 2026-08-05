@@ -228,3 +228,60 @@ func TestLoadFlow_CurrentFileIsNotRewritten(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, before, after, "load path is pure Apply and must never write")
 }
+
+// A source connector's config reaches the loader through SourceConfig's strict
+// decode, and the exec connector is the first one whose fields are not all
+// strings — a duration and a map. This is the whole path a hand-authored flow
+// takes: parse, validate, and save back to the same shape.
+func TestLoadFlow_ExecSourceRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "oncall.yaml", `version: 1
+name: On-call
+enabled: true
+nodes:
+  - id: src
+    type: sources.exec
+    command: gcx irm oncall alert-groups list -o json
+    timeout: 30s
+    interval: 1h
+    cwd: ~/src
+    env:
+      GCX_PROFILE: prod
+  - id: inbox
+    type: feed
+    name: On-call
+wires:
+  - from: src
+    to: inbox
+`)
+
+	f, warnings, err := LoadFlow(path, testRefs{})
+	require.NoError(t, err)
+	assert.Empty(t, warnings)
+	require.Len(t, f.Nodes, 2)
+
+	require.NoError(t, SaveFlow(path, f))
+	saved, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(saved), "timeout: 30s", "a duration must not round-trip as a nanosecond count")
+	assert.Contains(t, string(saved), "GCX_PROFILE: prod")
+}
+
+// An unknown key in a connector's config is a typo the author must see, not a
+// field silently dropped on the next save.
+func TestLoadFlow_ExecSourceRejectsAnUnknownField(t *testing.T) {
+	dir := t.TempDir()
+	path := writeFlow(t, dir, "oncall.yaml", `version: 1
+name: On-call
+enabled: true
+nodes:
+  - id: src
+    type: sources.exec
+    command: echo '[]'
+    timeout: 30s
+    shell: fish
+`)
+
+	_, _, err := LoadFlow(path, testRefs{})
+	require.ErrorContains(t, err, "shell")
+}

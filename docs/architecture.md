@@ -447,9 +447,34 @@ specified rather than left to grow. ADR 0012 records why.
   `AbsenceConfirmer` is asked once per tick over the whole absent set;
   verdicts return keyed by external id, not positionally, and a terminal
   verdict removes the item from the tracked set permanently. See ADR 0019.
+- **A failed `Produce` is not an empty snapshot.** A successful call is
+  authoritative, so returning nil on a broken fetch archives every item the
+  source owns. A connector that can fail partway decodes its whole result
+  before the first `emit`, so a run cannot half-succeed — and where truncation
+  is possible it fails rather than truncates, because truncated-but-parseable
+  output *is* a short snapshot. ADR 0072.
+- **Cadence is a floor on the instance, not a second scheduler.** There is one
+  ticker (`settings.polling.interval`); an instance whose cost does not suit it
+  sets `Instance.MinInterval` and the producer skips it until it is due,
+  quantized to the tick. Not drained is not drained-empty: `Produce` is not
+  called, so nothing about the tracked set changes. `Producer.Refresh` — what a
+  manual refresh calls — ignores every floor. Zero, the default, is every tick.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.
+- **A payload the user shapes uses the canonical item contract, once.**
+  `sources/canonical` holds the `state` vocabulary and the classifier that maps
+  it to lifecycle. A connector whose payload is user-authored JSON (a webhook
+  delivery, a command's stdout) names that classifier rather than interpreting
+  "resolved" a second way — the same contract must mean the same thing whichever
+  door an item came through.
+- **A connector that runs the user's command runs a fixed string.** Nothing
+  ingested may be templated into it: `sources.exec` is as trusted as the flow
+  file it is written in, and only that. Config directories already carry
+  `actions.yml`'s shell executor and `function` nodes' JavaScript, so the
+  boundary is the directory, not the node — but a command built from fetched
+  data would move it, which is why it is forbidden rather than discouraged
+  (ADR 0072).
 
 Connector type strings are namespaced — `sources.github`, `sources.webhook` —
 so connectors group and sort together everywhere node types are enumerated:
@@ -794,6 +819,13 @@ Three rules follow for anything new that spawns a process on the user's behalf:
 - **A streamed command's failure carries the opening of its stderr.** Hive
   streams hook output to `io.Discard`, so without it a missing command reaches
   the jobs list as an exit status naming nothing.
+- **A command on a timer takes the resolver's answer, never its own probe**
+  (ADR 0072). `sources.exec` runs on every poll tick, so `$SHELL -ilc` per run
+  would charge each one the user's version-manager initialization and make a
+  slow rc file a randomly-blown timeout. The resolver probes once per run and
+  remembers; that is the whole point of it. Aliases are the deliberate cost —
+  they are interactive-shell sugar, and a config file that depends on one is not
+  reproducible on another machine.
 
 ### App modes
 

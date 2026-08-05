@@ -1,0 +1,53 @@
+// Runs on the backend (internal/app/sources/exec); role 'source' means no runtime.ts here.
+
+import IconTerminal from '~icons/lucide/terminal'
+
+export const type = 'sources.exec'
+export const role = 'source' as const
+export const sourceKind = 'exec'
+
+export interface Config {
+  /** The shell command line, run through `sh -c` on each poll tick. */
+  command: string
+  /** Go duration string bounding one run. Required. */
+  timeout: string
+  cwd?: string
+  env?: Record<string, string>
+  /** Go duration string: the shortest time between runs. */
+  interval?: string
+  icon?: string
+}
+
+export const label = 'Command source'
+export const category = 'Sources' as const
+export const glyph = IconTerminal
+// Source nodes share the sources.github cap color.
+export const accentToken = 'var(--color-node-blue)'
+export const tint = 'var(--color-node-blue-tint)'
+
+export const defaults: Config = {
+  command: '',
+  timeout: '30s',
+}
+
+/** Mirrors Go's connector.Duration: a Go duration string, never a bare number. */
+const DURATION = /^\d+(\.\d+)?(ns|us|µs|ms|s|m|h)([\d.]+(ns|us|µs|ms|s|m|h))*$/
+
+/** UX-only — Go's SaveFlow validator is authoritative. */
+export function validate(config: Config): string[] {
+  const errors: string[] = []
+  if (!(config.command ?? '').trim()) errors.push('a command is required')
+
+  const timeout = (config.timeout ?? '').trim()
+  if (!timeout) errors.push('a timeout is required, like "30s"')
+  else if (!DURATION.test(timeout)) errors.push('timeout must be a duration like "30s", not a bare number')
+
+  const interval = (config.interval ?? '').trim()
+  if (interval && !DURATION.test(interval)) errors.push('interval must be a duration like "1h", not a bare number')
+
+  const cwd = (config.cwd ?? '').trim()
+  if (cwd && !cwd.startsWith('/') && cwd !== '~' && !cwd.startsWith('~/')) {
+    errors.push('cwd must be an absolute path')
+  }
+  return errors
+}

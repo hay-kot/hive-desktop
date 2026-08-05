@@ -93,6 +93,14 @@ measurement or compaction failures are logged and startup continues.
 `feed.LiveProvider.SourceItems` for cached and conditional GitHub requests,
 then passes each observation to `DB.IngestObservation`.
 
+An instance may declare a `MinInterval` — the exec source's `interval` field is
+the only one that does today — and the tick skips it until that floor expires.
+There is still one ticker, so the floor is quantized to it, and a skipped source
+produces nothing at all rather than an empty snapshot. `Producer.Refresh`, what
+a manual refresh calls, ignores every floor. A source whose `Produce` fails is
+recorded in Activity as `RefreshFailed`, at most once an hour while it stays
+broken (ADR 0072).
+
 Ingestion performs source-head comparison, classification, item upsert,
 optional event append, transport-log append, and source-head update in one
 SQLite transaction. An unchanged payload writes nothing. A changed payload
@@ -132,6 +140,22 @@ complete unarchived item set as the authoritative snapshot, so membership
 replay treats webhook sources exactly like polled ones. The last request body
 per topic is kept in `webhook_capture` for the node editor's payload preview,
 feed-shape hint, and LLM transform prompt.
+
+### Command sources
+
+`sources.exec` nodes run the user's own command through `sh -c` on the tick, in
+the environment `execenv` resolves, and ingest stdout as an authoritative
+snapshot: a JSON array of objects, one message per object, keyed by its
+top-level `id` under source kind `exec` and scope `<nodeId>`. The item contract
+is the webhook one — the classifier is the same code (`sources/canonical`) — so
+`title`/`url` promotion and the `state` lifecycle behave identically. What the
+webhook cannot have, this does: absence is authoritative, so an item that leaves
+the snapshot is confirmed `resolved` and archived, as with Grafana alerts.
+
+A non-zero exit, a timeout, or stdout that is not a complete JSON array of
+identified items fails the run — before anything is emitted — so a broken
+command leaves the previous snapshot in place instead of archiving everything
+the source owns. `[]` is the one way to say the source is genuinely empty.
 
 ## The `Msg` contract
 
@@ -309,7 +333,7 @@ Remaining work is intentionally outside this pipeline’s persistence model:
 | Concern | Path |
 | --- | --- |
 | Pipeline database and retention | `internal/app/store/` |
-| Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/github_classify.go`, `internal/app/sources/webhook/webhook_source.go` |
+| Ingestion and source classification | `internal/app/ingest/producer.go`, `internal/app/sources/github/classify.go`, `internal/app/sources/canonical/` (the shared user-shaped-payload contract), `internal/app/sources/webhook/`, `internal/app/sources/exec/` |
 | Flow schema and loader | `internal/app/flow/` |
 | Output-command dispatch and executors | `internal/app/dispatch/` |
 | Inbox orchestration | `internal/app/inbox_service.go` |

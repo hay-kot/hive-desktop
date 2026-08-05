@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"sync"
 	"time"
 
@@ -18,6 +19,12 @@ import (
 // drains each one through Produce, and appends every emitted Msg to the log.
 // After a tick appends at least one row, onAppended fires with the offset of
 // the last row, so the core can wake the flow engine.
+//
+// There is one ticker for every source, at settings.polling.interval. An
+// instance that wants to run less often than that declares a MinInterval and
+// the tick skips it until it is due — a floor quantized to the tick, not a
+// second schedule. Not drained is not the same as drained empty: Produce is
+// never called, so nothing about the source's tracked set changes.
 //
 // Source deduplication: a connector re-emits every current item on every
 // tick, even when nothing changed upstream (the GitHub fetch layer may itself
@@ -44,6 +51,14 @@ type Producer struct {
 	logger      zerolog.Logger
 	recorder    activity.Recorder
 	pauseIngest time.Duration
+	now         func() time.Time
+
+	// scheduleMu guards the per-source state a tick keeps between ticks. A
+	// manual refresh runs a tick on the caller's goroutine while the loop may
+	// be running one of its own.
+	scheduleMu  sync.Mutex
+	lastRun     map[string]time.Time
+	lastFailure map[string]time.Time
 
 	stopOnce sync.Once
 	stop     chan struct{}
@@ -63,13 +78,16 @@ func (pr *Producer) SetDebugPause(duration time.Duration) { pr.pauseIngest = dur
 // just for a constant.
 func NewProducer(db Appender, sources Sources, interval time.Duration, onAppended func(nextOffset int64), logger zerolog.Logger) *Producer {
 	return &Producer{
-		db:         db,
-		sources:    sources,
-		interval:   interval,
-		intervalCh: make(chan time.Duration, 1),
-		onAppended: onAppended,
-		logger:     logger,
-		stop:       make(chan struct{}),
+		db:          db,
+		sources:     sources,
+		interval:    interval,
+		intervalCh:  make(chan time.Duration, 1),
+		onAppended:  onAppended,
+		logger:      logger,
+		now:         time.Now,
+		lastRun:     map[string]time.Time{},
+		lastFailure: map[string]time.Time{},
+		stop:        make(chan struct{}),
 	}
 }
 
@@ -136,21 +154,33 @@ type TickSummary struct {
 	Failed   int
 }
 
-// Tick resolves the current sources and drains each one once, appending
-// every emitted Msg to the log. It is exported so tests can drive a
-// deterministic tick instead of waiting on the ticker. A source whose
+// Tick resolves the current sources and drains each one whose own cadence is
+// due, appending every emitted Msg to the log. It is exported so tests can
+// drive a deterministic tick instead of waiting on the ticker. A source whose
 // Produce call fails is logged and skipped — one source's fetch failure
 // (e.g. an offline stretch) must not block the others.
-func (pr *Producer) Tick(ctx context.Context) TickSummary {
+func (pr *Producer) Tick(ctx context.Context) TickSummary { return pr.tick(ctx, false) }
+
+// Refresh drains every source now, ignoring the per-instance cadence floors: a
+// user who asked for a refresh gets one, including from the source that only
+// wanted to run hourly.
+func (pr *Producer) Refresh(ctx context.Context) TickSummary { return pr.tick(ctx, true) }
+
+func (pr *Producer) tick(ctx context.Context, forced bool) TickSummary {
 	instances := pr.sources.PullInstances()
 
 	if err := pr.sources.Prefetch(ctx, instances); err != nil {
 		pr.logger.Debug().Err(err).Msg("pipeline producer: source prefetch failed")
 	}
 
+	pr.pruneSchedule(instances)
+
 	summary := TickSummary{Sources: len(instances)}
 	var lastOffset int64
 	for _, instance := range instances {
+		if !forced && !pr.claimRun(instance) {
+			continue
+		}
 		rows, err := pr.drain(ctx, instance)
 		if err != nil {
 			summary.Failed++
@@ -166,6 +196,50 @@ func (pr *Producer) Tick(ctx context.Context) TickSummary {
 		pr.onAppended(lastOffset)
 	}
 	return summary
+}
+
+// pruneSchedule drops the per-source state of sources that are no longer
+// configured. Both maps are keyed by a flow-qualified node id, which the user
+// renames freely, so without this an edited flow leaks an entry per rename for
+// the life of the process. It also means a node that is deleted and recreated
+// starts clean, which is what re-adding a source should do.
+func (pr *Producer) pruneSchedule(instances []connector.Instance) {
+	current := make(map[string]struct{}, len(instances))
+	for _, instance := range instances {
+		current[instance.Node.ID()] = struct{}{}
+	}
+
+	stale := func(id string, _ time.Time) bool {
+		_, present := current[id]
+		return !present
+	}
+
+	pr.scheduleMu.Lock()
+	defer pr.scheduleMu.Unlock()
+	maps.DeleteFunc(pr.lastRun, stale)
+	maps.DeleteFunc(pr.lastFailure, stale)
+}
+
+// claimRun reports whether instance is due, recording the attempt when it is.
+//
+// The floor rate-limits *running* the source, not succeeding at it: a failed
+// run still claims its slot, so a command asking to run hourly is not retried
+// every tick because it is broken. Nothing here persists — a restart runs every
+// source once, which is the behaviour a user expects from launching the app.
+func (pr *Producer) claimRun(instance connector.Instance) bool {
+	if instance.MinInterval <= 0 {
+		return true
+	}
+	id := instance.Node.ID()
+	now := pr.now()
+
+	pr.scheduleMu.Lock()
+	defer pr.scheduleMu.Unlock()
+	if last, ok := pr.lastRun[id]; ok && now.Sub(last) < instance.MinInterval {
+		return false
+	}
+	pr.lastRun[id] = now
+	return true
 }
 
 // drained is what one source's tick was worth: how many rows it appended and
@@ -222,7 +296,7 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (dra
 	})
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: source fetch failed")
-		pr.record(ctx, activity.RefreshFailed(id, err.Error()))
+		pr.recordFailure(ctx, id, err)
 		return out, err
 	}
 
@@ -233,9 +307,10 @@ func (pr *Producer) drain(ctx context.Context, instance connector.Instance) (dra
 	offset, err := pr.db.AppendSnapshot(ctx, topic, meta.SourceKind, meta.SourceScope, items)
 	if err != nil {
 		pr.logger.Debug().Err(err).Str("source", id).Msg("pipeline producer: appending source snapshot failed")
-		pr.record(ctx, activity.RefreshFailed(id, err.Error()))
+		pr.recordFailure(ctx, id, err)
 		return out, err
 	}
+	pr.clearFailure(id)
 	out.appended++
 	out.lastOffset = offset
 	return out, nil
@@ -317,6 +392,44 @@ func debugPause(ctx context.Context, duration time.Duration) {
 	case <-ctx.Done():
 	case <-timer.C:
 	}
+}
+
+// failureNoticeInterval is how often one source's continuing failure is
+// re-announced in Activity. A source that stays broken is one condition, not
+// one per tick: at the 60s floor, recording every failure would bury a day of
+// real events under 1440 copies of the same line, which is how an audit log
+// stops being read.
+const failureNoticeInterval = time.Hour
+
+// recordFailure announces a source's failure, at most once per
+// failureNoticeInterval until it succeeds again. The first failure after a
+// success always records — a transition is news; a continuation is not.
+//
+// Suppression is by source rather than by message: a failure reason routinely
+// carries a timestamp or a request id from the tool that produced it, so
+// comparing reasons would defeat itself on exactly the persistently broken
+// source this exists for.
+func (pr *Producer) recordFailure(ctx context.Context, id string, cause error) {
+	now := pr.now()
+
+	pr.scheduleMu.Lock()
+	last, announced := pr.lastFailure[id]
+	if announced && now.Sub(last) < failureNoticeInterval {
+		pr.scheduleMu.Unlock()
+		return
+	}
+	pr.lastFailure[id] = now
+	pr.scheduleMu.Unlock()
+
+	pr.record(ctx, activity.RefreshFailed(id, cause.Error()))
+}
+
+// clearFailure re-arms the notice for a source that completed a tick, so the
+// next failure is recorded immediately rather than waiting out the interval.
+func (pr *Producer) clearFailure(id string) {
+	pr.scheduleMu.Lock()
+	defer pr.scheduleMu.Unlock()
+	delete(pr.lastFailure, id)
 }
 
 // record forwards an activity event when a recorder is attached. Recording is
