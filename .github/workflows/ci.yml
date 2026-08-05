@@ -1,19 +1,29 @@
 name: CI
 
+# The push trigger exists to seed caches, not for post-merge signal: a PR run
+# can only restore caches from its own ref scope or from the default branch's,
+# so without a run on main every PR starts cold. See ADR 0071.
 on:
   pull_request:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A cancelled main run writes no cache, and that cache is what keeps PR runs
+  # warm. Superseded PR runs are still waste worth cancelling.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   GOPRIVATE: github.com/colonyops/hive
 
 jobs:
+  # Split from go-quality so the race-detector test run and the analysis tools
+  # overlap rather than queue; both pay the toolchain setup, which is the cost
+  # the split trades against. See ADR 0071.
   go:
     runs-on: ubuntu-latest
     steps:
@@ -50,20 +60,44 @@ jobs:
       - name: Check vendored hivecore matches the pinned hive commit
         run: mise run check:vendor
 
+      - name: Build
+        run: go build ./...
+
+      # -race roughly doubles the suite, and it is the single largest cost in
+      # this job. Merges to main still run it (that job is not on anyone's
+      # critical path), so a data race is caught before a release rather than
+      # before a review.
+      - name: Test
+        run: mise run ${{ github.event_name == 'push' && 'test:race' || 'test' }}
+
+  go-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # Every tool here loads the wailsui package, so the cgo headers are as
+      # much a dependency of the analysis as they are of the build.
+      - name: Install Linux desktop build dependencies
+        run: sudo apt-get update -q && sudo apt-get install -y -q libgtk-4-dev libwebkitgtk-6.0-dev
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Set up mise
+        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+
+      # First in the job: it is the fastest of the three and the only one that
+      # reports a compile error legibly, so a broken tree fails here rather than
+      # inside an SSA build.
       - name: golangci-lint
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
           args: --timeout=6m
 
-      - name: Build
-        run: go build ./...
-
-      - name: Test
-        run: go test ./... -race
-
-      # Both run after the build: each needs the whole program to load, and a
-      # compile error here would be a confusing way to learn the code is broken.
       # Neither is in `mise run check` — deadcode builds the program's SSA
       # (~40s) and govulncheck needs the network, so both are past what a
       # pre-push hook should cost.
@@ -75,8 +109,13 @@ jobs:
       - name: Check dependencies for known vulnerabilities
         run: mise run check:vuln
 
-  desktop-frontend:
+  # The vue-tsc typecheck and the vitest suite are independent; one job made the
+  # shorter wait on the longer.
+  desktop-frontend-build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: desktop/frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
@@ -88,13 +127,28 @@ jobs:
           cache-dependency-path: desktop/frontend/package-lock.json
 
       - name: Install frontend dependencies
-        working-directory: desktop/frontend
         run: npm ci
 
       - name: Build frontend
-        working-directory: desktop/frontend
         run: npm run build
 
-      - name: Test frontend
+  desktop-frontend-test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
         working-directory: desktop/frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Test frontend
         run: npm test

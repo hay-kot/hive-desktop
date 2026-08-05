@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -351,22 +352,27 @@ func TestManagerStopReleasesAStalledSubscriber(t *testing.T) {
 	// Deliberately not parallel: it counts this package's live goroutines.
 	before := clientGoroutines()
 
-	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
-	m := newTestManager(t, f, ManagerOptions{})
+	synctest.Test(t, func(t *testing.T) {
+		f := newFakeTmux(t, "hive-demo")
+		f.setWindows("@1 1 %1 120 40 claude")
+		m := newTestManager(t, f, ManagerOptions{})
 
-	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
-	require.NoError(t, err)
+		_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+		require.NoError(t, err)
 
-	_, _, err = m.Subscribe("hive-demo")
-	require.NoError(t, err)
-	for range 8 {
-		f.emit(`%output %1 x\015\012`)
-	}
+		_, _, err = m.Subscribe("hive-demo")
+		require.NoError(t, err)
+		for range 8 {
+			f.emit(`%output %1 x\015\012`)
+		}
 
-	require.NoError(t, m.Stop(t.Context()))
-	require.Eventually(t, func() bool { return clientGoroutines() <= before }, 5*time.Second, 5*time.Millisecond,
-		"the pump, the reader and the command worker must all exit")
+		require.NoError(t, m.Stop(t.Context()))
+		// Past the pump's final-delivery window to the stalled subscriber; free
+		// on the fake clock.
+		time.Sleep(finalDelivery)
+		synctest.Wait()
+		require.LessOrEqual(t, clientGoroutines(), before, "the pump, the reader and the command worker must all exit")
+	})
 }
 
 // gatedMetrics parks the first output it is told about, which is the attach

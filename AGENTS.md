@@ -82,6 +82,13 @@ Every gate is a mise task (`mise tasks`); lefthook runs the relevant ones as git
 
 - **CI-only** (too slow or too network-bound for a hook, so they are deliberately not in `check`): `check:deadcode` reports functions unreachable from any `main` or test — run it after deleting a caller, since that is what strands a helper. `check:vuln` runs `govulncheck` and fails only when a vulnerable dependency symbol is actually reachable from this code. Both are mise tasks, so you can run either locally when a change warrants it.
 
+**`mise run ci` runs every gate CI runs — Go and frontend — in ~20s.** Prefer it
+over pushing to find out: it is the superset `check` does not cover (bindings,
+vendor drift, deadcode, govulncheck, the frontend build and tests) and it
+installs frontend dependencies if they are missing. PR CI runs `mise run test`;
+merges to main run `mise run test:race`, so a race only the detector sees is
+caught post-merge rather than in review (ADR 0071).
+
 Wails TS bindings and the e2e suite are deliberately not hooked — both need a full app build. Run `mise run desktop:generate` / `mise run desktop:e2e` when the change warrants it; CI covers them either way.
 
 **Never bypass a hook** — no `LEFTHOOK=0`, `git commit -n`, or `git push --no-verify`. The escape hatch exists for human emergencies; a failing gate is a task to finish, not a flag to add.

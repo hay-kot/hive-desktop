@@ -70,6 +70,27 @@ depends = ["generate:enums", "generate:sqlc"]
 description = "Run all go tests"
 run = "go test ./..."
 
+# Not on the PR path: -race roughly doubles the suite for a class of bug that a
+# post-merge run still catches before a release. CI runs this on pushes to main.
+[tasks."test:race"]
+description = "Run all go tests under the race detector"
+run = "go test ./... -race"
+
+[tasks."desktop:build:frontend"]
+description = "Typecheck and build the desktop frontend"
+dir = "desktop/frontend"
+run = "npm run build"
+
+# `mise run ci` has to work from a fresh clone, where the frontend tasks would
+# otherwise fail with a bare "vitest: command not found". Deliberately not a
+# dependency of the frontend tasks themselves: lefthook's pre-push job skips
+# them when node_modules is absent, and that stays a skip rather than becoming
+# an install nobody asked for mid-push.
+[tasks."desktop:frontend:deps"]
+description = "Install desktop frontend dependencies when they are missing"
+dir = "desktop/frontend"
+run = "test -d node_modules || npm ci"
+
 [tasks.lint]
 description = "Run golangci-lint"
 run = "golangci-lint run ./..."
@@ -100,6 +121,25 @@ description = "Full Go gate: generated code, migrations, tidy, lint, test"
 run = [
   { tasks = ["check:generate"] },
   { tasks = ["check:migrations", "check:tidy", "lint", "test"] },
+]
+
+# Everything CI runs, in one command, so an agent can answer "will CI pass?"
+# without pushing and waiting several minutes for the answer. `check` stays the
+# pre-push gate: this is the superset CI adds on top of it (bindings, vendor
+# drift, deadcode, govulncheck, the build, and the frontend), and it is
+# deliberately not a git hook — it needs the network and a built frontend.
+#
+# Grouped, not `depends`: the first group rewrites .go files every later group
+# reads, and the groups after it only read, so they run concurrently. Mirrors
+# .github/workflows/ci.yml — a gate added there belongs here too.
+[tasks.ci]
+description = "Run every check CI runs (Go + frontend), locally"
+run = [
+  { tasks = ["check:generate"] },
+  { tasks = ["check:bindings", "check:vendor", "check:migrations", "check:tidy"] },
+  { tasks = ["lint", "test", "check:deadcode", "check:vuln"] },
+  { tasks = ["desktop:frontend:deps"] },
+  { tasks = ["desktop:build:frontend", "desktop:test:frontend"] },
 ]
 
 [tasks."check:migrations"]
