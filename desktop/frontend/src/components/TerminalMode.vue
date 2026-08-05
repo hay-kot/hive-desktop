@@ -510,12 +510,25 @@ const { listings: sessionWindows, settled: listingsSettled, refresh: refreshList
 // The scratch terminal is swept whatever the setting says: the tree has no other
 // way to know whether tmux is holding it, and a sweep is one tmux call for every
 // slug in it, so asking about one more costs nothing.
-watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], () => {
+function sweepListings(): void {
   const transport = client.value
   if (!props.active || !transport || !sessionsLoaded.value) return
   if (showAllWindows.value) void refreshListings(transport, attachable.value)
   else if (scratchRow.value) void refreshListings(transport, [scratchRow.value])
-})
+}
+
+watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], sweepListings)
+
+// A session dying moves nothing the sweep above watches — not the session set,
+// not the pool, not the setting — while its last window closing empties the
+// live tab set that was standing in front of the listing. The subtree would
+// fall back to a cached listing of windows tmux no longer holds, so an end is
+// a trigger of its own.
+const endedSlugs = computed(() => [...pool.entries()]
+  .filter(([, session]) => session.status.value === 'ended')
+  .map(([slug]) => slug)
+  .join(' '))
+watch(endedSlugs, sweepListings)
 
 // The tree used to paint the moment the session list landed, then paint again
 // for the window listings, the setting that decides whether they show at all,

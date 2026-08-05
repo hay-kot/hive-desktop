@@ -565,7 +565,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         applyWindowEvent(frame.kind, frame.state)
         break
       case 'lifecycle':
-        if (frame.kind === 'exited') end('exited', frame.message || 'The tmux session ended.')
+        if (frame.kind === 'exited') void exited(frame.message || 'The tmux session ended.')
         else if (frame.kind === 'error') end('error', frame.message || 'The terminal client failed.')
         break
     }
@@ -633,6 +633,29 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     endReason.value = reason
     error.value = detail
     closeSocket()
+  }
+
+  // The control client exits when the session is killed and when it is merely
+  // detached, so its exit does not say which happened. A session tmux is no
+  // longer holding is not a failure worth reporting over the dead scrollback —
+  // it is one to start again, the state a session that never ran is already in
+  // — so which of the two this is gets asked rather than assumed.
+  async function exited(detail: string): Promise<void> {
+    end('exited', detail)
+    let listings: Record<string, WindowState[]>
+    try {
+      listings = await client.listWindows([slug])
+    } catch {
+      // The probe only ever upgrades the state; with no answer the exit tmux
+      // reported stands.
+      return
+    }
+    if (disposed || endReason.value !== 'exited' || listings[slug]?.length) return
+    endReason.value = 'not-started'
+    error.value = null
+    // The windows went with the session. Holding their terminals would leave
+    // the pane showing a grid nothing can write to again.
+    disposeTabs()
   }
 
   function closeSocket(): void {

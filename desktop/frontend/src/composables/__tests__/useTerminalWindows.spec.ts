@@ -270,7 +270,7 @@ function fakeClient(): MockedClient {
     }),
     start: vi.fn().mockResolvedValue({ started: true }),
     kill: vi.fn().mockResolvedValue({ killed: true }),
-    listWindows: vi.fn().mockResolvedValue({ windows: [] }),
+    listWindows: vi.fn().mockResolvedValue({}),
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
     closeWindow: vi.fn().mockResolvedValue(undefined),
@@ -347,8 +347,7 @@ function windowFrame(
   })
 }
 
-async function attached() {
-  const client = fakeClient()
+async function attached(client: MockedClient = fakeClient()) {
   const session = open(client)
   await session.start()
   await flushPromises()
@@ -1032,13 +1031,56 @@ describe('useTerminalWindows', () => {
 
   it('ends on a lifecycle exit with the reason tmux gave', async () => {
     const { session, socket } = await attached()
+    expect(session.tabs.value).toHaveLength(2)
 
     socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'exited', windowId: '', message: 'overflow' }) })
 
+    // What tmux said, before the probe that settles what it meant.
     expect(session.status.value).toBe('ended')
     expect(session.endReason.value).toBe('exited')
     expect(session.error.value).toBe('overflow')
     expect(socket.closed).toBe(true)
+  })
+
+  it('settles an exit into not-started once tmux confirms the session is gone', async () => {
+    const { session, socket } = await attached()
+
+    socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'exited', windowId: '', message: 'overflow' }) })
+    await flushPromises()
+
+    // The session went away, so this is the panel that offers to start it
+    // again rather than an error over a grid nothing can write to.
+    expect(session.endReason.value).toBe('not-started')
+    expect(session.error.value).toBeNull()
+    expect(session.tabs.value).toHaveLength(0)
+  })
+
+  it('keeps an exit as an error when tmux is still holding the session', async () => {
+    const client = fakeClient()
+    client.listWindows.mockResolvedValue({
+      'hive-abc': [{ windowId: '@1', name: 'agent', active: true, width: 213, height: 55 }],
+    })
+    const { session, socket } = await attached(client)
+
+    socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'exited', windowId: '', message: 'overflow' }) })
+    await flushPromises()
+
+    // Only this view's control client went away; reconnecting is the way back.
+    expect(session.endReason.value).toBe('exited')
+    expect(session.error.value).toBe('overflow')
+    expect(session.tabs.value).toHaveLength(2)
+  })
+
+  it('leaves the exit standing when the probe itself fails', async () => {
+    const client = fakeClient()
+    client.listWindows.mockRejectedValue(new Error('tmux is gone'))
+    const { session, socket } = await attached(client)
+
+    socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'exited', windowId: '', message: 'overflow' }) })
+    await flushPromises()
+
+    expect(session.endReason.value).toBe('exited')
+    expect(session.error.value).toBe('overflow')
   })
 
   it('ends on a transport drop as a distinct signal', async () => {
