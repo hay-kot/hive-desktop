@@ -143,7 +143,7 @@ func TestToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 
 	assert.ElementsMatch(t, []string{
 		"get_status", "list_profiles", "get_flow", "list_feeds", "list_inbox",
-		"list_inbox_item_events", "list_actions", "refresh_sources",
+		"list_inbox_item_events", "list_item_sessions", "list_actions", "refresh_sources",
 		"create_profile", "delete_profile",
 		"get_profile_image", "set_profile_image", "clear_profile_image",
 		"get_node_image", "set_node_image", "clear_node_image",
@@ -376,6 +376,36 @@ func TestListInboxReportsAnUnknownProfileOrFeedAsNotFound(t *testing.T) {
 		string(app.KindNotFound), "a typo'd profile is not an empty inbox")
 	assert.Contains(t, callErr(t, session, "list_inbox", map[string]any{"profile": "hooks", "feed": "hooks/nope"}),
 		string(app.KindNotFound), "a feed the graph does not declare is not an empty feed")
+}
+
+// The REST route this replaced resolved an item the same two ways, so the tool
+// has to as well — and mock mode has no hive sessions behind it, which is what
+// makes the seeded link one hive cannot account for and the read drop it.
+func TestListItemSessionsResolvesAnItemAndReconcilesOnRead(t *testing.T) {
+	core, session := testSession(t)
+	id := seedItem(t, core, "p1", "PR_1", `{}`)
+	seedItem(t, core, "p2", "PR_1", `{}`) // same external id, second profile
+
+	assert.Contains(t, callErr(t, session, "list_item_sessions", struct{}{}),
+		string(app.KindInvalid), "itemId or externalId is required")
+	assert.Contains(t, callErr(t, session, "list_item_sessions", map[string]any{"externalId": "PR_1"}),
+		string(app.KindConflict), "one external id matched two items")
+
+	ref, err := core.Store.ItemRefByID(t.Context(), id)
+	require.NoError(t, err)
+	require.NoError(t, core.Store.LinkItemSession(t.Context(), "sess-a", ref))
+
+	var got struct {
+		Sessions []struct {
+			ID string `json:"id"`
+		} `json:"sessions"`
+	}
+	call(t, session, "list_item_sessions", map[string]any{"itemId": id}, &got)
+	assert.Empty(t, got.Sessions, "a link hive cannot account for is dropped rather than reported as a ghost")
+
+	links, err := core.Store.ItemSessions(t.Context(), ref)
+	require.NoError(t, err)
+	assert.Empty(t, links)
 }
 
 func TestListInboxItemEventsReportsAnUnknownItemIDAsNotFound(t *testing.T) {

@@ -156,6 +156,13 @@ posture `problemFor` takes for a stdio command that is not on `PATH`.
   `desktop-api` skill is rewritten around tools. Anything still pointed at
   `/api/inbox` gets a 404 rather than a stale answer — deliberate, and pinned
   by a test.
+- **A route added to the agent API while this was in flight moves with the
+  rest.** ADR 0070's `GET /api/inbox/sessions` landed on main after this branch
+  was cut; it is `list_item_sessions` here. Nothing else consumed it — the
+  detail pane reads the same core method over its Wails binding — so the route
+  is deleted rather than kept, and the capability is not lost. Any further
+  agent capability written against `/api` before this merges has to make the
+  same trip.
 - **Images cross as base64 rather than raw bodies.** These are 128×128 PNGs and
   the Wails binding already ships base64 for the same operation, so nothing
   regresses; image *reads* answer with an MCP image content block, which is

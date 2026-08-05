@@ -93,6 +93,7 @@ call list_inbox '{"profile":"'"$P"'","feed":"'"$FEED"'","archived":true}'
 call list_inbox '{"externalId":"'"$EXT"'","detail":"full"}'  # a GitHub global node id, NOT repo#num
 call list_feeds '{"profile":"'"$P"'"}'                # every declared feed, counts joined on
 call list_inbox_item_events '{"itemId":'"$ID"'}'      # one item's history
+call list_item_sessions '{"itemId":'"$ID"'}'          # hive sessions this item started
 ```
 
 `get_flow` is where node ids come from — `execute_flow`'s `nodeId` and the

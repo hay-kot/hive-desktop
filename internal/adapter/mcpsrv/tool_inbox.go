@@ -10,6 +10,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
+	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -249,7 +250,7 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
-	itemID, err := ctrl.resolveItemID(ctx, in)
+	itemID, err := ctrl.resolveItemID(ctx, in.ItemID, in.ExternalID, in.Profile)
 	if err != nil {
 		return nil, nil, ctrl.toolError(err)
 	}
@@ -268,21 +269,52 @@ func (ctrl *Controller) ListInboxItemEvents(ctx context.Context, _ *mcp.CallTool
 }
 
 // resolveItemID accepts an explicit itemId, or an externalId that must resolve
-// to exactly one item.
-func (ctrl *Controller) resolveItemID(ctx context.Context, in listEventsInput) (int64, error) {
-	if in.ItemID != 0 {
-		return in.ItemID, nil
+// to exactly one item. Every tool addressing a single item goes through it, so
+// they all accept the same two ways of naming one.
+func (ctrl *Controller) resolveItemID(ctx context.Context, itemID int64, externalID, profile string) (int64, error) {
+	if itemID != 0 {
+		return itemID, nil
 	}
-	items, err := ctrl.core.Inbox.FindItems(ctx, in.Profile, in.ExternalID)
+	items, err := ctrl.core.Inbox.FindItems(ctx, profile, externalID)
 	if err != nil {
 		return 0, err
 	}
 	switch len(items) {
 	case 0:
-		return 0, app.Errorf(app.KindNotFound, "no item with external id %q", in.ExternalID)
+		return 0, app.Errorf(app.KindNotFound, "no item with external id %q", externalID)
 	case 1:
 		return items[0].ID, nil
 	default:
-		return 0, app.Errorf(app.KindConflict, "external id %q matches %d items; add profile to disambiguate", in.ExternalID, len(items))
+		return 0, app.Errorf(app.KindConflict, "external id %q matches %d items; add profile to disambiguate", externalID, len(items))
 	}
+}
+
+type itemSessionsInput struct {
+	ItemID     int64  `json:"itemId,omitempty"     jsonschema:"Inbox item id. Provide this or externalId."`
+	ExternalID string `json:"externalId,omitempty" jsonschema:"External id resolving to one item; provide this or itemId."`
+	Profile    string `json:"profile,omitempty"    jsonschema:"Profile id used to disambiguate an externalId that matches items in more than one profile."`
+}
+
+type itemSessionsResult struct {
+	Sessions []dispatch.ItemSessionView `json:"sessions"`
+}
+
+// ListItemSessions reports the hive sessions one inbox item started.
+//
+// The read reconciles as a side effect: a link a *successful* hive listing
+// cannot account for is dropped, while a failed listing drops nothing — absent
+// evidence is never evidence of absence.
+func (ctrl *Controller) ListItemSessions(ctx context.Context, _ *mcp.CallToolRequest, in itemSessionsInput) (*mcp.CallToolResult, any, error) {
+	if in.ItemID == 0 && in.ExternalID == "" {
+		return nil, nil, ctrl.toolError(app.Errorf(app.KindInvalid, "provide itemId or externalId"))
+	}
+	itemID, err := ctrl.resolveItemID(ctx, in.ItemID, in.ExternalID, in.Profile)
+	if err != nil {
+		return nil, nil, ctrl.toolError(err)
+	}
+	sessions, err := ctrl.core.Sessions.ItemSessions(ctx, itemID)
+	if err != nil {
+		return nil, nil, ctrl.toolError(err)
+	}
+	return nil, itemSessionsResult{Sessions: sessions}, nil
 }

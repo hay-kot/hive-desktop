@@ -89,6 +89,14 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 	}, ctrl.ListInboxItemEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:  "list_item_sessions",
+		Title: "List the hive sessions an inbox item started",
+		Description: "List the hive sessions one inbox item created, newest first, each with the state hive reports for it now; " +
+			"slug is the tmux session name an attach targets. Resolved by itemId or by an externalId matching exactly one item. " +
+			"Links to sessions hive no longer has are dropped as a side effect of this read, but only when hive answered — a failed listing drops nothing.",
+	}, ctrl.ListItemSessions)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "list_actions",
 		Title: "List the action catalog",
 		Description: "List the action catalog with the actions.yml it was loaded from and whether that file currently parses. " +
