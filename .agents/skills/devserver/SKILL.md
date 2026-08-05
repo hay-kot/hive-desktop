@@ -126,23 +126,23 @@ the canonical item contract (ADR 0008) render as first-party feed rows. A
 configured payload can be used instead of an inline body via
 `"payload":"pr-opened"` with optional `"overrides":{...}`.
 
-## 4. Verify through the app API, then clean up
+## 4. Verify through the app's MCP tools, then clean up
 
-Confirm the app reacted through its loopback **agent HTTP API** — do not read
+Confirm the app reacted through its loopback **MCP server** — do not read
 `desktop-pipeline.db`. After a proxy overlay/action/scenario, force a re-poll so
 you do not wait the 60s floor, then read and retry (the engine commits a moment
 after the fetch):
 
 ```bash
-API=127.0.0.1:$(grep HIVE_DESKTOP_HTTP_PORT launch.env | cut -d'"' -f2)   # see the desktop-api skill
-curl -XPOST $API/api/sources/refresh          # reload now (pull sources)
-curl -s $API/api/inbox | jq '.items[] | {title, lifecycle, sourceState, unread}'
+# refresh_sources reloads now (pull sources), list_inbox reads the result
+call refresh_sources
+call list_inbox '{"profile":"'"$P"'"}' | jq '.items[] | {title, lifecycle, sourceState, unread}'
 ```
 
 A webhook push already appends directly, so skip the refresh and just read +
-retry. See the **desktop-api** skill for discovering the port, the read
-endpoints, and the reload → read → retry loop in full. Then reset so the next
-test starts clean:
+retry. See the **desktop-api** skill for discovering the port, connecting to
+`/mcp` (including the `call` helper above), the read tools, and the reload →
+read → retry loop in full. Then reset so the next test starts clean:
 
 ```bash
 curl -XPOST localhost:7777/_ctl/overlay/clear -d '{"repo":"acme/widgets","num":42}'  # one item

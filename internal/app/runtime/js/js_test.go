@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
@@ -171,6 +172,27 @@ func TestThrownValuesAreRuntimeErrors(t *testing.T) {
 	require.Equal(t, runtime.ScriptErrorRuntime, scriptErr.Kind)
 	require.Contains(t, scriptErr.Message, "nope")
 	require.Equal(t, 2, scriptErr.Line)
+}
+
+// Line is corrected against the wrapper, but goja writes its own positions into
+// the rendered message and stack. Left alone the two disagree — line 2
+// structurally, "on_message:3" in the prose — and whichever one the reader
+// trusts, the other sends them to the wrong line.
+func TestRenderedPositionsAgreeWithTheStructuredLine(t *testing.T) {
+	t.Parallel()
+
+	inst := instance(t, "\nthrow new Error('nope')", 1)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	_, err := inst.OnMessage(ctx, msg(`{}`), map[string]any{}, nil, nil)
+
+	var scriptErr *runtime.ScriptError
+	require.ErrorAs(t, err, &scriptErr)
+	require.Equal(t, 2, scriptErr.Line)
+	assert.Contains(t, scriptErr.Message, "on_message:2:")
+	assert.NotContains(t, scriptErr.Message, "on_message:3:")
+	assert.Contains(t, scriptErr.Stack, "on_message:2:")
+	assert.NotContains(t, scriptErr.Stack, "on_message:3:")
 }
 
 // A runaway loop is stopped by interrupting the VM, and the caller gets its

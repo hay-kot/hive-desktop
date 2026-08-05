@@ -66,7 +66,7 @@ func TestSeedCreatesTheHiveWorkspaceOnRootCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, ws.Validate())
 	assert.Equal(t, AutonomyAsk, ws.Autonomy)
-	assert.Equal(t, []string{"hive-http-api"}, ws.Skills)
+	assert.Equal(t, []string{"hive-mcp"}, ws.Skills)
 
 	_, err = os.Stat(filepath.Join(root, "hive", "AGENTS.md"))
 	require.NoError(t, err)
@@ -89,15 +89,15 @@ func TestSyncHiveWorkspaceSkills(t *testing.T) {
 		t.Parallel()
 
 		root := seededRoot(t)
-		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows", "hive-settings"})
+		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-mcp", "hive-flows", "hive-settings"})
 		require.NoError(t, err)
 		assert.True(t, changed)
 
 		ws, err := LoadWorkspace(filepath.Join(root, "hive", manifestFileName))
 		require.NoError(t, err)
-		assert.Equal(t, []string{"hive-http-api", "hive-flows", "hive-settings"}, ws.Skills)
+		assert.Equal(t, []string{"hive-mcp", "hive-flows", "hive-settings"}, ws.Skills)
 
-		changedAgain, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows", "hive-settings"})
+		changedAgain, err := SyncHiveWorkspaceSkills(root, []string{"hive-mcp", "hive-flows", "hive-settings"})
 		require.NoError(t, err)
 		assert.False(t, changedAgain, "an already-current manifest is not rewritten")
 	})
@@ -107,9 +107,9 @@ func TestSyncHiveWorkspaceSkills(t *testing.T) {
 
 		root := seededRoot(t)
 		manifest := filepath.Join(root, "hive", manifestFileName)
-		require.NoError(t, os.WriteFile(manifest, []byte("version: 1\nname: Hive\n# my note\nagent: codex\nautonomy: full\nmcps:\n  - playwright\nskills:\n  - hive-http-api\n"), 0o600))
+		require.NoError(t, os.WriteFile(manifest, []byte("version: 2\nname: Hive\n# my note\nagent: codex\nautonomy: full\nmcps:\n  - playwright\nskills:\n  - hive-mcp\n"), 0o600))
 
-		_, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api", "hive-flows"})
+		_, err := SyncHiveWorkspaceSkills(root, []string{"hive-mcp", "hive-flows"})
 		require.NoError(t, err)
 
 		data, err := os.ReadFile(manifest)
@@ -120,7 +120,7 @@ func TestSyncHiveWorkspaceSkills(t *testing.T) {
 		assert.Equal(t, "codex", ws.Agent)
 		assert.Equal(t, AutonomyFull, ws.Autonomy)
 		assert.Equal(t, []string{"playwright"}, ws.MCPs)
-		assert.Equal(t, []string{"hive-http-api", "hive-flows"}, ws.Skills)
+		assert.Equal(t, []string{"hive-mcp", "hive-flows"}, ws.Skills)
 	})
 
 	t.Run("LeavesADeletedWorkspaceDeleted", func(t *testing.T) {
@@ -129,7 +129,7 @@ func TestSyncHiveWorkspaceSkills(t *testing.T) {
 		root := seededRoot(t)
 		require.NoError(t, os.RemoveAll(filepath.Join(root, "hive")))
 
-		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-http-api"})
+		changed, err := SyncHiveWorkspaceSkills(root, []string{"hive-mcp"})
 		require.NoError(t, err)
 		assert.False(t, changed)
 		_, statErr := os.Stat(filepath.Join(root, "hive"))

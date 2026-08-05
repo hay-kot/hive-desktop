@@ -22,8 +22,8 @@ func testEnv() Env {
 		SettingsPath:       "/home/u/.config/hive/desktop/settings.yaml",
 		WebhookBaseURL:     "http://127.0.0.1:24917/hooks",
 		WebhookEnabled:     true,
-		APIBaseURL:         "http://127.0.0.1:24917/api",
-		APIEnabled:         true,
+		MCPEndpoint:        "http://127.0.0.1:24917/mcp",
+		MCPEnabled:         true,
 		AgentWorkspacesDir: "/home/u/.config/hive/desktop/workspaces",
 	}
 }
@@ -145,7 +145,7 @@ func TestPromptsCarryInstallPaths(t *testing.T) {
 		"keybindings":      env.SettingsPath,
 		"settings":         env.SettingsPath,
 		"webhook-sources":  env.WebhookBaseURL,
-		"http-api":         env.APIBaseURL,
+		"mcp":              env.MCPEndpoint,
 		"agent-workspaces": env.AgentWorkspacesDir,
 	} {
 		prompt, err := svc.Render(id, testInput())
@@ -207,21 +207,21 @@ func TestWebhookTransformPromptUsesCapturedSample(t *testing.T) {
 	require.Error(t, err, "a node-scoped prompt with no node is a caller bug")
 }
 
-// TestHTTPAPIPromptPointsAtLiveSpec — the prompt's job is to send the agent to
-// the self-describing endpoints, and to flag a disabled server rather than
-// pointing at a dead port.
-func TestHTTPAPIPromptPointsAtLiveSpec(t *testing.T) {
-	prompt, err := newTestService(t).Render("http-api", testInput())
+// TestMCPPromptPointsAtLiveServer — the prompt's job is to send the agent to
+// the live endpoint and let the server describe its own tools, and to flag a
+// disabled server rather than pointing at a dead port.
+func TestMCPPromptPointsAtLiveServer(t *testing.T) {
+	prompt, err := newTestService(t).Render("mcp", testInput())
 	require.NoError(t, err)
-	assert.Contains(t, prompt.Text, testEnv().APIBaseURL+"/openapi.json")
-	assert.Contains(t, prompt.Text, "OpenAPI")
+	assert.Contains(t, prompt.Text, testEnv().MCPEndpoint)
+	assert.Contains(t, prompt.Text, "tools/list")
 	assert.NotContains(t, prompt.Text, "**disabled**")
 
 	env := testEnv()
-	env.APIEnabled = false
+	env.MCPEnabled = false
 	svc, err := New(env)
 	require.NoError(t, err)
-	disabled, err := svc.Render("http-api", testInput())
+	disabled, err := svc.Render("mcp", testInput())
 	require.NoError(t, err)
 	assert.Contains(t, disabled.Text, "**disabled**")
 }

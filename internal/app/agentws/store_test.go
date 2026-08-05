@@ -15,7 +15,7 @@ func writeWorkspace(t *testing.T, root, dir, name string) string {
 	wsDir := filepath.Join(root, dir)
 	require.NoError(t, os.MkdirAll(wsDir, 0o700))
 	path := filepath.Join(wsDir, manifestFileName)
-	content := fmt.Sprintf("version: 1\nname: %s\nagent: claude\nautonomy: ask\n", name)
+	content := fmt.Sprintf("version: 2\nname: %s\nagent: claude\nautonomy: ask\n", name)
 	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
 	return path
 }

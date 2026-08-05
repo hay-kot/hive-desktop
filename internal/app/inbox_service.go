@@ -63,9 +63,28 @@ func (s *InboxService) InboxItemFeeds(ctx context.Context, itemIDs []int64) (map
 	return feeds, Wrap(err, KindInternal, "resolving feeds for %d items", len(itemIDs))
 }
 
+// InboxItemEvents lists one item's lifecycle events. An item with no events
+// yet and an item id that matches nothing are different answers: the second is
+// KindNotFound, so a caller reading an empty list knows it read the right item.
 func (s *InboxService) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]store.InboxEventView, error) {
+	if err := s.requireItem(ctx, itemID); err != nil {
+		return nil, err
+	}
 	views, err := s.db.InboxItemEvents(ctx, itemID, limit)
 	return views, Wrap(err, KindInternal, "listing events for item %d", itemID)
+}
+
+// requireItem reports KindNotFound for an item id no row backs.
+func (s *InboxService) requireItem(ctx context.Context, itemID int64) error {
+	_, err := s.db.Queries().GetInboxItemByID(ctx, itemID)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, sql.ErrNoRows):
+		return Wrap(err, KindNotFound, "inbox item %d not found", itemID)
+	default:
+		return Wrap(err, KindInternal, "reading inbox item %d", itemID)
+	}
 }
 
 func (s *InboxService) MarkInboxItemUnread(ctx context.Context, itemID, revision int64, unread bool) (store.InboxItemView, error) {

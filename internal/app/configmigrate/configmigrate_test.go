@@ -49,6 +49,53 @@ func TestValidate_RegisteredSets(t *testing.T) {
 	}
 }
 
+// The MCP cut-over (ADR 0073) retired the hive-http-api skill slug. A workspace
+// still declaring it fails to open outright — resolveSkills refuses a slug no
+// prompt id backs — so the rename has to happen before the manifest is loaded.
+func TestAgentWorkspace_RenamesTheRetiredHTTPAPISkill(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 1\nname: Hive\nagent: claude\nautonomy: ask\nskills:\n  - hive-flows\n  - hive-http-api\n  - hive-settings\n")
+
+	migrated, changed, err := AgentWorkspaceSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, AgentWorkspaceSet.Current, doc["version"])
+	assert.Equal(t, []any{"hive-flows", "hive-mcp", "hive-settings"}, doc["skills"],
+		"the slug is renamed in place, keeping its position")
+}
+
+// A manifest naming both would otherwise declare hive-mcp twice, which the
+// workspace validator rejects as a duplicate — turning a migration into the
+// breakage it exists to prevent.
+func TestAgentWorkspace_SkillRenameDoesNotDuplicate(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 1\nname: Hive\nagent: claude\nautonomy: ask\nskills:\n  - hive-http-api\n  - hive-mcp\n")
+
+	migrated, changed, err := AgentWorkspaceSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	assert.Equal(t, []any{"hive-mcp"}, decodeDoc(t, migrated)["skills"])
+}
+
+// A manifest with no skills list at all is the common case, and must migrate
+// to the new version without growing an empty key.
+func TestAgentWorkspace_SkillRenameToleratesNoSkills(t *testing.T) {
+	t.Parallel()
+
+	migrated, changed, err := AgentWorkspaceSet.Apply([]byte("version: 1\nname: Hive\nagent: claude\nautonomy: ask\n"))
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, AgentWorkspaceSet.Current, doc["version"])
+	assert.NotContains(t, doc, "skills")
+}
+
 func TestValidate_GapChainRejected(t *testing.T) {
 	t.Parallel()
 

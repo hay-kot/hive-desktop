@@ -47,10 +47,15 @@ type nodeFactory func() NodeConfig
 var registry = buildRegistry(map[string]nodeFactory{
 	"github-filter": func() NodeConfig { return &GithubFilterConfig{} },
 	"function":      func() NodeConfig { return &FunctionConfig{} },
-	"feed":          func() NodeConfig { return &FeedConfig{} },
+	NodeTypeFeed:    func() NodeConfig { return &FeedConfig{} },
 	"action":        func() NodeConfig { return &ActionConfig{} },
 	"notify":        func() NodeConfig { return &NotifyConfig{} },
 })
+
+// NodeTypeFeed is the feed terminal's type discriminator. It is named because
+// a feed node is the only node type addressed from outside the graph: its id,
+// qualified by the flow's, is the feed id inbox membership is keyed on.
+const NodeTypeFeed = "feed"
 
 // buildRegistry merges the node types declared here with the source types
 // derived from the connector registry. A collision means a connector claimed

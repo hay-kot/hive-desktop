@@ -228,17 +228,17 @@ func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) 
 	}
 	if _, port := s.webhooks.Endpoint(ctx); port > 0 {
 		env.WebhookBaseURL = WebhookBaseURLAt(s.webhooks.Host(), port)
-		env.APIBaseURL = APIBaseURLAt(s.webhooks.Host(), port)
+		env.MCPEndpoint = MCPEndpointAt(s.webhooks.Host(), port)
 	}
 	// A settings read failure must not take the prompts page down with it:
 	// every other prompt is still correct, so fall back to reporting the
 	// listener as enabled and let the webhook settings pane surface the error.
 	if cfg, err := s.settings.Effective(); err == nil {
 		env.WebhookEnabled = cfg.HTTP.Enabled
-		env.APIEnabled = cfg.HTTP.Enabled
+		env.MCPEnabled = cfg.HTTP.Enabled
 	} else {
 		env.WebhookEnabled = false
-		env.APIEnabled = false
+		env.MCPEnabled = false
 	}
 	svc, err := prompts.New(env)
 	return svc, Wrap(err, KindInternal, "building the prompt catalog")
@@ -275,10 +275,11 @@ func WebhookBaseURLAt(host string, port int) string {
 	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + webhook.PathPrefix
 }
 
-// APIBaseURLAt is the base URL of the agent HTTP API — the same loopback server
-// the webhook listener uses (ADR 0021), under the /api prefix. It lives here,
-// not in the adapter, because the prompt text embeds it and a prompt is
-// core-owned; the /api literal avoids an import cycle back into the adapter.
-func APIBaseURLAt(host string, port int) string {
-	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/api"
+// MCPEndpointAt is the URL of the agent MCP server — the same loopback server
+// the webhook listener uses (ADR 0021), at the /mcp path (ADR 0073). It lives
+// here, not in the adapter, because the prompt text and a workspace's
+// generated .mcp.json both embed it; the /mcp literal avoids an import cycle
+// back into the adapter.
+func MCPEndpointAt(host string, port int) string {
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/mcp"
 }

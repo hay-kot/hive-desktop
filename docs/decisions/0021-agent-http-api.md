@@ -1,7 +1,17 @@
 # 0021 — Agent-facing HTTP API on a unified loopback server
 
-- **Status:** accepted
+- **Status:** partly superseded by [0073](0073-mcp-replaces-the-agent-facing-http-api.md)
 - **Date:** 2026-07-27
+
+> **Superseded in part (2026-08-05):** the *agent-facing* surface described
+> below — inbox, feeds, profiles, actions, source refresh, flow dry runs — is
+> the MCP server's now (ADR 0073), and the routes are deleted. What this ADR
+> decided that still holds: **one loopback server** shared by the webhook
+> listener, the HTTP adapter, pprof and now `/mcp`; the **loopback bind as the
+> security boundary** for an unauthenticated agent surface; and the
+> **single-writer** model. `/api/status` and `/api/version` survive as the
+> plain-GET liveness probe. `/api/terminal/*` was never this ADR's subject —
+> it is the Wails frontend's transport (ADR 0036, ADR 0061).
 
 > **Scope (amended 2026-07-27):** the "read + reload" framing below was the
 > first slice, not the ceiling. This is the app's **agent-facing control

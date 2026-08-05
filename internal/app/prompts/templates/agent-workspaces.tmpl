@@ -20,12 +20,12 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 {{template "yaml-strict" .}}
 ## agent-workspace.yaml schema
 
-- `version` — must be `1`.
+- `version` — must be `2`.
 - `name` — display name shown on the workspace's card.
 - `agent` — which CLI agent runs sessions here. Hive currently knows `claude` and `codex`.
 - `autonomy` — one of `ask`, `auto`, or `full`; omitted defaults to `ask`. `ask` leaves every prompt to the agent CLI's own defaults, and is what the area's approval indicator shows you waiting on; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
 - `mcps` — optional list of MCP server ids this workspace enables. Each id is either one of the shipped catalogue entries below or a key from your own mcps.yaml `servers:` map; an mcps.yaml entry can also replace a shipped entry of the same id.
-- `skills` — optional list of installed skill slugs to render into this workspace's `.claude/skills/` and `.agents/skills/`, on top of whatever `.shared/skills/` already merges in. Slugs carry the installed `hive-` prefix (`hive-http-api`, not `http-api`) — the same names `.shared/skills/<slug>/` directories use. A slug declared here wins over a `.shared/` skill of the same name.
+- `skills` — optional list of installed skill slugs to render into this workspace's `.claude/skills/` and `.agents/skills/`, on top of whatever `.shared/skills/` already merges in. Slugs carry the installed `hive-` prefix (`hive-mcp`, not `mcp`) — the same names `.shared/skills/<slug>/` directories use. A slug declared here wins over a `.shared/` skill of the same name.
 
 ## mcps.yaml schema
 
@@ -44,8 +44,10 @@ Your own MCP server library — the escape hatch beyond the shipped catalogue.
 {{end}}
 ## Worked example
 
-A complete, valid `agent-workspace.yaml` naming both a shipped catalogue entry
-(`playwright`) and an `mcps.yaml` entry (`home-assistant`):
+A complete, valid `agent-workspace.yaml` naming shipped catalogue entries
+(`hive-desktop`, `playwright`) and an `mcps.yaml` entry (`home-assistant`).
+`hive-desktop` is this install itself — declaring it is what lets a session
+read the inbox and dry-run a flow rather than guessing at the app's state:
 
 ```yaml
 {{.WorkspaceExample}}

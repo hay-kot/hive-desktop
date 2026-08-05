@@ -370,7 +370,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor)
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpEndpoint)
 	a.syncHiveWorkspaceSkills()
 
 	return a, nil
@@ -506,6 +506,22 @@ func (a *App) syncInstalledSkills() {
 
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
+
+// mcpEndpoint reports this run's own MCP endpoint URL, or empty when the
+// loopback server is not running. It is what lets a workspace declare
+// hive-desktop in its mcps: list and get an address that actually answers —
+// mcpcatalog ships that entry with no URL, because the port is allocated at
+// startup (ADR 0073).
+func (a *App) mcpEndpoint(ctx context.Context) string {
+	if a.Webhooks == nil {
+		return ""
+	}
+	running, port := a.Webhooks.Endpoint(ctx)
+	if !running || port == 0 {
+		return ""
+	}
+	return MCPEndpointAt(a.Webhooks.Host(), port)
+}
 
 // HiveConn exposes the connection to the vendored Hive action database
 // (sessions, messages) as a plain *sql.DB. hivecore types stop at this

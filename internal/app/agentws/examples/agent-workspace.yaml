@@ -1,9 +1,10 @@
-version: 1
+version: 2
 name: Home Assistant
 agent: claude
 autonomy: ask
 mcps:
+  - hive-desktop
   - playwright
   - home-assistant
 skills:
-  - hive-http-api
+  - hive-mcp

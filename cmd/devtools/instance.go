@@ -21,6 +21,12 @@ import (
 
 const launchMarkerEnv = "HIVE_DESKTOP_LAUNCH_ENV"
 
+// launchKeys is the staleness contract: a launch.env missing any of these is
+// regenerated rather than reused, which is how a worktree written before a key
+// existed opts in with no manual step. **A key added to the generated env
+// belongs here too** — otherwise every existing worktree keeps a launch.env
+// without it, and the feature it gates silently stays off in exactly the
+// worktrees that have been around longest.
 var launchKeys = []string{
 	settings.EnvDataDir,
 	settings.EnvConfigDir,
@@ -29,6 +35,8 @@ var launchKeys = []string{
 	settings.EnvLogLevel,
 	settings.EnvHTTPEnabled,
 	settings.EnvHTTPPort,
+	settings.EnvExperimentalTerminal,
+	settings.EnvExperimentalAgents,
 	settings.EnvPerfEnabled,
 	"WAILS_VITE_HOST",
 	"WAILS_VITE_PORT",
@@ -208,6 +216,12 @@ func (d *devtools) prepare(fresh bool) error {
 	// after launch.env.
 	proxyListen := devproxy.ListenFromConfig(d.worktree)
 
+	// Every ships-dark opt-in (ADR 0037) is on here. A feature gated off in
+	// development is one nobody exercises while it is being built, and an
+	// absent flag presents as the feature being broken rather than switched
+	// off — the Agents area's routes simply do not mount, so a session cannot
+	// launch and nothing says why. Opting out is the same variable set false in
+	// the gitignored overrides.env, which mise loads after launch.env.
 	env := map[string]string{
 		settings.EnvDataDir:              dataDir,
 		settings.EnvHiveDataDir:          sourcePaths.DataDir,
@@ -218,6 +232,7 @@ func (d *devtools) prepare(fresh bool) error {
 		settings.EnvHTTPEnabled:          "true",
 		settings.EnvHTTPPort:             strconv.Itoa(webhookPort),
 		settings.EnvExperimentalTerminal: "true",
+		settings.EnvExperimentalAgents:   "true",
 		settings.EnvPerfEnabled:          "true",
 		"WAILS_VITE_HOST":                cfg.Development.Vite.Host,
 		"WAILS_VITE_PORT":                strconv.Itoa(vitePort),

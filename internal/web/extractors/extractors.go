@@ -1,14 +1,10 @@
-// Package extractors decodes and validates request input: Body and Query
-// decode into a typed struct and run its Validate method when it has one.
+// Package extractors decodes and validates request input: Body decodes into a
+// typed struct and runs its Validate method when it has one.
 package extractors
 
 import (
 	"encoding/json"
-	"errors"
 	"net/http"
-
-	"github.com/gorilla/schema"
-	"github.com/hay-kot/criterio"
 
 	"github.com/hay-kot/hive-desktop/internal/web"
 )
@@ -29,32 +25,6 @@ func Body[T any](w http.ResponseWriter, r *http.Request) (T, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&v); err != nil {
 		return v, &web.BadRequestError{Msg: "invalid request body", Err: err}
-	}
-	return v, validate(v)
-}
-
-var queryDecoder = newQueryDecoder()
-
-func newQueryDecoder() *schema.Decoder {
-	d := schema.NewDecoder()
-	d.IgnoreUnknownKeys(true)
-	return d
-}
-
-// Query decodes r's query string into T by `schema` tags, then validates it.
-// Conversion failures surface as field errors on the 422 path.
-func Query[T any](r *http.Request) (T, error) {
-	var v T
-	if err := queryDecoder.Decode(&v, r.URL.Query()); err != nil {
-		var multi schema.MultiError
-		if errors.As(err, &multi) {
-			var b criterio.FieldErrorsBuilder
-			for key, fieldErr := range multi {
-				b = b.Append(key, fieldErr)
-			}
-			return v, b.ToError()
-		}
-		return v, err
 	}
 	return v, validate(v)
 }

@@ -41,7 +41,7 @@ type GenerateInput struct {
 }
 
 // RenderedSkill is one skill body ready to install, keyed by the slug it
-// installs under (e.g. "hive-http-api").
+// installs under (e.g. "hive-mcp").
 type RenderedSkill struct {
 	Slug string
 	Body string

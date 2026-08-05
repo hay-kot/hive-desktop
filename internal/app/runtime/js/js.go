@@ -18,6 +18,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -490,8 +492,8 @@ func scriptError(kind runtime.ScriptErrorKind, err error) *runtime.ScriptError {
 
 	var exception *goja.Exception
 	if errors.As(err, &exception) {
-		out.Message = strings.TrimPrefix(exception.Error(), "Uncaught ")
-		out.Stack = exception.String()
+		out.Message = rebasePositions(strings.TrimPrefix(exception.Error(), "Uncaught "))
+		out.Stack = rebasePositions(exception.String())
 		for _, frame := range exception.Stack() {
 			position := frame.Position()
 			if position.Filename == scriptName && position.Line > 0 {
@@ -504,4 +506,25 @@ func scriptError(kind runtime.ScriptErrorKind, err error) *runtime.ScriptError {
 	}
 
 	return out
+}
+
+// positionRef matches the "on_message:LINE:COLUMN" goja writes into an
+// exception's message and stack.
+var positionRef = regexp.MustCompile(`\b` + scriptName + `:(\d+):(\d+)`)
+
+// rebasePositions rewrites goja's own line numbers to the author's.
+//
+// Line and Column are corrected against the wrapper, but the rendered message
+// and stack carry goja's raw positions, so the same failure reported "line 2"
+// structurally and "on_message:3:28" in prose. Whichever one a reader trusts,
+// the other sent them to the wrong line.
+func rebasePositions(text string) string {
+	return positionRef.ReplaceAllStringFunc(text, func(match string) string {
+		groups := positionRef.FindStringSubmatch(match)
+		line, err := strconv.Atoi(groups[1])
+		if err != nil {
+			return match
+		}
+		return fmt.Sprintf("%s:%d:%s", scriptName, max(line-wrapperLineOffset, 1), groups[2])
+	})
 }
