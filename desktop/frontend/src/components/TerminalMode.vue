@@ -2019,9 +2019,15 @@ onBeforeUnmount(() => {
 .row-status, .window-row.has-swap .window-status { pointer-events: none; }
 .row-action { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover, .row-action[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
-.session-row:hover .row-action, .window-row:hover .row-action, .row-action:focus-visible,
-.session-row.menu-open .row-action, .window-row.menu-open .row-action { opacity: 1; }
-.session-row:hover .row-status, .session-row.menu-open .row-status, .row-trailing:focus-within .row-status { opacity: 0; }
+/* The pinned section's heading carries a session's controls, so it reveals them
+   on hover like a session row. It is a .group-row rather than a .session-row —
+   its own row is the heading — and leaving it out of these left the scratch
+   terminal's + and ⋮ at opacity 0 with no way to reach them by mouse. */
+.session-row:hover .row-action, .group-row:hover .row-action, .window-row:hover .row-action, .row-action:focus-visible,
+.session-row.menu-open .row-action, .group-row.menu-open .row-action, .window-row.menu-open .row-action { opacity: 1; }
+.session-row:hover .row-status, .group-row:hover .row-status,
+.session-row.menu-open .row-status, .group-row.menu-open .row-status,
+.row-trailing:focus-within .row-status { opacity: 0; }
 .window-row.has-swap:hover .window-status,
 .window-row.has-swap .window-trailing:focus-within .window-status { opacity: 0; }
 </style>
