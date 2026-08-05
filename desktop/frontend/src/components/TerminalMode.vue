@@ -6,12 +6,15 @@ import IconArrowDown from '~icons/lucide/arrow-down'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
+import IconChevronsDownUp from '~icons/lucide/chevrons-down-up'
+import IconChevronsUpDown from '~icons/lucide/chevrons-up-down'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconCircleCheck from '~icons/lucide/circle-check'
 import IconCircleOff from '~icons/lucide/circle-off'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
+import IconListFilter from '~icons/lucide/list-filter'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
@@ -191,7 +194,14 @@ function isScratch(row: TerminalSessionRow): boolean {
 const treeNote = computed<'' | 'empty' | 'no-matches'>(() => {
   if (sessionsError.value || !treeReady.value) return ''
   if (!activeSessions.value.length) return 'empty'
-  return filteredGroups.value.length ? '' : 'no-matches'
+  // The pinned section is exempt from the running filter, so it cannot stand in
+  // as something that filter found: leaving no repository behind is leaving the
+  // tree with nothing it was asked about. A query does reach the pinned
+  // section, so one that matched it has found what it went looking for.
+  const found = sessionFilter.value.trim()
+    ? filteredGroups.value.length > 0
+    : filteredGroups.value.some((group) => !group.pinned)
+  return found ? '' : 'no-matches'
 })
 
 // The sidebar filter. It narrows what the tree draws and nothing else:
@@ -217,14 +227,60 @@ function escapeFilter(): void {
   focusTreeCursor()
 }
 
+// The other axis the tree narrows on: the query picks a session by name, this
+// picks by whether tmux is holding one, and it cuts repositories as well as
+// sessions — a dormant repository's header is most of what a full tree costs
+// to read.
+//
+// Stored, unlike the query, because it is how the user keeps the tree rather
+// than a search to be undone. The banner below the header is the price of
+// that: a narrowed tree must never read as a short one.
+const runningOnly = useStorage('hive.terminal.sidebar.running-only', false)
+
+// Taken before the query, so a repo-name match carries what is left rather
+// than what the tree started with. Inert until the first status poll lands:
+// a session nothing has answered for yet is not a session doing nothing.
+const runningGroups = computed<TerminalSessionGroup[]>(() => {
+  if (!runningOnly.value || !statusesLoaded.value) return sessionGroups.value
+  const groups: TerminalSessionGroup[] = []
+  for (const group of sessionGroups.value) {
+    // The pinned section stays. It is the tree's one always-there way to open
+    // a shell, and hiding it leaves nothing to start one from. A query still
+    // reaches it: that is a search for a name, not a view of the list.
+    if (group.pinned) {
+      groups.push(group)
+      continue
+    }
+    const sessions = group.sessions.filter(rowRunning)
+    if (sessions.length) groups.push({ ...group, sessions })
+  }
+  return groups
+})
+
+function countSessions(groups: TerminalSessionGroup[]): number {
+  return groups.reduce((total, group) => total + group.sessions.length, 0)
+}
+
+const runningNote = computed(() => {
+  if (!runningOnly.value) return ''
+  const hidden = countSessions(sessionGroups.value) - countSessions(runningGroups.value)
+  return hidden ? `Running sessions only · ${hidden} hidden` : 'Running sessions only'
+})
+
+// Why the tree came back empty, in the terms of whichever narrowing emptied it.
+const noMatchesNote = computed(() => {
+  const query = sessionFilter.value.trim()
+  return query ? `No sessions match “${query}”.` : 'No sessions are running.'
+})
+
 // A repo match carries its whole group, which is what makes typing a repo name
 // a way to narrow to it. Sessions match on the name and on the slug, since the
 // slug is the tmux target and what a deep link or a script names.
 const filteredGroups = computed<TerminalSessionGroup[]>(() => {
   const query = sessionFilter.value.trim().toLowerCase()
-  if (!query) return sessionGroups.value
+  if (!query) return runningGroups.value
   const groups: TerminalSessionGroup[] = []
-  for (const group of sessionGroups.value) {
+  for (const group of runningGroups.value) {
     if (group.name.toLowerCase().includes(query)) {
       groups.push(group)
       continue
@@ -236,7 +292,10 @@ const filteredGroups = computed<TerminalSessionGroup[]>(() => {
   return groups
 })
 
-const { statuses: sessionStatuses, startPolling: startStatusPolling, stopPolling: stopStatusPolling } = useSessionStatuses()
+const {
+  statuses: sessionStatuses, loaded: statusesLoaded,
+  startPolling: startStatusPolling, stopPolling: stopStatusPolling,
+} = useSessionStatuses()
 interface StatusIndicator {
   icon: Component
   color: string
@@ -294,13 +353,26 @@ const windowMenuFlip = ref(false)
 const windowMenuToggles = new Map<string, HTMLElement>()
 const sidebarMenuOpen = ref(false)
 const sidebarMenuToggle = ref<HTMLElement | null>(null)
-const sidebarMenuEntries = computed<MenuEntry[]>(() => [{
-  kind: 'action',
-  id: 'prune',
-  label: prunableCount.value ? `Prune ${prunableCount.value} recycled…` : 'Nothing to prune',
-  icon: IconTrash,
-  testid: 'terminal-sessions-prune',
-}])
+const sidebarMenuEntries = computed<MenuEntry[]>(() => [
+  {
+    kind: 'action',
+    id: 'running-only',
+    label: 'Only running sessions',
+    checked: runningOnly.value,
+    testid: 'terminal-sessions-running-only',
+  },
+  { kind: 'separator' },
+  { kind: 'action', id: 'collapse-all', label: 'Collapse all', icon: IconChevronsDownUp, testid: 'terminal-sessions-collapse-all' },
+  { kind: 'action', id: 'expand-all', label: 'Expand all', icon: IconChevronsUpDown, testid: 'terminal-sessions-expand-all' },
+  { kind: 'separator' },
+  {
+    kind: 'action',
+    id: 'prune',
+    label: prunableCount.value ? `Prune ${prunableCount.value} recycled…` : 'Nothing to prune',
+    icon: IconTrash,
+    testid: 'terminal-sessions-prune',
+  },
+])
 
 const {
   confirmation,
@@ -378,7 +450,9 @@ function runWindowAction(row: TerminalSessionRow, windowId: string, entryID: str
 
 function onSidebarMenuSelect(id: string): void {
   sidebarMenuOpen.value = false
-  if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
+  if (id === 'running-only') runningOnly.value = !runningOnly.value
+  else if (id === 'collapse-all' || id === 'expand-all') setAllGroups(id === 'expand-all')
+  else if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
 }
 
 function groupAttached(group: TerminalSessionGroup): boolean {
@@ -408,6 +482,13 @@ function groupExpanded(group: TerminalSessionGroup): boolean {
 }
 function toggleGroup(group: TerminalSessionGroup): void {
   groupExpansion.value[group.key] = !groupExpanded(group)
+}
+
+// Every group, not the ones the tree happens to be drawing: a bulk fold that
+// the narrowed-away groups escaped would spring back open as a surprise the
+// moment the scope or the query came off.
+function setAllGroups(expanded: boolean): void {
+  for (const group of sessionGroups.value) groupExpansion.value[group.key] = expanded
 }
 
 // Windows are only known live through an attach, so every other active
@@ -448,6 +529,9 @@ watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], 
 const treeReady = ref(false)
 watchEffect(() => {
   if (treeReady.value || !sessionsLoaded.value || !showAllWindowsReady.value) return
+  // The filter decides which rows exist at all, so a tree painted before the
+  // first status poll would be the wrong tree, not an early one.
+  if (runningOnly.value && !statusesLoaded.value) return
   // Whatever the sweep is answering — every session's windows, or only whether
   // the scratch terminal is running — the tree waits for it, because both change
   // a row's final shape.
@@ -1350,6 +1434,20 @@ onBeforeUnmount(() => {
             />
           </div>
         </div>
+        <div
+          v-if="runningNote"
+          class="flex h-7 shrink-0 items-center gap-2 border-b border-border bg-chip px-3"
+          data-testid="terminal-sessions-running-note"
+        >
+          <IconListFilter class="size-3 shrink-0 text-accent" />
+          <span class="min-w-0 flex-1 truncate text-[11.5px] text-text-2">{{ runningNote }}</span>
+          <button
+            type="button"
+            class="shrink-0 cursor-pointer text-[11.5px] text-text-3 hover:text-text"
+            data-testid="terminal-sessions-running-clear"
+            @click="runningOnly = false"
+          >Show all</button>
+        </div>
         <div class="hive-scroll min-h-0 flex-1 overflow-y-auto pb-4">
           <p v-if="sessionsError" class="px-3 py-2 text-xs text-severity-error" data-testid="terminal-sessions-error">{{ sessionsError }}</p>
           <p v-else-if="!treeReady" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="terminal-sessions-loading">Loading…</p>
@@ -1673,7 +1771,7 @@ onBeforeUnmount(() => {
             No active sessions. Start one from the hub and it will appear here.
           </p>
           <p v-else-if="treeNote === 'no-matches'" class="px-3 py-2 text-xs text-text-3" data-testid="terminal-sessions-no-matches">
-            No sessions match &ldquo;{{ sessionFilter.trim() }}&rdquo;.
+            {{ noMatchesNote }}
           </p>
         </div>
         <!-- The tree's keys are not otherwise announced anywhere, so the panel

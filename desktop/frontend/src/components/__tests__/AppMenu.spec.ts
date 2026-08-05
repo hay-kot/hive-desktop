@@ -31,6 +31,24 @@ describe('AppMenu', () => {
     wrapper.unmount()
   })
 
+  // An unchecked toggle still has to hold the check's place, or its label sits
+  // further left than every icon-bearing entry around it.
+  it('marks a toggling entry as a checkbox, and reserves the glyph while it is off', () => {
+    const wrapper = mount(AppMenu, {
+      props: {
+        entries: [
+          { kind: 'action', id: 'on', label: 'On', checked: true, testid: 'entry-on' },
+          { kind: 'action', id: 'off', label: 'Off', checked: false, testid: 'entry-off' },
+        ] satisfies MenuEntry[],
+      },
+    })
+    expect(wrapper.findAll('[role="menuitemcheckbox"]')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="entry-on"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="entry-on"] svg').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="entry-off"] svg').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="entry-off"] span').classes()).toContain('size-3.5')
+  })
+
   it('flips upward when asked to open above its anchor', () => {
     const wrapper = mount(AppMenu, { props: { entries, flip: true } })
     expect(wrapper.get('.app-menu').classes()).toContain('flip')

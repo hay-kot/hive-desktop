@@ -22,6 +22,12 @@ export interface MenuActionEntry {
    * disappearing, so the menu's shape does not shift under the pointer.
    */
   disabled?: boolean
+  /**
+   * A state the entry turns on and off, and whether it is on. Set it even
+   * while off: an unchecked entry still reserves the check's width, so its
+   * label lines up with the icon-bearing entries around it.
+   */
+  checked?: boolean
   testid?: string
 }
 

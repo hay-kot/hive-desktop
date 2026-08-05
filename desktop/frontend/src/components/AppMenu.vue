@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { onClickOutside } from '@vueuse/core'
+import IconCheck from '~icons/lucide/check'
 import AppIcon from './AppIcon.vue'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import type { MenuEntry } from '../types/menu'
@@ -81,9 +82,19 @@ onBeforeUnmount(() => {
       <template v-for="(entry, index) in entries" :key="index">
         <div v-if="entry.kind === 'separator'" class="app-menu-sep" />
         <div v-else-if="entry.kind === 'label'" class="app-menu-label">{{ entry.text }}</div>
-        <button v-else class="app-menu-entry" role="menuitem" :disabled="entry.disabled" :data-testid="entry.testid" @click="emit('select', entry.id)">
+        <button
+          v-else
+          class="app-menu-entry"
+          :role="entry.checked === undefined ? 'menuitem' : 'menuitemcheckbox'"
+          :aria-checked="entry.checked"
+          :disabled="entry.disabled"
+          :data-testid="entry.testid"
+          @click="emit('select', entry.id)"
+        >
           <component :is="entry.icon" v-if="entry.icon" class="size-3.5 shrink-0" :style="entry.iconColor ? { color: entry.iconColor } : undefined" />
           <AppIcon v-else-if="entry.iconName" :name="entry.iconName" class="size-3.5 shrink-0" :style="entry.iconColor ? { color: entry.iconColor } : undefined" />
+          <IconCheck v-else-if="entry.checked" class="size-3.5 shrink-0 text-accent" />
+          <span v-else-if="entry.checked === false" class="size-3.5 shrink-0" aria-hidden="true" />
           <span class="min-w-0 flex-1 truncate">{{ entry.label }}</span>
           <span v-if="entry.kbd" class="app-menu-kbd">{{ entry.kbd }}</span>
         </button>
