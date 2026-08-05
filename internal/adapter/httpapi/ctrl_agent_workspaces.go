@@ -293,7 +293,7 @@ func (b agentWorkspaceTargetRequest) Validate() error {
 }
 
 // AgentWorkspaceOpenInEditor launches the configured editor (Settings ›
-// System) on the workspace directory.
+// General) on the workspace directory.
 func (ctrl *Controller) AgentWorkspaceOpenInEditor(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[agentWorkspaceTargetRequest](ctrl, w, r)
 	if err != nil {

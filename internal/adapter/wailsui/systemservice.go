@@ -46,12 +46,16 @@ type PathInfo struct {
 	Overridden bool `json:"overridden"`
 }
 
-// SystemInfo is the full set of locations shown on the System settings screen.
+// SystemInfo is the full set of locations the settings screens show.
 type SystemInfo struct {
 	DataDir   PathInfo `json:"dataDir"`
 	ConfigDir PathInfo `json:"configDir"`
 	LogFile   PathInfo `json:"logFile"`
 	Database  PathInfo `json:"database"`
+	// AgentWorkspaces is the agent-workspace root, shown on the Agents pane
+	// rather than with the other locations: it is where the Agents area keeps
+	// its workspaces, not part of the install.
+	AgentWorkspaces PathInfo `json:"agentWorkspaces"`
 }
 
 // Info returns the effective locations for this running process plus whether
@@ -59,10 +63,11 @@ type SystemInfo struct {
 func (s *SystemService) Info(ctx context.Context) SystemInfo {
 	info := s.system.Info(ctx)
 	return SystemInfo{
-		DataDir:   pathInfo(info.DataDir),
-		ConfigDir: pathInfo(info.ConfigDir),
-		LogFile:   pathInfo(info.LogFile),
-		Database:  pathInfo(info.Database),
+		DataDir:         pathInfo(info.DataDir),
+		ConfigDir:       pathInfo(info.ConfigDir),
+		LogFile:         pathInfo(info.LogFile),
+		Database:        pathInfo(info.Database),
+		AgentWorkspaces: pathInfo(info.AgentWorkspaces),
 	}
 }
 

@@ -709,11 +709,11 @@ func (s *AgentWorkspacesService) OpenWorkspaceInEditor(ctx context.Context, dir 
 	}
 	command, _ := s.Editor(ctx)
 	if command == "" {
-		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › System")
+		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › General")
 	}
 	path, err := s.execEnv.LookPath(ctx, command)
 	if err != nil {
-		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › System", command)
+		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › General", command)
 	}
 	// WithoutCancel: the editor must outlive the request that launched it —
 	// a request-scoped context would kill it the moment the response is sent.

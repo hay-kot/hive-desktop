@@ -1,22 +1,15 @@
 <script setup lang="ts">
-// System settings: on-disk locations (data dir, config dir, log file,
-// database) grouped into one card per section with per-row open/reveal
-// actions, point-only overrides for the data and config directories that take
-// effect after a restart, and an About card with the build strip and
-// auto-update controls.
-import { computed, onMounted } from 'vue'
+// System settings: this install on this machine — where its data and config
+// live, the files to open when something goes wrong, and the reporter that
+// bundles them. Anything a feature owns lives on that feature's pane.
+import { onMounted } from 'vue'
 import IconInfo from '~icons/lucide/info'
-import IconExternalLink from '~icons/lucide/external-link'
-import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconBug from '~icons/lucide/bug'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import SettingsError from './settings/SettingsError.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsPathRow from './settings/SettingsPathRow.vue'
-import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
-import AppSelect, { type AppSelectOption } from './AppSelect.vue'
-import AppSwitch from './AppSwitch.vue'
 import { useSystemSettings } from '../composables/useSystemSettings'
 import { useReportDialog } from '../composables/useReportDialog'
 
@@ -24,27 +17,9 @@ const { openDialog: openReport } = useReportDialog()
 
 const {
   info,
-  build,
   error,
   restartRequired,
-  autoUpdate,
-  update,
-  checkingUpdate,
-  checkedOnce,
-  experimentalTerminal,
-  terminalRestartPending,
-  setExperimentalTerminal,
-  experimentalAgents,
-  agentsRestartPending,
-  setExperimentalAgents,
-  editorCommand,
-  editorChoices,
-  setEditorCommand,
-  setAutoUpdate,
-  checkForUpdates,
   refresh,
-  openReleaseNotes,
-  openRepo,
   openPath,
   revealPath,
   changeDataDir,
@@ -53,20 +28,6 @@ const {
   resetConfigDir,
   quit,
 } = useSystemSettings()
-
-// "None" plus every detected editor; a hand-authored command outside the
-// catalogue still lists (labelled by its own name) so the selector never
-// shows a value it cannot represent.
-const editorOptions = computed<AppSelectOption[]>(() => {
-  const options: AppSelectOption[] = [{ value: '', label: 'None' }]
-  for (const choice of editorChoices.value) {
-    options.push({ value: choice.command, label: choice.found ? choice.title : `${choice.title} (not found)` })
-  }
-  if (editorCommand.value && !editorChoices.value.some((c) => c.command === editorCommand.value)) {
-    options.push({ value: editorCommand.value, label: editorCommand.value })
-  }
-  return options
-})
 
 onMounted(() => {
   void refresh()
@@ -114,36 +75,36 @@ onMounted(() => {
       description="Point Hive at a different folder. Existing data isn't moved; a new location applies after restart."
       boxed
     >
-        <SettingsPathRow
-          label="Data directory"
-          hint="Desktop state, logs, and the databases live here."
-          icon="folder"
-          tone="accent"
-          :path="info.dataDir.path"
-          :exists="info.dataDir.exists"
-          :overridden="info.dataDir.overridden"
-          editable
-          testid="system-data-dir"
-          @open="openPath(info.dataDir.path)"
-          @reveal="revealPath(info.dataDir.path)"
-          @change="changeDataDir"
-          @reset="resetDataDir"
-        />
-        <SettingsPathRow
-          label="Config directory"
-          hint="Profiles, flows, and actions.yml."
-          icon="folder"
-          tone="accent"
-          :path="info.configDir.path"
-          :exists="info.configDir.exists"
-          :overridden="info.configDir.overridden"
-          editable
-          testid="system-config-dir"
-          @open="openPath(info.configDir.path)"
-          @reveal="revealPath(info.configDir.path)"
-          @change="changeConfigDir"
-          @reset="resetConfigDir"
-        />
+      <SettingsPathRow
+        label="Data directory"
+        hint="Desktop state, logs, and the databases live here."
+        icon="folder"
+        tone="accent"
+        :path="info.dataDir.path"
+        :exists="info.dataDir.exists"
+        :overridden="info.dataDir.overridden"
+        editable
+        testid="system-data-dir"
+        @open="openPath(info.dataDir.path)"
+        @reveal="revealPath(info.dataDir.path)"
+        @change="changeDataDir"
+        @reset="resetDataDir"
+      />
+      <SettingsPathRow
+        label="Config directory"
+        hint="Profiles, flows, and actions.yml."
+        icon="folder"
+        tone="accent"
+        :path="info.configDir.path"
+        :exists="info.configDir.exists"
+        :overridden="info.configDir.overridden"
+        editable
+        testid="system-config-dir"
+        @open="openPath(info.configDir.path)"
+        @reveal="revealPath(info.configDir.path)"
+        @change="changeConfigDir"
+        @reset="resetConfigDir"
+      />
     </SettingsSection>
 
     <SettingsSection
@@ -152,168 +113,24 @@ onMounted(() => {
       description="Open or locate the log file and database when troubleshooting."
       boxed
     >
-        <SettingsPathRow
-          label="Log file"
-          icon="log"
-          :path="info.logFile.path"
-          :exists="info.logFile.exists"
-          testid="system-log-file"
-          @open="openPath(info.logFile.path)"
-          @reveal="revealPath(info.logFile.path)"
-        />
-        <SettingsPathRow
-          label="Database"
-          icon="database"
-          :path="info.database.path"
-          :exists="info.database.exists"
-          testid="system-database"
-          @open="openPath(info.database.path)"
-          @reveal="revealPath(info.database.path)"
-        />
-    </SettingsSection>
-
-    <SettingsSection
-      title="Editor"
-      description="The editor 'Open in editor' actions launch — an agent workspace, for example."
-      boxed
-      testid="system-editor"
-    >
-      <SettingsRow
-        label="Default editor"
-        hint="Detected from the CLI launchers on your PATH (zed, code, cursor, subl). Any other single-word command can be set as editor.command in settings.yaml."
-      >
-        <AppSelect
-          :model-value="editorCommand"
-          :options="editorOptions"
-          aria-label="Default editor"
-          testid="system-editor-command"
-          class="min-w-[180px]"
-          @update:model-value="setEditorCommand"
-        />
-      </SettingsRow>
-    </SettingsSection>
-
-    <SettingsSection
-      title="Experimental"
-      description="Early features that ship off by default. Changes apply after restarting Hive."
-      boxed
-      testid="system-experimental"
-    >
-      <SettingsRow
-        label="Terminal mode"
-        hint="Attach to a session's tmux windows inside the app, from the mode switch in the title bar. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
-      >
-        <div class="flex items-center gap-2.5">
-          <span
-            v-if="terminalRestartPending"
-            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
-            data-testid="system-terminal-restart"
-          >Restart to apply</span>
-          <AppSwitch
-            :model-value="experimentalTerminal"
-            aria-label="Terminal mode"
-            testid="system-experimental-terminal"
-            @update:model-value="setExperimentalTerminal"
-          />
-        </div>
-      </SettingsRow>
-      <SettingsRow
-        label="Agents area"
-        hint="Run a CLI agent against a named workspace with its own MCP tool set, from the mode switch in the title bar. A workspace declares its own autonomy posture — nothing here inherits a coding session's flags."
-      >
-        <div class="flex items-center gap-2.5">
-          <span
-            v-if="agentsRestartPending"
-            class="shrink-0 rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
-            data-testid="system-agents-restart"
-          >Restart to apply</span>
-          <AppSwitch
-            :model-value="experimentalAgents"
-            aria-label="Agents area"
-            testid="system-experimental-agents"
-            @update:model-value="setExperimentalAgents"
-          />
-        </div>
-      </SettingsRow>
-    </SettingsSection>
-
-    <SettingsSection
-      v-if="build"
-      title="About"
-      description="The build of Hive you're running — include this when reporting an issue."
-      boxed
-      testid="system-about"
-    >
-        <div class="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3.5">
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-text-3">Version</span>
-            <div class="flex items-center gap-2">
-              <span class="font-mono text-[13px] text-text" data-testid="system-build-version">{{ build.version }}</span>
-              <span
-                v-if="update?.available"
-                class="rounded-full border border-severity-info-border bg-severity-info-tint px-2 py-0.5 text-[11px] font-medium text-severity-info"
-                data-testid="system-update-available"
-              >Update available: {{ update.latestVersion }}</span>
-              <span
-                v-else-if="checkedOnce"
-                class="text-[11px] text-text-4"
-                data-testid="system-update-uptodate"
-              >Up to date</span>
-            </div>
-          </div>
-          <div class="hidden h-[26px] w-px bg-row @[520px]/pane:block" />
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-text-3">Commit</span>
-            <span class="font-mono text-[13px] text-text" data-testid="system-build-commit">{{ build.commit }}</span>
-          </div>
-          <div class="hidden h-[26px] w-px bg-row @[520px]/pane:block" />
-          <div class="flex flex-col gap-1">
-            <span class="text-[11px] text-text-3">Built</span>
-            <span class="font-mono text-[13px] text-text" data-testid="system-build-date">{{ build.date }}</span>
-          </div>
-          <div class="flex-1" />
-          <div class="flex items-center gap-4 text-[13px]">
-            <button
-              type="button"
-              class="flex cursor-pointer items-center gap-1.5 text-accent hover:underline"
-              title="View project on GitHub"
-              data-testid="system-build-repo"
-              @click="openRepo"
-            ><IconExternalLink class="size-3.5" />Project</button>
-            <button
-              v-if="build.releaseUrl"
-              type="button"
-              class="flex cursor-pointer items-center gap-1.5 text-accent hover:underline"
-              title="View release on GitHub"
-              data-testid="system-build-release"
-              @click="openReleaseNotes"
-            ><IconExternalLink class="size-3.5" />Release</button>
-          </div>
-        </div>
-        <div class="flex flex-col gap-3 border-t border-row px-4 py-3.5 @[600px]/pane:flex-row @[600px]/pane:items-center @[600px]/pane:gap-3.5">
-          <div class="flex min-w-0 flex-1 items-center gap-3.5">
-            <AppSwitch
-              :model-value="autoUpdate"
-              aria-label="Automatic updates"
-              testid="system-auto-update"
-              @update:model-value="setAutoUpdate"
-            />
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-semibold text-text">Automatic updates</div>
-              <div class="mt-0.5 text-[11.5px] text-text-3">Check for and install new versions from GitHub in the background.</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            class="flex shrink-0 cursor-pointer items-center gap-1.5 self-end rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50 @[600px]/pane:self-auto"
-            :disabled="checkingUpdate"
-            data-testid="system-check-update"
-            @click="checkForUpdates"
-          >
-            <IconRefreshCw class="size-3.5" :class="checkingUpdate ? 'animate-spin' : ''" />
-            {{ checkingUpdate ? 'Checking…' : 'Check for updates' }}
-          </button>
-        </div>
+      <SettingsPathRow
+        label="Log file"
+        icon="log"
+        :path="info.logFile.path"
+        :exists="info.logFile.exists"
+        testid="system-log-file"
+        @open="openPath(info.logFile.path)"
+        @reveal="revealPath(info.logFile.path)"
+      />
+      <SettingsPathRow
+        label="Database"
+        icon="database"
+        :path="info.database.path"
+        :exists="info.database.exists"
+        testid="system-database"
+        @open="openPath(info.database.path)"
+        @reveal="revealPath(info.database.path)"
+      />
     </SettingsSection>
   </SettingsPage>
 </template>

@@ -640,7 +640,7 @@ describe('TerminalMode', () => {
     session.activeWindowId.value = '@7'
     const { wrapper, router } = await mountAvailable(session)
 
-    // Settings ▸ Appearance ▸ Terminal ships the listing on, so the tree fills
+    // Settings ▸ Terminal ships the listing on, so the tree fills
     // in without touching anything — and one call carries the whole sidebar,
     // the pinned scratch terminal included.
     expect(listWindows).toHaveBeenCalledWith(['Scratch', 'hive-fix-parser', 'hive-bump-deps'])

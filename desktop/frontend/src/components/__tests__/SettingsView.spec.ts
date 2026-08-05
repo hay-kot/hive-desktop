@@ -3,37 +3,17 @@ import { nextTick } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import SettingsView from '../SettingsView.vue'
 import { setTheme } from '../../composables/useTheme'
-import {
-  defaultTerminalFontWeight,
-  defaultTerminalFontWeightBold,
-  setTerminalFontSize,
-  setTerminalFontWeight,
-  setTerminalFontWeightBold,
-} from '../../composables/useTerminalFont'
-import { TERMINAL_FONT } from '../../lib/terminalFaces'
-import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
-import { setTerminalPoolSize } from '../../composables/useTerminalPoolSize'
 import { resetWebhookSettingsForTests } from '../../composables/useWebhookSettings'
 import { applicationSettingsSections } from '../../router'
 
-const setTerminalShowWindowsBinding = vi.hoisted(() => vi.fn())
-const setTerminalPoolSizeBinding = vi.hoisted(() => vi.fn())
-const setTerminalFontFamilyBinding = vi.hoisted(() => vi.fn())
-const setTerminalFontWeightsBinding = vi.hoisted(() => vi.fn())
-const monospaceFontsBinding = vi.hoisted(() => vi.fn().mockResolvedValue(['Fira Code', 'Menlo']))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   GithubSettings: vi.fn().mockResolvedValue({ pollIntervalSeconds: 60, minPollIntervalSeconds: 60 }),
   SetGithubSettings: vi.fn(),
   NotificationSettings: vi.fn().mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true }),
   SetNotificationSettings: vi.fn(),
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
-  MonospaceFonts: monospaceFontsBinding,
+  MonospaceFonts: vi.fn().mockResolvedValue([]),
   SetTheme: vi.fn(),
-  SetTerminalFontSize: vi.fn(),
-  SetTerminalFontFamily: setTerminalFontFamilyBinding,
-  SetTerminalFontWeights: setTerminalFontWeightsBinding,
-  SetTerminalShowWindows: setTerminalShowWindowsBinding,
-  SetTerminalPoolSize: setTerminalPoolSizeBinding,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   PermissionStatus: vi.fn().mockResolvedValue('not-requested'),
@@ -109,11 +89,22 @@ describe('SettingsView', () => {
 
     expect(wrapper.find('[data-testid="settings-category-appearance"]').attributes('aria-current')).toBe('true')
     expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="settings-category-general"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-category-integrations"]').exists()).toBe(true)
+    // Group headings are not categories: "Advanced" names a nav group, and a
+    // pane of that name would be a junk drawer rather than a setting.
     expect(wrapper.find('[data-testid="settings-category-advanced"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-display-name"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="settings-font-size"]').exists()).toBe(false)
+  })
+
+  // Appearance kept the terminal typography long after terminals outgrew it
+  // (#222): a control belongs to the pane named for the surface it changes.
+  it('leaves terminal typography to the Terminal pane', () => {
+    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
+
+    expect(wrapper.find('[data-testid="settings-theme-dark"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="settings-terminal-font-family"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="settings-terminal-pool-size"]').exists()).toBe(false)
   })
 
   it('reflects and changes the real application theme', async () => {
@@ -128,100 +119,6 @@ describe('SettingsView', () => {
     expect(document.documentElement.dataset.theme).toBe('gruvbox')
     await nextTick()
     expect(localStorage.getItem('hive.theme')).toBe('gruvbox')
-  })
-
-  it('reflects and changes the terminal font size preset', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('true')
-
-    await wrapper.find('[data-testid="settings-terminal-font-size-xl"]').trigger('click')
-
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-xl"]').attributes('aria-selected')).toBe('true')
-    expect(wrapper.find('[data-testid="settings-terminal-font-size-medium"]').attributes('aria-selected')).toBe('false')
-
-    // The size is a module singleton; put the default back for later tests.
-    setTerminalFontSize('medium')
-  })
-
-  // #181: the terminal shipped with no weight control at all, so normal cells
-  // rendered at whatever the atlas drew.
-  it('reflects and changes the terminal font weight', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-
-    expect(wrapper.find(`[data-testid="settings-terminal-font-weight-${defaultTerminalFontWeight}"]`)
-      .attributes('aria-selected')).toBe('true')
-
-    await wrapper.find('[data-testid="settings-terminal-font-weight-400"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="settings-terminal-font-weight-400"]').attributes('aria-selected')).toBe('true')
-    expect(setTerminalFontWeightsBinding).toHaveBeenCalledWith(400, defaultTerminalFontWeightBold)
-
-    setTerminalFontWeight(defaultTerminalFontWeight)
-  })
-
-  // Both weights go through one setter: written separately, a caller could land
-  // a normal weight above the bold one.
-  it('persists both weights when only the bold one changes', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-    setTerminalFontWeightsBinding.mockClear()
-
-    await wrapper.find('[data-testid="settings-terminal-font-weight-bold-600"]').trigger('click')
-    await flushPromises()
-
-    expect(setTerminalFontWeightsBinding).toHaveBeenCalledWith(defaultTerminalFontWeight, 600)
-
-    setTerminalFontWeightBold(defaultTerminalFontWeightBold)
-  })
-
-  // The scan is what the webview cannot do for itself, and the bundled face
-  // leads the list whether or not it is also installed system-wide.
-  it('offers the installed monospace families with the bundled face first', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-    await flushPromises()
-
-    await wrapper.get('[data-testid="settings-terminal-font-family-select"]').trigger('click')
-    await flushPromises()
-
-    const labels = Array.from(document.querySelectorAll('[role="option"]'))
-    expect(monospaceFontsBinding).toHaveBeenCalled()
-    expect(labels.map((el) => el.textContent?.trim())).toEqual([
-      `${TERMINAL_FONT} · bundled`,
-      'Fira Code',
-      'Menlo',
-    ])
-  })
-
-  it('reflects and toggles the terminal window listing', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-
-    const toggle = wrapper.get('[data-testid="settings-terminal-show-windows"]')
-    expect(toggle.attributes('aria-checked')).toBe('true')
-
-    await toggle.trigger('click')
-    await flushPromises()
-
-    expect(toggle.attributes('aria-checked')).toBe('false')
-    expect(setTerminalShowWindowsBinding).toHaveBeenCalledWith(false)
-
-    // The setting is a module singleton; put the default back for later tests.
-    setTerminalShowWindows(true)
-  })
-
-  it('reflects and changes the terminal warm-session count', async () => {
-    const wrapper = mount(SettingsView, { props: { activeCategory: 'appearance' } })
-
-    expect(wrapper.find('[data-testid="settings-terminal-pool-size-3"]').attributes('aria-selected')).toBe('true')
-
-    await wrapper.find('[data-testid="settings-terminal-pool-size-5"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="settings-terminal-pool-size-5"]').attributes('aria-selected')).toBe('true')
-    expect(setTerminalPoolSizeBinding).toHaveBeenCalledWith(5)
-
-    // The setting is a module singleton; put the default back for later tests.
-    setTerminalPoolSize(3)
   })
 
   it('shows the connected GitHub source', async () => {

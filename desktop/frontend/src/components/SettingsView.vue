@@ -2,26 +2,33 @@
 // Application-wide settings, opened from the persistent profile rail.
 // Only settings backed by real behavior or explicitly marked future
 // integrations belong here.
-import { computed, defineAsyncComponent, ref, watch, type Component } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import IconKeyboard from '~icons/lucide/keyboard'
 import IconPalette from '~icons/lucide/palette'
 import IconPlug from '~icons/lucide/plug'
 import IconPlay from '~icons/lucide/play'
 import IconTerminal from '~icons/lucide/terminal'
+import IconSquareTerminal from '~icons/lucide/square-terminal'
+import IconBot from '~icons/lucide/bot'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
+import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
+import IconSliders from '~icons/lucide/sliders-horizontal'
 import IconSparkles from '~icons/lucide/sparkles'
-import AppSelect from './AppSelect.vue'
-import AppSwitch from './AppSwitch.vue'
+import IconZap from '~icons/lucide/zap'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
+import AboutSettingsView from './AboutSettingsView.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
+import AgentsSettingsView from './AgentsSettingsView.vue'
+import GeneralSettingsView from './GeneralSettingsView.vue'
 import LauncherSettingsView from './LauncherSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
 import SkillsSettingsView from './SkillsSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
+import TerminalSettingsView from './TerminalSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
 import githubIcon from '../assets/integrations/github.svg'
 import grafanaIcon from '../assets/integrations/grafana.svg'
@@ -32,45 +39,14 @@ import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
-import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
-import SettingsSegmented from './settings/SettingsSegmented.vue'
 import ThemePicker from './settings/ThemePicker.vue'
 import IconWebhook from '~icons/lucide/webhook'
 import { setTheme, useTheme, type Theme } from '../composables/useTheme'
-import {
-  loadInstalledMonospaceFonts,
-  setTerminalFontFamily,
-  setTerminalFontSize,
-  setTerminalFontWeight,
-  setTerminalFontWeightBold,
-  setTerminalLetterSpacing,
-  setTerminalLineHeight,
-  terminalFontSizeLabels,
-  terminalFontSizePx,
-  terminalFontSizes,
-  terminalFontWeightLabels,
-  terminalFontWeights,
-  terminalLetterSpacings,
-  terminalLineHeights,
-  useTerminalFont,
-  type TerminalFontSize,
-  type TerminalFontWeight,
-  type TerminalLetterSpacing,
-  type TerminalLineHeight,
-} from '../composables/useTerminalFont'
-import { TERMINAL_FONT } from '../lib/terminalFaces'
-import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
-import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
 import { applicationSettingsSections, type ApplicationSettingsSection } from '../router'
-
-// Async so xterm and its addons stay on the terminal chunk. SettingsView is a
-// static import in App.vue, so a direct one would pull them into the main
-// bundle for everyone who opens any settings pane.
-const TerminalPreview = defineAsyncComponent(() => import('./settings/TerminalPreview.vue'))
 
 const props = withDefaults(defineProps<{
   activeCategory: ApplicationSettingsSection
@@ -81,65 +57,38 @@ const emit = defineEmits<{ close: []; 'select-category': [category: ApplicationS
 // so a section added there shows up here (and TypeScript flags the missing
 // entry) instead of being routable but absent from the nav.
 const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: string; icon: Component }> = {
+  general: { label: 'General', title: 'General', icon: IconSliders },
   appearance: { label: 'Appearance', title: 'Appearance', icon: IconPalette },
   keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
+  terminal: { label: 'Terminal', title: 'Terminal', icon: IconSquareTerminal },
+  agents: { label: 'Agents', title: 'Agents', icon: IconBot },
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
-  launchers: { label: 'Launchers', title: 'Launchers', icon: IconTerminal },
+  launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
   skills: { label: 'Skills', title: 'Skills', icon: IconSparkles },
-  system: { label: 'System', title: 'System', icon: IconHardDrive },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
+  system: { label: 'System', title: 'System', icon: IconHardDrive },
+  about: { label: 'About', title: 'About', icon: IconInfo },
 }
-// The nav is grouped by what you came to change, not by when each pane was
-// built: how the app treats you, the pipeline it runs, then the install
-// itself. Every section appears in exactly one group — SettingsView.spec
-// asserts that against applicationSettingsSections so a new pane cannot be
-// routable but absent from the nav.
+// The nav mirrors the app's own mode switch — Inbox, Code, Agents — bookended
+// by what the whole app answers to and by the install itself, so the rail can
+// be read against the title bar rather than learned. A value one surface uses
+// sits under that surface; one several use sits in General. There is
+// deliberately no leftover bucket: a section that fits nowhere is a sign the
+// grouping is wrong, not that it needs an "Automation" pile to fall into.
+// Every section appears in exactly one group — SettingsView.spec asserts that
+// against applicationSettingsSections so a new pane cannot be routable but
+// absent from the nav.
 const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection[] }> = [
-  { title: 'General', ids: ['appearance', 'notifications', 'keybindings'] },
-  { title: 'Automation', ids: ['integrations', 'actions', 'launchers', 'skills'] },
-  { title: 'Advanced', ids: ['system'] },
+  { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
+  { title: 'Inbox', ids: ['integrations', 'actions'] },
+  { title: 'Code', ids: ['terminal', 'launchers'] },
+  { title: 'Agents', ids: ['agents', 'skills'] },
+  { title: 'Advanced', ids: ['system', 'about'] },
 ]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const { theme } = useTheme()
-const {
-  size: terminalFontSize,
-  selectedFamily: terminalFontFamily,
-  installedFamilies: terminalFontFamilies,
-  weight: terminalFontWeight,
-  weightBold: terminalFontWeightBold,
-  lineHeight: terminalLineHeight,
-  letterSpacing: terminalLetterSpacing,
-} = useTerminalFont()
-const terminalFontSizeOptions = terminalFontSizes.map((value) => ({
-  value,
-  label: `${terminalFontSizePx[value]}px`,
-  title: terminalFontSizeLabels[value],
-}))
-// The bundled face leads the list whether or not it is also installed
-// system-wide, so the shipped default is always the first thing offered.
-const terminalFontFamilyOptions = computed(() => [
-  { value: TERMINAL_FONT, label: `${TERMINAL_FONT} · bundled` },
-  ...terminalFontFamilies.value
-    .filter((family) => family !== TERMINAL_FONT)
-    .map((family) => ({ value: family, label: family })),
-])
-const terminalFontWeightOptions = terminalFontWeights.map((value) => ({
-  value: String(value),
-  label: terminalFontWeightLabels[value],
-}))
-const terminalLineHeightOptions = terminalLineHeights.map((value) => ({
-  value: String(value),
-  label: value.toFixed(1),
-}))
-const terminalLetterSpacingOptions = terminalLetterSpacings.map((value) => ({
-  value: String(value),
-  label: value === 0 ? 'None' : `+${value}`,
-}))
-const { showWindows: terminalShowWindows } = useTerminalShowWindows()
-const { poolSize: terminalPoolSize } = useTerminalPoolSize()
-const terminalPoolSizeOptions = terminalPoolSizes.map((value) => ({ value: String(value), label: String(value) }))
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
@@ -222,41 +171,6 @@ function onThemeChange(value: string): void {
   setTheme(value as Theme)
 }
 
-function onTerminalFontSizeChange(value: string): void {
-  setTerminalFontSize(value as TerminalFontSize)
-}
-
-function onTerminalPoolSizeChange(value: string): void {
-  setTerminalPoolSize(Number(value))
-}
-
-function onTerminalFontFamilyChange(value: string): void {
-  setTerminalFontFamily(value)
-}
-
-function onTerminalFontWeightChange(value: string): void {
-  setTerminalFontWeight(Number(value) as TerminalFontWeight)
-}
-
-function onTerminalFontWeightBoldChange(value: string): void {
-  setTerminalFontWeightBold(Number(value) as TerminalFontWeight)
-}
-
-function onTerminalLineHeightChange(value: string): void {
-  setTerminalLineHeight(Number(value) as TerminalLineHeight)
-}
-
-function onTerminalLetterSpacingChange(value: string): void {
-  setTerminalLetterSpacing(Number(value) as TerminalLetterSpacing)
-}
-
-// Scanning every font on the machine is not worth doing until this pane is the
-// one on screen.
-watch(
-  () => props.activeCategory,
-  (category) => { if (category === 'appearance') loadInstalledMonospaceFonts() },
-  { immediate: true },
-)
 </script>
 
 <template>
@@ -291,127 +205,21 @@ watch(
       <span class="text-[13px] font-semibold text-text">{{ sectionTitle }}</span>
     </template>
 
-    <SettingsPage v-if="props.activeCategory === 'appearance'">
+    <GeneralSettingsView v-if="props.activeCategory === 'general'" />
+
+    <SettingsPage v-else-if="props.activeCategory === 'appearance'">
       <SettingsSection
         title="Theme"
         description="Applies immediately across the whole app."
       >
         <ThemePicker :model-value="theme" @update:model-value="onThemeChange" />
       </SettingsSection>
-
-      <SettingsSection
-        title="Terminal typography"
-        description="How terminal text is drawn. Changes apply to open terminals immediately."
-        boxed
-      >
-        <SettingsRow
-          label="Font"
-          hint="Monospace families installed on this machine. The powerline and devicon glyphs agent TUIs draw with come from a bundled symbol face, so a family that lacks them still renders them."
-          testid="settings-terminal-font-family"
-        >
-          <AppSelect
-            class="w-[220px]"
-            :model-value="terminalFontFamily"
-            :options="terminalFontFamilyOptions"
-            searchable
-            search-placeholder="Search fonts"
-            aria-label="Terminal font"
-            testid="settings-terminal-font-family-select"
-            @update:model-value="onTerminalFontFamilyChange"
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Font size"
-          hint="Applies immediately to open terminals; tmux re-fits their grid."
-        >
-          <SettingsSegmented
-            :model-value="terminalFontSize"
-            :options="terminalFontSizeOptions"
-            aria-label="Font size"
-            testid="settings-terminal-font-size"
-            @update:model-value="onTerminalFontSizeChange"
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Font weight"
-          hint="The weight normal text draws at. A family that ships fewer weights renders the nearest one it has."
-        >
-          <SettingsSegmented
-            :model-value="String(terminalFontWeight)"
-            :options="terminalFontWeightOptions"
-            aria-label="Font weight"
-            testid="settings-terminal-font-weight"
-            @update:model-value="onTerminalFontWeightChange"
-          />
-        </SettingsRow>
-        <SettingsRow label="Bold weight" hint="The weight bold text draws at.">
-          <SettingsSegmented
-            :model-value="String(terminalFontWeightBold)"
-            :options="terminalFontWeightOptions"
-            aria-label="Bold weight"
-            testid="settings-terminal-font-weight-bold"
-            @update:model-value="onTerminalFontWeightBoldChange"
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Line height"
-          hint="Multiplies the row height. Taller rows are easier to scan; each one costs a row of grid in the same pane."
-        >
-          <SettingsSegmented
-            :model-value="String(terminalLineHeight)"
-            :options="terminalLineHeightOptions"
-            aria-label="Line height"
-            testid="settings-terminal-line-height"
-            @update:model-value="onTerminalLineHeightChange"
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Letter spacing"
-          hint="Extra tracking in device pixels — half a point per step on a Retina display. Wider cells fit fewer columns."
-        >
-          <SettingsSegmented
-            :model-value="String(terminalLetterSpacing)"
-            :options="terminalLetterSpacingOptions"
-            aria-label="Letter spacing"
-            testid="settings-terminal-letter-spacing"
-            @update:model-value="onTerminalLetterSpacingChange"
-          />
-        </SettingsRow>
-        <div class="px-4 py-3.5"><TerminalPreview /></div>
-      </SettingsSection>
-
-      <SettingsSection
-        title="Terminal behaviour"
-        description="What the terminal keeps on hand while you work."
-        boxed
-      >
-        <SettingsRow
-          label="Always show windows"
-          hint="List every active session's windows in the session tree, not just the attached one's."
-        >
-          <AppSwitch
-            :model-value="terminalShowWindows"
-            aria-label="Always show windows"
-            testid="settings-terminal-show-windows"
-            @update:model-value="setTerminalShowWindows"
-          />
-        </SettingsRow>
-        <SettingsRow
-          label="Warm sessions"
-          hint="Sessions kept attached in the background so switching back is instant. Each holds a tmux client, its stream, and its terminals."
-        >
-          <SettingsSegmented
-            :model-value="String(terminalPoolSize)"
-            :options="terminalPoolSizeOptions"
-            aria-label="Warm sessions"
-            testid="settings-terminal-pool-size"
-            @update:model-value="onTerminalPoolSizeChange"
-          />
-        </SettingsRow>
-      </SettingsSection>
     </SettingsPage>
 
     <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
+
+    <TerminalSettingsView v-else-if="props.activeCategory === 'terminal'" />
+    <AgentsSettingsView v-else-if="props.activeCategory === 'agents'" />
 
     <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
     <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
@@ -419,6 +227,7 @@ watch(
     <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
 
     <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
+    <AboutSettingsView v-else-if="props.activeCategory === 'about'" />
 
     <NotificationSettingsView v-else-if="props.activeCategory === 'notifications'" />
 

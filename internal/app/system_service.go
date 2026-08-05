@@ -42,22 +42,24 @@ type PathInfo struct {
 	Overridden bool
 }
 
-// SystemInfo is the full set of locations shown on the System settings screen.
+// SystemInfo is the full set of locations the settings screens show.
 type SystemInfo struct {
-	DataDir   PathInfo
-	ConfigDir PathInfo
-	LogFile   PathInfo
-	Database  PathInfo
+	DataDir         PathInfo
+	ConfigDir       PathInfo
+	LogFile         PathInfo
+	Database        PathInfo
+	AgentWorkspaces PathInfo
 }
 
 // Info returns the effective locations for this process plus whether the
 // data and config directories are backed by a stored override.
 func (s *SystemService) Info(context.Context) SystemInfo {
 	return SystemInfo{
-		DataDir:   pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
-		ConfigDir: pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
-		LogFile:   pathInfo(s.paths.LogFile, false),
-		Database:  pathInfo(store.DatabasePath(s.paths.StateDir), false),
+		DataDir:         pathInfo(s.paths.DataDir, s.paths.DataDirOverridden),
+		ConfigDir:       pathInfo(s.paths.ConfigDir, s.paths.ConfigDirOverridden),
+		LogFile:         pathInfo(s.paths.LogFile, false),
+		Database:        pathInfo(store.DatabasePath(s.paths.StateDir), false),
+		AgentWorkspaces: pathInfo(s.paths.AgentWorkspacesDir, false),
 	}
 }
 
@@ -132,7 +134,7 @@ func clearOverride(mutate func(*settings.Bootstrap)) error {
 	return Wrap(settings.SaveBootstrap(b), KindInternal, "saving the bootstrap file")
 }
 
-// checkAllowed rejects any path that is not one of the four known system
+// checkAllowed rejects any path that is not one of the known system
 // locations, cleaned for comparison. This is a security control, not a
 // convenience: without it OpenPath is an arbitrary-file-open RPC.
 func (s *SystemService) checkAllowed(path string) error {
@@ -141,6 +143,7 @@ func (s *SystemService) checkAllowed(path string) error {
 		filepath.Clean(s.paths.ConfigDir):                    {},
 		filepath.Clean(s.paths.LogFile):                      {},
 		filepath.Clean(store.DatabasePath(s.paths.StateDir)): {},
+		filepath.Clean(s.paths.AgentWorkspacesDir):           {},
 	}
 	if _, ok := allowed[filepath.Clean(path)]; !ok {
 		return Errorf(KindInvalid, "path is not a known system location: %s", path)

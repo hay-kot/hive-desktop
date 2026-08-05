@@ -49,7 +49,7 @@ onMounted(async () => {
 
 <template>
   <DrawerSheet
-    :ariaLabel="isNew ? 'New launcher' : 'Edit launcher'"
+    :ariaLabel="isNew ? 'New quick terminal' : 'Edit quick terminal'"
     testid="launcher-editor"
     :default-size="480"
     @close="cancel"
@@ -58,7 +58,7 @@ onMounted(async () => {
       <div class="flex items-center gap-3">
         <span class="flex size-[38px] items-center justify-center rounded-[10px] bg-accent text-accent-contrast"><IconTerminal class="size-[18px]" /></span>
         <div class="min-w-0 flex-1">
-          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ isNew ? 'New launcher' : 'Edit launcher' }}</div>
+          <div class="text-[15px] font-semibold tracking-[-.01em]">{{ isNew ? 'New quick terminal' : 'Edit quick terminal' }}</div>
           <div class="truncate font-mono text-[12px] text-text-3">{{ isNew ? 'Open the pop-up terminal into a program' : launcher.id }}</div>
         </div>
         <button ref="closeRef" class="text-text-3 hover:text-text disabled:opacity-50" aria-label="Close" :disabled="busy" @click="cancel"><IconX class="size-4" /></button>
@@ -78,8 +78,8 @@ onMounted(async () => {
         looking at.
       </p>
       <p class="text-[11.5px] leading-relaxed text-text-3" data-testid="launcher-shortcut">
-        <template v-if="shortcut()">Bound to <kbd class="rounded border border-card px-1 py-0.5 font-mono">{{ shortcut() }}</kbd> — rebind it in Settings ▸ Keybindings.</template>
-        <template v-else>Unbound. Give it a shortcut under <code>launcher.{{ launcher.id || 'id' }}</code> in Settings ▸ Keybindings.</template>
+        <template v-if="shortcut()">Bound to <kbd class="rounded border border-card px-1 py-0.5 font-mono">{{ shortcut() }}</kbd> — rebind it in Settings ▸ Keyboard.</template>
+        <template v-else>Unbound. Give it a shortcut under <code>launcher.{{ launcher.id || 'id' }}</code> in Settings ▸ Keyboard.</template>
       </p>
 
       <SettingsError v-if="validationError || error" :message="validationError || error" testid="launcher-editor-error" />

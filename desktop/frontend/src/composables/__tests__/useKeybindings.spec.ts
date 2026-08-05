@@ -257,7 +257,7 @@ describe('launcher commands', () => {
     expect(kb.resolve('alt+g')).toBeNull()
 
     setLauncherCommands([
-      { id: 'launcher.lazygit', title: 'lazygit', group: 'Launchers', defaultCombos: [], context: 'global' },
+      { id: 'launcher.lazygit', title: 'lazygit', group: 'Quick terminals', defaultCombos: [], context: 'global' },
     ])
     expect(kb.resolve('alt+g')).toBe('launcher.lazygit')
   })
@@ -284,7 +284,7 @@ describe('launcher commands', () => {
     const { useKeybindings } = await import('../useKeybindings')
     const { setLauncherCommands } = await import('../../keybindings/catalog')
     setLauncherCommands([
-      { id: 'launcher.thief', title: 'Thief', group: 'Launchers', defaultCombos: ['mod+k'], context: 'global' },
+      { id: 'launcher.thief', title: 'Thief', group: 'Quick terminals', defaultCombos: ['mod+k'], context: 'global' },
     ])
     expect(useKeybindings().resolve('mod+k')).toBe('palette.toggle')
   })

@@ -51,7 +51,7 @@ func NewPopupTerminalService(terminals *app.PopupTerminalsService, webhooks *app
 // frontend renders as-is when it cannot.
 func (s *PopupTerminalService) Available(ctx context.Context) PopupTerminalAvailability {
 	if !s.enabled {
-		return PopupTerminalAvailability{Reason: "Terminal features are off. Turn them on in Settings ▸ System, then relaunch Hive."}
+		return PopupTerminalAvailability{Reason: "Terminal features are off. Turn them on in Settings ▸ Terminal, then relaunch Hive."}
 	}
 	if err := s.terminals.Available(ctx); err != nil {
 		return PopupTerminalAvailability{Reason: reasonFor(err)}

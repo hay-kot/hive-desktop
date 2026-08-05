@@ -11,7 +11,7 @@ without leaving the app. It is **experimental** and ships off.
 
 ## Turning it on
 
-Settings ▸ System ▸ Experimental ▸ **Terminal mode**, then **relaunch Hive** —
+Settings ▸ Terminal ▸ **Terminal mode**, then **relaunch Hive** —
 the flag is read once at startup. The same edit in `settings.yaml`:
 
 ```yaml
@@ -268,7 +268,7 @@ opened are there to click, not to drag.
 
 ## Changing the text size
 
-Settings ▸ Appearance ▸ Terminal steps the terminal's text through five presets,
+Settings ▸ Terminal steps the terminal's text through five presets,
 12px to 18px. It writes `appearance.terminal_font_size`, so a change applies to
 every open terminal at once and is still there next launch.
 

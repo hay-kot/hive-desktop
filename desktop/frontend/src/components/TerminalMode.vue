@@ -66,7 +66,7 @@ const { checking, available, reason, client } = useTerminalAvailability()
 // the last few attaches stay live in this pool — control client, stream and
 // terminals intact, panes hidden — and snapping back to one is a v-show flip.
 // Detach happens on eviction, explicit close, list removal, and unmount.
-// The limit is Settings ▸ Appearance ▸ Terminal's warm-session count.
+// The limit is Settings ▸ Terminal's warm-session count.
 const { poolSize } = useTerminalPoolSize()
 const pool = shallowReactive(new Map<string, UseTerminalWindows>())
 const lastUsed: string[] = []
@@ -412,7 +412,7 @@ function toggleGroup(group: TerminalSessionGroup): void {
 
 // Windows are only known live through an attach, so every other active
 // session's come from a one-shot listing per session — fetched only while the
-// Settings ▸ Appearance ▸ Terminal option is on, and refreshed whenever the
+// Settings ▸ Terminal option is on, and refreshed whenever the
 // session list or the attached slug changes.
 const { showWindows: showAllWindows, ready: showAllWindowsReady } = useTerminalShowWindows()
 const { listings: sessionWindows, settled: listingsSettled, refresh: refreshListings } = useTerminalWindowListings()

@@ -15,14 +15,18 @@ export type AppRouteName = 'feed' | 'flows' | 'activity' | 'terminal' | 'agents'
 // up routable but unreachable, silently falling through to the default pane.
 // Order is presentation order in SettingsView's nav.
 export const applicationSettingsSections = [
+  'general',
   'appearance',
   'notifications',
   'keybindings',
   'integrations',
   'actions',
+  'terminal',
   'launchers',
+  'agents',
   'skills',
   'system',
+  'about',
 ] as const
 export type ApplicationSettingsSection = (typeof applicationSettingsSections)[number]
 

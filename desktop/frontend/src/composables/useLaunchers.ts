@@ -34,7 +34,7 @@ async function refresh(): Promise<void> {
   setLauncherCommands(launchers.value.map((launcher) => ({
     id: launcherCommandID(launcher.id),
     title: launcher.label || launcher.id,
-    group: 'Launchers',
+    group: 'Quick terminals',
     keywords: ['launcher', 'terminal', 'popup', launcher.id],
     icon: launcherIconComponent(launcher.icon),
     // Unbound until the user says otherwise: a config file must not claim a

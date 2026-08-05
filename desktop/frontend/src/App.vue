@@ -156,7 +156,7 @@ const profileSettingsActive = computed(() => route.name === 'profile-settings')
 // here: the route already rejects an unknown :section, so anything that
 // reaches this point and is not recognized is the absent-param case.
 const applicationSettingsSection = computed<ApplicationSettingsSection>(() =>
-  isApplicationSettingsSection(route.params.section) ? route.params.section : 'appearance',
+  isApplicationSettingsSection(route.params.section) ? route.params.section : 'general',
 )
 const profileSettingsSection = computed<ProfileSettingsSection>(() =>
   isProfileSettingsSection(route.params.section) ? route.params.section : 'general',

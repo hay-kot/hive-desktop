@@ -328,13 +328,20 @@ export interface SessionStatusSnapshot {
 }
 
 /**
- * SystemInfo is the full set of locations shown on the System settings screen.
+ * SystemInfo is the full set of locations the settings screens show.
  */
 export interface SystemInfo {
     "dataDir": PathInfo;
     "configDir": PathInfo;
     "logFile": PathInfo;
     "database": PathInfo;
+
+    /**
+     * AgentWorkspaces is the agent-workspace root, shown on the Agents pane
+     * rather than with the other locations: it is where the Agents area keeps
+     * its workspaces, not part of the install.
+     */
+    "agentWorkspaces": PathInfo;
 }
 
 /**

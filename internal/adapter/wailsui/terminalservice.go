@@ -56,7 +56,7 @@ func (s *TerminalService) Enabled(ctx context.Context) bool { return s.enabled }
 // composes tmux availability with the transport's own reachability.
 func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
 	if !s.enabled {
-		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ System, then relaunch Hive."}
+		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ Terminal, then relaunch Hive."}
 	}
 	if err := s.terminals.Available(ctx); err != nil {
 		return TerminalAvailability{Reason: reasonFor(err)}
