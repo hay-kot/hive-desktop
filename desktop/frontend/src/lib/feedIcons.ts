@@ -27,6 +27,7 @@ import IconShield from '~icons/lucide/shield'
 import IconSparkles from '~icons/lucide/sparkles'
 import IconStar from '~icons/lucide/star'
 import IconTag from '~icons/lucide/tag'
+import IconTerminal from '~icons/lucide/terminal'
 import IconUsers from '~icons/lucide/users'
 import IconWebhook from '~icons/lucide/webhook'
 import IconZap from '~icons/lucide/zap'
@@ -60,6 +61,7 @@ export const feedIconOptions: FeedIconOption[] = [
   { value: 'package', label: 'Dependencies', component: IconPackage },
   { value: 'rocket', label: 'Releases', component: IconRocket },
   { value: 'clock', label: 'Recent', component: IconClock },
+  { value: 'terminal', label: 'Command', component: IconTerminal },
 ]
 
 // The glyph a feed with no configured icon falls back to — matches the
@@ -69,6 +71,9 @@ export const defaultFeedIcon = 'git-branch'
 // The glyph a sources.webhook's items fall back to when the node has no
 // configured icon.
 export const defaultWebhookSourceIcon = 'webhook'
+
+// The same, for a sources.exec node's items.
+export const defaultExecSourceIcon = 'terminal'
 
 const componentByKey = new Map(feedIconOptions.map((o) => [o.value, o.component]))
 

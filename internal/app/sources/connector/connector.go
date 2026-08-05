@@ -10,6 +10,7 @@ package connector
 
 import (
 	"context"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
@@ -201,6 +202,15 @@ type Instance struct {
 	Metadata Metadata
 	// Pull produces this source's current items. Set for ModePull only.
 	Pull PullSource
+	// MinInterval is the shortest time this instance wants between drains.
+	// Zero — the default — is drained on every tick, which is what every
+	// connector did before the field existed.
+	//
+	// A floor, not a schedule: there is one global ticker, so the effective
+	// cadence rounds up to the next tick after the floor expires. A skipped
+	// tick is not an empty snapshot — the producer does not call Produce at
+	// all, so nothing about the source's tracked set changes.
+	MinInterval time.Duration
 	// Classifier turns an observation into an inbox event. Set iff the
 	// descriptor declares CapClassify.
 	Classifier store.Classifier

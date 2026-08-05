@@ -8,7 +8,8 @@
 import type { Component } from 'vue'
 import GithubMark from '../components/marks/GithubMark.vue'
 import grafanaLogo from '../assets/integrations/grafana.svg'
-import { defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
+import { defaultExecSourceIcon, defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
+import * as execSourceNode from '../pipeline/nodes/sources.exec/config'
 import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
 import * as grafanaMetricsSourceNode from '../pipeline/nodes/sources.grafana_metrics/config'
 import * as grafanaAlertsSourceNode from '../pipeline/nodes/sources.grafana_alerts/config'
@@ -171,10 +172,10 @@ export function clipboardText(item: InboxItem): string {
 
 /** Context the host owns that presentation needs beyond the item. */
 export interface PresentationContext {
-  /** sources.webhook node id → configured icon key (useFeedState.sourceIcons). */
+  /** Source node id → configured icon key (useFeedState.sourceIcons). */
   sourceIcons?: Record<string, string>
-  /** sources.webhook node id → uploaded mark image data URL. Takes precedence
-   *  over the glyph when set. */
+  /** Source node id → uploaded mark image data URL. Takes precedence over the
+   *  glyph when set. */
   sourceImages?: Record<string, string>
 }
 
@@ -204,6 +205,11 @@ const grafanaPresentation: ItemPresentation = {
   markImage: () => grafanaLogo,
 }
 
+const execPresentation: ItemPresentation = {
+  sourceLabel: 'Command',
+  mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultExecSourceIcon),
+}
+
 const webhookPresentation: ItemPresentation = {
   sourceLabel: 'Webhook',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultWebhookSourceIcon),
@@ -218,6 +224,7 @@ export function presentationFor(sourceKind: string | undefined): ItemPresentatio
   if (sourceKind === 'github') return githubPresentation
   if (sourceKind === 'grafana') return grafanaPresentation
   if (sourceKind === 'webhook') return webhookPresentation
+  if (sourceKind === 'exec') return execPresentation
   return { sourceLabel: sourceKind ?? '', mark: () => IconInbox }
 }
 
@@ -233,6 +240,7 @@ const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [grafanaMetricsSourceNode.type]: grafanaMetricsSourceNode.sourceKind,
   [grafanaAlertsSourceNode.type]: grafanaAlertsSourceNode.sourceKind,
   [webhookSourceNode.type]: webhookSourceNode.sourceKind,
+  [execSourceNode.type]: execSourceNode.sourceKind,
 }
 
 /** Flow node type → inbox item sourceKind; null for non-source node types. */

@@ -28,6 +28,12 @@ type fakeSource struct {
 	err     error
 }
 
+func (f *fakeSource) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls
+}
+
 func (f *fakeSource) Produce(_ context.Context, emit func(Msg) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -413,4 +419,169 @@ func TestProducer_StartStop(t *testing.T) {
 		mu.Unlock()
 		assert.GreaterOrEqual(t, got, 1, "at least one tick should have run and appended")
 	})
+}
+
+// pullInstanceEvery is one instance that asks not to be drained more often than
+// interval — the cadence a command source declares when hourly is enough.
+func pullInstanceEvery(flowID, nodeID string, interval time.Duration, pull connector.PullSource) connector.Instance {
+	instance := pullInstance(flowID, nodeID, pull)
+	instance.MinInterval = interval
+	return instance
+}
+
+func TestProducer_MinInterval_SkipsUntilDue(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	hourly := &fakeSource{}
+	everyTick := &fakeSource{}
+	sources := stubSources{instances: []connector.Instance{
+		pullInstanceEvery("flow", "hourly", time.Hour, hourly),
+		pullInstance("flow", "every-tick", everyTick),
+	}}
+
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer.now = func() time.Time { return now }
+
+	producer.Tick(t.Context())
+	now = now.Add(5 * time.Minute)
+	producer.Tick(t.Context())
+	now = now.Add(56 * time.Minute)
+	producer.Tick(t.Context())
+
+	assert.Equal(t, 2, hourly.callCount(), "the hourly source runs on the first tick and again once its floor expires")
+	assert.Equal(t, 3, everyTick.callCount(), "a source with no floor is unaffected")
+}
+
+// A skipped source is not a drained-empty one: nothing is produced, so no
+// snapshot is appended and nothing it owns is reconciled away.
+func TestProducer_MinInterval_SkippingAppendsNoSnapshot(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	src := &fakeSource{batches: [][]Msg{{{Topic: "source:flow/s1", Key: "a", Payload: []byte(`{"v":1}`)}}}}
+	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "s1", time.Hour, src)}}
+
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer.now = func() time.Time { return now }
+
+	producer.Tick(t.Context())
+	before, _, err := db.ReadFrom(t.Context(), 0, 10)
+	require.NoError(t, err)
+
+	now = now.Add(time.Minute)
+	producer.Tick(t.Context())
+
+	after, _, err := db.ReadFrom(t.Context(), 0, 10)
+	require.NoError(t, err)
+	assert.Len(t, after, len(before), "a skipped tick writes nothing at all")
+}
+
+func TestProducer_Refresh_IgnoresTheCadenceFloor(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	src := &fakeSource{}
+	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "hourly", time.Hour, src)}}
+
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer.now = func() time.Time { return now }
+
+	producer.Tick(t.Context())
+	now = now.Add(time.Minute)
+	producer.Tick(t.Context())
+	producer.Refresh(t.Context())
+
+	assert.Equal(t, 2, src.callCount(), "a user who asked for a refresh gets one")
+}
+
+// A broken command fails every tick. Recording each one would bury a day of
+// real events under hundreds of copies of the same line.
+func TestProducer_RepeatedFailureIsAnnouncedOnceAnHour(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	broken := &fakeSource{err: fmt.Errorf("exit status 1: gcx: not logged in")}
+
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	recorder := &activityRecorder{}
+	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": broken}), time.Minute, nil, zerolog.Nop())
+	producer.now = func() time.Time { return now }
+	producer.SetRecorder(recorder)
+
+	for range 10 {
+		producer.Tick(t.Context())
+		now = now.Add(5 * time.Minute)
+	}
+
+	require.Len(t, recorder.events, 1, "the first failure is news; the next nine are the same condition")
+
+	now = now.Add(time.Hour)
+	producer.Tick(t.Context())
+	assert.Len(t, recorder.events, 2, "a failure that outlives the interval is announced again")
+}
+
+// A source that recovers and breaks again is two conditions, so the second
+// failure is announced immediately rather than waiting out the interval.
+func TestProducer_FailureAfterRecoveryIsAnnouncedImmediately(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	flaky := &failingOnceSource{}
+
+	now := time.Date(2026, 8, 5, 9, 0, 0, 0, time.UTC)
+	recorder := &activityRecorder{}
+	producer := NewProducer(db, sourcesOf(map[string]connector.PullSource{"flow/s1": flaky}), time.Minute, nil, zerolog.Nop())
+	producer.now = func() time.Time { return now }
+	producer.SetRecorder(recorder)
+
+	producer.Tick(t.Context()) // fails: announced
+	now = now.Add(time.Minute)
+	producer.Tick(t.Context()) // succeeds: re-arms
+	now = now.Add(time.Minute)
+	producer.Tick(t.Context()) // fails again
+
+	assert.Len(t, recorder.events, 2)
+}
+
+// failingOnceSource fails, succeeds, then fails again — the shape of a command
+// whose backing service flapped.
+type failingOnceSource struct {
+	mu    sync.Mutex
+	calls int
+}
+
+func (f *failingOnceSource) Produce(context.Context, func(Msg) error) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	if f.calls == 2 {
+		return nil
+	}
+	return fmt.Errorf("boom")
+}
+
+// Both schedule maps are keyed by a node id the user renames freely, so an
+// edited flow must not leak an entry per rename.
+func TestProducer_ForgetsSourcesThatAreNoLongerConfigured(t *testing.T) {
+	t.Parallel()
+
+	db := openTestPipelineDB(t)
+	broken := &fakeSource{err: fmt.Errorf("boom")}
+	sources := stubSources{instances: []connector.Instance{pullInstanceEvery("flow", "s1", time.Hour, broken)}}
+
+	producer := NewProducer(db, sources, time.Minute, nil, zerolog.Nop())
+	producer.SetRecorder(&activityRecorder{})
+	producer.Tick(t.Context())
+
+	producer.sources = stubSources{}
+	producer.Tick(t.Context())
+
+	producer.scheduleMu.Lock()
+	defer producer.scheduleMu.Unlock()
+	assert.Empty(t, producer.lastRun)
+	assert.Empty(t, producer.lastFailure)
 }
