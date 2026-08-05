@@ -660,12 +660,23 @@ own state stays worktree-isolated. ADR 0014 records the configuration decision.
 ### Settings panes
 
 Application settings are sectioned by **the surface a value changes**, not by
-kind (ADR 0069). A value one surface uses lives on that surface's pane, named
-for it (Terminal, Agents); a value several use lives in **General** (the editor
-command); **System** is this install — storage, diagnostics, the problem
-reporter; **About** is the running build. Experimental is a posture, not a
-category: a ships-dark opt-in (ADR 0037) renders on the pane for the feature it
-gates, through `settings/ExperimentalToggle.vue`.
+kind, and the nav groups are the app's own modes (ADR 0069):
+
+| Group | Sections |
+| --- | --- |
+| Preferences | General · Appearance · Notifications · Keyboard |
+| Inbox | Integrations · Actions |
+| Code | Terminal · Quick terminals |
+| Agents | Agents · Skills |
+| Advanced | System · About |
+
+A value one surface uses lives on that surface's pane; a value several use lives
+in **General** (the editor command); **System** is this install — storage,
+diagnostics, the problem reporter; **About** is the running build. There is no
+leftover group — a section that fits nowhere means the grouping is wrong.
+Experimental is a posture, not a category: a ships-dark opt-in (ADR 0037)
+renders on the pane for the feature it gates, through
+`settings/ExperimentalToggle.vue`.
 
 The section list is one list. `applicationSettingsSections` in `router.ts`
 builds the route matcher and backs `isApplicationSettingsSection`, which

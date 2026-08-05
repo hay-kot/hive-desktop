@@ -16,6 +16,7 @@ import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
 import IconSliders from '~icons/lucide/sliders-horizontal'
 import IconSparkles from '~icons/lucide/sparkles'
+import IconZap from '~icons/lucide/zap'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
@@ -63,23 +64,26 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   agents: { label: 'Agents', title: 'Agents', icon: IconBot },
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
-  launchers: { label: 'Launchers', title: 'Launchers', icon: IconTerminal },
+  launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
   skills: { label: 'Skills', title: 'Skills', icon: IconSparkles },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   about: { label: 'About', title: 'About', icon: IconInfo },
 }
-// The nav is grouped by what you came to change: values the whole app answers
-// to, then one group per surface that has settings of its own, then the
-// pipeline it runs, then the install itself. A value only one surface uses
-// belongs to that surface's pane; one that several use belongs in General.
+// The nav mirrors the app's own mode switch — Inbox, Code, Agents — bookended
+// by what the whole app answers to and by the install itself, so the rail can
+// be read against the title bar rather than learned. A value one surface uses
+// sits under that surface; one several use sits in General. There is
+// deliberately no leftover bucket: a section that fits nowhere is a sign the
+// grouping is wrong, not that it needs an "Automation" pile to fall into.
 // Every section appears in exactly one group — SettingsView.spec asserts that
 // against applicationSettingsSections so a new pane cannot be routable but
 // absent from the nav.
 const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection[] }> = [
-  { title: 'General', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
-  { title: 'Modes', ids: ['terminal', 'agents'] },
-  { title: 'Automation', ids: ['integrations', 'actions', 'launchers', 'skills'] },
+  { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
+  { title: 'Inbox', ids: ['integrations', 'actions'] },
+  { title: 'Code', ids: ['terminal', 'launchers'] },
+  { title: 'Agents', ids: ['agents', 'skills'] },
   { title: 'Advanced', ids: ['system', 'about'] },
 ]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)

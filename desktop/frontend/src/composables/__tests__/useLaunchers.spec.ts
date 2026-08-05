@@ -22,7 +22,7 @@ describe('useLaunchers', () => {
 
     await useLaunchers().refresh()
 
-    const launchers = commands.value.filter((command) => command.group === 'Launchers')
+    const launchers = commands.value.filter((command) => command.group === 'Quick terminals')
     expect(launchers.map((command) => [command.id, command.title])).toEqual([
       ['launcher.lazygit', 'lazygit'],
       // A launcher with no label falls back to its id rather than an empty row.
@@ -41,7 +41,7 @@ describe('useLaunchers', () => {
     service.Launchers.mockResolvedValue([{ id: 'btop', label: 'btop', icon: '' }])
     await useLaunchers().refresh()
 
-    expect(commands.value.filter((command) => command.group === 'Launchers').map((c) => c.id))
+    expect(commands.value.filter((command) => command.group === 'Quick terminals').map((c) => c.id))
       .toEqual(['launcher.btop'])
   })
 
@@ -58,7 +58,7 @@ describe('useLaunchers', () => {
     await useLaunchers().refresh()
 
     expect(warn).toHaveBeenCalled()
-    expect(commands.value.filter((command) => command.group === 'Launchers').map((c) => c.id))
+    expect(commands.value.filter((command) => command.group === 'Quick terminals').map((c) => c.id))
       .toEqual(['launcher.lazygit'])
     warn.mockRestore()
   })
@@ -71,6 +71,6 @@ describe('useLaunchers', () => {
 
     await useLaunchers().refresh()
 
-    expect(commands.value.some((command) => command.group === 'Launchers')).toBe(false)
+    expect(commands.value.some((command) => command.group === 'Quick terminals')).toBe(false)
   })
 })

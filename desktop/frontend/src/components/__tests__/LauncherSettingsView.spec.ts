@@ -50,7 +50,7 @@ describe('LauncherSettingsView', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="launcher-row-lazygit"]').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="launchers-source"]').text()).toContain('1 launcher')
+    expect(wrapper.get('[data-testid="launchers-source"]').text()).toContain('1 quick terminal')
     wrapper.unmount()
   })
 
@@ -91,7 +91,7 @@ describe('LauncherSettingsView', () => {
     mocks.KeybindingSettings.mockResolvedValue({ overrides: { 'launcher.lazygit': ['alt+g'] } })
     const { initializeKeybindings } = await import('../../composables/useKeybindings')
     const { setLauncherCommands } = await import('../../keybindings/catalog')
-    setLauncherCommands([{ id: 'launcher.lazygit', title: 'lazygit', group: 'Launchers', defaultCombos: [], context: 'global' }])
+    setLauncherCommands([{ id: 'launcher.lazygit', title: 'lazygit', group: 'Quick terminals', defaultCombos: [], context: 'global' }])
     initializeKeybindings()
 
     const wrapper = mountSettings()

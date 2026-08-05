@@ -43,10 +43,10 @@ async function save(): Promise<void> {
 }
 function requestDelete(launcher: Launcher): void {
   confirmation.request({
-    title: 'Delete launcher',
+    title: 'Delete quick terminal',
     description: `Delete ${launcher.label}? Any shortcut bound to it stops working.`,
-    confirmLabel: 'Delete launcher',
-    onConfirm: async () => { if (!await removeLauncher(launcher.id)) throw new Error(error.value || 'Could not delete launcher.') },
+    confirmLabel: 'Delete quick terminal',
+    onConfirm: async () => { if (!await removeLauncher(launcher.id)) throw new Error(error.value || 'Could not delete this quick terminal.') },
   })
 }
 </script>
@@ -54,18 +54,18 @@ function requestDelete(launcher: Launcher): void {
 <template>
   <SettingsPage testid="launchers-settings">
     <SettingsHeading
-      title="Launchers"
+      title="Quick terminals"
       description="Open the pop-up terminal straight into a program — lazygit in the session you are looking at, a test watcher, btop. Each one gets a command in the palette and can take a shortcut of its own."
     >
       <template #actions>
         <BaseButton size="sm" data-testid="launcher-create" @click="createNew">
-          <template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New launcher
+          <template #icon><IconPlus class="size-3.5" :stroke-width="2.4" /></template>New quick terminal
         </BaseButton>
       </template>
     </SettingsHeading>
 
     <SettingsError v-if="error && !editing" :message="error" testid="launchers-error" />
-    <p v-if="loading" class="text-xs text-text-4">Loading launchers…</p>
+    <p v-if="loading" class="text-xs text-text-4">Loading quick terminals…</p>
 
     <div v-else class="flex flex-col gap-3">
       <BaseCard
@@ -98,8 +98,8 @@ function requestDelete(launcher: Launcher): void {
         </template>
       </BaseCard>
 
-      <EmptyState v-if="!launchers.length" message="No launchers configured." />
-      <div v-else class="mt-1 flex items-center gap-1.5 font-mono text-[11.5px] text-text-4" data-testid="launchers-source">Synced from .hive/actions.yml · {{ launchers.length }} {{ launchers.length === 1 ? 'launcher' : 'launchers' }}</div>
+      <EmptyState v-if="!launchers.length" message="No quick terminals configured." />
+      <div v-else class="mt-1 flex items-center gap-1.5 font-mono text-[11.5px] text-text-4" data-testid="launchers-source">Synced from .hive/actions.yml · {{ launchers.length }} {{ launchers.length === 1 ? 'quick terminal' : 'quick terminals' }}</div>
     </div>
 
     <LauncherEditor v-if="editing" :launcher="editing" :is-new="isNew" :busy="saving" :error="error" :return-focus-to="editorTrigger" @save="save" @cancel="editing = null" />
