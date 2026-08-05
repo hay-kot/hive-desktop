@@ -58,7 +58,7 @@ describe('GeneralSettingsView', () => {
     await flushPromises()
 
     const labels = Array.from(document.querySelectorAll('[role="option"]')).map((el) => el.textContent?.trim())
-    expect(labels).toEqual(['Zed', 'VS Code (not found)'])
+    expect(labels).toEqual(['None', 'Zed', 'VS Code (not found)'])
     wrapper.unmount()
   })
 
@@ -68,11 +68,25 @@ describe('GeneralSettingsView', () => {
 
     await wrapper.get('[data-testid="general-editor-command"]').trigger('focus')
     await flushPromises()
-    const option = document.querySelectorAll('[role="option"] button')[0] as HTMLElement
+    const option = document.querySelectorAll('[role="option"] button')[1] as HTMLElement
     option.click()
     await settle()
 
     expect(mocks.SetEditor).toHaveBeenCalledWith('zed')
+    wrapper.unmount()
+  })
+
+  it('clears the setting from the None option', async () => {
+    mocks.EditorSettings.mockResolvedValue(editorSettings({ command: 'zed' }))
+    const wrapper = mount(GeneralSettingsView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="general-editor-command"]').trigger('focus')
+    await flushPromises()
+    ;(document.querySelectorAll('[role="option"] button')[0] as HTMLElement).click()
+    await settle()
+
+    expect(mocks.SetEditor).toHaveBeenCalledWith('')
     wrapper.unmount()
   })
 

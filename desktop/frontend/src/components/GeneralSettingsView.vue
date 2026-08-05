@@ -12,15 +12,16 @@ import { useEditorSettings } from '../composables/useEditorSettings'
 
 const { command, choices, error, refresh, setCommand } = useEditorSettings()
 
-// The detected commands, each labelled by whether it resolves right now. The
-// control is a combobox, so a command outside the catalogue is typed rather
-// than listed — it does not need an option of its own to be selectable.
-const editorOptions = computed<AppSelectOption[]>(() =>
-  choices.value.map((choice) => ({
+// "None" plus the detected commands, each labelled by whether it resolves right
+// now. The control is a combobox, so a command outside the catalogue is typed
+// rather than listed — it does not need an option of its own to be selectable.
+const editorOptions = computed<AppSelectOption[]>(() => [
+  { value: '', label: 'None' },
+  ...choices.value.map((choice) => ({
     value: choice.command,
     label: choice.found ? choice.title : `${choice.title} (not found)`,
   })),
-)
+])
 
 onMounted(() => {
   void refresh()
