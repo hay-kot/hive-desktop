@@ -9,6 +9,7 @@
   "nav": [
     { "label": "Features", "href": "#features" },
     { "label": "How it works", "href": "#flow" },
+    { "label": "The app", "href": "#surfaces" },
     { "label": "Docs", "href": "/docs" },
     { "label": "Pricing", "href": "#pricing" }
   ],
