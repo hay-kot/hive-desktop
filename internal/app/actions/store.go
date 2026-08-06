@@ -162,23 +162,6 @@ func (s *ActionStore) ListEditable() EditableCatalog {
 	return catalog
 }
 
-func (s *ActionStore) GetEditable(id string) (EditableAction, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
-	a, ok := s.index[id]
-	if !ok {
-		return EditableAction{}, false
-	}
-	e, err := editableFromAction(a)
-	if err != nil {
-		// Fail closed: never hand back a zero-valued EditableAction that
-		// looks like a real (if empty) record for this id.
-		return EditableAction{}, false
-	}
-	return e, true
-}
-
 func (s *ActionStore) Create(e EditableAction) (EditableAction, error) {
 	a, err := actionFromEditable(e)
 	if err != nil {

@@ -136,7 +136,8 @@ func (s *UpdaterService) SetEnabled(enabled bool) error {
 }
 
 // CheckNow runs a manual silent check, updates the cache, and emits
-// update:available / update:none. On dev builds it reports Available:false.
+// update:available when a newer release exists. On dev builds it reports
+// Available:false.
 func (s *UpdaterService) CheckNow(ctx context.Context) (UpdateInfo, error) {
 	return s.check(ctx)
 }
@@ -242,8 +243,6 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 
 	if info.Available {
 		emitUpdateAvailable(info)
-	} else {
-		emitUpdateNone(info)
 	}
 	return info, nil
 }

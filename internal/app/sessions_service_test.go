@@ -164,7 +164,7 @@ func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 		DefaultAgent:      "claude",
 	}
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{opts: expected}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{opts: expected}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 	got, err := svc.SessionLaunchOptions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, expected, got)
@@ -174,7 +174,7 @@ func TestSessionsService_CreateSessionValidatesBeforeTracking(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	runner := &fakeJobRunner{}
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+	svc := &sessionsDeps{launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Name: "review", Prompt: "go"})
 	assert.Equal(t, KindInvalid, KindOf(err), "repository is required")
@@ -193,7 +193,7 @@ func TestSessionsService_CreateSessionLaunchesAsAJob(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	runner := &fakeJobRunner{}
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+	svc := &sessionsDeps{launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 	jobID, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{
 		Repository: "  https://github.com/acme/site.git  ",
@@ -218,7 +218,7 @@ func TestSessionsService_CreateSessionLaunchesAsAJob(t *testing.T) {
 func TestSessionsService_CreateSessionSurfacesDuplicateNameOnTheJob(t *testing.T) {
 	runner := &fakeJobRunner{}
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{err: dispatch.ErrDuplicateSessionName}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{err: dispatch.ErrDuplicateSessionName}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "dupe"})
 	require.NoError(t, err, "a duplicate name is a job failure, not a validation error")
@@ -229,7 +229,7 @@ func TestSessionsService_CreateSessionSurfacesDuplicateNameOnTheJob(t *testing.T
 func TestSessionsService_ListSessionsPassesEveryStateThrough(t *testing.T) {
 	manager, _ := activeSession()
 	manager.sessions = append(manager.sessions, dispatch.SessionSummary{ID: "s2", Name: "old", Slug: "old", State: "recycled"})
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 	got, err := svc.ListSessions(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, manager.sessions, got, "a recycled session is unattachable, not unmanageable")
@@ -245,7 +245,7 @@ func TestSessionsService_SessionStatusesPassesSnapshotThrough(t *testing.T) {
 		}},
 		PollInterval: 1500 * time.Millisecond,
 	}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	got, err := svc.SessionStatuses(t.Context())
 	require.NoError(t, err)
@@ -255,7 +255,7 @@ func TestSessionsService_SessionStatusesPassesSnapshotThrough(t *testing.T) {
 func TestSessionsService_RenameSessionRenamesTmuxBeforeTheStore(t *testing.T) {
 	manager, _ := activeSession()
 	tmux := &fakeSessionTmux{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}}
 
 	got, err := svc.RenameSession(t.Context(), "s1", "  Review 82  ")
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestSessionsService_RenameSessionRenamesTmuxBeforeTheStore(t *testing.T) {
 func TestSessionsService_RenameSessionLeavesTheStoreAloneWhenTmuxFails(t *testing.T) {
 	manager, _ := activeSession()
 	tmux := &fakeSessionTmux{err: errors.New("duplicate session: review-82")}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}}
 
 	_, err := svc.RenameSession(t.Context(), "s1", "review 82")
 	assert.Equal(t, KindConflict, KindOf(err))
@@ -279,7 +279,7 @@ func TestSessionsService_RenameSessionRollsTmuxBackWhenTheStoreFails(t *testing.
 	manager, _ := activeSession()
 	manager.renameErr = errors.New("disk full")
 	tmux := &fakeSessionTmux{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}}
 
 	_, err := svc.RenameSession(t.Context(), "s1", "review 82")
 	assert.Equal(t, KindInternal, KindOf(err))
@@ -290,7 +290,7 @@ func TestSessionsService_RenameSessionRejectsASlugCollision(t *testing.T) {
 	manager, _ := activeSession()
 	manager.sessions = append(manager.sessions, dispatch.SessionSummary{ID: "s2", Name: "Review 82", Slug: "review-82"})
 	tmux := &fakeSessionTmux{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}}
 
 	// "review/82" slugifies onto s2's slug, which would give both sessions the
 	// same tmux session name and the same directory slug.
@@ -303,7 +303,7 @@ func TestSessionsService_RenameSessionRejectsASlugCollision(t *testing.T) {
 func TestSessionsService_RenameSessionValidatesTheName(t *testing.T) {
 	manager, _ := activeSession()
 	tmux := &fakeSessionTmux{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: tmux, jobs: &fakeJobRunner{}}
 
 	_, err := svc.RenameSession(t.Context(), "s1", "  ")
 	assert.Equal(t, KindInvalid, KindOf(err))
@@ -326,7 +326,7 @@ func TestSessionsService_DeleteAndRecycleRunAsJobsLabelledWithTheSessionName(t *
 		t.Run(tt.name, func(t *testing.T) {
 			manager, _ := activeSession()
 			runner := &fakeJobRunner{}
-			svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+			svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 			jobID, err := tt.call(svc, t.Context())
 			require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestSessionsService_DeleteAndRecycleRunAsJobsLabelledWithTheSessionName(t *
 func TestSessionsService_DestructiveOperationsRejectAnUnknownSession(t *testing.T) {
 	manager, _ := activeSession()
 	runner := &fakeJobRunner{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 	_, err := svc.DeleteSession(t.Context(), "gone")
 	assert.Equal(t, KindNotFound, KindOf(err))
@@ -354,7 +354,7 @@ func TestSessionsService_DestructiveOperationsRejectAnUnknownSession(t *testing.
 func TestSessionsService_PruneRunsAsAJob(t *testing.T) {
 	manager, _ := activeSession()
 	runner := &fakeJobRunner{}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner}
 
 	jobID, err := svc.PruneSessions(t.Context())
 	require.NoError(t, err)
@@ -366,7 +366,7 @@ func TestSessionsService_PruneRunsAsAJob(t *testing.T) {
 func TestSessionsService_SessionRiskCarriesTheWorktreeRecycleWarning(t *testing.T) {
 	manager, _ := activeSession()
 	manager.risk = dispatch.SessionRisk{UncommittedChanges: true, RecycleDeletes: true}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	risk, err := svc.SessionRisk(t.Context(), "s1")
 	require.NoError(t, err)
@@ -378,7 +378,7 @@ func TestSessionsService_SessionRiskCarriesTheWorktreeRecycleWarning(t *testing.
 
 func TestSessionsService_SessionDetail(t *testing.T) {
 	manager, detail := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	got, err := svc.SessionDetail(t.Context(), "s1")
 	require.NoError(t, err)
@@ -392,7 +392,7 @@ func TestSessionsService_StartTmuxSessionSpawnsFromTheSessionsOwnCheckout(t *tes
 	manager, detail := activeSession()
 	detail.Path = "/repos/site-wt-ab12"
 	manager.details["s1"] = detail
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	require.NoError(t, svc.StartTmuxSession(t.Context(), "review-81"))
 	assert.Equal(t, [][3]string{{"review 81", "/repos/site-wt-ab12", "acme/site"}}, manager.spawned,
@@ -401,7 +401,7 @@ func TestSessionsService_StartTmuxSessionSpawnsFromTheSessionsOwnCheckout(t *tes
 
 func TestSessionsService_StartTmuxSessionRejectsASlugNoSessionCarries(t *testing.T) {
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	// A tmux session made by hand is attachable, but there is nothing to
 	// create one from when it is gone.
@@ -416,7 +416,7 @@ func TestSessionsService_StartTmuxSessionRefusesASessionWithNoCheckout(t *testin
 		sessions: []dispatch.SessionSummary{{ID: "s2", Name: "old", Slug: "old", Repo: "acme/site", State: "recycled"}},
 		details:  map[string]dispatch.SessionDetail{"s2": recycled},
 	}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	assert.Equal(t, KindConflict, KindOf(svc.StartTmuxSession(t.Context(), "old")))
 	assert.Empty(t, manager.spawned, "a recycled session's directory is gone; a terminal in it would be one too")
@@ -430,14 +430,14 @@ func TestSessionsService_StartTmuxSessionRefusesASlugItsNameWouldNotSpawn(t *tes
 		sessions: []dispatch.SessionSummary{{ID: "s1", Name: "review 82", Slug: "review-81", Repo: "acme/site", State: "active"}},
 		details:  map[string]dispatch.SessionDetail{"s1": drifted},
 	}
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
 
 	assert.Equal(t, KindConflict, KindOf(svc.StartTmuxSession(t.Context(), "review-81")))
 	assert.Empty(t, manager.spawned)
 }
 
 func TestSessionsService_UnavailableWithoutDependencies(t *testing.T) {
-	svc := newSessionsService(sessionsDeps{jobs: &fakeJobRunner{}})
+	svc := &sessionsDeps{jobs: &fakeJobRunner{}}
 	assert.Equal(t, KindUnavailable, KindOf(svc.StartTmuxSession(t.Context(), "review-81")))
 	_, err := svc.SessionLaunchOptions(t.Context())
 	assert.Equal(t, KindUnavailable, KindOf(err))

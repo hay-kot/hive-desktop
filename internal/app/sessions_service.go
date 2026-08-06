@@ -84,29 +84,10 @@ type SessionsService struct {
 	logger     zerolog.Logger
 }
 
-// sessionsDeps is what SessionsService is built from. A struct rather than a
-// parameter list: the service reaches enough subsystems that a positional call
-// stopped saying which nil was which.
-type sessionsDeps struct {
-	launcher   sessionLauncher
-	manager    sessionManager
-	statuses   sessionStatusSource
-	tmux       sessionTmux
-	jobs       sessionJobRunner
-	links      itemSessionStore
-	catalog    *actions.ActionStore
-	dispatcher *dispatch.Dispatcher
-	recorder   activity.Recorder
-	logger     zerolog.Logger
-}
-
-func newSessionsService(deps sessionsDeps) *SessionsService {
-	return &SessionsService{
-		launcher: deps.launcher, manager: deps.manager, statuses: deps.statuses, tmux: deps.tmux,
-		jobs: deps.jobs, links: deps.links, catalog: deps.catalog, dispatcher: deps.dispatcher,
-		recorder: deps.recorder, logger: deps.logger,
-	}
-}
+// sessionsDeps is the construction-site name for the service's dependencies:
+// the service reaches enough subsystems that a positional call stopped saying
+// which nil was which.
+type sessionsDeps = SessionsService
 
 // SessionLaunchOptions supplies the configured repository and agent choices the
 // New Session form presents.

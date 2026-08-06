@@ -44,10 +44,10 @@ func (f *fakeItemSessionStore) UnlinkItemSessions(_ context.Context, sessionIDs 
 }
 
 func itemSessionsService(manager *fakeSessionManager, links *fakeItemSessionStore) *SessionsService {
-	return newSessionsService(sessionsDeps{
+	return &sessionsDeps{
 		launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager,
 		tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}, links: links, logger: zerolog.Nop(),
-	})
+	}
 }
 
 func TestSessionsService_ItemSessionsJoinsLinksToLiveHiveState(t *testing.T) {
@@ -172,11 +172,11 @@ func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
 	ref := store.ItemRef{ProfileID: "p", SourceKind: "github", ExternalID: "acme/site#81"}
-	svc := newSessionsService(sessionsDeps{
+	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
 		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]store.ItemRef{7: ref}},
 		logger: zerolog.Nop(),
-	})
+	}
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 7})
 	require.NoError(t, err)
@@ -189,11 +189,11 @@ func TestSessionsService_CreateSessionCarriesTheDraftedItem(t *testing.T) {
 func TestSessionsService_CreateSessionLaunchesUnlinkedWhenTheItemHasGone(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	manager, _ := activeSession()
-	svc := newSessionsService(sessionsDeps{
+	svc := &sessionsDeps{
 		launcher: launcher, manager: manager, statuses: manager, tmux: &fakeSessionTmux{},
 		jobs: &fakeJobRunner{}, links: &fakeItemSessionStore{refs: map[int64]store.ItemRef{}},
 		logger: zerolog.Nop(),
-	})
+	}
 
 	_, err := svc.CreateSession(t.Context(), dispatch.CreateSessionRequest{Repository: "r", Name: "review-81", ItemID: 404})
 	require.NoError(t, err)

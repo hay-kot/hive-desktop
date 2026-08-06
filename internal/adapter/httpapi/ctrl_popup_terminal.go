@@ -48,22 +48,6 @@ func (b popupOpenRequest) Validate() error {
 	)
 }
 
-// popupLauncher is one configured launcher. What it runs is absent by design:
-// a caller opens it by id.
-type popupLauncher struct {
-	ID    string `json:"id"`
-	Label string `json:"label"`
-	Icon  string `json:"icon"`
-	// RequiresSession reports that opening this one takes a session slug, so a
-	// menu can leave it out where there is no session rather than offering a
-	// launch that fails.
-	RequiresSession bool `json:"requiresSession"`
-}
-
-type popupLauncherListResponse struct {
-	Launchers []popupLauncher `json:"launchers"`
-}
-
 type popupIDRequest struct {
 	ID string `json:"id"`
 }
@@ -135,22 +119,6 @@ func (ctrl *Controller) PopupTerminalOpen(w http.ResponseWriter, r *http.Request
 		return err
 	}
 	return server.JSON(w, http.StatusOK, toPopupTerminal(term))
-}
-
-// PopupTerminalLaunchers answers the configured launchers, in catalog order.
-func (ctrl *Controller) PopupTerminalLaunchers(w http.ResponseWriter, r *http.Request) error {
-	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
-		return err
-	}
-	launchers, err := ctrl.core.PopupTerminals.Launchers(r.Context())
-	if err != nil {
-		return err
-	}
-	out := make([]popupLauncher, 0, len(launchers))
-	for _, l := range launchers {
-		out = append(out, popupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon, RequiresSession: l.RequiresSession})
-	}
-	return server.JSON(w, http.StatusOK, popupLauncherListResponse{Launchers: out})
 }
 
 // PopupTerminalClose ends a terminal and every process in it.

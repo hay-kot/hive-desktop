@@ -59,14 +59,13 @@ func (f *fakeEngine) checkCount() int {
 	return f.checks
 }
 
-// silenceEmits swaps the package-level emit hooks for no-ops so tests don't
+// silenceEmits swaps the package-level emit hook for a no-op so tests don't
 // depend on a running application.
 func silenceEmits(t *testing.T) {
 	t.Helper()
-	origA, origN := emitUpdateAvailable, emitUpdateNone
+	orig := emitUpdateAvailable
 	emitUpdateAvailable = func(UpdateInfo) {}
-	emitUpdateNone = func(UpdateInfo) {}
-	t.Cleanup(func() { emitUpdateAvailable, emitUpdateNone = origA, origN })
+	t.Cleanup(func() { emitUpdateAvailable = orig })
 }
 
 // acceptWriteEnabled is a settings writer stand-in for tests that only care

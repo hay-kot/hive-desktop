@@ -25,7 +25,7 @@ func newServiceStore(t *testing.T) (*actions.ActionStore, string) {
 	return actions.NewActionStore(path), path
 }
 
-func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
+func TestActionsServiceSharedStoreCRUDAndSuccessfulWakeOnly(t *testing.T) {
 	actionStore, _ := newServiceStore(t)
 	wakes := 0
 	service := newActionsService(actionStore, func() { wakes++ })
@@ -34,11 +34,6 @@ func TestActionsServiceSharedStoreCRUDGetAndSuccessfulWakeOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "run", created.ID)
 	assert.Equal(t, 1, wakes)
-	got, err := service.Get(t.Context(), "run")
-	require.NoError(t, err)
-	assert.Equal(t, created, got)
-	_, err = service.Get(t.Context(), "missing")
-	require.ErrorContains(t, err, "not found")
 
 	updated := serviceAction("run")
 	updated.Label = "Run now"

@@ -228,11 +228,13 @@ func (ctrl *Controller) AgentWorkspaceUpdate(w http.ResponseWriter, r *http.Requ
 	return server.JSON(w, http.StatusOK, toAgentWorkspaceView(view))
 }
 
-type agentWorkspaceOpenRequest struct {
+// agentWorkspaceDirRequest names a workspace by its directory — the id every
+// per-workspace operation addresses it by.
+type agentWorkspaceDirRequest struct {
 	Dir string `json:"dir"`
 }
 
-func (b agentWorkspaceOpenRequest) Validate() error {
+func (b agentWorkspaceDirRequest) Validate() error {
 	return criterio.Run("dir", b.Dir, criterio.Required)
 }
 
@@ -247,7 +249,7 @@ type agentWorkspaceOpenResponse struct {
 // AgentWorkspaceOpen regenerates a workspace's disposable artifacts and
 // returns its sessions. It is the only call that writes into a workspace.
 func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentWorkspaceOpenRequest](ctrl, w, r)
+	body, err := terminalBody[agentWorkspaceDirRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
@@ -262,19 +264,11 @@ func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-type agentWorkspaceDeleteRequest struct {
-	Dir string `json:"dir"`
-}
-
-func (b agentWorkspaceDeleteRequest) Validate() error {
-	return criterio.Run("dir", b.Dir, criterio.Required)
-}
-
 // AgentWorkspaceDelete ends every live terminal a workspace's sessions hold
 // and removes their records. The workspace directory itself is untouched —
 // it is the user's, and possibly under version control (spec §14).
 func (ctrl *Controller) AgentWorkspaceDelete(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentWorkspaceDeleteRequest](ctrl, w, r)
+	body, err := terminalBody[agentWorkspaceDirRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
@@ -285,20 +279,10 @@ func (ctrl *Controller) AgentWorkspaceDelete(w http.ResponseWriter, r *http.Requ
 	return nil
 }
 
-// agentWorkspaceTargetRequest names a workspace for an action on its
-// directory — open in editor, reveal in the file manager.
-type agentWorkspaceTargetRequest struct {
-	Dir string `json:"dir"`
-}
-
-func (b agentWorkspaceTargetRequest) Validate() error {
-	return criterio.Run("dir", b.Dir, criterio.Required)
-}
-
 // AgentWorkspaceOpenInEditor launches the configured editor (Settings ›
 // General) on the workspace directory.
 func (ctrl *Controller) AgentWorkspaceOpenInEditor(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentWorkspaceTargetRequest](ctrl, w, r)
+	body, err := terminalBody[agentWorkspaceDirRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}
@@ -311,7 +295,7 @@ func (ctrl *Controller) AgentWorkspaceOpenInEditor(w http.ResponseWriter, r *htt
 
 // AgentWorkspaceReveal opens the workspace directory in the OS file manager.
 func (ctrl *Controller) AgentWorkspaceReveal(w http.ResponseWriter, r *http.Request) error {
-	body, err := terminalBody[agentWorkspaceTargetRequest](ctrl, w, r)
+	body, err := terminalBody[agentWorkspaceDirRequest](ctrl, w, r)
 	if err != nil {
 		return err
 	}

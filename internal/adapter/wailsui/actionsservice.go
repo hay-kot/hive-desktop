@@ -20,10 +20,6 @@ func (s *ActionsService) ListActions(ctx context.Context) actions.EditableCatalo
 	return s.actions.List(ctx)
 }
 
-func (s *ActionsService) GetAction(ctx context.Context, id string) (actions.EditableAction, error) {
-	return s.actions.Get(ctx, id)
-}
-
 func (s *ActionsService) CreateAction(ctx context.Context, a actions.EditableAction) (actions.EditableAction, error) {
 	return s.actions.Create(ctx, a)
 }

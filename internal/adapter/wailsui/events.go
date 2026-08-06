@@ -13,8 +13,8 @@ import (
 
 // Every event this adapter emits is registered and emitted from this file.
 // They are wake-up signals: the frontend re-reads the relevant service on
-// receipt, and only log:appended, notification:activated, notification:toast,
-// update:available and update:none carry a payload that matters.
+// receipt, and only log:appended, notification:activated, notification:toast
+// and update:available carry a payload that matters.
 
 // Package-variable initialization instead of init(): this repo enables
 // gochecknoinits.
@@ -26,9 +26,8 @@ func registerEvents() struct{} {
 	// producer tick appends at least one row; flows:updated fires after a
 	// flows/*.yaml directory reload (an external edit, or the app's own
 	// SaveFlow/SaveLayout — see buildFlowsStore); actions:updated fires after
-	// an actions.yml reload; agent-workspaces:updated fires after a workspace
-	// root reload. All are wake-up signals: the frontend re-reads the
-	// relevant service on receipt.
+	// an actions.yml reload. All are wake-up signals: the frontend re-reads
+	// the relevant service on receipt.
 	application.RegisterEvent[string]("connection:updated")
 	application.RegisterEvent[int64]("log:appended")
 	// inbox:updated fires after the flow engine commits at least one run. It
@@ -37,7 +36,6 @@ func registerEvents() struct{} {
 	application.RegisterEvent[string]("inbox:updated")
 	application.RegisterEvent[string]("flows:updated")
 	application.RegisterEvent[string]("actions:updated")
-	application.RegisterEvent[string]("agent-workspaces:updated")
 	application.RegisterEvent[string]("jobs:updated")
 	// window:focus and window:blur carry the current focus state. Consumers use
 	// them to update focus-sensitive UI without querying the native window.
@@ -48,10 +46,8 @@ func registerEvents() struct{} {
 	// Activity view re-reads its latest page and advances its unseen marker.
 	application.RegisterEvent[int64]("activity:appended")
 	// update:available carries the latest UpdateInfo when a self-update check
-	// finds a newer desktop release; update:none fires when the check confirms
-	// the app is current. The title bar reacts to update:available.
+	// finds a newer desktop release; the title bar reacts to it.
 	application.RegisterEvent[UpdateInfo]("update:available")
-	application.RegisterEvent[UpdateInfo]("update:none")
 	// notification:activated carries the workspace and inbox item behind a
 	// native notification the user clicked. Unlike the wake-up signals above
 	// its payload is the whole message: the window is already being raised by
@@ -96,9 +92,6 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.actions", events.Coalesce(), func(context.Context, events.ActionsUpdated) {
 			emitActionsUpdated()
-		}),
-		events.Subscribe(ctx, bus, "wailsui.agentworkspaces", events.Coalesce(), func(context.Context, events.AgentWorkspacesUpdated) {
-			emitAgentWorkspacesUpdated()
 		}),
 		events.Subscribe(ctx, bus, "wailsui.connection", events.Coalesce(), func(_ context.Context, e events.ConnectionUpdated) {
 			emitConnectionUpdated(e.Provider)
@@ -241,23 +234,14 @@ func emitActionsUpdated() {
 	}
 }
 
-// emitAgentWorkspacesUpdated wakes frontend consumers after a workspace root
-// reload, successful or not — see App.openAgentWorkspaces's publish-even-on-
-// failure shape.
-func emitAgentWorkspacesUpdated() {
-	if app := application.Get(); app != nil {
-		app.Event.Emit("agent-workspaces:updated", "changed")
-	}
-}
-
 // emitNotificationToast hands a flow notification to the frontend to surface
 // in-app. Called from the notification.raised subscription above once the
 // core has published; before the app is running (or in a headless build) it
 // is a no-op, which matches the native path's own behavior when
 // notifications are unavailable.
 //
-// A var, not a func — same seam as emitUpdateAvailable/emitUpdateNone below —
-// so a test can swap it for a spy without a running Wails application.
+// A var, not a func — same seam as emitUpdateAvailable below — so a test can
+// swap it for a spy without a running Wails application.
 var emitNotificationToast = func(toast NotificationToast) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("notification:toast", toast)
@@ -266,21 +250,13 @@ var emitNotificationToast = func(toast NotificationToast) {
 
 // emitUpdateAvailable pushes update:available, carrying the latest
 // UpdateInfo, when a self-update check finds a newer desktop release; the
-// title bar reacts to it. emitUpdateNone pushes update:none when a check
-// confirms the app is current. Neither is reached through the core's event
-// bus — update checking is adapter-owned end to end (see UpdaterService) —
-// so both are called directly from there rather than from a Subscribe
-// handler above; they live here only so every emission this adapter makes is
-// registered and emitted from this one file.
-var (
-	emitUpdateAvailable = func(info UpdateInfo) {
-		if app := application.Get(); app != nil {
-			app.Event.Emit("update:available", info)
-		}
+// title bar reacts to it. It is not reached through the core's event bus —
+// update checking is adapter-owned end to end (see UpdaterService) — so it
+// is called directly from there rather than from a Subscribe handler above;
+// it lives here only so every emission this adapter makes is registered and
+// emitted from this one file.
+var emitUpdateAvailable = func(info UpdateInfo) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("update:available", info)
 	}
-	emitUpdateNone = func(info UpdateInfo) {
-		if app := application.Get(); app != nil {
-			app.Event.Emit("update:none", info)
-		}
-	}
-)
+}

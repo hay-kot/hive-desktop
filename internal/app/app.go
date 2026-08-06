@@ -340,11 +340,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(sessionsDeps{
+	a.Sessions = &sessionsDeps{
 		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, tmux: a.terminals,
 		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
 		recorder: a.activityStore, logger: cfg.Logger,
-	})
+	}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, func() { a.PublishFlowsUpdated("save") })
@@ -465,7 +465,6 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	if a.webhook != nil {
 		if err := a.webhook.Start(ctx); err != nil {
-			a.Webhooks.setStartError(err)
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
 		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {

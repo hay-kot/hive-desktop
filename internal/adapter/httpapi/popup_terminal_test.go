@@ -164,21 +164,11 @@ func TestPTYStreamOpensAndEchoesOverTheWire(t *testing.T) {
 	assert.True(t, closeBody.Closed)
 }
 
-// A launcher is opened by id, and both the command it runs and the directory it
-// runs in come back from the catalog and the session rather than from the caller
-// — which is the whole reason the wire carries an id at all.
-func TestPopupTerminalOpensAConfiguredLauncher(t *testing.T) {
+// A launcher is opened by id and brings its own command from the catalog — a
+// caller-supplied command beside the id, or an id the catalog does not hold,
+// is a refusal. The session-scoping gate has its own test below.
+func TestPopupTerminalLauncherOpenRefusesCallerOverrides(t *testing.T) {
 	h := newTerminalHarness(t)
-
-	listed := h.post(t, PopupTerminalPathPrefix+"launchers", testToken, struct{}{})
-	defer func() { _ = listed.Body.Close() }()
-	require.Equal(t, http.StatusOK, listed.StatusCode)
-
-	var launchers popupLauncherListResponse
-	require.NoError(t, json.NewDecoder(listed.Body).Decode(&launchers))
-	require.Contains(t, launchers.Launchers,
-		popupLauncher{ID: "lazygit", Label: "lazygit", Icon: "git-branch", RequiresSession: true},
-		"the seeded catalog demonstrates a launcher, and says it takes a session")
 
 	conflict := h.post(t, PopupTerminalPathPrefix+"open", testToken, map[string]any{"launcher": "lazygit", "command": "rm -rf /"})
 	defer func() { _ = conflict.Body.Close() }()

@@ -57,7 +57,7 @@ func terminalSessionsService(t *testing.T, executor dispatch.Executor) (*Session
 		"shell":     executor,
 		"clipboard": dispatch.NewClipboardExecutor(),
 	})
-	svc := newSessionsService(sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner, catalog: terminalCatalog(t, terminalActionsYAML), dispatcher: dispatcher})
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: runner, catalog: terminalCatalog(t, terminalActionsYAML), dispatcher: dispatcher}
 	return svc, runner, manager
 }
 

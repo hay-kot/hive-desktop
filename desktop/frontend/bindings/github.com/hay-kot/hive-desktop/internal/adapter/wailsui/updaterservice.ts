@@ -20,7 +20,8 @@ import * as $models from "./models.js";
 
 /**
  * CheckNow runs a manual silent check, updates the cache, and emits
- * update:available / update:none. On dev builds it reports Available:false.
+ * update:available when a newer release exists. On dev builds it reports
+ * Available:false.
  */
 export function CheckNow(): $CancellablePromise<$models.UpdateInfo> {
     return $Call.ByID(2456902270);
