@@ -324,17 +324,11 @@ INSERT INTO output_command (action_id, key, payload, status, created_at, profile
 VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?)
 ON CONFLICT DO NOTHING;
 
--- name: ListRunnableOutputCommands :many
--- Every enqueued flow action is runnable immediately; running is reserved for
--- an explicit detail invocation.
-SELECT * FROM output_command
-WHERE status = 'pending'
-ORDER BY id ASC
-LIMIT ?;
-
 -- name: ListRunnableOutputCommandsAfter :many
--- Continue a bounded worker scan after the previous row. The status/id
--- predicate is covered by idx_output_command_status_id.
+-- Every enqueued flow action is runnable immediately; running is reserved for
+-- an explicit detail invocation. Continues a bounded worker scan after the
+-- previous row. The status/id predicate is covered by
+-- idx_output_command_status_id.
 SELECT * FROM output_command
 WHERE status = 'pending' AND id > ?
 ORDER BY id ASC

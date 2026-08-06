@@ -55,50 +55,42 @@ func DefaultRetentionPolicy() RetentionPolicy {
 	}
 }
 
-// RetentionResult is retained for callers that report pruning outcomes.
-// EventLogThrough is no longer consumer-derived and remains zero.
-type RetentionResult struct {
-	EventLogThrough int64
-}
-
 // Prune applies age and per-topic-count event-log bounds independently of
-// consumer liveness. enabledConsumers remains in the signature for the
-// maintenance interface but intentionally has no retention effect.
+// consumer liveness.
 //
 // Node runs, terminal output-command rows, activity events, and terminal jobs
 // remain bounded independently. Command and job retention excludes nonterminal
 // rows so active work is never discarded.
-func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (RetentionResult, error) {
+func (db *DB) Prune(ctx context.Context, policy RetentionPolicy) error {
 	if policy.EventLogMaxAge < 0 {
-		return RetentionResult{}, fmt.Errorf("event log maximum age must not be negative")
+		return fmt.Errorf("event log maximum age must not be negative")
 	}
 	if policy.EventLogPerTopicLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("event log per-topic limit must not be negative")
+		return fmt.Errorf("event log per-topic limit must not be negative")
 	}
 	if policy.EventLogSnapshotsPerTopicLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("event log snapshots per-topic limit must not be negative")
+		return fmt.Errorf("event log snapshots per-topic limit must not be negative")
 	}
 	if policy.NodeRunLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("node run retention limit must not be negative")
+		return fmt.Errorf("node run retention limit must not be negative")
 	}
 	if policy.TerminalOutputCommandLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("terminal output command retention limit must not be negative")
+		return fmt.Errorf("terminal output command retention limit must not be negative")
 	}
 	if policy.ActivityEventLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("activity event retention limit must not be negative")
+		return fmt.Errorf("activity event retention limit must not be negative")
 	}
 	if policy.JobLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("job retention limit must not be negative")
+		return fmt.Errorf("job retention limit must not be negative")
 	}
 	if policy.ArchivedItemRetention < 0 {
-		return RetentionResult{}, fmt.Errorf("archived item retention must not be negative")
+		return fmt.Errorf("archived item retention must not be negative")
 	}
 	if policy.EventPerItemLimit < 0 {
-		return RetentionResult{}, fmt.Errorf("event per-item retention limit must not be negative")
+		return fmt.Errorf("event per-item retention limit must not be negative")
 	}
 
-	result := RetentionResult{}
-	err := db.WithTx(ctx, func(q *Queries) error {
+	return db.WithTx(ctx, func(q *Queries) error {
 		if policy.EventLogMaxAge > 0 {
 			if err := q.DeleteEventsOlderThan(ctx, time.Now().Add(-policy.EventLogMaxAge).UnixMilli()); err != nil {
 				return fmt.Errorf("pruning old event log rows: %w", err)
@@ -143,8 +135,4 @@ func (db *DB) Prune(ctx context.Context, _ []string, policy RetentionPolicy) (Re
 		}
 		return nil
 	})
-	if err != nil {
-		return RetentionResult{}, err
-	}
-	return result, nil
 }

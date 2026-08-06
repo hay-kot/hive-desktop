@@ -30,7 +30,7 @@ func TestListRunnableOutputCommands_ReturnsOldestIDFirst(t *testing.T) {
 	enqueueTestCommand(t, database, "action-a", "k1")
 	enqueueTestCommand(t, database, "action-a", "k2")
 
-	rows, err := database.ListRunnableOutputCommands(ctx, 10)
+	rows, err := database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 2)
 	assert.Equal(t, "k1", rows[0].Key)
@@ -47,7 +47,7 @@ func TestListRunnableOutputCommands_RespectsLimit(t *testing.T) {
 	enqueueTestCommand(t, database, "action-a", "k1")
 	enqueueTestCommand(t, database, "action-a", "k2")
 
-	rows, err := database.ListRunnableOutputCommands(ctx, 1)
+	rows, err := database.ListRunnableOutputCommandsAfter(ctx, 0, 1)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "k1", rows[0].Key)
@@ -96,13 +96,13 @@ func TestMarkOutputCommandDone_ExcludesFromRunnable(t *testing.T) {
 	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(ctx, 10)
+	rows, err := database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 
 	require.NoError(t, database.MarkOutputCommandDone(ctx, rows[0].ID))
 
-	rows, err = database.ListRunnableOutputCommands(ctx, 10)
+	rows, err = database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -112,14 +112,14 @@ func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
 	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(ctx, 10)
+	rows, err := database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	id := rows[0].ID
 
 	require.NoError(t, database.RetryOutputCommand(ctx, id, "boom"))
 
-	rows, err = database.ListRunnableOutputCommands(ctx, 10)
+	rows, err = database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "retried command stays runnable")
 	assert.Equal(t, int64(1), rows[0].Attempts)
@@ -127,7 +127,7 @@ func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
 	assert.Equal(t, "boom", rows[0].LastError.String)
 
 	require.NoError(t, database.RetryOutputCommand(ctx, id, "boom again"))
-	rows, err = database.ListRunnableOutputCommands(ctx, 10)
+	rows, err = database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, int64(2), rows[0].Attempts)
@@ -136,7 +136,7 @@ func TestRetryOutputCommand_IncrementsAttemptsAndStaysRunnable(t *testing.T) {
 func TestMarkOutputCommandDoneClearsPreviousFailure(t *testing.T) {
 	database := openTestDB(t)
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(t.Context(), 1)
+	rows, err := database.ListRunnableOutputCommandsAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	require.NoError(t, database.RetryOutputCommand(t.Context(), rows[0].ID, "first failure", "old stdout", "old stderr"))
 	require.NoError(t, database.MarkOutputCommandDone(t.Context(), rows[0].ID, `{"message":{"topic":"agent.inbox"}}`, "new stdout", ""))
@@ -153,7 +153,7 @@ func TestMarkOutputCommandDoneClearsPreviousFailure(t *testing.T) {
 func TestOutputCommandPersistenceBoundsStreams(t *testing.T) {
 	database := openTestDB(t)
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(t.Context(), 1)
+	rows, err := database.ListRunnableOutputCommandsAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	noisy := strings.Repeat("x", maxOutputCommandStreamBytes+1)
 	require.NoError(t, database.MarkOutputCommandFailed(t.Context(), rows[0].ID, "failed", noisy, noisy))
@@ -171,7 +171,7 @@ func TestExecutionResultAndLogsPersistAcrossReopenBeforeDone(t *testing.T) {
 	database, err := Open(t.Context(), dir, DefaultOpenOptions())
 	require.NoError(t, err)
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(t.Context(), 1)
+	rows, err := database.ListRunnableOutputCommandsAfter(t.Context(), 0, 1)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.NoError(t, database.MarkOutputCommandDone(t.Context(), rows[0].ID, `{"message":{"topic":"agent.inbox"}}`, "stdout", "stderr"))
@@ -193,14 +193,14 @@ func TestMarkOutputCommandFailed_ExcludesFromRunnable(t *testing.T) {
 	ctx := t.Context()
 
 	enqueueTestCommand(t, database, "action-a", "k1")
-	rows, err := database.ListRunnableOutputCommands(ctx, 10)
+	rows, err := database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	id := rows[0].ID
 
 	require.NoError(t, database.MarkOutputCommandFailed(ctx, id, "gave up"))
 
-	rows, err = database.ListRunnableOutputCommands(ctx, 10)
+	rows, err = database.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 

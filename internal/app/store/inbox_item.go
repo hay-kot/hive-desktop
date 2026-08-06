@@ -151,7 +151,7 @@ func (db *DB) InboxItemEvents(ctx context.Context, itemID int64, limit int) ([]I
 }
 
 func (db *DB) SetInboxItemUnread(ctx context.Context, itemID, revision int64, unread bool) (InboxItemView, error) {
-	row, err := db.queries.SetInboxItemUnread(ctx, SetInboxItemUnreadParams{Unread: boolInt(unread), ID: itemID, Revision: revision})
+	row, err := db.queries.SetInboxItemUnread(ctx, SetInboxItemUnreadParams{Unread: boolToInt64(unread), ID: itemID, Revision: revision})
 	if errors.Is(err, sql.ErrNoRows) {
 		return InboxItemView{}, ErrStaleInboxItem
 	}
@@ -369,7 +369,7 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 		}
 		item, upsertErr := q.UpsertInboxItem(ctx, UpsertInboxItemParams{
 			ProfileID: p.ProfileID, SourceKind: p.Current.SourceKind, SourceScope: p.Current.SourceScope, ExternalID: p.Current.ExternalID,
-			Title: p.Current.Title, Url: p.Current.URL, Payload: p.Current.Payload, Unread: boolInt(triage.Unread),
+			Title: p.Current.Title, Url: p.Current.URL, Payload: p.Current.Payload, Unread: boolToInt64(triage.Unread),
 			ArchivedAt: archivedAt, ArchivedActor: null(triage.ArchivedActor), ArchivedReason: null(archiveReason),
 			Lifecycle: classification.Lifecycle.String(), SourceState: null(classification.SourceState), FirstSeenAt: now, LastEventAt: p.Current.ObservedAt,
 		})
@@ -409,11 +409,4 @@ func (db *DB) IngestObservation(ctx context.Context, classifier Classifier, p In
 		return IngestResult{}, fmt.Errorf("ingesting observation: %w", err)
 	}
 	return result, nil
-}
-
-func boolInt(v bool) int64 {
-	if v {
-		return 1
-	}
-	return 0
 }

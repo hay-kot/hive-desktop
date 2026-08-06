@@ -185,7 +185,7 @@ func TestCommitBatch_RecordsTheItemAnActionCommandCameFrom(t *testing.T) {
 		}},
 	}))
 
-	rows, err := db.ListRunnableOutputCommands(ctx, 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "oc-1", rows[0].Key)

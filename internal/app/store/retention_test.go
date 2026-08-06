@@ -21,9 +21,7 @@ func TestPrune_EventLogIsNotGatedByConsumerOffsets(t *testing.T) {
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "fast-flow", UpToOffset: 5}))
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "slow-flow", UpToOffset: 2}))
 
-	result, err := database.Prune(ctx, []string{"fast-flow", "slow-flow"}, DefaultRetentionPolicy())
-	require.NoError(t, err)
-	assert.Zero(t, result.EventLogThrough)
+	require.NoError(t, database.Prune(ctx, DefaultRetentionPolicy()))
 
 	msgs, _, err := database.ReadFrom(ctx, 0, 10)
 	require.NoError(t, err)
@@ -43,7 +41,7 @@ func TestPrune_EventLogUsesAgeWithoutConsumers(t *testing.T) {
 	_, err = database.Conn().ExecContext(ctx, `UPDATE event_log SET created_at = ? WHERE "offset" = 2`, time.Now().UnixMilli())
 	require.NoError(t, err)
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{EventLogMaxAge: time.Hour})
+	err = database.Prune(ctx, RetentionPolicy{EventLogMaxAge: time.Hour})
 	require.NoError(t, err)
 	msgs, _, err := database.ReadFrom(ctx, 0, 10)
 	require.NoError(t, err)
@@ -61,7 +59,7 @@ func TestPrune_EventLogUsesPerTopicCountWithoutConsumers(t *testing.T) {
 	}
 	require.NoError(t, database.CommitBatch(ctx, CommitBatch{Consumer: "committed", UpToOffset: 3}))
 
-	_, err := database.Prune(ctx, []string{"committed", "newly-enabled"}, RetentionPolicy{EventLogPerTopicLimit: 1})
+	err := database.Prune(ctx, RetentionPolicy{EventLogPerTopicLimit: 1})
 	require.NoError(t, err)
 
 	msgs, _, err := database.ReadFrom(ctx, 0, 10)
@@ -80,7 +78,7 @@ func TestPrune_PreservesLatestSourceSnapshotForReplay(t *testing.T) {
 	_, err = database.Conn().ExecContext(ctx, `UPDATE event_log SET created_at = ?`, time.Now().Add(-2*time.Hour).UnixMilli())
 	require.NoError(t, err)
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{EventLogMaxAge: time.Hour})
+	err = database.Prune(ctx, RetentionPolicy{EventLogMaxAge: time.Hour})
 	require.NoError(t, err)
 	messages, err := database.ListReplaySourceSnapshots(ctx, "flow", latest)
 	require.NoError(t, err)
@@ -92,7 +90,7 @@ func TestPrune_PreservesLatestSourceSnapshotForReplay(t *testing.T) {
 	require.NoError(t, err)
 	newest, err := database.Append(ctx, "source:flow/source", "new-2", []byte(`{}`))
 	require.NoError(t, err)
-	_, err = database.Prune(ctx, nil, RetentionPolicy{EventLogPerTopicLimit: 1})
+	err = database.Prune(ctx, RetentionPolicy{EventLogPerTopicLimit: 1})
 	require.NoError(t, err)
 	rows, _, err := database.ReadFrom(ctx, 0, 10)
 	require.NoError(t, err)
@@ -116,7 +114,7 @@ func TestPrune_KeepsNewestSnapshotsPerTopicAndSparesItemEvents(t *testing.T) {
 	otherSnap, err := database.AppendSnapshot(ctx, "source:flow/b", "github", "acct", []SnapshotItem{{Key: "b", Payload: []byte(`{}`)}})
 	require.NoError(t, err)
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{EventLogSnapshotsPerTopicLimit: 2})
+	err = database.Prune(ctx, RetentionPolicy{EventLogSnapshotsPerTopicLimit: 2})
 	require.NoError(t, err)
 
 	var kept []int64
@@ -140,7 +138,7 @@ func TestPrune_KeepsNewestSnapshotsPerTopicAndSparesItemEvents(t *testing.T) {
 
 func TestPrune_RejectsNegativeSnapshotsPerTopicLimit(t *testing.T) {
 	database := openTestDB(t)
-	_, err := database.Prune(t.Context(), nil, RetentionPolicy{EventLogSnapshotsPerTopicLimit: -1})
+	err := database.Prune(t.Context(), RetentionPolicy{EventLogSnapshotsPerTopicLimit: -1})
 	require.EqualError(t, err, "event log snapshots per-topic limit must not be negative")
 }
 
@@ -169,7 +167,7 @@ func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := database.Prune(ctx, nil, RetentionPolicy{
+	err := database.Prune(ctx, RetentionPolicy{
 		NodeRunLimit: 2, TerminalOutputCommandLimit: 2, JobLimit: 2,
 	})
 	require.NoError(t, err)
@@ -200,7 +198,7 @@ func TestPrune_BoundsOnlyTerminalHistory(t *testing.T) {
 
 func TestPrune_RejectsNegativeJobLimit(t *testing.T) {
 	database := openTestDB(t)
-	_, err := database.Prune(t.Context(), nil, RetentionPolicy{JobLimit: -1})
+	err := database.Prune(t.Context(), RetentionPolicy{JobLimit: -1})
 	require.EqualError(t, err, "job retention limit must not be negative")
 }
 
@@ -218,7 +216,7 @@ func TestPrune_PrunesExpiredArchivedInboxItemsAndCascades(t *testing.T) {
 	_, err = database.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = ?, archived_actor = 'manual' WHERE id = ?`, time.Now().Add(-91*24*time.Hour).UnixMilli(), item.ID)
 	require.NoError(t, err)
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
+	err = database.Prune(ctx, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
 	require.NoError(t, err)
 
 	var items, events, claims int
@@ -249,7 +247,7 @@ func TestRunRetentionReclaimsOrphanedSourceHeads(t *testing.T) {
 	_, err = database.Conn().ExecContext(ctx, `UPDATE inbox_item SET archived_at = ?, archived_actor = 'manual' WHERE external_id = 'expired'`, time.Now().Add(-91*24*time.Hour).UnixMilli())
 	require.NoError(t, err)
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
+	err = database.Prune(ctx, RetentionPolicy{ArchivedItemRetention: 90 * 24 * time.Hour})
 	require.NoError(t, err)
 
 	var expiredHeads, liveHeads int
@@ -277,7 +275,7 @@ func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	_, err := database.Prune(ctx, nil, RetentionPolicy{EventPerItemLimit: 2})
+	err := database.Prune(ctx, RetentionPolicy{EventPerItemLimit: 2})
 	require.NoError(t, err)
 
 	for _, want := range []struct {
@@ -294,7 +292,7 @@ func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 		assert.Equal(t, want.ids, inboxEventIDs(t, ctx, database, want.itemID))
 	}
 
-	_, err = database.Prune(ctx, nil, RetentionPolicy{EventPerItemLimit: 0})
+	err = database.Prune(ctx, RetentionPolicy{EventPerItemLimit: 0})
 	require.NoError(t, err)
 	for _, itemID := range []int64{item.ID, other.ID} {
 		var eventCount int
@@ -305,9 +303,9 @@ func TestPrune_TrimsInboxEventsPerItem(t *testing.T) {
 
 func TestPrune_RejectsNegativeInboxRetentionLimits(t *testing.T) {
 	database := openTestDB(t)
-	_, err := database.Prune(t.Context(), nil, RetentionPolicy{ArchivedItemRetention: -time.Hour})
+	err := database.Prune(t.Context(), RetentionPolicy{ArchivedItemRetention: -time.Hour})
 	require.EqualError(t, err, "archived item retention must not be negative")
-	_, err = database.Prune(t.Context(), nil, RetentionPolicy{EventPerItemLimit: -1})
+	err = database.Prune(t.Context(), RetentionPolicy{EventPerItemLimit: -1})
 	require.EqualError(t, err, "event per-item retention limit must not be negative")
 }
 
@@ -357,7 +355,7 @@ func TestPrune_SweepsExpiredNodeKVAlways(t *testing.T) {
 	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "live", `1`, future))
 	require.NoError(t, db.NodeKVSet(ctx, "flow", "fn", "forever", `1`, 0))
 
-	_, err := db.Prune(ctx, nil, DefaultRetentionPolicy())
+	err := db.Prune(ctx, DefaultRetentionPolicy())
 	require.NoError(t, err)
 
 	var rows int

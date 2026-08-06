@@ -269,7 +269,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	dbOptions := store.DefaultOpenOptions()
-	dbOptions.PauseIngest = cfg.Settings.Development.Debug.PauseIngest.Duration()
 	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
 	dbOptions.Logger = cfg.Logger
 	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
@@ -332,7 +331,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 
 	a.outputs = a.buildOutputWorker(cfg)
-	a.retention = ingest.NewMaintenance(db, a.flowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
 	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
 	a.engine = a.buildEngine(cfg.Logger)

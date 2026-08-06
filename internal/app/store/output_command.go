@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-func (db *DB) ListRunnableOutputCommands(ctx context.Context, limit int) ([]OutputCommand, error) {
-	rows, err := db.queries.ListRunnableOutputCommands(ctx, int64(limit))
-	return rows, wrap("listing runnable output commands", err)
-}
-
 func (db *DB) ListRunnableOutputCommandsAfter(ctx context.Context, afterID int64, limit int) ([]OutputCommand, error) {
 	rows, err := db.queries.ListRunnableOutputCommandsAfter(ctx, ListRunnableOutputCommandsAfterParams{ID: afterID, Limit: int64(limit)})
 	return rows, wrap("listing runnable output commands", err)

@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 )
 
@@ -14,7 +15,16 @@ func (db *DB) Ctx(ctx context.Context) *DB {
 	if !ok {
 		return db
 	}
-	return &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx), pauseIngest: db.pauseIngest, pauseCommit: db.pauseCommit}
+	return db.boundTo(tx)
+}
+
+// boundTo copies the whole receiver rather than listing fields, so a field
+// added to DB cannot be silently dropped from the transaction-bound form.
+func (db *DB) boundTo(tx *sql.Tx) *DB {
+	bound := *db
+	bound.tx = tx
+	bound.queries = db.queries.WithTx(tx)
+	return &bound
 }
 
 // WithinTx runs fn inside a transaction, joining an ambient one if the
@@ -31,7 +41,7 @@ func (db *DB) Ctx(ctx context.Context) *DB {
 // back.
 func (db *DB) WithinTx(ctx context.Context, fn func(context.Context, *DB) error) error {
 	if tx, ok := txFromContext(ctx); ok {
-		return fn(ctx, &DB{conn: db.conn, tx: tx, queries: db.queries.WithTx(tx), pauseIngest: db.pauseIngest, pauseCommit: db.pauseCommit})
+		return fn(ctx, db.boundTo(tx))
 	}
 
 	txCtx, tx, err := WithTransaction(ctx, db)

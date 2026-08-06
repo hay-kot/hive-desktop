@@ -1,7 +1,6 @@
 package store
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -70,60 +69,6 @@ func (db *DB) Append(ctx context.Context, topic, key string, payload []byte) (in
 		return 0, fmt.Errorf("appending event to topic %q: %w", topic, err)
 	}
 	return offset, nil
-}
-
-// AppendIfChanged appends a source event only when its non-empty topic/key
-// identity has no stored payload or has a different payload. The event append
-// and source-head update happen in one transaction, so a failure leaves
-// neither a new event nor a head that would incorrectly suppress a retry.
-// Empty-key messages have no stable identity and always append.
-func (db *DB) AppendIfChanged(ctx context.Context, topic, key string, payload []byte) (int64, bool, error) {
-	if key == "" {
-		offset, err := db.Append(ctx, topic, key, payload)
-		return offset, err == nil, err
-	}
-
-	var (
-		offset   int64
-		appended bool
-	)
-	err := db.WithTx(ctx, func(q *Queries) error {
-		previous, err := q.GetSourceHeadPayload(ctx, GetSourceHeadPayloadParams{
-			Topic: topic,
-			Key:   key,
-		})
-		if err == nil && bytes.Equal(previous, payload) {
-			return nil
-		}
-		if err != nil && !errors.Is(err, sql.ErrNoRows) {
-			return fmt.Errorf("reading source head for topic %q, key %q: %w", topic, key, err)
-		}
-
-		offset, err = q.AppendEvent(ctx, AppendEventParams{
-			Topic:      topic,
-			Key:        key,
-			Payload:    payload,
-			CreatedAt:  time.Now().UnixMilli(),
-			Snapshot:   0,
-			SourceKind: "", SourceScope: "", OccurrenceKey: sql.NullString{},
-		})
-		if err != nil {
-			return fmt.Errorf("appending event to topic %q: %w", topic, err)
-		}
-		if err := q.UpsertSourceHead(ctx, UpsertSourceHeadParams{
-			Topic:   topic,
-			Key:     key,
-			Payload: payload,
-		}); err != nil {
-			return fmt.Errorf("updating source head for topic %q, key %q: %w", topic, key, err)
-		}
-		appended = true
-		return nil
-	})
-	if err != nil {
-		return 0, false, fmt.Errorf("conditionally appending event to topic %q: %w", topic, err)
-	}
-	return offset, appended, nil
 }
 
 // AppendSnapshot appends a successful source poll's complete current item

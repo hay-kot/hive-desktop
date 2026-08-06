@@ -250,9 +250,9 @@ func TestPurgeProfile_DeletesAllOwnedStateIdempotently(t *testing.T) {
 	_, err := db.Queries().InsertInboxEvent(t.Context(), InsertInboxEventParams{ItemID: item.ID, Kind: "updated", Transition: "none", Attention: "activity", Detail: []byte(`{}`), CreatedAt: 1})
 	require.NoError(t, err)
 	require.NoError(t, db.Queries().UpsertFeedMembershipClaim(t.Context(), UpsertFeedMembershipClaimParams{ProfileID: "flow", FeedID: "flow/feed", ItemID: item.ID, SourceID: "source:flow/source"}))
-	_, appended, err := db.AppendIfChanged(t.Context(), "source:flow/source", "item", []byte(`{}`))
+	_, err = db.Append(t.Context(), "source:flow/source", "item", []byte(`{}`))
 	require.NoError(t, err)
-	require.True(t, appended)
+	require.NoError(t, db.Queries().UpsertSourceHead(t.Context(), UpsertSourceHeadParams{Topic: "source:flow/source", Key: "item", Payload: []byte(`{}`)}))
 	require.NoError(t, db.CommitBatch(t.Context(), CommitBatch{Consumer: "flow", UpToOffset: 1}))
 
 	for _, table := range []string{"inbox_item", "inbox_event", "feed_membership_claim", "consumer_offset", "source_head", "event_log"} {
