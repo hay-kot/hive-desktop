@@ -129,10 +129,10 @@ func run(repoPath, update string, skipGomod bool) error {
 	if skipGomod {
 		return nil
 	}
-	if err := runCmd(".", "go", "get", hiveModule+"@"+lock.Ref); err != nil {
+	if err := runCmd("go", "get", hiveModule+"@"+lock.Ref); err != nil {
 		return err
 	}
-	return runCmd(".", "go", "mod", "tidy")
+	return runCmd("go", "mod", "tidy")
 }
 
 func readLock() (lockFile, error) {
@@ -203,7 +203,7 @@ func materialize(repoPath string, lock lockFile) (dir string, cleanup func(), er
 		{"git", "-C", tmp, "checkout", lock.Ref, "--", "internal", "LICENSE"},
 	}
 	for _, s := range steps {
-		if err := runCmd(".", s[0], s[1:]...); err != nil {
+		if err := runCmd(s[0], s[1:]...); err != nil {
 			cleanup()
 			return "", nil, err
 		}
@@ -406,9 +406,8 @@ func writeMeta(src string, lock lockFile, pkgs []string) error {
 	return os.WriteFile(filepath.Join(vendorDir, "VENDOR.md"), []byte(b.String()), 0o644)
 }
 
-func runCmd(dir, name string, args ...string) error {
+func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Dir = dir
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
