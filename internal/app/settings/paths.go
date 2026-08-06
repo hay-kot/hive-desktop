@@ -20,7 +20,6 @@ const (
 	EnvE2EHarness  = "HIVE_DESKTOP_E2E_HARNESS"
 
 	EnvHTTPEnabled = "HIVE_DESKTOP_HTTP_ENABLED"
-	EnvHTTPHost    = "HIVE_DESKTOP_HTTP_HOST"
 	EnvHTTPPort    = "HIVE_DESKTOP_HTTP_PORT"
 
 	EnvExperimentalTerminal = "HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"
@@ -47,7 +46,6 @@ type Paths struct {
 	HiveDataDir string
 	StateDir    string
 	ConfigDir   string
-	ConfigPath  string
 	FlowsDir    string
 	ActionsPath string
 	// AgentWorkspacesDir is the agent-workspace root: agent_workspaces.dir,
@@ -137,7 +135,6 @@ func ResolvePaths(b Bootstrap, opts ResolveOptions) Paths {
 		HiveDataDir:          hiveDataDir,
 		StateDir:             stateDir,
 		ConfigDir:            configDir,
-		ConfigPath:           filepath.Join(configDir, "profiles.yaml"),
 		FlowsDir:             flowsDir,
 		ActionsPath:          actionsPath,
 		AgentWorkspacesDir:   agentWorkspacesDir,
