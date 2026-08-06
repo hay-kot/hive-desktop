@@ -588,6 +588,40 @@ func TestCatalogueReportsAProblemWhenTheServerIsDown(t *testing.T) {
 	assert.Contains(t, byID["hive-desktop"].Problem, "http.enabled")
 }
 
+func mcpCatalogueItem(t *testing.T, svc *AgentWorkspacesService, id string) MCPCatalogueItem {
+	t.Helper()
+	for _, item := range svc.MCPCatalogue(t.Context()) {
+		if item.ID == id {
+			return item
+		}
+	}
+	t.Fatalf("no catalogue entry %q", id)
+	return MCPCatalogueItem{}
+}
+
+// A stdio command is validated against the PATH a session launches with, not
+// the one this process inherited: a desktop launch gets launchd's
+// /usr/bin:/bin:/usr/sbin:/sbin, so validating against it warned on every
+// stdio entry — the shipped npx ones included — on a stock install (#266).
+func TestMCPCatalogueValidatesAgainstTheResolvedPATH(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	binDir := t.TempDir()
+	const command = "hive-test-mcp-command"
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, command), []byte("#!/bin/sh\nexit 0\n"), 0o755))
+	writeMCPLibrary(t, root, "version: 1\nservers:\n  local:\n    command: "+command+"\n")
+
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	require.NotEmpty(t, mcpCatalogueItem(t, svc, "local").Problem,
+		"the command is on no PATH this process inherited")
+
+	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
+		return binDir, nil
+	}})
+	assert.Empty(t, mcpCatalogueItem(t, svc, "local").Problem,
+		"the resolver finds it on the login shell's PATH, so the entry must not warn")
+}
+
 // A workspace declaring the desktop gets the live endpoint written into its
 // generated .mcp.json, which is the whole point of the entry.
 func TestGeneratedMCPConfigCarriesTheLiveEndpoint(t *testing.T) {
