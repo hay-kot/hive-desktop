@@ -26,11 +26,15 @@ import (
 //	  0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //	client -> server
 //	  0x10 Input       [0x10][winLen u8][windowId][raw bytes]
+//	  0x11 PasteChunk  [0x11][winLen u8][windowId][raw bytes]
+//	  0x12 PasteCommit [0x12][winLen u8][windowId]
 const (
 	frameOutput      byte = 0x00
 	frameWindowEvent byte = 0x01
 	frameLifecycle   byte = 0x02
 	frameInput       byte = 0x10
+	framePasteChunk  byte = 0x11
+	framePasteCommit byte = 0x12
 )
 
 const (
@@ -39,6 +43,10 @@ const (
 	terminalWireVersion = "1"
 	// maxInputFrameBytes caps one client->server frame whole, id included.
 	maxInputFrameBytes = 4 << 10
+	// maxPasteBytes caps a paste reassembled from its chunk frames. It is far
+	// past anything a person pastes into a terminal, and it exists so a client
+	// cannot grow this connection's buffer without bound by never committing.
+	maxPasteBytes = 1 << 20
 	// streamWriteTimeout bounds one frame's write. Without it a client that
 	// stops reading pins this connection and the buffer behind it for the life
 	// of the process; dropping it instead leaves the tmux session attached and
@@ -144,10 +152,17 @@ func (h *terminalStream) writePump(ctx context.Context, conn *websocket.Conn, sl
 	_ = conn.Close(websocket.StatusNormalClosure, "terminal session ended")
 }
 
-// readPump turns input frames into pane writes. A rejected keystroke — an
-// unknown window, a tmux command failure — is logged and the stream lives on;
-// only a broken frame or a non-binary message closes it.
+// readPump turns input frames into pane writes and paste frames into pane
+// pastes. A rejected keystroke — an unknown window, a tmux command failure — is
+// logged and the stream lives on; only a broken frame or a non-binary message
+// closes it.
+//
+// A paste is held until its commit rather than written through, because the
+// frame cap bounds one socket message and says nothing about how much text a
+// person pastes: the pane has to receive it as one paste or tmux cannot bracket
+// it. The pending map is this goroutine's alone — nothing else reads the socket.
 func (h *terminalStream) readPump(ctx context.Context, conn *websocket.Conn, slug string) {
+	pending := map[string][]byte{}
 	for {
 		kind, data, err := conn.Read(ctx)
 		if err != nil {
@@ -157,13 +172,30 @@ func (h *terminalStream) readPump(ctx context.Context, conn *websocket.Conn, slu
 			_ = conn.Close(websocket.StatusUnsupportedData, "binary frames only")
 			return
 		}
-		windowID, payload, err := decodeInputFrame(data)
+		frame, err := decodeClientFrame(data)
 		if err != nil {
 			_ = conn.Close(websocket.StatusInvalidFramePayloadData, "malformed input frame")
 			return
 		}
-		if err := h.core.Terminals.Write(ctx, slug, windowID, payload); err != nil {
-			h.log.Debug().Err(err).Str("session", slug).Str("window", windowID).Msg("terminal input rejected")
+		window := frame.windowID
+		switch frame.kind {
+		case frameInput:
+			if err := h.core.Terminals.Write(ctx, slug, window, frame.data); err != nil {
+				h.log.Debug().Err(err).Str("session", slug).Str("window", window).Msg("terminal input rejected")
+			}
+		case framePasteChunk:
+			if len(pending[window])+len(frame.data) > maxPasteBytes {
+				delete(pending, window)
+				h.log.Debug().Str("session", slug).Str("window", window).Msg("terminal paste dropped: over the size cap")
+				continue
+			}
+			pending[window] = append(pending[window], frame.data...)
+		case framePasteCommit:
+			text := pending[window]
+			delete(pending, window)
+			if err := h.core.Terminals.Paste(ctx, slug, window, text); err != nil {
+				h.log.Debug().Err(err).Str("session", slug).Str("window", window).Msg("terminal paste rejected")
+			}
 		}
 	}
 }
@@ -274,18 +306,34 @@ func decodeOutputFrame(frame []byte) (windowID, paneID string, data []byte, err 
 	return windowID, paneID, data, nil
 }
 
-func decodeInputFrame(frame []byte) (windowID string, data []byte, err error) {
-	if len(frame) == 0 || frame[0] != frameInput {
-		return "", nil, errors.New("not an input frame")
+// clientFrame is one decoded client -> server frame. Every kind carries the
+// same window-id header, so they differ only in what the payload means.
+type clientFrame struct {
+	kind     byte
+	windowID string
+	data     []byte
+}
+
+// decodeClientFrame reads one client -> server frame. An unknown kind is
+// malformed rather than ignored, so a client speaking a wire this server does
+// not is told rather than silently half-heard.
+func decodeClientFrame(frame []byte) (clientFrame, error) {
+	if len(frame) == 0 {
+		return clientFrame{}, errors.New("empty client frame")
 	}
-	windowID, data, err = readID(frame[1:])
+	switch frame[0] {
+	case frameInput, framePasteChunk, framePasteCommit:
+	default:
+		return clientFrame{}, fmt.Errorf("unknown client frame kind 0x%02x", frame[0])
+	}
+	windowID, data, err := readID(frame[1:])
 	if err != nil {
-		return "", nil, err
+		return clientFrame{}, err
 	}
 	if windowID == "" {
-		return "", nil, errors.New("input frame carries no window id")
+		return clientFrame{}, errors.New("client frame carries no window id")
 	}
-	return windowID, data, nil
+	return clientFrame{kind: frame[0], windowID: windowID, data: data}, nil
 }
 
 func readID(src []byte) (id string, rest []byte, err error) {

@@ -471,6 +471,61 @@ func TestTmuxInputFrameReachesThePane(t *testing.T) {
 	tmux.awaitPane(tmux.slug, "HELLO_FROM_WS")
 }
 
+// A multi-line paste has to reach the pane as a paste rather than as one Enter
+// per line, or an agent reading it submits a message per line. Whether that
+// means bracketing is the pane program's call, and tmux is the only side that
+// knows it: nothing in a first paint carries the mode, so the emulator on the
+// other end of the stream cannot decide (ADR pastes-are-tmux-paste-buffer-operations-not-keystrokes).
+func TestTmuxPasteIsBracketedOnlyWhenThePaneAsksForIt(t *testing.T) {
+	tmux := startTmux(t, "hive-paste")
+	// cat -v renders what the pane received; the DECSET is what a TUI emits to
+	// ask for bracketed paste, and the fixture's plain sh never does.
+	tmux.tmux("new-window", "-t", tmux.slug, "-n", "bracketed", `printf '\033[?2004h'; cat -v`)
+	tmux.tmux("new-window", "-t", tmux.slug, "-n", "plain", "cat -v")
+
+	h := newTerminalHarness(t)
+	attached := h.attach(t, tmux.slug)
+
+	conn := h.dial(t, tmux.slug)
+	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
+
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	for _, name := range []string{"bracketed", "plain"} {
+		for _, frame := range pasteFrames(windowIDNamed(t, attached, name), "line one\nline two") {
+			require.NoError(t, conn.Write(ctx, websocket.MessageBinary, frame))
+		}
+	}
+
+	tmux.awaitPane(tmux.slug+":bracketed", "^[[201~")
+	assert.Contains(t, tmux.tmux("capture-pane", "-p", "-t", tmux.slug+":bracketed"), "^[[200~",
+		"a pane that asked for bracketed paste gets the markers")
+
+	tmux.awaitPane(tmux.slug+":plain", "line two")
+	assert.NotContains(t, tmux.tmux("capture-pane", "-p", "-t", tmux.slug+":plain"), "^[[200~",
+		"a pane that did not ask for them must not receive them as literal text")
+}
+
+// pasteFrames is what the frontend sends for one paste: its bytes, then the
+// commit the server pastes on.
+func pasteFrames(windowID, text string) [][]byte {
+	return [][]byte{
+		append(appendID([]byte{framePasteChunk}, windowID), text...),
+		appendID([]byte{framePasteCommit}, windowID),
+	}
+}
+
+func windowIDNamed(t *testing.T, attached attachResult, name string) string {
+	t.Helper()
+	for _, w := range attached.Windows {
+		if w.Name == name {
+			return w.WindowID
+		}
+	}
+	t.Fatalf("no window named %q in %#v", name, attached.Windows)
+	return ""
+}
+
 // The attach size is a vote tmux obeys, so a caller with nothing measured must
 // send none: a placeholder would resize the session — and every agent redrawing
 // inside it — to a size nobody asked for.

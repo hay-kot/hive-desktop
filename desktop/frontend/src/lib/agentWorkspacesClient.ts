@@ -11,13 +11,13 @@
 // never calls the generic /api/terminal/attach control route, which is gated
 // by experimental.terminal — a flag the Agents area must not depend on.
 
-import { createTerminalClient, decodeFrame, encodeInputFrames } from './terminalClient'
+import { createTerminalClient, decodeFrame, encodeInputFrames, encodePasteFrames } from './terminalClient'
 import type { TerminalEndpoint } from './terminalClient'
 import { Endpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 import type { AgentsEndpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
 export type { AgentsEndpoint }
-export { decodeFrame, encodeInputFrames }
+export { decodeFrame, encodeInputFrames, encodePasteFrames }
 export type { TerminalFrame } from './terminalClient'
 
 /** One row of the area's workspace list. */

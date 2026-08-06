@@ -8,6 +8,8 @@
 //     0x02 Lifecycle   [0x02][JSON {kind, windowId, message}]
 //   client -> server
 //     0x10 Input       [0x10][winLen u8][windowId][raw bytes]
+//     0x11 PasteChunk  [0x11][winLen u8][windowId][raw bytes]
+//     0x12 PasteCommit [0x12][winLen u8][windowId]
 
 import { Endpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { TerminalEndpoint } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
@@ -24,6 +26,8 @@ const FRAME_OUTPUT = 0x00
 const FRAME_WINDOW_EVENT = 0x01
 const FRAME_LIFECYCLE = 0x02
 const FRAME_INPUT = 0x10
+const FRAME_PASTE_CHUNK = 0x11
+const FRAME_PASTE_COMMIT = 0x12
 
 export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' | 'resized'
 export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error'
@@ -179,8 +183,30 @@ function streamURL(endpoint: TerminalEndpoint, slug: string): string {
  * sequence is harmless.
  */
 export function encodeInputFrames(windowId: string, data: string | Uint8Array): Uint8Array[] {
+  return chunkFrames(FRAME_INPUT, windowId, typeof data === 'string' ? encoder.encode(data) : data)
+}
+
+/**
+ * Frames one paste: its bytes, then a commit the server pastes on. Pasted text
+ * is not keystrokes — the server hands it to tmux, the only side that knows
+ * whether the pane's program asked for bracketed paste, so a multi-line paste
+ * reaches an agent as one paste rather than one submission per line.
+ */
+export function encodePasteFrames(windowId: string, text: string): Uint8Array[] {
+  // tmux writes one \r per \n in the buffer, so a CRLF would arrive as two.
+  const body = encoder.encode(text.replace(/\r\n?/g, '\n'))
+  if (body.length === 0) return []
+
   const id = encoder.encode(windowId)
-  const body = typeof data === 'string' ? encoder.encode(data) : data
+  const commit = new Uint8Array(2 + id.length)
+  commit[0] = FRAME_PASTE_COMMIT
+  commit[1] = id.length
+  commit.set(id, 2)
+  return [...chunkFrames(FRAME_PASTE_CHUNK, windowId, body), commit]
+}
+
+function chunkFrames(kind: number, windowId: string, body: Uint8Array): Uint8Array[] {
+  const id = encoder.encode(windowId)
   const header = 2 + id.length
   const budget = MAX_INPUT_FRAME_BYTES - header
   if (budget <= 0) throw new Error('terminal window id is too long to frame')
@@ -189,7 +215,7 @@ export function encodeInputFrames(windowId: string, data: string | Uint8Array): 
   for (let offset = 0; offset < body.length; offset += budget) {
     const chunk = body.subarray(offset, offset + budget)
     const frame = new Uint8Array(header + chunk.length)
-    frame[0] = FRAME_INPUT
+    frame[0] = kind
     frame[1] = id.length
     frame.set(id, 2)
     frame.set(chunk, header)

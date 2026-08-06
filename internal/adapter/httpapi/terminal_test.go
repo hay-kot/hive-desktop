@@ -206,16 +206,24 @@ func TestTerminalFramesRoundTrip(t *testing.T) {
 	assert.Equal(t, "%34", paneID)
 	assert.Equal(t, raw, data)
 
-	inputWindow, inputData, err := decodeInputFrame(encodeInputFrame("@12", raw))
+	input, err := decodeClientFrame(encodeInputFrame("@12", raw))
 	require.NoError(t, err)
-	assert.Equal(t, "@12", inputWindow)
-	assert.Equal(t, raw, inputData)
+	assert.Equal(t, clientFrame{kind: frameInput, windowID: "@12", data: raw}, input)
 
-	_, _, err = decodeInputFrame([]byte{frameOutput, 0x00})
-	require.Error(t, err, "an output frame is not input")
-	_, _, err = decodeInputFrame([]byte{frameInput, 0x04, '@', '1'})
+	chunk, err := decodeClientFrame(append([]byte{framePasteChunk, 0x03, '@', '1', '2'}, raw...))
+	require.NoError(t, err)
+	assert.Equal(t, clientFrame{kind: framePasteChunk, windowID: "@12", data: raw}, chunk)
+
+	commit, err := decodeClientFrame([]byte{framePasteCommit, 0x03, '@', '1', '2'})
+	require.NoError(t, err)
+	assert.Equal(t, framePasteCommit, commit.kind)
+	assert.Empty(t, commit.data, "a commit carries no payload")
+
+	_, err = decodeClientFrame([]byte{frameOutput, 0x00})
+	require.Error(t, err, "a server frame kind is not one a client may send")
+	_, err = decodeClientFrame([]byte{frameInput, 0x04, '@', '1'})
 	require.Error(t, err, "a truncated id is refused")
-	_, _, err = decodeInputFrame([]byte{frameInput, 0x00})
+	_, err = decodeClientFrame([]byte{frameInput, 0x00})
 	require.Error(t, err, "an empty window id is refused")
 }
 

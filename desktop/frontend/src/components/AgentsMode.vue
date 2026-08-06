@@ -30,10 +30,11 @@ import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useTerminalFont } from '../composables/useTerminalFont'
 import { useTheme } from '../composables/useTheme'
 import { xtermTheme } from '../lib/terminalTheme'
-import { decodeFrame, encodeInputFrames } from '../lib/agentWorkspacesClient'
+import { decodeFrame, encodeInputFrames, encodePasteFrames } from '../lib/agentWorkspacesClient'
 import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
+import { interceptPaste } from '../lib/terminalPaste'
 import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 import '@xterm/xterm/css/xterm.css'
 
@@ -486,6 +487,7 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
 
   paneWindowId = windowId
   disposers.push(created.onData((data) => send(data)))
+  disposers.push({ dispose: interceptPaste(paneHost.value, sendPaste) })
 
   const opened = client.value.openStream(terminalId)
   opened.onmessage = (event: MessageEvent<ArrayBuffer>) => {
@@ -516,6 +518,11 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
 function send(data: string): void {
   if (socket?.readyState !== WebSocket.OPEN || !paneWindowId) return
   for (const frame of encodeInputFrames(paneWindowId, data)) socket.send(frame)
+}
+
+function sendPaste(text: string): void {
+  if (socket?.readyState !== WebSocket.OPEN || !paneWindowId) return
+  for (const frame of encodePasteFrames(paneWindowId, text)) socket.send(frame)
 }
 
 let lastVote: { cols: number; rows: number } | null = null
