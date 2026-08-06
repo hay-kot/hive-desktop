@@ -113,18 +113,13 @@ type ManagerOptions struct {
 	// Shell overrides the shell every terminal is launched through. Empty
 	// resolves $SHELL.
 	Shell []string
-
-	ReplayBytes int
-	BufferBytes int
 }
 
 // Manager owns the open terminals, keyed by an id it mints. The ids mean
 // nothing outside this process's lifetime, which is also all they have to.
 type Manager struct {
-	environ     func(context.Context) []string
-	shell       []string
-	replayBytes int
-	bufferBytes int
+	environ func(context.Context) []string
+	shell   []string
 
 	mu        sync.Mutex
 	terminals map[string]*terminal
@@ -135,11 +130,9 @@ type Manager struct {
 
 func NewManager(opts ManagerOptions) *Manager {
 	m := &Manager{
-		environ:     opts.Environ,
-		shell:       opts.Shell,
-		replayBytes: opts.ReplayBytes,
-		bufferBytes: opts.BufferBytes,
-		terminals:   map[string]*terminal{},
+		environ:   opts.Environ,
+		shell:     opts.Shell,
+		terminals: map[string]*terminal{},
 	}
 	if m.environ == nil {
 		m.environ = func(context.Context) []string { return os.Environ() }
@@ -204,16 +197,14 @@ func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 	m.mu.Unlock()
 
 	t, err := spawn(spawnOptions{
-		ID:          id,
-		Title:       title(spec.Command, argv),
-		Dir:         spec.Dir,
-		Command:     spec.Command,
-		Argv:        argv,
-		Env:         terminalEnv(m.environ(ctx)),
-		Cols:        cols,
-		Rows:        rows,
-		ReplayBytes: m.replayBytes,
-		BufferBytes: m.bufferBytes,
+		ID:      id,
+		Title:   title(spec.Command, argv),
+		Dir:     spec.Dir,
+		Command: spec.Command,
+		Argv:    argv,
+		Env:     terminalEnv(m.environ(ctx)),
+		Cols:    cols,
+		Rows:    rows,
 	}, m.forget)
 	if err != nil {
 		return Terminal{}, err
@@ -239,15 +230,6 @@ func (m *Manager) Open(ctx context.Context, spec Spec) (Terminal, error) {
 	m.terminals[id] = t
 	m.order = append(m.order, id)
 	m.mu.Unlock()
-	return t.snapshot(), nil
-}
-
-// Get reports one terminal.
-func (m *Manager) Get(id string) (Terminal, error) {
-	t, err := m.terminal(id)
-	if err != nil {
-		return Terminal{}, err
-	}
 	return t.snapshot(), nil
 }
 
@@ -414,9 +396,9 @@ func terminalEnv(base []string) []string {
 	out := make([]string, 0, len(base)+3)
 	for _, kv := range base {
 		switch {
-		case hasPrefix(kv, "TERM="), hasPrefix(kv, "COLORTERM="), hasPrefix(kv, "TERM_PROGRAM="):
+		case strings.HasPrefix(kv, "TERM="), strings.HasPrefix(kv, "COLORTERM="), strings.HasPrefix(kv, "TERM_PROGRAM="):
 			continue
-		case hasPrefix(kv, "TMUX="), hasPrefix(kv, "TMUX_PANE="):
+		case strings.HasPrefix(kv, "TMUX="), strings.HasPrefix(kv, "TMUX_PANE="):
 			// Hive may itself have been launched from inside tmux; inherited
 			// client variables would tell the shell it is in a multiplexer that
 			// is not on the other end of this PTY.
@@ -425,10 +407,6 @@ func terminalEnv(base []string) []string {
 		out = append(out, kv)
 	}
 	return append(out, "TERM=xterm-256color", "COLORTERM=truecolor", "TERM_PROGRAM=hive-desktop")
-}
-
-func hasPrefix(s, prefix string) bool {
-	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 func validateDir(dir string) error {

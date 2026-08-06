@@ -19,9 +19,6 @@ type ring struct {
 }
 
 func newRing(max int) *ring {
-	if max <= 0 {
-		max = defaultReplayBytes
-	}
 	return &ring{buf: make([]byte, 0, min(max, 64<<10)), max: max}
 }
 

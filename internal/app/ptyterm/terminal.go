@@ -3,7 +3,6 @@ package ptyterm
 import (
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"sync"
@@ -36,16 +35,14 @@ type Terminal struct {
 // spawnOptions is one terminal's spawn. Argv is what actually runs; Command is
 // what was asked for, kept only so a caller can see it.
 type spawnOptions struct {
-	ID          string
-	Title       string
-	Dir         string
-	Command     string
-	Argv        []string
-	Env         []string
-	Cols        int
-	Rows        int
-	ReplayBytes int
-	BufferBytes int
+	ID      string
+	Title   string
+	Dir     string
+	Command string
+	Argv    []string
+	Env     []string
+	Cols    int
+	Rows    int
 }
 
 // terminal is one live terminal: a PTY master, the process on the far end of
@@ -100,8 +97,8 @@ func spawn(opts spawnOptions, onExit func(id string)) (*terminal, error) {
 		command:    opts.Command,
 		file:       file,
 		cmd:        cmd,
-		ring:       newRing(opts.ReplayBytes),
-		events:     newBroker(opts.BufferBytes),
+		ring:       newRing(defaultReplayBytes),
+		events:     newBroker(defaultBufferBytes),
 		cols:       opts.Cols,
 		rows:       opts.Rows,
 		readerDone: make(chan struct{}),
@@ -123,7 +120,7 @@ func (t *terminal) read(onExit func(string)) {
 			t.publish(buf[:n])
 		}
 		if err != nil {
-			t.finish(exitReason(err, t.cmd))
+			t.finish(exitReason(t.cmd))
 			t.events.Publish(Exited{Reason: t.exitReason()})
 			onExit(t.id)
 			return
@@ -160,10 +157,10 @@ func (t *terminal) subscribe() (<-chan Event, func()) {
 	return ch, unsubscribe
 }
 
-// exitReason turns the read error that ends a PTY into something a user can
-// read. A closed master reports EIO rather than EOF on Linux, and neither says
-// anything about why the process left, so its own status carries the answer.
-func exitReason(readErr error, cmd *exec.Cmd) string {
+// exitReason answers why a terminal's process left. The read error that ends a
+// PTY says nothing about it — a closed master reports EIO rather than EOF on
+// Linux — so the process's own wait status carries the answer.
+func exitReason(cmd *exec.Cmd) string {
 	waitErr := cmd.Wait()
 	var exit *exec.ExitError
 	switch {
@@ -171,8 +168,6 @@ func exitReason(readErr error, cmd *exec.Cmd) string {
 		return fmt.Sprintf("exited with status %d", exit.ExitCode())
 	case waitErr != nil:
 		return waitErr.Error()
-	case readErr == nil || errors.Is(readErr, io.EOF):
-		return "exited"
 	default:
 		return "exited"
 	}

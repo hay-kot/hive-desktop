@@ -25,9 +25,6 @@ type subscriber struct {
 }
 
 func newBroker(maxBytes int) *broker {
-	if maxBytes <= 0 {
-		maxBytes = defaultBufferBytes
-	}
 	return &broker{maxBytes: maxBytes}
 }
 
