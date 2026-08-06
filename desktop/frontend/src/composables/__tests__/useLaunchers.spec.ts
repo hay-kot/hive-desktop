@@ -14,8 +14,8 @@ beforeEach(() => {
 describe('useLaunchers', () => {
   it('turns each configured launcher into a bindable command', async () => {
     service.Launchers.mockResolvedValue([
-      { id: 'lazygit', label: 'lazygit', icon: 'git-branch' },
-      { id: 'btop', label: '', icon: '' },
+      { id: 'lazygit', label: 'lazygit', icon: 'git-branch', requiresSession: true },
+      { id: 'btop', label: '', icon: '', requiresSession: true },
     ])
     const { useLaunchers } = await import('../useLaunchers')
     const { commands } = await import('../../keybindings/catalog')
@@ -30,6 +30,27 @@ describe('useLaunchers', () => {
     ])
     // Unbound until the user says otherwise: config must not claim a chord.
     expect(launchers.every((command) => command.defaultCombos.length === 0)).toBe(true)
+  })
+
+  // Where a launcher may run is the core's answer, and it arrives as the
+  // command's context so the palette and the keymap gate on the same thing the
+  // core enforces.
+  it('scopes a launcher to a session unless it carries its own directory', async () => {
+    service.Launchers.mockResolvedValue([
+      { id: 'lazygit', label: 'lazygit', icon: '', requiresSession: true },
+      { id: 'dotfiles', label: 'Edit dotfiles', icon: '', requiresSession: false },
+    ])
+    const { useLaunchers } = await import('../useLaunchers')
+    const { commands } = await import('../../keybindings/catalog')
+
+    await useLaunchers().refresh()
+
+    expect(commands.value.filter((command) => command.group === 'Quick terminals')
+      .map((command) => [command.id, command.context]))
+      .toEqual([
+        ['launcher.lazygit', 'terminal-session'],
+        ['launcher.dotfiles', 'global'],
+      ])
   })
 
   it('replaces the previous set rather than accumulating', async () => {

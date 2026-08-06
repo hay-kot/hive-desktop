@@ -1243,6 +1243,11 @@ Three rules govern it, and each is a consequence of that:
   resolved environment as the floor rather than instead of it (ADR subprocess-environment, ADR
   0068), and empty means an interactive shell. A named launcher is that spec
   with config in front of it — add the config, not another launch path.
+  **The home fallback is the bare shell's alone.** A launcher with no configured
+  `cwd` is session-scoped: the core refuses it without a slug (`KindInvalid`),
+  drops any `Dir` sent beside one, and answers a slug whose session is gone with
+  `KindNotFound` rather than opening somewhere else (ADR quick-terminal-launchers-are-session-scoped). That is in
+  `PopupTerminalsService`, so an HTTP API caller is bound by it too.
 - **A launcher is an entry in actions.yml's `launchers:` list, opened by id**
   (ADR launchers-are-their-own-list-in-actions-yml). It is deliberately *not* an action: every surface in the `targets`
   vocabulary dispatches and a pop-up does not, so it shares the file — one
@@ -1251,7 +1256,10 @@ Three rules govern it, and each is a consequence of that:
   login shell in the working directory is the only context a launcher needs.
   Each one is a bindable command, `launcher.<id>`, unbound by default; a launch
   that differs from the live one replaces it, since one pop-up is open at a
-  time.
+  time. `PopupLauncher.requiresSession` — a launcher with no `cwd` — is the
+  core's answer to where it may run, and the frontend takes the command's
+  context from it (`terminal-session`) rather than re-deriving one, so the
+  keymap and the palette gate on what the core enforces (ADR quick-terminal-launchers-are-session-scoped).
 - **The PTY is spawned at the grid the pane measured.** The panel is built and
   measured first, and the launch carries its cols/rows; the server applies them,
   because one client renders this PTY and a measurement here is the size rather
@@ -1278,7 +1286,9 @@ Three rules govern it, and each is a consequence of that:
 
   A command **pierces** when it is claimed on the binding alone: the pop-up
   toggle and any launcher chord, because the combo that opens one has to close
-  it; `terminal.focus-sidebar`, because it is the way back to the session tree;
+  it — a launcher only where its own context is active, so a session-scoped one
+  leaves the key to the pane outside a session (ADR quick-terminal-launchers-are-session-scoped);
+  `terminal.focus-sidebar`, because it is the way back to the session tree;
   and `terminal.select-window-1` … `-9`, because a jump between windows is only
   ever wanted from inside the one being left. Where `mod` is Ctrl these take a
   readline chord away from the pane, which is the price of a chord that has to

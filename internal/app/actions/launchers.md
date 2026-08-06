@@ -30,8 +30,10 @@ launchers:
 - `command` (required) — the command line the terminal opens into.
 - `cwd` — pin the launcher to one directory (a leading `~` is expanded). Omit it
   to follow the session you are looking at, which is what makes `lazygit` open
-  on that session's checkout; with no session on screen it opens in your home
-  directory.
+  on that session's checkout. A launcher with no `cwd` is **session-scoped**: it
+  is offered only while a terminal session is open, and it is not in the command
+  palette or dispatched from its shortcut anywhere else. Pin a `cwd` for a
+  launcher you want to reach from anywhere.
 - `icon` — the palette glyph: `terminal` (the default), `git-branch`,
   `git-compare`, `folder`, `file-text`, `search`, `database`, `gauge`,
   `activity`, `flask-conical`, `hammer`, `container`, `cloud`, `bug`, `zap`,

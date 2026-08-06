@@ -28,7 +28,9 @@ type popupOpenRequest struct {
 	// command is what keeps a launcher's definition the catalog's answer.
 	Launcher string `json:"launcher"`
 	// SessionSlug opens the terminal in that hive session's checkout. It wins
-	// over Dir; with neither, the terminal opens in the user's home directory.
+	// over Dir; with neither, a bare shell opens in the user's home directory
+	// and a launcher that has no configured cwd is refused — it runs in a
+	// session or not at all (ADR quick-terminal-launchers-are-session-scoped).
 	SessionSlug string `json:"sessionSlug"`
 	Dir         string `json:"dir"`
 	// Command is a shell command line — it is run through a login shell, so what
@@ -52,6 +54,10 @@ type popupLauncher struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Icon  string `json:"icon"`
+	// RequiresSession reports that opening this one takes a session slug, so a
+	// menu can leave it out where there is no session rather than offering a
+	// launch that fails.
+	RequiresSession bool `json:"requiresSession"`
 }
 
 type popupLauncherListResponse struct {
@@ -142,7 +148,7 @@ func (ctrl *Controller) PopupTerminalLaunchers(w http.ResponseWriter, r *http.Re
 	}
 	out := make([]popupLauncher, 0, len(launchers))
 	for _, l := range launchers {
-		out = append(out, popupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon})
+		out = append(out, popupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon, RequiresSession: l.RequiresSession})
 	}
 	return server.JSON(w, http.StatusOK, popupLauncherListResponse{Launchers: out})
 }

@@ -75,7 +75,8 @@ onMounted(async () => {
       <p class="text-[11.5px] leading-relaxed text-text-3">
         Runs through a login shell, so your PATH and aliases resolve it. Leave the
         working directory empty to open in the checkout of the session you are
-        looking at.
+        looking at — it is then offered only while a session is open. Set one to
+        reach it from anywhere.
       </p>
       <p class="text-[11.5px] leading-relaxed text-text-3" data-testid="launcher-shortcut">
         <template v-if="shortcut()">Bound to <kbd class="rounded border border-card px-1 py-0.5 font-mono">{{ shortcut() }}</kbd> — rebind it in Settings ▸ Keyboard.</template>

@@ -28,9 +28,10 @@ type Launcher struct {
 	Label string `json:"label" yaml:"label"`
 	// Command is the shell command line the terminal opens into.
 	Command string `json:"command" yaml:"command"`
-	// Cwd pins the launcher to one directory. Empty means the checkout of the
-	// session on screen, then the user's home — the pop-up's own resolution
-	// order — which is what makes a launcher follow the session you are in.
+	// Cwd pins the launcher to one directory, and is what makes a launcher
+	// reachable with no session open. Empty means the checkout of the session on
+	// screen — the launcher follows the session you are in, and is offered only
+	// while you are in one (ADR quick-terminal-launchers-are-session-scoped).
 	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	// Icon is the glyph the command palette shows, from the launcher set in
 	// internal/app/icons. Empty means the terminal glyph.
