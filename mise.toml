@@ -361,5 +361,10 @@ description = 'Start a new ADR: mise run adr:new -- "The decision, as a sentence
 run = "go run ./cmd/adr new"
 
 [tasks.release]
-description = "Deploy the web landing page/worker, then build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
+description = "Interactively select a channel and version increment, validate, confirm, and publish (args: [--dry-run] [dev|beta|stable] [version])"
+interactive = true
+run = "go run ./cmd/release run"
+
+[tasks."release:publish"]
+description = "Low-level desktop publisher (args: <version> [flags]); prefer `mise release` for a public release"
 run = "go run ./cmd/release publish"

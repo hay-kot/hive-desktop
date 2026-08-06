@@ -5,19 +5,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
+	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v3"
 )
 
 func main() {
+	logger := newReleaseLogger(os.Stderr)
+	ctx := logger.WithContext(context.Background())
 	command := newReleaseCommand()
-	if err := command.Run(context.Background(), os.Args); err != nil {
-		fmt.Fprintln(os.Stderr, "release:", err)
+	if err := command.Run(ctx, os.Args); err != nil {
+		logger.Error().Err(err).Msg("release failed")
 		os.Exit(1)
 	}
+}
+
+func newReleaseLogger(out io.Writer) zerolog.Logger {
+	writer := zerolog.ConsoleWriter{Out: out, TimeFormat: time.Kitchen}
+	return zerolog.New(writer).With().Timestamp().Logger()
 }
 
 func newReleaseCommand() *cli.Command {
@@ -27,6 +37,23 @@ func newReleaseCommand() *cli.Command {
 		Description: "Selects and validates versions against both Git tags and live channel manifests, " +
 			"then builds, signs, notarizes, uploads, and verifies desktop releases.",
 		Commands: []*cli.Command{
+			{
+				Name:      "run",
+				Usage:     "interactively prepare and publish a release",
+				ArgsUsage: "[dev|beta|stable] [version]",
+				Description: "Selects a channel and patch, minor, or major increment when omitted, refreshes and validates the release source, presents the candidate for explicit confirmation, " +
+					"runs the release gates, revalidates the confirmed commit, then publishes. Run through `mise release` so mise loads credentials.",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{Name: "dry-run", Usage: "exercise candidate selection and confirmation without gates, builds, uploads, tags, or a GitHub release"},
+				},
+				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+					channel, candidate, err := parseInteractiveReleaseArgs(cmd.Args().Slice())
+					if err != nil {
+						return cli.Exit(err.Error(), 2)
+					}
+					return runInteractiveRelease(ctx, channel, candidate, cmd.Bool("dry-run"))
+				}),
+			},
 			{
 				Name:      "next",
 				Usage:     "print the next version for a release channel",
@@ -64,7 +91,7 @@ func newReleaseCommand() *cli.Command {
 				ArgsUsage: "<version>",
 				Description: "Public publishing requires a clean current main or a matching CI tag on main; the command builds the universal macOS app, signs it, " +
 					"notarizes and staples it, packages and verifies it, uploads immutable artifacts to R2, updates the channel cascade, and verifies the public artifact. " +
-					"For local publishing, run this through `mise run release -- <version>` so mise loads credentials.",
+					"For local publishing, run this through `mise run release:publish -- <version>` so mise loads credentials.",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{Name: "skip-notarize", Usage: "skip notarization and stapling (requires --skip-upload)"},
 					&cli.BoolFlag{Name: "skip-upload", Usage: "build and package without publishing"},
@@ -139,65 +166,107 @@ func withRepoRoot(action cli.ActionFunc) cli.ActionFunc {
 	}
 }
 
+type releasePlan struct {
+	version          releaseVersion
+	channel          string
+	commit           string
+	subject          string
+	currentManifests map[string]string
+}
+
 func prepare(ctx context.Context, channel, candidate string) error {
-	if err := validatePrepareSource(ctx); err != nil {
+	plan, err := prepareReleasePlan(ctx, channel, candidate)
+	if err != nil {
 		return err
 	}
+	printReleasePlan(plan)
+	return nil
+}
+
+func prepareReleasePlan(ctx context.Context, channel, candidate string) (releasePlan, error) {
+	return planRelease(ctx, channel, candidate, true)
+}
+
+func previewReleasePlan(ctx context.Context, channel, candidate string) (releasePlan, error) {
+	return planRelease(ctx, channel, candidate, false)
+}
+
+func planRelease(ctx context.Context, channel, candidate string, validateSource bool) (releasePlan, error) {
+	if validateSource {
+		if err := validatePrepareSource(ctx); err != nil {
+			return releasePlan{}, err
+		}
+	}
 	if err := verifyMigrationOrder(ctx); err != nil {
-		return err
+		return releasePlan{}, err
 	}
 	versions, manifests, err := releaseVersions(ctx)
 	if err != nil {
-		return err
+		return releasePlan{}, err
 	}
 	if candidate == "" {
 		candidate = nextVersion(channel, versions)
 	}
 	version, err := parsePublishVersion(candidate)
 	if err != nil {
-		return fmt.Errorf("invalid candidate %q: %w", candidate, err)
+		return releasePlan{}, fmt.Errorf("invalid candidate %q: %w", candidate, err)
 	}
 	if version.channel() != channel {
-		return fmt.Errorf("candidate %s belongs to %s, not %s", candidate, version.channel(), channel)
+		return releasePlan{}, fmt.Errorf("candidate %s belongs to %s, not %s", candidate, version.channel(), channel)
 	}
 	if err := validateManifestAdvancement(version, manifests); err != nil {
-		return err
+		return releasePlan{}, err
 	}
 
 	tag := "desktop-v" + version.String()
 	if exists, err := localTagExists(ctx, tag); err != nil {
-		return err
+		return releasePlan{}, err
 	} else if exists {
-		return fmt.Errorf("tag %s already exists locally", tag)
+		return releasePlan{}, fmt.Errorf("tag %s already exists locally", tag)
 	}
 	remote, err := commandOutput(ctx, "git", "ls-remote", "--tags", "origin", "refs/tags/"+tag)
 	if err != nil {
-		return fmt.Errorf("check origin tag %s: %w", tag, err)
+		return releasePlan{}, fmt.Errorf("check origin tag %s: %w", tag, err)
 	}
 	if strings.TrimSpace(remote) != "" {
-		return fmt.Errorf("tag %s already exists on origin", tag)
+		return releasePlan{}, fmt.Errorf("tag %s already exists on origin", tag)
 	}
 
 	commit, err := commandOutput(ctx, "git", "show", "-s", "--format=%H%n%s", "HEAD")
 	if err != nil {
-		return err
+		return releasePlan{}, err
 	}
 	lines := strings.SplitN(strings.TrimSpace(commit), "\n", 2)
-	fmt.Printf("candidate: %s\n", version.String())
-	fmt.Printf("channel: %s\n", channel)
-	fmt.Printf("commit: %s\n", lines[0])
-	if len(lines) == 2 {
-		fmt.Printf("subject: %s\n", lines[1])
+	plan := releasePlan{
+		version:          version,
+		channel:          channel,
+		commit:           lines[0],
+		currentManifests: make(map[string]string, len(manifests)),
 	}
-	fmt.Printf("manifests: %s\n", strings.Join(version.affectedChannels(), "+"))
-	for _, currentChannel := range []string{"stable", "beta", "dev"} {
-		if manifest, ok := manifests[currentChannel]; ok {
-			fmt.Printf("current-%s: %s\n", currentChannel, manifest.Version)
+	if len(lines) == 2 {
+		plan.subject = lines[1]
+	}
+	for manifestChannel, manifest := range manifests {
+		plan.currentManifests[manifestChannel] = manifest.Version
+	}
+	return plan, nil
+}
+
+func printReleasePlan(plan releasePlan) {
+	fmt.Printf("candidate: %s\n", plan.version.String())
+	fmt.Printf("channel: %s\n", plan.channel)
+	fmt.Printf("commit: %s\n", plan.commit)
+	if plan.subject != "" {
+		fmt.Printf("subject: %s\n", plan.subject)
+	}
+	fmt.Printf("manifests: %s\n", strings.Join(plan.version.affectedChannels(), "+"))
+	for _, channel := range []string{"stable", "beta", "dev"} {
+		if version, ok := plan.currentManifests[channel]; ok {
+			fmt.Printf("current-%s: %s\n", channel, version)
 		} else {
-			fmt.Printf("current-%s: empty\n", currentChannel)
+			fmt.Printf("current-%s: empty\n", channel)
 		}
 	}
-	return nil
 }
 
 func verifyMigrationOrder(ctx context.Context) error {

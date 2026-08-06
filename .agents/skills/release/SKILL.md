@@ -86,7 +86,7 @@ Reject missing or unknown channels instead of guessing.
 8. Publish through `mise`, which loads the credentials without exposing them:
 
    ```bash
-   mise run release -- <version>
+   mise run release:publish -- <version>
    ```
 
    Do not read `.env`, print credential environment variables, or call
