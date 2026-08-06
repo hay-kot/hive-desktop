@@ -43,6 +43,13 @@ export interface PopupLauncher {
     "id": string;
     "label": string;
     "icon": string;
+
+    /**
+     * RequiresSession reports that this launcher opens in a session's checkout,
+     * so a surface offering it outside one is offering a launch the core will
+     * refuse (ADR quick-terminal-launchers-are-session-scoped).
+     */
+    "requiresSession": boolean;
 }
 
 /**

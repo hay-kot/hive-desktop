@@ -500,9 +500,11 @@ describe('App', () => {
 
   // A launcher is a line of actions.yml that has to become both a palette row
   // and a chord of its own — this is where those two meet the app.
-  it('offers a configured launcher in the palette and opens it from its own chord', async () => {
-    mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch' }])
-    const wrapper = await mountApp()
+  it('offers a configured launcher in the palette and opens it on the session it is attached to', async () => {
+    mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch', requiresSession: true }])
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
 
     const { results, query } = useCommandPalette()
     query.value = ''
@@ -513,12 +515,64 @@ describe('App', () => {
 
     const popup = usePopupTerminal()
     expect(popup.visible.value).toBe(true)
-    expect(popup.request.value).toEqual({ launcher: 'lazygit', sessionSlug: undefined })
+    expect(popup.request.value).toEqual({ launcher: 'lazygit', sessionSlug: 'hive-fix-parser' })
 
     // The chord that opened it puts it away, so quitting the program is not the
     // only way out.
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
     expect(popup.visible.value).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  // The bug this is here for: `lazygit` opened from the feed used to start in
+  // the home directory and present a failed TUI. A launcher that runs in a
+  // session's checkout is not offered where there is no session, and its chord
+  // is not dispatched there either (ADR quick-terminal-launchers-are-session-scoped).
+  it('withholds a session-scoped launcher outside a session, from the palette and from its chord', async () => {
+    mocks.PopupLaunchers.mockResolvedValue([{ id: 'lazygit', label: 'lazygit', icon: 'git-branch', requiresSession: true }])
+    const { wrapper, router } = await mountAppWithRouter()
+    useKeybindings().addBinding('launcher.lazygit', 'alt+g')
+
+    const { results, query } = useCommandPalette()
+    const popup = usePopupTerminal()
+    query.value = ''
+
+    // On the feed: no session, so nothing to run in.
+    expect(results.value.map((cmd) => cmd.id)).not.toContain('launcher.lazygit')
+    const onFeed = new KeyboardEvent('keydown', { key: 'g', altKey: true, cancelable: true })
+    window.dispatchEvent(onFeed)
+    expect(popup.visible.value).toBe(false)
+    expect(onFeed.defaultPrevented).toBe(false)
+
+    // Terminal mode with nothing attached is the session picker, and a launcher
+    // has no more to work with there than it does on the feed.
+    await router.push('/terminal')
+    await flushPromises()
+    expect(results.value.map((cmd) => cmd.id)).not.toContain('launcher.lazygit')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
+    expect(popup.visible.value).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  // A launcher pinned to a directory carries the context it needs in the
+  // catalog, so it stays reachable from anywhere — the scope rule is about the
+  // ones that resolve their directory from the session.
+  it('keeps a launcher with its own working directory reachable off a session', async () => {
+    mocks.PopupLaunchers.mockResolvedValue([{ id: 'dotfiles', label: 'Edit dotfiles', icon: 'folder', requiresSession: false }])
+    const wrapper = await mountApp()
+
+    const { results, query } = useCommandPalette()
+    query.value = ''
+    expect(results.value.map((cmd) => cmd.id)).toContain('launcher.dotfiles')
+
+    useKeybindings().addBinding('launcher.dotfiles', 'alt+d')
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', altKey: true }))
+
+    const popup = usePopupTerminal()
+    expect(popup.visible.value).toBe(true)
+    expect(popup.request.value).toEqual({ launcher: 'dotfiles', sessionSlug: undefined })
 
     wrapper.unmount()
   })

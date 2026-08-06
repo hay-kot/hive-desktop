@@ -10,7 +10,10 @@ import { launcherIconComponent } from '../lib/launcherIcons'
 //
 // Only identity crosses the bridge: what a launcher runs stays in the core and
 // is resolved when it is opened by id, so a stale catalog here cannot run a
-// command the user has since changed.
+// command the user has since changed. Where it may run is the core's answer
+// too — `requiresSession` is what a launcher with no configured cwd reports,
+// and it becomes the command's context so the palette and the keymap gate on
+// the same thing the core enforces (ADR quick-terminal-launchers-are-session-scoped).
 
 const launchers = ref<PopupLauncher[]>([])
 
@@ -40,7 +43,7 @@ async function refresh(): Promise<void> {
     // Unbound until the user says otherwise: a config file must not claim a
     // chord the app never offered to give it.
     defaultCombos: [],
-    context: 'global',
+    context: launcher.requiresSession ? 'terminal-session' : 'global',
   })))
 }
 

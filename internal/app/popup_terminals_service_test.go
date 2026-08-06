@@ -129,8 +129,37 @@ func TestPopupTerminalsService_LauncherFollowsTheSessionCheckout(t *testing.T) {
 	require.Equal(t, "lazygit", term.Command)
 }
 
+// The launch a session-scoped launcher cannot serve, refused here rather than
+// opened in the home directory: `lazygit` with no repository under it starts
+// fine and fails immediately, which is the whole bug (ADR quick-terminal-launchers-are-session-scoped).
+func TestPopupTerminalsService_LauncherWithoutASessionIsRefused(t *testing.T) {
+	manager, detail := activeSession()
+	manager.details["s1"] = dispatch.SessionDetail{
+		ID: detail.ID, Name: detail.Name, Slug: detail.Slug, Repo: detail.Repo, State: detail.State, Path: t.TempDir(),
+	}
+	svc := newPopupHarnessWithCatalog(t, manager, popupCatalog(t, launcherCatalogYAML))
+
+	_, err := svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit"})
+	require.Equal(t, KindInvalid, KindOf(err), "no slug is a refusal, not the home directory")
+
+	// A caller cannot answer the session question with a path instead: the
+	// directory a session-scoped launcher opens in is the session's.
+	_, err = svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", Dir: t.TempDir()})
+	require.Equal(t, KindInvalid, KindOf(err))
+
+	// A slug that named a session once is not a session now, and the answer is
+	// that it is gone rather than a terminal somewhere else.
+	_, err = svc.Open(t.Context(), OpenPopupTerminal{Launcher: "lazygit", SessionSlug: "deleted-yesterday"})
+	require.Equal(t, KindNotFound, KindOf(err))
+
+	open, err := svc.List(t.Context())
+	require.NoError(t, err)
+	require.Empty(t, open, "a refused launch spawns nothing")
+}
+
 // A configured cwd pins the launcher, and beats the session the caller was
-// looking at when they pressed the key.
+// looking at when they pressed the key. It is also what makes one reachable
+// with no session at all: the directory it needs is in the catalog.
 func TestPopupTerminalsService_LauncherCwdWinsOverTheSession(t *testing.T) {
 	manager, detail := activeSession()
 	manager.details["s1"] = dispatch.SessionDetail{
@@ -145,6 +174,10 @@ func TestPopupTerminalsService_LauncherCwdWinsOverTheSession(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, home, term.Dir, "a leading ~ is expanded: chdir takes a path, not a shell word")
 	require.Equal(t, "$EDITOR .", term.Command)
+
+	pinned, err := svc.Open(t.Context(), OpenPopupTerminal{Launcher: "dotfiles"})
+	require.NoError(t, err)
+	require.Equal(t, home, pinned.Dir)
 }
 
 func TestPopupTerminalsService_ListsLaunchersInCatalogOrder(t *testing.T) {
@@ -154,7 +187,9 @@ func TestPopupTerminalsService_ListsLaunchersInCatalogOrder(t *testing.T) {
 	launchers, err := svc.Launchers(t.Context())
 	require.NoError(t, err)
 	require.Equal(t, []PopupLauncher{
-		{ID: "lazygit", Label: "lazygit", Icon: "git-branch"},
+		// A configured cwd is the difference between the two, so it is what the
+		// menu is told: one needs a session, the other carries its own directory.
+		{ID: "lazygit", Label: "lazygit", Icon: "git-branch", RequiresSession: true},
 		{ID: "dotfiles", Label: "Edit dotfiles"},
 	}, launchers, "the launchers list, in file order; the actions beside it are not launchers")
 }

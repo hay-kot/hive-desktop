@@ -45,7 +45,7 @@ import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, launcherActionID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
+import { commands as bindableCommands, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -804,11 +804,15 @@ function togglePopupTerminal(): void {
   popupTerminal.toggle({ sessionSlug: onScreenSessionSlug.value || undefined })
 }
 
-// A launcher is the pop-up opened straight into a program. It follows the
-// session on screen exactly as the bare shell does — that is what makes one
-// chord mean "lazygit here" wherever you are — unless the launcher pins itself
-// to a directory, which the core decides from the catalog.
+// A launcher is the pop-up opened straight into a program, and unless it pins
+// itself to a directory it opens in the session on screen — which is what makes
+// one chord mean "lazygit here". Outside a session there is nothing for it to
+// open in, so the launch is not attempted: the core refuses it anyway, and a
+// pop-up that appeared only to report that is worse than one that never opened
+// (ADR quick-terminal-launchers-are-session-scoped).
 function toggleLauncher(actionID: string): void {
+  const command = catalogById.value.get(launcherCommandID(actionID))
+  if (command && !contextActive(command.context)) return
   popupTerminalMounted.value = true
   popupTerminal.toggle({ launcher: actionID, sessionSlug: onScreenSessionSlug.value || undefined })
 }
@@ -902,6 +906,10 @@ function contextActive(context: CommandContext): boolean {
   switch (context) {
     case 'feed': return feedNavActive.value
     case 'terminal': return terminalActive.value
+    // Terminal mode with nothing attached is the session picker, and a command
+    // that runs in a session's checkout has no more to work with there than it
+    // does on the feed.
+    case 'terminal-session': return terminalActive.value && !!onScreenSessionSlug.value
     case 'agents': return agentsActive.value
     case 'global': return true
   }
@@ -917,9 +925,12 @@ useCommands(computed(() => {
   const cmds: Command[] = []
 
   // Bindable app commands (nav, refresh, …) and the configured launchers, each
-  // with its live shortcut hint.
+  // with its live shortcut hint. A session-scoped command is listed only where
+  // it can run: the palette does not otherwise filter by context, but a row
+  // that opens a terminal in the wrong place is not an inert row (ADR quick-terminal-launchers-are-session-scoped).
   for (const command of bindableCommands.value) {
     if (command.paletteHidden) continue
+    if (command.context === 'terminal-session' && !contextActive(command.context)) continue
     cmds.push({
       id: command.id,
       title: command.title,
@@ -1022,9 +1033,15 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   // terminal has focus; a launcher's chord is one of those for the same reason.
   // The palette is the third, because it is how you get back out of a pane. An
   // overlay still suppresses all of them, as it does every global command.
+  //
+  // A launcher still answers to its own context: one that opens in a session's
+  // checkout is not dispatched outside a session, so its chord falls through to
+  // whatever else would have taken it rather than opening a terminal the
+  // program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
   if (!kb.recording.value && !anyOverlayOpen.value) {
     const id = kb.resolve(comboFromEvent(e) ?? '')
-    if (id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)) {
+    const pierces = id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)
+    if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
       e.preventDefault()
       runCommand(id)
       return

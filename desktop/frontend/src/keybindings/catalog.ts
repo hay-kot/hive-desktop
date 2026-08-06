@@ -33,8 +33,9 @@ import IconX from '~icons/lucide/x'
 //
 // `context` gates where a bare (modifier-less) binding fires: `feed` commands
 // only run when the feed is actually on screen, `terminal` commands only inside
-// terminal mode, `agents` commands only inside the Agents area; `global`
-// commands run anywhere.
+// terminal mode, `terminal-session` commands only while a session is attached
+// there, `agents` commands only inside the Agents area; `global` commands run
+// anywhere.
 // `defaultCombos` are canonical combo strings (see useKeybindings.comboFromEvent)
 // — an empty array means "bindable, but unbound by default".
 //
@@ -44,7 +45,10 @@ import IconX from '~icons/lucide/x'
 // session tree's) is therefore not modelled here: it would have to fight the
 // feed's `j`/`k` for the same combo. Those keys stay handlers on the widget
 // that owns focus.
-export type CommandContext = 'global' | 'feed' | 'terminal' | 'agents'
+// `terminal-session` is the only context nothing in the static catalog below
+// claims: it belongs to a launcher that opens in a session's checkout, which is
+// a command whose whole meaning is the session it runs in (ADR quick-terminal-launchers-are-session-scoped).
+export type CommandContext = 'global' | 'feed' | 'terminal' | 'terminal-session' | 'agents'
 
 export interface BindableCommand {
   id: string

@@ -128,6 +128,9 @@ actions:
 # add "launcher.lazygit: [alt+g]" under keybindings in settings.yaml to give
 # this one a shortcut. The command runs through a login shell, so your own PATH
 # and aliases resolve it.
+#
+# A launcher without a "cwd" runs in the session you are looking at, so it is
+# offered only while one is open. Give it a "cwd" to reach it from anywhere.
 launchers:
   - id: lazygit
     label: lazygit

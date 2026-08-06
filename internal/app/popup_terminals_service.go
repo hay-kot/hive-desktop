@@ -22,7 +22,9 @@ type terminalDirectory interface {
 // Launcher's own cwd, SessionSlug's checkout, then Dir, then the user's home —
 // so a caller with a session in hand does not have to know where it lives, and
 // one with neither still gets a shell somewhere sensible rather than wherever
-// the app happened to be started from.
+// the app happened to be started from. The home fallback is the bare shell's
+// alone: a launcher that takes its directory from the session is refused
+// without one (ADR quick-terminal-launchers-are-session-scoped).
 type OpenPopupTerminal struct {
 	// Launcher is a configured launcher's id, and supplies the command line and
 	// optionally the directory. The caller sends the id rather than the command
@@ -41,6 +43,10 @@ type PopupLauncher struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`
 	Icon  string `json:"icon"`
+	// RequiresSession reports that this launcher opens in a session's checkout,
+	// so a surface offering it outside one is offering a launch the core will
+	// refuse (ADR quick-terminal-launchers-are-session-scoped).
+	RequiresSession bool `json:"requiresSession"`
 }
 
 // PopupTerminalsService opens ephemeral terminals: a shell, or a command run
@@ -70,7 +76,7 @@ func (s *PopupTerminalsService) Launchers(context.Context) ([]PopupLauncher, err
 		return out, nil
 	}
 	for _, l := range s.catalog.Launchers() {
-		out = append(out, PopupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon})
+		out = append(out, PopupLauncher{ID: l.ID, Label: l.Label, Icon: l.Icon, RequiresSession: l.Cwd == ""})
 	}
 	return out, nil
 }
@@ -100,7 +106,11 @@ func (s *PopupTerminalsService) Open(ctx context.Context, req OpenPopupTerminal)
 // applyLauncher folds a named launcher into the launch spec it stands for — a
 // launcher is that spec with config in front of it and nothing more (ADR launchers-are-their-own-list-in-actions-yml).
 // A configured cwd wins over the session's checkout, which is what pins a
-// launcher to one directory; without one the launcher follows the session.
+// launcher to one directory; without one the launcher is session-scoped and a
+// launch with no session to resolve is refused rather than opened somewhere
+// else (ADR quick-terminal-launchers-are-session-scoped). The caller's own Dir is dropped in that case: a
+// session-scoped launcher takes its directory from the session, and honouring a
+// path beside the slug would be a second way to answer the same question.
 func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupTerminal, error) {
 	id := strings.TrimSpace(req.Launcher)
 	if id == "" {
@@ -120,7 +130,12 @@ func (s *PopupTerminalsService) applyLauncher(req OpenPopupTerminal) (OpenPopupT
 	if launcher.Cwd != "" {
 		req.SessionSlug = ""
 		req.Dir = launcher.Cwd
+		return req, nil
 	}
+	if strings.TrimSpace(req.SessionSlug) == "" {
+		return req, Errorf(KindInvalid, "%q opens in a session's checkout, so it needs a session to open in", id)
+	}
+	req.Dir = ""
 	return req, nil
 }
 
