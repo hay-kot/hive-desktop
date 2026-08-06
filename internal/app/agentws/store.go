@@ -128,12 +128,6 @@ func (s *Store) Library() LibraryStatus {
 	return s.library
 }
 
-// Catalogue is the store's view of the free Catalogue function, merged
-// against the last-good library.
-func (s *Store) Catalogue() []CatalogueEntry {
-	return Catalogue(s.Library().Library)
-}
-
 func (s *Store) ensureLoadedLocked() {
 	if s.loaded {
 		return

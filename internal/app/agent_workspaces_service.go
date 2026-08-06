@@ -88,14 +88,14 @@ func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, 
 	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpEndpoint: mcpEndpoint}
 }
 
-// catalogue is the store's merged catalogue with this install's own entry
-// resolved. mcpcatalog ships hive-desktop carrying no URL, because the
-// loopback port is allocated at startup (Descriptor.RuntimeURL), so the live
-// endpoint is substituted here — and an entry that cannot be resolved reports
-// why rather than rendering an address nothing answers, the same posture
-// problemFor takes for a command that is not on PATH.
+// catalogue is the merged catalogue with this install's own entry resolved.
+// mcpcatalog ships hive-desktop carrying no URL, because the loopback port is
+// allocated at startup (Descriptor.RuntimeURL), so the live endpoint is
+// substituted here — and an entry that cannot be resolved reports why rather
+// than rendering an address nothing answers, the same posture problemFor takes
+// for a command that is not on PATH.
 func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.CatalogueEntry {
-	entries := s.store.Catalogue()
+	entries := agentws.Catalogue(ctx, s.store.Library().Library, s.lookPath())
 	endpoint := ""
 	if s.mcpEndpoint != nil {
 		endpoint = s.mcpEndpoint(ctx)
@@ -114,6 +114,17 @@ func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.Catalo
 		entries[i].Server.URL = endpoint
 	}
 	return entries
+}
+
+// lookPath is what the catalogue validates a stdio command against: the PATH
+// a session launches with (ADR subprocess-environment), not the launchd one a
+// desktop process inherits. Only a test builds this service without a
+// resolver, and nil leaves it on this process's own PATH.
+func (s *AgentWorkspacesService) lookPath() func(context.Context, string) (string, error) {
+	if s.execEnv == nil {
+		return nil
+	}
+	return s.execEnv.LookPath
 }
 
 // WorkspaceView is one row of the area's list. Autonomy is on it because a

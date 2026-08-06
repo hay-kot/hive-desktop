@@ -1,6 +1,7 @@
 package agentws
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"sort"
@@ -22,10 +23,10 @@ type CatalogueEntry struct {
 	// command line the user cannot read first (spec §7.3).
 	Server mcpcatalog.Server
 	// Problem reports why this entry will not work — today, a stdio Command
-	// that exec.LookPath cannot resolve. Showing a resolved command that does
-	// not resolve is worse than showing nothing: the agent starts, the MCP
-	// silently fails to connect, and the failure surfaces only inside the
-	// agent's own /mcp output.
+	// that does not resolve on the PATH a session is launched with. Showing a
+	// resolved command that does not resolve is worse than showing nothing:
+	// the agent starts, the MCP silently fails to connect, and the failure
+	// surfaces only inside the agent's own /mcp output.
 	Problem string
 }
 
@@ -37,8 +38,15 @@ type CatalogueEntry struct {
 //
 // The LookPath check runs here, at catalogue-render time, never inside
 // Generate — PATH is machine state and the generator must stay pure (spec
-// §4.4).
-func Catalogue(lib Library) []CatalogueEntry {
+// §4.4). lookPath resolves a stdio command against the PATH a session
+// launches with (execenv.Resolver.LookPath, ADR subprocess-environment); nil
+// falls back to this process's own, which a desktop launch inherits from
+// launchd and which nothing a package manager installed is on.
+func Catalogue(ctx context.Context, lib Library, lookPath func(context.Context, string) (string, error)) []CatalogueEntry {
+	if lookPath == nil {
+		lookPath = func(_ context.Context, name string) (string, error) { return exec.LookPath(name) }
+	}
+
 	shipped := mcpcatalog.All()
 
 	entries := make(map[string]CatalogueEntry, len(shipped)+len(lib.Servers))
@@ -79,7 +87,7 @@ func Catalogue(lib Library) []CatalogueEntry {
 	out := make([]CatalogueEntry, 0, len(ids))
 	for _, id := range ids {
 		entry := entries[id]
-		entry.Problem = problemFor(entry.Server)
+		entry.Problem = problemFor(ctx, entry.Server, lookPath)
 		out = append(out, entry)
 	}
 	return out
@@ -99,11 +107,11 @@ func serverFromMCPServer(s MCPServer) mcpcatalog.Server {
 // problemFor reports why a resolved server will not work, or "" when it is
 // fine. Only a stdio Command is checked: http/sse servers have nothing local
 // to resolve.
-func problemFor(s mcpcatalog.Server) string {
+func problemFor(ctx context.Context, s mcpcatalog.Server, lookPath func(context.Context, string) (string, error)) string {
 	if s.Transport != mcpcatalog.TransportStdio || s.Command == "" {
 		return ""
 	}
-	if _, err := exec.LookPath(s.Command); err != nil {
+	if _, err := lookPath(ctx, s.Command); err != nil {
 		return fmt.Sprintf("command %q not found on PATH", s.Command)
 	}
 	return ""

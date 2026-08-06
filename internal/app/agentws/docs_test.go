@@ -19,7 +19,7 @@ func TestExampleYAMLIsValid(t *testing.T) {
 	lib, err := parseLibrary([]byte(ExampleMCPsYAML()))
 	require.NoError(t, err)
 
-	catalogue := Catalogue(lib)
+	catalogue := Catalogue(t.Context(), lib, nil)
 	byID := make(map[string]bool, len(catalogue))
 	for _, entry := range catalogue {
 		byID[entry.ID] = true
