@@ -35,9 +35,6 @@ const UnroutedNodeID = "$unrouted"
 type Options struct {
 	// Scripts is the registry function nodes resolve their language through.
 	Scripts *ScriptRegistry
-	// DefaultTimeout bounds a node whose own config declares none. Zero means
-	// flow.DefaultFunctionTimeout.
-	DefaultTimeout time.Duration
 	// KV is the durable node-KV read port; nil means every read misses
 	// (preview, dry-run, tests).
 	KV KVReader
@@ -73,9 +70,6 @@ func NewRunner(f flow.Flow, opts Options) (*Runner, error) {
 	graph, err := NewGraph(f)
 	if err != nil {
 		return nil, err
-	}
-	if opts.DefaultTimeout <= 0 {
-		opts.DefaultTimeout = flow.DefaultFunctionTimeout
 	}
 
 	r := &Runner{
@@ -125,10 +119,10 @@ func (r *Runner) resetProcessors() {
 }
 
 // nodeTimeout resolves a node's evaluation budget from its own config,
-// falling back to the Runner's default.
+// falling back to flow.DefaultFunctionTimeout.
 func (r *Runner) nodeTimeout(cfg flow.NodeConfig) time.Duration {
 	if fn, ok := cfg.(*flow.FunctionConfig); ok {
 		return fn.EffectiveTimeout()
 	}
-	return r.opts.DefaultTimeout
+	return flow.DefaultFunctionTimeout
 }
