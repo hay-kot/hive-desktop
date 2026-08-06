@@ -163,11 +163,17 @@ The web landing page and worker are **not** independent of a release. Before the
 **Local release** (the normal path; secrets from the gitignored repo-root `.env`, loaded by mise):
 
 ```bash
-go run ./cmd/release prepare dev 1.4.0-dev.1
-mise run release -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --skip-web, --force
+mise release                         # select the channel and patch/minor/major increment
+mise release dev                     # preselect the channel, then select the increment
+mise release dev 1.4.0-dev.1         # preselect the channel and exact version
+mise release --dry-run               # exercise the prompts without publishing
 ```
 
-`publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.
+The interactive command refreshes release tags, checks the source and GitHub authentication, and computes the normal patch-oriented candidate from live manifests. It shows the exact resulting version for patch, minor, and major choices; patch preserves normal channel progression (for example, the next dev prerelease or a dev-to-beta promotion), while minor and major start a new base version at prerelease `.1` where applicable. Publishing requires an explicit confirmation that defaults to cancel. It then runs `mi check` and `mi frontend:test`, verifies that the confirmed commit is still current and clean, and publishes.
+
+`--dry-run` is a prompt preview that also works from a dirty feature worktree. It reads live manifests and tags and validates the selected version, but skips the clean-main and GitHub-authentication requirements and stops after confirmation without running gates, building artifacts, uploading, tagging, or creating a GitHub release.
+
+`mise run release:publish -- <version>` is the low-level publisher used for local build diagnostics and recovery (`--skip-upload`, `--skip-notarize` with `--skip-upload`, `--skip-web`, `--force`); do not use it to bypass the interactive confirmation for a normal public release. `publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.
 
 Rules enforced by the publisher:
 1. Release preparation requires a clean, current `main`. Publishing requires the same state. Source state is checked again immediately before upload.
