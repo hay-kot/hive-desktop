@@ -46,13 +46,13 @@ type Store struct {
 	root string
 
 	mu       sync.Mutex
-	loaded   bool
 	library  LibraryStatus
 	statuses map[string]WorkspaceStatus
 }
 
 // NewStore returns a store over root (typically settings.Paths.AgentWorkspacesDir).
-// Nothing is read from disk until the first Reload/List/Get/Statuses call.
+// Nothing is read from disk until the first Reload; before it, reads report an
+// empty snapshot.
 func NewStore(root string) *Store {
 	return &Store{root: root, statuses: map[string]WorkspaceStatus{}}
 }
@@ -71,46 +71,12 @@ func (s *Store) Reload() error {
 	return s.reloadLocked()
 }
 
-// List returns every recognized workspace, valid or not, sorted by Dir. A
-// currently-broken workspace still appears with its last-good content (see
-// WorkspaceStatus) — the whole point of last-good is that the list does not
-// blank when one manifest breaks. Use Statuses to tell which entries are
-// currently valid.
-func (s *Store) List() []Workspace {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
-
-	out := make([]Workspace, 0, len(s.statuses))
-	for _, st := range s.statuses {
-		out = append(out, st.Workspace)
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Dir < out[j].Dir })
-	return out
-}
-
-// Get returns one workspace by directory name — its last-good content,
-// whether or not the manifest is currently valid. ok reports whether dir is a
-// recognized (or previously recognized) workspace at all.
-func (s *Store) Get(dir string) (Workspace, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
-
-	st, ok := s.statuses[dir]
-	if !ok {
-		return Workspace{}, false
-	}
-	return st.Workspace, true
-}
-
 // Statuses returns one WorkspaceStatus per recognized workspace directory,
 // sorted by Dir — valid and broken alike, for a listing UI that must surface
 // why an entry broke.
 func (s *Store) Statuses() []WorkspaceStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
 
 	out := make([]WorkspaceStatus, 0, len(s.statuses))
 	for _, st := range s.statuses {
@@ -124,17 +90,7 @@ func (s *Store) Statuses() []WorkspaceStatus {
 func (s *Store) Library() LibraryStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.ensureLoadedLocked()
 	return s.library
-}
-
-func (s *Store) ensureLoadedLocked() {
-	if s.loaded {
-		return
-	}
-	// First-use lazy load: errors surface through Statuses/Library (a broken
-	// file) rather than panicking a caller that never called Reload.
-	_ = s.reloadLocked()
 }
 
 func (s *Store) reloadLocked() error {
@@ -172,7 +128,6 @@ func (s *Store) reloadLocked() error {
 		statuses[name] = WorkspaceStatus{Dir: name, Workspace: ws, Valid: true}
 	}
 	s.statuses = statuses
-	s.loaded = true
 	return nil
 }
 

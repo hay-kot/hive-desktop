@@ -31,7 +31,6 @@ import (
 type Skill struct {
 	ID          string // stable prompt id, e.g. "flows"
 	Name        string // namespaced slug and directory name, e.g. "hive-flows"
-	Title       string // human label, for the UI (not written to disk)
 	Description string // frontmatter description: what the skill does and when
 	Body        string // the rendered prompt text
 }
@@ -148,36 +147,12 @@ func (in *Installer) Status(s Skill, t Target, dir string) (Install, error) {
 	return Install{Target: t.ID, Path: abs, State: state}, nil
 }
 
-// Remove deletes the installed file and drops the index entry. A file that no
-// longer matches what we wrote (a user edit) is left in place — only the entry is
-// removed — so an uninstall never destroys the user's work. Removing an empty
-// skill directory afterward keeps the target dir tidy.
-func (in *Installer) Remove(s Skill, t Target) error {
-	in.mu.Lock()
-	defer in.mu.Unlock()
-
-	key := entryKey{s.ID, t.ID}
-	entry, ok := in.index.entries[key]
-	if !ok {
-		return nil
-	}
-	if _, _, err := removeIndexedFile(entry); err != nil {
-		return err
-	}
-	delete(in.index.entries, key)
-	return in.index.save()
-}
-
 // Sync re-renders every indexed skill against current content: outdated files are
 // rewritten, missing files recreated, user-edited files left untouched. skills is
 // the current catalog keyed by skill id; an entry whose skill or target the build
-// no longer knows is skipped. enabled, when non-nil, skips any target it reports
-// false for, so a disabled target's installs go dormant rather than being updated.
-func (in *Installer) Sync(skills map[string]Skill, enabled func(targetID string) bool) (SyncResult, error) {
-	return in.SyncInDirs(skills, nil, enabled)
-}
-
-func (in *Installer) SyncInDirs(skills map[string]Skill, dirFor func(Target) string, enabled func(targetID string) bool) (SyncResult, error) {
+// no longer knows is skipped. dirFor, when non-nil, resolves each target's current
+// directory so an entry installed at an old path is re-created at the new one.
+func (in *Installer) Sync(skills map[string]Skill, dirFor func(Target) string) (SyncResult, error) {
 	in.mu.Lock()
 	defer in.mu.Unlock()
 
@@ -191,10 +166,6 @@ func (in *Installer) SyncInDirs(skills map[string]Skill, dirFor func(Target) str
 		}
 		t, ok := TargetByID(key.target)
 		if !ok {
-			res.Skipped++
-			continue
-		}
-		if enabled != nil && !enabled(key.target) {
 			res.Skipped++
 			continue
 		}

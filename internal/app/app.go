@@ -364,7 +364,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load skills index: %w", err)
 	}
-	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
+	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
@@ -745,7 +745,7 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 		if err := a.agentWorkspaceStore.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("agent workspace reload failed")
 		}
-		count := len(a.agentWorkspaceStore.List())
+		count := len(a.agentWorkspaceStore.Statuses())
 		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
 	}, logger)
 	if err != nil {

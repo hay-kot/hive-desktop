@@ -220,7 +220,6 @@ func newPromptsService(paths settings.Paths, settingsStore *settings.Store, webh
 // keep handing out a stale port after the listener rebinds.
 func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) {
 	env := prompts.Env{
-		ConfigDir:          s.paths.ConfigDir,
 		FlowsDir:           s.paths.FlowsDir,
 		ActionsPath:        s.paths.ActionsPath,
 		SettingsPath:       s.paths.SettingsPath,

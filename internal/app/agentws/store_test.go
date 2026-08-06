@@ -42,21 +42,21 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		s := NewStore(root)
 		require.NoError(t, s.Reload())
 
-		a, ok := s.Get("a")
+		a, ok := statusByDir(s.Statuses(), "a")
 		require.True(t, ok)
-		assert.Equal(t, "Alpha", a.Name)
-		b, ok := s.Get("b")
+		assert.Equal(t, "Alpha", a.Workspace.Name)
+		b, ok := statusByDir(s.Statuses(), "b")
 		require.True(t, ok)
-		assert.Equal(t, "Bravo", b.Name)
+		assert.Equal(t, "Bravo", b.Workspace.Name)
 
 		// Break B, edit A, then reload.
 		require.NoError(t, os.WriteFile(pathB, []byte("version: 1\nfoo: bar\n"), 0o600))
 		writeWorkspace(t, root, "a", "Alpha Prime")
 		require.NoError(t, s.Reload())
 
-		aAfter, ok := s.Get("a")
+		aAfter, ok := statusByDir(s.Statuses(), "a")
 		require.True(t, ok)
-		assert.Equal(t, "Alpha Prime", aAfter.Name, "A must reload to its new bytes")
+		assert.Equal(t, "Alpha Prime", aAfter.Workspace.Name, "A must reload to its new bytes")
 
 		bStatus, ok := statusByDir(s.Statuses(), "b")
 		require.True(t, ok)
@@ -64,7 +64,7 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		require.Error(t, bStatus.Err)
 		assert.Equal(t, "Bravo", bStatus.Workspace.Name, "B must keep its last-good content")
 
-		assert.Len(t, s.List(), 2, "the list must not blank when one workspace breaks")
+		assert.Len(t, s.Statuses(), 2, "the list must not blank when one workspace breaks")
 	})
 
 	t.Run("BrokenLibraryLeavesWorkspacesLoaded", func(t *testing.T) {
@@ -86,7 +86,7 @@ func TestStoreKeepsLastGoodPerWorkspace(t *testing.T) {
 		assert.False(t, lib.Valid)
 		require.Error(t, lib.Err)
 
-		_, ok := s.Get("a")
+		_, ok := statusByDir(s.Statuses(), "a")
 		assert.True(t, ok, "workspaces must stay loaded when only the library breaks")
 	})
 }
@@ -101,11 +101,9 @@ func TestStoreIgnoresDirectoriesWithoutAManifest(t *testing.T) {
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
 
-	_, ok := s.Get("empty")
+	_, ok := statusByDir(s.Statuses(), "empty")
 	assert.False(t, ok)
-	_, ok = statusByDir(s.Statuses(), "empty")
-	assert.False(t, ok)
-	assert.Len(t, s.List(), 1)
+	assert.Len(t, s.Statuses(), 1)
 }
 
 func TestStoreReportsMalformedEntries(t *testing.T) {
@@ -120,7 +118,7 @@ func TestStoreReportsMalformedEntries(t *testing.T) {
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
 
-	_, ok := s.Get("stray.txt")
+	_, ok := statusByDir(s.Statuses(), "stray.txt")
 	assert.False(t, ok, "a regular file at root must not be read as a workspace")
 
 	weird, ok := statusByDir(s.Statuses(), "weird")
@@ -135,6 +133,6 @@ func TestStoreReloadOnMissingRootIsEmptyNotError(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "does-not-exist")
 	s := NewStore(root)
 	require.NoError(t, s.Reload())
-	assert.Empty(t, s.List())
+	assert.Empty(t, s.Statuses())
 	assert.True(t, s.Library().Valid)
 }

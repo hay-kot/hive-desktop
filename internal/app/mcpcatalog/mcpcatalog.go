@@ -37,7 +37,6 @@ type Descriptor struct {
 	Type        string
 	Title       string
 	Description string
-	Icon        string
 	Stability   Stability
 	// Server is the fixed launch declaration. A shipped entry carries no
 	// configuration in M1 and therefore no factory: a workspace names an MCP

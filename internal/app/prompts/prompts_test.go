@@ -16,7 +16,6 @@ import (
 
 func testEnv() Env {
 	return Env{
-		ConfigDir:          "/home/u/.config/hive/desktop",
 		FlowsDir:           "/home/u/.config/hive/desktop/flows",
 		ActionsPath:        "/home/u/.config/hive/desktop/actions.yml",
 		SettingsPath:       "/home/u/.config/hive/desktop/settings.yaml",
