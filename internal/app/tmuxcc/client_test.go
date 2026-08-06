@@ -159,10 +159,15 @@ func TestAttachFirstPaintsEachWindow(t *testing.T) {
 	f.setCapture("%2", "$ ", "", "")
 
 	client := attachFake(t, f, Options{})
-	// The non-active window is painted after Attach answers, so the stop
-	// condition is its paint rather than the attach lifecycle event that now
-	// precedes it.
-	events, unsubscribe := subscribeAndCollect(t, client, outputContains("@2", "$ "))
+	// The non-active window is painted after Attach answers, from a goroutine
+	// that can beat the attach lifecycle event onto the stream — so the stop
+	// condition is both of them, in whichever order they land.
+	var painted, attached bool
+	events, unsubscribe := subscribeAndCollect(t, client, func(ev Event) bool {
+		painted = painted || outputContains("@2", "$ ")(ev)
+		attached = attached || lifecycleIs(LifecycleAttached)(ev)
+		return painted && attached
+	})
 	defer unsubscribe()
 
 	require.Equal(t, "claude> ready\r\nsecond row\r\n", outputData(events, "@1"))
@@ -282,7 +287,7 @@ func TestRepaintSnapshotsEveryWindowForTheNextSubscriber(t *testing.T) {
 	dropped()
 
 	f.emit("%output %1 STALE")
-	require.Eventually(t, func() bool { return client.events.depth() > 0 }, 2*time.Second, time.Millisecond,
+	require.Eventually(t, func() bool { return backlogHas(client.events, "STALE") }, 2*time.Second, time.Millisecond,
 		"the output the dropped transport never took is what the repaint supersedes")
 	f.setCapture("%1", "REPAINTED")
 

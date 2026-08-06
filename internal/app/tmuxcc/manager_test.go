@@ -258,13 +258,17 @@ func TestManagerDetachFreesTheSlug(t *testing.T) {
 	require.NoError(t, m.Detach(t.Context(), "hive-demo"), "detaching twice is a no-op")
 }
 
-// v1 has no partial resync: a backlog past the bound kills the client and the
-// frontend re-attaches for a fresh first paint.
-func TestManagerBrokerOverflowTearsDownTheClient(t *testing.T) {
+// A backlog past the bound loses bytes either way; what it must not lose is the
+// user's view. The client says so on the stream it kept and repaints every
+// window from tmux, which is the same first paint an attach runs — and the
+// tab, its scroll position and its focus all survive, because nothing was torn
+// down to get there.
+func TestManagerBrokerOverflowResyncsInsteadOfEndingTheStream(t *testing.T) {
 	t.Parallel()
 
 	f := newFakeTmux(t, "hive-demo")
-	f.setWindows("@1 1 %1 120 40 claude")
+	f.setWindows("@1 1 %1 120 1 claude")
+	f.setCapture("%1", "ATTACHED")
 	m := newTestManager(t, f, ManagerOptions{BufferBytes: 4 << 10})
 
 	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
@@ -274,10 +278,42 @@ func TestManagerBrokerOverflowTearsDownTheClient(t *testing.T) {
 	require.NoError(t, err)
 	defer unsubscribe()
 
-	payload := strings.Repeat("x", 1024)
-	for range subscriberQueue + 32 {
-		f.emit("%output %1 " + payload)
-	}
+	f.setCapture("%1", "RESYNCED")
+	floodPane(f)
+
+	// One subscription carries all of it: the degraded frame naming the gap, and
+	// then the capture that closes it. Stopping on the capture is what proves the
+	// order — the frame the recovery is announced by cannot arrive behind it.
+	events := collect(t, ch, outputContains("@1", "RESYNCED"))
+	require.Equal(t, LifecycleDegraded, lastLifecycle(t, events).Kind)
+	require.Equal(t, "overflow", lastLifecycle(t, events).Message)
+
+	_, ok := m.Client("hive-demo")
+	require.True(t, ok, "the client survives its own overflow")
+}
+
+// The fatal path is still there for the flood a repaint cannot outrun: a second
+// overflow inside the resync cooldown ends the stream exactly as crossing the
+// bound always did, reason included, and frees the slug for a fresh attach.
+func TestManagerBrokerOverflowEndsTheStreamWhenTheResyncDoesNotHold(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 1 claude")
+	f.setCapture("%1", "ATTACHED")
+	m := newTestManager(t, f, ManagerOptions{BufferBytes: 4 << 10})
+
+	_, err := m.Attach(t.Context(), "hive-demo", 80, 24)
+	require.NoError(t, err)
+
+	ch, unsubscribe, err := m.Subscribe("hive-demo")
+	require.NoError(t, err)
+	defer unsubscribe()
+
+	f.setCapture("%1", "RESYNCED")
+	floodPane(f)
+	collect(t, ch, outputContains("@1", "RESYNCED"))
+	floodPane(f)
 
 	events := collect(t, ch, lifecycleIs(LifecycleExited))
 	require.Equal(t, "overflow", lastLifecycle(t, events).Message)
@@ -286,6 +322,17 @@ func TestManagerBrokerOverflowTearsDownTheClient(t *testing.T) {
 		_, ok := m.Client("hive-demo")
 		return !ok
 	}, 2*time.Second, 5*time.Millisecond, "the slug is freed for a fresh attach")
+}
+
+// floodPane crosses a 4 KiB bound once. Deliberately only once: a burst that
+// keeps arriving after the resync has cleared the backlog refills it inside the
+// recovery, and that — a producer the subscriber is not draining against at all
+// — is the fatal case, not the one a repaint is for.
+func floodPane(f *fakeTmux) {
+	payload := strings.Repeat("x", 1024)
+	for range 6 {
+		f.emit("%output %1 " + payload)
+	}
 }
 
 // Teardown can beat registration: a control stream that ends as the last

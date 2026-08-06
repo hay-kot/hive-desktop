@@ -97,6 +97,10 @@ export interface UseTerminalWindows {
   actionError: Ref<string | null>
   sizeConstraint: Ref<TerminalSizeConstraint | null>
   dismissSizeConstraint: () => void
+  // True from a degraded lifecycle frame until it is dismissed: output was
+  // dropped and these panes were repainted from tmux rather than streamed.
+  outputDropped: Ref<boolean>
+  dismissOutputDropped: () => void
   search: Ref<TerminalSearch>
   openSearch: () => void
   closeSearch: () => void
@@ -206,6 +210,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
   const error = ref<string | null>(null)
   const actionError = ref<string | null>(null)
   const sizeConstraint = ref<TerminalSizeConstraint | null>(null)
+  const outputDropped = ref(false)
   const search = ref<TerminalSearch>({ open: false, query: '', matches: 0, index: 0 })
 
   const runtime = new Map<string, TabRuntime>()
@@ -567,8 +572,29 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       case 'lifecycle':
         if (frame.kind === 'exited') void exited(frame.message || 'The tmux session ended.')
         else if (frame.kind === 'error') end('error', frame.message || 'The terminal client failed.')
+        else if (frame.kind === 'degraded') degraded()
         break
     }
+  }
+
+  // The backend dropped output rather than ending the stream, and the repaint
+  // that follows this frame is already on the wire. Clearing the buffers is
+  // what makes that repaint the truth: a snapshot carries the pane's own
+  // scrollback, so leaving the screen it lands on in place would show the same
+  // lines twice with the gap between them unmarked. The held frame goes too —
+  // it belongs to the stream the snapshot replaces.
+  function degraded(): void {
+    if (disposed) return
+    outputDropped.value = true
+    for (const [windowId, state] of runtime) {
+      state.output.reset()
+      state.term.reset()
+      refreshScrolledUp(windowId)
+    }
+  }
+
+  function dismissOutputDropped(): void {
+    outputDropped.value = false
   }
 
   // Every window event carries the whole window, so the size is taken from all
@@ -699,6 +725,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     endReason.value = null
     error.value = null
     actionError.value = null
+    outputDropped.value = false
     try {
       // Concurrent, not sequential: the faces have to be resident before
       // term.open() measures a cell, which attachTab does well after this
@@ -839,6 +866,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   return {
     tabs, activeWindowId, status, painted, endReason, error, actionError, sizeConstraint, dismissSizeConstraint,
+    outputDropped, dismissOutputDropped,
     search, openSearch, closeSearch, setSearchQuery, findNext, findPrevious,
     start, reconnect, select, newWindow, closeWindow, rename, moveWindow, attachTab, disposeTab, focusActive, scrollToBottom, dispose,
   }

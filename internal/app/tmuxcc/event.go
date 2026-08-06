@@ -26,6 +26,10 @@ const (
 	LifecycleResumed  LifecycleKind = "resumed"
 	LifecycleExited   LifecycleKind = "exited"
 	LifecycleError    LifecycleKind = "error"
+	// LifecycleDegraded says output was lost and a repaint is following it onto
+	// the same stream. It is an edge, not a mode: nothing clears it, because
+	// there is no state to clear — the snapshot behind it is the recovery.
+	LifecycleDegraded LifecycleKind = "degraded"
 )
 
 // WindowChanged reports a change to the tab set.

@@ -602,13 +602,14 @@ func TestTmuxInactivePaneIsDrainedNotForwarded(t *testing.T) {
 	}
 }
 
-// Overflow is fatal by design: a terminal stream cannot drop-oldest, so the
-// client is torn down and the frontend re-attaches for a clean resync. Reading
-// nothing at all is what fills the 8 MiB buffer — a reader that merely dawdles
-// does not, because the kernel's socket buffers absorb megabytes before the
-// broker's backlog grows at all, and every one of those bytes is then queued
-// ahead of the exit frame.
-func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
+// Overflow resyncs first and only ends the stream when that does not hold, and
+// this exercises both against real tmux. Reading nothing at all is what fills
+// the 8 MiB buffer — a reader that merely dawdles does not, because the kernel's
+// socket buffers absorb megabytes before the broker's backlog grows at all — and
+// it is also what guarantees the second half: a subscriber taking nothing cannot
+// be rescued by a repaint, so the flood refills the backlog inside the resync
+// cooldown and the client falls back to the exit it always took.
+func TestTmuxBrokerOverflowResyncsThenEndsTheStream(t *testing.T) {
 	tmux := startTmux(t, "hive-overflow")
 	h := newTerminalHarness(t)
 	h.attach(t, tmux.slug)
@@ -616,8 +617,10 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 	conn := h.dial(t, tmux.slug)
 	readUntil(t, conn, "the attached lifecycle frame", func(f []byte) bool { return isLifecycle(f, "attached") })
 
+	// Sized to cross the 8 MiB bound several times over: the first crossing is
+	// answered by a resync, and what ends the stream is the one after it.
 	tmux.tmux("send-keys", "-t", tmux.slug,
-		"yes 0123456789abcdef0123456789abcdef0123456789abcdef | head -n 400000", "Enter")
+		"yes 0123456789abcdef0123456789abcdef0123456789abcdef | head -n 1000000", "Enter")
 
 	awaitClientTornDown(t, h, tmux.slug)
 
@@ -627,14 +630,17 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 	// — which, after an overflow, it is by definition.
 	time.Sleep(500 * time.Millisecond)
 
-	ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 120*time.Second)
 	defer cancel()
 
-	sawOverflow := false
+	sawDegraded, sawOverflow := false, false
 	for {
 		_, frame, err := conn.Read(ctx)
 		if err != nil {
 			break
+		}
+		if isLifecycle(frame, "degraded") {
+			sawDegraded = true
 		}
 		if isLifecycle(frame, "exited") {
 			var payload lifecyclePayload
@@ -643,6 +649,7 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 			sawOverflow = true
 		}
 	}
+	require.True(t, sawDegraded, "a DEGRADED frame named the gap before the stream gave up on it")
 	require.True(t, sawOverflow, "an EXITED(overflow) frame arrived before the socket closed")
 
 	// The slug is free again: the frontend's reconnect gets a fresh client.
@@ -654,17 +661,19 @@ func TestTmuxBrokerOverflowEndsTheStream(t *testing.T) {
 // awaitClientTornDown blocks — without reading the socket, which is the point —
 // until the control plane stops knowing slug. That 404 is the observable trailing
 // edge of teardown: the manager drops the slug only after the broker has
-// published the exit reason and closed.
+// published the exit reason and closed. It outlasts the resync the first
+// overflow spends, so the deadline covers a recovery attempt as well as the
+// flood behind it.
 func awaitClientTornDown(t *testing.T, h *terminalHarness, slug string) {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(120 * time.Second)
 	for {
 		resp := h.post(t, "/api/terminal/resize", testToken, map[string]any{"slug": slug, "cols": 80, "rows": 24})
 		_ = resp.Body.Close()
 		if resp.StatusCode == http.StatusNotFound {
 			return
 		}
-		require.True(t, time.Now().Before(deadline), "the flood never overflowed the broker")
+		require.True(t, time.Now().Before(deadline), "the flood never outran the resync")
 		time.Sleep(50 * time.Millisecond)
 	}
 }

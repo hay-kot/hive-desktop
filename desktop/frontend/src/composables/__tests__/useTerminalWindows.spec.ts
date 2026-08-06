@@ -70,6 +70,11 @@ const xterm = vi.hoisted(() => {
       this.buffer.active.viewportY = this.buffer.active.baseY
       for (const handler of this.scrollHandlers) handler()
     })
+    reset = vi.fn(() => {
+      this.buffer.active.baseY = 0
+      this.buffer.active.viewportY = 0
+      this.lines.clear()
+    })
     private handlers: ((data: string) => void)[] = []
     private scrollHandlers: (() => void)[] = []
     private bufferHandlers: (() => void)[] = []
@@ -1040,6 +1045,43 @@ describe('useTerminalWindows', () => {
     expect(session.endReason.value).toBe('exited')
     expect(session.error.value).toBe('overflow')
     expect(socket.closed).toBe(true)
+  })
+
+  // Overflow used to end the stream, which cost the user every tab, every
+  // scroll position and their focus. Degraded says the same thing without any
+  // of that: the panes stay, the socket stays, and the repaint already on the
+  // wire is what they are painted from.
+  it('keeps the view and repaints it in place when the stream degrades', async () => {
+    const { session, socket } = await attached()
+    socket.onmessage?.({ data: outputFrame('@1', '%1', 'before the flood') })
+
+    socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'degraded', windowId: '', message: 'overflow' }) })
+
+    expect(session.status.value).toBe('live')
+    expect(session.endReason.value).toBeNull()
+    expect(session.tabs.value).toHaveLength(2)
+    expect(socket.closed).toBe(false)
+    // Both panes, not just the streaming one: the backlog is the session's and
+    // the repaint behind it covers every window.
+    for (const term of xterm.FakeTerminal.instances) expect(term.reset).toHaveBeenCalled()
+
+    socket.onmessage?.({ data: outputFrame('@1', '%1', 'REPAINTED') })
+    const write = session.tabs.value[0].term.write as ReturnType<typeof vi.fn>
+    const written = write.mock.calls[write.mock.calls.length - 1][0] as Uint8Array
+    expect(new TextDecoder().decode(written)).toBe('REPAINTED')
+  })
+
+  // The notice is the whole point: a recovery that hides the gap is worse than
+  // the teardown it replaced, which at least told the truth loudly.
+  it('raises a dismissible dropped-output notice for a degraded stream', async () => {
+    const { session, socket } = await attached()
+    expect(session.outputDropped.value).toBe(false)
+
+    socket.onmessage?.({ data: jsonFrame(0x02, { kind: 'degraded', windowId: '', message: 'overflow' }) })
+    expect(session.outputDropped.value).toBe(true)
+
+    session.dismissOutputDropped()
+    expect(session.outputDropped.value).toBe(false)
   })
 
   it('settles an exit into not-started once tmux confirms the session is gone', async () => {

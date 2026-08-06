@@ -54,7 +54,12 @@ export class TerminalOutputWriter {
     this.writeSynchronized(combined.subarray(begin + BEGIN_SYNCHRONIZED_OUTPUT.length))
   }
 
-  dispose(): void {
+  /**
+   * Drops whatever is held mid-frame. A resync repaint supersedes the stream
+   * these bytes came from, so releasing them afterwards — on the END marker or
+   * the timeout — would paint pre-repaint output over the snapshot.
+   */
+  reset(): void {
     clearTimeout(this.timer)
     this.timer = undefined
     this.prefix = new Uint8Array()
@@ -62,6 +67,10 @@ export class TerminalOutputWriter {
     this.frameBytes = 0
     this.endMatched = 0
     this.synchronizing = false
+  }
+
+  dispose(): void {
+    this.reset()
   }
 
   private writeSynchronized(data: Uint8Array): void {

@@ -43,6 +43,11 @@ const (
 	// rather than a bound anyone runs into, and it costs a few hundred KB per
 	// window against an 8 MiB broker.
 	historyLines = 2000
+
+	// overflowReason is the exit reason a stream that could not be resynced ends
+	// with — unchanged from when crossing the bound was fatal outright, and so
+	// is what the frontend does with it.
+	overflowReason = "overflow"
 )
 
 var (
@@ -132,7 +137,14 @@ type Client struct {
 	// bgPaint tracks the deferred first paint. A WaitGroup rather than a
 	// channel because an attach that fails before negotiate never starts one,
 	// and teardown must not block waiting for a goroutine that does not exist.
-	bgPaint       sync.WaitGroup
+	bgPaint sync.WaitGroup
+	// repaintMu serialises the two callers that re-run first paint: a re-attach
+	// and an overflow resync. They reach the client from different goroutines —
+	// one under the manager's attach lock, one off the broker's callback — and
+	// interleaved they would put two snapshots of the same pane on the stream in
+	// an order neither chose, and pair one pass's bgPaint.Go with the other's
+	// Wait.
+	repaintMu     sync.Mutex
 	reconcileReq  chan struct{}
 	handshake     chan struct{}
 	attached      chan struct{}
@@ -142,6 +154,7 @@ type Client struct {
 	exitReason string
 	tornDown   bool
 	relinking  map[string]int
+	resyncing  bool
 
 	closeOnce    sync.Once
 	teardownOnce sync.Once
@@ -175,7 +188,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		attached:     make(chan struct{}),
 		relinking:    map[string]int{},
 	}
-	c.events = newBroker(backlogBounds{bytes: opts.BufferBytes}, func() { c.teardown("overflow") })
+	c.events = newBroker(backlogBounds{bytes: opts.BufferBytes}, c.resyncOverflow)
 	c.paint = newPaintGate(c.emitOutput)
 
 	c.proc = opts.newProcess(opts)
@@ -568,15 +581,86 @@ func (c *Client) releaseRemaining(windows []Window) {
 // see broker.reset. The captures are bounded like an attach's own, because the
 // manager runs this under the lock every other attach queues behind.
 func (c *Client) Repaint(ctx context.Context) error {
+	c.repaintMu.Lock()
+	defer c.repaintMu.Unlock()
+
 	// A deferred pass from the attach before this one may still be capturing.
 	// Letting the two interleave would put two snapshots of the same pane on
 	// the stream in an order neither chose.
 	c.bgPaint.Wait()
+	c.events.reset()
+	return c.paintEveryWindow(ctx)
+}
 
+// resyncOverflow recovers a stream whose backlog crossed the bound rather than
+// ending it. The backlog goes, the stream is marked degraded, and the first
+// paint an attach runs puts every window back on screen. Reusing that path is
+// what keeps the recovery non-lossy: a snapshot carries the pane's scrollback
+// (ADR terminal-first-paint-carries-scrollback), so the flood the user wants to
+// read survives even though the bytes that carried it did not.
+//
+// Both ways this can fail end the stream the way overflow always ended it. A
+// resync already running means the flood refilled the backlog inside one
+// capture, and a resync the broker refuses means the last one did not hold —
+// neither is fixable by capturing again. A repaint that errors has lost the
+// control stream it would re-establish truth from.
+func (c *Client) resyncOverflow() {
+	if !c.claimResync() {
+		c.teardown(overflowReason)
+		return
+	}
+	defer c.releaseResync()
+
+	// After the claim, so a re-attach's repaint in flight delays this rather
+	// than racing it — and the resync below still runs, which is what lifts the
+	// state the broker is refusing output under.
+	c.repaintMu.Lock()
+	defer c.repaintMu.Unlock()
+
+	c.bgPaint.Wait()
+	dropped, ok := c.events.resync(time.Now())
+	if !ok {
+		c.teardown(overflowReason)
+		return
+	}
+	c.log.Warn().Int("dropped_bytes", dropped).Msg("terminal backlog overflowed; resyncing the stream")
+	c.publish(LifecycleChanged{Kind: LifecycleDegraded, Message: overflowReason})
+
+	//nolint:contextcheck // deliberately the client's lifetime: no request asked for this
+	if err := c.paintEveryWindow(c.lifeCtx); err != nil {
+		c.log.Warn().Err(err).Msg("terminal overflow resync failed")
+		c.teardown(overflowReason)
+	}
+}
+
+// claimResync admits one overflow resync at a time. A second overflow while one
+// is running is a flood that refilled the whole backlog inside a single
+// capture, which is the case a repaint cannot answer — and letting the two run
+// together would interleave their snapshots besides.
+func (c *Client) claimResync() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.resyncing {
+		return false
+	}
+	c.resyncing = true
+	return true
+}
+
+func (c *Client) releaseResync() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.resyncing = false
+}
+
+// paintEveryWindow re-runs the first paint for every window onto whatever the
+// backlog looks like now. Callers deal with the backlog first — reset for a
+// re-attach, resync for an overflow — because what the snapshots supersede is
+// the difference between the two.
+func (c *Client) paintEveryWindow(ctx context.Context) error {
 	paintCtx, cancel := context.WithTimeout(ctx, attachTimeout)
 	defer cancel()
 
-	c.events.reset()
 	windows := c.Windows()
 	deferred := c.holdBackground(windows)
 	if active, ok := activeWindow(windows); ok {
