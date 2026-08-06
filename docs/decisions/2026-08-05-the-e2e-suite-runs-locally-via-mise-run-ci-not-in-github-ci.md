@@ -23,7 +23,7 @@ expectations were never updated, because nothing failed when they weren't.
 
 ## Decision
 
-`mise run ci` ends with `desktop:e2e`, as its own final group. It is the gate;
+`mise run ci` ends with `e2e`, as its own final group. It is the gate;
 GitHub CI is not.
 
 The task's description and the quality-gates documentation say so explicitly,

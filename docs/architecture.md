@@ -663,18 +663,18 @@ locations — and injects it. Runtime services do not re-read path environment v
 `XDG_*`, Wails framework variables, credential secrets, build/release inputs,
 and vendored Hive variables remain outside the desktop settings namespace.
 
-Setup or `desktop:dev:prepare` creates or reuses the gitignored
+Setup or `dev:prepare` creates or reuses the gitignored
 `.hive-desktop/` directory in that worktree. Its config and data are isolated
 from both the installed app and other worktrees; config symlink targets are
 materialized rather than retained. The installed agent-workspace root is
 snapshotted separately into `.hive-desktop/config/workspaces`, and `launch.env`
 pins `HIVE_DESKTOP_AGENT_WORKSPACES_DIR` there so an installed iCloud/File
-Provider location cannot leak into a dev process. `desktop:dev:fresh` reseeds
-it and `desktop:dev:reset` removes it through marker-guarded deletion. An atomic
+Provider location cannot leak into a dev process. `dev:fresh` reseeds
+it and `dev:reset` removes it through marker-guarded deletion. An atomic
 worktree lock serializes those operations, and destructive commands refuse
 while either configured development server is active. `cmd/devtools prepare`
 writes the resolved paths and ports to a gitignored, non-secret `launch.env`.
-The `desktop:dev` mise task loads it followed by optional gitignored
+The `dev` mise task loads it followed by optional gitignored
 `overrides.env`, then starts Wails through `cmd/devtools run`. Devtools itself
 does not interpret developer overrides.
 

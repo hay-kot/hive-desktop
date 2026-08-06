@@ -24,14 +24,14 @@ Pick the right tool first:
 ## 1. Confirm recording is on
 
 The gate is `development.perf.enabled`, off in a shipped build and set for
-`desktop:dev` through `launch.env`:
+`dev` through `launch.env`:
 
 ```bash
 grep HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED launch.env   # expect "true"
 ```
 
 If it is missing, the worktree's `launch.env` predates the setting — run
-`mise run desktop:dev:prepare`, which regenerates it. On startup the log carries
+`mise run dev:prepare`, which regenerates it. On startup the log carries
 `UI performance recording enabled` with the file path.
 
 From the frontend, `perfInfo()` answers the same question at runtime and returns
@@ -83,8 +83,8 @@ span never appears, check it against `Sample.Validate` in
 
 Samples buffer in the frontend and flush every 2s (or at 256 buffered, or on
 `pagehide`), so the file lags the interaction slightly. Drive the app —
-`mise run desktop:dev` for a Vite HMR loop, or `mise run desktop:serve` plus
-browser tooling for a headless one — then find the file:
+`mise run dev` for a Vite HMR loop, or `mise run serve` plus browser tooling
+for a headless one — then find the file:
 
 ```bash
 PERF="$(grep HIVE_DESKTOP_DATA_DIR launch.env | cut -d'"' -f2)/desktop/perf.jsonl"

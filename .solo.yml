@@ -24,7 +24,7 @@ tabs:
   # (ADR shutdown-is-signalled-and-bounded). Killing this window is therefore safe — it cannot leave the app
   # running with nothing supervising it, which is what used to happen.
   - title: desktop
-    cmd: mise run desktop:dev
+    cmd: mise run dev
 
 # Long enough to cover the supervisor's own worst case — the app's shutdown
 # grace plus the runner's — so `solo down` reports a window as stopped when it

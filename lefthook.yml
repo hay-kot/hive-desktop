@@ -13,7 +13,7 @@ assert_lefthook_installed: true
 # Seconds, not minutes: formatting and cheap hygiene only. Anything that
 # compiles or tests belongs in pre-push.
 #
-# piped, not parallel: `mise run fmt:files` and the generators both rewrite .go
+# piped, not parallel: `mise run fmt:staged` and the generators both rewrite .go
 # files that the other reads, so running them concurrently risks a torn read
 # and a failure nobody can reproduce. Sequential costs ~0.5s at worst.
 pre-commit:
@@ -49,7 +49,7 @@ pre-commit:
       glob: "*.go"
       exclude:
         - "internal/hivecore/*"
-      run: mise run fmt:files {staged_files}
+      run: mise run fmt:staged {staged_files}
       stage_fixed: true
 
     # Only fires when a generator input is staged, so ordinary commits pay
@@ -87,4 +87,4 @@ pre-push:
           echo "SKIP frontend tests: desktop/frontend/node_modules is missing (run 'cd desktop/frontend && npm ci')." >&2
           exit 0
         fi
-        mise run desktop:test:frontend
+        mise run frontend:test

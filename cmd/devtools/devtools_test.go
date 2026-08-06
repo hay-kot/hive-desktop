@@ -75,7 +75,7 @@ func TestPrepareReuseFreshAndReset(t *testing.T) {
 	assert.FileExists(t, sentinel)
 
 	// Ambient launch paths must never become the source of a fresh snapshot.
-	// Developer overrides are loaded only by the desktop:dev mise task.
+	// Developer overrides are loaded only by the dev mise task.
 	t.Setenv(settings.EnvDataDir, launch[settings.EnvDataDir])
 	t.Setenv(settings.EnvConfigDir, launch[settings.EnvConfigDir])
 	require.NoError(t, os.WriteFile(filepath.Join(sourceData, "desktop", "desktop-pipeline.db"), []byte("new-db"), 0o600))

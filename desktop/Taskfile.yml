@@ -1,3 +1,7 @@
+# wails3's dispatch target, not a developer entry point. `wails3 build` and
+# `wails3 package` run the tasks of those names here, and build/config.yml's
+# dev_mode executes `wails3 task run`. Everything a human or agent types is a
+# mise task (ADR mise-is-the-task-interface-and-the-taskfile-is-wails3-build-dispatch).
 version: '3'
 
 vars:
@@ -33,55 +37,7 @@ tasks:
     cmds:
       - task: "{{.GOOS}}:run"
 
-  dev:
-    summary: Runs Wails directly using this worktree's launch.env
-    vars:
-      DEV_BRANCH:
-        sh: git branch --show-current 2>/dev/null || echo unknown
-    env:
-      VITE_HIVE_DEV_BRANCH: '{{.DEV_BRANCH}}'
-    preconditions:
-      - sh: test -f ../launch.env
-        msg: launch.env is missing; run `mise run desktop:dev:prepare` first
-    cmds:
-      - wails3 dev -config ./build/config.yml
-
-  dev:prepare:
-    summary: Creates or reuses the local instance and generates launch.env
-    cmds:
-      - go run ../cmd/devtools prepare
-
-  dev:fresh:
-    summary: Recreates the local instance and regenerates launch.env
-    cmds:
-      - go run ../cmd/devtools fresh
-
-  dev:reset:
-    summary: Safely removes the marked local instance and launch.env
-    cmds:
-      - go run ../cmd/devtools reset
-
   setup:docker:
     summary: Builds Docker image for cross-compilation (~800MB download)
     cmds:
       - task: common:setup:docker
-
-  build:server:
-    summary: Builds the application in server mode (no GUI, HTTP server only)
-    cmds:
-      - task: common:build:server
-
-  run:server:
-    summary: Runs the application in server mode
-    cmds:
-      - task: common:run:server
-
-  build:docker:
-    summary: Builds a Docker image for server mode deployment
-    cmds:
-      - task: common:build:docker
-
-  run:docker:
-    summary: Builds and runs the Docker image
-    cmds:
-      - task: common:run:docker
