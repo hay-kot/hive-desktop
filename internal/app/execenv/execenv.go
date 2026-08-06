@@ -1,11 +1,14 @@
-// Package execenv resolves the environment the app runs subprocesses with.
+// Package execenv resolves the environment the app runs subprocesses with, and
+// answers what a variable would hold in the user's terminal.
 //
 // A desktop launch inherits the launcher's environment, not a shell's: macOS
 // starts an .app bundle with PATH=/usr/bin:/bin:/usr/sbin:/sbin. Session hooks
 // and shell actions are the user's own commands, written against the PATH their
 // terminal has, so running them with the inherited one fails on anything a
 // package manager, a version manager or a language toolchain installed
-// (ADR subprocess-environment).
+// (ADR subprocess-environment). The same gap hides hive's own environment
+// overrides from the app, which is what Getenv answers
+// (ADR hive-env-overrides-resolve-through-the-login-shell).
 package execenv
 
 import (
@@ -63,7 +66,7 @@ const defaultTimeout = 5 * time.Second
 // /usr/bin/env is absolute so a startup file that breaks PATH cannot hide it.
 const probeCommand = "/usr/bin/env"
 
-var errNoPath = errors.New("shell reported no PATH")
+var errNoEnvironment = errors.New("shell reported no environment")
 
 // Options configures a Resolver. The zero value probes $SHELL with the default
 // timeout and logs nothing.
@@ -75,7 +78,7 @@ type Options struct {
 	// Timeout bounds one probe. Zero means defaultTimeout.
 	Timeout time.Duration
 	// Probe is the seam tests replace. Zero runs the real login shell.
-	Probe func(ctx context.Context, shell string) (string, error)
+	Probe func(ctx context.Context, shell string) (map[string]string, error)
 }
 
 // Resolver answers what PATH a subprocess runs with. It asks the user's login
@@ -86,12 +89,13 @@ type Resolver struct {
 	logger  zerolog.Logger
 	shell   string
 	timeout time.Duration
-	probe   func(ctx context.Context, shell string) (string, error)
+	probe   func(ctx context.Context, shell string) (map[string]string, error)
 
-	// mu serializes the probe as well as guarding path, so concurrent hooks
-	// spawn one shell between them rather than one each.
+	// mu serializes the probe as well as guarding path and env, so concurrent
+	// hooks spawn one shell between them rather than one each.
 	mu       sync.Mutex
 	path     string
+	env      map[string]string
 	resolved bool
 }
 
@@ -104,7 +108,7 @@ func NewResolver(opts Options) *Resolver {
 		r.timeout = defaultTimeout
 	}
 	if r.probe == nil {
-		r.probe = shellPath
+		r.probe = shellEnvironment
 	}
 	return r
 }
@@ -116,24 +120,49 @@ func NewResolver(opts Options) *Resolver {
 func (r *Resolver) Path(ctx context.Context) string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.resolveLocked(ctx)
+	return r.path
+}
+
+// Getenv answers a variable the way the user's terminal would: this process's
+// value when it has one, otherwise the login shell's. A variable exported from
+// a startup file is invisible to a launched .app, so a config override the CLI
+// reads from the environment is only reachable through the probe
+// (ADR hive-env-overrides-resolve-through-the-login-shell).
+func (r *Resolver) Getenv(ctx context.Context, name string) string {
+	if value := os.Getenv(name); value != "" {
+		return value
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.resolveLocked(ctx)
+	return r.env[name]
+}
+
+func (r *Resolver) resolveLocked(ctx context.Context) {
 	if r.resolved {
-		return r.path
+		return
 	}
 
 	inherited := os.Getenv("PATH")
-	fromShell, err := r.resolveShellPath(ctx)
+	env, err := r.resolveShellEnvironment(ctx)
 	switch {
 	case err != nil:
 		r.logger.Warn().Err(err).Str("shell", r.shell).
-			Msg("login shell PATH unavailable; hook and shell-action commands run with the inherited PATH")
-	case fromShell != "":
+			Msg("login shell environment unavailable; hook and shell-action commands run with the inherited PATH")
+	case len(env) == 0:
+		// No shell to ask. A shell that answers nothing errors instead.
+	case env["PATH"] == "":
+		r.logger.Warn().Str("shell", r.shell).
+			Msg("login shell reported no PATH; hook and shell-action commands run with the inherited PATH")
+	default:
 		r.logger.Info().Str("shell", r.shell).Msg("resolved subprocess PATH from the login shell")
 	}
 
-	r.path = join(fromShell, inherited, strings.Join(SearchDirs(), string(os.PathListSeparator)))
+	r.env = env
+	r.path = join(env["PATH"], inherited, strings.Join(SearchDirs(), string(os.PathListSeparator)))
 	r.resolved = true
 	r.logger.Debug().Str("path", r.path).Msg("subprocess PATH")
-	return r.path
 }
 
 // LookPath resolves a command name against the same PATH its child will run
@@ -167,9 +196,9 @@ func (r *Resolver) Environ(ctx context.Context) []string {
 	return append(env, "PATH="+path)
 }
 
-func (r *Resolver) resolveShellPath(ctx context.Context) (string, error) {
+func (r *Resolver) resolveShellEnvironment(ctx context.Context) (map[string]string, error) {
 	if r.shell == "" {
-		return "", nil
+		return nil, nil
 	}
 	// The probe outlives the caller's cancellation deliberately: it runs once
 	// per app run, and a session creation cancelled mid-probe would otherwise
@@ -188,10 +217,10 @@ func (r *Resolver) resolveShellPath(ctx context.Context) (string, error) {
 // shellKillGrace.
 const probeKillGrace = 2 * time.Second
 
-// shellPath asks the user's login shell for its PATH. Interactive (-i) as well
-// as login (-l), because the PATH a terminal shows is as often set in an
-// interactive startup file (.zshrc) as in a login one.
-func shellPath(ctx context.Context, shell string) (string, error) {
+// shellEnvironment asks the user's login shell for its environment. Interactive
+// (-i) as well as login (-l), because the PATH a terminal shows is as often set
+// in an interactive startup file (.zshrc) as in a login one.
+func shellEnvironment(ctx context.Context, shell string) (map[string]string, error) {
 	cmd := exec.CommandContext(ctx, shell, "-ilc", probeCommand)
 	cmd.WaitDelay = probeKillGrace
 	out, err := cmd.Output()
@@ -199,18 +228,22 @@ func shellPath(ctx context.Context, shell string) (string, error) {
 	// running held the pipe past the grace. Its answer is already in out —
 	// a shell that answered is not failed for what it left behind.
 	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
-		return "", err
+		return nil, err
 	}
-	// A startup file is free to print, so the environment is scanned for the
-	// assignment rather than read positionally.
+	// A startup file is free to print, and a value is free to span lines, so
+	// only what looks like an assignment is taken and the rest is ignored.
+	env := make(map[string]string)
 	for line := range strings.SplitSeq(string(out), "\n") {
-		if path, ok := strings.CutPrefix(line, "PATH="); ok {
-			if path = strings.TrimSpace(path); path != "" {
-				return path, nil
-			}
+		name, value, ok := strings.Cut(line, "=")
+		if !ok || name == "" {
+			continue
 		}
+		env[name] = strings.TrimSpace(value)
 	}
-	return "", errNoPath
+	if len(env) == 0 {
+		return nil, errNoEnvironment
+	}
+	return env, nil
 }
 
 // join concatenates PATH values, dropping empty and repeated entries so the

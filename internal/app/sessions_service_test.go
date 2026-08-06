@@ -170,6 +170,30 @@ func TestSessionsService_SessionLaunchOptions(t *testing.T) {
 	assert.Equal(t, expected, got)
 }
 
+// The form preselects what hive itself would run: HIVE_DEFAULT_AGENT when it
+// names a configured profile, agents.default otherwise.
+func TestSessionsService_SessionLaunchOptionsPrefersTheEnvironmentAgent(t *testing.T) {
+	opts := dispatch.SessionLaunchOptions{Agents: []string{"claude", "codex"}, DefaultAgent: "claude"}
+	manager, _ := activeSession()
+	svc := &sessionsDeps{launcher: &fakeSessionLauncher{opts: opts}, manager: manager, statuses: manager, tmux: &fakeSessionTmux{}, jobs: &fakeJobRunner{}}
+
+	svc.defaultAgentEnv = func(context.Context) string { return " codex " }
+	got, err := svc.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "codex", got.DefaultAgent)
+	assert.Equal(t, opts.Agents, got.Agents, "the choices themselves are hive's")
+
+	svc.defaultAgentEnv = func(context.Context) string { return "aider" }
+	got, err = svc.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.DefaultAgent, "an agent with no configured profile is not preselected")
+
+	svc.defaultAgentEnv = func(context.Context) string { return "" }
+	got, err = svc.SessionLaunchOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, "claude", got.DefaultAgent)
+}
+
 func TestSessionsService_CreateSessionValidatesBeforeTracking(t *testing.T) {
 	launcher := &fakeSessionLauncher{}
 	runner := &fakeJobRunner{}
