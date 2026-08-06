@@ -4,7 +4,7 @@
 // hydration). It owns no feed concepts — caching, polling cadence, and
 // unread state live in internal/app/sources/github/feed — and no
 // persistence: callers hold whatever token they have and pass it in via
-// WithToken or WithTokenCopy.
+// WithTokenCopy.
 //
 // HTTP plumbing — the failure taxonomy, status mapping, conditional requests,
 // request logging — comes from sources/sourcehttp.
@@ -48,16 +48,10 @@ type Client struct {
 type options struct {
 	apiBase  string
 	authBase string
-	token    string
 	logger   zerolog.Logger
 }
 
 type Option func(*options)
-
-// WithToken sets the bearer token used for API calls.
-func WithToken(token string) Option {
-	return func(o *options) { o.token = token }
-}
 
 // WithAPIBase overrides the REST API base URL (tests, cmd/devserver).
 func WithAPIBase(base string) Option {
@@ -97,8 +91,7 @@ func NewClient(opts ...Option) *Client {
 		},
 			httpclient.Header("Accept", "application/json"),
 		),
-		errs:  sourcehttp.Errors{Name: sourceName, Forbidden: forbiddenIsRateLimit},
-		token: o.token,
+		errs: sourcehttp.Errors{Name: sourceName, Forbidden: forbiddenIsRateLimit},
 	}
 }
 

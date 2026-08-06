@@ -58,9 +58,6 @@ func NewFactory(fetchers *Fetchers) connector.Factory {
 			}
 
 			live := fetchers.For(ref)
-			// Per instance rather than per factory: the absence confirmer
-			// fetches, so it has to fetch as the same account the source did.
-			events := newClassifier(&absenceConfirmer{live: live})
 
 			return connector.Instance{
 				Type: Descriptor.Type,
@@ -74,9 +71,11 @@ func NewFactory(fetchers *Fetchers) connector.Factory {
 					Policy:      node.Policy,
 				},
 				Pull:       &source{live: live, def: sourceDef(node, config), topic: node.Topic()},
-				Classifier: events,
-				Absence:    events,
-				Config:     config,
+				Classifier: classifier{},
+				// Per instance rather than per factory: the absence confirmer
+				// fetches, so it has to fetch as the same account the source did.
+				Absence: &absenceConfirmer{live: live},
+				Config:  config,
 			}, nil
 		},
 		Prefetch: func(ctx context.Context, instances []connector.Instance) error {

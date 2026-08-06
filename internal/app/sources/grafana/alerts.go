@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -183,7 +184,7 @@ type alertsClassifier struct{}
 var _ store.Classifier = alertsClassifier{}
 
 func (alertsClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
-	state := alertState(current.Payload)
+	state := canonical.State(current.Payload)
 	lifecycle := store.LifecycleActive
 	if state == stateResolved {
 		lifecycle = store.LifecycleTerminal
@@ -200,7 +201,7 @@ func (alertsClassifier) Classify(previous *store.Observation, current store.Obse
 	if previous == nil {
 		return out
 	}
-	switch prev := alertState(previous.Payload); {
+	switch prev := canonical.State(previous.Payload); {
 	case prev != stateResolved && state == stateResolved:
 		out.Kind, out.Summary, out.Transition, out.ArchivedReason = stateResolved, "Resolved", store.TransitionEnteredTerminal, stateResolved
 	case prev == stateResolved && state != stateResolved:
@@ -222,28 +223,8 @@ func (alertsAbsence) ConfirmAbsence(_ context.Context, previous []store.Observat
 	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
 	for _, prev := range previous {
 		resolved := prev
-		resolved.Payload = withResolvedState(prev.Payload)
+		resolved.Payload = canonical.WithState(prev.Payload, stateResolved)
 		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &resolved, Terminal: true}
 	}
 	return verdicts, nil
-}
-
-func alertState(payload []byte) string {
-	_, _, state := store.CanonicalFields(payload)
-	return strings.ToLower(strings.TrimSpace(state))
-}
-
-// withResolvedState rewrites a payload's state to resolved, preserving every
-// other field so the archived item keeps its title, labels and annotations.
-func withResolvedState(payload []byte) []byte {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(payload, &fields); err != nil {
-		return payload
-	}
-	fields["state"], _ = json.Marshal(stateResolved)
-	out, err := json.Marshal(fields)
-	if err != nil {
-		return payload
-	}
-	return out
 }

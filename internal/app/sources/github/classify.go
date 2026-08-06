@@ -68,17 +68,9 @@ func terminalState(state string) bool {
 	return state == "closed" || state == "merged"
 }
 
-type classifier struct{ absence store.AbsenceConfirmer }
+type classifier struct{}
 
-func newClassifier(absence store.AbsenceConfirmer) *classifier {
-	return &classifier{absence: absence}
-}
-
-func (c *classifier) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
-	return c.absence.ConfirmAbsence(ctx, previous)
-}
-
-func (c *classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
+func (classifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
 	cur := decodeGithub(current.Payload)
 	lifecycle := store.LifecycleUnknown
 	if cur.State == "open" {

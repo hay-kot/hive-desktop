@@ -92,18 +92,6 @@ func (f *Fetchers) SetRecorder(r activity.Recorder) {
 	}
 }
 
-// Invalidate drops one account's fetch cache. Connecting or disconnecting an
-// account calls it: a different token must never be served items fetched with
-// the previous one.
-func (f *Fetchers) Invalidate(ref credentials.Ref) {
-	f.mu.Lock()
-	live, ok := f.byRef[ref]
-	f.mu.Unlock()
-	if ok {
-		live.Invalidate()
-	}
-}
-
 // InvalidateAll drops every account's fetch cache.
 func (f *Fetchers) InvalidateAll() {
 	f.mu.Lock()
