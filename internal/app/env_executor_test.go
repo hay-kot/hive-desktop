@@ -25,8 +25,8 @@ func toolDir(t *testing.T, marker string) string {
 }
 
 func resolverFor(dir string) *execenv.Resolver {
-	return execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
-		return dir + ":/usr/bin:/bin", nil
+	return execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": dir + ":/usr/bin:/bin"}, nil
 	}})
 }
 

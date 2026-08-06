@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -81,7 +82,10 @@ type SessionsService struct {
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
 	recorder   activity.Recorder
-	logger     zerolog.Logger
+	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
+	// would. nil leaves the agent hive's config resolved.
+	defaultAgentEnv func(context.Context) string
+	logger          zerolog.Logger
 }
 
 // sessionsDeps is the construction-site name for the service's dependencies:
@@ -96,7 +100,31 @@ func (s *SessionsService) SessionLaunchOptions(ctx context.Context) (dispatch.Se
 		return dispatch.SessionLaunchOptions{}, Errorf(KindUnavailable, "session launch options are unavailable")
 	}
 	opts, err := s.launcher.SessionLaunchOptions(ctx)
-	return opts, Wrap(err, KindInternal, "resolving session launch options")
+	if err != nil {
+		return dispatch.SessionLaunchOptions{}, Wrap(err, KindInternal, "resolving session launch options")
+	}
+	return s.withEnvironmentDefaultAgent(ctx, opts), nil
+}
+
+// withEnvironmentDefaultAgent preselects the agent hive itself would run:
+// HIVE_DEFAULT_AGENT when it names a configured profile, otherwise the
+// agents.default hive's config already resolved (colonyops/hive#365). The
+// variable comes from the user's terminal rather than this process, because a
+// launched .app has neither it nor anything else a startup file exports
+// (ADR hive-env-overrides-resolve-through-the-login-shell).
+//
+// An unknown profile is ignored rather than refused: preselecting is all this
+// does, and hive validates the agent it is handed.
+func (s *SessionsService) withEnvironmentDefaultAgent(ctx context.Context, opts dispatch.SessionLaunchOptions) dispatch.SessionLaunchOptions {
+	if s.defaultAgentEnv == nil {
+		return opts
+	}
+	preferred := strings.TrimSpace(s.defaultAgentEnv(ctx))
+	if preferred == "" || !slices.Contains(opts.Agents, preferred) {
+		return opts
+	}
+	opts.DefaultAgent = preferred
+	return opts
 }
 
 // ListSessions returns every session, whatever its state. Only an active one

@@ -845,6 +845,14 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   they are interactive-shell sugar, and a config file that depends on one is not
   reproducible on another machine.
 
+The probe answers more than PATH. **A hive config override the CLI takes from the
+environment is read through `execenv.Getenv`, never `os.Getenv`** (ADR hive-env-overrides-resolve-through-the-login-shell):
+the launch that has no PATH has no `HIVE_DEFAULT_AGENT` either, and hive folds
+that variable into `agents.default` once, at config load. This process's value
+wins when it has one and the login shell's answers otherwise, so the New Session
+form preselects the agent hive would run rather than the one a launcher
+environment resolved (`SessionsService.SessionLaunchOptions`).
+
 ### App modes
 
 The desktop shell has a fixed set of top-level modes — today Hub, Terminal,

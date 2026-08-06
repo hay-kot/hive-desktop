@@ -344,6 +344,9 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, tmux: a.terminals,
 		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
 		recorder: a.activityStore, logger: cfg.Logger,
+		defaultAgentEnv: func(ctx context.Context) string {
+			return a.execEnv.Getenv(ctx, config.EnvDefaultAgent)
+		},
 	}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
@@ -476,6 +479,13 @@ func (a *App) Start(ctx context.Context) error {
 				a.logger.Warn().Err(err).Msg("persist allocated webhook port")
 			}
 		}
+	}
+	// The login shell probe costs a shell startup and everything the app spawns
+	// on the user's behalf waits on it, so it is paid here rather than by
+	// whichever click reaches it first. Skipped in mock/e2e runs: a fixture
+	// launch must not start the machine's shell.
+	if a.mock == "" {
+		go func() { _ = a.execEnv.Path(a.ctx) }()
 	}
 	// Re-sync already-installed agent skills so a moved config path or a new node
 	// type re-renders itself without the user re-installing. It only touches files

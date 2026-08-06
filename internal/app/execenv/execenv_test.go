@@ -24,8 +24,8 @@ func pathEntries(t *testing.T, value string) []string {
 func TestPathPrefersTheLoginShell(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (string, error) {
-		return "/opt/tools/bin:/usr/bin", nil
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin:/usr/bin"}, nil
 	}})
 
 	entries := pathEntries(t, r.Path(t.Context()))
@@ -40,8 +40,8 @@ func TestPathPrefersTheLoginShell(t *testing.T) {
 func TestPathFallsBackWhenTheProbeFails(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (string, error) {
-		return "", errors.New("exit status 1")
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return nil, errors.New("exit status 1")
 	}})
 
 	entries := pathEntries(t, r.Path(t.Context()))
@@ -54,9 +54,9 @@ func TestPathWithoutAShellIsTheInheritedPathPlusPrefixes(t *testing.T) {
 	t.Setenv("SHELL", "")
 
 	probed := false
-	r := NewResolver(Options{Probe: func(context.Context, string) (string, error) {
+	r := NewResolver(Options{Probe: func(context.Context, string) (map[string]string, error) {
 		probed = true
-		return "/never", nil
+		return map[string]string{"PATH": "/never"}, nil
 	}})
 
 	entries := pathEntries(t, r.Path(t.Context()))
@@ -69,10 +69,10 @@ func TestPathWithoutAShellIsTheInheritedPathPlusPrefixes(t *testing.T) {
 // app, and hooks arrive one command at a time.
 func TestPathProbesOnceAcrossConcurrentCallers(t *testing.T) {
 	var probes atomic.Int64
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (string, error) {
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
 		probes.Add(1)
 		time.Sleep(10 * time.Millisecond)
-		return "/opt/tools/bin", nil
+		return map[string]string{"PATH": "/opt/tools/bin"}, nil
 	}})
 
 	var wg sync.WaitGroup
@@ -90,9 +90,9 @@ func TestPathProbesOnceAcrossConcurrentCallers(t *testing.T) {
 // command the startup cost of a shell that already declined to answer.
 func TestPathRemembersAFailedProbe(t *testing.T) {
 	var probes atomic.Int64
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (string, error) {
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
 		probes.Add(1)
-		return "", errors.New("no")
+		return nil, errors.New("no")
 	}})
 
 	require.NotEmpty(t, r.Path(t.Context()))
@@ -106,20 +106,20 @@ func TestProbeOutlivesACancelledCaller(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(ctx context.Context, _ string) (string, error) {
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(ctx context.Context, _ string) (map[string]string, error) {
 		if err := ctx.Err(); err != nil {
-			return "", err
+			return nil, err
 		}
-		return "/opt/tools/bin", nil
+		return map[string]string{"PATH": "/opt/tools/bin"}, nil
 	}})
 
 	assert.Contains(t, r.Path(ctx), "/opt/tools/bin")
 }
 
 func TestProbeIsBoundedByTheTimeout(t *testing.T) {
-	r := NewResolver(Options{Shell: "/bin/zsh", Timeout: 20 * time.Millisecond, Probe: func(ctx context.Context, _ string) (string, error) {
+	r := NewResolver(Options{Shell: "/bin/zsh", Timeout: 20 * time.Millisecond, Probe: func(ctx context.Context, _ string) (map[string]string, error) {
 		<-ctx.Done()
-		return "", ctx.Err()
+		return nil, ctx.Err()
 	}})
 
 	done := make(chan string, 1)
@@ -136,8 +136,8 @@ func TestEnvironReplacesOnlyPath(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("HIVE_EXECENV_MARKER", "kept")
 
-	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (string, error) {
-		return "/opt/tools/bin", nil
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin"}, nil
 	}})
 
 	env := r.Environ(t.Context())
@@ -156,25 +156,55 @@ func TestEnvironReplacesOnlyPath(t *testing.T) {
 	assert.True(t, marker, "the rest of the environment is passed through")
 }
 
+// A variable the user exports from a startup file is invisible to a launched
+// .app, so the probe is the only place the app can read one from.
+func TestGetenvFallsBackToTheLoginShell(t *testing.T) {
+	t.Setenv("HIVE_DEFAULT_AGENT", "")
+
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin", "HIVE_DEFAULT_AGENT": "codex"}, nil
+	}})
+
+	assert.Equal(t, "codex", r.Getenv(t.Context(), "HIVE_DEFAULT_AGENT"))
+	assert.Empty(t, r.Getenv(t.Context(), "HIVE_NOT_SET"), "a variable neither side has is unset")
+}
+
+// How the app was launched is more specific than what a startup file exports,
+// so `HIVE_DEFAULT_AGENT=codex open -a …` wins over the shell's answer.
+func TestGetenvPrefersThisProcess(t *testing.T) {
+	t.Setenv("HIVE_DEFAULT_AGENT", "pi")
+
+	probed := false
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		probed = true
+		return map[string]string{"HIVE_DEFAULT_AGENT": "codex"}, nil
+	}})
+
+	assert.Equal(t, "pi", r.Getenv(t.Context(), "HIVE_DEFAULT_AGENT"))
+	assert.False(t, probed, "the answer was already known; no shell is started for it")
+}
+
 // The real probe, against a stub standing in for the user's shell: it must read
 // the child's own environment rather than trust the shell to echo a variable.
-func TestShellPathReadsTheShellsEnvironment(t *testing.T) {
+func TestShellEnvironmentReadsTheShellsEnvironment(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "shell")
 	require.NoError(t, os.WriteFile(shell, []byte(
 		"#!/bin/sh\n"+
 			"echo 'startup file noise'\n"+
 			"export PATH=/opt/tools/bin:/usr/bin\n"+
+			"export HIVE_DEFAULT_AGENT=codex\n"+
 			"exec \"$2\"\n"), 0o755))
 
-	path, err := shellPath(t.Context(), shell)
+	env, err := shellEnvironment(t.Context(), shell)
 	require.NoError(t, err)
-	assert.Equal(t, "/opt/tools/bin:/usr/bin", path)
+	assert.Equal(t, "/opt/tools/bin:/usr/bin", env["PATH"])
+	assert.Equal(t, "codex", env["HIVE_DEFAULT_AGENT"], "a variable other than PATH is kept too")
 }
 
 // A startup file may leave a background process holding the shell's stdout
 // (`something &` in .zshrc). The shell's own exit must end the probe anyway —
 // otherwise the resolver's lock is held until that stranger exits.
-func TestShellPathReturnsWhenAChildHoldsThePipeOpen(t *testing.T) {
+func TestShellEnvironmentReturnsWhenAChildHoldsThePipeOpen(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "shell")
 	require.NoError(t, os.WriteFile(shell, []byte(
 		"#!/bin/sh\n"+
@@ -183,19 +213,19 @@ func TestShellPathReturnsWhenAChildHoldsThePipeOpen(t *testing.T) {
 			"exec \"$2\"\n"), 0o755))
 
 	start := time.Now()
-	path, err := shellPath(t.Context(), shell)
+	env, err := shellEnvironment(t.Context(), shell)
 	require.NoError(t, err)
-	assert.Equal(t, "/opt/tools/bin:/usr/bin", path)
+	assert.Equal(t, "/opt/tools/bin:/usr/bin", env["PATH"])
 	assert.Less(t, time.Since(start), 8*time.Second,
 		"the probe must end with the shell, not with whatever it left running")
 }
 
-func TestShellPathFailsWhenTheShellReportsNothing(t *testing.T) {
+func TestShellEnvironmentFailsWhenTheShellReportsNothing(t *testing.T) {
 	shell := filepath.Join(t.TempDir(), "shell")
 	require.NoError(t, os.WriteFile(shell, []byte("#!/bin/sh\necho hello\n"), 0o755))
 
-	_, err := shellPath(t.Context(), shell)
-	require.ErrorIs(t, err, errNoPath)
+	_, err := shellEnvironment(t.Context(), shell)
+	require.ErrorIs(t, err, errNoEnvironment)
 }
 
 func slicesUnique(entries []string) []string {
@@ -221,8 +251,8 @@ func TestLookPathSearchesTheResolvedPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "readme"), []byte("not executable"), 0o644))
 	t.Setenv("PATH", "/nonexistent")
 
-	r := NewResolver(Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
-		return dir, nil
+	r := NewResolver(Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": dir}, nil
 	}})
 
 	got, err := r.LookPath(t.Context(), "tool")

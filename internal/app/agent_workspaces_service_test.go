@@ -615,8 +615,8 @@ func TestMCPCatalogueValidatesAgainstTheResolvedPATH(t *testing.T) {
 	require.NotEmpty(t, mcpCatalogueItem(t, svc, "local").Problem,
 		"the command is on no PATH this process inherited")
 
-	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
-		return binDir, nil
+	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": binDir}, nil
 	}})
 	assert.Empty(t, mcpCatalogueItem(t, svc, "local").Problem,
 		"the resolver finds it on the login shell's PATH, so the entry must not warn")
@@ -655,8 +655,8 @@ func TestOpenWorkspaceInEditor(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 
 	fake := fakeAgentBinary(t, "true")
-	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (string, error) {
-		return "/usr/bin:/bin", nil
+	svc.execEnv = execenv.NewResolver(execenv.Options{Shell: "/bin/sh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/usr/bin:/bin"}, nil
 	}})
 	svc.editorCommand = func(context.Context) (string, error) { return fake, nil }
 	command, title := svc.Editor(t.Context())
