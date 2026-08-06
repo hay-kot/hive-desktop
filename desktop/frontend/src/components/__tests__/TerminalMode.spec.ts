@@ -9,6 +9,9 @@ import { resetTerminalSessionsForTests } from '../../composables/useTerminalSess
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
+import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
+import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
+import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
 
@@ -32,7 +35,31 @@ const mocks = vi.hoisted(() => ({
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  AgentsAvailable: vi.fn(),
+  allSessions: vi.fn(),
+  resumeSession: vi.fn(),
 }))
+
+// The Code view reads the Agents area's own listing for its pinned chats, so the
+// agents transport is mocked here too — a chat is not in hive's session list and
+// cannot arrive through ListSessions.
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
+  Available: mocks.AgentsAvailable,
+  Endpoint: vi.fn().mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:2', wsURL: 'ws://127.0.0.1:2/s', token: 'a' }),
+}))
+vi.mock('../../lib/agentWorkspacesClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/agentWorkspacesClient')>()
+  return {
+    ...actual,
+    createAgentWorkspacesClient: () => ({
+      workspaces: vi.fn().mockResolvedValue({
+        root: '', agents: [], editor: { command: '', title: '' }, autonomyFlags: {}, rootProblem: '', workspaces: [],
+      }),
+      allSessions: mocks.allSessions,
+      resumeSession: mocks.resumeSession,
+    }),
+  }
+})
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.Available,
@@ -177,7 +204,14 @@ describe('TerminalMode', () => {
     resetTerminalSessionsForTests()
     resetSessionStatusesForTests()
     resetTerminalWindowListingsForTests()
+    resetAgentWorkspacesForTests()
+    resetAgentSessionsAllForTests()
+    resetTerminalPinnedChatsForTests()
     paneMayAutoFocus.value = true
+    // The Agents area answers unavailable by default, which is what a build with
+    // the experimental gate off looks like: no chats to pin, no Chats section.
+    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'gated off' })
+    mocks.allSessions.mockResolvedValue([])
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.Scratch.mockResolvedValue({ slug: 'Scratch', name: 'Terminals' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
@@ -1577,6 +1611,160 @@ describe('TerminalMode', () => {
       expect(dialog?.textContent).toContain('Every tab in the scratch terminal is closed')
       expect(dialog?.textContent).not.toContain('checkout')
       document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+      wrapper.unmount()
+    })
+  })
+
+  describe('pinned agent chats', () => {
+    const CHAT_SLUG = 'agentws-7'
+    const chat = {
+      id: 7, workspace: 'demo', name: 'api-refactor', agent: 'claude', lastOpenedAt: 0,
+      slug: CHAT_SLUG, terminalId: CHAT_SLUG, windowId: '@1', cols: 80, rows: 24,
+      resumeAttempted: true, notice: '',
+    }
+
+    // The listing has to have landed before a pin resolves to a row, so every
+    // test here pins after the mount rather than seeding localStorage.
+    async function mountWithPinnedChat(session = fakeSession(), listed: typeof chat = chat) {
+      mocks.AgentsAvailable.mockResolvedValue({ available: true, reason: '' })
+      mocks.allSessions.mockResolvedValue([listed])
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper, router } = await mountAt()
+      useTerminalPinnedChats().togglePin(listed.id)
+      await flushPromises()
+      return { wrapper, router, session }
+    }
+
+    function chatRows(wrapper: { findAll: (s: string) => DOMWrapper<Element>[] }): DOMWrapper<Element>[] {
+      return wrapper.findAll('[data-testid="terminal-chat-row"]')
+    }
+
+    it('heads the tree with a Chats section, above the scratch terminal and the repositories', async () => {
+      const { wrapper } = await mountWithPinnedChat()
+
+      const sections = wrapper.findAll(
+        '[data-testid="terminal-chats-group"], [data-testid="terminal-scratch-heading"], [data-testid="terminal-repo-group"]')
+      expect(sections.map((section) => section.attributes('data-testid')))
+        .toEqual(['terminal-chats-group', 'terminal-scratch-heading', 'terminal-repo-group'])
+      expect(sections[0].text()).toContain('Chats')
+      expect(chatRows(wrapper).map((row) => row.text())).toContain('api-refactor')
+      wrapper.unmount()
+    })
+
+    it('draws no section at all when nothing is pinned', async () => {
+      mocks.AgentsAvailable.mockResolvedValue({ available: true, reason: '' })
+      mocks.allSessions.mockResolvedValue([chat])
+      const { wrapper } = await mountAvailable()
+
+      expect(wrapper.find('[data-testid="terminal-chats-group"]').exists()).toBe(false)
+      expect(chatRows(wrapper)).toHaveLength(0)
+      wrapper.unmount()
+    })
+
+    // The chat's tmux session is addressed exactly like a hive slug, so the pane
+    // it opens in is the Code view's own — not a trip to the Agents area.
+    it('attaches the chat in the Code view’s pane when its row is picked', async () => {
+      const { wrapper, router } = await mountWithPinnedChat()
+
+      await chatRows(wrapper)[0].trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.params.slug).toBe(CHAT_SLUG)
+      expect(mocks.useTerminalWindows).toHaveBeenCalledWith(CHAT_SLUG, expect.anything())
+      wrapper.unmount()
+    })
+
+    // A chat is one conversation; its tmux window is how that is carried rather
+    // than something to navigate between.
+    it('lists no windows under a chat', async () => {
+      mocks.createTerminalClient.mockReturnValue({
+        listWindows: fakeListWindows({ [CHAT_SLUG]: [{ windowId: '@1', name: 'claude', active: true, width: 0, height: 0 }] }),
+      })
+      const { wrapper } = await mountWithPinnedChat()
+
+      const rows = wrapper.findAll('[data-testid="terminal-listed-window-row"], [data-testid="terminal-window-row"]')
+      expect(rows.map((row) => row.text())).not.toContain('claude')
+      wrapper.unmount()
+    })
+
+    // The sweep answers whether tmux is holding the chat, the way it does for the
+    // scratch terminal: hive's status projection has no row for either.
+    it('reads its liveness off the window sweep rather than hive’s statuses', async () => {
+      mocks.createTerminalClient.mockReturnValue({
+        listWindows: fakeListWindows({ [CHAT_SLUG]: [{ windowId: '@1', name: 'claude', active: true, width: 0, height: 0 }] }),
+      })
+      const { wrapper } = await mountWithPinnedChat()
+
+      expect(chatRows(wrapper)[0].find('[data-testid="terminal-session-liveness"]').exists()).toBe(true)
+      wrapper.unmount()
+    })
+
+    it('unpins from its own row menu, which drops the row', async () => {
+      const { wrapper } = await mountWithPinnedChat()
+
+      await wrapper.get(`[data-testid="terminal-chat-row"][data-slug="${CHAT_SLUG}"] [data-testid="terminal-chat-menu-toggle"]`).trigger('click')
+      await wrapper.get('[data-testid="terminal-chat-unpin"]').trigger('click')
+      await flushPromises()
+
+      expect(chatRows(wrapper)).toHaveLength(0)
+      expect(wrapper.find('[data-testid="terminal-chats-group"]').exists()).toBe(false)
+      wrapper.unmount()
+    })
+
+    // Rename, recycle, delete and details all address a hive session, and a chat
+    // has none: its record is the Agents area's.
+    it('offers only the pin’s own two entries in its menu', async () => {
+      const { wrapper } = await mountWithPinnedChat()
+
+      await wrapper.get(`[data-testid="terminal-chat-row"][data-slug="${CHAT_SLUG}"] [data-testid="terminal-chat-menu-toggle"]`).trigger('click')
+
+      expect(wrapper.find('[data-testid="terminal-chat-open-in-agents"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="terminal-chat-unpin"]').exists()).toBe(true)
+      for (const entry of ['start', 'kill', 'detail', 'rename', 'recycle', 'delete']) {
+        expect(wrapper.find(`[data-testid="session-menu-${entry}"]`).exists()).toBe(false)
+      }
+      wrapper.unmount()
+    })
+
+    it('routes back to the Agents area with the chat open', async () => {
+      const { wrapper, router } = await mountWithPinnedChat()
+
+      await wrapper.get(`[data-testid="terminal-chat-row"][data-slug="${CHAT_SLUG}"] [data-testid="terminal-chat-menu-toggle"]`).trigger('click')
+      await wrapper.get('[data-testid="terminal-chat-open-in-agents"]').trigger('click')
+      await flushPromises()
+
+      expect(router.currentRoute.value.name).toBe('agents')
+      expect(router.currentRoute.value.params.workspace).toBe('demo')
+      expect(router.currentRoute.value.query.chat).toBe('7')
+      wrapper.unmount()
+    })
+
+    // There is no hive session behind an agentws-* slug for a spawn
+    // configuration to be read from, so starting one has to be the Agents area's
+    // resume — and it stays an offered action rather than something the attach does.
+    it('resumes a stopped chat through the Agents area rather than hive’s start', async () => {
+      const start = vi.fn().mockResolvedValue({ started: true })
+      mocks.createTerminalClient.mockReturnValue({ start, listWindows: fakeListWindows({}) })
+      mocks.resumeSession.mockResolvedValue({ ...chat, terminalId: CHAT_SLUG })
+      const session = fakeSession()
+      session.tabs.value = []
+      session.status.value = 'ended'
+      session.endReason.value = 'not-started'
+      const { wrapper } = await mountWithPinnedChat(session, { ...chat, terminalId: '', windowId: '', cols: 0, rows: 0 })
+
+      await chatRows(wrapper)[0].trigger('click')
+      await flushPromises()
+
+      const panel = wrapper.get('[data-testid="terminal-session-not-started"]')
+      expect(panel.text()).toContain('Chat not running')
+      expect(panel.text()).not.toContain('agent command')
+      expect(wrapper.get('[data-testid="terminal-start-session"]').text()).toContain('Resume chat')
+
+      await wrapper.get('[data-testid="terminal-start-session"]').trigger('click')
+      await flushPromises()
+
+      expect(mocks.resumeSession).toHaveBeenCalledWith({ id: 7 })
+      expect(start).not.toHaveBeenCalled()
       wrapper.unmount()
     })
   })

@@ -13,8 +13,8 @@ const workspaceFixtures: AgentWorkspace[] = [
 ]
 
 const recentFixtures: AgentSession[] = [
-  { id: 2, workspace: 'demo-b', name: 'b-session', agent: 'codex', lastOpenedAt: Date.now() - 1_000, terminalId: 'agentws-2', windowId: '@2', cols: 80, rows: 24, resumeAttempted: true, notice: '' },
-  { id: 1, workspace: 'demo-a', name: 'a-session', agent: 'claude', lastOpenedAt: Date.now() - 100_000, terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true, notice: '' },
+  { id: 2, workspace: 'demo-b', name: 'b-session', agent: 'codex', lastOpenedAt: Date.now() - 1_000, slug: 'agentws-2', terminalId: 'agentws-2', windowId: '@2', cols: 80, rows: 24, resumeAttempted: true, notice: '' },
+  { id: 1, workspace: 'demo-a', name: 'a-session', agent: 'claude', lastOpenedAt: Date.now() - 100_000, slug: 'agentws-1', terminalId: '', windowId: '', cols: 0, rows: 0, resumeAttempted: true, notice: '' },
 ]
 
 const mocks = vi.hoisted(() => ({

@@ -241,6 +241,38 @@ func TestTerminalsStartScratchOpensItInHomeWithoutAskingHive(t *testing.T) {
 	assert.False(t, started, "a scratch terminal that is running is never recreated over")
 }
 
+// An agent workspace chat is a tmux session in its own namespace (ADR
+// agent-workspace-sessions-are-tmux-sessions), and the Code view now attaches
+// pinned ones through this service. That works only because the slug is the whole
+// contract here — nothing on the attach or sweep path checks it against hive's
+// session list — so this pins the property the sidebar depends on, including the
+// half that must *not* work: Start would ask hive for a spawn configuration that
+// does not exist, which is why resuming a chat is the Agents area's own call.
+func TestTerminalsAttachAndSweepAnAgentChatSlugHiveKnowsNothingAbout(t *testing.T) {
+	tmux := privateTmux(t)
+	const slug = "agentws-42"
+	require.NoError(t, tmux("-f", "/dev/null", "new-session", "-d", "-s", slug, "-n", "claude", "-x", "120", "-y", "40", "sh"))
+	starter := &spawningStarter{err: errors.New("no such hive session")}
+	terminals := newTestTerminals(t, starter)
+
+	windows, err := terminals.Attach(t.Context(), slug, 120, 40)
+	require.NoError(t, err)
+	require.Len(t, windows, 1)
+	assert.Equal(t, "claude", windows[0].Name)
+	assert.Empty(t, starter.calls, "attaching never goes through hive's spawn")
+
+	// The sidebar reads a pinned chat's liveness off this sweep, because hive's
+	// status projection has no row to answer for it.
+	swept, err := terminals.ListAllWindows(t.Context(), []string{slug})
+	require.NoError(t, err)
+	assert.Len(t, swept[slug], 1)
+
+	// A chat tmux is not holding reports itself the same way any cold session
+	// does, which is what puts the pane into its offer-a-resume state.
+	_, err = terminals.Attach(t.Context(), "agentws-43", 120, 40)
+	assert.Equal(t, KindNotFound, KindOf(err))
+}
+
 // The + on a row is offered for the session, not for what is on screen, so it
 // has to work before anything has attached — which is what a first click on the
 // pinned terminal is.

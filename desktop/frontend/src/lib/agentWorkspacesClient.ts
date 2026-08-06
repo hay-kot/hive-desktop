@@ -88,6 +88,12 @@ export interface AgentSession {
   name: string
   agent: string
   lastOpenedAt: number
+  /**
+   * The tmux session name this chat is addressed by whether or not it is
+   * running — the key a row, a route or an attach pool is safe to hold.
+   * `terminalId`, not this, is what reports liveness.
+   */
+  slug: string
   /** The tmux session name on the shared terminal stream; empty when nothing is running. */
   terminalId: string
   /**

@@ -142,11 +142,11 @@ describe('terminalSessionGroups', () => {
 
   it('pins the scratch terminal above the repositories, in a section of its own', () => {
     const scratch = row('Terminals', '')
-    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], scratch)
+    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], scratch, [])
 
     // The section takes its name from the row, which is the heading it draws.
     expect(groups.map((group) => group.name)).toEqual(['Terminals', 'colonyops/hive'])
-    expect(groups[0].pinned).toBe(true)
+    expect(groups[0].kind).toBe('scratch')
     expect(groups[0].sessions).toEqual([scratch])
     // It is its own section rather than a session with no remote, which is
     // where the repo grouping would otherwise have put it.
@@ -154,8 +154,23 @@ describe('terminalSessionGroups', () => {
   })
 
   it('is the repositories alone when there is no scratch terminal', () => {
-    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], null)
+    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], null, [])
 
     expect(groups.map((group) => group.name)).toEqual(['colonyops/hive'])
+  })
+
+  it('leads with the pinned chats, above the scratch terminal', () => {
+    const chat = row('api-refactor', '')
+    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], row('Terminals', ''), [chat])
+
+    expect(groups.map((group) => group.kind)).toEqual(['chats', 'scratch', 'repo'])
+    expect(groups[0].name).toBe('Chats')
+    expect(groups[0].sessions).toEqual([chat])
+  })
+
+  it('omits the chats section entirely when nothing is pinned', () => {
+    const groups = terminalSessionGroups([row('zeta', 'git@github.com:colonyops/hive.git')], null, [])
+
+    expect(groups.map((group) => group.kind)).toEqual(['repo'])
   })
 })
