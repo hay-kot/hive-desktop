@@ -1,7 +1,6 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import {
   AppearanceSettings as GetAppearanceSettings,
-  MonospaceFonts as GetMonospaceFonts,
   SetTerminalFontFamily as PersistTerminalFontFamily,
   SetTerminalFontSize as PersistTerminalFontSize,
   SetTerminalFontWeights as PersistTerminalFontWeights,
@@ -104,7 +103,6 @@ const currentWeight: Ref<TerminalFontWeight> = ref(defaultTerminalFontWeight)
 const currentWeightBold: Ref<TerminalFontWeight> = ref(defaultTerminalFontWeightBold)
 const currentLineHeight: Ref<TerminalLineHeight> = ref(defaultTerminalLineHeight)
 const currentLetterSpacing: Ref<TerminalLetterSpacing> = ref(defaultTerminalLetterSpacing)
-const installedFamilies: Ref<string[]> = ref([])
 
 let hydrated = false
 // Same staleness guard as useTheme: a selection made while the hydrating read
@@ -135,25 +133,6 @@ async function hydrate(): Promise<void> {
     // An unavailable binding keeps the defaults; nothing to heal.
     console.warn('Unable to load terminal font settings from settings.yaml', error)
   }
-}
-
-// Scanning every font file on the machine takes tens of milliseconds and the Go
-// side caches the result for the process, so this runs once, lazily, when a
-// picker first needs it — never on the path a terminal opens through.
-let fontsRequested = false
-
-export function loadInstalledMonospaceFonts(): void {
-  if (fontsRequested) return
-  fontsRequested = true
-  void GetMonospaceFonts()
-    .then((families) => {
-      installedFamilies.value = families ?? []
-    })
-    .catch((error: unknown) => {
-      // A failed scan leaves the picker with the bundled face alone, which is
-      // still a working terminal.
-      console.warn('Unable to list installed monospace fonts', error)
-    })
 }
 
 function persist(write: () => Promise<void>): void {
@@ -220,7 +199,6 @@ export function useTerminalFont(): {
   family: Ref<string>
   /** The family to show selected: the bundled face stands in for empty. */
   selectedFamily: ComputedRef<string>
-  installedFamilies: Ref<string[]>
   weight: Ref<TerminalFontWeight>
   weightBold: Ref<TerminalFontWeight>
   lineHeight: Ref<TerminalLineHeight>
@@ -235,7 +213,6 @@ export function useTerminalFont(): {
     px: computed(() => terminalFontSizePx[currentSize.value]),
     family: currentFamily,
     selectedFamily: computed(() => currentFamily.value || TERMINAL_FONT),
-    installedFamilies,
     weight: currentWeight,
     weightBold: currentWeightBold,
     lineHeight: currentLineHeight,
@@ -250,8 +227,6 @@ export function resetTerminalFontForTests(): void {
   currentWeightBold.value = defaultTerminalFontWeightBold
   currentLineHeight.value = defaultTerminalLineHeight
   currentLetterSpacing.value = defaultTerminalLetterSpacing
-  installedFamilies.value = []
-  fontsRequested = false
   hydrated = false
   version = 0
   persistChain = Promise.resolve()

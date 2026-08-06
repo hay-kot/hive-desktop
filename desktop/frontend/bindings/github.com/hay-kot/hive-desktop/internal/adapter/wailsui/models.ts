@@ -35,6 +35,14 @@ export interface AppearanceSettings {
     "theme": string;
 
     /**
+     * FontFamily is the family the app's chrome draws with and MonoFontFamily
+     * the one its monospace text draws with. Empty is the bundled face; a
+     * generic keyword (system-ui, ui-monospace) is the platform stack.
+     */
+    "fontFamily": string;
+    "monoFontFamily": string;
+
+    /**
      * TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
      * pixel count — the frontend owns the mapping.
      */
@@ -158,6 +166,15 @@ export interface FlowSummary {
 export interface GithubSettings {
     "pollIntervalSeconds": number;
     "minPollIntervalSeconds": number;
+}
+
+/**
+ * InstalledFonts is what the font pickers offer: every installed family, and
+ * the fixed-pitch subset the ones that draw a grid are limited to.
+ */
+export interface InstalledFonts {
+    "all": string[] | null;
+    "monospace": string[] | null;
 }
 
 /**

@@ -1,5 +1,5 @@
-// Package fonts enumerates the monospace font families installed on this
-// machine so the terminal can be pointed at one of them.
+// Package fonts enumerates the font families installed on this machine so the
+// app's chrome and its terminals can be pointed at one of them.
 //
 // The webview cannot answer this itself: the Local Font Access API
 // (queryLocalFonts) is Chromium-only, and macOS runs on WKWebView, so a picker
@@ -40,30 +40,39 @@ var fontExtensions = map[string]bool{
 	".otc": true,
 }
 
+// Families is one scan's result, split by what a picker can offer. Monospace is
+// a subset of All: a fixed-pitch family is a legitimate choice for the UI face
+// too, and someone running a terminal font everywhere is the reason this
+// package exists at all.
+type Families struct {
+	All       []string
+	Monospace []string
+}
+
 // Scanning parses every font file on the machine, so the result is cached for
 // the process: a font installed while the app runs is picked up on the next
 // launch, which is the same deal every terminal emulator offers.
 type Lister struct {
 	once     sync.Once
-	families []string
+	families Families
 	// Swapped by tests to count scans and to keep them off the host's fonts.
-	scan func() []string
+	scan func() Families
 }
 
 func NewLister() *Lister {
-	return &Lister{scan: func() []string { return scan(searchPaths()) }}
+	return &Lister{scan: func() Families { return scan(searchPaths()) }}
 }
 
-// Monospace returns the installed monospace families, sorted and deduplicated.
+// List returns the installed families, sorted and deduplicated.
 //
-// A machine with no readable font directory is not an error — it yields an
-// empty list, and the caller falls back to the bundled face.
-func (l *Lister) Monospace() []string {
+// A machine with no readable font directory is not an error — it yields empty
+// lists, and the caller falls back to the bundled faces.
+func (l *Lister) List() Families {
 	l.once.Do(func() { l.families = l.scan() })
 	return l.families
 }
 
-func scan(roots []string) []string {
+func scan(roots []string) Families {
 	paths := collect(roots)
 
 	// One parse per file, and a file is 2-3MB for a patched Nerd Font, so the
@@ -71,7 +80,7 @@ func scan(roots []string) []string {
 	// hundred fonts under a second without pinning the machine.
 	workers := min(runtime.NumCPU(), len(paths))
 	if workers == 0 {
-		return nil
+		return Families{}
 	}
 
 	// Deduped as it is collected rather than through a result channel: a font
@@ -79,20 +88,24 @@ func scan(roots []string) []string {
 	// not bounded by the number of files and any buffer sized from one could
 	// wedge a worker against a receiver that has not started draining.
 	var mu sync.Mutex
-	seen := make(map[string]struct{}, len(paths))
+	seen := make(map[string]bool, len(paths))
 
 	queue := make(chan string)
 	var wg sync.WaitGroup
 	for range workers {
 		wg.Go(func() {
 			for path := range queue {
-				families := familiesIn(path)
-				if len(families) == 0 {
+				found := familiesIn(path)
+				if len(found) == 0 {
 					continue
 				}
 				mu.Lock()
-				for _, family := range families {
-					seen[family] = struct{}{}
+				for _, f := range found {
+					// A family whose weight files disagree counts as monospace
+					// if any of them is: the italic of a fixed-pitch family
+					// often is not, and dropping the family over that would
+					// hide it from the terminal picker entirely.
+					seen[f.name] = seen[f.name] || f.monospace
 				}
 				mu.Unlock()
 			}
@@ -104,11 +117,17 @@ func scan(roots []string) []string {
 	close(queue)
 	wg.Wait()
 
-	families := slices.Collect(maps.Keys(seen))
-	slices.SortFunc(families, func(a, b string) int {
+	all := slices.Collect(maps.Keys(seen))
+	slices.SortFunc(all, func(a, b string) int {
 		return strings.Compare(strings.ToLower(a), strings.ToLower(b))
 	})
-	return families
+	monospace := make([]string, 0, len(all))
+	for _, name := range all {
+		if seen[name] {
+			monospace = append(monospace, name)
+		}
+	}
+	return Families{All: all, Monospace: monospace}
 }
 
 func collect(roots []string) []string {
@@ -136,10 +155,14 @@ func collect(roots []string) []string {
 	return paths
 }
 
-// familiesIn returns the monospace families a single font file declares. A
-// collection (.ttc) carries several faces, and an unparsable or proportional
-// file yields none.
-func familiesIn(path string) []string {
+type family struct {
+	name      string
+	monospace bool
+}
+
+// familiesIn returns the families a single font file declares. A collection
+// (.ttc) carries several faces, and an unparsable file yields none.
+func familiesIn(path string) []family {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil
@@ -148,14 +171,14 @@ func familiesIn(path string) []string {
 	defer func() { _ = file.Close() }()
 
 	if collection, err := sfnt.ParseCollectionReaderAt(file); err == nil {
-		var families []string
+		var families []family
 		for i := range collection.NumFonts() {
 			face, err := collection.Font(i)
 			if err != nil {
 				continue
 			}
-			if family, ok := monospaceFamily(face); ok {
-				families = append(families, family)
+			if found, ok := describe(face); ok {
+				families = append(families, found)
 			}
 		}
 		return families
@@ -165,16 +188,21 @@ func familiesIn(path string) []string {
 	if err != nil {
 		return nil
 	}
-	if family, ok := monospaceFamily(face); ok {
-		return []string{family}
+	if found, ok := describe(face); ok {
+		return []family{found}
 	}
 	return nil
 }
 
-func monospaceFamily(face *sfnt.Font) (string, bool) {
-	if !isMonospace(face) {
-		return "", false
+func describe(face *sfnt.Font) (family, bool) {
+	name, ok := familyName(face)
+	if !ok {
+		return family{}, false
 	}
+	return family{name: name, monospace: isMonospace(face)}, true
+}
+
+func familyName(face *sfnt.Font) (string, bool) {
 	var buf sfnt.Buffer
 	// The typographic family is what groups the four weight/slant faces of one
 	// family under a single name; NameIDFamily splits at four faces, so a

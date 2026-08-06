@@ -7,10 +7,12 @@ import './styles/main.css'
 
 import { createApp } from 'vue'
 import App from './App.vue'
+import { initializeAppFont } from './composables/useAppFont'
 import { initializeKeybindings } from './composables/useKeybindings'
 import { initializeTheme } from './composables/useTheme'
 import { router } from './router'
 
 initializeTheme()
+initializeAppFont()
 initializeKeybindings()
 createApp(App).use(router).mount('#app')

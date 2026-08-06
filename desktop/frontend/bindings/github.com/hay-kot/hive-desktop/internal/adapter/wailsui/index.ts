@@ -58,6 +58,7 @@ export type {
     ExperimentalSettings,
     FlowSummary,
     GithubSettings,
+    InstalledFonts,
     KeybindingSettings,
     MarkImageView,
     NotificationActivation,
