@@ -1,6 +1,6 @@
 [tools]
 "go" = "1.26"
-"go:github.com/wailsapp/wails/v3/cmd/wails3" = "v3.0.0-alpha2.117"
+"go:github.com/wailsapp/wails/v3/cmd/wails3" = "v3.0.0-beta.4"
 "go:github.com/abice/go-enum" = "v0.9.4"
 "go:golang.org/x/tools/cmd/deadcode" = "v0.48.0"
 "go:golang.org/x/vuln/cmd/govulncheck" = "v1.6.0"
@@ -137,19 +137,27 @@ run = [
 # without pushing and waiting several minutes for the answer. `check` stays the
 # pre-push gate: this is the superset CI adds on top of it (bindings, vendor
 # drift, deadcode, govulncheck, the build, and the frontend), and it is
-# deliberately not a git hook — it needs the network and a built frontend.
+# deliberately not a git hook — it needs the network, Docker, and a built
+# frontend.
+#
+# e2e is here and nowhere else. It was dropped from .github/workflows/ci.yml for
+# being too slow, which left it with no gate at all — thirteen specs had rotted
+# against a UI that moved on before anyone noticed. Local is now the only place
+# it runs, so running it is not optional here.
 #
 # Grouped, not `depends`: the first group rewrites .go files every later group
-# reads, and the groups after it only read, so they run concurrently. Mirrors
-# .github/workflows/ci.yml — a gate added there belongs here too.
+# reads, and the groups after it only read, so they run concurrently. e2e is
+# last on its own — it builds a container image and is far slower than
+# everything above it, so a cheap failure should never wait behind it.
 [tasks.ci]
-description = "Run every check CI runs (Go + frontend), locally"
+description = "Run every gate locally: Go, frontend, and the e2e suite CI does not run"
 run = [
   { tasks = ["check:generate"] },
   { tasks = ["check:bindings", "check:vendor", "check:adr", "check:migrations", "check:tidy"] },
   { tasks = ["lint", "test", "check:deadcode", "check:vuln"] },
   { tasks = ["desktop:frontend:deps"] },
   { tasks = ["desktop:build:frontend", "desktop:test:frontend"] },
+  { tasks = ["desktop:e2e"] },
 ]
 
 [tasks."check:migrations"]

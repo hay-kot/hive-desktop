@@ -52,36 +52,23 @@ test.beforeAll(async ({}, testInfo) => {
   await resetServerState(testInfo.project.use.baseURL)
 })
 
-test('first run creates the exact starter catalog when the private file is absent', async ({ page }) => {
+// The starter catalog's exact bytes are pinned in Go, by
+// actions.TestSeedDefaultsIfMissingInstallsExactBytesOnce. Restating them here
+// only produced a second copy that rotted the next time the catalog grew, so
+// this asserts what a real first run is the only thing that can show: the app
+// wrote that catalog to the configured path.
+test('first run seeds the starter catalog when the private file is absent', async ({ page }) => {
   await page.goto(seedServer)
   await expect(page.getByTestId('feed-item')).toHaveCount(6)
   const state = await smoke(page)
   const seeded = await readFile(state.actionsPath, 'utf8')
-  expect(seeded).toBe(`version: 1
-actions:
-  - id: review-pr
-    label: Review PR
-    type: launch-session
-    show_in_detail: true
-    applies_to: [pr]
-    repo_template: "https://github.com/{{ .Payload.repo }}.git"
-    prompt_template: |
-      Review pull request {{ .Payload.title }}
 
-      {{ .Payload.url }}
-  - id: start-implementation
-    label: Start implementation
-    type: launch-session
-    show_in_detail: true
-    applies_to: [issue]
-    repo_template: "https://github.com/{{ .Payload.repo }}.git"
-    prompt_template: |
-      Work on {{ .Payload.title }}
-
-      {{ .Payload.url }}
-
-      {{ .Payload.body }}
-`)
+  expect(seeded).toMatch(/^version: 1$/m)
+  expect(seeded).toMatch(/^actions:$/m)
+  expect(seeded).toMatch(/^launchers:$/m)
+  for (const id of ['review-pr', 'address-review-feedback', 'start-implementation', 'copy-checkout', 'open-on-github', 'share-to-team']) {
+    expect(seeded).toContain(`- id: ${id}`)
+  }
 })
 
 test.beforeEach(async ({ page }) => {
@@ -131,9 +118,13 @@ test('drag-reorders the catalog and honors that order in settings, the detail pa
   const inDetail = [first, action(state.runId, 'message'), action(state.runId, 'template-launch')]
   await page.getByTestId('application-settings').click()
   await page.getByTestId('settings-category-actions').click()
+  // rowIds snapshots through evaluateAll, which does not auto-wait, so one
+  // visible row does not mean the list finished rendering — reading it here
+  // could return a short list, or an empty one. Poll for the head before
+  // taking the snapshot the rest of the test is built on.
   await expect(page.getByTestId(`action-row-${moved}`)).toBeVisible()
+  await expect.poll(async () => (await rowIds(page))[0]).toBe(first)
   const before = await rowIds(page)
-  expect(before[0]).toBe(first)
 
   // Drop on the top edge of the first row: the catalog's new head.
   await page.getByTestId(`action-row-${moved}`).dragTo(page.getByTestId(`action-row-${first}`), { targetPosition: { x: 60, y: 3 } })

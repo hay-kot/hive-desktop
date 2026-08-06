@@ -14,10 +14,14 @@ test('lists one card per registered connector, with the mock account connected',
   await page.getByTestId('settings-category-integrations').click()
   await expect(page.getByTestId('settings-integrations')).toBeVisible()
 
-  // Both registered connectors, and only those two.
+  // Every registered connector, and nothing else. Grafana is one card, not
+  // two: the service groups by provider, so grafana_metrics and grafana_alerts
+  // collapse into it.
   await expect(page.getByTestId('integration-github')).toBeVisible()
   await expect(page.getByTestId('integration-webhook')).toBeVisible()
-  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(2)
+  await expect(page.getByTestId('integration-grafana')).toBeVisible()
+  await expect(page.getByTestId('integration-exec')).toBeVisible()
+  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(4)
 
   // The mock connection stores github/octocat, so the card reports the account
   // rather than a bare "Connected".
@@ -35,7 +39,7 @@ test('the removed placeholder integrations are gone', async ({ page }) => {
   await page.getByTestId('settings-category-integrations').click()
   await expect(page.getByTestId('settings-integrations')).toBeVisible()
 
-  for (const id of ['grafana', 'posthog', 'slack']) {
+  for (const id of ['posthog', 'slack']) {
     await expect(page.getByTestId(`integration-${id}`)).toHaveCount(0)
   }
 })

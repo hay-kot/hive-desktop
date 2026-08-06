@@ -106,6 +106,11 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await expect(page.getByTestId('onboarding')).toContainText('Waiting for authorization…')
     await page.screenshot({ path: join(screenshotsDir, `onboarding-device-flow-${projectName}.png`), fullPage: true })
 
+    // Step 3 stands between the grant and the feed: the OS notification
+    // prompt. Skipping is the path that needs no OS grant, so it is the one a
+    // headless run can take.
+    await page.getByTestId('onboarding-permissions-skip').click()
+
     // Connecting is what fills the workspace: it was created empty because a
     // source node names the account it fetches as. The starter graph is three
     // sources.github -> feed pairs plus a "Review requests" feed and notify

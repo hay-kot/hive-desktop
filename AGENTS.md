@@ -85,14 +85,19 @@ Every gate is a mise task (`mise tasks`); lefthook runs the relevant ones as git
 
 - **CI-only** (too slow or too network-bound for a hook, so they are deliberately not in `check`): `check:deadcode` reports functions unreachable from any `main` or test — run it after deleting a caller, since that is what strands a helper. `check:vuln` runs `govulncheck` and fails only when a vulnerable dependency symbol is actually reachable from this code. Both are mise tasks, so you can run either locally when a change warrants it.
 
-**`mise run ci` runs every gate CI runs — Go and frontend — in ~20s.** Prefer it
-over pushing to find out: it is the superset `check` does not cover (bindings,
-vendor drift, deadcode, govulncheck, the frontend build and tests) and it
-installs frontend dependencies if they are missing. PR CI runs `mise run test`;
-merges to main run `mise run test:race`, so a race only the detector sees is
-caught post-merge rather than in review (ADR ci-runs-on-main-to-seed-the-cache-prs-read).
+**`mise run ci` runs every gate, including the one CI does not.** Prefer it over
+pushing to find out: it is the superset `check` does not cover (bindings, vendor
+drift, deadcode, govulncheck, the frontend build and tests), it installs
+frontend dependencies if they are missing, and it ends with the e2e suite. PR CI
+runs `mise run test`; merges to main run `mise run test:race`, so a race only
+the detector sees is caught post-merge rather than in review (ADR ci-runs-on-main-to-seed-the-cache-prs-read).
 
-Wails TS bindings and the e2e suite are deliberately not hooked — both need a full app build. Run `mise run desktop:generate` / `mise run desktop:e2e` when the change warrants it; CI covers them either way.
+Everything up to e2e finishes in ~20s; e2e itself builds a container image and
+takes minutes, so it runs last and alone. **It is not in GitHub CI** — it was
+dropped for being too slow, which means `mise run ci` is the only thing that
+runs it. Skipping it locally means nobody does (ADR the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci).
+
+Wails TS bindings are deliberately not hooked — they need a full app build. Run `mise run desktop:generate` when the change warrants it; CI checks them either way.
 
 **Never bypass a hook** — no `LEFTHOOK=0`, `git commit -n`, or `git push --no-verify`. The escape hatch exists for human emergencies; a failing gate is a task to finish, not a flag to add.
 

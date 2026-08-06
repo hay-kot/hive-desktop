@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
 	"os/exec"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,88 +14,37 @@ import (
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/tmuxtest"
 )
 
-// These tests drive a real tmux server. Each one gets its own TMUX_TMPDIR, its
-// own session name, and an unconditional kill-server, so they never touch a
-// developer's live tmux and never see each other's.
-
-var tmuxVersionPattern = regexp.MustCompile(`(\d+)\.(\d+)`)
-
-func requireTmux(t *testing.T) {
-	t.Helper()
-	// A tmux client resolves its server from $TMUX before TMUX_TMPDIR, so any
-	// invocation that misses the scrub would create sessions on — and
-	// kill-server — the tmux hosting this very process. Not worth the bet.
-	if os.Getenv("TMUX") != "" {
-		t.Skip("running inside tmux; the real-tmux integration tests run in CI or Docker only")
-	}
-	out, err := exec.CommandContext(t.Context(), "tmux", "-V").Output()
-	if err != nil {
-		t.Skip("tmux is not installed; the terminal integration tests need one")
-	}
-	match := tmuxVersionPattern.FindStringSubmatch(string(out))
-	if match == nil {
-		t.Skipf("could not read a version from %q", strings.TrimSpace(string(out)))
-	}
-	major, _ := strconv.Atoi(match[1])
-	minor, _ := strconv.Atoi(match[2])
-	if major < 3 || (major == 3 && minor < 2) {
-		t.Skipf("tmux %d.%d is older than the 3.2 control-mode floor", major, minor)
-	}
-}
+// These tests drive a real tmux server. Each one gets a server of its own and
+// its own session name, so they never see each other's. See internal/tmuxtest
+// for how they are kept away from a developer's own.
 
 type tmuxFixture struct {
-	t    *testing.T
-	slug string
+	t      *testing.T
+	slug   string
+	socket string
 }
 
 // startTmux boots a private tmux server holding one detached session named
 // slug, with a single `sh` window called claude.
 func startTmux(t *testing.T, slug string) *tmuxFixture {
 	t.Helper()
-	requireTmux(t)
 
-	// t.TempDir() bakes the test name into the path, and a tmux socket is a unix
-	// socket bound by the ~104 byte sun_path limit — on macOS the two together
-	// overflow it.
-	dir, err := os.MkdirTemp("", "hvtmux") //nolint:usetesting // socket path length, see above
-	require.NoError(t, err)
-	t.Setenv("TMUX_TMPDIR", dir)
-	t.Cleanup(func() {
-		kill := exec.Command("tmux", "kill-server")
-		kill.Env = scrubbedTmuxEnv()
-		_ = kill.Run()
-		_ = os.RemoveAll(dir)
-	})
-
-	fixture := &tmuxFixture{t: t, slug: slug}
+	fixture := &tmuxFixture{t: t, slug: slug, socket: tmuxtest.Private(t)}
 	fixture.tmux("-f", "/dev/null", "new-session", "-d", "-s", slug, "-n", "claude", "-x", "120", "-y", "40", "sh")
 	return fixture
 }
 
 func (f *tmuxFixture) tmux(args ...string) string {
 	f.t.Helper()
-	cmd := exec.CommandContext(f.t.Context(), "tmux", args...)
-	cmd.Env = scrubbedTmuxEnv()
+	cmd := exec.CommandContext(f.t.Context(), "tmux", append([]string{"-S", f.socket}, args...)...)
+	cmd.Env = tmuxtest.ScrubbedEnv()
 	out, err := cmd.CombinedOutput()
 	require.NoErrorf(f.t, err, "tmux %v: %s", args, out)
 	return string(out)
-}
-
-// scrubbedTmuxEnv drops $TMUX/$TMUX_PANE so every fixture command resolves the
-// server from the test's TMUX_TMPDIR, exactly as tmuxcc's detachedEnv does for
-// the control client.
-func scrubbedTmuxEnv() []string {
-	env := os.Environ()
-	kept := env[:0]
-	for _, kv := range env {
-		if strings.HasPrefix(kv, "TMUX=") || strings.HasPrefix(kv, "TMUX_PANE=") {
-			continue
-		}
-		kept = append(kept, kv)
-	}
-	return kept
 }
 
 // windowSize reports the session's own idea of its window size, which is what

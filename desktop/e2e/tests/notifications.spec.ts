@@ -9,21 +9,23 @@ test('persists notification preferences from application settings', async ({ pag
   await expect(page.getByTestId('notification-settings')).toBeVisible()
 
   const master = page.getByTestId('notification-enable')
+  const delivery = page.getByTestId('notification-delivery')
   await expect(master).toHaveAttribute('aria-checked', 'true')
-  await expect(page.getByTestId('notification-delivery-auto')).toBeChecked()
+  await expect(delivery).toContainText('Automatic')
   await expect(page.getByTestId('notification-sound')).toBeVisible()
 
-  await page.getByTestId('notification-delivery-app').check()
-  await expect(page.getByTestId('notification-delivery-app')).toBeChecked()
+  await delivery.click()
+  await page.getByTestId('notification-delivery-option-app').click()
+  await expect(delivery).toContainText('Always in Hive')
 
   await master.click()
   await expect(master).toHaveAttribute('aria-checked', 'false')
-  await expect(page.getByTestId('notification-delivery-auto')).toBeDisabled()
+  await expect(delivery).toBeDisabled()
 
   await page.reload()
   await expect(page.getByTestId('notification-settings')).toBeVisible()
   await expect(page.getByTestId('notification-enable')).toHaveAttribute('aria-checked', 'false')
-  await expect(page.getByTestId('notification-delivery-app')).toBeChecked()
+  await expect(page.getByTestId('notification-delivery')).toContainText('Always in Hive')
 })
 
 test('records focused profile rename feedback in both toast and Activity', async ({ page }) => {
