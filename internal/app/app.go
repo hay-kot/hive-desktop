@@ -877,6 +877,7 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 	if grafanaFetchers != nil {
 		factories[grafana.MetricsDescriptor.Type] = grafana.NewMetricsFactory(grafanaFetchers)
 		factories[grafana.AlertsDescriptor.Type] = grafana.NewAlertsFactory(grafanaFetchers)
+		factories[grafana.IRMAlertsDescriptor.Type] = grafana.NewIRMAlertsFactory(grafanaFetchers)
 	}
 	return factories
 }

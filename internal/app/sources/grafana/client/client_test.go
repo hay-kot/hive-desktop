@@ -99,12 +99,47 @@ func TestAlertsListsFiringAlerts(t *testing.T) {
 	}))
 	defer server.Close()
 
-	alerts, err := NewClient(server.URL, "t").Alerts(t.Context())
+	alerts, err := NewClient(server.URL, "t").Alerts(t.Context(), nil)
 	require.NoError(t, err)
 	require.Len(t, alerts, 1)
 	assert.Equal(t, "abc123", alerts[0].Fingerprint)
 	assert.Equal(t, "HighLatency", alerts[0].Labels["alertname"])
 	assert.Equal(t, "p99 over 1s", alerts[0].Annotations["summary"])
+}
+
+// Matchers go out as repeated `filter` params, verbatim. The regex operators
+// survive URL encoding, which is the part a hand-rolled query string breaks.
+func TestAlertsSendsMatchersAsRepeatedFilters(t *testing.T) {
+	t.Parallel()
+
+	var got []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.URL.Query()["filter"]
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	matchers := []string{"squad=adaptive-telemetry", "severity=~critical|warning", "team!=infra"}
+	_, err := NewClient(server.URL, "t").Alerts(t.Context(), matchers)
+	require.NoError(t, err)
+	assert.Equal(t, matchers, got)
+}
+
+// No matchers must not send an empty filter, which Alertmanager rejects as a
+// malformed matcher rather than ignoring.
+func TestAlertsSendsNoFilterWithoutMatchers(t *testing.T) {
+	t.Parallel()
+
+	var raw string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw = r.URL.RawQuery
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, "t").Alerts(t.Context(), nil)
+	require.NoError(t, err)
+	assert.Empty(t, raw)
 }
 
 func TestQueryRateLimited(t *testing.T) {

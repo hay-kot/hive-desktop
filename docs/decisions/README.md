@@ -85,6 +85,7 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-08-05 | [`a-command-is-a-source`](2026-08-05-a-command-is-a-source.md) | A command is a source: `sources.exec` runs a CLI on the tick and ingests its stdout as a snapshot | proposed |
 | 2026-08-05 | [`adr-ids-are-not-allocated`](2026-08-05-adr-ids-are-not-allocated.md) | ADR ids are not allocated | accepted |
 | 2026-08-05 | [`ci-runs-on-main-to-seed-the-cache-prs-read`](2026-08-05-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read | accepted |
+| 2026-08-05 | [`grafana-irm-alert-groups-are-a-sibling-source-node-over-the-oncall-public-api`](2026-08-05-grafana-irm-alert-groups-are-a-sibling-source-node-over-the-oncall-public-api.md) | Grafana IRM alert groups are a sibling source node over the OnCall public API | accepted |
 | 2026-08-05 | [`mcp-replaces-the-agent-facing-http-api`](2026-08-05-mcp-replaces-the-agent-facing-http-api.md) | The MCP server replaces the agent-facing HTTP API | accepted |
 | 2026-08-05 | [`real-tmux-tests-refuse-to-run-beside-a-live-tmux-server`](2026-08-05-real-tmux-tests-refuse-to-run-beside-a-live-tmux-server.md) | Real-tmux tests refuse to run beside a live tmux server | accepted |
 | 2026-08-05 | [`the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci`](2026-08-05-the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci.md) | The e2e suite runs locally via mise run ci, not in GitHub CI | accepted |
