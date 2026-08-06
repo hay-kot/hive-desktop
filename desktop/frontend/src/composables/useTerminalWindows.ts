@@ -18,7 +18,7 @@ import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { paneMayAutoFocus } from '../lib/terminalTree'
-import { terminalWindowPosition } from '../keybindings/catalog'
+import { commandEscapesPane, terminalWindowPosition } from '../keybindings/catalog'
 import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
@@ -304,10 +304,10 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
         openSearch()
         return false
       }
-      // The palette fires from App.vue's window listener, which runs after this
-      // one. Returning false only stops xterm from *also* sending the chord to
-      // the pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
-      if (isPaletteEscape(event)) return false
+      // These fire from App.vue's window listener, which runs after this one.
+      // Returning false only stops xterm from *also* sending the chord to the
+      // pane — Ctrl+Shift+K would otherwise arrive as 0x0B.
+      if (escapesPane(event)) return false
       // Same deal for the chords that move between panes, which would otherwise
       // reach this one as an arrow escape sequence or a control character.
       if (piercesPane(event)) return false
@@ -579,10 +579,12 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     switch (kind) {
       case 'added': {
         if (findTab(windowId)) return
+        const requested = pendingActivate === windowId
         tabs.value = [...tabs.value, createTab(state)]
-        if (state.active || tabs.value.length === 1 || pendingActivate === windowId) {
+        if (state.active || tabs.value.length === 1 || requested) {
           pendingActivate = ''
-          setActive(windowId)
+          if (requested) activateCreated(windowId)
+          else setActive(windowId)
           void nextTick(() => scheduleVote())
         }
         return
@@ -762,12 +764,22 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     tab.term.focus()
   }
 
+  // Whichever of the two arrives second activates the window: the stream may
+  // announce it before this call returns.
   async function newWindow(): Promise<void> {
     const created = await control(() => client.newWindow(slug), 'Could not create a window.')
     if (created?.windowId) {
-      if (findTab(created.windowId)) setActive(created.windowId)
+      if (findTab(created.windowId)) activateCreated(created.windowId)
       else pendingActivate = created.windowId
     }
+  }
+
+  // A window this view asked for is one to type in, so it takes focus as well —
+  // unlike one another client opened, which must not pull the keyboard out of
+  // the pane in front of the user.
+  function activateCreated(windowId: string): void {
+    setActive(windowId)
+    if (paneMayAutoFocus.value) void nextTick(() => findTab(windowId)?.term.focus())
   }
 
   async function closeWindow(windowId: string): Promise<void> {
@@ -857,13 +869,11 @@ function applyOrder<T extends { windowId: string }>(tabs: T[], order: string[]):
     (rank.get(a.windowId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.windowId) ?? Number.MAX_SAFE_INTEGER))
 }
 
-// Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
-// emulator settled on, and for the reason they settled on it: a bare Ctrl+F is
-// readline's forward-char and belongs to the pane, not to us.
-// The command palette is reachable from inside a pane (App.vue), so the pane
-// must not consume its chord as well.
-function isPaletteEscape(event: KeyboardEvent): boolean {
-  return keymap.resolve(terminalEscapeCombo(event) ?? '') === 'palette.toggle'
+// The commands App.vue runs over a focused pane on the escape chord — the
+// palette and the window lifecycle — so the pane must not consume them as well.
+function escapesPane(event: KeyboardEvent): boolean {
+  const id = keymap.resolve(terminalEscapeCombo(event) ?? '')
+  return !!id && commandEscapesPane(id)
 }
 
 // The chords App.vue runs over a focused pane: back to the session tree, and
@@ -877,6 +887,9 @@ function piercesPane(event: KeyboardEvent): boolean {
   return id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null
 }
 
+// Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
+// emulator settled on, and for the reason they settled on it: a bare Ctrl+F is
+// readline's forward-char and belongs to the pane, not to us.
 function isSearchCombo(event: KeyboardEvent): boolean {
   if (event.key !== 'f' && event.key !== 'F') return false
   if (event.ctrlKey) return event.shiftKey && !event.metaKey

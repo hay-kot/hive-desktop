@@ -1160,13 +1160,28 @@ describe('useTerminalWindows', () => {
     expect(client.closeWindow).toHaveBeenCalledWith('hive-abc', '@2')
   })
 
-  it('activates a window created from the toolbar once tmux announces it', async () => {
+  it('activates and focuses a window it created, once tmux announces it', async () => {
     const { session, socket } = await attached()
 
     await session.newWindow()
     socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs' }) })
+    await flushPromises()
 
     expect(session.activeWindowId.value).toBe('@3')
+    // A window this view asked for is one to type in.
+    expect(xterm.FakeTerminal.instances.at(-1)?.focus).toHaveBeenCalled()
+  })
+
+  // Another client's window must not pull the keyboard out of the pane in front
+  // of the user, so it becomes active without taking focus.
+  it('leaves focus alone for a window another client opened', async () => {
+    const { session, socket } = await attached()
+
+    socket.onmessage?.({ data: windowFrame('added', '@3', { name: 'logs', active: true }) })
+    await flushPromises()
+
+    expect(session.activeWindowId.value).toBe('@3')
+    expect(xterm.FakeTerminal.instances.at(-1)?.focus).not.toHaveBeenCalled()
   })
 
   it('refocuses the pane when the active window is reselected', async () => {
@@ -1395,6 +1410,21 @@ describe('useTerminalWindows', () => {
     expect(term.press({ key: '2', ctrlKey: true })).toBe(false)
     // A bare digit is text.
     expect(term.press({ key: '2' })).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  // The tab chords escape rather than pierce, so the pane keeps the bare Ctrl
+  // forms — Ctrl+T is readline's transpose-chars, Ctrl+W its unix-word-rubout.
+  it('keeps the window lifecycle chords off the wire without taking their readline forms', async () => {
+    const { socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+
+    expect(term.press({ key: 't', metaKey: true })).toBe(false)
+    expect(term.press({ key: 'W', ctrlKey: true, shiftKey: true })).toBe(false)
+    expect(term.press({ key: '}', metaKey: true, shiftKey: true })).toBe(false)
+
+    expect(term.press({ key: 't', ctrlKey: true })).toBe(true)
+    expect(term.press({ key: 'w', ctrlKey: true })).toBe(true)
     expect(socket.sent).toHaveLength(0)
   })
 

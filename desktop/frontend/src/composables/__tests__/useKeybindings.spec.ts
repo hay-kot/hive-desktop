@@ -152,6 +152,15 @@ describe('terminalEscapeCombo', () => {
     expect(terminalEscapeCombo(ev({ key: 'k', ctrlKey: true, shiftKey: true }))).toBe('mod+k')
   })
 
+  // ⌘⇧] and Ctrl+Shift+] are the same chord in two dialects, and Shift already
+  // changed the character — so both land on `mod+}`, which is what lets the
+  // tab-walk defaults be spelled once (keybindings/catalog).
+  it('spells a shifted-punctuation chord the same way on both platforms', async () => {
+    const { terminalEscapeCombo } = await import('../useKeybindings')
+    expect(terminalEscapeCombo(ev({ key: '}', metaKey: true, shiftKey: true }))).toBe('mod+}')
+    expect(terminalEscapeCombo(ev({ key: '}', ctrlKey: true, shiftKey: true }))).toBe('mod+}')
+  })
+
   // Option composes on macOS, so an alt chord is not a reliable escape and is
   // left to the pane, which may want it as a meta prefix.
   it('does not claim alt chords', async () => {

@@ -3,6 +3,8 @@ import IconArrowDown from '~icons/lucide/arrow-down'
 import IconArrowUp from '~icons/lucide/arrow-up'
 import IconBot from '~icons/lucide/bot'
 import IconBug from '~icons/lucide/bug'
+import IconChevronLeft from '~icons/lucide/chevron-left'
+import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
@@ -10,10 +12,12 @@ import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelLeft from '~icons/lucide/panel-left'
 import IconPanelRight from '~icons/lucide/panel-right'
+import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconSearch from '~icons/lucide/search'
 import IconSquarePlus from '~icons/lucide/square-plus'
 import IconTerminal from '~icons/lucide/terminal'
+import IconX from '~icons/lucide/x'
 
 // The single declarative source of truth for *bindable* commands — the stable
 // app actions a user can rebind from Settings ▸ Keybindings and that also seed
@@ -57,6 +61,14 @@ export interface BindableCommand {
   context: CommandContext
   /** Omit from the command palette (still bindable + listed in settings). */
   paletteHidden?: boolean
+  /**
+   * Fires over a focused terminal pane, and on the terminal escape chord rather
+   * than on the binding alone — Command on macOS, Ctrl+Shift where there is no
+   * Command (useKeybindings.terminalEscapeCombo). Without it the pane keeps the
+   * key, which is what leaves Ctrl+T as readline's transpose on a platform
+   * where `mod` is Ctrl.
+   */
+  escapesPane?: boolean
 }
 
 // How far the digit row reaches. A session with more windows than this is
@@ -180,6 +192,7 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['mod+k'],
     context: 'global',
     paletteHidden: true,
+    escapesPane: true,
   },
   {
     id: 'session.new',
@@ -237,6 +250,54 @@ export const commandCatalog: BindableCommand[] = [
     defaultCombos: ['/'],
     context: 'terminal',
   },
+  // The window lifecycle, on the chords a terminal emulator already spells them
+  // with: ⌘T, ⌘W, and ⌘⇧] / ⌘⇧[ to walk the list. They escape a focused pane
+  // rather than piercing it, so where `mod` is Ctrl the pane keeps Ctrl+T for
+  // readline and the app answers Ctrl+Shift+T instead.
+  //
+  // `mod+}` is not a slip for `mod+shift+]`: Shift already changed the
+  // character, so the combo names `}` (see useKeybindings.shouldRecordShift),
+  // and that one spelling is what ⌘⇧] and Ctrl+Shift+] both produce.
+  {
+    id: 'terminal.new-window',
+    title: 'New window',
+    group: 'Terminal',
+    keywords: ['terminal', 'window', 'tab', 'new', 'create', 'open'],
+    icon: IconPlus,
+    defaultCombos: ['mod+t'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.close-window',
+    title: 'Close window',
+    group: 'Terminal',
+    keywords: ['terminal', 'window', 'tab', 'close', 'kill'],
+    icon: IconX,
+    defaultCombos: ['mod+w'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.next-window',
+    title: 'Next window',
+    group: 'Terminal',
+    keywords: ['terminal', 'window', 'tab', 'next', 'cycle', 'switch'],
+    icon: IconChevronRight,
+    defaultCombos: ['mod+}'],
+    context: 'terminal',
+    escapesPane: true,
+  },
+  {
+    id: 'terminal.prev-window',
+    title: 'Previous window',
+    group: 'Terminal',
+    keywords: ['terminal', 'window', 'tab', 'previous', 'cycle', 'switch'],
+    icon: IconChevronLeft,
+    defaultCombos: ['mod+{'],
+    context: 'terminal',
+    escapesPane: true,
+  },
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
@@ -282,6 +343,16 @@ export const commandCatalog: BindableCommand[] = [
     context: 'global',
   },
 ]
+
+// Read off the static catalog rather than off `commands`: a launcher pierces a
+// focused pane through its own path, and nothing loaded from actions.yml gets
+// to claim the escape chord.
+const paneEscapes = new Set(commandCatalog.filter((command) => command.escapesPane).map((command) => command.id))
+
+/** Whether the command is one of those that fire over a focused terminal pane. */
+export function commandEscapesPane(commandID: string): boolean {
+  return paneEscapes.has(commandID)
+}
 
 // The namespace a launcher's bindable command id lives in — `launcher.lazygit`
 // for the action `lazygit`. It is what a user writes in settings.yaml, so it is

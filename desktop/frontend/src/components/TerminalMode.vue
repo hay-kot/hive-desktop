@@ -805,6 +805,26 @@ function focusTreeCursor(): void {
   void nextTick(() => (rowElement(cursorKey.value) ?? sidebarEl.value)?.focus())
 }
 
+// A chord that names a window is an intent to type in it, so the cursor follows
+// and the pane is allowed to take focus.
+function goToWindow(tab: TerminalWindowTab | undefined): void {
+  if (!tab) return
+  if (attachedRow.value) cursorRequest.value = `w:${attachedRow.value.id}:${tab.windowId}`
+  paneMayAutoFocus.value = true
+  void current.value?.select(tab.windowId)
+}
+
+// Wrapping, where the tree's own walk clamps: a session's windows are a ring in
+// every terminal emulator, and there is nowhere else for "next" to go from the
+// last one.
+function relativeWindow(delta: number): TerminalWindowTab | undefined {
+  const session = current.value
+  const tabs = session?.tabs.value ?? []
+  const at = tabs.findIndex((tab) => tab.windowId === session?.activeWindowId.value)
+  if (at < 0) return undefined
+  return tabs[(at + delta + tabs.length) % tabs.length]
+}
+
 onMounted(() => setTerminalTreeHandles({
   focusTree: focusTreeCursor,
   // Selected, not just focused: `/` on a field that already has a query means
@@ -816,12 +836,21 @@ onMounted(() => setTerminalTreeHandles({
   // Counted along the strip rather than clamped to it: ⌘3 means the third
   // window, so a session with two ignores it instead of standing the last one
   // in for a window the user did not ask for.
-  selectWindow: (position: number): void => {
-    const tab = current.value?.tabs.value[position - 1]
-    if (!tab) return
-    if (attachedRow.value) cursorRequest.value = `w:${attachedRow.value.id}:${tab.windowId}`
+  selectWindow: (position: number): void => goToWindow(current.value?.tabs.value[position - 1]),
+  stepWindow: (delta: number): void => goToWindow(relativeWindow(delta)),
+  newWindow: (): void => {
+    const row = attachedRow.value
+    if (!row) return
     paneMayAutoFocus.value = true
-    void current.value?.select(tab.windowId)
+    // tmux names the window, so there is no key to point the cursor at yet.
+    // Dropping the request lets it fall back to the attached session's active
+    // window, which is the new one as soon as the event lands.
+    cursorRequest.value = ''
+    void newWindowIn(row)
+  },
+  closeWindow: (): void => {
+    const windowId = current.value?.activeWindowId.value
+    if (windowId) void current.value?.closeWindow(windowId)
   },
 }))
 onBeforeUnmount(() => setTerminalTreeHandles(null))
