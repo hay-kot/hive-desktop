@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 	"sync"
@@ -566,6 +567,40 @@ func TestWriteSendsHexChunks(t *testing.T) {
 	require.Equal(t, 3, sends, "payloads are chunked")
 
 	require.ErrorIs(t, client.Write(t.Context(), "@99", []byte("x")), ErrUnknownWindow)
+}
+
+// A paste never goes over send-keys: tmux has to see it as a paste to decide
+// whether the pane's program wants it bracketed.
+func TestPasteLoadsABufferAndPastesIt(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	var loaded struct {
+		name    string
+		content string
+		calls   int
+	}
+	client := attachFake(t, f, Options{loadBuffer: func(_ context.Context, name string, content io.Reader) error {
+		body, err := io.ReadAll(content)
+		require.NoError(t, err)
+		loaded.name, loaded.content, loaded.calls = name, string(body), loaded.calls+1
+		return nil
+	}})
+
+	require.NoError(t, client.Paste(t.Context(), "@1", []byte("first\nsecond")))
+	require.Equal(t, 1, loaded.calls)
+	require.Equal(t, "hive-paste-1", loaded.name, "the buffer is named after the pane, off the numbered stack")
+	require.Equal(t, "first\nsecond", loaded.content)
+	require.Contains(t, f.sentCommands(), "paste-buffer -d -p -b hive-paste-1 -t %1")
+
+	for _, cmd := range f.sentCommands() {
+		require.NotContains(t, cmd, "send-keys", "a paste is never keystrokes")
+	}
+
+	require.NoError(t, client.Paste(t.Context(), "@1", nil), "an empty paste is a no-op")
+	require.Equal(t, 1, loaded.calls)
+
+	require.ErrorIs(t, client.Paste(t.Context(), "@99", []byte("x")), ErrUnknownWindow)
 }
 
 func TestWindowCommands(t *testing.T) {

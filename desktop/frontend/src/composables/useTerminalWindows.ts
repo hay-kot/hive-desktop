@@ -9,6 +9,7 @@ import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import {
   decodeFrame,
   encodeInputFrames,
+  encodePasteFrames,
   TerminalRequestError,
   type TerminalClient,
   type WindowEventKind,
@@ -17,6 +18,7 @@ import {
 import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
+import { interceptPaste } from '../lib/terminalPaste'
 import { paneMayAutoFocus } from '../lib/terminalTree'
 import { commandEscapesPane, terminalWindowPosition } from '../keybindings/catalog'
 import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
@@ -382,6 +384,11 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     for (const frame of encodeInputFrames(windowId, data)) socket.send(frame)
   }
 
+  function sendPaste(windowId: string, text: string): void {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return
+    for (const frame of encodePasteFrames(windowId, text)) socket.send(frame)
+  }
+
   function setActive(windowId: string): void {
     if (activeWindowId.value !== windowId) clearHighlights()
     activeWindowId.value = windowId
@@ -464,6 +471,8 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
     observer.observe(host)
     state.observer = observer
     watchViewportScroll(state, windowId, host)
+    const releasePaste = interceptPaste(host, (text) => sendPaste(windowId, text))
+    state.disposers.push({ dispose: releasePaste })
     if (tab.windowId === activeWindowId.value) {
       // After open(), never before: an unopened Terminal defers addon
       // activation to its own open(), which would throw a missing-context

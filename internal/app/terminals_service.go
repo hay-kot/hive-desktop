@@ -177,6 +177,16 @@ func (s *TerminalsService) Write(ctx context.Context, slug, windowID string, p [
 	return terminalError(client.Write(ctx, windowID, p), "writing to window %q", windowID)
 }
 
+// Paste inserts text into a window's active pane as a paste rather than as
+// keystrokes, so the pane's program decides how to read it.
+func (s *TerminalsService) Paste(ctx context.Context, slug, windowID string, p []byte) error {
+	client, err := s.client(slug)
+	if err != nil {
+		return err
+	}
+	return terminalError(client.Paste(ctx, windowID, p), "pasting into window %q", windowID)
+}
+
 // Resize renegotiates the control client's size. Every client attached to a
 // window renders the same grid, and tmux's window-size option decides whose
 // size that is, so this is a vote rather than a resize.

@@ -130,6 +130,31 @@ func runTmux(ctx context.Context, binary string, env []string, args ...string) (
 	return strings.Split(trimmed, "\n"), nil
 }
 
+// inputTmux runs a one-shot tmux command with content on its stdin. It exists
+// for load-buffer, the one command this package runs that carries arbitrary
+// bytes rather than arguments: passing pasted text as an argument would publish
+// it in the process table, where anything running as this user can read it.
+func inputTmux(ctx context.Context, binary string, env []string, stdin io.Reader, args ...string) error {
+	if binary == "" {
+		binary = defaultBinary
+	}
+	if socket := socketFromTMUX(os.Getenv("TMUX")); socket != "" {
+		args = append([]string{"-S", socket}, args...)
+	}
+	cmd := exec.CommandContext(ctx, binary, args...)
+	cmd.Env = detachedEnv(env)
+	cmd.Stdin = stdin
+	stderr := &cappedBuffer{max: 4 << 10}
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return fmt.Errorf("%w: %s", err, msg)
+		}
+		return err
+	}
+	return nil
+}
+
 func outputTmux(ctx context.Context, binary string, env []string, args ...string) ([]byte, error) {
 	if binary == "" {
 		binary = defaultBinary

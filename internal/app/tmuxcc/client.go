@@ -5,6 +5,7 @@
 package tmuxcc
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -85,6 +86,10 @@ type Options struct {
 	Environ []string
 
 	newProcess func(Options) process
+	// loadBuffer fills a named tmux buffer from a reader. It is a one-shot
+	// command rather than a control-stream one because the control protocol is
+	// line-oriented and pasted text is not — see Client.Paste.
+	loadBuffer func(ctx context.Context, name string, content io.Reader) error
 }
 
 // unsized reports an attach that sets no client size at all. tmux ignores a
@@ -109,6 +114,12 @@ func (o *Options) normalize() error {
 	if o.newProcess == nil {
 		o.newProcess = newExecProcess
 	}
+	if o.loadBuffer == nil {
+		binary, environ := o.Binary, o.Environ
+		o.loadBuffer = func(ctx context.Context, name string, content io.Reader) error {
+			return inputTmux(ctx, binary, environ, content, "load-buffer", "-b", name, "-")
+		}
+	}
 	return nil
 }
 
@@ -119,11 +130,12 @@ type Client struct {
 	metrics MetricsSink
 	onExit  func(slug, reason string)
 
-	proc   process
-	gw     *Gateway
-	ctrl   *controller
-	events *broker
-	paint  *paintGate
+	proc       process
+	gw         *Gateway
+	ctrl       *controller
+	events     *broker
+	paint      *paintGate
+	loadBuffer func(ctx context.Context, name string, content io.Reader) error
 
 	cancel context.CancelFunc
 	// lifeCtx bounds work that outlives the request that started it — the
@@ -149,6 +161,10 @@ type Client struct {
 	handshake     chan struct{}
 	attached      chan struct{}
 	handshakeOnce sync.Once
+
+	// pasteMu makes a paste's load-and-paste one operation: interleaved with
+	// another paste into the same pane, the buffer both share would land twice.
+	pasteMu sync.Mutex
 
 	mu         sync.Mutex
 	exitReason string
@@ -181,6 +197,7 @@ func Attach(ctx, lifetime context.Context, opts Options) (*Client, error) {
 		metrics:      opts.Metrics,
 		onExit:       opts.OnExit,
 		ctrl:         newController(),
+		loadBuffer:   opts.loadBuffer,
 		readerDone:   make(chan struct{}),
 		workerDone:   make(chan struct{}),
 		reconcileReq: make(chan struct{}, 1),
@@ -251,6 +268,35 @@ func (c *Client) Write(ctx context.Context, windowID string, p []byte) error {
 		p = p[n:]
 	}
 	return nil
+}
+
+// Paste inserts text into a window's active pane as a paste rather than as
+// keystrokes. tmux applies the brackets because tmux is the only side that
+// knows whether the pane's program asked for them: a first paint carries cells
+// and SGR but no DEC private mode, and tmux never re-sends one to a control
+// client, so the emulator on the other end of this stream cannot learn the
+// mode from anything it is given (ADR pastes-are-tmux-paste-buffer-operations-not-keystrokes).
+//
+// The text rides tmux's stdin rather than an argument so it stays out of the
+// process table, and the buffer is named so it stays out of the numbered stack
+// holding the user's own copies.
+func (c *Client) Paste(ctx context.Context, windowID string, p []byte) error {
+	pane, err := c.activePane(windowID)
+	if err != nil {
+		return err
+	}
+	if len(p) == 0 {
+		return nil
+	}
+	buffer := "hive-paste-" + strings.TrimPrefix(pane, "%")
+
+	c.pasteMu.Lock()
+	defer c.pasteMu.Unlock()
+	if err := c.loadBuffer(ctx, buffer, bytes.NewReader(p)); err != nil {
+		return err
+	}
+	_, err = c.gw.Send(ctx, "paste-buffer -d -p -b "+buffer+" -t "+pane)
+	return err
 }
 
 // Resize renegotiates the client size. Every client attached to a window

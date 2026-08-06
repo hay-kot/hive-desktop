@@ -4,6 +4,7 @@ import {
   createTerminalClient,
   decodeFrame,
   encodeInputFrames,
+  encodePasteFrames,
 } from '../terminalClient'
 
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
@@ -104,6 +105,33 @@ describe('terminal frame codec', () => {
     }
     const rejoined = frames.map((frame) => new TextDecoder().decode(frame.subarray(5))).join('')
     expect(rejoined).toBe(payload)
+  })
+
+  it('frames a paste as chunks plus a commit', () => {
+    const frames = encodePasteFrames('@12', 'ab')
+
+    expect(frames.length).toBe(2)
+    expect(Array.from(frames[0])).toEqual([0x11, 3, 0x40, 0x31, 0x32, 0x61, 0x62])
+    expect(Array.from(frames[1])).toEqual([0x12, 3, 0x40, 0x31, 0x32])
+  })
+
+  // tmux writes one \r per \n in the buffer, so a CRLF would submit twice.
+  it('normalizes line endings to \\n', () => {
+    const [chunk] = encodePasteFrames('@1', 'one\r\ntwo\rthree\nfour')
+    expect(new TextDecoder().decode(chunk.subarray(4))).toBe('one\ntwo\nthree\nfour')
+  })
+
+  it('emits no frame for an empty paste', () => {
+    expect(encodePasteFrames('@1', '')).toEqual([])
+  })
+
+  it('chunks a paste past the frame cap and commits once', () => {
+    const frames = encodePasteFrames('@12', 'a'.repeat(5000))
+
+    expect(frames.length).toBe(3)
+    expect(frames.filter((frame) => frame[0] === 0x12).length).toBe(1)
+    expect(frames[frames.length - 1][0]).toBe(0x12)
+    for (const frame of frames) expect(frame.length).toBeLessThanOrEqual(MAX_INPUT_FRAME_BYTES)
   })
 })
 
