@@ -83,8 +83,8 @@ span never appears, check it against `Sample.Validate` in
 
 Samples buffer in the frontend and flush every 2s (or at 256 buffered, or on
 `pagehide`), so the file lags the interaction slightly. Drive the app —
-`mise run dev` for a Vite HMR loop, or `mise run serve` plus
-browser tooling for a headless one — then find the file:
+`mise run dev` for a Vite HMR loop, or `mise run serve` plus browser tooling
+for a headless one — then find the file:
 
 ```bash
 PERF="$(grep HIVE_DESKTOP_DATA_DIR launch.env | cut -d'"' -f2)/desktop/perf.jsonl"

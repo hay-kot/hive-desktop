@@ -28,7 +28,7 @@ The tray is a template icon with a dynamic menu: **Show Hive** calls
 flow polls and runs, and **Quit** calls `app.Quit()`. Invalid flow files remain
 visible as disabled menu items. The menu is rebuilt after flow changes so
 external YAML edits and in-app toggles stay synchronized. In the pinned Wails
-alpha, `SystemTray.SetTemplateIcon` accepts exactly one `[]byte` PNG, so the
+release, `SystemTray.SetTemplateIcon` accepts exactly one `[]byte` PNG, so the
 shell embeds only the retina `tray-templateTemplate@2x.png`; the 1x PNG is
 still generated and committed as an asset but not embedded.
 
@@ -40,18 +40,18 @@ from the tray menu.
 
 ## Pinned versions
 
-- Wails CLI and Go module: `github.com/wailsapp/wails/v3 v3.0.0-alpha2.117`
+- Wails CLI and Go module: `github.com/wailsapp/wails/v3 v3.0.0-beta.4`
 - npm runtime: `@wailsio/runtime 3.0.0-alpha.97`
 
 `3.0.0-alpha.97` is the runtime version bundled by the pinned Wails Go module.
-The `vue-ts` template alias was not available in alpha2.116; `wails3 init -t
-vue -n hive-desktop` is that release's Vue + TypeScript template.
+The project was scaffolded from `wails3 init -t vue -n hive-desktop`, the Vue +
+TypeScript template of the alpha it started on.
 
 From the repository root, `mise install` provisions the matching Wails CLI.
 The manual equivalent is:
 
 ```sh
-go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-alpha2.117
+go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.4
 ```
 
 ## Parent-module adaptations
@@ -346,7 +346,7 @@ The OS keychain and fixed `bootstrap.yaml` remain shared. Use a mock mode when
 credential isolation matters: signing out of a live dev instance can affect the
 installed app's keychain credential.
 
-The alpha supports server builds. `serve` builds the frontend, then compiles
+Wails supports server builds. `serve` builds the frontend, then compiles
 the pure HTTP-server variant without GUI dependencies to
 `desktop/bin/hive-desktop-server` and runs it. The assets are `//go:embed`ded,
 so frontend edits require re-running the task; the fast frontend loop is `dev`
