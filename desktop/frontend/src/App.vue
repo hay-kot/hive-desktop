@@ -767,11 +767,12 @@ function togglePreview(): void {
   previewCollapsed.value = !previewCollapsed.value
 }
 
-// Picking a row is an explicit request to read it, so it opens a collapsed
-// pane — otherwise the selection changes with nothing on screen to show for it.
-// Only the row's primary select action lands here: keyboard navigation calls
-// selectItem directly, and the row's own controls stop the click.
-async function selectItemFromRow(id: number): Promise<void> {
+// Activating a row — a double-click, or Enter/Space on the focused row — is an
+// explicit request to read it, so it opens a collapsed pane. A single click
+// only moves the selection, which leaves a closed pane closed: the first click
+// of every double-click is one, so reopening on `select` would fire before the
+// gesture the user is making has finished.
+async function activateItemFromRow(id: number): Promise<void> {
   previewCollapsed.value = false
   await selectItem(id)
 }
@@ -1326,7 +1327,8 @@ onUnmounted(() => {
               :load-error="loadError"
               :source-icons="sourceIcons"
               :source-images="sourceImages"
-              @select="selectItemFromRow"
+              @select="selectItem"
+              @activate="activateItemFromRow"
               @update:search="(value) => (search = value)"
               @set-sort="setFeedSort"
               @set-unread="navigateUnreadFilter"

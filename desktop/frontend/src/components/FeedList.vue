@@ -36,6 +36,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   select: [id: number]
+  activate: [id: number]
   'set-unread': [value: boolean]
   'toggle-archived': []
   'set-trash-filter': [value: 'all' | 'ignored']
@@ -181,6 +182,7 @@ watch(() => props.selectedId, async (id) => {
             :source-icons="sourceIcons"
             :source-images="sourceImages"
             @select="emit('select', item.id)"
+            @activate="emit('activate', item.id)"
             @set-unread="(unread) => emit('item-set-unread', item, unread)"
             @toggle-archive="emit('item-toggle-archive', item)"
             @toggle-ignored="emit('item-toggle-ignored', item)"
@@ -210,6 +212,7 @@ watch(() => props.selectedId, async (id) => {
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="emit('select', item.id)"
+              @activate="emit('activate', item.id)"
               @set-unread="(unread) => emit('item-set-unread', item, unread)"
               @toggle-archive="emit('item-toggle-archive', item)"
               @toggle-ignored="emit('item-toggle-ignored', item)"

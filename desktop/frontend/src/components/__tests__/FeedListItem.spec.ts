@@ -30,11 +30,17 @@ describe('FeedListItem', () => {
     expect(wrapper.get('[data-testid="feed-item"]').classes()).toContain('selected')
   })
 
-  it('emits selection intent on click and keyboard activation', async () => {
+  it('selects on a click, and activates on the gestures that mean "open this"', async () => {
     const wrapper = mountItem()
     await wrapper.get('[data-testid="feed-item"]').trigger('click')
+    expect(wrapper.emitted('select')).toHaveLength(1)
+    expect(wrapper.emitted('activate')).toBeUndefined()
+
+    await wrapper.get('[data-testid="feed-item"]').trigger('dblclick')
     await wrapper.get('[data-testid="feed-item"]').trigger('keydown.enter')
-    expect(wrapper.emitted('select')).toHaveLength(2)
+    await wrapper.get('[data-testid="feed-item"]').trigger('keydown.space')
+    expect(wrapper.emitted('activate')).toHaveLength(3)
+    expect(wrapper.emitted('select')).toHaveLength(1)
   })
 
   it('offers archive and open-in-browser from the hover pill without selecting the row', async () => {

@@ -26,6 +26,13 @@ describe('FeedList', () => {
     expect(wrapper.emitted('select')).toEqual([[2]])
   })
 
+  it('separates selecting a row from activating it', async () => {
+    const wrapper = mountList()
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('dblclick')
+    expect(wrapper.emitted('activate')).toEqual([[2]])
+    expect(wrapper.emitted('select')).toBeUndefined()
+  })
+
   it('renders the unread count and changes the list-level unread filter', async () => {
     const wrapper = mountList({ unreadCount: 3 })
     expect(wrapper.get('[data-testid="filter-unread"]').text()).toContain('3')

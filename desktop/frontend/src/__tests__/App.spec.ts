@@ -659,7 +659,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('reopens the collapsed preview when a row is picked, including the row already selected', async () => {
+  it('reopens the collapsed preview on a double-click, not on the click that selects', async () => {
     mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
     const wrapper = await mountApp()
 
@@ -667,17 +667,23 @@ describe('App', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
+    // The first click of the gesture selects, and must leave the pane shut.
     await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="feed-item"]')[1]!.classes()).toContain('selected')
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('dblclick')
     await flushPromises()
     expect(wrapper.get('[data-testid="detail-pane"] h1').text()).toBe('Second')
 
-    // Picking the row that is already selected reopens too — the click is the
-    // request to read it, not a selection change.
+    // Double-clicking the row that is already selected reopens too — the
+    // gesture is the request to read it, not a selection change.
     await wrapper.get('[data-testid="titlebar-toggle-preview"]').trigger('click')
     await flushPromises()
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
-    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('click')
+    await wrapper.findAll('[data-testid="feed-item"]')[1]!.trigger('dblclick')
     await flushPromises()
     expect(wrapper.get('[data-testid="detail-pane"] h1').text()).toBe('Second')
 
@@ -730,6 +736,12 @@ describe('App', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
 
+    // A double-click landing inside the hover pill is aimed at its buttons, so
+    // it must not reach the row underneath either.
+    await row().get('[data-testid="row-hover-actions"]').trigger('dblclick')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="detail-pane"]').exists()).toBe(false)
+
     wrapper.unmount()
   })
 
@@ -741,7 +753,7 @@ describe('App', () => {
     await flushPromises()
     expect(localStorage.getItem('hive.panel.detailpane.collapsed')).toBe('true')
 
-    await wrapper.findAll('[data-testid="feed-item"]')[0]!.trigger('click')
+    await wrapper.findAll('[data-testid="feed-item"]')[0]!.trigger('dblclick')
     await flushPromises()
     expect(localStorage.getItem('hive.panel.detailpane.collapsed')).toBe('false')
 
