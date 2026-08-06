@@ -23,6 +23,35 @@ func TestAlertsConfigValidate(t *testing.T) {
 		{name: "valid", config: AlertsConfig{Credential: "grafana/host-1"}},
 		{name: "zero config", config: AlertsConfig{}, wantErr: true},
 		{name: "wrong provider", config: AlertsConfig{Credential: "github/octocat"}, wantErr: true},
+		{
+			name:   "every matcher operator",
+			config: AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"a=b", "c!=d", "e=~f|g", "h!~i"}},
+		},
+		{
+			// The value owns everything after the leftmost operator, including
+			// characters that are operators themselves.
+			name:   "an operator inside the value",
+			config: AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"path=/a!=b"}},
+		},
+		{
+			name:   "an empty value is a matcher for the empty string",
+			config: AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"squad="}},
+		},
+		{
+			name:    "no operator",
+			config:  AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"squad"}},
+			wantErr: true,
+		},
+		{
+			name:    "no label name",
+			config:  AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"=platform"}},
+			wantErr: true,
+		},
+		{
+			name:    "blank matcher",
+			config:  AlertsConfig{Credential: "grafana/host-1", Matchers: []string{"squad=platform", "  "}},
+			wantErr: true,
+		},
 	}
 
 	for _, tc := range cases {
@@ -75,6 +104,26 @@ func TestAlertsProduceEmitsOnePerFiringAlert(t *testing.T) {
 	var second alertPayload
 	require.NoError(t, json.Unmarshal(msgs[1].Payload, &second))
 	assert.Equal(t, "DiskFull", second.Title, "title falls back to the alertname")
+}
+
+// The whole point of #240: the narrowing happens at the stack, not after the
+// payload has already crossed the wire.
+func TestAlertsProduceFiltersServerSide(t *testing.T) {
+	t.Parallel()
+
+	var filters []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		filters = r.URL.Query()["filter"]
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer server.Close()
+	fx, _ := connectedFetcher(t, server.URL)
+
+	matchers := []string{"squad=adaptive-telemetry", "severity=critical"}
+	src := &alertsSource{fetcher: fx, matchers: matchers, topic: "source:flow/node"}
+
+	require.NoError(t, src.Produce(t.Context(), func(store.Msg) error { return nil }))
+	assert.Equal(t, matchers, filters, "the node's matchers reach Alertmanager unchanged")
 }
 
 func TestAlertsClassifierFiringThenResolved(t *testing.T) {

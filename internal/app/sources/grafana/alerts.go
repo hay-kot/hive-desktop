@@ -15,11 +15,53 @@ import (
 
 type AlertsConfig struct {
 	Credential string `json:"credential" yaml:"credential" jsonschema:"title=Credential,description=The connected Grafana stack to fetch as, as 'grafana/<account>'."`
+	// Matchers narrow the fetch server-side. A shared stack can hold five
+	// figures of active alerts, so pulling the lot and discarding it in a
+	// function node is what makes this node unusable at exactly the scale an
+	// alerts feed is worth having.
+	Matchers []string `json:"matchers,omitempty" yaml:"matchers,omitempty" jsonschema:"title=Label matchers,description=Alertmanager label matchers, e.g. 'squad=platform' or 'severity=~critical|warning'. An alert must match every one."`
 }
 
 func (c *AlertsConfig) Validate() error {
-	_, err := c.CredentialRef()
-	return err
+	if _, err := c.CredentialRef(); err != nil {
+		return err
+	}
+	for _, matcher := range c.Matchers {
+		if err := validateMatcher(matcher); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// matcherOperators are Alertmanager's label matcher operators, longest first so
+// "!=" is recognized before the "=" inside it.
+var matcherOperators = []string{"!=", "=~", "!~", "="}
+
+// validateMatcher checks a matcher is addressable — a non-empty label name and
+// a recognized operator — and nothing more. The endpoint owns the syntax, so
+// re-implementing its value rules here would only reject matchers it accepts.
+//
+// The scan is left to right rather than operator by operator: a value may
+// contain an operator ("path=/a!=b"), and only the leftmost one separates the
+// label name from it.
+func validateMatcher(matcher string) error {
+	trimmed := strings.TrimSpace(matcher)
+	if trimmed == "" {
+		return fmt.Errorf("grafana alerts: a matcher is empty; remove the blank line")
+	}
+	for i := range trimmed {
+		for _, op := range matcherOperators {
+			if !strings.HasPrefix(trimmed[i:], op) {
+				continue
+			}
+			if strings.TrimSpace(trimmed[:i]) == "" {
+				return fmt.Errorf("grafana alerts: matcher %q has no label name before %q", matcher, op)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("grafana alerts: matcher %q needs one of =, !=, =~, !~ (e.g. %q)", matcher, "squad=platform")
 }
 
 func (c *AlertsConfig) CredentialRef() (credentials.Ref, error) {
@@ -27,8 +69,10 @@ func (c *AlertsConfig) CredentialRef() (credentials.Ref, error) {
 }
 
 // AlertsDescriptor declares the alerts connector. Unlike metrics it classifies
-// and confirms absence: the Alertmanager response is the complete firing set, so
-// an alert that leaves it is authoritatively resolved, not merely unseen.
+// and confirms absence: the Alertmanager response is the complete firing set
+// for the node's matchers, so an alert that leaves it is authoritatively
+// resolved, not merely unseen. Editing matchers therefore reconciles items out,
+// which is correct — they are no longer in the set this node claims.
 var AlertsDescriptor = connector.Descriptor{
 	Type:          "sources.grafana_alerts",
 	Title:         "Grafana alerts source",
@@ -60,7 +104,7 @@ func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 					SourceScope: ref.Account,
 					Policy:      node.Policy,
 				},
-				Pull:       &alertsSource{fetcher: fetchers.For(ref), topic: node.Topic()},
+				Pull:       &alertsSource{fetcher: fetchers.For(ref), matchers: config.Matchers, topic: node.Topic()},
 				Classifier: alertsClassifier{},
 				Absence:    alertsAbsence{},
 				Config:     config,
@@ -72,8 +116,9 @@ func NewAlertsFactory(fetchers *Fetchers) connector.Factory {
 // alertsSource polls one node's firing alerts, emitting one message per alert
 // keyed by fingerprint so each alert maps to its own durable item.
 type alertsSource struct {
-	fetcher *fetcher
-	topic   string
+	fetcher  *fetcher
+	matchers []string
+	topic    string
 }
 
 var _ connector.PullSource = (*alertsSource)(nil)
@@ -90,7 +135,7 @@ type alertPayload struct {
 }
 
 func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
-	alerts, err := s.fetcher.Alerts(ctx)
+	alerts, err := s.fetcher.Alerts(ctx, s.matchers)
 	if err != nil {
 		return fmt.Errorf("grafana alerts: %w", err)
 	}

@@ -13,6 +13,7 @@ import * as execSourceNode from '../pipeline/nodes/sources.exec/config'
 import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
 import * as grafanaMetricsSourceNode from '../pipeline/nodes/sources.grafana_metrics/config'
 import * as grafanaAlertsSourceNode from '../pipeline/nodes/sources.grafana_alerts/config'
+import * as grafanaIRMAlertsSourceNode from '../pipeline/nodes/sources.grafana_irm_alerts/config'
 import * as webhookSourceNode from '../pipeline/nodes/sources.webhook/config'
 import IconActivity from '~icons/lucide/activity'
 import IconCircleDot from '~icons/lucide/circle-dot'
@@ -239,6 +240,7 @@ const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [githubSourceNode.type]: githubSourceNode.sourceKind,
   [grafanaMetricsSourceNode.type]: grafanaMetricsSourceNode.sourceKind,
   [grafanaAlertsSourceNode.type]: grafanaAlertsSourceNode.sourceKind,
+  [grafanaIRMAlertsSourceNode.type]: grafanaIRMAlertsSourceNode.sourceKind,
   [webhookSourceNode.type]: webhookSourceNode.sourceKind,
   [execSourceNode.type]: execSourceNode.sourceKind,
 }

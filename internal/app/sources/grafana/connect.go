@@ -25,6 +25,10 @@ type Stack struct {
 // clientFactory is a field, not a direct call, so a test can stub the client without the network.
 type clientFactory func(base, token string) *client.Client
 
+// onCallClientFactory is the same for the OnCall API, which answers on its own
+// host and so needs the stack URL alongside the base it is reached at.
+type onCallClientFactory func(oncallBase, stackURL, token string) *client.OnCallClient
+
 // Authenticator connects and disconnects Grafana stacks. Unlike the GitHub
 // connector there is no device flow or polled status: a stack is connected by
 // validating a pasted URL and service-account token once.

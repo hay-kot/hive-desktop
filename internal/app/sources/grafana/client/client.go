@@ -1,7 +1,7 @@
 // Package client is the desktop's Grafana HTTP client: token validation, a
-// PromQL query through the datasource proxy, and the firing-alerts list. HTTP
-// plumbing (failure taxonomy, rate-limit mapping, logging) comes from
-// sources/sourcehttp.
+// PromQL query through the datasource proxy, the firing-alerts list, and the
+// IRM/OnCall alert groups. HTTP plumbing (failure taxonomy, rate-limit
+// mapping, logging) comes from sources/sourcehttp.
 package client
 
 import (
@@ -133,11 +133,25 @@ func (c *Client) Query(ctx context.Context, dsUID, promql string) (QueryResult, 
 	return envelope.Data, nil
 }
 
-// Alerts lists the stack's currently firing alerts. The response is the
-// complete active set, which is what lets the connector treat an absent alert
-// as authoritatively resolved.
-func (c *Client) Alerts(ctx context.Context) ([]Alert, error) {
-	resp, err := c.api.Get(ctx, "/api/alertmanager/grafana/api/v2/alerts")
+// Alerts lists the stack's currently firing alerts, narrowed to those matching
+// every matcher. The response is the complete active set for those matchers,
+// which is what lets the connector treat an absent alert as authoritatively
+// resolved.
+//
+// Matchers are passed to Alertmanager verbatim as repeated `filter` params —
+// the endpoint owns the `=`, `!=`, `=~`, `!~` syntax, so re-encoding it here
+// would only be a second thing to keep in step with it.
+func (c *Client) Alerts(ctx context.Context, matchers []string) ([]Alert, error) {
+	path := "/api/alertmanager/grafana/api/v2/alerts"
+	if len(matchers) > 0 {
+		filters := url.Values{}
+		for _, matcher := range matchers {
+			filters.Add("filter", matcher)
+		}
+		path += "?" + filters.Encode()
+	}
+
+	resp, err := c.api.Get(ctx, path)
 	if err != nil {
 		return nil, c.errs.Unreachable(err)
 	}

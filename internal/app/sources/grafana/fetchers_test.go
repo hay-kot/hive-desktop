@@ -72,7 +72,7 @@ func TestFetcherArmsCooldownAndSkips(t *testing.T) {
 	assert.EqualValues(t, 1, hits.Load(), "a fetcher in cooldown must not hit the stack again")
 
 	// Clearing the cooldown (as connect/disconnect does) lets it poll again.
-	fx.clearCooldown()
+	fx.invalidate()
 	_, _ = fx.Query(t.Context(), "ds", "up")
 	assert.EqualValues(t, 2, hits.Load())
 }
