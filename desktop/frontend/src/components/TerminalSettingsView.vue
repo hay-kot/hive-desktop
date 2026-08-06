@@ -12,7 +12,6 @@ import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
 import ExperimentalToggle from './settings/ExperimentalToggle.vue'
 import {
-  loadInstalledMonospaceFonts,
   setTerminalFontFamily,
   setTerminalFontSize,
   setTerminalFontWeight,
@@ -33,6 +32,7 @@ import {
   type TerminalLineHeight,
 } from '../composables/useTerminalFont'
 import { TERMINAL_FONT } from '../lib/terminalFaces'
+import { loadInstalledFonts, useInstalledFonts } from '../composables/useInstalledFonts'
 import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useExperimentalSettings } from '../composables/useExperimentalSettings'
@@ -45,12 +45,12 @@ const { terminal, terminalRestartPending, setTerminal, error, refresh } = useExp
 const {
   size: fontSize,
   selectedFamily: fontFamily,
-  installedFamilies: fontFamilies,
   weight: fontWeight,
   weightBold: fontWeightBold,
   lineHeight,
   letterSpacing,
 } = useTerminalFont()
+const { monospace: fontFamilies } = useInstalledFonts()
 const { showWindows } = useTerminalShowWindows()
 const { poolSize } = useTerminalPoolSize()
 
@@ -105,10 +105,10 @@ function onPoolSizeChange(value: string): void {
   setTerminalPoolSize(Number(value))
 }
 
-// Scanning every monospace font on the machine is not worth doing until this
-// pane is the one on screen.
+// Scanning every font on the machine is not worth doing until this pane is the
+// one on screen.
 onMounted(() => {
-  loadInstalledMonospaceFonts()
+  loadInstalledFonts()
   void refresh()
 })
 </script>

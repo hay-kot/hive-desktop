@@ -28,24 +28,24 @@ export function ExperimentalSettings(): $CancellablePromise<$models.Experimental
     return $Call.ByID(1419259869);
 }
 
+/**
+ * Fonts lists the families installed on this machine, for the app and terminal
+ * font pickers. The webview cannot enumerate them itself — queryLocalFonts is
+ * Chromium-only and macOS runs on WKWebView.
+ * 
+ * The scan is cached for the process, so a font installed while the app runs
+ * appears on the next launch.
+ */
+export function Fonts(): $CancellablePromise<$models.InstalledFonts> {
+    return $Call.ByID(2822311664);
+}
+
 export function GithubSettings(): $CancellablePromise<$models.GithubSettings> {
     return $Call.ByID(1295591268);
 }
 
 export function KeybindingSettings(): $CancellablePromise<$models.KeybindingSettings> {
     return $Call.ByID(3547481147);
-}
-
-/**
- * MonospaceFonts lists the monospace families installed on this machine, for
- * the terminal's font picker. The webview cannot enumerate them itself —
- * queryLocalFonts is Chromium-only and macOS runs on WKWebView.
- * 
- * The scan is cached for the process, so a font installed while the app runs
- * appears on the next launch.
- */
-export function MonospaceFonts(): $CancellablePromise<string[] | null> {
-    return $Call.ByID(2340474665);
 }
 
 export function NotificationSettings(): $CancellablePromise<$models.NotificationSettings> {
@@ -67,6 +67,10 @@ export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$
     return $Call.ByID(1793440840, enabled);
 }
 
+export function SetFontFamily(family: string): $CancellablePromise<void> {
+    return $Call.ByID(222923379, family);
+}
+
 /**
  * SetGithubSettings converts the wire's seconds to a duration and hands it to
  * the core, which owns the floor and the live apply. A negative or absurd
@@ -78,6 +82,10 @@ export function SetGithubSettings($in: $models.GithubSettings): $CancellableProm
 
 export function SetKeybindingSettings($in: $models.KeybindingSettings): $CancellablePromise<void> {
     return $Call.ByID(2513481483, $in);
+}
+
+export function SetMonoFontFamily(family: string): $CancellablePromise<void> {
+    return $Call.ByID(72729760, family);
 }
 
 export function SetNotificationSettings($in: $models.NotificationSettings): $CancellablePromise<void> {
@@ -113,8 +121,8 @@ export function SetTerminalShowWindows(show: boolean): $CancellablePromise<void>
 }
 
 /**
- * The appearance setters are per-field so the theme picker and the terminal
- * font picker cannot clobber each other's persisted value.
+ * The appearance setters are per-field so the theme picker and the font pickers
+ * cannot clobber each other's persisted value.
  */
 export function SetTheme(theme: string): $CancellablePromise<void> {
     return $Call.ByID(2875194419, theme);

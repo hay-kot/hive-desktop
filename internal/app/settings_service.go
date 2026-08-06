@@ -74,6 +74,8 @@ func (s *SettingsService) SetKeybindings(_ context.Context, overrides map[string
 // values, so "" means "nothing persisted" rather than an error.
 type AppearanceSettings struct {
 	Theme                  string
+	FontFamily             string
+	MonoFontFamily         string
 	TerminalFontSize       string
 	TerminalFontFamily     string
 	TerminalFontWeight     int
@@ -91,6 +93,8 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 	}
 	return AppearanceSettings{
 		Theme:                  cfg.Appearance.Theme,
+		FontFamily:             cfg.Appearance.FontFamily,
+		MonoFontFamily:         cfg.Appearance.MonoFontFamily,
 		TerminalFontSize:       cfg.Appearance.TerminalFontSize,
 		TerminalFontFamily:     cfg.Appearance.TerminalFontFamily,
 		TerminalFontWeight:     cfg.Appearance.TerminalFontWeight,
@@ -105,6 +109,22 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 func (s *SettingsService) SetTheme(_ context.Context, theme string) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.Theme = theme
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetFontFamily(_ context.Context, family string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.FontFamily = family
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetMonoFontFamily(_ context.Context, family string) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.MonoFontFamily = family
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")

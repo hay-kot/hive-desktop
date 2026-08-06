@@ -11,13 +11,14 @@ import {
 import { TERMINAL_FONT } from '../../lib/terminalFaces'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { setTerminalPoolSize } from '../../composables/useTerminalPoolSize'
+import { resetInstalledFontsForTests } from '../../composables/useInstalledFonts'
 
 const mocks = vi.hoisted(() => ({
   SetTerminalShowWindows: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
   SetTerminalFontFamily: vi.fn(),
   SetTerminalFontWeights: vi.fn(),
-  MonospaceFonts: vi.fn().mockResolvedValue(['Fira Code', 'Menlo']),
+  Fonts: vi.fn().mockResolvedValue({ all: ['Fira Code', 'Menlo'], monospace: ['Fira Code', 'Menlo'] }),
   ExperimentalSettings: vi.fn(),
   SetExperimentalTerminal: vi.fn(),
   SetExperimentalAgents: vi.fn(),
@@ -26,7 +27,7 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
-  MonospaceFonts: mocks.MonospaceFonts,
+  Fonts: mocks.Fonts,
   SetTheme: vi.fn(),
   SetTerminalFontSize: vi.fn(),
   SetTerminalFontFamily: mocks.SetTerminalFontFamily,
@@ -47,7 +48,10 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 beforeEach(() => {
   vi.clearAllMocks()
   localStorage.clear()
-  mocks.MonospaceFonts.mockResolvedValue(['Fira Code', 'Menlo'])
+  // The scan is a module singleton that runs once, so without this the second
+  // mount in this file would keep the first test's list.
+  resetInstalledFontsForTests()
+  mocks.Fonts.mockResolvedValue({ all: ['Fira Code', 'Menlo'], monospace: ['Fira Code', 'Menlo'] })
   mocks.ExperimentalSettings.mockResolvedValue({ terminal: false, agents: false })
   mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled, agents: false }))
   mocks.TerminalModeEnabled.mockResolvedValue(false)

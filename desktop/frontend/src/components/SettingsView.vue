@@ -22,6 +22,7 @@ import BaseCard from './BaseCard.vue'
 import BaseIconBadge from './BaseIconBadge.vue'
 import AboutSettingsView from './AboutSettingsView.vue'
 import ActionSettingsView from './ActionSettingsView.vue'
+import AppearanceSettingsView from './AppearanceSettingsView.vue'
 import AgentsSettingsView from './AgentsSettingsView.vue'
 import GeneralSettingsView from './GeneralSettingsView.vue'
 import LauncherSettingsView from './LauncherSettingsView.vue'
@@ -40,9 +41,7 @@ import SettingsNavItem from './settings/SettingsNavItem.vue'
 import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
-import ThemePicker from './settings/ThemePicker.vue'
 import IconWebhook from '~icons/lucide/webhook'
-import { setTheme, useTheme, type Theme } from '../composables/useTheme'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
@@ -88,7 +87,6 @@ const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection
 ]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
-const { theme } = useTheme()
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
@@ -167,10 +165,6 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
     : { label: 'Not connected', tone: 'neutral' }
 }
 
-function onThemeChange(value: string): void {
-  setTheme(value as Theme)
-}
-
 </script>
 
 <template>
@@ -207,14 +201,7 @@ function onThemeChange(value: string): void {
 
     <GeneralSettingsView v-if="props.activeCategory === 'general'" />
 
-    <SettingsPage v-else-if="props.activeCategory === 'appearance'">
-      <SettingsSection
-        title="Theme"
-        description="Applies immediately across the whole app."
-      >
-        <ThemePicker :model-value="theme" @update:model-value="onThemeChange" />
-      </SettingsSection>
-    </SettingsPage>
+    <AppearanceSettingsView v-else-if="props.activeCategory === 'appearance'" />
 
     <KeybindingSettingsView v-else-if="props.activeCategory === 'keybindings'" />
 

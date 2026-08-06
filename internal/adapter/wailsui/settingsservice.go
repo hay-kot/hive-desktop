@@ -44,6 +44,11 @@ type NotificationSettings struct {
 // an error.
 type AppearanceSettings struct {
 	Theme string `json:"theme"`
+	// FontFamily is the family the app's chrome draws with and MonoFontFamily
+	// the one its monospace text draws with. Empty is the bundled face; a
+	// generic keyword (system-ui, ui-monospace) is the platform stack.
+	FontFamily     string `json:"fontFamily"`
+	MonoFontFamily string `json:"monoFontFamily"`
 	// TerminalFontSize is a preset name (small/medium/large/xl/xxl), not a
 	// pixel count — the frontend owns the mapping.
 	TerminalFontSize string `json:"terminalFontSize"`
@@ -105,6 +110,8 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 	}
 	return AppearanceSettings{
 		Theme:                  current.Theme,
+		FontFamily:             current.FontFamily,
+		MonoFontFamily:         current.MonoFontFamily,
 		TerminalFontSize:       current.TerminalFontSize,
 		TerminalFontFamily:     current.TerminalFontFamily,
 		TerminalFontWeight:     current.TerminalFontWeight,
@@ -116,20 +123,36 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 	}, nil
 }
 
-// MonospaceFonts lists the monospace families installed on this machine, for
-// the terminal's font picker. The webview cannot enumerate them itself —
-// queryLocalFonts is Chromium-only and macOS runs on WKWebView.
+// InstalledFonts is what the font pickers offer: every installed family, and
+// the fixed-pitch subset the ones that draw a grid are limited to.
+type InstalledFonts struct {
+	All       []string `json:"all"`
+	Monospace []string `json:"monospace"`
+}
+
+// Fonts lists the families installed on this machine, for the app and terminal
+// font pickers. The webview cannot enumerate them itself — queryLocalFonts is
+// Chromium-only and macOS runs on WKWebView.
 //
 // The scan is cached for the process, so a font installed while the app runs
 // appears on the next launch.
-func (s *SettingsService) MonospaceFonts(context.Context) ([]string, error) {
-	return s.fonts.Monospace(), nil
+func (s *SettingsService) Fonts(context.Context) (InstalledFonts, error) {
+	families := s.fonts.List()
+	return InstalledFonts{All: families.All, Monospace: families.Monospace}, nil
 }
 
-// The appearance setters are per-field so the theme picker and the terminal
-// font picker cannot clobber each other's persisted value.
+// The appearance setters are per-field so the theme picker and the font pickers
+// cannot clobber each other's persisted value.
 func (s *SettingsService) SetTheme(ctx context.Context, theme string) error {
 	return s.settings.SetTheme(ctx, theme)
+}
+
+func (s *SettingsService) SetFontFamily(ctx context.Context, family string) error {
+	return s.settings.SetFontFamily(ctx, family)
+}
+
+func (s *SettingsService) SetMonoFontFamily(ctx context.Context, family string) error {
+	return s.settings.SetMonoFontFamily(ctx, family)
 }
 
 func (s *SettingsService) SetTerminalFontSize(ctx context.Context, size string) error {

@@ -37,13 +37,17 @@ func fixtureDir(t *testing.T, names ...string) string {
 func TestScanClassifiesPatchedFaceAsMonospace(t *testing.T) {
 	got := scan([]string{fixtureDir(t, monospaceFixture)})
 
-	require.Equal(t, []string{"Fixture Mono Patched"}, got)
+	require.Equal(t, []string{"Fixture Mono Patched"}, got.Monospace)
+	require.Equal(t, []string{"Fixture Mono Patched"}, got.All)
 }
 
-func TestScanExcludesProportionalFaces(t *testing.T) {
+// A proportional face is a legitimate UI font and is never a terminal font, so
+// it is offered by one picker and withheld from the other rather than dropped.
+func TestScanOffersProportionalFacesToTheUIPickerOnly(t *testing.T) {
 	got := scan([]string{fixtureDir(t, proportionalFixture)})
 
-	require.Empty(t, got)
+	require.Empty(t, got.Monospace)
+	require.Equal(t, []string{"Fixture Proportional"}, got.All)
 }
 
 func TestScanDeduplicatesAndSortsFamilies(t *testing.T) {
@@ -54,7 +58,9 @@ func TestScanDeduplicatesAndSortsFamilies(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "copy-bold.ttf"), data, 0o600))
 
-	require.Equal(t, []string{"Fixture Mono Patched"}, scan([]string{dir}))
+	got := scan([]string{dir})
+	require.Equal(t, []string{"Fixture Mono Patched"}, got.Monospace)
+	require.Equal(t, []string{"Fixture Mono Patched", "Fixture Proportional"}, got.All)
 }
 
 func TestScanFindsFontsInNestedDirectories(t *testing.T) {
@@ -65,7 +71,7 @@ func TestScanFindsFontsInNestedDirectories(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(nested, monospaceFixture), data, 0o600))
 
-	require.Equal(t, []string{"Fixture Mono Patched"}, scan([]string{root}))
+	require.Equal(t, []string{"Fixture Mono Patched"}, scan([]string{root}).Monospace)
 }
 
 // More font files than workers, so the queue actually backs up. A result
@@ -79,7 +85,7 @@ func TestScanCompletesUnderContention(t *testing.T) {
 		require.NoError(t, os.WriteFile(filepath.Join(dir, fmt.Sprintf("face-%d.ttf", i)), data, 0o600))
 	}
 
-	require.Equal(t, []string{"Fixture Mono Patched"}, scan([]string{dir}))
+	require.Equal(t, []string{"Fixture Mono Patched"}, scan([]string{dir}).Monospace)
 }
 
 func TestScanSkipsUnreadableAndNonFontFiles(t *testing.T) {
@@ -87,31 +93,31 @@ func TestScanSkipsUnreadableAndNonFontFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello"), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "broken.ttf"), []byte("not a font"), 0o600))
 
-	require.Empty(t, scan([]string{dir}))
+	require.Empty(t, scan([]string{dir}).All)
 }
 
 func TestScanIgnoresMissingDirectories(t *testing.T) {
-	require.Empty(t, scan([]string{filepath.Join(t.TempDir(), "absent")}))
+	require.Empty(t, scan([]string{filepath.Join(t.TempDir(), "absent")}).All)
 }
 
 // The settings pane asks on every open, and a scan parses every font file on
 // the machine.
-func TestMonospaceScansOnce(t *testing.T) {
+func TestListScansOnce(t *testing.T) {
 	scans := 0
-	lister := &Lister{scan: func() []string {
+	lister := &Lister{scan: func() Families {
 		scans++
-		return []string{"Fixture Mono Patched"}
+		return Families{All: []string{"Fixture Mono Patched"}, Monospace: []string{"Fixture Mono Patched"}}
 	}}
 
-	require.Equal(t, []string{"Fixture Mono Patched"}, lister.Monospace())
-	require.Equal(t, []string{"Fixture Mono Patched"}, lister.Monospace())
+	require.Equal(t, []string{"Fixture Mono Patched"}, lister.List().Monospace)
+	require.Equal(t, []string{"Fixture Mono Patched"}, lister.List().Monospace)
 	require.Equal(t, 1, scans)
 }
 
 // Every name handed to the frontend has to be one CSS can resolve: non-empty,
 // and never a macOS system-reserved face like ".SF NS Mono".
-func TestMonospaceNamesAreSelectable(t *testing.T) {
-	for _, family := range NewLister().Monospace() {
+func TestListedNamesAreSelectable(t *testing.T) {
+	for _, family := range NewLister().List().All {
 		require.NotEmpty(t, family)
 		require.False(t, strings.HasPrefix(family, "."), "system-reserved family %q", family)
 	}

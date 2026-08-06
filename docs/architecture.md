@@ -287,8 +287,11 @@ internal/
       script.go                   # ScriptRuntime / ScriptInstance ports + registry
       js/                         # goja implementation
       testdata/parity/            # the engine's own regression fixtures
-    fonts/                        # the installed-monospace-family scan the
-                                  #   terminal's font picker reads (ADR terminal-typography-is-configurable)
+    fonts/                        # the installed-family scan the app and
+                                  #   terminal font pickers read — every family
+                                  #   plus the fixed-pitch subset, one cached
+                                  #   pass (ADRs terminal-typography-is-configurable,
+                                  #   the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set)
     icons/                        # curated feed glyph set — a leaf, shared by
                                   #   flow's feed node and the webhook connector
     sources/                      # connector registry
@@ -964,7 +967,10 @@ keep across a trip to the hub can now simply live in the component.
 **Terminal style is a setting, not pane chrome.** Text size, family, weights,
 line height and tracking are all `appearance.terminal_*` settings written from
 Settings ▸ Terminal, and the pane carries no duplicate control for
-any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option takes the same route.
+any of them (ADR the-sidebar-tree-is-the-only-window-list). A new style option takes the same route. The chrome's own
+faces are a separate pair of settings on a separate pane — `appearance.
+font_family` and `mono_font_family`, written from Settings ▸ Appearance — and a
+terminal takes nothing from them (ADR the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set).
 
 **The sidebar tree is a session's only window list.** There is no tab strip to
 keep in step with it, and a window's controls — close, rename, and the add on
