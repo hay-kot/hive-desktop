@@ -28,7 +28,6 @@ test('renders the mock feed with pr2841 selected by default', async ({ page }) =
   )
   await expect(page.getByTestId('detail-pane')).toContainText('batch_spawn: fix detached tmux env & PATH propagation')
   await expect(page.getByTestId('detail-pane')).toContainText('hive/core #2841')
-  await expect(page.getByTestId('detail-pane')).toContainText('fix/2841-batch-spawn-env')
 })
 
 // The fixture spans 45 minutes to 23 days old, so the list always breaks into
@@ -49,17 +48,13 @@ test('updates the detail pane and actions for PRs and issues', async ({ page }) 
   await page.locator('[data-testid="feed-item"][data-id="pr2838"]').click()
   await expect(page.getByTestId('detail-pane')).toContainText('OAuth device flow for in-app GitHub auth')
   await expect(page.getByTestId('detail-pane')).toContainText('hive/desktop #2838')
-  await expect(page.getByTestId('detail-pane')).toContainText('feat/2838-oauth-device-flow')
   await expect(page.getByTestId('action-card')).toHaveCount(1)
-  await expect(page.getByTestId('run-action')).toHaveText('Run')
   await expect(page.getByTestId('action-card').first()).toContainText('Review PR')
 
   await page.locator('[data-testid="feed-item"][data-id="iss1190"]').click()
   await expect(page.getByTestId('detail-pane')).toContainText('Feed source: mirror GitHub notifications inbox')
   await expect(page.getByTestId('detail-pane')).toContainText('hive/desktop #1190')
-  await expect(page.getByTestId('detail-pane')).toContainText('feat/1190-notifications-feed')
   await expect(page.getByTestId('action-card')).toHaveCount(1)
-  await expect(page.getByTestId('run-action')).toHaveText('Run')
   await expect(page.getByTestId('action-card').first()).toContainText('Start implementation')
 })
 

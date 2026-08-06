@@ -215,7 +215,6 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .session-dot-live { background: var(--color-accent); }
 .session-dot-idle { background: var(--color-strong); }
 .session-meta { display: flex; gap: 5px; padding-left: 15px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; }
-.action-footer-meta { display: grid; grid-template-columns: 12px minmax(0, 1fr); column-gap: 8px; align-items: start; }
 
 /* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline
    from the user-adjustable bodyHeight, so a long description scrolls internally
