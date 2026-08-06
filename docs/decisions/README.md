@@ -87,3 +87,4 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-08-05 | [`ci-runs-on-main-to-seed-the-cache-prs-read`](2026-08-05-ci-runs-on-main-to-seed-the-cache-prs-read.md) | CI runs on main to seed the cache PRs read | accepted |
 | 2026-08-05 | [`mcp-replaces-the-agent-facing-http-api`](2026-08-05-mcp-replaces-the-agent-facing-http-api.md) | The MCP server replaces the agent-facing HTTP API | accepted |
 | 2026-08-05 | [`real-tmux-tests-refuse-to-run-beside-a-live-tmux-server`](2026-08-05-real-tmux-tests-refuse-to-run-beside-a-live-tmux-server.md) | Real-tmux tests refuse to run beside a live tmux server | accepted |
+| 2026-08-05 | [`the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci`](2026-08-05-the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci.md) | The e2e suite runs locally via mise run ci, not in GitHub CI | accepted |
