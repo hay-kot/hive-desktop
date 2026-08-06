@@ -45,6 +45,9 @@ type agentSessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
+	// Slug is the tmux session name (agentws-<id>) this session is addressed by
+	// whether or not it is running; terminalId is what reports liveness.
+	Slug string `json:"slug"`
 	// TerminalID is the tmux session name (agentws-<id>) addressed on
 	// TerminalStreamPath, empty when nothing is running.
 	TerminalID string `json:"terminalId"`
@@ -96,7 +99,7 @@ func toAgentWorkspaceViews(in []app.WorkspaceView) []agentWorkspaceView {
 func toAgentSessionView(s app.SessionView) agentSessionView {
 	return agentSessionView{
 		ID: s.ID, Workspace: s.Workspace, Name: s.Name, Agent: s.Agent, LastOpenedAt: s.LastOpenedAt,
-		TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
+		Slug: s.Slug, TerminalID: s.TerminalID, WindowID: s.WindowID, Cols: s.Cols, Rows: s.Rows,
 		ResumeAttempted: s.ResumeAttempted, Notice: s.Notice,
 	}
 }

@@ -18,18 +18,26 @@ export interface TerminalSessionRow {
 }
 
 /**
- * One group of the sidebar tree, keyed by the session's remote — or the pinned
- * scratch section, which is `pinned` and belongs to no repository.
+ * What a section of the sidebar tree is. `repo` is a hive remote and every
+ * other kind belongs to no repository: `chats` lists the pinned agent chats and
+ * `scratch` is the scratch terminal's own section. The distinction is not
+ * cosmetic — a repo's liveness comes from hive's status projection, the others'
+ * from tmux directly — and it is a closed union rather than a `pinned` flag
+ * because the two non-repo kinds do not render alike.
  */
+export type TerminalSectionKind = 'chats' | 'scratch' | 'repo'
+
+/** One group of the sidebar tree. */
 export interface TerminalSessionGroup {
   key: string
   name: string
   sessions: TerminalSessionRow[]
-  pinned?: boolean
+  kind: TerminalSectionKind
 }
 
-// The pinned section's key. It draws no header of its own — its one row is the
-// heading — so the name is only what the sidebar filter matches on.
+// The non-repo sections' keys. A repo group is keyed by its remote, which can
+// never collide with either of these.
+const CHATS_GROUP_KEY = 'chats'
 const SCRATCH_GROUP_KEY = 'scratch'
 
 // Mirrors the TUI's GroupSessionsByRepo: one group per remote, a "(no remote)"
@@ -39,7 +47,7 @@ export function groupTerminalSessions(rows: TerminalSessionRow[]): TerminalSessi
   for (const row of rows) {
     let group = groups.get(row.repo)
     if (!group) {
-      group = { key: row.repo, name: groupDisplayName(row.repo), sessions: [] }
+      group = { key: row.repo, name: groupDisplayName(row.repo), sessions: [], kind: 'repo' }
       groups.set(row.repo, group)
     }
     group.sessions.push(row)
@@ -54,20 +62,27 @@ function groupDisplayName(remote: string): string {
 }
 
 /**
- * The tree's groups: the scratch terminal's own section first, then one per
- * repository. It is a group of one rather than a loose row so the tree stays
- * group → session → window everywhere, and it is prepended rather than sorted
- * in because pinned is the point — it must not move as repositories come and go.
- * The section draws no header: its row is the heading, and what is listed under
- * it are the tabs.
+ * The tree's groups: pinned chats, then the scratch terminal, then one per
+ * repository. The two leading sections are prepended rather than sorted in
+ * because being pinned is the point — they must not move as repositories come
+ * and go — and chats lead because a pinned chat is something the user is
+ * watching, which is the whole reason it was pinned.
+ *
+ * The scratch section is a group of one so the tree stays group → session →
+ * window everywhere, and it draws no header: its row is the heading, and what is
+ * listed under it are the tabs. The chats section is the ordinary shape — a
+ * header over its rows — and is absent entirely when nothing is pinned, so the
+ * sidebar is unchanged for anyone not using it.
  */
 export function terminalSessionGroups(
   rows: TerminalSessionRow[],
   scratch: TerminalSessionRow | null,
+  chats: TerminalSessionRow[],
 ): TerminalSessionGroup[] {
-  const repos = groupTerminalSessions(rows)
-  if (!scratch) return repos
-  return [{ key: SCRATCH_GROUP_KEY, name: scratch.name, sessions: [scratch], pinned: true }, ...repos]
+  const groups = groupTerminalSessions(rows)
+  if (scratch) groups.unshift({ key: SCRATCH_GROUP_KEY, name: scratch.name, sessions: [scratch], kind: 'scratch' })
+  if (chats.length) groups.unshift({ key: CHATS_GROUP_KEY, name: 'Chats', sessions: chats, kind: 'chats' })
+  return groups
 }
 
 // Module singletons: the rows are hive's session set, not one view's, and the

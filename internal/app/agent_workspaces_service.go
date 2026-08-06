@@ -151,6 +151,11 @@ type SessionView struct {
 	Name         string `json:"name"`
 	Agent        string `json:"agent"`
 	LastOpenedAt int64  `json:"lastOpenedAt"`
+	// Slug is the tmux session name (agentws-<id>) this session is addressed by
+	// whether or not it is running, so a caller can key a row, a route or an
+	// attach pool on it without deriving the name itself. TerminalID, not this,
+	// is what reports liveness.
+	Slug string `json:"slug"`
 	// TerminalID is the tmux session name (agentws-<id>) a live session rides,
 	// addressed on the same tmux stream terminal mode uses (ADR terminal-transport); empty
 	// when nothing is running.
@@ -414,7 +419,7 @@ func (s *AgentWorkspacesService) ResumeSession(ctx context.Context, id int64, co
 		}
 		return SessionView{
 			ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-			LastOpenedAt: rec.LastOpenedAt, TerminalID: name, WindowID: window.ID,
+			LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: name, WindowID: window.ID,
 			Cols: window.Width, Rows: window.Height,
 			ResumeAttempted: agentws.SupportsResume(rec.Agent),
 		}, nil
@@ -864,7 +869,7 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 
 	view := SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, ResumeAttempted: resumeAttempted,
+		LastOpenedAt: rec.LastOpenedAt, Slug: name, ResumeAttempted: resumeAttempted,
 	}
 
 	if s.awaitEarlyExit(ctx, name) {
@@ -1009,7 +1014,7 @@ func (s *AgentWorkspacesService) sessionView(ctx context.Context, rec store.Agen
 	}
 	return SessionView{
 		ID: rec.ID, Workspace: rec.Workspace, Name: rec.Name, Agent: rec.Agent,
-		LastOpenedAt: rec.LastOpenedAt, TerminalID: live,
+		LastOpenedAt: rec.LastOpenedAt, Slug: name, TerminalID: live,
 	}
 }
 

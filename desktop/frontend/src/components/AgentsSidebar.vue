@@ -16,6 +16,8 @@ import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPencil from '~icons/lucide/pencil'
+import IconPin from '~icons/lucide/pin'
+import IconPinOff from '~icons/lucide/pin-off'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
@@ -25,6 +27,7 @@ import PanelResizeHandle from './PanelResizeHandle.vue'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useResizablePanel } from '../composables/useResizablePanel'
+import { useTerminalPinnedChats } from '../composables/useTerminalPinnedChats'
 import { relativeAge } from '../lib/age'
 import type { AgentSession, AgentWorkspace } from '../lib/agentWorkspacesClient'
 import type { MenuEntry } from '../types/menu'
@@ -65,6 +68,9 @@ const {
 const {
   recents, recentsLoaded, recentsError, reloadRecents,
 } = useAgentSessionsAll()
+// Pinning is what puts a chat in the Code view's own sidebar; this row's menu is
+// where it is turned on and off, and the mark below is how a row says it is on.
+const { isPinned, togglePin } = useTerminalPinnedChats()
 
 // Both lists are module singletons (ADR a-workspace-declares-its-own-authority's shared-composable pattern),
 // so this and AgentsMode's own workspaces reload can race harmlessly on
@@ -171,6 +177,9 @@ function toggleMenu(key: string): void {
 function sessionMenuEntries(session: AgentSession): MenuEntry[] {
   const entries: MenuEntry[] = [
     { kind: 'action', id: 'rename', label: 'Rename…', icon: IconPencil, testid: 'agents-sidebar-session-rename' },
+    isPinned(session.id)
+      ? { kind: 'action', id: 'pin', label: 'Unpin from Code', icon: IconPinOff, testid: 'agents-sidebar-session-unpin' }
+      : { kind: 'action', id: 'pin', label: 'Pin to Code', icon: IconPin, testid: 'agents-sidebar-session-pin' },
   ]
   if (session.terminalId) {
     entries.push({ kind: 'action', id: 'stop', label: 'Stop agent', icon: IconPower, testid: 'agents-sidebar-session-close' })
@@ -185,6 +194,7 @@ function sessionMenuEntries(session: AgentSession): MenuEntry[] {
 function onSessionMenuSelect(session: AgentSession, id: string): void {
   openMenu.value = ''
   if (id === 'rename') emit('rename-session', session)
+  else if (id === 'pin') togglePin(session.id)
   else if (id === 'stop') emit('close-session', session)
   else if (id === 'delete') pendingDeleteSession.value = session
 }
@@ -426,10 +436,21 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             data-testid="agents-sidebar-session-select"
             @click="emit('select-session', session)"
           >
-            <span
-              class="w-full truncate text-[13px]"
-              :class="session.id === openSessionId ? 'font-medium text-accent' : 'text-text'"
-            >{{ session.name }}</span>
+            <!-- The pin mark rides the name rather than the trailing slot, which
+                 is a fixed grid the activity indicator and the menu toggle
+                 already share. -->
+            <span class="flex w-full min-w-0 items-center gap-1">
+              <span
+                class="min-w-0 flex-1 truncate text-[13px]"
+                :class="session.id === openSessionId ? 'font-medium text-accent' : 'text-text'"
+              >{{ session.name }}</span>
+              <IconPin
+                v-if="isPinned(session.id)"
+                class="size-2.5 shrink-0 text-text-4"
+                title="Pinned to Code"
+                data-testid="agents-sidebar-session-pinned"
+              />
+            </span>
             <span class="w-full truncate font-mono text-[10.5px] text-text-4">{{ sessionMeta(session) }}</span>
             <span v-if="session.notice" class="w-full truncate text-[11px] text-severity-warning" :title="session.notice" data-testid="agents-sidebar-session-notice">{{ session.notice }}</span>
           </button>

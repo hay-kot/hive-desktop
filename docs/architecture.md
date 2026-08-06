@@ -995,6 +995,25 @@ recycle, delete, session details and configured actions are not offered, because
 each addresses a record that does not exist. Prune is untouched — it acts on hive's listing, which the
 scratch terminal is not in.
 
+**The other tmux sessions in the tree belong to no hive session either: pinned
+agent chats** (ADR a-pinned-agent-chat-is-attached-by-the-code-view-as-an-ordinary-tmux-slug). A chat is already a tmux session on this same control
+plane (ADR agent-workspace-sessions-are-tmux-sessions), so pinning one adds a `Chats` section above the scratch
+terminal's and its rows attach through the same pool — `useTerminalPinnedChats`
+turns the pin set into `TerminalSessionRow`s keyed on `SessionView.Slug`, which
+the core declares whether or not the chat is running so a stopped row still has a
+pool and route key. It borrows the scratch terminal's two exemptions — liveness
+off the window sweep, swept whatever `terminal_show_windows` says — and differs
+in three ways: the row is a **leaf** (a chat is one conversation, so its tmux
+window is not something to navigate between), starting it is
+`AgentWorkspacesService.ResumeSession` rather than `TerminalsService.Start`
+(there is no hive spawn configuration behind an `agentws-*` slug), and its row
+menu offers only the pin's own two entries, because the Agents area owns a
+chat's rename, stop and delete. The pin set is `localStorage` — an arrangement of
+this sidebar, not a fact about the chat — which is also why
+`TerminalSessionGroup` now carries a closed `kind` union (`chats` | `scratch` |
+`repo`) instead of a `pinned` flag that had been standing for two different
+things.
+
 **Adding a window does not require an attach.** A slug with no control client
 gets one from a one-shot, whose `-c` is spelled `#{session_path}`: tmux resolves
 an unset start-directory against the client running the command, and a one-shot

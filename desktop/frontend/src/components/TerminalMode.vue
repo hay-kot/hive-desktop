@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, s
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
+import IconBot from '~icons/lucide/bot'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -16,6 +17,7 @@ import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
 import IconListFilter from '~icons/lucide/list-filter'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
+import IconPinOff from '~icons/lucide/pin-off'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -37,6 +39,9 @@ import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { sessionRepository, terminalSessionGroups, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
+import { useTerminalPinnedChats } from '../composables/useTerminalPinnedChats'
+import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
+import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 import { useTerminalWindowListings } from '../composables/useTerminalWindowListings'
@@ -172,12 +177,40 @@ const { openBlank: openNewSession, prefetch: prefetchNewSession } = useNewSessio
 // attaching cannot start one. They still arrive in the listing, which is what
 // the header's prune entry counts and acts on.
 const activeSessions = computed(() => sessionRows.value.filter((row) => row.state === 'active'))
-// The scratch terminal is attachable like any session and deliberately part of
-// this set rather than beside it: the pool, the window sweep and the watcher
-// that lets go of a session the listing stopped carrying all read it, and a row
-// missing from here would have its attach dropped on the next reload.
-const attachable = computed(() => (scratchRow.value ? [scratchRow.value, ...activeSessions.value] : activeSessions.value))
-const sessionGroups = computed(() => terminalSessionGroups(activeSessions.value, scratchRow.value))
+// A pinned agent chat is a tmux session addressed exactly like a hive one and
+// the Code view attaches it through the same pool (ADR agent-workspace-sessions-are-tmux-sessions). What it is not is a
+// hive session: nothing in hive's listing or status projection knows about it,
+// which is the axis `isHiveSession` below splits on.
+const { rows: chatRows, slugs: chatSlugs, unpinSlug } = useTerminalPinnedChats()
+const { recents, reloadRecents } = useAgentSessionsAll()
+const { resumeSession: resumeChat } = useAgentWorkspaces()
+
+// The scratch terminal and the pinned chats are attachable like any session and
+// deliberately part of this set rather than beside it: the pool, the window sweep
+// and the watcher that lets go of a session the listing stopped carrying all read
+// it, and a row missing from here would have its attach dropped on the next
+// reload. Unpinning a chat is exactly that removal, which is what detaches it.
+const attachable = computed(() => [
+  ...chatRows.value,
+  ...(scratchRow.value ? [scratchRow.value] : []),
+  ...activeSessions.value,
+])
+const sessionGroups = computed(() => terminalSessionGroups(activeSessions.value, scratchRow.value, chatRows.value))
+
+// Rows whose liveness hive can answer for. The scratch terminal and a pinned
+// chat are tmux sessions hive holds no record of, so they read theirs off the
+// window sweep and their own attach instead of the status projection.
+function isHiveSession(row: TerminalSessionRow): boolean {
+  return !isScratch(row) && !chatSlugs.value.has(row.slug)
+}
+
+function isChat(row: TerminalSessionRow): boolean {
+  return chatSlugs.value.has(row.slug)
+}
+
+// The rows the sweep asks about whatever "always show windows" says, because
+// the tree has no other way to learn whether tmux is holding one.
+const alwaysSwept = computed(() => [...chatRows.value, ...(scratchRow.value ? [scratchRow.value] : [])])
 // Counted off the listing rather than as the remainder of the tree: the scratch
 // terminal is in the tree and in no listing, and prune only ever means hive's
 // recycled and corrupted sessions.
@@ -188,19 +221,19 @@ function isScratch(row: TerminalSessionRow): boolean {
 }
 
 // What the sidebar says under a tree it has already drawn. The tree is never
-// replaced by a note now that the pinned section is in it, so the two states
+// replaced by a note now that the pinned sections are in it, so the two states
 // that used to stand in for it are named here instead of read off the same
 // v-if chain.
 const treeNote = computed<'' | 'empty' | 'no-matches'>(() => {
   if (sessionsError.value || !treeReady.value) return ''
   if (!activeSessions.value.length) return 'empty'
-  // The pinned section is exempt from the running filter, so it cannot stand in
-  // as something that filter found: leaving no repository behind is leaving the
-  // tree with nothing it was asked about. A query does reach the pinned
-  // section, so one that matched it has found what it went looking for.
+  // The pinned sections are exempt from the running filter, so neither can stand
+  // in as something that filter found: leaving no repository behind is leaving
+  // the tree with nothing it was asked about. A query does reach them, so one
+  // that matched has found what it went looking for.
   const found = sessionFilter.value.trim()
     ? filteredGroups.value.length > 0
-    : filteredGroups.value.some((group) => !group.pinned)
+    : filteredGroups.value.some((group) => group.kind === 'repo')
   return found ? '' : 'no-matches'
 })
 
@@ -244,10 +277,11 @@ const runningGroups = computed<TerminalSessionGroup[]>(() => {
   if (!runningOnly.value || !statusesLoaded.value) return sessionGroups.value
   const groups: TerminalSessionGroup[] = []
   for (const group of sessionGroups.value) {
-    // The pinned section stays. It is the tree's one always-there way to open
-    // a shell, and hiding it leaves nothing to start one from. A query still
-    // reaches it: that is a search for a name, not a view of the list.
-    if (group.pinned) {
+    // The pinned sections stay: the scratch section is the tree's one
+    // always-there way to open a shell, and hiding it leaves nothing to start one
+    // from, while a chat was pinned precisely to be kept in view. A query still
+    // reaches both — that is a search for a name, not a view of the list.
+    if (group.kind !== 'repo') {
       groups.push(group)
       continue
     }
@@ -455,6 +489,31 @@ function onSidebarMenuSelect(id: string): void {
   else if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
 }
 
+// A chat's own lifecycle — rename, stop, delete — stays in the Agents area, which
+// owns its record; what this menu offers is the two things only the pin created:
+// the way back to that area, and the way to undo it.
+const chatMenuEntries: MenuEntry[] = [
+  { kind: 'action', id: 'open-in-agents', label: 'Open in Agents', icon: IconBot, testid: 'terminal-chat-open-in-agents' },
+  { kind: 'separator' },
+  { kind: 'action', id: 'unpin', label: 'Unpin from Code', icon: IconPinOff, testid: 'terminal-chat-unpin' },
+]
+
+// Unpinning drops the row from `attachable`, which is what detaches it — the
+// pooled attach is released by the same watcher a deleted session goes through.
+// The chat itself is untouched: the agent keeps running, which is the whole point
+// of a tmux session outliving its clients (ADR agent-workspace-sessions-are-tmux-sessions).
+function onChatMenuSelect(row: TerminalSessionRow, id: string): void {
+  openRowMenu.value = ''
+  if (id === 'unpin') unpinSlug(row.slug)
+  else if (id === 'open-in-agents') openChatInAgents(row)
+}
+
+function openChatInAgents(row: TerminalSessionRow): void {
+  const session = recents.value.find((candidate) => candidate.slug === row.slug)
+  if (!session) return
+  void router.push({ name: 'agents', params: { workspace: session.workspace }, query: { chat: String(session.id) } })
+}
+
 function groupAttached(group: TerminalSessionGroup): boolean {
   return group.sessions.some((row) => row.slug === activeSlug.value)
 }
@@ -474,10 +533,10 @@ function groupExpanded(group: TerminalSessionGroup): boolean {
   // A filter overrides the stored state: a group is only in the list because
   // something in it matched, and a collapsed one would hide the match.
   if (sessionFilter.value.trim()) return true
-  // The pinned section's row is its heading, so this is what its chevron folds:
-  // the tabs under it, not the row itself. Open until told otherwise — free
-  // space nobody can see is not free space.
-  if (group.pinned) return groupExpansion.value[group.key] ?? true
+  // Both pinned sections default open — free space nobody can see is not free
+  // space. For the scratch section the row is its heading, so this is what its
+  // chevron folds: the tabs under it, not the row itself.
+  if (group.kind !== 'repo') return groupExpansion.value[group.key] ?? true
   return groupExpansion.value[group.key] ?? (groupAttached(group) || groupRunning(group))
 }
 function toggleGroup(group: TerminalSessionGroup): void {
@@ -507,17 +566,22 @@ const { listings: sessionWindows, settled: listingsSettled, refresh: refreshList
 // to hold when the client appears asks about a set we already know is stale,
 // and the answer would report the listings as settled before the real ones are
 // even in flight.
-// The scratch terminal is swept whatever the setting says: the tree has no other
-// way to know whether tmux is holding it, and a sweep is one tmux call for every
-// slug in it, so asking about one more costs nothing.
+// The scratch terminal and the pinned chats are swept whatever the setting says:
+// the tree has no other way to know whether tmux is holding one, and a sweep is
+// one tmux call for every slug in it, so asking about a few more costs nothing.
 function sweepListings(): void {
   const transport = client.value
   if (!props.active || !transport || !sessionsLoaded.value) return
   if (showAllWindows.value) void refreshListings(transport, attachable.value)
-  else if (scratchRow.value) void refreshListings(transport, [scratchRow.value])
+  else if (alwaysSwept.value.length) void refreshListings(transport, alwaysSwept.value)
 }
 
 watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], sweepListings)
+
+// The chat rows come from the Agents area's own listing, which nothing else in
+// this mode reads: without this a pinned chat's name and liveness would be
+// whatever they were when the Agents area was last on screen.
+watch(() => props.active, (active) => { if (active) void reloadRecents() }, { immediate: true })
 
 // A session dying moves nothing the sweep above watches — not the session set,
 // not the pool, not the setting — while its last window closing empties the
@@ -548,7 +612,7 @@ watchEffect(() => {
   // Whatever the sweep is answering — every session's windows, or only whether
   // the scratch terminal is running — the tree waits for it, because both change
   // a row's final shape.
-  const sweeping = attachable.value.length > 0 && (showAllWindows.value || !!scratchRow.value)
+  const sweeping = attachable.value.length > 0 && (showAllWindows.value || alwaysSwept.value.length > 0)
   if (sweeping && !listingsSettled.value) return
   treeReady.value = true
 })
@@ -566,7 +630,7 @@ watch(treeReady, (ready) => {
   })))
 }, { immediate: true })
 
-// The pinned section is exempt from "always show windows": that setting is about
+// The scratch section is exempt from "always show windows": that setting is about
 // how much of every session to list, and the scratch terminal's tabs are the
 // section itself — hiding them leaves a heading that says nothing.
 function listedWindows(row: TerminalSessionRow): WindowState[] {
@@ -575,20 +639,20 @@ function listedWindows(row: TerminalSessionRow): WindowState[] {
 }
 
 // Whether tmux is holding a session for a row. Hive's status projection is keyed
-// by session id and knows nothing about the scratch terminal, so that row reads
-// its liveness off the window listing — swept for it whatever the "always show
-// windows" setting says — and off its own live attach.
+// by session id and knows nothing about the scratch terminal or a pinned chat, so
+// those rows read their liveness off the window listing — swept for them whatever
+// the "always show windows" setting says — and off their own live attach.
 function rowRunning(row: TerminalSessionRow): boolean {
-  if (!isScratch(row)) return !!sessionStatuses.value[row.id]?.running
+  if (isHiveSession(row)) return !!sessionStatuses.value[row.id]?.running
   if (sessionWindows.value[row.slug]?.length) return true
   const live = pool.get(row.slug)
   return !!live && live.status.value !== 'ended'
 }
 
 // Greyed only once its state is known: the status poll for a session, the first
-// window sweep for the scratch terminal.
+// window sweep for the scratch terminal and the pinned chats.
 function rowIdle(row: TerminalSessionRow): boolean {
-  if (!isScratch(row)) return !!sessionIdle.value[row.id]
+  if (isHiveSession(row)) return !!sessionIdle.value[row.id]
   return listingsSettled.value && !rowRunning(row)
 }
 
@@ -620,7 +684,10 @@ function windowRowsFor(row: TerminalSessionRow): TreeWindowRow[] {
 // A pooled session's live tab set is fresher than its listing — but while its
 // attach is still in flight, the cached listing stands in so selecting a
 // session does not collapse its subtree.
+// A chat is one conversation, so its tmux window is a fact about how that is
+// carried rather than something to navigate between: the row is a leaf.
 function buildWindowRows(row: TerminalSessionRow): TreeWindowRow[] {
+  if (isChat(row)) return []
   const live = pool.get(row.slug)
   if (live?.tabs.value.length && (row.slug === activeSlug.value || showAllWindows.value || isScratch(row))) {
     return live.tabs.value.map((tab) => ({
@@ -976,6 +1043,7 @@ const endReason = computed(() => visible.value?.endReason.value ?? null)
 // the session's agent command — so it is offered, never done on selection.
 const notStarted = computed(() => endReason.value === 'not-started')
 const scratchAttached = computed(() => !!attachedRow.value && isScratch(attachedRow.value))
+const chatAttached = computed(() => !!attachedRow.value && isChat(attachedRow.value))
 const starting = ref('')
 const startError = ref('')
 const sessionError = computed(() => visible.value?.error.value ?? '')
@@ -1133,18 +1201,28 @@ function selectSession(slug: string): void {
 // Starting is the user's move, never a side effect of selecting a row: it runs
 // the session's agent command. A session already running is not respawned, so
 // this doubles as "open it" from the row menu.
+// Starting a pinned chat is the Agents area's resume rather than hive's spawn:
+// there is no hive session behind an agentws-* slug for a spawn configuration to
+// be read from, and relaunching a stopped chat is the agent's own resume flag to
+// apply (ADR agent-workspace-sessions-are-tmux-sessions). Either way it stays an offered action and never
+// something an attach does on its own (ADR terminal-start-is-an-offered-action).
 async function startSession(slug: string): Promise<void> {
   if (!client.value || starting.value) return
   starting.value = slug
   startError.value = ''
   try {
-    await client.value.start(slug)
+    if (chatSlugs.value.has(slug)) await resumePinnedChat(slug)
+    else await client.value.start(slug)
   } catch (e) {
     startError.value = e instanceof Error && e.message ? e.message : 'Could not start this session.'
     return
   } finally {
     starting.value = ''
   }
+  // The resume created the tmux session behind a row the sweep last saw stopped,
+  // and nothing the sweep watches moved — so it is asked again explicitly rather
+  // than leaving the row's liveness resting on the attach that follows.
+  if (chatSlugs.value.has(slug)) sweepListings()
   if (slug !== activeSlug.value) {
     void router.push({ name: 'terminal', params: { slug } })
     return
@@ -1153,6 +1231,16 @@ async function startSession(slug: string): Promise<void> {
   if (!pooled) openSession(slug)
   else if (pooled.status.value === 'ended') void pooled.reconnect()
   else pooled.focusActive()
+}
+
+// The chat's record is the Agents area's, so the id comes from its listing rather
+// than from the slug: deriving one from the other would put the core's tmux
+// naming scheme in two places.
+async function resumePinnedChat(slug: string): Promise<void> {
+  const session = recents.value.find((candidate) => candidate.slug === slug)
+  if (!session) throw new Error('This chat is no longer listed.')
+  await resumeChat({ id: session.id })
+  await reloadRecents()
 }
 
 // Killing ends the terminal and nothing else — the checkout, the record and the
@@ -1501,11 +1589,14 @@ onBeforeUnmount(() => {
                resize tells them a row has moved. -->
           <div ref="treeContent" class="relative" :class="{ 'tree-settling': !treeSettled }">
             <div v-for="group in filteredGroups" :key="group.key" class="border-t border-border first:border-t-0">
+              <!-- Chats take a repository's header rather than the scratch
+                   section's: it heads several rows, so its name cannot be one of
+                   them the way the scratch terminal's is. -->
               <button
-                v-if="!group.pinned"
+                v-if="group.kind !== 'scratch'"
                 type="button"
                 class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
-                data-testid="terminal-repo-group"
+                :data-testid="group.kind === 'chats' ? 'terminal-chats-group' : 'terminal-repo-group'"
                 :data-repo="group.key"
                 :aria-expanded="groupExpanded(group)"
                 @click="toggleGroup(group)"
@@ -1514,7 +1605,7 @@ onBeforeUnmount(() => {
                 <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
                 <component :is="groupExpanded(group) ? IconChevronDown : IconChevronRight" class="size-3 shrink-0 text-text-4" />
               </button>
-              <!-- The pinned section is one repository's worth of chrome for a
+              <!-- The scratch section is one repository's worth of chrome for a
                    session that is not one: the same header, and its tabs where a
                    repository lists its sessions. Its own controls live in the
                    header because there is no row under it to put them on, which
@@ -1586,16 +1677,16 @@ onBeforeUnmount(() => {
                   <TransitionGroup name="tree" tag="div" class="relative flex flex-col border-t border-border bg-app py-1">
                     <div v-for="row in group.sessions" :key="row.id">
                       <!-- Not a <button>: the row's menu toggle is a real button, and
-                           nesting one inside another is invalid. The pinned
+                           nesting one inside another is invalid. The scratch
                            section has no row here at all — its heading above is
                            the session, and what this panel lists are its tabs. -->
                       <div
-                        v-if="!group.pinned"
+                        v-if="group.kind !== 'scratch'"
                         class="session-row"
                         :class="{ 'session-row-attached': row.slug === activeSlug, 'menu-open': openRowMenu === row.id }"
                         role="button"
                         :tabindex="tabStopKey === `s:${row.id}` ? 0 : -1"
-                        data-testid="terminal-session-row"
+                        :data-testid="group.kind === 'chats' ? 'terminal-chat-row' : 'terminal-session-row'"
                         :data-slug="row.slug"
                         :data-tree-key="`s:${row.id}`"
                         :data-attached="row.slug === activeSlug"
@@ -1608,9 +1699,13 @@ onBeforeUnmount(() => {
                         <span class="min-w-0 flex-1 truncate text-[13.5px]" :class="{ 'text-text-3': rowIdle(row) }">{{ row.name }}</span>
                         <!-- AppMenu must anchor to the positioned row so its panel
                              spans the row. Grid overlap avoids making this slot a
-                             positioning ancestor while keeping its width fixed. -->
+                             positioning ancestor while keeping its width fixed.
+                             A chat has no tabs to add, so its slot carries the
+                             liveness dot and its own two-entry menu; everything a
+                             chat's own lifecycle needs lives in the Agents area. -->
                         <div class="row-trailing" data-testid="terminal-session-trailing" @click.stop>
                           <button
+                            v-if="group.kind !== 'chats'"
                             type="button"
                             class="row-action row-lead"
                             title="New window"
@@ -1621,25 +1716,35 @@ onBeforeUnmount(() => {
                           <span
                             v-if="rowRunning(row)"
                             class="row-status text-severity-success"
-                            title="Terminal running"
+                            :title="group.kind === 'chats' ? 'Agent running' : 'Terminal running'"
                             data-testid="terminal-session-liveness"
                           >
                             <span class="size-2.5 rounded-full bg-current" aria-hidden="true" />
-                            <span class="sr-only">Terminal running</span>
+                            <span class="sr-only">{{ group.kind === 'chats' ? 'Agent running' : 'Terminal running' }}</span>
                           </span>
                           <button
                             :ref="(el) => setRowMenuToggle(row.id, el)"
                             type="button"
                             class="row-action row-swap"
-                            title="Session actions"
-                            aria-label="Session actions"
+                            :title="group.kind === 'chats' ? 'Chat actions' : 'Session actions'"
+                            :aria-label="group.kind === 'chats' ? 'Chat actions' : 'Session actions'"
                             aria-haspopup="menu"
                             :aria-expanded="openRowMenu === row.id"
-                            data-testid="terminal-session-menu-toggle"
+                            :data-testid="group.kind === 'chats' ? 'terminal-chat-menu-toggle' : 'terminal-session-menu-toggle'"
                             @click="toggleRowMenu(row)"
                           ><IconEllipsisVertical class="size-3" /></button>
+                          <AppMenu
+                            v-if="openRowMenu === row.id && group.kind === 'chats'"
+                            :entries="chatMenuEntries"
+                            :flip="rowMenuFlip"
+                            width="min(230px, 100%)"
+                            :ignore="[rowMenuToggles.get(row.id) ?? null]"
+                            testid="terminal-chat-menu"
+                            @select="onChatMenuSelect(row, $event)"
+                            @close="openRowMenu = ''"
+                          />
                           <SessionRowMenu
-                            v-if="openRowMenu === row.id"
+                            v-else-if="openRowMenu === row.id"
                             :session="row"
                             :extra="sessionActionEntries"
                             :flip="rowMenuFlip"
@@ -1684,7 +1789,7 @@ onBeforeUnmount(() => {
                               <div
                                 class="window-row"
                                 :class="{
-                                  'window-row-flush': group.pinned,
+                                  'window-row-flush': group.kind === 'scratch',
                                   'window-row-last': index === windowRowsFor(row).length - 1,
                                   'window-row-active': win.active,
                                   'has-swap': win.live,
@@ -1769,10 +1874,10 @@ onBeforeUnmount(() => {
                             </div>
                           </TransitionGroup>
                         </div>
-                        <!-- The pinned section with nothing in it. A bare heading
+                        <!-- The scratch section with nothing in it. A bare heading
                              would leave the keyboard nothing to land on and the
                              mouse nothing but the + to guess at. -->
-                        <div v-else-if="group.pinned && groupExpanded(group)" class="pb-1">
+                        <div v-else-if="group.kind === 'scratch' && groupExpanded(group)" class="pb-1">
                           <div
                             class="window-row window-row-flush window-row-last text-text-4"
                             role="button"
@@ -1983,8 +2088,14 @@ onBeforeUnmount(() => {
               data-testid="terminal-session-not-started"
             >
               <IconTerminal class="size-6 text-text-4" />
-              <div class="text-[13.5px] font-semibold">{{ scratchAttached ? 'Terminal not started' : 'Session not started' }}</div>
-              <p v-if="scratchAttached" class="max-w-[420px] text-xs leading-relaxed text-text-3">
+              <div class="text-[13.5px] font-semibold">
+                {{ chatAttached ? 'Chat not running' : scratchAttached ? 'Terminal not started' : 'Session not started' }}
+              </div>
+              <p v-if="chatAttached" class="max-w-[420px] text-xs leading-relaxed text-text-3">
+                This chat is stopped. Resuming it launches the agent again in its workspace, picking the
+                conversation back up where the agent itself can.
+              </p>
+              <p v-else-if="scratchAttached" class="max-w-[420px] text-xs leading-relaxed text-text-3">
                 The scratch terminal is not running. Starting it opens a shell in your home directory,
                 and every tab you add opens there too.
               </p>
@@ -2001,7 +2112,7 @@ onBeforeUnmount(() => {
                   @click="startSession(activeSlug)"
                 >
                   <template #icon><IconPlay class="size-3.5" /></template>
-                  {{ starting === activeSlug ? 'Starting…' : scratchAttached ? 'Start terminal' : 'Start session' }}
+                  {{ starting === activeSlug ? (chatAttached ? 'Resuming…' : 'Starting…') : chatAttached ? 'Resume chat' : scratchAttached ? 'Start terminal' : 'Start session' }}
                 </BaseButton>
                 <BaseButton variant="secondary" size="sm" data-testid="terminal-close-session" @click="closeSession">Close</BaseButton>
               </div>
