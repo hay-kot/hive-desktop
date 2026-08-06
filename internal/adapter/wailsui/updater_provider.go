@@ -95,8 +95,11 @@ func (p *manifestProvider) Check(ctx context.Context, req updater.CheckRequest) 
 	}
 
 	return &updater.Release{
-		Version:     strings.TrimPrefix(latest, "v"),
-		Channel:     m.Channel,
+		Version: strings.TrimPrefix(latest, "v"),
+		Channel: m.Channel,
+		// A pending release is not installed, so its notes cannot come from the
+		// embedded changelog — the manifest is the only place they exist yet.
+		Notes:       manifestNotes(m),
 		PublishedAt: m.PubDate,
 		Artifact: updater.Artifact{
 			Filename: path.Base(artifactURL.Path),
@@ -189,6 +192,15 @@ func (p *manifestProvider) fetchManifest(ctx context.Context) (*channelManifest,
 	return &m, nil
 }
 
+// manifestNotes prefers the full changelog body and falls back to the summary,
+// so a release that ships only a one-liner still says something.
+func manifestNotes(m *channelManifest) string {
+	if notes := strings.TrimSpace(m.Notes); notes != "" {
+		return notes
+	}
+	return strings.TrimSpace(m.Summary)
+}
+
 // canonicalSemver returns a "v"-prefixed canonical form suitable for
 // golang.org/x/mod/semver, which requires the leading "v".
 func canonicalSemver(v string) string {
@@ -215,9 +227,14 @@ func platformKey(platform, arch string) string {
 // --- manifest schema (docs/distribution.md) ---
 
 type channelManifest struct {
-	Channel   string                      `json:"channel"`
-	Version   string                      `json:"version"`
-	PubDate   time.Time                   `json:"pub_date"`
+	Channel string    `json:"channel"`
+	Version string    `json:"version"`
+	PubDate time.Time `json:"pub_date"`
+	// Summary and Notes carry the release's changelog entry so an
+	// update-available prompt can say what the update contains. Both are
+	// absent from manifests published before the changelog existed.
+	Summary   string                      `json:"summary"`
+	Notes     string                      `json:"notes"`
 	Platforms map[string]manifestPlatform `json:"platforms"`
 }
 

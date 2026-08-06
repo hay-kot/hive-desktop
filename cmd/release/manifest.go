@@ -45,10 +45,16 @@ type platformManifest struct {
 	InstallerSize   int64  `json:"installer_size,omitempty"`
 }
 
+// channelManifest is the channel pointer the updater polls. summary and notes
+// carry the version's changelog entry so an update-available prompt can say
+// what the update contains without a second fetch; both are optional, because
+// manifests published before the changelog existed still have to parse.
 type channelManifest struct {
 	Channel   string                      `json:"channel"`
 	Version   string                      `json:"version"`
 	PubDate   string                      `json:"pub_date"`
+	Summary   string                      `json:"summary,omitempty"`
+	Notes     string                      `json:"notes,omitempty"`
 	Platforms map[string]platformManifest `json:"platforms"`
 }
 

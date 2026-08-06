@@ -22,6 +22,7 @@ import ConfirmationDialog from './components/ConfirmationDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import ErrorDialog from './components/ErrorDialog.vue'
 import ReportProblemDialog from './components/ReportProblemDialog.vue'
+import WhatsNewDialog from './components/WhatsNewDialog.vue'
 import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
@@ -41,6 +42,7 @@ import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
 import { useDevTools } from './composables/useDevTools'
 import { startFrameStats } from './composables/useFrameStats'
+import { useReleaseNotes } from './composables/useReleaseNotes'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { sessionRepository } from './composables/useTerminalSessions'
@@ -795,6 +797,17 @@ async function toggleMaximise(): Promise<void> {
 const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
 const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
 const { current: appError, dismissError } = useErrorDialog()
+
+// An update installs by relaunching, so the version bump is only observable on
+// the next launch — that is where the What's New surface is triggered from.
+const {
+  dialogOpen: whatsNewOpen,
+  pendingEntries: whatsNewEntries,
+  pendingVersion: whatsNewVersion,
+  checkOnLaunch: checkReleaseNotes,
+  dismiss: dismissWhatsNew,
+} = useReleaseNotes()
+onMounted(() => { void checkReleaseNotes() })
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
   openBlank: openNewSession, openFromItem: openNewSessionFromItem, cancel: cancelNewSession, submit: submitNewSession,
@@ -1439,6 +1452,12 @@ onUnmounted(() => {
     <CommandPalette />
     <ReportProblemDialog v-if="reportDialogOpen" @close="reportDialogOpen = false" />
     <ErrorDialog v-if="appError" :error="appError" @close="dismissError" />
+    <WhatsNewDialog
+      v-if="whatsNewOpen"
+      :version="whatsNewVersion"
+      :entries="whatsNewEntries"
+      @close="dismissWhatsNew"
+    />
     <NewProfileModal
       v-if="newProfileOpen"
       :busy="creatingProfile"

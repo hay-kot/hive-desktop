@@ -60,6 +60,10 @@ internal/app/             # the headless core — no transport, no Wails
     testdata/parity/      # fixture flows + expected commits (see Testing)
   dispatch/               # output worker, dispatcher, executors
   icons/                  # the curated feed glyph set (a leaf: flow + webhook)
+  releasenotes/           # the embedded changelog + the seen-version marker
+    changelog/<version>.md  # authored BEFORE the release commit; the release
+                            #   gate refuses a version with no entry
+                            #   (ADR release-notes-ship-inside-the-binary)
   sources/                # the connector registry — registry.go is the whole map
     connector/            # the vocabulary a connector is declared in
     github/               # the GitHub connector; feed/ is its fetch layer,

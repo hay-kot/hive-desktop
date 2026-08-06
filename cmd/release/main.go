@@ -133,6 +133,35 @@ func newReleaseCommand() *cli.Command {
 				}),
 			},
 			{
+				Name:  "changelog",
+				Usage: "manage the release notes embedded in the app",
+				Commands: []*cli.Command{
+					{
+						Name:      "new",
+						Usage:     "scaffold the changelog entry for a release",
+						ArgsUsage: "<dev|beta|stable|version>",
+						Description: "Writes internal/app/releasenotes/changelog/<version>.md pre-filled with the commit subjects since the previous " +
+							"release tag, for you to edit into prose. The entry must be committed before the release: it is embedded in the binary, " +
+							"and `release publish` refuses a version that has none.",
+						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+							if cmd.NArg() != 1 {
+								return cli.Exit("expected a channel (dev, beta, or stable) or an explicit version", 2)
+							}
+							version, err := changelogTargetVersion(ctx, cmd.Args().First())
+							if err != nil {
+								return err
+							}
+							path, err := scaffoldChangelogEntry(ctx, version)
+							if err != nil {
+								return err
+							}
+							fmt.Printf("wrote %s — edit it, then commit it with the release\n", path)
+							return nil
+						}),
+					},
+				},
+			},
+			{
 				Name:      "verify",
 				Usage:     "verify live manifests and the public artifact",
 				ArgsUsage: "<version>",
@@ -215,6 +244,9 @@ func planRelease(ctx context.Context, channel, candidate string, validateSource 
 		return releasePlan{}, fmt.Errorf("candidate %s belongs to %s, not %s", candidate, version.channel(), channel)
 	}
 	if err := validateManifestAdvancement(version, manifests); err != nil {
+		return releasePlan{}, err
+	}
+	if err := validateChangelogEntry(version); err != nil {
 		return releasePlan{}, err
 	}
 

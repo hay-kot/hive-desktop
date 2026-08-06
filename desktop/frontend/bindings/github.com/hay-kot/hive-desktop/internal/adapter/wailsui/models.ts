@@ -273,6 +273,21 @@ export interface PathInfo {
     "overridden": boolean;
 }
 
+/**
+ * PendingReleaseNotes tells the frontend whether this launch landed on a newer
+ * version and how to say so.
+ */
+export interface PendingReleaseNotes {
+    "show": boolean;
+
+    /**
+     * Presentation is "modal" or "toast"; empty when Show is false.
+     */
+    "presentation": string;
+    "version": string;
+    "entries": ReleaseNote[] | null;
+}
+
 export interface PerfInfo {
     "enabled": boolean;
     "path": string;
@@ -316,6 +331,20 @@ export interface PopupTerminalEndpoint {
     "httpBaseURL": string;
     "wsURL": string;
     "token": string;
+}
+
+/**
+ * ReleaseNote is the frontend-facing view of one published release's notes.
+ * Date is a plain YYYY-MM-DD string rather than a timestamp: a release is
+ * dated, not clocked, and formatting it here keeps the frontend from having to
+ * decide what an instant means in the user's timezone.
+ */
+export interface ReleaseNote {
+    "version": string;
+    "date": string;
+    "channel": string;
+    "summary": string;
+    "body": string;
 }
 
 export interface ReportInput {

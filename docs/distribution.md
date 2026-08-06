@@ -51,6 +51,8 @@ The Linux tarballs contain **exactly one entry, and that entry is the binary**. 
   "channel": "stable",
   "version": "1.4.0",
   "pub_date": "2026-08-01T00:00:00Z",
+  "summary": "Terminal paste fixes and installed-font support.",
+  "notes": "## Added\n\n- ...",
   "platforms": {
     "darwin-universal": {
       "url": "https://dl.hivedesktop.com/desktop/releases/1.4.0/Hive-1.4.0-darwin-universal.zip",
@@ -75,6 +77,8 @@ The Linux tarballs contain **exactly one entry, and that entry is the binary**. 
 ```
 
 Platform keys come from `platformKey` in `internal/adapter/wailsui/updater_provider.go`: macOS ships one universal build so both arches resolve to `darwin-universal`; everything else is `<os>-<arch>`.
+
+`summary` and `notes` carry the version's changelog entry, so an update-available prompt can say what the update contains without a second fetch. Both are optional — manifests published before the changelog existed still parse — and they are the *only* place a pending release's notes exist, since the app's own copy is embedded in the build it describes (ADR release-notes-ship-inside-the-binary).
 
 `url`/`sha256`/`size` are the artifact the **updater** downloads. The `installer_*` fields are the artifact a **human** downloads, and appear only where the two differ — today, macOS. They are optional and must be read as a set: a consumer either has all three or treats the platform as having no separate installer, because a URL without its checksum would mean installing unverified bytes. Consumers written against the pre-installer schema keep working; the updater ignores unknown fields.
 
@@ -143,7 +147,7 @@ The pipeline is the Go CLI in `cmd/release`. **A release publishes every platfor
 2. builds the installer `.dmg` from that stapled app, signs it, notarizes and staples **the image** (a second Apple round trip), then mounts it and asserts the layout the user will see;
 3. builds `linux-amd64` and `linux-arm64` in a container, asserting each binary carries the version stamp and each tarball still satisfies the updater's single-entry rule;
 4. writes one `SHA256SUMS` covering all four, uploads them to `releases/<semver>/`, writes one channel manifest naming all of them, and verifies every published artifact — installer included — against the manifest it just wrote;
-5. records the release on GitHub ([github-tags-and-releases](decisions/2026-07-29-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose notes are generated from the commits since the previous desktop tag. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
+5. records the release on GitHub ([github-tags-and-releases](decisions/2026-07-29-github-tags-and-releases.md)) — pushes the lightweight `desktop-v<semver>` tag and creates a GitHub Release whose body is the version's committed changelog entry. dev and beta are marked prerelease; only stable is the latest release. It attaches no artifacts — downloads stay in R2 (decision 0003) — and is idempotent, so `release github <version>` re-records a release whose GitHub step failed after the upload.
 
 Publishing everything in one process is what keeps the manifest-advancement rule (below) usable: a second publish topping up another platform would be rejected for not advancing the version the first just set. It also means a release needs macOS, a running Docker, **and** an authenticated `gh` on the same machine. `next`, `prepare`, and `verify` handle version selection, preflight validation, and standalone diagnostics without separate scripts. Channel routing and cascade follow the rules below.
 
@@ -177,11 +181,12 @@ The interactive command refreshes release tags, checks the source and GitHub aut
 
 Rules enforced by the publisher:
 1. Release preparation requires a clean, current `main`. Publishing requires the same state. Source state is checked again immediately before upload.
-2. SQLite migrations must be contiguous, and every migration present in the latest reachable `desktop-v*` tag must remain at the same path with the same contents. Both `prepare` and `publish` run `scripts/check-migration-order.sh` before release work begins.
-3. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
-4. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
-5. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
-6. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
+2. The version must have a changelog entry at `internal/app/releasenotes/changelog/<version>.md`. It is checked before anything is built, because the notes are embedded in the binary and an entry written afterwards would describe a release that cannot display it (ADR release-notes-ship-inside-the-binary). Scaffold one with `mise run changelog:new -- <dev|beta|stable|version>`, then edit it into prose.
+3. SQLite migrations must be contiguous, and every migration present in the latest reachable `desktop-v*` tag must remain at the same path with the same contents. Both `prepare` and `publish` run `scripts/check-migration-order.sh` before release work begins.
+4. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
+5. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
+6. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+7. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
 
 ## Installing on macOS
 

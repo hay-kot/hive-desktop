@@ -81,6 +81,12 @@ func publish(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// The changelog gate runs before anything is built: the notes are embedded
+	// in the binary, so an entry written after the build would describe a
+	// release that cannot display it.
+	if err := validateChangelogEntry(options.version); err != nil {
+		return err
+	}
 	if !options.skipUpload {
 		if err := validatePublishSource(ctx, options.version); err != nil {
 			return err
@@ -738,6 +744,11 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 		return err
 	}
 
+	entry, err := changelogEntry(p.options.version)
+	if err != nil {
+		return err
+	}
+
 	pubDate := time.Now().UTC().Format(time.RFC3339)
 	for _, channel := range p.options.version.affectedChannels() {
 		fmt.Printf("==> writing channel manifest: %s\n", channel)
@@ -745,6 +756,8 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 			Channel:   channel,
 			Version:   p.options.version.String(),
 			PubDate:   pubDate,
+			Summary:   entry.Summary,
+			Notes:     entry.Body,
 			Platforms: platforms,
 		}
 		contents, err := json.MarshalIndent(manifest, "", "  ")

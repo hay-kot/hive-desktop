@@ -354,6 +354,10 @@ run = "go run ./cmd/vendorhive"
 description = 'Start a new ADR: mise run adr:new -- "The decision, as a sentence"'
 run = "go run ./cmd/adr new"
 
+[tasks."changelog:new"]
+description = "Scaffold a release's changelog entry: mise run changelog:new -- <dev|beta|stable|version>"
+run = "go run ./cmd/release changelog new"
+
 [tasks.release]
 description = "Interactively select a channel and version increment, validate, confirm, and publish (args: [--dry-run] [dev|beta|stable] [version])"
 interactive = true
