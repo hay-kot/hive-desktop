@@ -5,7 +5,7 @@ set -euo pipefail
 # server process starts so a direct host `npx playwright test` cannot fall back
 # to local browsers or a local server.
 if [[ ! "${HIVE_DESKTOP_E2E_HARNESS:-}" =~ ^[[:xdigit:]]{64}$ ]]; then
-  echo "error: desktop e2e must run through mise run desktop:e2e (Docker harness marker missing)" >&2
+  echo "error: desktop e2e must run through mise run e2e (Docker harness marker missing)" >&2
   exit 1
 fi
 

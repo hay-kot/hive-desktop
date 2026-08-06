@@ -58,9 +58,9 @@ manager exists; configuration does not justify a bespoke teardown path.
 
 **Each worktree owns a reusable local development instance.** The gitignored
 `.hive-desktop/` directory contains isolated data and config roots and a marker
-that binds it to that worktree. Setup or `desktop:dev:prepare` creates or reuses
-it; `desktop:dev:fresh` safely deletes and reseeds it; and
-`desktop:dev:reset` safely deletes it. Destructive operations require the exact
+that binds it to that worktree. Setup or `dev:prepare` creates or reuses
+it; `dev:fresh` safely deletes and reseeds it; and
+`dev:reset` safely deletes it. Destructive operations require the exact
 worktree-local path, a regular ownership marker, and no root symlink. An atomic,
 stale-recoverable worktree lock serializes these operations, and fresh/reset
 refuse while either configured development server is active. Config snapshots materialize symlink
@@ -69,7 +69,7 @@ configured agent-workspace root is snapshotted into the instance separately and
 pinned there through `HIVE_DESKTOP_AGENT_WORKSPACES_DIR`, so a configured File
 Provider path cannot be reopened by a development process.
 `cmd/devtools prepare` atomically writes paths and resolved ports to the
-root-level, gitignored `launch.env`. The `desktop:dev` mise task loads that
+root-level, gitignored `launch.env`. The `dev` mise task loads that
 non-secret file followed by optional gitignored `overrides.env`; setup and a
 missing-file-only enter hook create `launch.env`, and devtools requires no
 special environment-override logic. Wails then starts directly. Application-owned listeners bind port zero directly; devtools
@@ -107,7 +107,7 @@ Vite cannot accept an already-open listener.
   isolated development until credential namespaces become instance-aware.
 - **Update (2026-07-28):** `hive.db` resolves through a separate `HiveDataDir`
   (defaulting to `DataDir`, so production and e2e are unchanged), and
-  `desktop:dev` points `HIVE_DESKTOP_HIVE_DATA_DIR` at the installed hive data
+  `dev` points `HIVE_DESKTOP_HIVE_DATA_DIR` at the installed hive data
   dir. Sessions created in dev therefore land in the real hive database — the
   desktop shares `hive.db` with the CLI in dev as it already does in production
   — while `desktop-pipeline.db` and feed state stay worktree-isolated. The

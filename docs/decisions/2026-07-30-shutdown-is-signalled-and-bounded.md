@@ -16,7 +16,7 @@ reading the code:
    `applicationShouldTerminate:` and exits the process — `Run` does not return,
    so the code after it is unreachable. Every quit was affected, the tray's own
    Quit item included; the `server` build was the only one where returning from
-   `Run` ever happened, which is why `desktop:serve` and e2e never showed it.
+   `Run` ever happened, which is why `serve` and e2e never showed it.
 
 2. **The app had no signal disposition.** SIGINT, SIGTERM and SIGHUP killed it
    on Go's default action. After a SIGTERM the pipeline database was left with
@@ -63,7 +63,7 @@ reading the code:
    client has already been sent its kill by then. This is what makes the three
    seconds `App.Close` documents a real bound.
 
-4. **The dev session is supervised above the runner.** `mise run desktop:dev`
+4. **The dev session is supervised above the runner.** `mise run dev`
    launches `cmd/devtools run`, which starts `wails3 dev` in a process group of
    its own so terminal signals arrive at the supervisor and nowhere below it.
    On a signal it asks the app to shut down, waits for it, interrupts the

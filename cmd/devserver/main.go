@@ -258,7 +258,7 @@ func (o *options) run(ctx context.Context, _ *cli.Command) error {
 			Msg("config seeds overlays; connected instances see rewritten data from the first request")
 	}
 	logger.Info().Msgf("dashboard: http://%s", cfg.Listen)
-	logger.Info().Msgf("point a desktop instance at it: %s=http://%s mise run desktop:dev",
+	logger.Info().Msgf("point a desktop instance at it: %s=http://%s mise run dev",
 		devproxy.EnvAPIBase, cfg.Listen)
 
 	errs := make(chan error, 1)

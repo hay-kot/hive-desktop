@@ -7,7 +7,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../../.."
 
 if ! docker info >/dev/null 2>&1; then
-  echo "error: Docker is required for desktop:e2e; host Playwright is intentionally unsupported" >&2
+  echo "error: Docker is required for the e2e suite; host Playwright is intentionally unsupported" >&2
   exit 1
 fi
 

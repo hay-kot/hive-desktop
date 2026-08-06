@@ -13,33 +13,36 @@ lefthook = "2.1.10"
 # commits, and the vendor pin usually is one.
 GOPRIVATE = "github.com/colonyops/hive"
 # Local secrets (release signing/notary/R2). The generated launch.env is
-# intentionally scoped to desktop:dev so tests, release tools, and the
-# headless server do not inherit development paths or framework ports.
+# intentionally scoped to `dev` so tests, release tools, and the headless
+# server do not inherit development paths or framework ports.
 _.file = { path = ".env", redact = true }
 
 # A tool install wires hooks and prepares this worktree's isolated desktop
 # instance. The enter hook only fills a missing launch.env. Each later mise
-# command reloads the generated file before running, including desktop:dev.
+# command reloads the generated file before running, including `dev`.
 [hooks]
 postinstall = { task = "setup" }
 enter = "test -f '{{config_root}}/launch.env' || (cd '{{config_root}}' && go run ./cmd/devtools prepare)"
 
+# Task names are area-first and most-specific-last: `frontend:build`, not
+# `build:frontend`. The desktop app is this repo's primary artifact, so it holds
+# the bare verbs (`build`, `dev`, `serve`); a second area takes a prefix when it
+# arrives. See ADR mise-is-the-task-interface-and-the-taskfile-is-wails3-build-dispatch.
+
 [tasks.setup]
 description = "Install git hooks and prepare this worktree's isolated desktop launch environment"
-depends = ["desktop:dev:prepare"]
+depends = ["dev:prepare"]
 run = "./scripts/hooks/install.sh"
 
-[tasks."release:desktop"]
-description = "Deploy the web landing page/worker, then build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
-run = "go run ./cmd/release publish"
+# ── Code generation ──────────────────────────────────────────────────────────
 
-[tasks.vendor]
-description = "Sync internal/hivecore from the pinned hive commit (see cmd/vendorhive)"
-run = "go run ./cmd/vendorhive"
-
-[tasks.devserver]
-description = "Run the dev GitHub proxy + event simulator (see cmd/devserver). Point instances at it with HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE."
-run = "go run ./cmd/devserver --config cmd/devserver/devserver.yaml"
+# Aggregate only. The three generators write disjoint files, so mise running
+# `depends` in parallel is safe here. `bindings` and `icons` are deliberately
+# absent: both need a full app build or image tooling, well past what a routine
+# regeneration should cost.
+[tasks.generate]
+description = "Run all code generators (vendored hivecore is generated upstream)"
+depends = ["generate:enums", "generate:sqlc", "generate:adr"]
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
@@ -60,62 +63,23 @@ sources = [
 outputs = { auto = true }
 run = "sqlc generate"
 
-[tasks."generate:adr-index"]
+[tasks."generate:adr"]
 description = "Regenerate the decision index from docs/decisions/"
 sources = ["docs/decisions/*.md"]
 outputs = ["docs/decisions/README.md"]
 run = "go run ./cmd/adr index"
 
-# Aggregate only. The three generators write disjoint files, so mise running
-# `depends` in parallel is safe here.
-[tasks.generate]
-description = "Run all code generators (vendored hivecore is generated upstream)"
-depends = ["generate:enums", "generate:sqlc", "generate:adr-index"]
+[tasks.bindings]
+description = "Regenerate the desktop's Wails TS bindings"
+dir = "desktop"
+run = "wails3 generate bindings -clean=true -ts -i"
 
-[tasks."adr:new"]
-description = 'Start a new ADR: mise run adr:new -- "The decision, as a sentence"'
-run = "go run ./cmd/adr new"
+[tasks.icons]
+description = "Regenerate desktop icon assets from SVG masters"
+dir = "desktop"
+run = "./build/icons/generate.sh"
 
-[tasks.test]
-description = "Run all go tests"
-run = "go test ./..."
-
-# Not on the PR path: -race roughly doubles the suite for a class of bug that a
-# post-merge run still catches before a release. CI runs this on pushes to main.
-[tasks."test:race"]
-description = "Run all go tests under the race detector"
-run = "go test ./... -race"
-
-[tasks."desktop:build:frontend"]
-description = "Typecheck and build the desktop frontend"
-dir = "desktop/frontend"
-run = "npm run build"
-
-# `mise run ci` has to work from a fresh clone, where the frontend tasks would
-# otherwise fail with a bare "vitest: command not found". Deliberately not a
-# dependency of the frontend tasks themselves: lefthook's pre-push job skips
-# them when node_modules is absent, and that stays a skip rather than becoming
-# an install nobody asked for mid-push.
-[tasks."desktop:frontend:deps"]
-description = "Install desktop frontend dependencies when they are missing"
-dir = "desktop/frontend"
-run = "test -d node_modules || npm ci"
-
-[tasks.lint]
-description = "Run golangci-lint"
-run = "golangci-lint run ./..."
-
-[tasks.fmt]
-description = "Run golangci-lint fmt"
-run = "golangci-lint fmt ./..."
-
-[tasks."fmt:files"]
-description = "Run golangci-lint fmt on the given Go files (pre-commit hook target)"
-run = "golangci-lint fmt"
-
-[tasks.tidy]
-description = "Rewrite go.mod/go.sum to be tidy"
-run = "go mod tidy"
+# ── Quality gates ────────────────────────────────────────────────────────────
 
 # The whole Go gate, in one definition, so lefthook's pre-push and the release
 # workflow can both call `mise run check` instead of restating the sequence.
@@ -155,10 +119,41 @@ run = [
   { tasks = ["check:generate"] },
   { tasks = ["check:bindings", "check:vendor", "check:adr", "check:migrations", "check:tidy"] },
   { tasks = ["lint", "test", "check:deadcode", "check:vuln"] },
-  { tasks = ["desktop:frontend:deps"] },
-  { tasks = ["desktop:build:frontend", "desktop:test:frontend"] },
-  { tasks = ["desktop:e2e"] },
+  { tasks = ["frontend:install"] },
+  { tasks = ["frontend:build", "frontend:test"] },
+  { tasks = ["e2e"] },
 ]
+
+[tasks.lint]
+description = "Run golangci-lint"
+run = "golangci-lint run ./..."
+
+[tasks.fmt]
+description = "Run golangci-lint fmt"
+run = "golangci-lint fmt ./..."
+
+[tasks."fmt:staged"]
+description = "Run golangci-lint fmt on the given Go files (pre-commit hook target)"
+run = "golangci-lint fmt"
+
+[tasks.tidy]
+description = "Rewrite go.mod/go.sum to be tidy"
+run = "go mod tidy"
+
+[tasks.test]
+description = "Run all go tests"
+run = "go test ./..."
+
+# Not on the PR path: -race roughly doubles the suite for a class of bug that a
+# post-merge run still catches before a release. CI runs this on pushes to main.
+[tasks."test:race"]
+description = "Run all go tests under the race detector"
+run = "go test ./... -race"
+
+[tasks."test:desktop"]
+description = "Run the desktop slice: frontend vitest + the app's Go packages"
+depends = ["frontend:test"]
+run = "go test ./desktop/... ./internal/app/... ./internal/adapter/..."
 
 [tasks."check:migrations"]
 description = "Verify SQLite migrations are ordered and released history is immutable"
@@ -203,7 +198,7 @@ git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go intern
 [tasks."check:bindings"]
 description = "Verify the committed Wails TS bindings match the Go service surface"
 run = """
-mise run desktop:generate
+mise run bindings
 # -N registers files the generator created that the checkout lacks, for the
 # same reason check:vendor does: -clean=true deletes and recreates the tree,
 # and plain git diff cannot see an untracked file. The diff is against HEAD
@@ -211,7 +206,7 @@ mise run desktop:generate
 # worktree-only diff would then report as clean.
 git add -N desktop/frontend/bindings
 git diff HEAD --exit-code -- desktop/frontend/bindings || {
-  echo "Wails bindings are out of date. Run 'mise run desktop:generate' and commit the result." >&2
+  echo "Wails bindings are out of date. Run 'mise run bindings' and commit the result." >&2
   exit 1
 }
 """
@@ -265,7 +260,27 @@ git diff HEAD --exit-code -- internal/hivecore || {
 }
 """
 
-[tasks."desktop:dev"]
+# ── The desktop app ──────────────────────────────────────────────────────────
+
+[tasks.build]
+description = "Build the desktop app"
+dir = "desktop"
+run = "wails3 build"
+
+[tasks."build:linux"]
+description = "Build the Linux desktop binary in a container (ARCH=amd64|arm64, default: this machine's)"
+# Runs the same `wails3 task linux:build` the release pipeline runs, just inside
+# a container, so a Linux binary built here matches the published one. Output
+# lands in desktop/bin/hive-desktop, overwriting any native build there. Builds
+# the image on first use and rebuilds it when the Dockerfile or wails3 pin
+# changes.
+run = './scripts/build/build-linux-docker.sh ${ARCH:+--arch=$ARCH}'
+
+[tasks."build:linux:image"]
+description = "Pre-build the container image that compiles Linux binaries (ARCH=amd64|arm64)"
+run = './scripts/build/build-linux-docker.sh --image-only ${ARCH:+--arch=$ARCH}'
+
+[tasks.dev]
 description = "Run Wails directly using launch.env and this worktree's isolated .hive-desktop instance"
 dir = "desktop"
 # launch.env is generated; optional overrides.env is developer-authored and
@@ -276,72 +291,75 @@ env = { _.file = ["launch.env", "overrides.env"], VITE_HIVE_DEV_BRANCH = "{{ exe
 # the app. See cmd/devtools/devsession.go and ADR shutdown-is-signalled-and-bounded.
 run = """
 test -f ../launch.env || {
-  echo "launch.env is missing; run 'mise run desktop:dev:prepare' first" >&2
+  echo "launch.env is missing; run 'mise run dev:prepare' first" >&2
   exit 1
 }
 go run ../cmd/devtools run -- wails3 dev -config ./build/config.yml
 """
 
-[tasks."desktop:dev:prepare"]
+[tasks."dev:prepare"]
 description = "Create or reuse this worktree's desktop instance and generate launch.env"
 run = "go run ./cmd/devtools prepare"
 
-[tasks."desktop:dev:fresh"]
+[tasks."dev:fresh"]
 description = "Safely recreate this worktree's desktop instance and regenerate launch.env"
 run = "go run ./cmd/devtools fresh"
 
-[tasks."desktop:dev:reset"]
+[tasks."dev:reset"]
 description = "Safely delete this worktree's marked desktop instance and launch.env"
 run = "go run ./cmd/devtools reset"
 
-[tasks."desktop:build"]
-description = "Build the desktop app"
-dir = "desktop"
-run = "wails3 build"
-
-[tasks."desktop:build:linux:image"]
-description = "Pre-build the container image that compiles Linux binaries (ARCH=amd64|arm64)"
-run = './scripts/build/build-linux-docker.sh --image-only ${ARCH:+--arch=$ARCH}'
-
-[tasks."desktop:build:linux"]
-description = "Build the Linux desktop binary in a container (ARCH=amd64|arm64, default: this machine's)"
-# Runs the same `wails3 task linux:build` the release pipeline runs, just inside
-# a container, so a Linux binary built here matches the published one. Output
-# lands in desktop/bin/hive-desktop, overwriting any native build there. Builds
-# the image on first use and rebuilds it when the Dockerfile or wails3 pin
-# changes.
-run = './scripts/build/build-linux-docker.sh ${ARCH:+--arch=$ARCH}'
-
-[tasks."desktop:icons"]
-description = "Regenerate desktop icon assets from SVG masters"
-dir = "desktop"
-run = "./build/icons/generate.sh"
-
-[tasks."desktop:generate"]
-description = "Regenerate desktop TS bindings"
-dir = "desktop"
-run = "wails3 generate bindings -clean=true -ts -i"
-
-[tasks."desktop:serve"]
+[tasks.serve]
 description = "Build and run the desktop app as a headless HTTP server (server build)"
-# The server binary embeds frontend/dist, so the frontend must be built first —
-# a fresh clone's dist contains only .gitkeep. Port override: WAILS_SERVER_PORT.
+# Deliberately not `wails3 task common:run:server`: that path regenerates
+# bindings with -tags server, which would fight the committed set check:bindings
+# verifies. The server binary embeds frontend/dist, so the frontend must be
+# built first — a fresh clone's dist contains only .gitkeep. Port override:
+# WAILS_SERVER_PORT.
 run = [
   "cd desktop/frontend && npm run build",
   "go build -tags server -o ./desktop/bin/hive-desktop-server ./desktop",
   "./desktop/bin/hive-desktop-server",
 ]
 
-[tasks."desktop:test:frontend"]
+[tasks.e2e]
+description = "Run desktop e2e tests in the pinned Docker/Playwright environment"
+run = "./desktop/e2e/scripts/run-docker.sh"
+
+[tasks."frontend:build"]
+description = "Typecheck and build the desktop frontend"
+dir = "desktop/frontend"
+run = "npm run build"
+
+# `mise run ci` has to work from a fresh clone, where the frontend tasks would
+# otherwise fail with a bare "vitest: command not found". Deliberately not a
+# dependency of the frontend tasks themselves: lefthook's pre-push job skips
+# them when node_modules is absent, and that stays a skip rather than becoming
+# an install nobody asked for mid-push.
+[tasks."frontend:install"]
+description = "Install desktop frontend dependencies when they are missing"
+dir = "desktop/frontend"
+run = "test -d node_modules || npm ci"
+
+[tasks."frontend:test"]
 description = "Run desktop frontend unit tests (vitest)"
 dir = "desktop/frontend"
 run = "npm test"
 
-[tasks."desktop:test"]
-description = "Run desktop frontend + Go tests"
-depends = ["desktop:test:frontend"]
-run = "go test ./desktop/... ./internal/app/... ./internal/adapter/..."
+# ── Development and release tooling ──────────────────────────────────────────
 
-[tasks."desktop:e2e"]
-description = "Run desktop e2e tests in the pinned Docker/Playwright environment"
-run = "./desktop/e2e/scripts/run-docker.sh"
+[tasks.devserver]
+description = "Run the dev GitHub proxy + event simulator (see cmd/devserver). Point instances at it with HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE."
+run = "go run ./cmd/devserver --config cmd/devserver/devserver.yaml"
+
+[tasks.vendor]
+description = "Sync internal/hivecore from the pinned hive commit (see cmd/vendorhive)"
+run = "go run ./cmd/vendorhive"
+
+[tasks."adr:new"]
+description = 'Start a new ADR: mise run adr:new -- "The decision, as a sentence"'
+run = "go run ./cmd/adr new"
+
+[tasks.release]
+description = "Deploy the web landing page/worker, then build, sign, notarize, and publish the desktop app to R2 (args: <version> [flags])"
+run = "go run ./cmd/release publish"

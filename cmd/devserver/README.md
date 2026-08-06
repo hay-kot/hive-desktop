@@ -11,7 +11,7 @@ Not shipped, not imported by the app, loopback-only. Design rationale: [ADR devs
 
 ```bash
 mise run devserver     # starts on 127.0.0.1:7777; leave it running
-mise run desktop:dev   # already routed through it
+mise run dev   # already routed through it
 ```
 
 **Development is proxied by default.** `cmd/devtools prepare` writes the API base into this worktree's `launch.env`, so there is nothing to export and no flag to remember. Open <http://127.0.0.1:7777> for the dashboard.
@@ -191,7 +191,7 @@ A payload keyed on a stable top-level `id` updates the same inbox item on re-del
 
 The cache lives at `$XDG_CACHE_HOME/hive/devserver/cache.db` (`~/.cache/hive/devserver/cache.db` by default), and **survives restarts** — that is why it is SQLite rather than a map. Entries keep their fetch time, so a restart inside the TTL serves straight from disk, and one past it revalidates with `If-None-Match` for a 304 that costs no quota.
 
-The path is deliberately independent of the desktop's data root. That root is the app's state, and ADR desktop-configuration gives each worktree an isolated copy that `desktop:dev:reset` exists to delete — deriving the cache from it would give every worktree its own cache and discard it on reset, losing both the sharing and the persistence the cache exists for. Override with `cache.path` in config if you want it elsewhere.
+The path is deliberately independent of the desktop's data root. That root is the app's state, and ADR desktop-configuration gives each worktree an isolated copy that `dev:reset` exists to delete — deriving the cache from it would give every worktree its own cache and discard it on reset, losing both the sharing and the persistence the cache exists for. Override with `cache.path` in config if you want it elsewhere.
 
 Overlays, observed items, stats, and the activity log are all in-memory and reset on restart. Only responses persist. Delete the file or hit **purge cache** any time; it costs one API call per entry to rebuild.
 

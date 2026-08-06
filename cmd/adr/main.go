@@ -116,7 +116,7 @@ func runCheck(context.Context, *cli.Command) error {
 		return err
 	case string(got) != want:
 		problems = append(problems, fmt.Sprintf(
-			"%s/%s is out of date. Run 'mise run generate:adr-index' and commit the result.",
+			"%s/%s is out of date. Run 'mise run generate:adr' and commit the result.",
 			decisionsDir, indexFile))
 	}
 

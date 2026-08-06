@@ -32,13 +32,13 @@ document wins for new work — do not extend the shape it is replacing.
 
 Binaries that support development and release; none ship inside the app.
 
-- **`cmd/release`** — version selection, signing, notarization, and R2 publishing (`mise run release:desktop`).
+- **`cmd/release`** — version selection, signing, notarization, and R2 publishing (`mise run release`).
 - **`cmd/vendorhive`** — the `internal/hivecore/` sync tool (`mise run vendor`).
 - **`cmd/adr`** — decision records: `adr new` mints `docs/decisions/YYYY-MM-DD-slug.md` (`mise run adr:new`), `adr index` regenerates the index, `adr check` gates ids, citations, and index freshness (`mise run check:adr`). See ADR adr-ids-are-not-allocated.
-- **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `desktop:dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one parks it as a standby that takes over when the live one stops. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR devserver-github-proxy.
+- **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one parks it as a standby that takes over when the live one stops. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR devserver-github-proxy.
 - **`cmd/internal/devproxy`** — the address-and-health contract shared by `cmd/devserver` and `cmd/devtools`, so the proxy's port and the worktree's `launch.env` cannot drift apart.
 
-**Dev session:** `solo up` brings up the whole session from the checked-in `.solo.yml` — a `devserver` tmux window and a `desktop:dev` window — and `solo down` tears it down. The config is versioned in the repo rather than `~/.config/solo` so it stays in step with the mise tasks it invokes and works from any worktree.
+**Dev session:** `solo up` brings up the whole session from the checked-in `.solo.yml` — a `devserver` tmux window and a `dev` window — and `solo down` tears it down. The config is versioned in the repo rather than `~/.config/solo` so it stays in step with the mise tasks it invokes and works from any worktree.
 
 ## Vendored code — `internal/hivecore/`
 
@@ -97,7 +97,7 @@ takes minutes, so it runs last and alone. **It is not in GitHub CI** — it was
 dropped for being too slow, which means `mise run ci` is the only thing that
 runs it. Skipping it locally means nobody does (ADR the-e2e-suite-runs-locally-via-mise-run-ci-not-in-github-ci).
 
-Wails TS bindings are deliberately not hooked — they need a full app build. Run `mise run desktop:generate` when the change warrants it; CI checks them either way.
+Wails TS bindings are deliberately not hooked — they need a full app build. Run `mise run bindings` when the change warrants it; CI checks them either way.
 
 **Never bypass a hook** — no `LEFTHOOK=0`, `git commit -n`, or `git push --no-verify`. The escape hatch exists for human emergencies; a failing gate is a task to finish, not a flag to add.
 

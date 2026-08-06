@@ -78,7 +78,7 @@ Reject missing or unknown channels instead of guessing.
 
    ```bash
    mi check
-   mi desktop:test:frontend
+   mi frontend:test
    ```
 
    Stop on the first failure. Verify the worktree is still clean and `HEAD`
@@ -86,7 +86,7 @@ Reject missing or unknown channels instead of guessing.
 8. Publish through `mise`, which loads the credentials without exposing them:
 
    ```bash
-   mise run release:desktop -- <version>
+   mise run release -- <version>
    ```
 
    Do not read `.env`, print credential environment variables, or call

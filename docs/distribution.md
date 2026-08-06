@@ -152,8 +152,8 @@ Publishing everything in one process is what keeps the manifest-advancement rule
 The Linux binary is built in a container so a Mac can produce it: `desktop/build/docker/Dockerfile.linux` mirrors ubuntu-24.04 (GTK 4.14, the repo's pinned Go, the pinned wails3, all base images digest-pinned) and runs the **same** `wails3 task linux:build` a native Linux host would, so a locally driven release cannot diverge from a native build. The image is tagged per architecture — it carries a native toolchain, so an arm64 image cannot serve `--platform linux/amd64` — plus a fingerprint of the Dockerfile and the wails3 pin, so a pin bump or Dockerfile edit rebuilds it instead of silently reusing a stale image.
 
 ```bash
-ARCH=arm64 mise run desktop:build:linux:image   # optional pre-build, ~5 min per arch
-mise run desktop:build:linux                    # binary only → desktop/bin/hive-desktop
+ARCH=arm64 mise run build:linux:image   # optional pre-build, ~5 min per arch
+mise run build:linux                    # binary only → desktop/bin/hive-desktop
 ```
 
 Building the non-host architecture (amd64 on Apple Silicon) works but runs the image build *and* the compile under emulation — budget considerably more time. The Go module cache is mounted **read-only** from the host and `GOPROXY=off` is set, so the container never needs credentials for the private `colonyops/hive` module and the third-party npm code it runs (with lifecycle scripts disabled) cannot poison the cache the host's own builds trust; `node_modules` lives in a per-arch named volume so the host's macOS-native copy is never mounted in.
@@ -164,7 +164,7 @@ The web landing page and worker are **not** independent of a release. Before the
 
 ```bash
 go run ./cmd/release prepare dev 1.4.0-dev.1
-mise run release:desktop -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --skip-web, --force
+mise run release -- 1.4.0-dev.1   # flags: --skip-upload, --skip-notarize (requires --skip-upload), --skip-web, --force
 ```
 
 `publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.

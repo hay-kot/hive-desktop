@@ -9,7 +9,7 @@ import { expect, test } from './fixtures.js'
 // correctly. No flow is created, edited, or deployed here (mutation
 // coverage lives in onboarding.spec.ts, which owns the per-browser mutable
 // servers). DOM/text assertions only — no new screenshot snapshots, since
-// regenerating those needs the Docker-based `mise run desktop:e2e` gate.
+// regenerating those needs the Docker-based `mise run e2e` gate.
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/')

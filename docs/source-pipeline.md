@@ -305,9 +305,9 @@ node-run accounting belongs.
 Run the project checks with:
 
 ```bash
-mise run desktop:test
+mise run test:desktop
 mise run check
-mise run desktop:e2e
+mise run e2e
 ```
 
 The e2e task is Docker-only. Do not run desktop integration tests directly on

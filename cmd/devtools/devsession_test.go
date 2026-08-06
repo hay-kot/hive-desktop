@@ -17,14 +17,14 @@ func TestParseProcessTable(t *testing.T) {
 	t.Parallel()
 
 	table := parseProcessTable(`
-  101     1 /opt/homebrew/bin/mise run desktop:dev
+  101     1 /opt/homebrew/bin/mise run dev
   102   101 wails3 dev -config ./build/config.yml
   bad   row skipped
   103   102 bin/Hive.dev.app/Contents/MacOS/hive-desktop
 `)
 
 	require.Equal(t, []procEntry{
-		{pid: 101, ppid: 1, command: "/opt/homebrew/bin/mise run desktop:dev"},
+		{pid: 101, ppid: 1, command: "/opt/homebrew/bin/mise run dev"},
 		{pid: 102, ppid: 101, command: "wails3 dev -config ./build/config.yml"},
 		{pid: 103, ppid: 102, command: "bin/Hive.dev.app/Contents/MacOS/hive-desktop"},
 	}, table)

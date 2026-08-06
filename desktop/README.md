@@ -294,24 +294,26 @@ from `desktop/`, Wails watches `desktop/` rather than the whole repository.
 Use the root mise tasks as the canonical entry points:
 
 ```sh
-mise run desktop:generate # Regenerate frontend TS bindings.
-mise run desktop:icons    # Regenerate committed icon assets.
-mise run desktop:build    # Build the desktop app; on macOS emits desktop/bin/hive-desktop.
-mise run desktop:serve     # Build and run the headless server build.
-mise run desktop:dev         # Run Wails directly with the generated launch.env.
-mise run desktop:dev:prepare # Create/reuse the isolated instance and launch.env.
-mise run desktop:dev:fresh   # Safely reseed the instance and regenerate launch.env.
-mise run desktop:dev:reset   # Safely remove the marked instance and launch.env.
+mise run bindings    # Regenerate frontend TS bindings.
+mise run icons       # Regenerate committed icon assets.
+mise run build       # Build the desktop app; on macOS emits desktop/bin/hive-desktop.
+mise run serve       # Build and run the headless server build.
+mise run dev         # Run Wails directly with the generated launch.env.
+mise run dev:prepare # Create/reuse the isolated instance and launch.env.
+mise run dev:fresh   # Safely reseed the instance and regenerate launch.env.
+mise run dev:reset   # Safely remove the marked instance and launch.env.
 ```
 
-`desktop:dev` runs `wails3 dev -config ./build/config.yml` from the desktop
-application directory. The equivalent Taskfile command is `wails3 task dev`.
+`dev` runs `wails3 dev -config ./build/config.yml` from the desktop application
+directory. There is no Taskfile equivalent: the Taskfile is wails3's dispatch
+target and carries only `build`, `package`, and `run` (ADR
+mise-is-the-task-interface-and-the-taskfile-is-wails3-build-dispatch).
 
 Dev mode uses the gitignored `.hive-desktop/` directory in the current
 worktree. First use snapshots the installed databases and desktop config;
-`desktop:dev:prepare` and setup create that state once; normal `desktop:dev`
-runs Wails directly with it. `desktop:dev:fresh` deletes and reseeds it through
-marker/path/symlink checks, and `desktop:dev:reset` safely removes it. A
+`dev:prepare` and setup create that state once; normal `dev` runs Wails
+directly with it. `dev:fresh` deletes and reseeds it through
+marker/path/symlink checks, and `dev:reset` safely removes it. A
 short-lived worktree lock serializes preparation and destructive operations;
 fresh/reset also refuse while either configured development server is active.
 Config symlink targets are materialized into the snapshot rather than retained
@@ -326,14 +328,14 @@ have separate config, workspaces, data, databases and logs. Explicit
 its frontend URL with localhost; its port defaults to `0`. `development.wails`
 uses a loopback host and port `0` by default. `cmd/devtools prepare` chooses
 distinct free ports and atomically writes the gitignored, non-secret
-`launch.env`; the `desktop:dev` mise task loads it, then loads the optional,
+`launch.env`; the `dev` mise task loads it, then loads the optional,
 gitignored developer-authored `overrides.env` so explicit overrides win without
 special handling in devtools. The generated values bridge to framework-owned
 `WAILS_VITE_*` and `WAILS_SERVER_*` variables. Override those framework names
 for framework addresses; use `HIVE_DESKTOP_*` names for application settings.
 Setup and a missing-file-only enter hook prepare `launch.env`; mise derives
 `VITE_HIVE_DEV_BRANCH` from Git for each launch rather than persisting it, then
-`desktop:dev` invokes Wails directly. Wails/Vite do not read application YAML
+`dev` invokes Wails directly. Wails/Vite do not read application YAML
 themselves. Their
 preselected ports have an unavoidable preflight-to-bind race because neither
 framework accepts an open listener. `cmd/devtools` uses urfave/cli subcommands
@@ -344,20 +346,20 @@ The OS keychain and fixed `bootstrap.yaml` remain shared. Use a mock mode when
 credential isolation matters: signing out of a live dev instance can affect the
 installed app's keychain credential.
 
-The alpha supports server builds. `desktop:serve` builds the frontend, then
-compiles the pure HTTP-server variant without GUI dependencies to
+The alpha supports server builds. `serve` builds the frontend, then compiles
+the pure HTTP-server variant without GUI dependencies to
 `desktop/bin/hive-desktop-server` and runs it. The assets are `//go:embed`ded,
-so frontend edits require re-running the task; the fast frontend loop is
-`desktop:dev` with Vite HMR. The server defaults to `localhost:8080`; if that
-port is taken, override it with the Wails-native `WAILS_SERVER_PORT` env var
-(e.g. `WAILS_SERVER_PORT=9000 mise run desktop:serve`).
+so frontend edits require re-running the task; the fast frontend loop is `dev`
+with Vite HMR. The server defaults to `localhost:8080`; if that port is taken,
+override it with the Wails-native `WAILS_SERVER_PORT` env var
+(e.g. `WAILS_SERVER_PORT=9000 mise run serve`).
 
 ## Icons
 
 The desktop icon masters live in `build/icons/`: `hive-mark.svg` is the
 1024px amber Hive mark on its dark rounded-square field, and
 `tray-template.svg` is the separate 18px macOS template mark.
-Regenerate every committed desktop icon with `mise run desktop:icons`.
+Regenerate every committed desktop icon with `mise run icons`.
 
 The mark's amber is `#f5b23f` — the same value as the app's `--hv-accent` in
 `frontend/src/styles/main.css`. Keep the two in step.
@@ -392,13 +394,13 @@ retain the macOS `Template` suffix for automatic tinting.
 Use the headless server build for the UI verification loop:
 
 ```sh
-mise run desktop:serve
+mise run serve
 ```
 
 Drive and inspect the app at `http://localhost:8080` with Playwright or browser
 tooling, read the screenshots in `desktop/e2e/screenshots`, edit, and repeat.
 Set `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding` to drive the first-run screen offline.
-Run `mise run desktop:e2e` as the Docker-only regression gate. Its harness
+Run `mise run e2e` as the Docker-only regression gate. Its harness
 builds the server and starts private feed, onboarding, pipeline, and action
 smoke instances inside the pinned Playwright image; no local browser install
 or host Playwright invocation is supported.
@@ -427,7 +429,7 @@ typed (session or message); failed outcomes retain their persisted diagnostics.
 
 ## Docker E2E gate
 
-`mise run desktop:e2e` is Docker-only. It builds the digest-pinned
+`mise run e2e` is Docker-only. It builds the digest-pinned
 Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright there; it
 never attaches to a host browser or server. `run-docker.sh` supplies a fresh
 256-bit harness marker, which both the image command and server launcher

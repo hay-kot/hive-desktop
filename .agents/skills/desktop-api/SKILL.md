@@ -27,7 +27,7 @@ curl -s $API/api/version | jq .   # revision + dirty flag of the running build
 
 If `/api/status` refuses the connection, the app is not running, was not built
 from this worktree, or the HTTP server is disabled (`http.enabled: false`). A
-fresh `mise run desktop:dev:prepare` turns it on.
+fresh `mise run dev:prepare` turns it on.
 
 ## 2. Connect
 

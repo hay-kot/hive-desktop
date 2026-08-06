@@ -111,20 +111,20 @@ is the moment membership claims and inbox items are readable.
 Drive everything through the **root** mise tasks (canonical entry points):
 
 ```bash
-mise run desktop:dev         # Run Wails directly with this worktree's launch.env
-mise run desktop:dev:prepare # Create/reuse the isolated instance and launch.env
-mise run desktop:dev:fresh   # Safely reseed the instance and regenerate launch.env
-mise run desktop:dev:reset   # Safely remove the marked instance and launch.env
-mise run desktop:serve     # headless HTTP server build on localhost:8080 (agent UI loop)
-mise run desktop:build     # build the app (macOS emits desktop/bin/hive-desktop)
-mise run desktop:generate  # regenerate frontend TS bindings after Go service changes
-mise run desktop:icons     # regenerate committed icon assets from SVG masters
-mise run desktop:test      # frontend vitest + Go tests (unit)
-mise run desktop:e2e       # Docker-only Playwright regression gate
-mise run devserver         # the shared GitHub proxy desktop:dev routes through
+mise run dev           # Run Wails directly with this worktree's launch.env
+mise run dev:prepare   # Create/reuse the isolated instance and launch.env
+mise run dev:fresh     # Safely reseed the instance and regenerate launch.env
+mise run dev:reset     # Safely remove the marked instance and launch.env
+mise run serve         # headless HTTP server build on localhost:8080 (agent UI loop)
+mise run build         # build the app (macOS emits desktop/bin/hive-desktop)
+mise run bindings      # regenerate frontend TS bindings after Go service changes
+mise run icons         # regenerate committed icon assets from SVG masters
+mise run test:desktop  # frontend vitest + Go tests (unit)
+mise run e2e           # Docker-only Playwright regression gate
+mise run devserver     # the shared GitHub proxy `dev` routes through
 ```
 
-`desktop:dev` goes through `cmd/devserver` by default — `launch.env` carries the
+`dev` goes through `cmd/devserver` by default — `launch.env` carries the
 API base, and one proxy serves every worktree so concurrent streams share a
 rate-limit budget and a response cache (ADR devserver-github-proxy). Leave `mise run devserver`
 running; starting a second parks it as a standby that takes over if the first
@@ -144,27 +144,27 @@ Use the **headless server build** for the agent UI loop — never a local GUI
 build:
 
 ```bash
-mise run desktop:serve                       # serves at http://localhost:8080
-HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding mise run desktop:serve
+mise run serve                       # serves at http://localhost:8080
+HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding mise run serve
 ```
 
 `onboarding` mode reads its flows from a fresh scratch directory rather than
 the real config root, so it shows first run even on a machine that already has
 workspaces, and the walk cannot touch them. The directory is per-process, so a
-`desktop:dev` rebuild — which any Go edit triggers — starts the walk over. Set
+`dev` rebuild — which any Go edit triggers — starts the walk over. Set
 `HIVE_DESKTOP_FLOWS_DIR` to opt out and point it at a fixture set instead.
 
 Drive it with Playwright/browser tooling, read screenshots under
 `desktop/e2e/screenshots`, edit, repeat. Assets are `//go:embed`ded, so
-frontend edits require re-running `desktop:serve`; for a fast frontend loop use
-`desktop:dev` (Vite HMR). Native-shell behavior (Dock icon, traffic-light
+frontend edits require re-running `serve`; for a fast frontend loop use
+`dev` (Vite HMR). Native-shell behavior (Dock icon, traffic-light
 centering, close-hides-window, tray menu, template-icon tinting) is a **manual**
 verification concern — it cannot be checked headlessly.
 
 ### Measuring a slow interaction
 
 `usePerf` records spans to `perf.jsonl` under the state directory for later
-analysis (ADR ui-performance-spans-are-recorded-to-jsonl). It is on in `desktop:dev` via `launch.env` and off in a
+analysis (ADR ui-performance-spans-are-recorded-to-jsonl). It is on in `dev` via `launch.env` and off in a
 shipped build, so instrumentation can be added freely to chase something and
 left in place — a disabled recorder costs a boolean check.
 
@@ -187,7 +187,7 @@ rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
 
 ## Testing
 
-- **Unit** (`mise run desktop:test`): Go logic (`go test ./desktop/...
+- **Unit** (`mise run test:desktop`): Go logic (`go test ./desktop/...
   ./internal/app/... ./internal/adapter/...`) + frontend `vitest`. `store` and
   `runtime` tests use real SQLite. This is the default gate for
   backend/frontend changes.
@@ -196,7 +196,7 @@ rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
   to routing, sink tagging or node-run accounting belongs in one of these; they
   are cheaper to read than the engine and they were the proof the port off the
   browser engine was faithful (ADR flow-engine-in-go).
-- **E2E** (`mise run desktop:e2e`): **Docker-only.** Builds the digest-pinned
+- **E2E** (`mise run e2e`): **Docker-only.** Builds the digest-pinned
   Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright inside it
   against private feed / onboarding / pipeline / action-smoke server instances.
 
@@ -213,7 +213,7 @@ so parallel projects never mutate checked-in fixtures or share SQLite state.
   generate`; `models.go` and `queries.sql.go` are committed and generated.
   Commit generated output alongside the SQL change.
 - **Wails TS bindings** (`frontend/bindings/`): after changing a Wails service
-  method or its types, run `mise run desktop:generate`. Bindings **must** be
+  method or its types, run `mise run bindings`. Bindings **must** be
   generated with the working directory at `desktop/` so the Wails CLI treats it
   as the app package while Go walks up to the parent module. Binding method IDs
   hash the Go package path, so *moving* a service invalidates them too —
@@ -297,7 +297,7 @@ more expensive, which is the whole reason it is being done now.
     vite: {host: 127.0.0.1, port: 0}
     wails: {host: 127.0.0.1, port: 0}
     pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
-    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl); desktop:dev turns it on
+    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl); `dev` turns it on
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
@@ -306,9 +306,9 @@ more expensive, which is the whole reason it is being done now.
   mounts `/debug/pprof/` on that same server (`httpapi.PprofHandler`, ADR pprof-debug-endpoint),
   so it has no address of its own and needs `http.enabled`. Dev uses
   `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
-  runs reuse it, while `desktop:dev:fresh` and `desktop:dev:reset` are
+  runs reuse it, while `dev:fresh` and `dev:reset` are
   marker-guarded destructive operations that refuse while a configured dev
-  server is active. `prepare` writes non-secret `launch.env`; the `desktop:dev`
+  server is active. `prepare` writes non-secret `launch.env`; the `dev`
   mise task loads it followed by optional gitignored `overrides.env`, then
   starts Wails through `devtools run`, which owns the session's teardown so a
   closed terminal cannot leave the app running (ADR shutdown-is-signalled-and-bounded).
@@ -375,7 +375,7 @@ persisted by UI writes.
 | Var | Purpose |
 | --- | --- |
 | `HIVE_DESKTOP_DATA_DIR` | Desktop data root |
-| `HIVE_DESKTOP_HIVE_DATA_DIR` | Override only the hive.db data dir (defaults to the data root). `desktop:dev` points it at the installed hive data dir so dev sessions land in the real hive database; desktop state stays worktree-isolated |
+| `HIVE_DESKTOP_HIVE_DATA_DIR` | Override only the hive.db data dir (defaults to the data root). `dev` points it at the installed hive data dir so dev sessions land in the real hive database; desktop state stays worktree-isolated |
 | `HIVE_DESKTOP_CONFIG_DIR` | Desktop config root |
 | `HIVE_DESKTOP_FLOWS_DIR` | Override only `flows/` |
 | `HIVE_DESKTOP_ACTIONS_PATH` | Override only `actions.yml` |
@@ -404,13 +404,13 @@ persisted by UI writes.
 | `HIVE_DESKTOP_EXPERIMENTAL_AGENTS` | Opt into the Agents area (ships dark, ADR a-workspace-declares-its-own-authority); off by default, read at startup. **`launch.env` sets it true**; set it false in `overrides.env` to gate the area off locally |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
-| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR devserver-github-proxy). **Set by `launch.env` — `desktop:dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
+| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR devserver-github-proxy). **Set by `launch.env` — `dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
 | `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR pprof-debug-endpoint); off by default, needs `http.enabled` |
-| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl). Off by default; `launch.env` sets it so `desktop:dev` records |
+| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl). Off by default; `launch.env` sets it so `dev` records |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |

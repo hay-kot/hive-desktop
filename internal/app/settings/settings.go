@@ -190,7 +190,7 @@ type PprofSettings struct {
 
 // PerfSettings gates the UI performance recorder, which appends spans the
 // frontend emits to perf.jsonl under the state directory (ADR ui-performance-spans-are-recorded-to-jsonl). Off in a
-// shipped build; desktop:dev turns it on through launch.env.
+// shipped build; the dev task turns it on through launch.env.
 type PerfSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
 }

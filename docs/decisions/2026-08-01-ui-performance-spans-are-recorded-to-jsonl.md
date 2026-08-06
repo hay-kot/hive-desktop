@@ -48,7 +48,7 @@ are directly readable by the agent doing the analysis.
    Attribute count and value size are bounded for the same reason.
 
 5. **The gate is `development.perf.enabled`, off by default**, following
-   pprof's precedent. `desktop:dev` turns it on through `launch.env`, so a dev
+   pprof's precedent. `dev` turns it on through `launch.env`, so a dev
    session records without anyone opting in and a shipped build never opens a
    file. When off the recorder is a no-op object rather than nil — no call site
    needs a nil check — and the frontend stops buffering after `Info` answers,
