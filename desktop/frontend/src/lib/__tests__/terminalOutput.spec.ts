@@ -88,6 +88,23 @@ describe('TerminalOutputWriter', () => {
     ])
   })
 
+  // A resync repaint supersedes the stream a held frame came from, so releasing
+  // it afterwards — on its END marker or on the timeout — would paint
+  // pre-repaint output over the snapshot.
+  it('drops a held frame on reset instead of releasing it behind a repaint', () => {
+    vi.useFakeTimers()
+    const chunks: Uint8Array[] = []
+    const output = new TerminalOutputWriter((data) => { chunks.push(data) })
+
+    output.write(encoder.encode('\x1b[?2026hpartial'))
+    output.reset()
+
+    output.write(encoder.encode('REPAINTED'))
+    vi.advanceTimersByTime(1000)
+
+    expect(chunks.map((chunk) => decoder.decode(chunk))).toEqual(['REPAINTED'])
+  })
+
   it('releases an unterminated redraw instead of stalling the terminal', () => {
     vi.useFakeTimers()
     const chunks: Uint8Array[] = []

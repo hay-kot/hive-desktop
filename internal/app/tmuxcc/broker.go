@@ -38,6 +38,14 @@ const subscriberQueue = 0
 // could not.
 const finalDelivery = 2 * time.Second
 
+// resyncCooldown is how long a resync has to hold for the next one to be worth
+// attempting. Refilling the whole bound inside it means the subscriber is not
+// draining at all, and each resync costs a `capture-pane` per window while the
+// paint gate buffers the flood that is still arriving — so retrying on that
+// cadence burns CPU to re-lose the same bytes. Past this the stream ends the
+// way overflow always ended it.
+const resyncCooldown = 10 * time.Second
+
 type subscription struct {
 	gen  uint64
 	ch   chan Event
@@ -50,9 +58,10 @@ type subscription struct {
 // subscriber the backlog is what replays first-paint to a WebSocket that
 // connects after Attach.
 //
-// A terminal byte stream cannot drop-oldest without corrupting the emulator,
-// so exceeding the bound is fatal: onOverflow tears the client down and the
-// frontend re-attaches for a clean resync.
+// A terminal byte stream cannot drop-oldest without corrupting the emulator, so
+// exceeding the bound stops the backlog dead: onOverflow drops everything until
+// resync clears it and a repaint re-establishes what the emulator should be
+// showing. A resync the broker will not grant ends the stream instead.
 type broker struct {
 	mu        sync.Mutex
 	cond      *sync.Cond
@@ -62,15 +71,25 @@ type broker struct {
 	maxEvents int
 	sub       *subscription
 	gen       uint64
-	closed    bool
-	overflow  bool
+	// epoch counts backlog clears. A pump reads it alongside the head it is
+	// delivering, because a resync drops that head under it and leaves the
+	// subscriber in place — see advance.
+	epoch  uint64
+	closed bool
+
+	overflow bool
+	// dropped is what overflow has cost so far: the tripping event plus
+	// everything refused behind it. Reported once, to the log, when the resync
+	// that clears it runs.
+	dropped        int
+	lastResync     time.Time
+	resyncCooldown time.Duration
 
 	// done releases a pump parked on a subscriber that stopped reading:
 	// sync.Cond cannot wake a goroutine blocked on a channel send.
 	done chan struct{}
 
-	onOverflow   func()
-	overflowOnce sync.Once
+	onOverflow func()
 }
 
 func newBroker(bounds backlogBounds, onOverflow func()) *broker {
@@ -81,10 +100,11 @@ func newBroker(bounds backlogBounds, onOverflow func()) *broker {
 		bounds.events = defaultBufferEvents
 	}
 	b := &broker{
-		maxBytes:   bounds.bytes,
-		maxEvents:  bounds.events,
-		onOverflow: onOverflow,
-		done:       make(chan struct{}),
+		maxBytes:       bounds.bytes,
+		maxEvents:      bounds.events,
+		resyncCooldown: resyncCooldown,
+		onOverflow:     onOverflow,
+		done:           make(chan struct{}),
 	}
 	b.cond = sync.NewCond(&b.mu)
 	return b
@@ -104,17 +124,20 @@ func (b *broker) publish(ev Event) {
 	size := eventBytes(ev)
 	if droppable(ev) {
 		if b.overflow {
+			b.dropped += size
 			b.mu.Unlock()
 			return
 		}
 		if b.bytes+size > b.maxBytes || len(b.buf) >= b.maxEvents {
 			b.overflow = true
+			b.dropped = size
+			// The flag is the guard the callback needs: only resync clears it,
+			// so a second report cannot fire until a recovery has run.
+			overflowed := b.onOverflow
 			b.mu.Unlock()
-			b.overflowOnce.Do(func() {
-				if b.onOverflow != nil {
-					go b.onOverflow()
-				}
-			})
+			if overflowed != nil {
+				go overflowed()
+			}
 			return
 		}
 	}
@@ -174,10 +197,10 @@ func (b *broker) coalesceLocked(ev Event, size int) bool {
 	return true
 }
 
-// droppable reports whether losing ev is recoverable. Overflow tears the client
-// down and the frontend re-attaches, which repaints every screen and re-lists
-// the windows; nothing replays the lifecycle event that says why the stream
-// ended.
+// droppable reports whether losing ev is recoverable. Overflow is answered by a
+// repaint, which puts every screen back and re-lists the windows; nothing
+// replays the lifecycle event that says the stream degraded — or, when the
+// resync is refused, why it ended.
 func droppable(ev Event) bool {
 	_, lifecycle := ev.(LifecycleChanged)
 	return !lifecycle
@@ -237,10 +260,48 @@ func (b *broker) reset() {
 		b.sub = nil
 		b.gen++
 	}
-	b.buf = nil
-	b.bytes = 0
+	b.clearLocked()
 	b.mu.Unlock()
 	b.cond.Broadcast()
+}
+
+// resync drops the backlog and lifts the overflow state without touching the
+// subscriber, and reports the bytes that never reached it. It is what makes
+// overflow recoverable: the repaint behind it publishes onto the same stream,
+// so the emulator that was reading is the one the snapshot is drawn for —
+// unlike reset, whose whole job is handing the snapshot to a replacement.
+//
+// A false ok is the broker declining to try again. Either it is closing, or the
+// last resync did not survive resyncCooldown — the flood is outrunning the
+// subscriber and another repaint would buy seconds, so the caller ends the
+// stream instead.
+func (b *broker) resync(now time.Time) (int, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed {
+		return 0, false
+	}
+	if !b.lastResync.IsZero() && now.Sub(b.lastResync) < b.resyncCooldown {
+		return 0, false
+	}
+	b.lastResync = now
+	dropped := b.dropped + b.clearLocked()
+	b.dropped = 0
+	b.overflow = false
+	b.cond.Broadcast()
+	return dropped, true
+}
+
+// clearLocked drops the undelivered backlog and reports the bytes that went
+// with it. The epoch moves because a pump may be parked on the head this
+// removes, and it has to tell "resync dropped my event" from "the backlog is
+// empty because I am the one who emptied it".
+func (b *broker) clearLocked() int {
+	dropped := b.bytes
+	b.buf = nil
+	b.bytes = 0
+	b.epoch++
+	return dropped
 }
 
 // close drains what a live subscriber can still take and closes its channel.
@@ -271,6 +332,7 @@ func (b *broker) pump(sub *subscription) {
 			return
 		}
 		ev := b.buf[0]
+		epoch := b.epoch
 		closing := b.closed
 		b.mu.Unlock()
 
@@ -301,18 +363,26 @@ func (b *broker) pump(sub *subscription) {
 				continue
 			}
 		}
-		if !b.advance(sub.gen, ev) {
+		if !b.advance(sub.gen, epoch, ev) {
 			return
 		}
 	}
 }
 
 // advance drops the delivered head. A generation change means a replacement
-// pump owns the backlog now, and this one must not consume from it.
-func (b *broker) advance(gen uint64, ev Event) bool {
+// pump owns the backlog now, and this one must not consume from it. An epoch
+// change means a resync already dropped the head — the accounting went with it,
+// and the subscriber is staying, so this pump carries on.
+func (b *broker) advance(gen, epoch uint64, ev Event) bool {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if b.gen != gen || len(b.buf) == 0 {
+	if b.gen != gen {
+		return false
+	}
+	if b.epoch != epoch {
+		return true
+	}
+	if len(b.buf) == 0 {
 		return false
 	}
 	b.buf[0] = nil

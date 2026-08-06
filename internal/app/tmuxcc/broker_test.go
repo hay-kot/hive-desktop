@@ -49,6 +49,21 @@ func hasOverflowed(b *broker) bool {
 	return b.overflow
 }
 
+// backlogHas reports whether the broker is holding output carrying want. A test
+// that waits on depth alone is asking "has anything landed", which a deferred
+// first paint also answers — and then the repaint's reset can run before the
+// byte it is supposed to supersede has even been published.
+func backlogHas(b *broker, want string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, ev := range b.buf {
+		if out, isOutput := ev.(Output); isOutput && strings.Contains(string(out.Data), want) {
+			return true
+		}
+	}
+	return false
+}
+
 func receive(t *testing.T, ch <-chan Event) Event {
 	t.Helper()
 	select {
@@ -128,9 +143,10 @@ func TestBrokerUnsubscribeClosesChannel(t *testing.T) {
 	}
 }
 
-// A terminal stream cannot drop bytes, so exceeding the bound tears the
-// client down instead — the frontend re-attaches for a clean resync.
-func TestBrokerOverflowIsFatal(t *testing.T) {
+// A terminal stream cannot drop bytes, so crossing the bound stops the backlog
+// dead and reports it. Everything droppable is refused from that moment until a
+// resync clears it — the recovery is a repaint, not a replay.
+func TestBrokerOverflowStopsTheBacklogAndReportsIt(t *testing.T) {
 	t.Parallel()
 
 	overflowed := make(chan struct{})
@@ -145,8 +161,8 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 		t.Fatal("overflow was not reported")
 	}
 
-	// Lifecycle events still get through: the teardown overflow triggers has
-	// to reach the subscriber.
+	// Lifecycle events still get through: whichever of degraded or exited the
+	// overflow resolves into has to reach the subscriber.
 	ch, unsubscribe := b.subscribe()
 	defer unsubscribe()
 	b.publish(LifecycleChanged{Kind: LifecycleExited, Message: "overflow"})
@@ -155,6 +171,106 @@ func TestBrokerOverflowIsFatal(t *testing.T) {
 	require.Equal(t,
 		LifecycleChanged{Kind: LifecycleExited, Message: "overflow"},
 		requireLifecycle(t, receive(t, ch)))
+}
+
+// The recovery keeps the subscriber the reset path drops: the emulator that was
+// reading is the one the repaint behind the resync is drawn for, so handing it
+// a closed channel would end the very stream this exists to save.
+func TestBrokerResyncKeepsTheSubscriberAndDropsTheBacklog(t *testing.T) {
+	t.Parallel()
+
+	overflowed := make(chan struct{})
+	b := newBroker(backlogBounds{bytes: 64}, func() { close(overflowed) })
+	ch, unsubscribe := b.subscribe()
+	defer unsubscribe()
+
+	// Nobody is reading ch, so the pump parks on the first event and the rest
+	// pile up behind it — which is how the bound is crossed at all.
+	for range 4 {
+		b.publish(outputEvent("@1", strings.Repeat("x", 32)))
+	}
+	select {
+	case <-overflowed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("overflow was not reported")
+	}
+
+	dropped, ok := b.resync(time.Now())
+	require.True(t, ok)
+	require.Positive(t, dropped, "the bytes the subscriber never took are reported")
+	require.Zero(t, b.depth())
+	require.False(t, hasOverflowed(b), "the resync lifts the state that was refusing output")
+
+	b.publish(LifecycleChanged{Kind: LifecycleDegraded, Message: "overflow"})
+	b.publish(outputEvent("@1", "REPAINTED"))
+
+	// The head the pump was parked on still arrives — it was already in flight
+	// to a subscriber that is staying — and the repaint follows it.
+	var painted string
+	for painted == "" {
+		if out, isOutput := receive(t, ch).(Output); isOutput && string(out.Data) == "REPAINTED" {
+			painted = string(out.Data)
+		}
+	}
+	require.Equal(t, "REPAINTED", painted)
+}
+
+// Overflow re-arms after a resync. The flag is what gates the callback, so a
+// stale one would leave a second flood silently refusing output on a stream
+// nobody ever told.
+func TestBrokerOverflowReportsAgainAfterAResync(t *testing.T) {
+	t.Parallel()
+
+	overflows := make(chan struct{}, 4)
+	b := newBroker(backlogBounds{bytes: 64}, func() { overflows <- struct{}{} })
+	b.resyncCooldown = 0
+
+	flood := func() {
+		for range 4 {
+			b.publish(outputEvent("@1", strings.Repeat("x", 32)))
+		}
+		select {
+		case <-overflows:
+		case <-time.After(2 * time.Second):
+			t.Fatal("overflow was not reported")
+		}
+	}
+
+	flood()
+	_, ok := b.resync(time.Now())
+	require.True(t, ok)
+	flood()
+}
+
+// A resync that does not survive its cooldown was not a recovery: the flood is
+// outrunning the subscriber, and capturing every window again would cost more
+// than it saves. Refusing is what keeps the fatal path reachable.
+func TestBrokerRefusesAResyncInsideTheCooldown(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(backlogBounds{bytes: 64}, nil)
+	start := time.Now()
+
+	_, ok := b.resync(start)
+	require.True(t, ok)
+
+	_, ok = b.resync(start.Add(resyncCooldown - time.Millisecond))
+	require.False(t, ok, "a second resync inside the cooldown is refused")
+
+	_, ok = b.resync(start.Add(resyncCooldown))
+	require.True(t, ok, "past the cooldown the recovery is worth trying again")
+}
+
+// A closing broker has nothing to recover into: its backlog is the last thing a
+// live subscriber will read, and the exit reason is behind it.
+func TestBrokerRefusesAResyncOnceClosed(t *testing.T) {
+	t.Parallel()
+
+	b := newBroker(backlogBounds{}, nil)
+	b.close()
+
+	_, ok := b.resync(time.Now())
+	require.False(t, ok)
 }
 
 // Only Output is charged bytes, so a session that renames windows or switches

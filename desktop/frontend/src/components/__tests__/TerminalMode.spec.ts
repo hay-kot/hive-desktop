@@ -99,6 +99,8 @@ function fakeSession() {
     actionError: ref<string | null>(null),
     sizeConstraint: ref<{ voted: { cols: number; rows: number }; granted: { cols: number; rows: number } } | null>(null),
     dismissSizeConstraint: vi.fn(),
+    outputDropped: ref(false),
+    dismissOutputDropped: vi.fn(),
     search: ref({ open: false, query: '', matches: 0, index: 0 }),
     openSearch: vi.fn(),
     closeSearch: vi.fn(),
@@ -895,6 +897,25 @@ describe('TerminalMode', () => {
 
     await wrapper.get('[data-testid="terminal-size-constraint-dismiss"]').trigger('click')
     expect(session.dismissSizeConstraint).toHaveBeenCalled()
+  })
+
+  // The panes survive an overflow now, which is exactly why the gap has to be
+  // said out loud: without it a resync looks like nothing happened.
+  it('says so when output was dropped and the panes were repainted', async () => {
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="terminal-output-dropped"]').exists()).toBe(false)
+
+    session.outputDropped.value = true
+    await flushPromises()
+
+    const notice = wrapper.get('[data-testid="terminal-output-dropped"]').text()
+    expect(notice).toContain('dropped')
+    expect(notice).toContain('repainted from tmux')
+
+    await wrapper.get('[data-testid="terminal-output-dropped-dismiss"]').trigger('click')
+    expect(session.dismissOutputDropped).toHaveBeenCalled()
   })
 
   it('re-attaches from the sidebar row after the session ended', async () => {

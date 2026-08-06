@@ -984,6 +984,7 @@ const sessionError = computed(() => visible.value?.error.value ?? '')
 const treeError = ref('')
 const actionError = computed(() => visible.value?.actionError.value || treeError.value)
 const sizeConstraint = computed(() => visible.value?.sizeConstraint.value ?? null)
+const outputDropped = computed(() => visible.value?.outputDropped.value ?? false)
 
 const search = computed(() => visible.value?.search.value ?? { open: false, query: '', matches: 0, index: 0 })
 const searchInput = ref<HTMLInputElement | null>(null)
@@ -1846,6 +1847,29 @@ onBeforeUnmount(() => {
              no tab strip to keep in step with it (ADR the-sidebar-tree-is-the-only-window-list). -->
         <template v-if="visible && !notStarted">
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
+
+          <!-- The gap has to be said out loud. Recovering the view without
+               naming what it cost would be worse than the teardown this
+               replaced, which at least told the truth loudly. -->
+          <div
+            v-if="outputDropped"
+            class="flex shrink-0 items-start gap-2 border-b border-border bg-raised px-3 py-2"
+            data-testid="terminal-output-dropped"
+          >
+            <IconInfo class="mt-px size-3.5 shrink-0 text-severity-warning" />
+            <p class="min-w-0 flex-1 text-[11.5px] leading-relaxed text-text-3">
+              Output arrived faster than this window could draw it, so some of it was dropped. These panes were
+              repainted from tmux — what they show now is current, and their scrollback is tmux's, not what
+              streamed here before the gap.
+            </p>
+            <button
+              type="button"
+              class="flex size-4 shrink-0 cursor-pointer items-center justify-center rounded text-text-4 hover:bg-chip hover:text-text"
+              data-testid="terminal-output-dropped-dismiss"
+              aria-label="Dismiss"
+              @click="visible?.dismissOutputDropped()"
+            ><IconX class="size-3" /></button>
+          </div>
 
           <!-- Names tmux's rule rather than reporting a fault: the grid is
                smaller (or larger) than the pane because another client attached

@@ -1157,12 +1157,26 @@ The reader goroutine always drains tmux's stdout, because command replies share
 that pipe with notifications; notification dispatch and broker publish are
 therefore non-blocking. The broker's per-session buffer is bounded **by bytes
 and by event count** — only output is worth bytes, so the count is what bounds a
-backlog of window events — and overflow is **fatal**: the client is torn down and
-the frontend re-attaches, which re-runs first paint. There is no partial resync,
-no drop-oldest (it corrupts emulator state), and no tmux `pause-after`. Both
-bounds admit **only droppable events**, and only a droppable event may trip one:
-a lifecycle event that tripped the bound would be discarded by the same branch
-that drops for overflow, ending the stream with nothing saying why.
+backlog of window events. There is no drop-oldest (it corrupts emulator state)
+and no tmux `pause-after`. Both bounds admit **only droppable events**, and only
+a droppable event may trip one: a lifecycle event that tripped the bound would
+be discarded by the same branch that drops for overflow, leaving the stream with
+nothing saying what happened to it.
+
+**Crossing the bound degrades the stream rather than ending it** (ADR terminal-overflow-resyncs-the-view-instead-of-ending-the-stream).
+The broker's `resync` drops the backlog and lifts the overflow state *keeping
+the subscriber* — the difference from `reset`, which exists to hand the snapshot
+to a replacement — a `degraded` lifecycle frame says output was lost, and the
+same `paintEveryWindow` an attach and a repaint run puts every window back on
+screen. Reusing that path is what makes the recovery non-lossy: the snapshot
+carries the pane's scrollback, so the flood the user wants to read survives the
+bytes that carried it. The frontend resets each emulator on the frame — the
+snapshot's own scrollback would otherwise replay lines the pane is already
+showing — and raises a dismissible notice, because a recovery that hides the gap
+is worse than the teardown it replaced. **The fatal path is still there** for a
+resync already in flight, a resync inside its cooldown, or a repaint that
+errors: those end the stream with `EXITED(overflow)` and the frontend
+re-attaches, exactly as before.
 
 **Size is a negotiation this app is only one voice in.** Every client attached
 to a session renders the same grid per window, and tmux's `window-size` option

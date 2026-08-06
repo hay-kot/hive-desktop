@@ -71,6 +71,12 @@ deliberately unauthenticated: the loopback bind is the boundary.
    cursor restore v1 does not have. `%pause`/`%continue` are still parsed so an
    externally enabled pause mode cannot break framing; we never enable it.
 
+   **Superseded in part by [ADR terminal-overflow-resyncs-the-view-instead-of-ending-the-stream](2026-08-05-terminal-overflow-resyncs-the-view-instead-of-ending-the-stream.md):**
+   crossing the bound now drops the backlog, marks the stream `degraded` and
+   repaints in place; the teardown is what a resync that will not hold falls
+   back to. The bound, the always-drain rule and the absence of `pause-after`
+   are unchanged, and so is the `EXITED(overflow)` frame on the fatal path.
+
 5. **First paint may duplicate a few bytes, and that is accepted.** Attach
    captures each window's visible screen (`capture-pane -pe -J`) and replays
    live `%output` buffered from attach start once that window's capture reply

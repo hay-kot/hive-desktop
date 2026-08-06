@@ -26,7 +26,13 @@ const FRAME_LIFECYCLE = 0x02
 const FRAME_INPUT = 0x10
 
 export type WindowEventKind = 'added' | 'closed' | 'renamed' | 'active-changed' | 'resized'
-export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error'
+/**
+ * Mirrors `tmuxcc.LifecycleKind`, which is where these strings are minted —
+ * adding one is an edit on both sides. `degraded` is the odd one: the stream
+ * lives on, output was lost, and the repaint that re-establishes the panes is
+ * already behind it on the wire.
+ */
+export type LifecycleKind = 'attached' | 'paused' | 'resumed' | 'exited' | 'error' | 'degraded'
 
 /**
  * One tmux window. `width`/`height` are tmux's own size for it — whichever
