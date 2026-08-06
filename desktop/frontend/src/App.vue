@@ -767,6 +767,16 @@ function togglePreview(): void {
   previewCollapsed.value = !previewCollapsed.value
 }
 
+// Activating a row — a double-click, or Enter/Space on the focused row — is an
+// explicit request to read it, so it opens a collapsed pane. A single click
+// only moves the selection, which leaves a closed pane closed: the first click
+// of every double-click is one, so reopening on `select` would fire before the
+// gesture the user is making has finished.
+async function activateItemFromRow(id: number): Promise<void> {
+  previewCollapsed.value = false
+  await selectItem(id)
+}
+
 // We draw our own hidden-inset title bar, so the native double-click-to-zoom
 // gesture has to be re-implemented. Guarded for the non-Wails test/browser
 // context, matching hideWindow's posture.
@@ -1318,6 +1328,7 @@ onUnmounted(() => {
               :source-icons="sourceIcons"
               :source-images="sourceImages"
               @select="selectItem"
+              @activate="activateItemFromRow"
               @update:search="(value) => (search = value)"
               @set-sort="setFeedSort"
               @set-unread="navigateUnreadFilter"

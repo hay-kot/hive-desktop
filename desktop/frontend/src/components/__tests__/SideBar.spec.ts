@@ -44,6 +44,10 @@ describe('SideBar', () => {
     expect(wrapper.emitted('open-settings')).toHaveLength(1)
   })
 
+  it('carries only the profile name in the header; the source count lives in profile settings', () => {
+    expect(mountSideBar().get('[data-testid="sidebar-profile-header"]').text()).toBe('Personal')
+  })
+
   it('has no aggregate inbox views; feeds are the only primary destinations', () => {
     const wrapper = mountSideBar()
     expect(wrapper.find('[data-testid="inbox-view-switcher"]').exists()).toBe(false)

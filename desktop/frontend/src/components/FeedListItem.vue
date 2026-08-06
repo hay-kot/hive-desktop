@@ -13,6 +13,7 @@ import type { InboxItem } from '../types/feed'
 const props = defineProps<{ item: InboxItem; archived?: boolean; trash?: boolean; selected: boolean; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
 const emit = defineEmits<{
   select: []
+  activate: []
   'set-unread': [unread: boolean]
   'toggle-archive': []
   'toggle-ignored': []
@@ -57,9 +58,9 @@ function toggleMenu(): void {
 
 <template>
   <!-- Not a <button>: the hover-action pill nests real buttons, which is
-       invalid inside one. The div keeps the row focusable and Enter/Space
-       select like the button did (`.self` so pill keystrokes don't select). -->
-  <div ref="root" class="feed-item" :class="{ selected, 'menu-open': menuOpen }" role="button" tabindex="0" :data-id="item.externalId" :data-inbox-id="item.id" data-testid="feed-item" @click="emit('select')" @keydown.enter.self.prevent="emit('select')" @keydown.space.self.prevent="emit('select')" @contextmenu.prevent="openMenu()">
+       invalid inside one. The div keeps the row focusable, and Enter/Space are
+       the keyboard's double-click (`.self` so pill keystrokes don't reach it). -->
+  <div ref="root" class="feed-item" :class="{ selected, 'menu-open': menuOpen }" role="button" tabindex="0" :data-id="item.externalId" :data-inbox-id="item.id" data-testid="feed-item" @click="emit('select')" @dblclick="emit('activate')" @keydown.enter.self.prevent="emit('activate')" @keydown.space.self.prevent="emit('activate')" @contextmenu.prevent="openMenu()">
     <div class="relative flex items-start gap-3">
       <span class="source-badge" :data-source="item.sourceKind" data-testid="source-badge"><SourceMark :icon="sourceMark" :image="sourceMarkImage" class="size-4" /></span>
       <div class="min-w-0 flex-1">
@@ -70,7 +71,7 @@ function toggleMenu(): void {
     </div>
     <!-- Hover pill: swaps in over the unread dot + timestamp (which fade out)
          so triage never covers the title. Clicks stay inside the pill. -->
-    <div class="hover-actions" data-testid="row-hover-actions" @click.stop>
+    <div class="hover-actions" data-testid="row-hover-actions" @click.stop @dblclick.stop>
       <button v-if="trash" class="hover-action" type="button" title="Stop ignoring" aria-label="Stop ignoring" data-testid="row-restore" @click="emit('toggle-ignored')"><IconEye class="size-[15px]" /></button>
       <button v-else class="hover-action" type="button" :title="item.archivedAt ? 'Move to inbox' : 'Archive'" :aria-label="item.archivedAt ? 'Move to inbox' : 'Archive'" data-testid="row-archive" @click="emit('toggle-archive')"><IconArchive class="size-[15px]" /></button>
       <button v-if="item.url" class="hover-action" type="button" title="Open in browser" aria-label="Open in browser" data-testid="row-open" @click="emit('open-browser')"><IconExternalLink class="size-[15px]" /></button>
@@ -98,7 +99,9 @@ function toggleMenu(): void {
 </template>
 
 <style scoped>
-.feed-item { position: relative; width: 100%; padding: 13px 16px 13px 18px; border-bottom: 1px solid var(--color-row); cursor: pointer; text-align: left; }
+/* user-select: none so the double-click that opens a row does not also leave a
+   word of its title selected. */
+.feed-item { position: relative; width: 100%; padding: 13px 16px 13px 18px; border-bottom: 1px solid var(--color-row); cursor: pointer; text-align: left; user-select: none; }
 .feed-item:hover, .feed-item.menu-open { background: var(--color-row-hover); }.feed-item:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }.feed-item.selected::after { content: ''; position: absolute; inset: 0; background: var(--color-selection); pointer-events: none; }.unread-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--color-accent); }.source-badge { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 30px; height: 30px; margin-top: 1px; border-radius: 8px; background: var(--color-chip); border: 1px solid var(--color-strong); color: var(--color-text); }.type-pill { display: inline-flex; flex: none; align-items: center; border-radius: 4px; padding: 2px 7px; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: .02em; }.type-pill-pr { background: var(--color-kind-pr-tint); color: var(--color-kind-pr); }.type-pill-issue { background: var(--color-kind-issue-tint); color: var(--color-kind-issue); }.type-pill-neutral { background: var(--color-chip); color: var(--color-text-2); }
 .meta-right { transition: opacity .1s ease; }
 .hover-actions { position: absolute; top: 8px; right: 12px; z-index: 10; display: flex; gap: 2px; padding: 3px; border: 1px solid var(--color-strong); border-radius: 8px; background: var(--color-pane); box-shadow: 0 6px 18px -8px rgb(0 0 0 / .4); opacity: 0; pointer-events: none; transition: opacity .1s ease; }
