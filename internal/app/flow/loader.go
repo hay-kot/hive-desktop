@@ -141,9 +141,6 @@ func parseFlow(id string, data []byte, refs Refs) (Flow, []string, error) {
 	if resurface == "" {
 		resurface = DefaultResurfacePolicy
 	}
-	if !resurface.IsValid() {
-		return Flow{}, nil, fmt.Errorf("flow %q: unknown resurface policy %q", id, resurface)
-	}
 	f := Flow{
 		ID: id, Name: file.Name, Enabled: enabled, Resurface: resurface,
 		Image: file.Image, Nodes: file.Nodes, Wires: file.Wires,

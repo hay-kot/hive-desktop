@@ -75,11 +75,6 @@ func (ctrl *Controller) popupTerminalOperations() []Op {
 				ErrResp{Status: 409, When: "the hive session is not active, so it has no checkout to open a terminal in"}),
 		},
 		{
-			Method: "POST", Path: PopupTerminalPathPrefix + "launchers", Summary: "List the configured launchers — the launchers list in actions.yml — in file order. What each one runs is deliberately absent: open it by id.",
-			Response: popupLauncherListResponse{}, Handler: ctrl.PopupTerminalLaunchers,
-			Errors: popupTerminalErrors(""),
-		},
-		{
 			Method: "POST", Path: PopupTerminalPathPrefix + "close", Summary: "End a terminal and every process in it, and report whether there was one to close. An id whose process already exited answers closed=false rather than failing: an exited terminal is dropped, not kept.",
 			Request: popupIDRequest{}, Response: popupCloseResponse{}, Handler: ctrl.PopupTerminalClose,
 			Errors: popupTerminalErrors(""),
@@ -124,7 +119,7 @@ func (ctrl *Controller) agentOperations() []Op {
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve.",
-			Request: agentWorkspaceOpenRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
+			Request: agentWorkspaceDirRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
 		{
@@ -139,17 +134,17 @@ func (ctrl *Controller) agentOperations() []Op {
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/delete", Summary: "End every live terminal a workspace's sessions hold and delete their records. The workspace directory itself is never touched — it is the user's, and possibly under version control.",
-			Request: agentWorkspaceDeleteRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
+			Request: agentWorkspaceDirRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceDelete,
 			Errors: agentErrors(""),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open-in-editor", Summary: "Launch the configured editor (Settings › General) on the workspace directory, detached. Fails when no editor is configured or the command does not resolve on PATH.",
-			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceOpenInEditor,
+			Request: agentWorkspaceDirRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceOpenInEditor,
 			Errors: agentErrors("no such workspace", ErrResp{Status: 400, When: "no editor is configured, or its command is not on PATH"}),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/reveal", Summary: "Open the workspace directory in the OS file manager.",
-			Request: agentWorkspaceTargetRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceReveal,
+			Request: agentWorkspaceDirRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentWorkspaceReveal,
 			Errors: agentErrors("no such workspace"),
 		},
 		{

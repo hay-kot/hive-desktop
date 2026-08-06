@@ -67,7 +67,7 @@ func TestOpen_RecoversInterruptedRunningCommandWithoutRetry(t *testing.T) {
 	assert.Equal(t, "failed", row.Status)
 	assert.Equal(t, int64(1), row.Attempts)
 	assert.Contains(t, row.LastError.String, "interrupted")
-	rows, err := reopened.ListRunnableOutputCommands(ctx, 10)
+	rows, err := reopened.ListRunnableOutputCommandsAfter(ctx, 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 	jobs, err := reopened.ListJobs(ctx, 0, 10)

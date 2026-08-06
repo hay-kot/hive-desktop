@@ -21,9 +21,9 @@ func TestEventLogWritesUseUnixMilliseconds(t *testing.T) {
 
 	_, err := database.Append(ctx, "source:test", "append", []byte(`{}`))
 	require.NoError(t, err)
-	_, appended, err := database.AppendIfChanged(ctx, "source:test", "changed", []byte(`{}`))
+	_, err = database.Append(ctx, "source:test", "changed", []byte(`{}`))
 	require.NoError(t, err)
-	require.True(t, appended)
+	require.NoError(t, database.Queries().UpsertSourceHead(ctx, UpsertSourceHeadParams{Topic: "source:test", Key: "changed", Payload: []byte(`{}`)}))
 	_, err = database.AppendSnapshot(ctx, "source:test", "test", "scope", nil)
 	require.NoError(t, err)
 	after := time.Now().UnixMilli()

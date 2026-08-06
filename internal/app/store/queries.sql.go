@@ -1943,55 +1943,6 @@ func (q *Queries) ListNodeRunsByFlow(ctx context.Context, arg ListNodeRunsByFlow
 	return items, nil
 }
 
-const listRunnableOutputCommands = `-- name: ListRunnableOutputCommands :many
-SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command
-WHERE status = 'pending'
-ORDER BY id ASC
-LIMIT ?
-`
-
-// Every enqueued flow action is runnable immediately; running is reserved for
-// an explicit detail invocation.
-func (q *Queries) ListRunnableOutputCommands(ctx context.Context, limit int64) ([]OutputCommand, error) {
-	rows, err := q.db.QueryContext(ctx, listRunnableOutputCommands, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []OutputCommand{}
-	for rows.Next() {
-		var i OutputCommand
-		if err := rows.Scan(
-			&i.ID,
-			&i.ActionID,
-			&i.Key,
-			&i.Payload,
-			&i.Status,
-			&i.Attempts,
-			&i.LastError,
-			&i.ResultJson,
-			&i.Stdout,
-			&i.Stderr,
-			&i.CreatedAt,
-			&i.IsRerun,
-			&i.ProfileID,
-			&i.SourceKind,
-			&i.SourceScope,
-			&i.ExternalID,
-		); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const listRunnableOutputCommandsAfter = `-- name: ListRunnableOutputCommandsAfter :many
 SELECT id, action_id, "key", payload, status, attempts, last_error, result_json, stdout, stderr, created_at, is_rerun, profile_id, source_kind, source_scope, external_id FROM output_command
 WHERE status = 'pending' AND id > ?
@@ -2004,8 +1955,10 @@ type ListRunnableOutputCommandsAfterParams struct {
 	Limit int64 `json:"limit"`
 }
 
-// Continue a bounded worker scan after the previous row. The status/id
-// predicate is covered by idx_output_command_status_id.
+// Every enqueued flow action is runnable immediately; running is reserved for
+// an explicit detail invocation. Continues a bounded worker scan after the
+// previous row. The status/id predicate is covered by
+// idx_output_command_status_id.
 func (q *Queries) ListRunnableOutputCommandsAfter(ctx context.Context, arg ListRunnableOutputCommandsAfterParams) ([]OutputCommand, error) {
 	rows, err := q.db.QueryContext(ctx, listRunnableOutputCommandsAfter, arg.ID, arg.Limit)
 	if err != nil {

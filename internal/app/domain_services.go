@@ -38,14 +38,6 @@ func (s *ActionsService) List(context.Context) actions.EditableCatalog {
 	return s.catalog.ListEditable()
 }
 
-func (s *ActionsService) Get(_ context.Context, id string) (actions.EditableAction, error) {
-	a, ok := s.catalog.GetEditable(id)
-	if !ok {
-		return actions.EditableAction{}, Errorf(KindNotFound, "action %q not found", id)
-	}
-	return a, nil
-}
-
 func (s *ActionsService) Create(_ context.Context, a actions.EditableAction) (actions.EditableAction, error) {
 	out, err := s.catalog.Create(a)
 	if err != nil {
@@ -220,7 +212,6 @@ func newPromptsService(paths settings.Paths, settingsStore *settings.Store, webh
 // keep handing out a stale port after the listener rebinds.
 func (s *PromptsService) service(ctx context.Context) (*prompts.Service, error) {
 	env := prompts.Env{
-		ConfigDir:          s.paths.ConfigDir,
 		FlowsDir:           s.paths.FlowsDir,
 		ActionsPath:        s.paths.ActionsPath,
 		SettingsPath:       s.paths.SettingsPath,

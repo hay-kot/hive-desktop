@@ -52,8 +52,6 @@ type Result struct {
 	// MissingMCPs are enabled ids that are no longer in the catalogue. The
 	// workspace still opens and they are omitted from .mcp.json (spec §14).
 	MissingMCPs []string
-	// ShadowedSkills are .shared/ skills a workspace-declared skill replaced.
-	ShadowedSkills []string
 	// Problems are conditions that do not stop the open but that the user
 	// must see — an .icloud placeholder standing in for an authored file,
 	// say.
@@ -89,11 +87,10 @@ func Generate(in GenerateInput) (Result, error) {
 		return Result{}, err
 	}
 
-	skillFiles, shadowed, err := mergeSkills(in.Shared, in.Skills)
+	skillFiles, err := mergeSkills(in.Shared, in.Skills)
 	if err != nil {
 		return Result{}, err
 	}
-	res.ShadowedSkills = shadowed
 
 	if err := reconcileTree(filepath.Join(in.Dir, ".claude", "skills"), skillFiles); err != nil {
 		return Result{}, err
@@ -184,28 +181,28 @@ func generateMCPFiles(dir string, servers map[string]mcpcatalog.Server) error {
 // (D-D — the same shadow rule a mcps.yaml entry uses against a shipped
 // catalogue entry). Keys are "<slug>/SKILL.md", relative to a skills tree
 // root.
-func mergeSkills(sharedDir string, declared []RenderedSkill) (target map[string][]byte, shadowed []string, err error) {
+func mergeSkills(sharedDir string, declared []RenderedSkill) (target map[string][]byte, err error) {
 	target = make(map[string][]byte, len(declared))
 	declaredSlugs := make(map[string]bool, len(declared))
 
 	for _, rs := range declared {
 		if !validSlug(rs.Slug) {
-			return nil, nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, rs.Slug)
+			return nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, rs.Slug)
 		}
 		target[filepath.Join(rs.Slug, "SKILL.md")] = []byte(rs.Body)
 		declaredSlugs[rs.Slug] = true
 	}
 
 	if sharedDir == "" {
-		return target, nil, nil
+		return target, nil
 	}
 
 	entries, err := os.ReadDir(filepath.Join(sharedDir, "skills"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return target, nil, nil
+			return target, nil
 		}
-		return nil, nil, fmt.Errorf("agentws: read shared skills: %w", err)
+		return nil, fmt.Errorf("agentws: read shared skills: %w", err)
 	}
 
 	for _, entry := range entries {
@@ -214,10 +211,9 @@ func mergeSkills(sharedDir string, declared []RenderedSkill) (target map[string]
 		}
 		slug := entry.Name()
 		if !validSlug(slug) {
-			return nil, nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, slug)
+			return nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, slug)
 		}
 		if declaredSlugs[slug] {
-			shadowed = append(shadowed, slug)
 			continue
 		}
 
@@ -226,12 +222,11 @@ func mergeSkills(sharedDir string, declared []RenderedSkill) (target map[string]
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, nil, fmt.Errorf("agentws: read shared skill %q: %w", slug, err)
+			return nil, fmt.Errorf("agentws: read shared skill %q: %w", slug, err)
 		}
 		target[filepath.Join(slug, "SKILL.md")] = body
 	}
-	sort.Strings(shadowed)
-	return target, shadowed, nil
+	return target, nil
 }
 
 // validSlug reports whether slug resolves to a direct child of the directory

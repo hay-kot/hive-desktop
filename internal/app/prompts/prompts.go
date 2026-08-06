@@ -47,8 +47,6 @@ var templatesFS embed.FS
 // (see desktop/promptsservice.go) — this package deliberately does not import
 // internal/app/settings, so it stays testable without touching the user's config.
 type Env struct {
-	// ConfigDir is the desktop config root holding flows/ and actions.yml.
-	ConfigDir string
 	// FlowsDir is where flows/<id>.yaml documents live.
 	FlowsDir string
 	// ActionsPath is the actions.yml location.

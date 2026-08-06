@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -165,15 +166,6 @@ func TestAlertsClassifierReobservedStaysTrivial(t *testing.T) {
 	assert.Equal(t, store.AttentionTrivial, stillResolved.Attention)
 }
 
-// A payload the rewrite cannot parse as a JSON object is returned unchanged, so
-// a malformed alert never blocks absence confirmation.
-func TestWithResolvedStateLeavesNonObjectPayloadUnchanged(t *testing.T) {
-	t.Parallel()
-
-	payload := []byte(`"not an object"`)
-	assert.Equal(t, payload, withResolvedState(payload))
-}
-
 func TestAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	t.Parallel()
 
@@ -187,7 +179,7 @@ func TestAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	assert.True(t, verdict.Terminal, "an absent alert is authoritatively resolved, so its source head is evicted")
 	require.NotNil(t, verdict.Current)
 
-	assert.Equal(t, stateResolved, alertState(verdict.Current.Payload), "the payload is rewritten to resolved")
+	assert.Equal(t, stateResolved, canonical.State(verdict.Current.Payload), "the payload is rewritten to resolved")
 	// Other fields survive the rewrite so the archived item keeps its identity.
 	var payload alertPayload
 	require.NoError(t, json.Unmarshal(verdict.Current.Payload, &payload))

@@ -119,10 +119,9 @@ type nodeRunAcc struct {
 	outCount  int
 	dropCount int
 	ok        bool
-	err       string
 	dur       time.Duration
 
-	// lastErr is the error behind err, kept so a dry run can report a
+	// lastErr is kept as an error, not a string, so a dry run can report a
 	// *ScriptError's kind and position rather than only its rendered text.
 	lastErr error
 	// received and emitted are populated only while tracing.
@@ -303,7 +302,6 @@ func (s *runState) process(ctx context.Context, run *nodeRunAcc, node *flow.Node
 		// Staged KV writes go down with the errored message: a kv.set
 		// followed by a throw must persist nothing.
 		run.ok = false
-		run.err = err.Error()
 		run.lastErr = err
 		s.drop(run, node.ID, m)
 		var scriptErr *ScriptError
@@ -375,16 +373,19 @@ func (s *runState) nodeRuns() []store.NodeRunView {
 	runs := make([]store.NodeRunView, 0, len(s.runOrder))
 	for _, nodeID := range s.runOrder {
 		acc := s.runs[nodeID]
-		runs = append(runs, store.NodeRunView{
+		view := store.NodeRunView{
 			FlowID:    s.runner.flow.ID,
 			NodeID:    nodeID,
 			OK:        acc.ok,
 			InCount:   acc.inCount,
 			OutCount:  acc.outCount,
 			DropCount: acc.dropCount,
-			Err:       acc.err,
 			DurMs:     acc.dur.Milliseconds(),
-		})
+		}
+		if acc.lastErr != nil {
+			view.Err = acc.lastErr.Error()
+		}
+		runs = append(runs, view)
 	}
 	return runs
 }

@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -23,7 +22,7 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, nil, "127.0.0.1", 24917))
 	installer, err := skills.NewInstaller(filepath.Join(t.TempDir(), "skills.json"))
 	require.NoError(t, err)
-	return newSkillsService(promptsSvc, installer, store, "", zerolog.Nop())
+	return newSkillsService(promptsSvc, installer, store)
 }
 
 func targetInfo(t *testing.T, catalog SkillsCatalog, id string) SkillTarget {
@@ -78,7 +77,6 @@ func TestSkillsCatalogIncludesAgentWorkspaces(t *testing.T) {
 		require.NoError(t, skills.ValidateSkill(skills.Skill{
 			ID:          sk.ID,
 			Name:        sk.Name,
-			Title:       sk.Title,
 			Description: sk.Description,
 			Body:        sk.Text,
 		}))

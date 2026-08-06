@@ -21,7 +21,6 @@ var registry = map[string]Descriptor{
 		Type:        "hive-desktop",
 		Title:       "Hive Desktop",
 		Description: "This Hive Desktop install: read its inbox, feeds, profiles and action catalog, force a source refresh, and dry-run a flow against input you supply.",
-		Icon:        "hive",
 		Stability:   StabilityBeta,
 		Server:      Server{Transport: TransportHttp},
 		RuntimeURL:  true,
@@ -30,7 +29,6 @@ var registry = map[string]Descriptor{
 		Type:        "chrome-devtools",
 		Title:       "Chrome DevTools",
 		Description: "Browser debugging: read network requests, console output, and performance traces from a Chrome the agent controls.",
-		Icon:        "chrome",
 		Stability:   StabilityStable,
 		Server: Server{
 			Transport: TransportStdio,
@@ -45,7 +43,6 @@ var registry = map[string]Descriptor{
 		Type:        "playwright",
 		Title:       "Playwright",
 		Description: "Browser automation: navigate, click, fill forms, and read page content through a real, controllable browser.",
-		Icon:        "globe",
 		Stability:   StabilityStable,
 		Server: Server{
 			Transport: TransportStdio,

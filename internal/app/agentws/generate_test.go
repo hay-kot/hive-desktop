@@ -237,7 +237,7 @@ func TestGenerateRemovesASkillNoLongerDeclared(t *testing.T) {
 }
 
 // TestSharedSkillsAreShadowedByTheWorkspace is D-D: on a slug collision the
-// workspace-declared skill wins and the shadow is reported.
+// workspace-declared skill wins.
 func TestSharedSkillsAreShadowedByTheWorkspace(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -251,9 +251,8 @@ func TestSharedSkillsAreShadowedByTheWorkspace(t *testing.T) {
 		Servers: map[string]mcpcatalog.Server{},
 		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# workspace version\n"}},
 	}
-	res, err := Generate(in)
+	_, err := Generate(in)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"hive-mcp"}, res.ShadowedSkills)
 
 	data, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
 	require.NoError(t, err)
@@ -274,9 +273,8 @@ func TestSharedSkillsInstallWithoutCollision(t *testing.T) {
 		writeFile(t, filepath.Join(shared, "skills", "team-notes", "SKILL.md"), "# team notes\n")
 
 		in := GenerateInput{Dir: dir, Shared: shared, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
-		res, err := Generate(in)
+		_, err := Generate(in)
 		require.NoError(t, err)
-		assert.Empty(t, res.ShadowedSkills)
 		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "team-notes", "SKILL.md"))
 		assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "team-notes", "SKILL.md"))
 	})
@@ -289,9 +287,8 @@ func TestSharedSkillsInstallWithoutCollision(t *testing.T) {
 			Servers: map[string]mcpcatalog.Server{},
 			Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 		}
-		res, err := Generate(in)
+		_, err := Generate(in)
 		require.NoError(t, err)
-		assert.Empty(t, res.ShadowedSkills)
 		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
 		entries, err := os.ReadDir(filepath.Join(dir, ".claude", "skills"))
 		require.NoError(t, err)

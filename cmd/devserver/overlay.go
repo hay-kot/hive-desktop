@@ -35,9 +35,6 @@ type Item struct {
 	Overlaid bool `json:"overlaid"`
 }
 
-// Key is the overlay-store key for an item.
-func (i Item) Key() string { return i.Repo + "#" + strconv.Itoa(i.Num) }
-
 func NewStore(overlays []Overlay) *Store {
 	s := &Store{
 		overlays: make(map[string]Mutations, len(overlays)),

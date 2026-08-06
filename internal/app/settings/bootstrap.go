@@ -19,7 +19,7 @@ const bootstrapFileName = "bootstrap.yaml"
 //
 // DataDir is the data-dir root (the HIVE_DESKTOP_DATA_DIR equivalent) under which
 // StateDir and the core hive.db live. ConfigDir is the desktop config root
-// (the directory holding profiles.yaml, flows/, and actions.yml).
+// (the directory holding flows/ and actions.yml).
 type Bootstrap struct {
 	DataDir   string `yaml:"data_dir,omitempty"`
 	ConfigDir string `yaml:"config_dir,omitempty"`
@@ -29,8 +29,8 @@ type Bootstrap struct {
 // deliberately anchored to the default XDG config location and is NEVER
 // affected by a config-dir override — otherwise relocating the config dir
 // would move the very file that records where the config dir went. It mirrors
-// ConfigPath's default-location logic (XDG_CONFIG_HOME, then ~/.config) but
-// ignores the movable desktop config-directory override.
+// the config-dir resolution's default-location logic (XDG_CONFIG_HOME, then
+// ~/.config) but ignores the movable desktop config-directory override.
 func BootstrapPath() string {
 	configHome := os.Getenv("XDG_CONFIG_HOME")
 	if configHome == "" {

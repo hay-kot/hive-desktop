@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -78,11 +77,7 @@ func (s Set) Apply(raw []byte) (migrated []byte, changed bool, err error) {
 		return raw, false, nil
 	}
 
-	steps := make([]Migration, len(s.Migrations))
-	copy(steps, s.Migrations)
-	sort.Slice(steps, func(i, j int) bool { return steps[i].To < steps[j].To })
-
-	for _, step := range steps {
+	for _, step := range s.Migrations {
 		if step.To <= version {
 			continue
 		}
@@ -153,20 +148,16 @@ func (s Set) version(doc map[string]any) (int, error) {
 }
 
 // Validate asserts the chain is well-formed: Baseline <= Current, and
-// Migrations sorted by To are exactly Baseline+1, Baseline+2, ..., Current with
-// no gaps or duplicates. A Set with Current == Baseline has zero Migrations and
-// is valid. Called by a package test for every registered Set.
+// Migrations in declared order are exactly Baseline+1, Baseline+2, ..., Current
+// with no gaps or duplicates. A Set with Current == Baseline has zero
+// Migrations and is valid. Called by a package test for every registered Set.
 func (s Set) Validate() error {
 	if s.Current < s.Baseline {
 		return fmt.Errorf("%s: current %d is less than baseline %d", s.Name, s.Current, s.Baseline)
 	}
 
-	steps := make([]Migration, len(s.Migrations))
-	copy(steps, s.Migrations)
-	sort.Slice(steps, func(i, j int) bool { return steps[i].To < steps[j].To })
-
 	want := s.Baseline + 1
-	for _, step := range steps {
+	for _, step := range s.Migrations {
 		if step.To != want {
 			return fmt.Errorf("%s: migration chain has a gap or duplicate: expected step to version %d, got %d", s.Name, want, step.To)
 		}

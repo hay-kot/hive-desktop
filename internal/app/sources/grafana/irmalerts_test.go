@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -210,7 +211,7 @@ func TestIRMAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	require.True(t, ok, "an absent alert group gets a verdict")
 	assert.True(t, verdict.Terminal, "the listing is the complete active set, so absence is authoritative")
 	require.NotNil(t, verdict.Current)
-	assert.Equal(t, stateResolved, alertState(verdict.Current.Payload))
+	assert.Equal(t, stateResolved, canonical.State(verdict.Current.Payload))
 
 	var payload irmAlertPayload
 	require.NoError(t, json.Unmarshal(verdict.Current.Payload, &payload))

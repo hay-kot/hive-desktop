@@ -2,9 +2,7 @@ package settings
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,7 +23,6 @@ type Store struct {
 var settingsFileMu sync.Mutex
 
 func NewStore(path string) *Store { return &Store{path: path} }
-func (s *Store) Path() string     { return s.path }
 
 func (s *Store) Effective() (Settings, error) {
 	settingsFileMu.Lock()
@@ -72,13 +69,6 @@ func loadSettingsAt(path string, withEnvironment bool) (Settings, error) {
 		decoder := yaml.NewDecoder(bytes.NewReader(data))
 		decoder.KnownFields(true)
 		if err := decoder.Decode(&cfg); err != nil {
-			return Settings{}, fmt.Errorf("parse desktop settings: %w", err)
-		}
-		var extra any
-		if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-			if err == nil {
-				return Settings{}, fmt.Errorf("parse desktop settings: multiple YAML documents are not allowed")
-			}
 			return Settings{}, fmt.Errorf("parse desktop settings: %w", err)
 		}
 	}

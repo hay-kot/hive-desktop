@@ -63,16 +63,10 @@ type searchFailure struct {
 // published: readers use their fields after releasing p.mu, so an update
 // publishes a new entry rather than mutating one in place.
 type cachedSource struct {
-	items        []liveItem
+	items        []Item
 	fetchedAt    time.Time
 	validators   sourcehttp.Validators
 	pollInterval time.Duration
-}
-
-// liveItem pairs the wire item with the timestamp its age derives from.
-type liveItem struct {
-	item      Item
-	updatedAt time.Time
 }
 
 // sourceKey is the canonical cache key: two SourceDefs requesting the same
@@ -169,42 +163,8 @@ func (p *LiveProvider) noteRateLimit(ctx context.Context, err error) {
 
 // SourceItems returns one source's current items — served from cache within
 // the fetch TTL, otherwise fetched via the conditional, singleflight-coalesced
-// path (see sourceItems/fetchSource).
+// path (see fetchSource).
 func (p *LiveProvider) SourceItems(ctx context.Context, src SourceDef) ([]Item, error) {
-	items, err := p.sourceItems(ctx, src)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Item, 0, len(items))
-	for _, li := range items {
-		out = append(out, li.item)
-	}
-	return out, nil
-}
-
-// Invalidate drops the fetch cache so the next call refetches. Auth changes
-// call it: a different account must never be served the previous token's data.
-func (p *LiveProvider) Invalidate() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.cache = make(map[string]*cachedSource)
-	p.searchFailures = make(map[string]searchFailure)
-	p.cooldownUntil = time.Time{}
-	p.cooldownErr = nil
-}
-
-// notificationsTTL is the effective minimum interval between notification
-// fetches for a cache entry.
-func notificationsTTL(cached *cachedSource) time.Duration {
-	if cached.pollInterval > notificationsMinPoll {
-		return cached.pollInterval
-	}
-	return notificationsMinPoll
-}
-
-// sourceItems returns the source's items from cache within its TTL, otherwise
-// fetching it through the conditional, singleflight-coalesced path.
-func (p *LiveProvider) sourceItems(ctx context.Context, src SourceDef) ([]liveItem, error) {
 	key := sourceKey(src)
 
 	p.mu.Lock()
@@ -233,10 +193,30 @@ func (p *LiveProvider) sourceItems(ctx context.Context, src SourceDef) ([]liveIt
 	return items, nil
 }
 
+// Invalidate drops the fetch cache so the next call refetches. Auth changes
+// call it: a different account must never be served the previous token's data.
+func (p *LiveProvider) Invalidate() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.cache = make(map[string]*cachedSource)
+	p.searchFailures = make(map[string]searchFailure)
+	p.cooldownUntil = time.Time{}
+	p.cooldownErr = nil
+}
+
+// notificationsTTL is the effective minimum interval between notification
+// fetches for a cache entry.
+func notificationsTTL(cached *cachedSource) time.Duration {
+	if cached.pollInterval > notificationsMinPoll {
+		return cached.pollInterval
+	}
+	return notificationsMinPoll
+}
+
 // serveFetchError preserves stale search and notifications data through
 // transient failures, while authentication failures must reach the caller so
 // it can prompt for a reconnect.
-func (p *LiveProvider) serveFetchError(src SourceDef, cached *cachedSource, ok bool, err error) ([]liveItem, error) {
+func (p *LiveProvider) serveFetchError(src SourceDef, cached *cachedSource, ok bool, err error) ([]Item, error) {
 	if ok && !errors.Is(err, sourcehttp.ErrUnauthorized) && !errors.Is(err, ErrNotAuthenticated) {
 		p.logger.Debug().Err(err).Str("source", src.ID).Msg("source fetch failed; serving stale cache")
 		return cached.items, nil
@@ -300,9 +280,7 @@ func (p *LiveProvider) PrefetchSearch(ctx context.Context, defs []SourceDef) err
 	}
 	results, err := p.client.WithTokenCopy(token).SearchIssuesBatch(ctx, reqs)
 	if err != nil {
-		if errors.Is(err, sourcehttp.ErrRateLimited) {
-			p.noteRateLimit(ctx, err)
-		}
+		p.noteRateLimit(ctx, err)
 		p.recordSearchFailures(dueKeys, err)
 		return err
 	}
@@ -330,7 +308,7 @@ func (p *LiveProvider) recordSearchFailures(keys []string, err error) {
 
 // fetchSource performs the source's API request and updates the cache,
 // coalescing concurrent fetches of the same source into one request.
-func (p *LiveProvider) fetchSource(ctx context.Context, src SourceDef) ([]liveItem, error) {
+func (p *LiveProvider) fetchSource(ctx context.Context, src SourceDef) ([]Item, error) {
 	result, err, _ := p.flight.Do(sourceKey(src), func() (any, error) {
 		return p.fetchSourceDirect(ctx, src)
 	})
@@ -339,9 +317,9 @@ func (p *LiveProvider) fetchSource(ctx context.Context, src SourceDef) ([]liveIt
 	}
 	// singleflight hands back `any`; the only producer is the closure above,
 	// which returns fetchSourceDirect's typed result.
-	items, ok := result.([]liveItem)
+	items, ok := result.([]Item)
 	if !ok {
-		return nil, fmt.Errorf("singleflight returned %T, want []liveItem", result)
+		return nil, fmt.Errorf("singleflight returned %T, want []Item", result)
 	}
 	return items, nil
 }
@@ -349,7 +327,7 @@ func (p *LiveProvider) fetchSource(ctx context.Context, src SourceDef) ([]liveIt
 // fetchSourceDirect is the uncoalesced fetch behind fetchSource. Notifications
 // requests are conditional: a 304 keeps the cached items and refreshes their
 // fetch time at no rate-limit cost.
-func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]liveItem, error) {
+func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]Item, error) {
 	if cooling, err := p.inCooldown(); cooling {
 		return nil, err
 	}
@@ -376,9 +354,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 
 		result, err := client.Notifications(ctx, src.effectiveLimit(), prevValidators)
 		if err != nil {
-			if errors.Is(err, sourcehttp.ErrRateLimited) {
-				p.noteRateLimit(ctx, err)
-			}
+			p.noteRateLimit(ctx, err)
 			return nil, err
 		}
 		pollInterval := time.Duration(result.PollInterval) * time.Second
@@ -408,9 +384,7 @@ func (p *LiveProvider) fetchSourceDirect(ctx context.Context, src SourceDef) ([]
 			Limit: src.effectiveLimit(),
 		}})
 		if err != nil {
-			if errors.Is(err, sourcehttp.ErrRateLimited) {
-				p.noteRateLimit(ctx, err)
-			}
+			p.noteRateLimit(ctx, err)
 			return nil, err
 		}
 		items := p.searchItems(results[0])
@@ -468,9 +442,7 @@ func (p *LiveProvider) ConfirmTerminal(ctx context.Context, refs []AbsentRef) ([
 	for j, st := range states {
 		out[originalIndex[j]] = st
 	}
-	if errors.Is(err, sourcehttp.ErrRateLimited) {
-		p.noteRateLimit(ctx, err)
-	}
+	p.noteRateLimit(ctx, err)
 	return out, err
 }
 
@@ -486,8 +458,8 @@ func (p *LiveProvider) clearSearchFailure(key string) {
 	p.mu.Unlock()
 }
 
-func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []liveItem {
-	out := make([]liveItem, 0, len(items))
+func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []Item {
+	out := make([]Item, 0, len(items))
 	for _, si := range items {
 		kind := "Issue"
 		if si.IsPullRequest {
@@ -498,7 +470,7 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []liveItem {
 			labels[i] = label.Name
 		}
 		repo := si.Repo
-		item := Item{
+		out = append(out, Item{
 			ID:        itemID(repo, si.Number),
 			Kind:      kind,
 			Repo:      repo,
@@ -513,14 +485,13 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []liveItem {
 			Body:      si.Body,
 			Prompt:    suggestedPrompt(kind, si.Title, si.URL, si.Body),
 			URL:       si.URL,
-		}
-		out = append(out, liveItem{item: item, updatedAt: si.UpdatedAt})
+		})
 	}
 	return out
 }
 
-func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) []liveItem {
-	out := make([]liveItem, 0, len(notifications))
+func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) []Item {
+	out := make([]Item, 0, len(notifications))
 	for _, n := range notifications {
 		kind, ok := notificationKind(n.Subject.Type)
 		if !ok {
@@ -534,7 +505,7 @@ func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) 
 		if num == 0 {
 			id = "notif-" + n.ID
 		}
-		item := Item{
+		out = append(out, Item{
 			ID:        id,
 			Kind:      kind,
 			Repo:      repo,
@@ -547,8 +518,7 @@ func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) 
 			Body:      fmt.Sprintf("GitHub notification for %s in %s.", strings.ToLower(kind), repo),
 			Prompt:    suggestedPrompt(kind, n.Subject.Title, htmlURLForSubject(repo, kind, num), ""),
 			URL:       htmlURLForSubject(repo, kind, num),
-		}
-		out = append(out, liveItem{item: item, updatedAt: n.UpdatedAt})
+		})
 	}
 	return out
 }

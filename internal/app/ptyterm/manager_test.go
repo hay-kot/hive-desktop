@@ -220,10 +220,7 @@ func TestOpenHonoursACallerSuppliedID(t *testing.T) {
 	term, err := m.Open(t.Context(), Spec{ID: "workspace-session-1", Dir: t.TempDir()})
 	require.NoError(t, err)
 	require.Equal(t, "workspace-session-1", term.ID)
-
-	got, err := m.Get("workspace-session-1")
-	require.NoError(t, err)
-	require.Equal(t, term, got)
+	require.Equal(t, []Terminal{term}, m.List())
 }
 
 // A second Open for an id already live is a rejection, not a second terminal —

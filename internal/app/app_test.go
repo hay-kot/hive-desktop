@@ -228,6 +228,6 @@ func TestAgentWorkspacesUnavailableRootCreatesNothing(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "an unavailable root must not be created")
 
 	require.NotNil(t, core.agentWorkspaceStore)
-	assert.Empty(t, core.agentWorkspaceStore.List())
+	assert.Empty(t, core.agentWorkspaceStore.Statuses())
 	assert.Nil(t, core.agentWorkspacesWatcher, "no watcher may exist over a root that was never created")
 }

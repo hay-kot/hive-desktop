@@ -38,7 +38,6 @@ type OpenOptions struct {
 	MaxOpenConns int            // max open connections (default: 2)
 	MaxIdleConns int            // max idle connections (default: 2)
 	BusyTimeout  int            // busy timeout in milliseconds (default: 5000)
-	PauseIngest  time.Duration  // development-only crash-window widening
 	PauseCommit  time.Duration  // development-only crash-window widening
 	Logger       zerolog.Logger // where the store reports recoverable anomalies; zero value discards
 }
@@ -62,7 +61,6 @@ type DB struct {
 	conn        *sql.DB
 	tx          *sql.Tx
 	queries     *Queries
-	pauseIngest time.Duration
 	pauseCommit time.Duration
 	logger      zerolog.Logger
 }
@@ -118,7 +116,7 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 	// _txlock=immediate so write transactions begin with BEGIN IMMEDIATE.
 	//
 	// Several goroutines write this DB concurrently through WithTx (the
-	// producer's AppendIfChanged, the frontend runtime's CommitBatch, the
+	// producer's IngestObservation, the frontend runtime's CommitBatch, the
 	// output worker, retention). Each reads before it writes. With the driver
 	// default (BEGIN, deferred) two such transactions can both hold a read
 	// lock and then both try to upgrade to the write lock — a deadlock SQLite
@@ -141,7 +139,6 @@ func Open(ctx context.Context, dir string, opts OpenOptions) (*DB, error) {
 	db := &DB{
 		conn:        conn,
 		queries:     New(conn),
-		pauseIngest: opts.PauseIngest,
 		pauseCommit: opts.PauseCommit,
 		logger:      opts.Logger,
 	}

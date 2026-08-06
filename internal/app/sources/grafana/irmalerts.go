@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/canonical"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana/client"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -192,7 +193,7 @@ type irmAlertsClassifier struct{}
 var _ store.Classifier = irmAlertsClassifier{}
 
 func (irmAlertsClassifier) Classify(previous *store.Observation, current store.Observation) store.Classification {
-	state := alertState(current.Payload)
+	state := canonical.State(current.Payload)
 	lifecycle := store.LifecycleActive
 	if state == stateResolved {
 		lifecycle = store.LifecycleTerminal
@@ -209,7 +210,7 @@ func (irmAlertsClassifier) Classify(previous *store.Observation, current store.O
 	if previous == nil {
 		return out
 	}
-	switch prev := alertState(previous.Payload); {
+	switch prev := canonical.State(previous.Payload); {
 	case prev != stateResolved && state == stateResolved:
 		out.Summary, out.Transition, out.ArchivedReason = "Resolved", store.TransitionEnteredTerminal, stateResolved
 	case prev == stateResolved && state != stateResolved:
@@ -247,7 +248,7 @@ func (irmAlertsAbsence) ConfirmAbsence(_ context.Context, previous []store.Obser
 	verdicts := make(map[string]store.AbsenceVerdict, len(previous))
 	for _, prev := range previous {
 		resolved := prev
-		resolved.Payload = withResolvedState(prev.Payload)
+		resolved.Payload = canonical.WithState(prev.Payload, stateResolved)
 		verdicts[prev.ExternalID] = store.AbsenceVerdict{Current: &resolved, Terminal: true}
 	}
 	return verdicts, nil

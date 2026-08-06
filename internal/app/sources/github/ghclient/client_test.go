@@ -26,7 +26,7 @@ func TestUserValidatesToken(t *testing.T) {
 	}))
 	defer server.Close()
 
-	client := NewClient(WithAPIBase(server.URL), WithToken("tok123"))
+	client := NewClient(WithAPIBase(server.URL)).WithTokenCopy("tok123")
 	user, err := client.User(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, "hayden", user.Login)
@@ -42,7 +42,7 @@ func TestUserUnauthorized(t *testing.T) {
 	}))
 	defer server.Close()
 
-	_, err := NewClient(WithAPIBase(server.URL), WithToken("bad")).User(t.Context())
+	_, err := NewClient(WithAPIBase(server.URL)).WithTokenCopy("bad").User(t.Context())
 	require.ErrorIs(t, err, sourcehttp.ErrUnauthorized)
 }
 
@@ -185,7 +185,7 @@ func TestSearchIssuesBatch(t *testing.T) {
 	}))
 	defer server.Close()
 
-	results, err := NewClient(WithAPIBase(server.URL), WithToken("tok123")).SearchIssuesBatch(t.Context(), []SearchRequest{
+	results, err := NewClient(WithAPIBase(server.URL)).WithTokenCopy("tok123").SearchIssuesBatch(t.Context(), []SearchRequest{
 		{Query: "is:open", Limit: 25},
 		{Query: "is:pr", Limit: 50},
 	})

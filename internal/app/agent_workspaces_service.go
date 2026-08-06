@@ -217,11 +217,6 @@ func (s *AgentWorkspacesService) Available(ctx context.Context) error {
 		"agent workspaces need tmux 3.2 or newer. Hive searches PATH and the usual install prefixes; set paths.tmux in settings.yaml if yours is elsewhere.")
 }
 
-// Root returns the configured workspace root.
-func (s *AgentWorkspacesService) Root(context.Context) string {
-	return s.store.Root()
-}
-
 // RootProblem reports why the configured root could not be created or
 // opened at startup, or "" when it is fine. Spec §14: a root on an unmounted
 // volume or a signed-out iCloud Drive is reported rather than silently

@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/rs/zerolog"
-
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/skills"
@@ -23,12 +21,10 @@ type SkillsService struct {
 	prompts   *PromptsService
 	installer *skills.Installer
 	settings  *settings.Store
-	mock      string
-	logger    zerolog.Logger
 }
 
-func newSkillsService(p *PromptsService, installer *skills.Installer, store *settings.Store, mock string, logger zerolog.Logger) *SkillsService {
-	return &SkillsService{prompts: p, installer: installer, settings: store, mock: mock, logger: logger}
+func newSkillsService(p *PromptsService, installer *skills.Installer, store *settings.Store) *SkillsService {
+	return &SkillsService{prompts: p, installer: installer, settings: store}
 }
 
 // SkillEntry is one installable skill, shown as an informational list entry with
@@ -250,7 +246,7 @@ func (s *SkillsService) SyncInstalled(ctx context.Context) (skills.SyncResult, e
 	for _, rt := range resolveTargets(cfg) {
 		dirs[rt.target.ID] = rt.dir
 	}
-	return s.installer.SyncInDirs(catalog, func(t skills.Target) string { return dirs[t.ID] }, nil)
+	return s.installer.Sync(catalog, func(t skills.Target) string { return dirs[t.ID] })
 }
 
 func (s *SkillsService) view(ctx context.Context, in prompts.Input) (SkillsCatalog, error) {
@@ -401,7 +397,6 @@ func toSkill(p prompts.Prompt) skills.Skill {
 	return skills.Skill{
 		ID:          p.ID,
 		Name:        skillSlug(p.ID),
-		Title:       p.Title,
 		Description: skillDescription(p),
 		Body:        p.Text,
 	}

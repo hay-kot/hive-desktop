@@ -30,10 +30,6 @@ export function DeleteLauncher(id: string): $CancellablePromise<void> {
     return $Call.ByID(3346266471, id);
 }
 
-export function GetAction(id: string): $CancellablePromise<actions$0.EditableAction> {
-    return $Call.ByID(1642808218, id);
-}
-
 export function ListActions(): $CancellablePromise<actions$0.EditableCatalog> {
     return $Call.ByID(998142743);
 }

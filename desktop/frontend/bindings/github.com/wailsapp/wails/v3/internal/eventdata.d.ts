@@ -14,7 +14,6 @@ declare module "@wailsio/runtime" {
         interface CustomEvents {
             "actions:updated": string;
             "activity:appended": number;
-            "agent-workspaces:updated": string;
             "connection:updated": string;
             "flows:updated": string;
             "inbox:updated": string;
@@ -23,7 +22,6 @@ declare module "@wailsio/runtime" {
             "notification:activated": wailsui$0.NotificationActivation;
             "notification:toast": wailsui$0.NotificationToast;
             "update:available": wailsui$0.UpdateInfo;
-            "update:none": wailsui$0.UpdateInfo;
             "window:blur": boolean;
             "window:focus": boolean;
         }

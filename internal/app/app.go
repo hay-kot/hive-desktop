@@ -269,7 +269,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 
 	dbOptions := store.DefaultOpenOptions()
-	dbOptions.PauseIngest = cfg.Settings.Development.Debug.PauseIngest.Duration()
 	dbOptions.PauseCommit = cfg.Settings.Development.Debug.PauseCommit.Duration()
 	dbOptions.Logger = cfg.Logger
 	db, err := store.Open(ctx, cfg.Paths.StateDir, dbOptions)
@@ -332,7 +331,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 
 	a.outputs = a.buildOutputWorker(cfg)
-	a.retention = ingest.NewMaintenance(db, a.flowStore, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
+	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
 	a.scripts.Register(js.New(runtime.NewScriptPool(0)))
 	a.engine = a.buildEngine(cfg.Logger)
@@ -341,11 +340,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
-	a.Sessions = newSessionsService(sessionsDeps{
+	a.Sessions = &sessionsDeps{
 		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, tmux: a.terminals,
 		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
 		recorder: a.activityStore, logger: cfg.Logger,
-	})
+	}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
 	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, func() { a.PublishFlowsUpdated("save") })
@@ -365,7 +364,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load skills index: %w", err)
 	}
-	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore, cfg.MockMode, cfg.Logger)
+	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
@@ -466,7 +465,6 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	if a.webhook != nil {
 		if err := a.webhook.Start(ctx); err != nil {
-			a.Webhooks.setStartError(err)
 			a.logger.Warn().Err(err).Int("port", a.webhookPort).Msg("webhook listener unavailable")
 		} else if a.webhookPort == 0 && !a.settings.EnvironmentOverridden(settings.EnvHTTPPort) {
 			_, err := a.settingsStore.Update(func(persisted *settings.Settings) error {
@@ -746,7 +744,7 @@ func (a *App) openAgentWorkspaces(root string, logger zerolog.Logger) {
 		if err := a.agentWorkspaceStore.Reload(); err != nil {
 			logger.Warn().Err(err).Msg("agent workspace reload failed")
 		}
-		count := len(a.agentWorkspaceStore.List())
+		count := len(a.agentWorkspaceStore.Statuses())
 		a.Events.Publish(a.ctx, events.AgentWorkspacesUpdated{Count: count})
 	}, logger)
 	if err != nil {

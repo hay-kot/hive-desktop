@@ -148,7 +148,7 @@ func TestWorker_AutoApplyAction_ExecutesAndMarksDone(t *testing.T) {
 	assert.Equal(t, "item-1", exec.calls[0].Key)
 	assert.Equal(t, "Fix bug", exec.calls[0].Payload["title"])
 
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "a successfully executed command is no longer runnable")
 }
@@ -164,7 +164,7 @@ func TestWorker_HeadlessActionExecutesAndConsumesQueue(t *testing.T) {
 	worker.Tick(t.Context())
 
 	assert.Equal(t, 1, exec.callCount())
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 	var status string
@@ -273,14 +273,14 @@ func TestWorker_RespectsBatchBoundAndResumesQueue(t *testing.T) {
 		NewDispatcher(map[string]Executor{"launch-session": exec}), 0, zerolog.Nop())
 	worker.Tick(t.Context())
 	assert.Equal(t, DefaultOutputWorkerBatch, exec.callCount(), "one tick is bounded")
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, "item-after-bound", rows[0].Key)
 
 	worker.Tick(t.Context())
 	assert.Equal(t, DefaultOutputWorkerBatch+1, exec.callCount())
-	rows, err = db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err = db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows)
 }
@@ -310,7 +310,7 @@ func TestWorker_UnknownActionRecordsRetryableError(t *testing.T) {
 	worker.Tick(t.Context())
 	assert.Equal(t, 0, exec.callCount())
 	assert.Equal(t, []string{"Begin", "Running"}, recorder.calls)
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	assert.Equal(t, int64(1), rows[0].Attempts)
@@ -358,7 +358,7 @@ func TestWorker_FailingExecutor_RetriesThenMarksFailed(t *testing.T) {
 
 	for i := range MaxOutputCommandAttempts - 1 {
 		worker.Tick(t.Context())
-		rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+		rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 		require.NoError(t, err)
 		require.Len(t, rows, 1, "still pending before the retry cap is reached (attempt %d)", i+1)
 		assert.Equal(t, int64(i+1), rows[0].Attempts)
@@ -366,7 +366,7 @@ func TestWorker_FailingExecutor_RetriesThenMarksFailed(t *testing.T) {
 
 	// One more failing tick reaches the cap and marks the command failed.
 	worker.Tick(t.Context())
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	assert.Empty(t, rows, "command is no longer runnable once marked failed")
 
@@ -447,7 +447,7 @@ func TestWorker_BadPayload_FailsWithoutCallingExecutor(t *testing.T) {
 	worker.Tick(t.Context())
 
 	assert.Equal(t, 0, exec.callCount())
-	rows, err := db.ListRunnableOutputCommands(t.Context(), 10)
+	rows, err := db.ListRunnableOutputCommandsAfter(t.Context(), 0, 10)
 	require.NoError(t, err)
 	require.Len(t, rows, 1, "still retryable, not silently dropped")
 	assert.Equal(t, int64(1), rows[0].Attempts)

@@ -104,7 +104,7 @@ func sourcesOf(byID map[string]connector.PullSource) stubSources {
 	return out
 }
 
-// fakeAppender records AppendIfChanged calls without touching disk, for tests
+// fakeAppender records IngestObservation calls without touching disk, for tests
 // that only care whether Producer invokes its database dependency.
 type fakeAppender struct {
 	mu        sync.Mutex

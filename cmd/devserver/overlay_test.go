@@ -69,7 +69,7 @@ func TestRewriteGraphQLObservesItemsWithoutOverlay(t *testing.T) {
 	require.Len(t, items, 2)
 	byKey := map[string]Item{}
 	for _, item := range items {
-		byKey[item.Key()] = item
+		byKey[item.Repo+"#"+strconv.Itoa(item.Num)] = item
 	}
 	assert.Equal(t, "PR", byKey["hay-kot/hive-desktop#58"].Kind)
 	assert.Equal(t, "open", byKey["hay-kot/hive-desktop#58"].State)
@@ -253,7 +253,7 @@ func TestStoreSeedsObservedItemsFromConfigOverlays(t *testing.T) {
 	})
 	items := store.Items()
 	require.Len(t, items, 1, "a configured overlay must be visible before its item is ever seen")
-	assert.Equal(t, "acme/widgets#3", items[0].Key())
+	assert.Equal(t, "acme/widgets#3", items[0].Repo+"#"+strconv.Itoa(items[0].Num))
 	assert.True(t, items[0].Overlaid)
 }
 
@@ -289,7 +289,7 @@ func TestItemsSortOverlaidFirst(t *testing.T) {
 
 	items := store.Items()
 	require.Len(t, items, 3)
-	assert.Equal(t, "a/b#1", items[0].Key(), "the item being simulated must be findable at the top")
+	assert.Equal(t, "a/b#1", items[0].Repo+"#"+strconv.Itoa(items[0].Num), "the item being simulated must be findable at the top")
 	assert.True(t, items[0].Overlaid)
 	assert.False(t, items[1].Overlaid)
 }
@@ -307,7 +307,7 @@ func TestObservedItemsAreBounded(t *testing.T) {
 	// Eviction is least-recently-seen, so the earliest items are the ones gone.
 	keys := map[string]bool{}
 	for _, item := range store.Items() {
-		keys[item.Key()] = true
+		keys[item.Repo+"#"+strconv.Itoa(item.Num)] = true
 	}
 	assert.False(t, keys["a/b#1"])
 	assert.True(t, keys["a/b#"+strconv.Itoa(maxObservedItems+50)])
@@ -330,7 +330,7 @@ func TestOverlaidItemsSurviveEviction(t *testing.T) {
 
 	keys := map[string]bool{}
 	for _, item := range store.Items() {
-		keys[item.Key()] = true
+		keys[item.Repo+"#"+strconv.Itoa(item.Num)] = true
 	}
 	assert.True(t, keys["a/b#1"], "an overlaid item must never be evicted")
 }

@@ -13,27 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeAbsenceConfirmer struct {
-	called  bool
-	verdict map[string]store.AbsenceVerdict
-}
-
-func (f *fakeAbsenceConfirmer) ConfirmAbsence(_ context.Context, _ []store.Observation) (map[string]store.AbsenceVerdict, error) {
-	f.called = true
-	return f.verdict, nil
-}
-
-func TestGithubClassifierDelegatesAbsenceToInjectableConfirmer(t *testing.T) {
-	fake := &fakeAbsenceConfirmer{verdict: map[string]store.AbsenceVerdict{"o/r#1": {Terminal: true}}}
-	classifier := newClassifier(fake)
-	verdicts, err := classifier.ConfirmAbsence(t.Context(), []store.Observation{{ExternalID: "o/r#1"}})
-	require.NoError(t, err)
-	assert.True(t, fake.called)
-	assert.True(t, verdicts["o/r#1"].Terminal)
-}
-
 func TestGithubClassifierTerminalAndReopenTransitions(t *testing.T) {
-	classifier := newClassifier(&fakeAbsenceConfirmer{})
+	classifier := classifier{}
 	previous := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"open","updatedAt":1}`)}
 	closed := store.Observation{ExternalID: "o/r#1", Payload: []byte(`{"state":"closed","updatedAt":2}`)}
 	entered := classifier.Classify(&previous, closed)
@@ -106,7 +87,7 @@ func TestAbsenceConfirmer_KeysVerdictsByExternalID(t *testing.T) {
 }
 
 func TestGithubClassifierDescribesObservedActivity(t *testing.T) {
-	classifier := newClassifier(&fakeAbsenceConfirmer{})
+	classifier := classifier{}
 	tests := []struct {
 		name, previous, current, kind, summary string
 	}{

@@ -14,7 +14,6 @@ func sampleSkill() Skill {
 	return Skill{
 		ID:          "flows",
 		Name:        "hive-flows",
-		Title:       "Flows",
 		Description: `Author or edit a flow: the "graph" of sources and destinations.`,
 		Body:        "# Flows\n\nEdit /home/u/.config/hive/desktop/flows/<id>.yaml.\n",
 	}
@@ -167,7 +166,7 @@ func TestSyncTargetDirChangeInstallsNewPathAndPreservesEditedOldFile(t *testing.
 	require.NoError(t, os.WriteFile(oldPath, []byte("mine now\n"), 0o644))
 	newDir := filepath.Join(t.TempDir(), "new-target")
 
-	res, err := in.SyncInDirs(map[string]Skill{sampleSkill().ID: sampleSkill()}, func(Target) string { return newDir }, nil)
+	res, err := in.Sync(map[string]Skill{sampleSkill().ID: sampleSkill()}, func(Target) string { return newDir })
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Restored)
 	assert.FileExists(t, filepath.Join(newDir, "hive-flows", "SKILL.md"))
@@ -187,69 +186,6 @@ func TestSyncSkipsUnknownSkill(t *testing.T) {
 	res, err := in.Sync(map[string]Skill{}, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, res.Skipped)
-}
-
-func TestSyncSkipsDisabledTarget(t *testing.T) {
-	in, dir := newInstaller(t)
-	target, _ := TargetByID("claude")
-	require.NoError(t, mustInstall(t, in, sampleSkill(), target, dir))
-
-	changed := sampleSkill()
-	changed.Body = "# Flows\n\nDifferent.\n"
-
-	// claude is disabled, so its install goes dormant rather than being rewritten.
-	res, err := in.Sync(map[string]Skill{changed.ID: changed}, func(id string) bool { return id != "claude" })
-	require.NoError(t, err)
-	assert.Equal(t, 0, res.Updated)
-	assert.Equal(t, 1, res.Skipped)
-
-	data, err := os.ReadFile(filepath.Join(dir, "hive-flows", "SKILL.md"))
-	require.NoError(t, err)
-	assert.NotContains(t, string(data), "Different.")
-}
-
-func TestRemoveDeletesCleanFileAndDir(t *testing.T) {
-	in, dir := newInstaller(t)
-	target, _ := TargetByID("claude")
-	require.NoError(t, mustInstall(t, in, sampleSkill(), target, dir))
-
-	require.NoError(t, in.Remove(sampleSkill(), target))
-	assert.NoFileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
-	assert.NoDirExists(t, filepath.Join(dir, "hive-flows"))
-
-	status, err := in.Status(sampleSkill(), target, dir)
-	require.NoError(t, err)
-	assert.Equal(t, StateNotInstalled, status.State)
-}
-
-func TestRemoveKeepsUserEditedFile(t *testing.T) {
-	in, dir := newInstaller(t)
-	target, _ := TargetByID("claude")
-	require.NoError(t, mustInstall(t, in, sampleSkill(), target, dir))
-
-	path := filepath.Join(dir, "hive-flows", "SKILL.md")
-	require.NoError(t, os.WriteFile(path, []byte("mine now\n"), 0o644))
-
-	require.NoError(t, in.Remove(sampleSkill(), target))
-	data, err := os.ReadFile(path)
-	require.NoError(t, err)
-	assert.Equal(t, "mine now\n", string(data), "a user-edited file must not be deleted by uninstall")
-}
-
-func TestRemoveReturnsReadErrorAndKeepsIndex(t *testing.T) {
-	in, dir := newInstaller(t)
-	target, _ := TargetByID("claude")
-	require.NoError(t, mustInstall(t, in, sampleSkill(), target, dir))
-
-	key := entryKey{sampleSkill().ID, target.ID}
-	entry := in.index.entries[key]
-	entry.Path = t.TempDir()
-	in.index.entries[key] = entry
-
-	err := in.Remove(sampleSkill(), target)
-	require.Error(t, err)
-	_, ok := in.index.entries[key]
-	assert.True(t, ok, "failed removal must stay indexed")
 }
 
 func TestValidateSkill(t *testing.T) {

@@ -168,8 +168,6 @@ func (s *runState) nodeTraces() []NodeTrace {
 		}
 		if acc.lastErr != nil {
 			trace.Error = nodeErrorOf(acc.lastErr)
-		} else if acc.err != "" {
-			trace.Error = &NodeError{Message: acc.err}
 		}
 		traces = append(traces, trace)
 	}

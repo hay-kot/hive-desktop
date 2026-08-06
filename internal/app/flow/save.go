@@ -13,8 +13,8 @@ import (
 // written once, when the file doesn't exist yet — an edit of an existing
 // file never touches it, which is how the header survives repeated saves.
 const flowFileHeader = `# Hive Desktop flow — nodes and wires, as code.
-# Edited by hand or by the app; changes apply on Deploy (the frontend graph
-# runtime drains in-flight messages, then swaps in the reloaded graph).
+# Edited by hand or by the app; on a change the engine reloads the flow set
+# and reinstalls its runners.
 `
 
 // SaveFlow writes f to path (flows/<id>.yaml). The frontend never
