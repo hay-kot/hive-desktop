@@ -1,6 +1,8 @@
 package app
 
 import (
+	"context"
+
 	"github.com/rs/zerolog"
 
 	"github.com/hay-kot/hive-desktop/internal/app/releasenotes"
@@ -63,7 +65,7 @@ func NewReleaseNotesService(paths settings.Paths, logger zerolog.Logger) *Releas
 // Recording on first run is a deliberate write from a read: a fresh install
 // has no prior version to have upgraded *from*, so it silently adopts the
 // running version and shows nothing.
-func (s *ReleaseNotesService) Pending(version, channel string) PendingNotes {
+func (s *ReleaseNotesService) Pending(_ context.Context, version, channel string) PendingNotes {
 	if _, published := releasenotes.Channel(version); !published {
 		return PendingNotes{}
 	}
@@ -97,12 +99,17 @@ func (s *ReleaseNotesService) Pending(version, channel string) PendingNotes {
 // Acknowledge records version as seen. The modal defers this to its dismissal,
 // so a crash while it is open does not cost the user the notes; the toast has
 // nothing to dismiss and acknowledges on sight.
-func (s *ReleaseNotesService) Acknowledge(version string) error {
+//
+// The context is deliberately discarded: the marker write must finish whether
+// or not the caller is still listening. A frontend component unmounting mid
+// launch cancels its call, and a cancelled write here would resurface the
+// notes on every subsequent launch.
+func (s *ReleaseNotesService) Acknowledge(_ context.Context, version string) error {
 	return s.state.Acknowledge(version)
 }
 
 // History is every release a user on channel has received, newest first — the
 // About pane's list, and where a dismissed surface can be read again.
-func (s *ReleaseNotesService) History(channel string) releasenotes.Entries {
+func (s *ReleaseNotesService) History(_ context.Context, channel string) releasenotes.Entries {
 	return s.entries.VisibleIn(channel)
 }

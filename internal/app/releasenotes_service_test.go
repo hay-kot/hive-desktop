@@ -30,16 +30,16 @@ func testEntries(versions ...string) releasenotes.Entries {
 func TestPendingIsSilentOnAFreshInstall(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable))
-	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable),
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable),
 		"the recorded version keeps it silent on the next launch too")
 }
 
 func TestPendingShowsNotesAfterAnUpgrade(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
-	require.NoError(t, service.Acknowledge("1.2.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	pending := service.Pending("1.3.0", settings.ChannelStable)
+	pending := service.Pending(t.Context(), "1.3.0", settings.ChannelStable)
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationModal, pending.Presentation)
 	assert.Equal(t, "1.3.0", pending.Version)
@@ -50,38 +50,38 @@ func TestPendingShowsNotesAfterAnUpgrade(t *testing.T) {
 // The acceptance criterion: shown once, then not again for that version.
 func TestPendingStopsAfterAcknowledgement(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
-	require.NoError(t, service.Acknowledge("1.2.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	require.True(t, service.Pending("1.3.0", settings.ChannelStable).Show)
-	require.True(t, service.Pending("1.3.0", settings.ChannelStable).Show,
+	require.True(t, service.Pending(t.Context(), "1.3.0", settings.ChannelStable).Show)
+	require.True(t, service.Pending(t.Context(), "1.3.0", settings.ChannelStable).Show,
 		"an unacknowledged surface returns until it is dismissed")
 
-	require.NoError(t, service.Acknowledge("1.3.0"))
-	assert.Equal(t, PendingNotes{}, service.Pending("1.3.0", settings.ChannelStable))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.3.0"))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.3.0", settings.ChannelStable))
 }
 
 func TestPendingIsSilentOnSourceBuilds(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0"))
-	require.NoError(t, service.Acknowledge("1.2.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending("dev", settings.ChannelDev))
-	assert.Equal(t, PendingNotes{}, service.Pending("(devel)", settings.ChannelDev))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "dev", settings.ChannelDev))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "(devel)", settings.ChannelDev))
 }
 
 func TestPendingIsSilentOnADowngrade(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
-	require.NoError(t, service.Acknowledge("1.3.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.3.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable))
 }
 
 // Dev builds are cut close to daily, so they get the toast rather than a modal
 // on nearly every launch.
 func TestPendingUsesAToastOnTheDevChannel(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0-dev.4", "1.2.0-dev.3"))
-	require.NoError(t, service.Acknowledge("1.2.0-dev.3"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0-dev.3"))
 
-	pending := service.Pending("1.2.0-dev.4", settings.ChannelDev)
+	pending := service.Pending(t.Context(), "1.2.0-dev.4", settings.ChannelDev)
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationToast, pending.Presentation)
 }
@@ -90,9 +90,9 @@ func TestPendingUsesAToastOnTheDevChannel(t *testing.T) {
 // with an empty body would say less than the one-line toast does.
 func TestPendingDegradesToAToastWhenNoEntriesExist(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0"))
-	require.NoError(t, service.Acknowledge("1.2.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	pending := service.Pending("1.4.0", settings.ChannelStable)
+	pending := service.Pending(t.Context(), "1.4.0", settings.ChannelStable)
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationToast, pending.Presentation)
 	assert.Empty(t, pending.Entries)
@@ -101,9 +101,9 @@ func TestPendingDegradesToAToastWhenNoEntriesExist(t *testing.T) {
 
 func TestPendingCollectsEverySkippedRelease(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0-dev.4", "1.2.0-dev.3", "1.2.0-dev.2"))
-	require.NoError(t, service.Acknowledge("1.2.0-dev.2"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0-dev.2"))
 
-	pending := service.Pending("1.2.0-dev.4", settings.ChannelDev)
+	pending := service.Pending(t.Context(), "1.2.0-dev.4", settings.ChannelDev)
 	require.Len(t, pending.Entries, 2, "both crossed releases are reported")
 	assert.Equal(t, "1.2.0-dev.4", pending.Entries[0].Version)
 	assert.Equal(t, "1.2.0-dev.3", pending.Entries[1].Version)
@@ -112,9 +112,9 @@ func TestPendingCollectsEverySkippedRelease(t *testing.T) {
 func TestHistoryIsScopedToTheChannel(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.3.0-beta.1", "1.2.1-dev.1"))
 
-	assert.Len(t, service.History(settings.ChannelStable), 1)
-	assert.Len(t, service.History(settings.ChannelBeta), 2)
-	assert.Len(t, service.History(settings.ChannelDev), 3)
+	assert.Len(t, service.History(t.Context(), settings.ChannelStable), 1)
+	assert.Len(t, service.History(t.Context(), settings.ChannelBeta), 2)
+	assert.Len(t, service.History(t.Context(), settings.ChannelDev), 3)
 }
 
 // The constructor degrades rather than failing when the changelog cannot be
@@ -122,5 +122,5 @@ func TestHistoryIsScopedToTheChannel(t *testing.T) {
 func TestNewReleaseNotesServiceLoadsTheEmbeddedChangelog(t *testing.T) {
 	service := NewReleaseNotesService(settings.Paths{StateDir: t.TempDir()}, zerolog.Nop())
 
-	assert.NotEmpty(t, service.History(settings.ChannelDev))
+	assert.NotEmpty(t, service.History(t.Context(), settings.ChannelDev))
 }

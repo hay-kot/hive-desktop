@@ -43,14 +43,14 @@ func TestReleaseNotesServiceFallsBackToDevForSourceBuilds(t *testing.T) {
 	service := NewReleaseNotesService(newTestCore(t), "dev", keepChannel)
 
 	assert.Equal(t, settings.ChannelDev, service.channel)
-	assert.False(t, service.Pending().Show)
-	assert.NotEmpty(t, service.History(), "a source build can still read the changelog")
+	assert.False(t, service.Pending(t.Context()).Show)
+	assert.NotEmpty(t, service.History(t.Context()), "a source build can still read the changelog")
 }
 
 func TestReleaseNotesServiceMapsEntriesForTheFrontend(t *testing.T) {
 	service := NewReleaseNotesService(newTestCore(t), "dev", keepChannel)
 
-	history := service.History()
+	history := service.History(t.Context())
 	require.NotEmpty(t, history)
 	newest := history[0]
 	assert.NotEmpty(t, newest.Version)
@@ -62,11 +62,11 @@ func TestReleaseNotesServiceMapsEntriesForTheFrontend(t *testing.T) {
 
 func TestReleaseNotesServicePendingAndAcknowledge(t *testing.T) {
 	core := newTestCore(t)
-	require.NoError(t, core.Acknowledge("0.0.1"))
+	require.NoError(t, core.Acknowledge(t.Context(), "0.0.1"))
 
 	service := NewReleaseNotesService(core, "1.2.0-dev.9", keepChannel)
-	require.True(t, service.Pending().Show, "a build newer than the acknowledged version surfaces")
+	require.True(t, service.Pending(t.Context()).Show, "a build newer than the acknowledged version surfaces")
 
-	require.NoError(t, service.Acknowledge())
-	assert.False(t, service.Pending().Show)
+	require.NoError(t, service.Acknowledge(t.Context()))
+	assert.False(t, service.Pending(t.Context()).Show)
 }

@@ -1,6 +1,7 @@
 package wailsui
 
 import (
+	"context"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
@@ -55,8 +56,8 @@ func NewReleaseNotesService(core *app.ReleaseNotesService, version string, resol
 }
 
 // Pending reports what this launch should show, if anything.
-func (s *ReleaseNotesService) Pending() PendingReleaseNotes {
-	pending := s.core.Pending(s.version, s.channel)
+func (s *ReleaseNotesService) Pending(ctx context.Context) PendingReleaseNotes {
+	pending := s.core.Pending(ctx, s.version, s.channel)
 	return PendingReleaseNotes{
 		Show:         pending.Show,
 		Presentation: pending.Presentation,
@@ -67,13 +68,13 @@ func (s *ReleaseNotesService) Pending() PendingReleaseNotes {
 
 // Acknowledge records the running version as seen, so the surface does not
 // return on the next launch.
-func (s *ReleaseNotesService) Acknowledge() error {
-	return s.core.Acknowledge(s.version)
+func (s *ReleaseNotesService) Acknowledge(ctx context.Context) error {
+	return s.core.Acknowledge(ctx, s.version)
 }
 
 // History lists every release this build's channel receives, newest first.
-func (s *ReleaseNotesService) History() []ReleaseNote {
-	return releaseNotes(s.core.History(s.channel))
+func (s *ReleaseNotesService) History(ctx context.Context) []ReleaseNote {
+	return releaseNotes(s.core.History(ctx, s.channel))
 }
 
 func releaseNotes(entries releasenotes.Entries) []ReleaseNote {
