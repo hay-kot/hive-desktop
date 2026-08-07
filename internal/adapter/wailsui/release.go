@@ -19,7 +19,7 @@ func ShortCommit(c string) string {
 // releaseVersionRE matches the closed set of publishable versions enforced by
 // cmd/release: X.Y.Z with an optional -dev.N / -beta.N
 // prerelease identifier.
-var releaseVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-(dev|beta)\.[0-9A-Za-z.]+)?$`)
+var releaseVersionRE = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+(?:-(dev|beta)\.[0-9]+)?$`)
 
 // ReleaseChannel maps a published desktop version to its release channel
 // (docs/decisions/0004): bare X.Y.Z → stable, X.Y.Z-beta.N → beta,
