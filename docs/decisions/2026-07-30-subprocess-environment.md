@@ -76,10 +76,12 @@ supplies, and the desktop supplies `io.Discard`, so the shell's own
   deliberate last-resort rescue rather than a hard failure.
 - A hook that is slow because the user's shell is slow to start pays that once,
   not per command.
-- The probe captures the whole environment but only PATH is adopted. Widening
+- ~~The probe captures the whole environment but only PATH is adopted. Widening
   to more variables (the full-environment model VS Code and JetBrains use) is
   a contained change behind `Environ`, deferred until a hook demonstrably
-  needs a non-PATH variable.
+  needs a non-PATH variable.~~ **Superseded by
+  [ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path](2026-08-07-a-subprocess-inherits-the-whole-shell-environment-not-just-its-path.md).**
+  `EDITOR` was the demonstration, and the change was as contained as predicted.
 - The PATH a run resolved is logged (`info` for the source, `debug` for the
   value), so a problem report (ADR in-app-problem-reporting) says which environment a failing hook
   actually had.

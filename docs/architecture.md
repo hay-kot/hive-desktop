@@ -339,7 +339,9 @@ internal/
                                   #   what the pop-up runs on (ADR ephemeral-popup-terminals)
     execenv/                      # the environment the user's own commands run
                                   #   in: the login shell's PATH, then this
-                                  #   process's, then those prefixes (ADR subprocess-environment)
+                                  #   process's, then those prefixes (ADR subprocess-environment),
+                                  #   plus the shell's other variables where
+                                  #   this process defines none (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path)
     jobs/  activity/              # observability domains
     perf/                         # UI performance spans -> a size-capped JSONL
                                   #   file; development-gated, no aggregation
@@ -866,13 +868,30 @@ Three rules follow for anything new that spawns a process on the user's behalf:
   they are interactive-shell sugar, and a config file that depends on one is not
   reproducible on another machine.
 
-The probe answers more than PATH. **A hive config override the CLI takes from the
-environment is read through `execenv.Getenv`, never `os.Getenv`** (ADR hive-env-overrides-resolve-through-the-login-shell):
-the launch that has no PATH has no `HIVE_DEFAULT_AGENT` either, and hive folds
-that variable into `agents.default` once, at config load. This process's value
-wins when it has one and the login shell's answers otherwise, so the New Session
-form preselects the agent hive would run rather than the one a launcher
-environment resolved (`SessionsService.SessionLaunchOptions`).
+The probe answers more than PATH, and all of it is used.
+
+**A child gets the shell's variables too, with this process winning every name
+it defines** (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path). `EDITOR` in a `.zshrc` is the case: the probe
+had it and `Environ` discarded it, so an agent CLI's "open in editor" resolved
+against PATH instead (#279). What is *not* adopted is a closed list —
+`SHLVL`, `_`, `PWD`, `OLDPWD`, `TERM`, `TMUX`, `TMUX_PANE`, `SHELL` — describing
+the probe shell's own process rather than the child's. Two rules follow:
+
+- **Adopt by denylist, never by allowlist.** The set of variables a tool reads
+  is as open as the set of hook commands, and that is why no list of PATH
+  prefixes was enough either. Only "wrong by construction" is a closed set.
+- **Defined means present, not non-empty.** `overrides.env` opts out of a
+  default by setting it to nothing, and a startup file must not refill it.
+  `Getenv` differs on purpose — it answers what a terminal would show, where
+  empty and unset are one answer.
+
+**A hive config override the CLI takes from the environment is read through
+`execenv.Getenv`, never `os.Getenv`** (ADR hive-env-overrides-resolve-through-the-login-shell): the launch that has no PATH
+has no `HIVE_DEFAULT_AGENT` either, and hive folds that variable into
+`agents.default` once, at config load. This process's value wins when it has one
+and the login shell's answers otherwise, so the New Session form preselects the
+agent hive would run rather than the one a launcher environment resolved
+(`SessionsService.SessionLaunchOptions`).
 
 ### App modes
 

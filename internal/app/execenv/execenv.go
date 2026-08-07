@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -183,15 +184,48 @@ func (r *Resolver) LookPath(ctx context.Context, name string) (string, error) {
 	return "", fmt.Errorf("%q: %w", name, exec.ErrNotFound)
 }
 
-// Environ returns this process's environment with PATH replaced by Path.
+// shellSessionVars describe the probe shell's own process rather than anything
+// a child should inherit: its nesting depth, its last command, its directory,
+// the terminal it did not have, and the tmux client it was attached to. Copying
+// TMUX in particular tells a spawned process it is inside a tmux client that it
+// is not. The list is closed because these are wrong by construction — every
+// other variable a startup file exports is adopted
+// (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path).
+var shellSessionVars = map[string]bool{
+	"SHLVL": true, "_": true,
+	"PWD": true, "OLDPWD": true,
+	"TERM": true, "TMUX": true, "TMUX_PANE": true,
+	"SHELL": true,
+}
+
+// Environ returns the environment subprocesses run with: this process's, with
+// PATH replaced by Path and the login shell's remaining variables filling names
+// this process does not define. A launch that names a variable is more specific
+// than a startup file, so the process wins — which keeps a stale rc file from
+// shadowing a HIVE_DESKTOP_* override the app was started with.
 func (r *Resolver) Environ(ctx context.Context) []string {
-	path := r.Path(ctx)
+	r.mu.Lock()
+	r.resolveLocked(ctx)
+	shell, path := r.env, r.path
+	r.mu.Unlock()
+
 	current := os.Environ()
-	env := make([]string, 0, len(current)+1)
+	env := make([]string, 0, len(current)+len(shell)+1)
+	// Presence wins, not a non-empty value: setting a variable to nothing is how
+	// overrides.env opts out of a default, and a startup file must not refill it.
+	defined := make(map[string]bool, len(current))
 	for _, kv := range current {
-		if !strings.HasPrefix(kv, "PATH=") {
+		name, _, _ := strings.Cut(kv, "=")
+		defined[name] = true
+		if name != "PATH" {
 			env = append(env, kv)
 		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(shell)) {
+		if name == "PATH" || defined[name] || shellSessionVars[name] {
+			continue
+		}
+		env = append(env, name+"="+shell[name])
 	}
 	return append(env, "PATH="+path)
 }
@@ -230,20 +264,49 @@ func shellEnvironment(ctx context.Context, shell string) (map[string]string, err
 	if err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		return nil, err
 	}
-	// A startup file is free to print, and a value is free to span lines, so
-	// only what looks like an assignment is taken and the rest is ignored.
 	env := make(map[string]string)
-	for line := range strings.SplitSeq(string(out), "\n") {
-		name, value, ok := strings.Cut(line, "=")
-		if !ok || name == "" {
-			continue
+	// A startup file is free to print before env runs, and a value is free to
+	// span lines, so a line is an assignment only when nothing before its first
+	// `=` is whitespace; anything else continues the value above it. current is
+	// the name those continuations belong to, and is cleared by an assignment
+	// that is dropped so a rejected value's own lines go with it.
+	current := ""
+	for line := range strings.SplitSeq(strings.Trim(string(out), "\n"), "\n") {
+		name, value, isAssignment := strings.Cut(line, "=")
+		switch {
+		case isAssignment && !strings.ContainsAny(name, " \t"):
+			current = ""
+			// bash exports functions as BASH_FUNC_x%%=() {…}, whose value spans
+			// lines env gives no way to delimit. Adopting the first line of one
+			// hands every child a definition its shell then fails to parse, so
+			// a name that is not a name is not taken at all.
+			if isEnvName(name) {
+				env[name] = value
+				current = name
+			}
+		case current != "":
+			env[current] += "\n" + line
 		}
-		env[name] = strings.TrimSpace(value)
 	}
 	if len(env) == 0 {
 		return nil, errNoEnvironment
 	}
 	return env, nil
+}
+
+// isEnvName reports whether name is a portable environment variable name.
+func isEnvName(name string) bool {
+	if name == "" {
+		return false
+	}
+	for i, r := range name {
+		alpha := r == '_' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+		digit := i > 0 && r >= '0' && r <= '9'
+		if !alpha && !digit {
+			return false
+		}
+	}
+	return true
 }
 
 // join concatenates PATH values, dropping empty and repeated entries so the

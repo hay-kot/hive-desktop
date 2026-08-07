@@ -59,9 +59,12 @@ variable"; `HIVE_DEFAULT_AGENT` is the first one.
   resolve at config load and remain invisible to a Dock launch. They are read
   once, deep inside vendored code, where a per-call lookup does not fit; nothing
   has asked for them yet, and `Getenv` is where they would go.
-- `Environ` is unchanged: children still get this process's environment with the
-  resolved PATH, not the shell's variables. Adopting those wholesale would let a
-  startup file shadow what the app deliberately sets for a child, so the shell's
-  environment is read from, never merged in.
+- ~~`Environ` is unchanged: children still get this process's environment with
+  the resolved PATH, not the shell's variables. Adopting those wholesale would
+  let a startup file shadow what the app deliberately sets for a child, so the
+  shell's environment is read from, never merged in.~~ **Superseded by
+  [ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path](2026-08-07-a-subprocess-inherits-the-whole-shell-environment-not-just-its-path.md).**
+  It is merged in, but not wholesale: this process wins every name it defines,
+  which answers the shadowing objection without withholding `EDITOR`.
 - One login shell now starts on every non-mock launch, whether or not the run
   goes on to spawn anything. That is the cost of not paying it mid-click.
