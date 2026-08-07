@@ -7,6 +7,7 @@
 // actions-footer context line) lives in the sourceKind-keyed registry below.
 import type { Component } from 'vue'
 import GithubMark from '../components/marks/GithubMark.vue'
+import PostHogMark from '../components/marks/PostHogMark.vue'
 import grafanaLogo from '../assets/integrations/grafana.svg'
 import { defaultExecSourceIcon, defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
 import * as execSourceNode from '../pipeline/nodes/sources.exec/config'
@@ -18,7 +19,6 @@ import * as posthogErrorsSourceNode from '../pipeline/nodes/sources.posthog_erro
 import * as posthogAlertsSourceNode from '../pipeline/nodes/sources.posthog_alerts/config'
 import * as webhookSourceNode from '../pipeline/nodes/sources.webhook/config'
 import IconActivity from '~icons/lucide/activity'
-import IconBug from '~icons/lucide/bug'
 import IconCircleDot from '~icons/lucide/circle-dot'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconInbox from '~icons/lucide/inbox'
@@ -209,12 +209,12 @@ const grafanaPresentation: ItemPresentation = {
   markImage: () => grafanaLogo,
 }
 
-// Glyph-only, unlike GitHub and Grafana: PostHog's logomark is not bundled, and
-// a hand-drawn approximation of someone's brand is worse than an honest icon.
-// Adding assets/integrations/posthog.svg and a markImage here is all it takes.
+// An inline mark rather than a markImage: PostHog's logomark is part brand
+// gradient and part currentColor, and an <img> cannot inherit the theme's
+// text color the way the inline SVG does.
 const posthogPresentation: ItemPresentation = {
   sourceLabel: 'PostHog',
-  mark: () => IconBug,
+  mark: () => PostHogMark,
 }
 
 const execPresentation: ItemPresentation = {

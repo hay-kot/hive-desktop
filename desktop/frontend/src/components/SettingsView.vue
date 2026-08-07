@@ -43,7 +43,7 @@ import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import IconWebhook from '~icons/lucide/webhook'
-import IconBug from '~icons/lucide/bug'
+import PostHogMark from './marks/PostHogMark.vue'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
@@ -240,7 +240,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
               <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' || integration.key === 'grafana' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
                 <img v-if="integration.key === 'github'" :src="githubIcon" alt="" class="size-full" />
                 <img v-else-if="integration.key === 'grafana'" :src="grafanaIcon" alt="" class="size-full object-contain" />
-                <IconBug v-else-if="integration.key === 'posthog'" class="size-full" />
+                <PostHogMark v-else-if="integration.key === 'posthog'" class="size-full" />
                 <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
