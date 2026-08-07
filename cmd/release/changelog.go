@@ -31,9 +31,9 @@ func changelogEntry(version releaseVersion) (releasenotes.Entry, error) {
 	entry, ok := entries.Find(version.String())
 	if !ok {
 		return releasenotes.Entry{}, fmt.Errorf(
-			"no changelog entry for %s: write internal/app/releasenotes/changelog/%s.md and commit it before releasing "+
+			"no changelog entry for %s: write %s/%s.md and commit it before releasing "+
 				"(mise run changelog:new -- %s scaffolds one)",
-			version, version, version)
+			version, changelogDir, version, version)
 	}
 	return entry, nil
 }

@@ -2,9 +2,7 @@ package releasenotes
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -74,11 +72,7 @@ func (s *State) Acknowledge(version string) error {
 		return fmt.Errorf("stage release notes marker: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer func() {
-		if err := os.Remove(tmpName); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			_ = err
-		}
-	}()
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(append(contents, '\n')); err != nil {
 		_ = tmp.Close()

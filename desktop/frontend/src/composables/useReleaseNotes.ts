@@ -87,7 +87,6 @@ export function useReleaseNotes() {
     pendingEntries,
     pendingVersion,
     checkOnLaunch,
-    openDialog,
     dismiss,
     loadHistory,
   }
