@@ -46,20 +46,16 @@ func validateChangelogEntry(version releaseVersion) error {
 	return err
 }
 
-// writeReleaseNotesFile materializes the GitHub release body — the R2 download
-// header followed by the changelog entry — and returns its path.
-func writeReleaseNotesFile(dir string, version releaseVersion, entry releasenotes.Entry) (string, error) {
-	body := releaseNotesHeader(version, downloadBaseURL())
+// releaseNotesBody assembles the GitHub release body: the R2 download header
+// followed by the changelog entry. downloadBase is a parameter rather than a
+// call to downloadBaseURL so the assembled body can be asserted against a
+// literal, the same seam releaseNotesHeader has.
+func releaseNotesBody(version releaseVersion, entry releasenotes.Entry, downloadBase string) string {
+	body := releaseNotesHeader(version, downloadBase)
 	if entry.Summary != "" {
 		body += "\n" + entry.Summary + "\n"
 	}
-	body += "\n" + entry.Body + "\n"
-
-	path := filepath.Join(dir, "release-notes-"+version.String()+".md")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-		return "", fmt.Errorf("write release notes: %w", err)
-	}
-	return path, nil
+	return body + "\n" + entry.Body + "\n"
 }
 
 // changelogTargetVersion resolves the scaffold's argument: a channel name

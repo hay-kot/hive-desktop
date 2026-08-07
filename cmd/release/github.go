@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"strings"
 )
@@ -118,15 +117,6 @@ func createGitHubRelease(ctx context.Context, version releaseVersion, tag string
 	if err != nil {
 		return err
 	}
-	dir, err := os.MkdirTemp("", "hive-release-notes-")
-	if err != nil {
-		return fmt.Errorf("stage release notes: %w", err)
-	}
-	defer func() { _ = os.RemoveAll(dir) }()
-	notesPath, err := writeReleaseNotesFile(dir, version, entry)
-	if err != nil {
-		return err
-	}
 
 	prerelease := version.channel() != "stable"
 	fmt.Printf("==> creating GitHub release %s (prerelease=%t)\n", tag, prerelease)
@@ -135,7 +125,7 @@ func createGitHubRelease(ctx context.Context, version releaseVersion, tag string
 		"release", "create", tag,
 		"--verify-tag",
 		"--title", releaseTitle(version),
-		"--notes-file", notesPath,
+		"--notes", releaseNotesBody(version, entry, downloadBaseURL()),
 	}
 	if prerelease {
 		// dev and beta builds never sit above a shipped stable on the releases
