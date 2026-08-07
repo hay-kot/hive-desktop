@@ -37,8 +37,9 @@ type Entry struct {
 	// Version rather than stored — the version string is what routes a
 	// release (ADR release-channels).
 	Channel string
-	// Summary is an optional one-line description. It is what a toast and the
-	// update-available chip show, where a full body does not fit.
+	// Summary is an optional one-line description — what the What's New toast
+	// shows, and what a channel manifest carries for a release the user has
+	// not installed yet, where a full body does not fit.
 	Summary string
 	// Body is the markdown detail, which may be empty for a release whose
 	// summary says everything.

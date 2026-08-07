@@ -15,10 +15,18 @@ release needs macOS and a running Docker together (decision 0028). There is no
 CI publishing workflow.
 
 Publishing records the release on GitHub as its final step: it pushes the
-`desktop-v<version>` tag and creates a GitHub Release with generated notes (dev
-and beta marked prerelease). Downloads still come from R2 (decision 0003); the
-release attaches no artifacts. That step is idempotent — `go run ./cmd/release
-github <version>` re-records a release whose GitHub step failed after the upload.
+`desktop-v<version>` tag and creates a GitHub Release whose body is the
+version's committed changelog entry (dev and beta marked prerelease). Downloads
+still come from R2 (decision 0003); the release attaches no artifacts. That step
+is idempotent — `go run ./cmd/release github <version>` re-records a release
+whose GitHub step failed after the upload.
+
+**Every version needs a changelog entry committed before it is released.** The
+notes are embedded in the binary, so an entry written afterwards would describe
+a release that cannot display it (ADR release-notes-ship-inside-the-binary), and
+`prepare` and `publish` both refuse a version that has none. The entry lands on
+`main` through a normal PR *before* a release run starts — step 4 below covers
+what to do when `prepare` reports one missing.
 
 ## Arguments
 
@@ -58,6 +66,21 @@ Reject missing or unknown channels instead of guessing.
    ```bash
    go run ./cmd/release prepare <channel> <version>
    ```
+
+   `prepare` also refuses a version with no changelog entry, naming the file it
+   wants. **This is not recoverable inside the release run**: the entry has to
+   be committed on `main` before publishing, and step 3 requires a clean tree
+   identical to `origin/main`, so it cannot be written here. Scaffold it,
+   stop, and tell the operator to land it first:
+
+   ```bash
+   mise run changelog:new -- <channel|version>   # writes internal/app/releasenotes/changelog/<version>.md
+   ```
+
+   The scaffold is pre-filled with the commit subjects since the previous
+   release tag and is meant to be edited into prose — a `summary` line plus
+   grouped Added/Changed/Fixed sections. It lands through a normal PR like any
+   other change; restart this procedure from step 2 once it is on `main`.
 
 5. Use the candidate and manifest state printed by `prepare`. It reads all live
    stable, beta, and dev manifests (treating 404 as an empty channel), includes

@@ -193,7 +193,11 @@ func (p *manifestProvider) fetchManifest(ctx context.Context) (*channelManifest,
 }
 
 // manifestNotes prefers the full changelog body and falls back to the summary,
-// so a release that ships only a one-liner still says something.
+// so a release that ships only a one-liner still says something. Nothing
+// renders the result yet — it reaches the frontend as UpdateInfo.Notes and
+// stops there. A surface that shows it should read the manifest's summary and
+// notes separately, the way every other release-notes path keeps them, rather
+// than inherit this flattening.
 func manifestNotes(m *channelManifest) string {
 	if notes := strings.TrimSpace(m.Notes); notes != "" {
 		return notes
@@ -230,9 +234,9 @@ type channelManifest struct {
 	Channel string    `json:"channel"`
 	Version string    `json:"version"`
 	PubDate time.Time `json:"pub_date"`
-	// Summary and Notes carry the release's changelog entry so an
-	// update-available prompt can say what the update contains. Both are
-	// absent from manifests published before the changelog existed.
+	// Summary and Notes carry the release's changelog entry — the only source
+	// for a release that is not installed yet. Both are absent from manifests
+	// published before the changelog existed.
 	Summary   string                      `json:"summary"`
 	Notes     string                      `json:"notes"`
 	Platforms map[string]manifestPlatform `json:"platforms"`

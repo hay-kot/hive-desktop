@@ -115,8 +115,8 @@ func newReleaseCommand() *cli.Command {
 				Name:      "github",
 				Usage:     "push the release tag and create the GitHub release",
 				ArgsUsage: "<version>",
-				Description: "Records a published version on GitHub: pushes the lightweight desktop-v<version> tag and creates a GitHub Release whose notes " +
-					"capture the commits since the previous desktop release tag (dev and beta are marked prerelease). Downloads still come from R2 (decision 0003); " +
+				Description: "Records a published version on GitHub: pushes the lightweight desktop-v<version> tag and creates a GitHub Release whose body is " +
+					"the version's committed changelog entry (dev and beta are marked prerelease). Downloads still come from R2 (decision 0003); " +
 					"this attaches no artifacts. Idempotent — safe to re-run to record a release whose GitHub step failed after the R2 upload. Requires an authenticated gh.",
 				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.NArg() != 1 {

@@ -9,8 +9,8 @@ import (
 )
 
 // publishGitHubRelease records a published version on GitHub: it creates and
-// pushes the lightweight desktop-v<version> tag and a GitHub Release whose notes
-// capture the commits since the previous desktop release tag. This is the
+// pushes the lightweight desktop-v<version> tag and a GitHub Release whose body
+// is the version's committed changelog entry. This is the
 // source-side record only — R2 remains the artifact store (decision 0003), so no
 // binaries are attached. It is idempotent: an existing tag or release at the
 // release commit is left untouched, so it can be re-run to recover a publish

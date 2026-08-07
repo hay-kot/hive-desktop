@@ -35,9 +35,10 @@ type stateFile struct {
 }
 
 // Acknowledged returns the recorded version, or "" when none has been
-// recorded. A corrupt file reads as "" rather than failing the launch: the
-// cost of getting this wrong is one extra What's New surface, and refusing to
-// start over an unreadable marker would be far worse.
+// recorded. A corrupt file reads as "" rather than failing the launch, and ""
+// is indistinguishable from a fresh install — so the cost is that the running
+// version is silently adopted and its notes are never shown. Losing one
+// release's notes is a far smaller price than refusing to start.
 func (s *State) Acknowledged() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
