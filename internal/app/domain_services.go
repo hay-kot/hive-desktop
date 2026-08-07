@@ -12,6 +12,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -192,6 +193,30 @@ func (s *GrafanaService) Connect(ctx context.Context, url, token string) (grafan
 
 func (s *GrafanaService) Disconnect(ctx context.Context, account string) error {
 	return Wrap(s.auth.Disconnect(ctx, account), KindInternal, "disconnecting Grafana")
+}
+
+// PostHogService wraps the PostHog project auth. Connecting is two calls
+// rather than one because a personal API key spans projects: Projects lists
+// what the key can reach so the user can pick, Connect binds the one they
+// picked.
+type PostHogService struct{ auth *posthog.Authenticator }
+
+func newPostHogService(auth *posthog.Authenticator) *PostHogService {
+	return &PostHogService{auth: auth}
+}
+
+func (s *PostHogService) Projects(ctx context.Context, url, token string) ([]posthog.Project, error) {
+	projects, err := s.auth.Projects(ctx, url, token)
+	return projects, Wrap(err, KindUnauthenticated, "listing PostHog projects")
+}
+
+func (s *PostHogService) Connect(ctx context.Context, url, token string, projectID int) (posthog.Project, error) {
+	project, err := s.auth.Connect(ctx, url, token, projectID)
+	return project, Wrap(err, KindUnauthenticated, "connecting to PostHog")
+}
+
+func (s *PostHogService) Disconnect(ctx context.Context, account string) error {
+	return Wrap(s.auth.Disconnect(ctx, account), KindInternal, "disconnecting PostHog")
 }
 
 // PromptsService owns the paste-ready LLM prompts. Prompt text lives in

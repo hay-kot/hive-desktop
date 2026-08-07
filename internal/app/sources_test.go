@@ -18,6 +18,7 @@ import (
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	ghclient "github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 )
 
@@ -36,6 +37,13 @@ func testGrafanaFetchers(t *testing.T) *grafana.Fetchers {
 	return grafana.NewFetchers(stacks, credentials.NewMemoryStore(), zerolog.Nop())
 }
 
+// testPostHogFetchers is the same for the PostHog connector.
+func testPostHogFetchers(t *testing.T) *posthog.Fetchers {
+	t.Helper()
+	projects := posthog.NewProjectStore(filepath.Join(t.TempDir(), "posthog-projects.json"))
+	return posthog.NewFetchers(projects, credentials.NewMemoryStore(), zerolog.Nop())
+}
+
 // A connector's declaration is in two halves: the descriptor says what it is
 // and what it supports, and the factory is what actually constructs it. They
 // are separate because only the factory needs dependencies — but that is also
@@ -45,7 +53,7 @@ func testGrafanaFetchers(t *testing.T) *grafana.Fetchers {
 func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), execenv.NewResolver(execenv.Options{}))
 
 	for _, connectorType := range sources.Types() {
 		factory, ok := factories[connectorType]
@@ -67,7 +75,7 @@ func TestFactoriesCoverEveryDescriptor(t *testing.T) {
 func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(testFetchers(), testGrafanaFetchers(t), testPostHogFetchers(t), execenv.NewResolver(execenv.Options{}))
 
 	for _, connectorType := range sources.Types() {
 		descriptor, _ := sources.Lookup(connectorType)
@@ -112,7 +120,7 @@ func TestFactoriesMatchDescribedCapabilities(t *testing.T) {
 func TestGithubFactoryIsAbsentWithoutAFetcher(t *testing.T) {
 	t.Parallel()
 
-	factories := sourceFactories(nil, nil, execenv.NewResolver(execenv.Options{}))
+	factories := sourceFactories(nil, nil, nil, execenv.NewResolver(execenv.Options{}))
 
 	_, ok := factories[ghsource.Descriptor.Type]
 	assert.False(t, ok, "the GitHub connector is wired without a fetcher to construct it over")
@@ -141,6 +149,10 @@ func seedValidConfig(config connector.Config) error {
 		c.Credential = grafana.Provider + "/grafana.example.com-1"
 	case *grafana.IRMAlertsConfig:
 		c.Credential = grafana.Provider + "/grafana.example.com-1"
+	case *posthog.ErrorsConfig:
+		c.Credential = posthog.Provider + "/us.posthog.com-1"
+	case *posthog.AlertsConfig:
+		c.Credential = posthog.Provider + "/us.posthog.com-1"
 	default:
 		return fmt.Errorf("no valid config seed for %T; add one alongside the connector", config)
 	}

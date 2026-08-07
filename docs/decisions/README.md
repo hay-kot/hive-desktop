@@ -74,6 +74,7 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-08-03 | [`a-workspace-declares-its-own-authority`](2026-08-03-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority | accepted |
 | 2026-08-03 | [`agent-workspace-sessions-are-tmux-sessions`](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) | Agent workspace sessions are tmux sessions | accepted |
 | 2026-08-03 | [`macos-dmg-installer`](2026-08-03-macos-dmg-installer.md) | macOS ships an installer disk image beside the update zip | accepted |
+| 2026-08-03 | [`posthog-ingests-issues-through-the-error-tracking-query-endpoint`](2026-08-03-posthog-ingests-issues-through-the-error-tracking-query-endpoint.md) | PostHog ingests issues through the error-tracking query endpoint | accepted |
 | 2026-08-03 | [`ptyterm-terminals-are-caller-addressed`](2026-08-03-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped | accepted |
 | 2026-08-03 | [`the-scratch-terminal-is-a-tmux-session-the-desktop-owns`](2026-08-03-the-scratch-terminal-is-a-tmux-session-the-desktop-owns.md) | The scratch terminal is a tmux session the desktop owns, pinned above the repositories | proposed |
 | 2026-08-03 | [`the-session-tree-paints-once`](2026-08-03-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call | accepted |
