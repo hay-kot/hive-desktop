@@ -42,6 +42,16 @@ describe('instantiate', () => {
     expect(node.config).toEqual(byType['feed']!.defaults)
   })
 
+  // Go rejects a node id that is not `^[a-z0-9][a-z0-9-]*$` when the flow is
+  // deployed, so a generated id that embeds a namespaced type verbatim makes
+  // the node unsaveable. Asserted over every registered type, since the types
+  // carrying a dot are exactly the ones no other test instantiates.
+  it('generates an id Go accepts as a slug for every registered type', () => {
+    for (const type of Object.keys(byType)) {
+      expect(instantiate(type).id).toMatch(/^[a-z0-9][a-z0-9-]*$/)
+    }
+  })
+
   it('two instances of the same type never share config (deep clone, not reference)', () => {
     const a = instantiate('github-filter')
     const b = instantiate('github-filter')
