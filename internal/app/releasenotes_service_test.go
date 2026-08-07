@@ -30,8 +30,8 @@ func testEntries(versions ...string) releasenotes.Entries {
 func TestPendingIsSilentOnAFreshInstall(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0"))
 
-	assert.False(t, service.Pending("1.2.0", settings.ChannelStable).Show)
-	assert.False(t, service.Pending("1.2.0", settings.ChannelStable).Show,
+	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable))
+	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable),
 		"the recorded version keeps it silent on the next launch too")
 }
 
@@ -57,22 +57,22 @@ func TestPendingStopsAfterAcknowledgement(t *testing.T) {
 		"an unacknowledged surface returns until it is dismissed")
 
 	require.NoError(t, service.Acknowledge("1.3.0"))
-	assert.False(t, service.Pending("1.3.0", settings.ChannelStable).Show)
+	assert.Equal(t, PendingNotes{}, service.Pending("1.3.0", settings.ChannelStable))
 }
 
 func TestPendingIsSilentOnSourceBuilds(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0"))
 	require.NoError(t, service.Acknowledge("1.2.0"))
 
-	assert.False(t, service.Pending("dev", settings.ChannelDev).Show)
-	assert.False(t, service.Pending("(devel)", settings.ChannelDev).Show)
+	assert.Equal(t, PendingNotes{}, service.Pending("dev", settings.ChannelDev))
+	assert.Equal(t, PendingNotes{}, service.Pending("(devel)", settings.ChannelDev))
 }
 
 func TestPendingIsSilentOnADowngrade(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
 	require.NoError(t, service.Acknowledge("1.3.0"))
 
-	assert.False(t, service.Pending("1.2.0", settings.ChannelStable).Show)
+	assert.Equal(t, PendingNotes{}, service.Pending("1.2.0", settings.ChannelStable))
 }
 
 // Dev builds are cut close to daily, so they get the toast rather than a modal
