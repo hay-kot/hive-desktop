@@ -159,9 +159,9 @@ func (e Entries) Between(after, current, channel string) Entries {
 	from, hasFrom := parseVersion(after)
 
 	out := make(Entries, 0, len(e))
-	for _, entry := range e.VisibleIn(channel) {
+	for _, entry := range e {
 		v, ok := parseVersion(entry.Version)
-		if !ok || compare(v, to) > 0 {
+		if !ok || !visibleIn(v, channel) || compare(v, to) > 0 {
 			continue
 		}
 		if hasFrom && compare(v, from) <= 0 {
