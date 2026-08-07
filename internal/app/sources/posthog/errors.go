@@ -14,6 +14,11 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
+// ItemKind is the canonical `kind` every error item carries. Without one an
+// item is untyped and an action can only target it as the catch-all `Item`;
+// naming it lets a flow route errors specifically (`applies_to: [Error]`).
+const ItemKind = "Error"
+
 // Issue statuses. The first three are what a client may set and what the query
 // returns today; archived and pending_release are legacy values PostHog still
 // reads back, so they are matched rather than assumed absent.
@@ -177,7 +182,9 @@ var _ connector.PullSource = (*errorsSource)(nil)
 // library ride along for a function node to route on.
 type issuePayload struct {
 	ID          string  `json:"id"`
+	Kind        string  `json:"kind"`
 	Title       string  `json:"title"`
+	Body        string  `json:"body,omitempty"`
 	URL         string  `json:"url"`
 	State       string  `json:"state"`
 	UpdatedAt   int64   `json:"updatedAt,omitempty"`
@@ -199,7 +206,9 @@ func (s *errorsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 	for _, issue := range issues {
 		body, err := json.Marshal(issuePayload{
 			ID:          issue.ID,
+			Kind:        ItemKind,
 			Title:       issueTitle(issue),
+			Body:        issueBody(issue, binding.Name),
 			URL:         client.IssueURL(binding.URL, binding.ProjectID, issue.ID),
 			State:       issueState(issue.Status),
 			UpdatedAt:   epochMillis(issue.LastSeen),
@@ -222,14 +231,22 @@ func (s *errorsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 	return nil
 }
 
-// issueTitle prefers the exception type PostHog derived, falls back to the
-// description, and never returns empty — an untitled item is keyed by its UUID
-// in the feed, which reads as noise.
+// issueTitle reads "name: description", the pairing PostHog's own UI shows.
+// The name alone is the exception class, which collides hard on real data — a
+// project with five unrelated TypeErrors gets five feed rows all reading
+// "TypeError", and the row is what a user triages from. Either half alone is
+// used when only one is present, and a wholly empty issue still gets a title:
+// an untitled item is keyed by its UUID in the feed, which reads as noise.
 func issueTitle(issue client.Issue) string {
-	for _, candidate := range []string{issue.Name, issue.Description} {
-		if title := strings.TrimSpace(candidate); title != "" {
-			return title
-		}
+	name := strings.TrimSpace(issue.Name)
+	description := strings.TrimSpace(issue.Description)
+	switch {
+	case name != "" && description != "":
+		return name + ": " + description
+	case name != "":
+		return name
+	case description != "":
+		return description
 	}
 	return "PostHog issue"
 }
@@ -244,6 +261,38 @@ func issueState(status string) string {
 		return statusActive
 	}
 	return normalized
+}
+
+// issueBody is the detail pane's markdown. The title already carries the
+// exception and its message, so the body is the triage context that decides
+// whether an issue matters: how loud it is, how long it has been running, and
+// where it came from. Absent fields are omitted rather than rendered empty —
+// PostHog returns aggregates only when it computed them.
+func issueBody(issue client.Issue, project string) string {
+	lines := make([]string, 0, 7)
+	add := func(label, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			lines = append(lines, "- **"+label+"** "+value)
+		}
+	}
+	add("Occurrences", countText(aggregate(issue.Aggregations, func(a client.Aggregations) float64 { return a.Occurrences })))
+	add("Users", countText(aggregate(issue.Aggregations, func(a client.Aggregations) float64 { return a.Users })))
+	add("Sessions", countText(aggregate(issue.Aggregations, func(a client.Aggregations) float64 { return a.Sessions })))
+	add("First seen", issue.FirstSeen)
+	add("Last seen", issue.LastSeen)
+	add("Library", issue.Library)
+	add("Project", project)
+	return strings.Join(lines, "\n")
+}
+
+// countText renders an aggregate as a plain integer, and "" for a
+// non-positive one so an aggregate PostHog did not compute is left out rather
+// than reported as a real count of zero.
+func countText(v float64) string {
+	if v <= 0 {
+		return ""
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
 func aggregate(a *client.Aggregations, pick func(client.Aggregations) float64) float64 {

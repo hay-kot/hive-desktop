@@ -96,7 +96,9 @@ var _ connector.PullSource = (*alertsSource)(nil)
 // verbatim so a function node can route on them.
 type alertPayload struct {
 	ID                  string          `json:"id"`
+	Kind                string          `json:"kind"`
 	Title               string          `json:"title"`
+	Body                string          `json:"body,omitempty"`
 	URL                 string          `json:"url"`
 	State               string          `json:"state"`
 	UpdatedAt           int64           `json:"updatedAt,omitempty"`
@@ -123,7 +125,9 @@ func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 		}
 		body, err := json.Marshal(alertPayload{
 			ID:                  alert.ID,
+			Kind:                AlertItemKind,
 			Title:               alertTitle(alert),
+			Body:                alertBody(alert, binding.Name),
 			URL:                 client.InsightURL(binding.URL, binding.ProjectID, alert.Insight.ShortID),
 			State:               state,
 			UpdatedAt:           lastActivity(alert),
@@ -145,6 +149,34 @@ func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 		}
 	}
 	return nil
+}
+
+// AlertItemKind is the canonical `kind` every insight-alert item carries, so
+// a flow can route alerts apart from error items (`applies_to: [Alert]`).
+const AlertItemKind = "Alert"
+
+// alertBody is the detail pane's markdown: the insight the alert watches and
+// the last evaluation, which is what says whether the alert is live and what
+// tripped it. Absent fields are omitted rather than rendered empty.
+func alertBody(alert client.Alert, project string) string {
+	lines := make([]string, 0, 6)
+	add := func(label, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			lines = append(lines, "- **"+label+"** "+value)
+		}
+	}
+	add("Insight", alert.Insight.Name)
+	if alert.LastValue != nil {
+		add("Last value", strconv.FormatFloat(*alert.LastValue, 'f', -1, 64))
+	}
+	add("Last checked", alert.LastCheckedAt)
+	add("Last notified", alert.LastNotifiedAt)
+	add("Checked every", alert.CalculationInterval)
+	add("Project", project)
+	if !alert.Enabled {
+		lines = append(lines, "- **Enabled** no")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func alertTitle(alert client.Alert) string {

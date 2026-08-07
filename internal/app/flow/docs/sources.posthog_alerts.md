@@ -11,7 +11,7 @@ A **PostHog insight alerts source** node emits one item per insight alert config
 
 The source runs in the backend: Go lists the project's alerts on each tick and appends the result to the event log under topic `source:<flowId>/<nodeId>`. Each alert becomes **one message keyed by its alert id**, so a firing→resolved cycle updates one durable item.
 
-The payload carries the alert's `title` (its name, falling back to the insight's), a `url` that deep-links to the monitored insight, a normalized `state` — `firing`, `not_firing`, `snoozed` or `errored` — and the raw `threshold` and `condition` for a `function` node to route on. PostHog reports states as display strings (`Not firing`); the source normalizes them, so route on `not_firing` rather than on what the API returns.
+The payload carries the alert's `title` (its name, falling back to the insight's), a `kind` of `Alert` so an action can target alert items specifically, a `body` holding the watched insight and the last evaluation for the detail pane, a `url` that deep-links to the monitored insight, a normalized `state` — `firing`, `not_firing`, `snoozed` or `errored` — and the raw `threshold` and `condition` for a `function` node to route on. PostHog reports states as display strings (`Not firing`); the source normalizes them, so route on `not_firing` rather than on what the API returns.
 
 An alert that starts breaching is summarized as **Firing**; one that stops is summarized as **Resolved** and archived. Only `firing` counts as active — a snoozed or errored alert is not a breach asking to be looked at.
 

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog/client"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 )
 
@@ -111,8 +112,16 @@ func TestErrorsProduceEmitsOnePerIssue(t *testing.T) {
 
 	var first issuePayload
 	require.NoError(t, json.Unmarshal(msgs[0].Payload, &first))
-	assert.Equal(t, "TypeError", first.Title)
+	assert.Equal(t, "TypeError: x is not a function", first.Title, "exception class alone collides across unrelated issues")
+	assert.Equal(t, ItemKind, first.Kind, "an untyped item can only be targeted as the catch-all Item")
 	assert.Equal(t, statusActive, first.State)
+
+	// The body is the detail pane's only content; without it an item renders
+	// as a bare title.
+	assert.Contains(t, first.Body, "**Occurrences** 1204")
+	assert.Contains(t, first.Body, "**Users** 37")
+	assert.Contains(t, first.Body, "**Library** posthog-js")
+	assert.Contains(t, first.Body, "**Project** Acme")
 	assert.InDelta(t, 1204, first.Occurrences, 0.001)
 	assert.InDelta(t, 37, first.Users, 0.001)
 	assert.Equal(t, "posthog-js", first.Library)
@@ -132,6 +141,26 @@ func TestErrorsProduceEmitsOnePerIssue(t *testing.T) {
 	assert.Contains(t, *gotBody, `"status":"active"`)
 	assert.Contains(t, *gotBody, `"orderBy":"last_seen"`)
 	assert.Contains(t, *gotBody, `"limit":10`)
+}
+
+// PostHog's name is the exception class, so real projects carry many issues
+// sharing one — the description is what tells them apart in a feed row.
+func TestIssueTitlePairsNameAndDescription(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name, issueName, description, want string
+	}{
+		{"both", "TypeError", "Failed to fetch", "TypeError: Failed to fetch"},
+		{"name only", "TypeError", "", "TypeError"},
+		{"description only", "", "Failed to fetch", "Failed to fetch"},
+		{"whitespace is not a value", "  ", "  ", "PostHog issue"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, issueTitle(client.Issue{Name: tt.issueName, Description: tt.description}))
+		})
+	}
 }
 
 // An issue with neither a name nor a description must not fall back to being
