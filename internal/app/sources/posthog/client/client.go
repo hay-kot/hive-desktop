@@ -55,6 +55,7 @@ type Issue struct {
 	FirstSeen    string        `json:"first_seen"`
 	LastSeen     string        `json:"last_seen"`
 	Library      string        `json:"library"`
+	Source       string        `json:"source"`
 	Aggregations *Aggregations `json:"aggregations"`
 }
 

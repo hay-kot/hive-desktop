@@ -90,6 +90,7 @@ func TestErrorsProduceEmitsOnePerIssue(t *testing.T) {
 	server, gotBody := issuesServer(t, `{"results":[
 		{"id":"11111111-1111-1111-1111-111111111111","name":"TypeError","description":"x is not a function","status":"active",
 		 "first_seen":"2026-08-01T10:00:00Z","last_seen":"2026-08-03T09:30:00Z","library":"posthog-js",
+		 "source":"app/checkout.tsx",
 		 "aggregations":{"occurrences":1204,"users":37,"sessions":52}},
 		{"id":"22222222-2222-2222-2222-222222222222","name":"","description":"boom","status":"resolved"}
 	],"hasMore":false}`)
@@ -120,6 +121,7 @@ func TestErrorsProduceEmitsOnePerIssue(t *testing.T) {
 	// as a bare title.
 	assert.Contains(t, first.Body, "**Occurrences** 1204")
 	assert.Contains(t, first.Body, "**Users** 37")
+	assert.Contains(t, first.Body, "**Source** app/checkout.tsx", "the file is the most locating fact the list response carries")
 	assert.Contains(t, first.Body, "**Library** posthog-js")
 	assert.Contains(t, first.Body, "**Project** Acme")
 	assert.InDelta(t, 1204, first.Occurrences, 0.001)

@@ -190,6 +190,7 @@ type issuePayload struct {
 	UpdatedAt   int64   `json:"updatedAt,omitempty"`
 	Description string  `json:"description,omitempty"`
 	Library     string  `json:"library,omitempty"`
+	Source      string  `json:"source,omitempty"`
 	FirstSeen   string  `json:"firstSeen,omitempty"`
 	LastSeen    string  `json:"lastSeen,omitempty"`
 	Occurrences float64 `json:"occurrences,omitempty"`
@@ -214,6 +215,7 @@ func (s *errorsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 			UpdatedAt:   epochMillis(issue.LastSeen),
 			Description: strings.TrimSpace(issue.Description),
 			Library:     issue.Library,
+			Source:      strings.TrimSpace(issue.Source),
 			FirstSeen:   issue.FirstSeen,
 			LastSeen:    issue.LastSeen,
 			Occurrences: aggregate(issue.Aggregations, func(a client.Aggregations) float64 { return a.Occurrences }),
@@ -280,6 +282,7 @@ func issueBody(issue client.Issue, project string) string {
 	add("Sessions", countText(aggregate(issue.Aggregations, func(a client.Aggregations) float64 { return a.Sessions })))
 	add("First seen", issue.FirstSeen)
 	add("Last seen", issue.LastSeen)
+	add("Source", issue.Source)
 	add("Library", issue.Library)
 	add("Project", project)
 	return strings.Join(lines, "\n")
