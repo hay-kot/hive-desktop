@@ -116,14 +116,6 @@ prepare_server_files() {
 
 start_server() {
   local mode="$1" port="$2" name="$3"
-  # extra_env is a single "KEY=VALUE" opt-in a caller wants for this one
-  # server only -- unlike HIVE_DESKTOP_EXPERIMENTAL_TERMINAL below, which is a
-  # global export every server inherits. agents-unavailable.spec.ts needs
-  # experimental.agents on for exactly one server, and agents-disabled.spec.ts
-  # needs every other server to keep it off; a second global export would
-  # satisfy neither.
-  local -a extra_env=()
-  if [[ -n "${4:-}" ]]; then extra_env+=("$4"); fi
   local data_dir="${E2E_DATA_ROOT}/${name}"
   local config_home="${data_dir}/config"
   mkdir -p "${data_dir}" "${config_home}"
@@ -137,14 +129,12 @@ EOF
   echo "starting ${mode} mock server ${name} on port ${port}" >&2
   if [[ "${mode}" == "onboarding" ]]; then
     env -u HIVE_DESKTOP_FLOWS_DIR -u HIVE_DESKTOP_ACTIONS_PATH \
-      "${extra_env[@]}" \
       HIVE_DESKTOP_DATA_DIR="${data_dir}" XDG_CONFIG_HOME="${config_home}" \
       HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE="${mode}" WAILS_SERVER_PORT="${port}" \
       desktop/bin/hive-desktop-server &
   else
     local action_path="${data_dir}/fixtures/actions.yml"
     env \
-      "${extra_env[@]}" \
       HIVE_DESKTOP_DATA_DIR="${data_dir}" \
       HIVE_CONFIG="${data_dir}/hive-e2e.yaml" \
       XDG_CONFIG_HOME="${config_home}" \
@@ -175,12 +165,7 @@ wait_ready() {
   exit 1
 }
 
-# Terminal mode ships dark (experimental.terminal, ADR terminal-experimental-gate). The harness opts
-# every server in so terminal-unavailable.spec.ts keeps exercising the
-# enabled-but-unavailable path (D10) that the `-tags server` build produces.
-export HIVE_DESKTOP_EXPERIMENTAL_TERMINAL=true
-
-for port in 8931 8932 8933 8934 8935 8936 8937 8938; do check_port_free "${port}"; done
+for port in 8931 8932 8933 8934 8935 8936 8937; do check_port_free "${port}"; done
 start_server onboarding 8932 onboarding-chromium
 start_server onboarding 8933 onboarding-webkit
 start_server feed 8934 feed-webkit
@@ -189,9 +174,6 @@ start_server action-smoke 8936 action-smoke
 # This server starts with the private actions.yml absent. It proves exact
 # first-run seeding without ever copying an action fixture.
 start_server action-seed 8937 action-seed
-# The one server with experimental.agents on -- a per-server opt-in, not the
-# global export above, so agents-disabled.spec.ts stays true everywhere else.
-start_server feed 8938 agents-unavailable "HIVE_DESKTOP_EXPERIMENTAL_AGENTS=true"
 for i in "${!pids[@]}"; do wait_ready "${pids[$i]}" "${pid_names[$i]}" "${pid_ports[$i]}"; done
 start_server feed 8931 feed-chromium
 last_index=$((${#pids[@]} - 1))

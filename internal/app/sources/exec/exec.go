@@ -32,16 +32,14 @@ type Environment interface {
 //
 // It declares CapClassify and CapConfirmAbsence for the same reason
 // sources.grafana_alerts does: stdout is the complete current set by contract,
-// so an item that left it is resolved rather than merely unseen. Experimental
-// because the item contract is young and the cadence floor is per-run rather
-// than persisted.
+// so an item that left it is resolved rather than merely unseen.
 var Descriptor = connector.Descriptor{
 	Type:  "sources.exec",
 	Title: "Command source",
 	// No Provider: the command authenticates itself with the user's own
 	// config, so there is no account for the app to hold or connect.
 	Mode:         connector.ModePull,
-	Stability:    connector.Experimental,
+	Stability:    connector.Stable,
 	Capabilities: connector.CapClassify | connector.CapConfirmAbsence,
 	NewConfig:    func() connector.Config { return &Config{} },
 }

@@ -1,16 +1,13 @@
 <script setup lang="ts">
 // Terminal settings: everything that governs a terminal wherever one is drawn
-// — the Code tab, the pop-up panel, and the Agents area's chats — plus the
-// opt-in that gates them all.
+// — the Code tab, the pop-up panel, and the Agents area's chats.
 import { computed, defineAsyncComponent, onMounted } from 'vue'
 import AppSelect from './AppSelect.vue'
 import AppSwitch from './AppSwitch.vue'
-import SettingsError from './settings/SettingsError.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsRow from './settings/SettingsRow.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import SettingsSegmented from './settings/SettingsSegmented.vue'
-import ExperimentalToggle from './settings/ExperimentalToggle.vue'
 import {
   setTerminalFontFamily,
   setTerminalFontSize,
@@ -35,13 +32,11 @@ import { TERMINAL_FONT } from '../lib/terminalFaces'
 import { loadInstalledFonts, useInstalledFonts } from '../composables/useInstalledFonts'
 import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
 import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
-import { useExperimentalSettings } from '../composables/useExperimentalSettings'
 
 // Async so xterm and its addons stay on the terminal chunk rather than joining
 // the bundle everyone who opens any settings pane pays for.
 const TerminalPreview = defineAsyncComponent(() => import('./settings/TerminalPreview.vue'))
 
-const { terminal, terminalRestartPending, setTerminal, error, refresh } = useExperimentalSettings()
 const {
   size: fontSize,
   selectedFamily: fontFamily,
@@ -109,34 +104,11 @@ function onPoolSizeChange(value: string): void {
 // one on screen.
 onMounted(() => {
   loadInstalledFonts()
-  void refresh()
 })
 </script>
 
 <template>
   <SettingsPage testid="settings-terminal">
-    <SettingsError v-if="error" :message="error" testid="terminal-error" />
-
-    <SettingsSection
-      title="Terminal mode"
-      description="Attach to a session's tmux windows inside the app. Off by default; changes apply after restarting Hive."
-      boxed
-      testid="terminal-mode"
-    >
-      <SettingsRow
-        label="Terminal mode"
-        hint="Turns on the Code tab in the title bar and the pop-up terminal panel. Needs tmux 3.2 or newer on your PATH; closing Hive leaves the tmux sessions running."
-      >
-        <ExperimentalToggle
-          :model-value="terminal"
-          :restart-pending="terminalRestartPending"
-          ariaLabel="Terminal mode"
-          testid="terminal-mode-enabled"
-          @update:model-value="setTerminal"
-        />
-      </SettingsRow>
-    </SettingsSection>
-
     <SettingsSection
       title="Typography"
       description="How terminal text is drawn, everywhere one appears. Changes apply to open terminals immediately."

@@ -18,8 +18,8 @@ import (
 // agentws-<record id> and ride the shared tmux data plane at
 // TerminalStreamPath (ADR agent-workspace-sessions-are-tmux-sessions) — there is no agent-specific stream. Start and
 // Resume attach server-side and return the active window id alongside the
-// session name, because the generic /api/terminal/attach control route is
-// gated by experimental.terminal, which the Agents area must not depend on.
+// session name, so the area never has to drive the generic
+// /api/terminal/attach control route to reach its own sessions.
 const AgentWorkspacesPathPrefix = TerminalPathPrefix + "agents/"
 
 // agentWorkspaceView is one row of the area's workspace list. Autonomy and

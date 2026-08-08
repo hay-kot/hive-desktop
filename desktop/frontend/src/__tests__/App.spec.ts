@@ -70,7 +70,6 @@ const mocks = vi.hoisted(() => ({
   // terminalservice
   TerminalAvailable: vi.fn(),
   TerminalEndpoint: vi.fn(),
-  TerminalModeEnabled: vi.fn(),
   // popupterminalservice
   PopupAvailable: vi.fn(),
   PopupEndpoint: vi.fn(),
@@ -78,7 +77,6 @@ const mocks = vi.hoisted(() => ({
   // agentsservice
   AgentsAvailable: vi.fn(),
   AgentsEndpoint: vi.fn(),
-  AgentsModeEnabled: vi.fn(),
   // runtime
   On: vi.fn(),
   Hide: vi.fn(),
@@ -176,7 +174,6 @@ vi.mock('@wailsio/runtime', () => ({
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
   Available: mocks.TerminalAvailable,
   Endpoint: mocks.TerminalEndpoint,
-  Enabled: mocks.TerminalModeEnabled,
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/popupterminalservice', () => ({
@@ -188,7 +185,6 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
   Available: mocks.AgentsAvailable,
   Endpoint: mocks.AgentsEndpoint,
-  Enabled: mocks.AgentsModeEnabled,
 }))
 
 const flow = {
@@ -314,18 +310,12 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
-    mocks.TerminalModeEnabled.mockResolvedValue(true)
     mocks.PopupAvailable.mockResolvedValue({ available: true, reason: '' })
     mocks.PopupEndpoint.mockResolvedValue({ httpBaseURL: '', wsURL: '', token: '' })
     mocks.PopupLaunchers.mockResolvedValue([])
     mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
     mocks.TerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
-    // Agents mode defaults off in these tests, same as terminal mode defaults
-    // on: most tests are not about the mode switch, and a disabled area keeps
-    // the title bar's default assertions (Inbox|Code, no Agents segment) true
-    // without every test having to say so.
-    mocks.AgentsModeEnabled.mockResolvedValue(false)
-    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'The Agents area is off.' })
+    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
     mocks.AgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
   })
 
@@ -1361,16 +1351,6 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('never renders the Inbox|Code toggle while experimental.terminal is off', async () => {
-    mocks.TerminalModeEnabled.mockResolvedValue(false)
-    const wrapper = await mountApp()
-
-    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(false)
-
-    wrapper.unmount()
-  })
-
   it('swaps the whole hub for terminal mode and back from the title-bar toggle', async () => {
     mocks.TerminalAvailable.mockResolvedValue({ available: false, reason: 'tmux is not installed.' })
     const { wrapper, router } = await mountAppWithRouter()
@@ -1494,17 +1474,7 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('never renders the Agents segment while experimental.agents is off', async () => {
-    const wrapper = await mountApp()
-
-    expect(wrapper.find('[data-testid="titlebar-mode-agents"]').exists()).toBe(false)
-
-    wrapper.unmount()
-  })
-
   it('swaps the whole hub for the Agents area and back from the title-bar toggle, hiding rather than unmounting it', async () => {
-    mocks.AgentsModeEnabled.mockResolvedValue(true)
-    mocks.AgentsAvailable.mockResolvedValue({ available: false, reason: 'no ptyterm on this build.' })
     const { wrapper, router } = await mountAppWithRouter()
 
     await wrapper.get('[data-testid="titlebar-mode-agents"]').trigger('click')
@@ -1531,13 +1501,11 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('shows Inbox | Agents when only experimental.agents is on — the group renders on the second mode, not on terminal specifically', async () => {
-    mocks.TerminalModeEnabled.mockResolvedValue(false)
-    mocks.AgentsModeEnabled.mockResolvedValue(true)
+  it('renders all three mode segments once a workspace exists', async () => {
     const wrapper = await mountApp()
 
     expect(wrapper.find('[data-testid="titlebar-mode-hub"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-mode-terminal"]').exists()).toBe(true)
     expect(wrapper.find('[data-testid="titlebar-mode-agents"]').exists()).toBe(true)
 
     wrapper.unmount()

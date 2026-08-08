@@ -43,26 +43,19 @@ type Controller struct {
 	// main.go — the core carries no transport credential (ADR terminal-transport).
 	terminalToken string
 	cors          corsPolicy
-	opts          Options
 }
 
 // Options configures the token-guarded surfaces: the bearer token and CORS
-// allowlist every one of them shares, and which route groups are mounted at
-// all. TerminalEnabled and AgentsEnabled are independent axes — either alone
-// is enough for TerminalToken to be minted in main.go, because the agent
-// control plane and the PTY stream a workspace session rides sit under the
-// same token-guarded prefix as the tmux/pop-up terminal surface (ADR a-workspace-declares-its-own-authority).
+// allowlist every one of them shares. The terminal, pop-up terminal and agent
+// control planes all sit under the same token-guarded prefix, so one token
+// covers all three (ADR a-workspace-declares-its-own-authority).
 type Options struct {
-	TerminalToken   string
-	Origins         []string
-	TerminalEnabled bool
-	AgentsEnabled   bool
+	TerminalToken string
+	Origins       []string
 }
 
 // New builds the controller. The liveness routes are deliberately
 // unauthenticated behind the loopback bind (ADR agent-http-api).
-// TerminalEnabled/AgentsEnabled false means that group's operations are not
-// registered at all — off is absence, not a 503 (ADR terminal-experimental-gate).
 func New(core *app.App, log zerolog.Logger, opts Options) *Controller {
 	return &Controller{
 		core:          core,
@@ -70,6 +63,5 @@ func New(core *app.App, log zerolog.Logger, opts Options) *Controller {
 		version:       web.VersionHandler("hive.desktop.api"),
 		terminalToken: opts.TerminalToken,
 		cors:          corsPolicy{origins: opts.Origins, log: log},
-		opts:          opts,
 	}
 }

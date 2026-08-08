@@ -51,7 +51,7 @@ func newTerminalHarness(t *testing.T) *terminalHarness {
 	origins := []string{testOrigin}
 	mux := http.NewServeMux()
 	mux.Handle(PathPrefix, New(core, zerolog.Nop(), Options{
-		TerminalToken: testToken, Origins: origins, TerminalEnabled: true,
+		TerminalToken: testToken, Origins: origins,
 	}).Handler())
 	streamPath, stream := TerminalStreamHandler(core, testToken, origins, zerolog.Nop())
 	mux.Handle(streamPath, stream)

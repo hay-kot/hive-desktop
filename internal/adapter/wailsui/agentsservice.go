@@ -44,25 +44,15 @@ type AgentsService struct {
 	workspaces *app.AgentWorkspacesService
 	webhooks   *app.WebhookService
 	transport  AgentsTransport
-	enabled    bool
 }
 
-func NewAgentsService(workspaces *app.AgentWorkspacesService, webhooks *app.WebhookService, transport AgentsTransport, enabled bool) *AgentsService {
-	return &AgentsService{workspaces: workspaces, webhooks: webhooks, transport: transport, enabled: enabled}
+func NewAgentsService(workspaces *app.AgentWorkspacesService, webhooks *app.WebhookService, transport AgentsTransport) *AgentsService {
+	return &AgentsService{workspaces: workspaces, webhooks: webhooks, transport: transport}
 }
-
-// Enabled reports the experimental.agents opt-in (ADR a-workspace-declares-its-own-authority / ADR terminal-experimental-gate). The
-// frontend renders the way into the Agents area only when it is on;
-// availability stays a separate axis, because an enabled-but-unavailable area
-// explains itself inside the mode instead of hiding the way in.
-func (s *AgentsService) Enabled(ctx context.Context) bool { return s.enabled }
 
 // Available answers even when the loopback server is down, which is why it
 // composes ptyterm availability with the transport's own reachability.
 func (s *AgentsService) Available(ctx context.Context) AgentsAvailability {
-	if !s.enabled {
-		return AgentsAvailability{Reason: "The Agents area is off. Turn it on in Settings ▸ Agents, then relaunch Hive."}
-	}
 	if err := s.workspaces.Available(ctx); err != nil {
 		return AgentsAvailability{Reason: reasonFor(err)}
 	}

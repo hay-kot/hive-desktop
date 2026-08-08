@@ -88,8 +88,7 @@ individual choices; this document describes the shape everything fits into.
 > what lets a session survive an app restart (ADR agent-workspace-sessions-are-tmux-sessions); its control plane
 > rides `httpapi`'s `/api/terminal/` prefix and authenticates per handler
 > because it spawns processes too. `internal/app/mcpcatalog` is the shipped
-> MCP server registry it wires workspaces against. The whole area ships dark
-> behind `experimental.agents` (ADR a-workspace-declares-its-own-authority). See
+> MCP server registry it wires workspaces against. See
 > [Agent workspaces](#agent-workspaces).
 >
 > Not yet built: the plugs-managed lifecycle (attempted; blocked on appkit —
@@ -639,10 +638,8 @@ seam. A missing file falls back to the node's glyph, the same tolerance, and
 orphaned blobs are left in place rather than reference-counted.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `http`, `keybindings`, `skills`,
-`experimental`, and
-`development` sections. `experimental` holds ships-dark feature opt-ins
-(ADR terminal-experimental-gate), each read once at startup and defaulting to off. Resolution is deterministic: safe compiled defaults, one strictly
+`notifications`, `appearance`, `http`, `keybindings`, `skills`, and
+`development` sections. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
 validation. Missing config is safe: webhooks and pprof
@@ -719,10 +716,10 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 A value one surface uses lives on that surface's pane; a value several use lives
 in **General** (the editor command); **System** is this install — storage,
 diagnostics, the problem reporter; **About** is the running build. There is no
-leftover group — a section that fits nowhere means the grouping is wrong.
-Experimental is a posture, not a category: a ships-dark opt-in (ADR terminal-experimental-gate)
-renders on the pane for the feature it gates, through
-`settings/ExperimentalToggle.vue`.
+leftover group — a section that fits nowhere means the grouping is wrong. A
+ships-dark opt-in, if one is ever reintroduced, is a posture rather than a
+category: it renders on the pane for the feature it gates
+(ADR settings-sections-name-the-surface-they-change).
 
 The section list is one list. `applicationSettingsSections` in `router.ts`
 builds the route matcher and backs `isApplicationSettingsSection`, which
@@ -865,9 +862,9 @@ mode it collided with. `TitleBar` carries the same closed union for its
 switch, and `router.ts`'s routes each render a null `ShellPage` component
 because `App.vue`, not the router, owns what is on screen. A mode remembers
 the last route it was on (`lastTerminalPath`, `lastAgentsPath`) so returning
-to it resumes rather than resetting, and ships dark behind its own
-`experimental.*` opt-in, gated independently of the others (ADR terminal-experimental-gate is the
-mechanism; ADR a-workspace-declares-its-own-authority is the Agents area's adoption of it).
+to it resumes rather than resetting. Every segment renders once a workspace
+exists; an unavailable mode explains itself inside the mode rather than
+disabling its segment (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
 
 ### Terminal sessions
 
@@ -908,10 +905,8 @@ them is the constraint (ADR terminal-transport):
   (`POST /api/terminal/…`) in the operations table, and the data plane as a raw
   WebSocket handler at its own prefix. See
   [Data-plane mount](#named-patterns).
-- **`adapter/wailsui.TerminalService`** — `Enabled`, `Available` and `Endpoint`,
-  the frontend's only gate and bootstrap. `Enabled` reports the
-  `experimental.terminal` opt-in (ADR terminal-experimental-gate) — off means the Hub|Terminal toggle
-  never renders. `Available` must answer while the loopback
+- **`adapter/wailsui.TerminalService`** — `Available` and `Endpoint`, the
+  frontend's only gate and bootstrap. `Available` must answer while the loopback
   server is down, so it composes tmux/build/platform availability with loopback
   reachability; `Endpoint` builds `{httpBaseURL, wsURL}` from the live bind plus
   the token it was handed.
@@ -1177,9 +1172,7 @@ resolved path travels on `Options.Binary`. Hive session spawning execs tmux from
 vendored code, so it gets the same binary through `app.tmuxExecutor`, a
 decorator over `executil.Executor` that substitutes the command name `tmux`.
 
-The whole surface ships dark behind `experimental.terminal` (ADR terminal-experimental-gate): when
-off, `main.go` mints no token and neither the control-plane routes nor the
-stream mount exist. The bearer token is minted per run in `desktop/main.go` and
+The bearer token is minted per run in `desktop/main.go` and
 passed to the two
 adapters that need it, so no core type carries a transport credential. Terminal
 availability is gated on `http.enabled` — no loopback server, no terminal — and

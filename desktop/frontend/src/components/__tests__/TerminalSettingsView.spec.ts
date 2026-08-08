@@ -19,11 +19,6 @@ const mocks = vi.hoisted(() => ({
   SetTerminalFontFamily: vi.fn(),
   SetTerminalFontWeights: vi.fn(),
   Fonts: vi.fn().mockResolvedValue({ all: ['Fira Code', 'Menlo'], monospace: ['Fira Code', 'Menlo'] }),
-  ExperimentalSettings: vi.fn(),
-  SetExperimentalTerminal: vi.fn(),
-  SetExperimentalAgents: vi.fn(),
-  TerminalModeEnabled: vi.fn(),
-  AgentsModeEnabled: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
   AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalFontFamily: '', terminalFontWeight: 0, terminalFontWeightBold: 0, terminalShowWindows: true, terminalPoolSize: 3 }),
@@ -34,15 +29,6 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   SetTerminalFontWeights: mocks.SetTerminalFontWeights,
   SetTerminalShowWindows: mocks.SetTerminalShowWindows,
   SetTerminalPoolSize: mocks.SetTerminalPoolSize,
-  ExperimentalSettings: mocks.ExperimentalSettings,
-  SetExperimentalTerminal: mocks.SetExperimentalTerminal,
-  SetExperimentalAgents: mocks.SetExperimentalAgents,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice', () => ({
-  Enabled: mocks.TerminalModeEnabled,
-}))
-vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice', () => ({
-  Enabled: mocks.AgentsModeEnabled,
 }))
 
 beforeEach(() => {
@@ -52,55 +38,10 @@ beforeEach(() => {
   // mount in this file would keep the first test's list.
   resetInstalledFontsForTests()
   mocks.Fonts.mockResolvedValue({ all: ['Fira Code', 'Menlo'], monospace: ['Fira Code', 'Menlo'] })
-  mocks.ExperimentalSettings.mockResolvedValue({ terminal: false, agents: false })
-  mocks.SetExperimentalTerminal.mockImplementation((enabled: boolean) => Promise.resolve({ terminal: enabled, agents: false }))
-  mocks.TerminalModeEnabled.mockResolvedValue(false)
-  mocks.AgentsModeEnabled.mockResolvedValue(false)
   document.body.innerHTML = ''
 })
 
 describe('TerminalSettingsView', () => {
-  it('persists the terminal opt-in and flags that a relaunch is pending', async () => {
-    const wrapper = mount(TerminalSettingsView)
-    await flushPromises()
-
-    // Persisted off, running off: nothing pending.
-    expect(wrapper.find('[data-testid="terminal-mode-enabled-restart"]').exists()).toBe(false)
-
-    await wrapper.find('[data-testid="terminal-mode-enabled"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(true)
-    expect(wrapper.find('[data-testid="terminal-mode-enabled-restart"]').exists()).toBe(true)
-  })
-
-  it('shows no restart hint when the persisted opt-in matches the running app', async () => {
-    mocks.ExperimentalSettings.mockResolvedValue({ terminal: true, agents: false })
-    mocks.TerminalModeEnabled.mockResolvedValue(true)
-    const wrapper = mount(TerminalSettingsView)
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="terminal-mode-enabled-restart"]').exists()).toBe(false)
-
-    // Turning it off is a change against the running app, so it is pending too.
-    await wrapper.find('[data-testid="terminal-mode-enabled"]').trigger('click')
-    await flushPromises()
-    expect(mocks.SetExperimentalTerminal).toHaveBeenCalledWith(false)
-    expect(wrapper.find('[data-testid="terminal-mode-enabled-restart"]').exists()).toBe(true)
-  })
-
-  it('reverts the terminal opt-in switch when the save fails', async () => {
-    mocks.SetExperimentalTerminal.mockRejectedValue(new Error('disk is read-only'))
-    const wrapper = mount(TerminalSettingsView)
-    await flushPromises()
-
-    await wrapper.find('[data-testid="terminal-mode-enabled"]').trigger('click')
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="terminal-mode-enabled"]').attributes('aria-checked')).toBe('false')
-    expect(wrapper.find('[data-testid="terminal-error"]').text()).toContain('disk is read-only')
-  })
-
   it('reflects and changes the terminal font size preset', async () => {
     const wrapper = mount(TerminalSettingsView)
 

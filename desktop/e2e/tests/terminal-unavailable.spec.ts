@@ -5,15 +5,11 @@ import { expect, test } from './fixtures.js'
 // is observable end to end: TerminalsService.Available -> KindUnavailable ->
 // TerminalService.Available{available:false, reason} -> the panel.
 //
-// What it guards is the ADR terminal-experimental-gate rule that the Terminal toggle is never
-// disabled: a build that cannot run tmux must explain itself inside the mode
-// rather than leaving a dead button in the title bar. A regression that gates
-// the toggle on availability, or that lets the unavailable probe throw instead
-// of rendering, fails here.
-//
-// The rule governs only the enabled-but-unavailable case: serve.sh opts the
-// harness into experimental.terminal, because with the flag off the toggle
-// does not render at all.
+// What it guards is the rule that the Terminal toggle is never disabled: a
+// build that cannot run tmux must explain itself inside the mode rather than
+// leaving a dead button in the title bar. A regression that gates the toggle
+// on availability, or that lets the unavailable probe throw instead of
+// rendering, fails here.
 
 const feedItemCount = 6
 

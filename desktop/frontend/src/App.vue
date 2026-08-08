@@ -50,8 +50,6 @@ import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
 import { InstallUpdate, Status as UpdaterStatus } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
-import { Enabled as TerminalModeEnabled } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
-import { Enabled as AgentsModeEnabled } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/agentsservice'
 import { InboxItemFeed } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import type { NotificationActivation, NotificationToast, UpdateInfo } from '../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 import {
@@ -718,22 +716,6 @@ watch(() => route.fullPath, (path) => {
   else lastHubPath = path
 }, { immediate: true })
 
-// Terminal mode ships dark (experimental.terminal, ADR terminal-experimental-gate): until the probe
-// answers true, the toggle into it does not render at all. Availability is a
-// separate axis — an enabled-but-unavailable terminal explains itself inside
-// the mode. The Agents area follows the same shape behind experimental.agents
-// (ADR a-workspace-declares-its-own-authority).
-const terminalEnabled = ref(false)
-const agentsEnabled = ref(false)
-onMounted(() => {
-  void TerminalModeEnabled().then((enabled) => { terminalEnabled.value = enabled }).catch((error) => {
-    console.debug('Terminal enablement unavailable', error)
-  })
-  void AgentsModeEnabled().then((enabled) => { agentsEnabled.value = enabled }).catch((error) => {
-    console.debug('Agents enablement unavailable', error)
-  })
-})
-
 function setMode(next: 'hub' | 'terminal' | 'agents'): void {
   if (next === mode.value) return
   if (next === 'terminal') void router.push(lastTerminalPath || { name: 'terminal' })
@@ -1158,8 +1140,6 @@ onUnmounted(() => {
       <TitleBar
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
-        :terminal-enabled="terminalEnabled"
-        :agents-enabled="agentsEnabled"
         :activity-active="activityActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
@@ -1345,7 +1325,7 @@ onUnmounted(() => {
               @item-create-session="openNewSessionFromItem"
               @item-run-action="runItemAction"
             />
-            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :sessions="itemSessions" :can-attach-session="terminalEnabled" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @open-session="openItemSession" @edit="requestOpenActionsSettings" />
+            <DetailPane v-if="!previewCollapsed" :item="selectedItem" :events="selectedEvents" :actions="actions" :sessions="itemSessions" :pending-action="pendingAction" :action-runs="actionRuns" :source-icons="sourceIcons" :source-images="sourceImages" @run-action="invokeAction" @open-browser="openSelectedInBrowser" @open-url="openUrl" @set-unread="(value) => selectedItem && markItemUnread(selectedItem, value)" @toggle-archive="selectedItem && toggleArchive(selectedItem)" @toggle-ignored="selectedItem && toggleIgnored(selectedItem)" @copy-link="selectedItem && copyItemLink(selectedItem)" @copy-contents="selectedItem && copyItemContents(selectedItem)" @create-session="selectedItem && openNewSessionFromItem(selectedItem)" @open-session="openItemSession" @edit="requestOpenActionsSettings" />
           </section>
           <div v-else class="flex flex-1 flex-col items-center justify-center gap-3 font-mono text-xs text-text-4">
             <template v-if="profilesError">

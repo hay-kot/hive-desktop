@@ -1080,7 +1080,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.launcher.SetItemSessionLinker(a.Store, cfg.Logger)
 
 	var statusService *hive.StatusService
-	if cfg.MockMode == "" && cfg.Settings.Experimental.Terminal {
+	if cfg.MockMode == "" {
 		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path, a.execEnv.Environ))}
 		if hiveCfg.Tmux.CaptureRecording.Enabled {
 			recorder, recorderErr := terminaltmux.NewJSONCaptureRecorder(hiveCfg.TmuxCaptureRecordingsDir())

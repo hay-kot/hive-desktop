@@ -24,10 +24,6 @@ export function EditorSettings(): $CancellablePromise<$models.EditorSettings> {
     return $Call.ByID(4012793198);
 }
 
-export function ExperimentalSettings(): $CancellablePromise<$models.ExperimentalSettings> {
-    return $Call.ByID(1419259869);
-}
-
 /**
  * Fonts lists the families installed on this machine, for the app and terminal
  * font pickers. The webview cannot enumerate them itself — queryLocalFonts is
@@ -57,14 +53,6 @@ export function NotificationSettings(): $CancellablePromise<$models.Notification
  */
 export function SetEditor(command: string): $CancellablePromise<void> {
     return $Call.ByID(442973939, command);
-}
-
-export function SetExperimentalAgents(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
-    return $Call.ByID(324482454, enabled);
-}
-
-export function SetExperimentalTerminal(enabled: boolean): $CancellablePromise<$models.ExperimentalSettings> {
-    return $Call.ByID(1793440840, enabled);
 }
 
 export function SetFontFamily(family: string): $CancellablePromise<void> {

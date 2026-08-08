@@ -14,7 +14,7 @@ import type { InboxEvent, InboxItem } from '../types/feed'
 import type { ActionView } from '../types/action'
 import type { ActionRunView, ItemSessionView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
-const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; sessions?: ItemSessionView[]; canAttachSession?: boolean; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
+const props = defineProps<{ item: InboxItem | null; actions: ActionView[]; events?: InboxEvent[]; sessions?: ItemSessionView[]; pendingAction?: string | null; actionRuns?: Record<string, ActionRunView>; sourceIcons?: Record<string, string>; sourceImages?: Record<string, string> }>()
 const emit = defineEmits<{
   'run-action': [actionId: string]
   'open-browser': []
@@ -33,7 +33,7 @@ const emit = defineEmits<{
 // corrupted one has no tmux session to attach to, and its row stays a record
 // of what ran rather than a link.
 function attachable(session: ItemSessionView): boolean {
-  return !!props.canAttachSession && session.state === 'active'
+  return session.state === 'active'
 }
 
 const itemMenuToggle = ref<HTMLElement | null>(null)

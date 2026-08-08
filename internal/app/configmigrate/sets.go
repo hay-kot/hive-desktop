@@ -10,9 +10,13 @@ package configmigrate
 // a step to exercise the whole loader path at Current == Baseline (restore with
 // t.Cleanup).
 var (
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 1, AllowMissingVersion: true}
-	FlowSet     = Set{Name: "flow", Baseline: 1, Current: 1}
-	ActionsSet  = Set{Name: "actions", Baseline: 1, Current: 1}
+	// SettingsSet covers settings.yaml. Version 2 drops the `experimental`
+	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 2, AllowMissingVersion: true, Migrations: []Migration{
+		{To: 2, Migrate: dropExperimentalSection},
+	}}
+	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
+	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
 	// MCPLibrarySet covers mcps.yaml (internal/app/agentws) and is inert at
 	// Baseline == Current == 1: the shipped hive-desktop entry lives in the Go
 	// registry, so no user library needed rewriting for it.
@@ -23,6 +27,16 @@ var (
 		{To: 2, Migrate: renameHTTPAPISkill},
 	}}
 )
+
+// dropExperimentalSection deletes the `experimental` key.
+//
+// The settings decoder is strict, so a file carrying the section a user opted
+// into — the only files that carry it, since it marshals with omitempty —
+// would fail startup outright once the struct is gone.
+func dropExperimentalSection(doc map[string]any) error {
+	delete(doc, "experimental")
+	return nil
+}
 
 // renameHTTPAPISkill rewrites the retired hive-http-api skill slug to hive-mcp.
 //

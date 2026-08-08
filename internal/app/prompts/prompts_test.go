@@ -266,9 +266,9 @@ func TestRenderIsDeterministic(t *testing.T) {
 // the same strict decoder the app loads settings.yaml with. The block is
 // hand-written prose rather than generated from the struct, so it is the one
 // prompt that can drift without any other test noticing — and it did: it
-// documented a `webhooks:` section that has never existed, said the listener
-// defaulted off when it defaults on, and omitted `experimental:` entirely, so an
-// agent following it wrote a file the app rejects.
+// documented a `webhooks:` section that has never existed and said the listener
+// defaulted off when it defaults on, so an agent following it wrote a file the
+// app rejects.
 func TestSettingsPromptSchemaParses(t *testing.T) {
 	prompt, err := newTestService(t).Render("settings", testInput())
 	require.NoError(t, err)
@@ -285,9 +285,6 @@ func TestSettingsPromptSchemaParses(t *testing.T) {
 	defaults := settings.DefaultSettings()
 	assert.True(t, cfg.HTTP.Enabled, "schema shows http.enabled: true")
 	assert.Equal(t, defaults.HTTP.Enabled, cfg.HTTP.Enabled, "http default drifted from the schema block")
-	assert.False(t, cfg.Experimental.Terminal, "schema shows experimental.terminal: false")
-	assert.False(t, cfg.Experimental.Agents, "schema shows experimental.agents: false")
-	assert.Equal(t, defaults.Experimental, cfg.Experimental, "experimental defaults drifted from the schema block")
 }
 
 // fencedBlock returns the first ```<lang> block in text.
