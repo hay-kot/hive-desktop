@@ -186,10 +186,12 @@ func (r *Resolver) LookPath(ctx context.Context, name string) (string, error) {
 
 // shellSessionVars describe the probe shell's own process rather than anything
 // a child should inherit: its nesting depth, its last command, its directory,
-// the terminal it did not have, and the tmux client it was attached to. Copying
-// TMUX in particular tells a spawned process it is inside a tmux client that it
-// is not. The list is closed because these are wrong by construction — every
-// other variable a startup file exports is adopted
+// the terminal it did not have, the tmux client it was attached to, and the
+// shell it is — Options.Shell picks what gets probed, which need not be the
+// shell a child should be told the user runs. Copying TMUX in particular tells
+// a spawned process it is inside a tmux client that it is not. The list is
+// closed because these are wrong by construction — every other variable a
+// startup file exports is adopted
 // (ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path).
 var shellSessionVars = map[string]bool{
 	"SHLVL": true, "_": true,

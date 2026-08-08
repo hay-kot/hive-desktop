@@ -3,9 +3,11 @@ package execenv
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -190,17 +192,28 @@ func TestEnvironPrefersThisProcessOverTheShell(t *testing.T) {
 
 	env := environMap(t, r.Environ(t.Context()))
 	assert.Equal(t, "from-launch", env["HIVE_EXECENV_OVERRIDE"])
-	assert.Empty(t, env["HIVE_EXECENV_OPT_OUT"], "an explicit opt-out is not refilled by a startup file")
+	optOut, present := env["HIVE_EXECENV_OPT_OUT"]
+	require.True(t, present, "the empty assignment itself reaches the child; unset would mean something else")
+	assert.Empty(t, optOut, "an explicit opt-out is not refilled by a startup file")
 }
 
 // These describe the probe shell's own session, not the child's. TMUX is the
 // one that does damage: it tells a spawned process it is inside a tmux client
 // that it is not.
 func TestEnvironDropsTheProbeShellsSessionVariables(t *testing.T) {
-	// Synthetic values, so a variable this process happens to share with the
-	// probe (TERM, PWD, SHELL) cannot make the assertion pass by coincidence.
+	// The literal list, not the production map: a test that ranges over
+	// shellSessionVars loses an entry's coverage the moment the entry is
+	// dropped, which is the regression it exists to catch.
+	names := []string{"SHLVL", "_", "PWD", "OLDPWD", "TERM", "TMUX", "TMUX_PANE", "SHELL"}
+	require.ElementsMatch(t, names, slices.Collect(maps.Keys(shellSessionVars)))
+
+	// A name this process defines is blocked by precedence before the denylist
+	// is consulted, so each one is made absent to leave the denylist standing
+	// alone — most of these are defined in any environment that runs go test.
 	probed := map[string]string{"PATH": "/opt/tools/bin", "HIVE_EXECENV_MARKER": "adopted"}
-	for name := range shellSessionVars {
+	for _, name := range names {
+		t.Setenv(name, "restored-after")
+		require.NoError(t, os.Unsetenv(name))
 		probed[name] = "probe-shell-" + name
 	}
 	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
@@ -209,8 +222,9 @@ func TestEnvironDropsTheProbeShellsSessionVariables(t *testing.T) {
 
 	env := environMap(t, r.Environ(t.Context()))
 	require.Equal(t, "adopted", env["HIVE_EXECENV_MARKER"], "a variable outside the list is still adopted")
-	for name := range shellSessionVars {
-		assert.NotEqual(t, probed[name], env[name], "%s describes the probe shell, not the child", name)
+	for _, name := range names {
+		_, present := env[name]
+		assert.False(t, present, "%s describes the probe shell, not the child", name)
 	}
 }
 
@@ -307,13 +321,23 @@ func TestShellEnvironmentKeepsMultiLineValuesWhole(t *testing.T) {
 		"#!/bin/sh\n"+
 			"echo 'sourcing rc: mode=verbose'\n"+
 			"printf 'PATH=/opt/tools/bin\\n'\n"+
-			"printf 'GREETING=hello\\nworld\\n'\n"), 0o755))
+			"printf 'GREETING=hello\\nnote: level=verbose\\nworld\\n'\n"), 0o755))
 
 	env, err := shellEnvironment(t.Context(), shell)
 	require.NoError(t, err)
-	assert.Equal(t, "hello\nworld", env["GREETING"])
+	assert.Equal(t, "hello\nnote: level=verbose\nworld", env["GREETING"],
+		"a continuation line holding an = still belongs to the open value")
 	assert.NotContains(t, env, "sourcing rc: mode", "printed noise is not an assignment")
 	assert.Len(t, env, 2)
+}
+
+func TestIsEnvName(t *testing.T) {
+	assert.True(t, isEnvName("EDITOR"))
+	assert.True(t, isEnvName("_MISE_2"))
+	assert.False(t, isEnvName(""))
+	assert.False(t, isEnvName("2FA"), "a leading digit is not a name")
+	assert.False(t, isEnvName("BASH_FUNC_greet%%"))
+	assert.False(t, isEnvName("café"), "multi-byte runes are not portable names")
 }
 
 func TestShellEnvironmentFailsWhenTheShellReportsNothing(t *testing.T) {
