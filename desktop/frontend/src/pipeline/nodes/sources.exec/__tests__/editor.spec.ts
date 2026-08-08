@@ -1,10 +1,43 @@
-import { describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 import Editor from '../editor.vue'
 import { defaults, validate, type Config } from '../config'
+import type { MarkImageClient } from '../../../fields'
+
+// The picker's FileReader read is stubbed: its callback is not a microtask, so
+// flushPromises would not await it. The bytes are the backend's concern anyway.
+const mocks = vi.hoisted(() => ({ fileToImageBase64: vi.fn() }))
+
+vi.mock('../../../../lib/imageUpload', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../../lib/imageUpload')>(),
+  fileToImageBase64: mocks.fileToImageBase64,
+}))
+
+beforeEach(() => {
+  mocks.fileToImageBase64.mockReset()
+  mocks.fileToImageBase64.mockResolvedValue('PICKED')
+})
 
 function config(overrides: Partial<Config> = {}): Config {
   return { command: 'gcx alerts list -o json', timeout: '30s', ...overrides }
+}
+
+function fakeClient(overrides: Partial<MarkImageClient> = {}): MarkImageClient {
+  return {
+    async setMarkImage(data: string) {
+      return { hash: 'a'.repeat(32), image: `data:image/png;base64,${data}` }
+    },
+    async markImage() {
+      return undefined
+    },
+    ...overrides,
+  }
+}
+
+function selectMarkFile(wrapper: ReturnType<typeof mount>, file: File): Promise<void> {
+  const input = wrapper.get('[data-testid="sources.exec-editor-mark-input"]').element as HTMLInputElement
+  Object.defineProperty(input, 'files', { value: [file], configurable: true })
+  return wrapper.get('[data-testid="sources.exec-editor-mark-input"]').trigger('change')
 }
 
 function typeInto(wrapper: ReturnType<typeof mount>, testid: string, value: string) {
@@ -65,6 +98,43 @@ describe('sources.exec editor', () => {
 
     expect(wrapper.emitted('update:config')).toEqual([[{ command: 'gcx alerts list -o json', timeout: '30s', env: undefined }]])
   })
+
+  it('uploads a picked mark image and emits its hash into the config', async () => {
+    const props = { config: config(), client: fakeClient() }
+    const wrapper = mount(Editor, { props })
+    await flushPromises()
+
+    // The preview falls back to the glyph while no image is set.
+    expect(wrapper.find('[data-testid="sources.exec-editor-mark-preview"] img').exists()).toBe(false)
+
+    await selectMarkFile(wrapper, new File([Uint8Array.from([1, 2, 3])], 'logo.png', { type: 'image/png' }))
+    await flushPromises()
+
+    const emitted = wrapper.emitted('update:config') as [[Config]]
+    expect(emitted.at(-1)![0].image).toBe('a'.repeat(32))
+    expect(wrapper.get('[data-testid="sources.exec-editor-mark-preview"] img').attributes('src')).toContain('data:image/png;base64,')
+    expect(props.config.image).toBeUndefined()
+  })
+
+  it('previews an already-configured image by resolving its hash', async () => {
+    const client = fakeClient({ async markImage() { return 'data:image/png;base64,STORED' } })
+    const wrapper = mount(Editor, { props: { config: config({ image: 'b'.repeat(32) }), client } })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="sources.exec-editor-mark-preview"] img').attributes('src')).toBe('data:image/png;base64,STORED')
+  })
+
+  it('removes the mark image, emitting a config with no image', async () => {
+    const client = fakeClient({ async markImage() { return 'data:image/png;base64,STORED' } })
+    const wrapper = mount(Editor, { props: { config: config({ image: 'b'.repeat(32) }), client } })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="sources.exec-editor-mark-remove"]').trigger('click')
+
+    const emitted = wrapper.emitted('update:config') as [[Config]]
+    expect(emitted.at(-1)![0].image).toBeUndefined()
+    expect(wrapper.find('[data-testid="sources.exec-editor-mark-preview"] img').exists()).toBe(false)
+  })
 })
 
 describe('sources.exec validate', () => {
@@ -84,7 +154,11 @@ describe('sources.exec validate', () => {
     expect(validate(config({ cwd: 'src/repo' }))).toEqual(['cwd must be an absolute path'])
   })
 
+  it('rejects a mark reference that is not a content hash', () => {
+    expect(validate(config({ image: 'nope' }))).toEqual(['image is not a valid mark reference'])
+  })
+
   it('accepts a complete config', () => {
-    expect(validate(config({ cwd: '~/src', interval: '1h', env: { TOKEN: 'x' } }))).toEqual([])
+    expect(validate(config({ cwd: '~/src', interval: '1h', env: { TOKEN: 'x' }, image: 'b'.repeat(32) }))).toEqual([])
   })
 })

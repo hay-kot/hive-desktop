@@ -37,6 +37,9 @@ func TestConfigValidate(t *testing.T) {
 		"bad env name":        {func(c *Config) { c.Env = map[string]string{"A=B": "c"} }, "not a usable variable name"},
 		"good env":            {func(c *Config) { c.Env = map[string]string{"TOKEN": "x"} }, ""},
 		"interval is a floor": {func(c *Config) { c.Interval = connector.Duration(time.Hour) }, ""},
+		"image":               {func(c *Config) { c.Image = "0123456789abcdef0123456789abcdef" }, ""},
+		"uppercase image":     {func(c *Config) { c.Image = "0123456789ABCDEF0123456789abcdef" }, "not a valid mark reference"},
+		"short image":         {func(c *Config) { c.Image = "0123" }, "not a valid mark reference"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

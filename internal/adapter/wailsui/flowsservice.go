@@ -109,6 +109,53 @@ func (s *FlowsService) ClearProfileImage(ctx context.Context, id string) (FlowSu
 	return s.summaryWithImage(ctx, f), nil
 }
 
+// MarkImageView is a stored feed-mark image: the content Hash a source node
+// records in its config and the normalized PNG as a data URL for preview.
+type MarkImageView struct {
+	Hash  string `json:"hash"`
+	Image string `json:"image"`
+}
+
+// SetMarkImage stores an uploaded feed-mark image (base64, bare or a data: URL)
+// and returns its hash and stored PNG for preview. The hash reaches the flow
+// through the node editor's ordinary graph save.
+func (s *FlowsService) SetMarkImage(ctx context.Context, data string) (MarkImageView, error) {
+	raw, err := decodeImagePayload(data)
+	if err != nil {
+		return MarkImageView{}, err
+	}
+	hash, err := s.flows.StoreMarkImage(ctx, raw)
+	if err != nil {
+		return MarkImageView{}, err
+	}
+	return MarkImageView{Hash: hash, Image: s.markDataURL(ctx, hash)}, nil
+}
+
+// MarkImages resolves feed-mark hashes to PNG data URLs. A hash with no stored
+// file is omitted, so the feed falls back to the glyph.
+func (s *FlowsService) MarkImages(ctx context.Context, hashes []string) (map[string]string, error) {
+	out := make(map[string]string, len(hashes))
+	for _, hash := range hashes {
+		if _, done := out[hash]; done {
+			continue
+		}
+		if url := s.markDataURL(ctx, hash); url != "" {
+			out[hash] = url
+		}
+	}
+	return out, nil
+}
+
+// markDataURL reads a stored mark PNG as a data URL, or "" when the hash
+// resolves to no file.
+func (s *FlowsService) markDataURL(ctx context.Context, hash string) string {
+	data, ok, err := s.flows.MarkImage(ctx, hash)
+	if err != nil || !ok || len(data) == 0 {
+		return ""
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
+}
+
 func (s *FlowsService) GetLayout(ctx context.Context, id string) flow.Layout {
 	return s.flows.Layout(ctx, id)
 }

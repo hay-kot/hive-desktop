@@ -53,6 +53,14 @@ export function ListFlows(): $CancellablePromise<$models.FlowSummary[] | null> {
     return $Call.ByID(993012807);
 }
 
+/**
+ * MarkImages resolves feed-mark hashes to PNG data URLs. A hash with no stored
+ * file is omitted, so the feed falls back to the glyph.
+ */
+export function MarkImages(hashes: string[] | null): $CancellablePromise<{ [_ in string]?: string } | null> {
+    return $Call.ByID(1055401325, hashes);
+}
+
 export function RenameFlow(id: string, name: string): $CancellablePromise<$models.FlowSummary> {
     return $Call.ByID(3264506312, id, name);
 }
@@ -79,6 +87,15 @@ export function SeedStarterFlow(id: string): $CancellablePromise<$models.FlowSum
 
 export function SetFlowEnabled(id: string, enabled: boolean): $CancellablePromise<$models.FlowSummary> {
     return $Call.ByID(2806455367, id, enabled);
+}
+
+/**
+ * SetMarkImage stores an uploaded feed-mark image (base64, bare or a data: URL)
+ * and returns its hash and stored PNG for preview. The hash reaches the flow
+ * through the node editor's ordinary graph save.
+ */
+export function SetMarkImage(data: string): $CancellablePromise<$models.MarkImageView> {
+    return $Call.ByID(651580596, data);
 }
 
 /**

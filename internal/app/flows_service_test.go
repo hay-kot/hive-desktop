@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
@@ -15,6 +16,8 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/exec"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/stretchr/testify/assert"
@@ -67,43 +70,49 @@ func pngBytes(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// webhookServiceFlow is a minimal flow with one webhook source wired to a feed,
-// so the node-image methods have a real sources.webhook node to target.
-func webhookServiceFlow() flow.Flow {
+// markableSourceFlow is a minimal flow carrying one of each source that can
+// hold an image mark, wired to a feed, so the node-image methods have real
+// nodes to target.
+func markableSourceFlow() flow.Flow {
 	return flow.Flow{
 		ID: "hooks", Name: "Hooks", Enabled: true,
 		Nodes: []flow.Node{
 			{ID: "hook", Type: "sources.webhook", Config: flow.NewSourceConfig(webhook.Descriptor.Type, &webhook.Config{Path: "ci"})},
+			{ID: "run", Type: "sources.exec", Config: flow.NewSourceConfig(exec.Descriptor.Type, &exec.Config{Command: "echo '[]'", Timeout: connector.Duration(30 * time.Second)})},
 			{ID: "inbox", Type: "feed", Name: "Inbox", Config: &flow.FeedConfig{}},
 		},
-		Wires: []flow.Wire{{From: "hook", To: "inbox"}},
+		Wires: []flow.Wire{{From: "hook", To: "inbox"}, {From: "run", To: "inbox"}},
 	}
 }
 
 func TestFlowsServiceNodeImageLifecycle(t *testing.T) {
-	flows := flow.NewFlowStore(t.TempDir(), nil)
-	require.NoError(t, flows.Save(webhookServiceFlow()))
-	updates := 0
-	service := newFlowsService(flows, nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), func() { updates++ })
+	for _, nodeID := range []string{"hook", "run"} {
+		t.Run(nodeID, func(t *testing.T) {
+			flows := flow.NewFlowStore(t.TempDir(), nil)
+			require.NoError(t, flows.Save(markableSourceFlow()))
+			updates := 0
+			service := newFlowsService(flows, nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), func() { updates++ })
 
-	hash, err := service.SetNodeImage(t.Context(), "hooks", "hook", pngBytes(t))
-	require.NoError(t, err)
-	assert.True(t, sourcemark.ValidHash(hash))
-	assert.Equal(t, 1, updates, "setting a node image notifies")
+			hash, err := service.SetNodeImage(t.Context(), "hooks", nodeID, pngBytes(t))
+			require.NoError(t, err)
+			assert.True(t, sourcemark.ValidHash(hash))
+			assert.Equal(t, 1, updates, "setting a node image notifies")
 
-	data, err := service.NodeImage(t.Context(), "hooks", "hook")
-	require.NoError(t, err)
-	assert.NotEmpty(t, data)
+			data, err := service.NodeImage(t.Context(), "hooks", nodeID)
+			require.NoError(t, err)
+			assert.NotEmpty(t, data)
 
-	require.NoError(t, service.ClearNodeImage(t.Context(), "hooks", "hook"))
-	data, err = service.NodeImage(t.Context(), "hooks", "hook")
-	require.NoError(t, err)
-	assert.Nil(t, data, "a cleared node reads as no image")
+			require.NoError(t, service.ClearNodeImage(t.Context(), "hooks", nodeID))
+			data, err = service.NodeImage(t.Context(), "hooks", nodeID)
+			require.NoError(t, err)
+			assert.Nil(t, data, "a cleared node reads as no image")
+		})
+	}
 }
 
 func TestFlowsServiceNodeImageErrorKinds(t *testing.T) {
 	flows := flow.NewFlowStore(t.TempDir(), nil)
-	require.NoError(t, flows.Save(webhookServiceFlow()))
+	require.NoError(t, flows.Save(markableSourceFlow()))
 	service := newFlowsService(flows, nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
 
 	_, err := service.SetNodeImage(t.Context(), "nope", "hook", pngBytes(t))
@@ -113,10 +122,39 @@ func TestFlowsServiceNodeImageErrorKinds(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err), "unknown node is not-found")
 
 	_, err = service.SetNodeImage(t.Context(), "hooks", "inbox", pngBytes(t))
-	assert.Equal(t, KindInvalid, KindOf(err), "a non-webhook node cannot carry an image")
+	assert.Equal(t, KindInvalid, KindOf(err), "a node with no image mark cannot carry one")
 
 	_, err = service.SetNodeImage(t.Context(), "hooks", "hook", []byte("not an image"))
 	assert.Equal(t, KindInvalid, KindOf(err), "an undecodable image is rejected")
+}
+
+// The editor's two-step path: the bytes are stored before the graph save that
+// records the hash, so the store must round-trip without a flow.
+func TestFlowsServiceMarkImageRoundTrip(t *testing.T) {
+	service := newFlowsService(flow.NewFlowStore(t.TempDir(), nil), nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
+
+	hash, err := service.StoreMarkImage(t.Context(), pngBytes(t))
+	require.NoError(t, err)
+	require.True(t, sourcemark.ValidHash(hash))
+
+	data, ok, err := service.MarkImage(t.Context(), hash)
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.NotEmpty(t, data)
+
+	// A hash with no stored file resolves as absent, not an error — the feed
+	// falls back to the glyph.
+	_, ok, err = service.MarkImage(t.Context(), "0123456789abcdef0123456789abcdef")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+func TestFlowsServiceStoreMarkImageRejectsBadInput(t *testing.T) {
+	service := newFlowsService(flow.NewFlowStore(t.TempDir(), nil), nil, seededCreds(t), testImages(t), testMarks(t), testScripts(), nil)
+
+	_, err := service.StoreMarkImage(t.Context(), []byte("not an image"))
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
 func TestFlowsServiceDeleteFlowPurgesPipelineStateAndRetriesMissingFiles(t *testing.T) {

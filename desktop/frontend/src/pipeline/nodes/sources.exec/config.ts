@@ -16,6 +16,8 @@ export interface Config {
   /** Go duration string: the shortest time between runs. */
   interval?: string
   icon?: string
+  /** Content hash of an uploaded image shown as the feed mark instead of `icon`. */
+  image?: string
 }
 
 export const label = 'Command source'
@@ -50,5 +52,7 @@ export function validate(config: Config): string[] {
   if (cwd && !cwd.startsWith('/') && cwd !== '~' && !cwd.startsWith('~/')) {
     errors.push('cwd must be an absolute path')
   }
+
+  if (config.image && !/^[0-9a-f]{32}$/.test(config.image)) errors.push('image is not a valid mark reference')
   return errors
 }

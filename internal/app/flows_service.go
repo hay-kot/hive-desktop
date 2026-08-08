@@ -329,6 +329,27 @@ func (s *FlowsService) NodeImage(_ context.Context, flowID, nodeID string) ([]by
 	return data, nil
 }
 
+// StoreMarkImage normalizes raw into a feed-mark PNG, stores it, and returns its
+// content hash — the value a source node records in its `image` config. It does
+// not touch the flow; the graph save records the hash.
+func (s *FlowsService) StoreMarkImage(_ context.Context, raw []byte) (string, error) {
+	hash, err := s.marks.Set(raw)
+	if err != nil {
+		return "", mapMarkImageError(err)
+	}
+	return hash, nil
+}
+
+// MarkImage returns the stored PNG for a mark hash, or ok=false when none is
+// stored. A missing or malformed reference is not an error.
+func (s *FlowsService) MarkImage(_ context.Context, hash string) (data []byte, ok bool, err error) {
+	data, ok, err = s.marks.Get(hash)
+	if err != nil {
+		return nil, false, Wrap(err, KindInternal, "reading mark image %q", hash)
+	}
+	return data, ok, nil
+}
+
 // mapNodeImageError maps the flow store's node-image sentinels onto app kinds.
 func mapNodeImageError(err error, flowID, nodeID string) error {
 	switch {
@@ -337,9 +358,23 @@ func mapNodeImageError(err error, flowID, nodeID string) error {
 	case errors.Is(err, flow.ErrNodeNotFound):
 		return Errorf(KindNotFound, "node %q not found in profile %q", nodeID, flowID)
 	case errors.Is(err, flow.ErrNodeNotImageMarkable):
-		return Errorf(KindInvalid, "node %q does not support an image mark (only webhook sources do)", nodeID)
+		return Errorf(KindInvalid, "node %q does not support an image mark (only webhook and command sources do)", nodeID)
 	default:
 		return Wrap(err, KindInvalid, "setting image for node %q in profile %q", nodeID, flowID)
+	}
+}
+
+// mapMarkImageError turns a normalization failure into a user-facing message.
+func mapMarkImageError(err error) error {
+	switch {
+	case errors.Is(err, sourcemark.ErrEmpty):
+		return Errorf(KindInvalid, "No image was provided.")
+	case errors.Is(err, sourcemark.ErrUnsupported):
+		return Errorf(KindInvalid, "That file isn't a supported image. Use PNG, JPEG, GIF, or WebP.")
+	case errors.Is(err, sourcemark.ErrTooLarge):
+		return Errorf(KindInvalid, "That image is too large. Choose a smaller file.")
+	default:
+		return Wrap(err, KindInternal, "processing image")
 	}
 }
 

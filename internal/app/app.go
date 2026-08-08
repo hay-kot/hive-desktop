@@ -373,7 +373,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.System = newSystemService(cfg.Paths)
-	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
+	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.PostHog = newPostHogService(a.posthogAuth)

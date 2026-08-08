@@ -637,14 +637,21 @@ editor: `FlowStore.Save` preserves whatever the loaded flow declares, since the
 editor round-trips only `{id, name, enabled, nodes, wires}` and would otherwise
 drop the key.
 
-A webhook source's image mark (ADR webhook-source-image-marks) is the same asset shape with the
+A source node's image mark (ADR webhook-source-image-marks) is the same asset shape with the
 reference in a different place. Its normalized PNG is app-local state
 (`internal/app/sourcemark`), keyed by **content hash** rather than by id because
-it is uploaded before the graph save that records it; the webhook node's
+it is uploaded before the graph save that records it; the node's
 `image:` config carries that hash and round-trips through the editor like any
 other node field, so — unlike the profile avatar — it needs no preserve-on-save
 seam. A missing file falls back to the node's glyph, the same tolerance, and
 orphaned blobs are left in place rather than reference-counted.
+
+Carrying a mark is a **structural capability, not a connector list**: a
+connector config that implements `MarkImage()`/`SetMarkImage(hash)` gets one,
+which is how `flow.FlowStore.SetSourceImage` mutates it without naming a
+connector and how the `sources.exec` and `sources.webhook` editors share one
+picker (`pipeline/fields/MarkImageField.vue`) over one pair of RPCs on
+`FlowsService`.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
 `notifications`, `appearance`, `http`, `keybindings`, `skills`, and
