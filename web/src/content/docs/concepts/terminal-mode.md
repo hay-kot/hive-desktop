@@ -7,17 +7,9 @@ order: 1
 
 Terminal mode attaches to the **tmux session** behind a Hive session and lists
 its windows in the sidebar, so the agent you launched from the feed is readable
-without leaving the app. It is **experimental** and ships off.
+without leaving the app.
 
-## Turning it on
-
-Settings ▸ Terminal ▸ **Terminal mode**, then **relaunch Hive** —
-the flag is read once at startup. The same edit in `settings.yaml`:
-
-```yaml
-experimental:
-  terminal: true
-```
+## What it needs
 
 Two things have to be true for it to work, and the mode says which one is
 missing when it isn't:
@@ -27,8 +19,8 @@ missing when it isn't:
 - **The local HTTP server is on** — `http: {enabled: true}`, the default. The
   terminal's transport rides that server; with no server there is no terminal.
 
-Once it's on, the title bar carries a **Hub | Terminal** switch. The sidebar
-lists your sessions, and picking one attaches to it.
+The title bar carries an **Inbox | Code** switch. The sidebar lists your
+sessions, and picking one attaches to it.
 
 ## The scratch terminal
 

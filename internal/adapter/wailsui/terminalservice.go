@@ -39,25 +39,15 @@ type TerminalService struct {
 	terminals *app.TerminalsService
 	webhooks  *app.WebhookService
 	transport TerminalTransport
-	enabled   bool
 }
 
-func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookService, transport TerminalTransport, enabled bool) *TerminalService {
-	return &TerminalService{terminals: terminals, webhooks: webhooks, transport: transport, enabled: enabled}
+func NewTerminalService(terminals *app.TerminalsService, webhooks *app.WebhookService, transport TerminalTransport) *TerminalService {
+	return &TerminalService{terminals: terminals, webhooks: webhooks, transport: transport}
 }
-
-// Enabled reports the experimental.terminal opt-in (ADR terminal-experimental-gate). The frontend
-// renders the way into terminal mode only when it is on; availability stays a
-// separate axis, because an enabled-but-unavailable terminal explains itself
-// inside the mode instead of hiding the way in.
-func (s *TerminalService) Enabled(ctx context.Context) bool { return s.enabled }
 
 // Available answers even when the loopback server is down, which is why it
 // composes tmux availability with the transport's own reachability.
 func (s *TerminalService) Available(ctx context.Context) TerminalAvailability {
-	if !s.enabled {
-		return TerminalAvailability{Reason: "Terminal mode is off. Turn it on in Settings ▸ Terminal, then relaunch Hive."}
-	}
 	if err := s.terminals.Available(ctx); err != nil {
 		return TerminalAvailability{Reason: reasonFor(err)}
 	}

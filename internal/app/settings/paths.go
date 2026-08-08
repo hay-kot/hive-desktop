@@ -22,14 +22,10 @@ const (
 	EnvHTTPEnabled = "HIVE_DESKTOP_HTTP_ENABLED"
 	EnvHTTPPort    = "HIVE_DESKTOP_HTTP_PORT"
 
-	EnvExperimentalTerminal = "HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"
-	EnvExperimentalAgents   = "HIVE_DESKTOP_EXPERIMENTAL_AGENTS"
-
 	// EnvAgentWorkspacesDir is the environment name behind
 	// agent_workspaces.dir. Named here, duplicating the settings.go struct
 	// tag, because a struct tag cannot reference a const and startup reports
-	// provenance by name — the same duplication EnvExperimentalTerminal
-	// already carries for experimental.terminal.
+	// provenance by name.
 	EnvAgentWorkspacesDir = "HIVE_DESKTOP_AGENT_WORKSPACES_DIR"
 
 	EnvPerfEnabled = "HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"

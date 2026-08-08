@@ -129,17 +129,6 @@ export interface EditorSettings {
 }
 
 /**
- * ExperimentalSettings carries the ships-dark opt-ins (ADR terminal-experimental-gate). Each field
- * is the effective persisted value, not the running one: the flag is read at
- * startup, so the frontend compares it against TerminalService.Enabled /
- * AgentsService.Enabled to know whether a relaunch is pending.
- */
-export interface ExperimentalSettings {
-    "terminal": boolean;
-    "agents": boolean;
-}
-
-/**
  * FlowSummary is one flow file's listing row: identity plus load status, so a
  * broken flow file shows up with its error instead of silently vanishing.
  */

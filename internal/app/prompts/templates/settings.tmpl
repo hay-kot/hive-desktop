@@ -2,8 +2,8 @@ Configure Hive Desktop's application settings.
 {{template "app" .}}
 Edit {{.Env.SettingsPath}}. Every key is optional; omitted values use safe
 compiled defaults. The app reloads user-facing settings on save. The HTTP
-listener, the experimental flags, and the development listeners are startup
-configuration: they are read once and take effect on the next launch.
+listener and the development listeners are startup configuration: they are
+read once and take effect on the next launch.
 
 ## Schema
 
@@ -53,10 +53,6 @@ editor:
                            # on a directory (zed, code, cursor, subl, or a path);
                            # "" means none configured
 
-experimental:              # features that ship dark; both default to false
-  terminal: false          # Code mode: tmux-backed terminal sessions
-  agents: false            # Agents mode: agent workspaces and chats
-
 agent_workspaces:
   dir: ""                  # workspace root; empty is the config dir's workspaces/.
                            # A leading ~ is expanded at read time.
@@ -85,7 +81,6 @@ development:
 - `version` is written and migrated by the app. Do not add or edit it.
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
-- `http` is on by default. `development.pprof` and both `experimental` flags default off. Configured listener hosts must be loopback.
-- Turning an `experimental` flag on or off takes effect on the next launch, not on save.
+- `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
 - `keybindings` has its own command-id vocabulary and combo syntax. Use the "Keyboard shortcuts" prompt for that section rather than guessing ids.
 {{template "task" .}}

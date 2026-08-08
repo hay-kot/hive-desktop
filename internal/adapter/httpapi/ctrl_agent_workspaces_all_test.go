@@ -13,7 +13,7 @@ import (
 // other agent-workspace route (ADR a-workspace-declares-its-own-authority) — it sits in the same operations
 // table, but this proves the wiring rather than assuming it.
 func TestAgentSessionsAllRequiresTheBearerToken(t *testing.T) {
-	h := newAgentHarness(t, true)
+	h := newAgentHarness(t)
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"sessions/all", "", struct{}{})
 	_ = resp.Body.Close()
@@ -32,7 +32,7 @@ func TestAgentSessionsAllRequiresTheBearerToken(t *testing.T) {
 // frontend calls .length on it unconditionally, the same rule
 // TestAgentWireArraysAreNeverNull proves for the other list responses.
 func TestAgentSessionsAllListsOverTheWireAsAnEmptyArray(t *testing.T) {
-	h := newAgentHarness(t, true)
+	h := newAgentHarness(t)
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"sessions/all", testToken, struct{}{})
 	defer func() { _ = resp.Body.Close() }()
@@ -42,15 +42,4 @@ func TestAgentSessionsAllListsOverTheWireAsAnEmptyArray(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
 	assert.NotNil(t, body.Sessions, "sessions must be [] on the wire, never null")
 	assert.Empty(t, body.Sessions)
-}
-
-// Off means the route does not exist, not that it needs auth — the same
-// ADR terminal-experimental-gate point 2 rule TestAgentRoutesAbsentWhenDisabled proves for the rest
-// of the agent-workspace surface.
-func TestAgentSessionsAllRouteAbsentWhenDisabled(t *testing.T) {
-	h := newAgentHarness(t, false)
-
-	resp := h.post(t, AgentWorkspacesPathPrefix+"sessions/all", testToken, struct{}{})
-	_ = resp.Body.Close()
-	assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 }

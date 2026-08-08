@@ -57,7 +57,6 @@ export type {
     BuildInfo,
     EditorChoice,
     EditorSettings,
-    ExperimentalSettings,
     FlowSummary,
     GithubSettings,
     InstalledFonts,

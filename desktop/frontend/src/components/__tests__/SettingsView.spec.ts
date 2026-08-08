@@ -208,7 +208,7 @@ describe('SettingsView', () => {
 
   it('opens Grafana integration settings from the cog', async () => {
     listIntegrations.mockResolvedValue([
-      { key: 'grafana', title: 'Grafana', stability: 'experimental', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts: [], envOverride: false },
+      { key: 'grafana', title: 'Grafana', stability: 'stable', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, {
       props: { activeCategory: 'integrations' },

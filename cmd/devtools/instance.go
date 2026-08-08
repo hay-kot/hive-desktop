@@ -35,8 +35,6 @@ var launchKeys = []string{
 	settings.EnvLogLevel,
 	settings.EnvHTTPEnabled,
 	settings.EnvHTTPPort,
-	settings.EnvExperimentalTerminal,
-	settings.EnvExperimentalAgents,
 	settings.EnvPerfEnabled,
 	"WAILS_VITE_HOST",
 	"WAILS_VITE_PORT",
@@ -205,29 +203,21 @@ func (d *devtools) prepare(fresh bool) error {
 	// after launch.env.
 	proxyListen := devproxy.ListenFromConfig(d.worktree)
 
-	// Every ships-dark opt-in (ADR terminal-experimental-gate) is on here. A feature gated off in
-	// development is one nobody exercises while it is being built, and an
-	// absent flag presents as the feature being broken rather than switched
-	// off — the Agents area's routes simply do not mount, so a session cannot
-	// launch and nothing says why. Opting out is the same variable set false in
-	// the gitignored overrides.env, which mise loads after launch.env.
 	env := map[string]string{
-		settings.EnvDataDir:              dataDir,
-		settings.EnvHiveDataDir:          sourcePaths.DataDir,
-		settings.EnvConfigDir:            configDir,
-		settings.EnvAgentWorkspacesDir:   agentWorkspacesDir,
-		settings.EnvGitHubAPIBase:        devproxy.BaseURL(proxyListen),
-		settings.EnvLogLevel:             "debug",
-		settings.EnvHTTPEnabled:          "true",
-		settings.EnvHTTPPort:             strconv.Itoa(webhookPort),
-		settings.EnvExperimentalTerminal: "true",
-		settings.EnvExperimentalAgents:   "true",
-		settings.EnvPerfEnabled:          "true",
-		"WAILS_VITE_HOST":                cfg.Development.Vite.Host,
-		"WAILS_VITE_PORT":                strconv.Itoa(vitePort),
-		"WAILS_SERVER_HOST":              cfg.Development.Wails.Host,
-		"WAILS_SERVER_PORT":              strconv.Itoa(wailsPort),
-		launchMarkerEnv:                  d.launchPath,
+		settings.EnvDataDir:            dataDir,
+		settings.EnvHiveDataDir:        sourcePaths.DataDir,
+		settings.EnvConfigDir:          configDir,
+		settings.EnvAgentWorkspacesDir: agentWorkspacesDir,
+		settings.EnvGitHubAPIBase:      devproxy.BaseURL(proxyListen),
+		settings.EnvLogLevel:           "debug",
+		settings.EnvHTTPEnabled:        "true",
+		settings.EnvHTTPPort:           strconv.Itoa(webhookPort),
+		settings.EnvPerfEnabled:        "true",
+		"WAILS_VITE_HOST":              cfg.Development.Vite.Host,
+		"WAILS_VITE_PORT":              strconv.Itoa(vitePort),
+		"WAILS_SERVER_HOST":            cfg.Development.Wails.Host,
+		"WAILS_SERVER_PORT":            strconv.Itoa(wailsPort),
+		launchMarkerEnv:                d.launchPath,
 	}
 	if err := writeDotenvAtomic(d.launchPath, env); err != nil {
 		return err

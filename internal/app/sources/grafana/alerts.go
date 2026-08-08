@@ -80,7 +80,7 @@ var AlertsDescriptor = connector.Descriptor{
 	ProviderTitle: "Grafana",
 	Provider:      Provider,
 	Mode:          connector.ModePull,
-	Stability:     connector.Experimental,
+	Stability:     connector.Stable,
 	Capabilities:  connector.CapClassify | connector.CapConfirmAbsence,
 	NewConfig:     func() connector.Config { return &AlertsConfig{} },
 }

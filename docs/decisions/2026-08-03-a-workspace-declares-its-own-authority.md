@@ -3,6 +3,15 @@
 - **Status:** accepted; [ADR agent-workspace-sessions-are-tmux-sessions](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) landed the M2 indicator point 6 made a hard dependency of shipping `ask` as a real default, and moved sessions onto tmux in the same change — a session (and a `full`-autonomy agent inside it) now outlives `App.Close`, so this ADR's authority ceiling applies for as long as the tmux session survives, not just for one Hive run
 - **Date:** 2026-08-03
 
+> **Superseded in part (2026-08-07):** the `experimental.agents` gate this
+> feature shipped behind is deleted and the area mounts unconditionally
+> (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental). Nothing else here moves — the authority ceiling in
+> points 1-8 is what bounds a workspace, and it never depended on the area
+> being reachable only by opt-in. The gate's one load-bearing role, that the
+> agent control plane rides the terminal bearer token because starting a
+> session is arbitrary command execution, is unchanged: the token is now minted
+> on every run rather than only when a flag was on.
+
 ## Context
 
 The Agents area (spec-tracked as `hc-49x3i833`) runs a CLI agent against a
@@ -153,8 +162,8 @@ theirs, once made.
 
 ## Reference
 
-Related decisions: ADR terminal-experimental-gate (the `experimental.agents` gate this feature
-ships behind), ADR ptyterm-terminals-are-caller-addressed (`ptyterm` caller-addressed terminals, which is how a
+Related decisions: ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental (which retired the `experimental.agents`
+gate this feature originally shipped behind, ADR terminal-experimental-gate), ADR ptyterm-terminals-are-caller-addressed (`ptyterm` caller-addressed terminals, which is how a
 workspace session's PTY is addressed), ADR agent-http-api (the agent HTTP API
 `hive-http-api` exposes), ADR terminal-transport (why the agent control plane is
 authenticated at all — the same terminal bearer token, because starting a

@@ -116,16 +116,6 @@ type Appearance struct {
 	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
 }
 
-// ExperimentalSettings opts into features that ship dark. Each flag defaults
-// to off and is read once at startup — flipping one takes a relaunch.
-type ExperimentalSettings struct {
-	Terminal bool `yaml:"terminal" env:"HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"`
-	// Agents gates the Agents area (spec-tracked as hc-49x3i833). Like Terminal
-	// it governs both a control plane and the PTY stream a session rides, both
-	// under the token-guarded /api/terminal/ prefix — see ADR a-workspace-declares-its-own-authority.
-	Agents bool `yaml:"agents" env:"HIVE_DESKTOP_EXPERIMENTAL_AGENTS"`
-}
-
 // AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
 // <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
 // configurable because iCloud Drive is an expected destination (spec §4.4).
@@ -249,7 +239,6 @@ type Settings struct {
 	Skills          SkillsSettings          `yaml:"skills"`
 	Paths           PathsSettings           `yaml:"paths,omitempty"`
 	Editor          EditorSettings          `yaml:"editor,omitempty"`
-	Experimental    ExperimentalSettings    `yaml:"experimental,omitempty"`
 	AgentWorkspaces AgentWorkspacesSettings `yaml:"agent_workspaces,omitempty"`
 	Development     DevelopmentSettings     `yaml:"development"`
 

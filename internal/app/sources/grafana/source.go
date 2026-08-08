@@ -16,14 +16,14 @@ const SourceKind = "grafana"
 
 // MetricsDescriptor declares the metrics connector. It carries no capabilities:
 // a metrics poll emits one keyed message per tick and leans on the generic
-// classifier. Experimental because per-topic retention is not yet bounded.
+// classifier.
 var MetricsDescriptor = connector.Descriptor{
 	Type:          "sources.grafana_metrics",
 	Title:         "Grafana metrics source",
 	ProviderTitle: "Grafana",
 	Provider:      Provider,
 	Mode:          connector.ModePull,
-	Stability:     connector.Experimental,
+	Stability:     connector.Stable,
 	NewConfig:     func() connector.Config { return &MetricsConfig{} },
 }
 

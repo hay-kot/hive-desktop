@@ -180,8 +180,6 @@ http:
 keybindings: {} # sparse overrides; omitted commands keep catalog defaults
 paths:
   tmux: "" # absolute path to tmux; empty discovers it (ADR tmux-discovery)
-experimental:
-  terminal: false # terminal mode ships dark (ADR terminal-experimental-gate); read at startup
 development:
   mocks:
     mode: live # live, feed, pipeline, onboarding, or action-smoke

@@ -72,15 +72,6 @@ type AppearanceSettings struct {
 	TerminalPoolSize int `json:"terminalPoolSize"`
 }
 
-// ExperimentalSettings carries the ships-dark opt-ins (ADR terminal-experimental-gate). Each field
-// is the effective persisted value, not the running one: the flag is read at
-// startup, so the frontend compares it against TerminalService.Enabled /
-// AgentsService.Enabled to know whether a relaunch is pending.
-type ExperimentalSettings struct {
-	Terminal bool `json:"terminal"`
-	Agents   bool `json:"agents"`
-}
-
 // KeybindingSettings carries keyboard shortcut overrides keyed by command id.
 // Like AppearanceSettings the values are opaque to Go: the frontend owns the
 // command vocabulary and the combo grammar.
@@ -181,38 +172,6 @@ func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool)
 
 func (s *SettingsService) SetTerminalPoolSize(ctx context.Context, size int) error {
 	return s.settings.SetTerminalPoolSize(ctx, size)
-}
-
-func (s *SettingsService) ExperimentalSettings(ctx context.Context) (ExperimentalSettings, error) {
-	current, err := s.settings.Experimental(ctx)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	return ExperimentalSettings{Terminal: current.Terminal, Agents: current.Agents}, nil
-}
-
-func (s *SettingsService) SetExperimentalTerminal(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
-	effective, err := s.settings.SetExperimentalTerminal(ctx, enabled)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	current, err := s.settings.Experimental(ctx)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	return ExperimentalSettings{Terminal: effective, Agents: current.Agents}, nil
-}
-
-func (s *SettingsService) SetExperimentalAgents(ctx context.Context, enabled bool) (ExperimentalSettings, error) {
-	effective, err := s.settings.SetExperimentalAgents(ctx, enabled)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	current, err := s.settings.Experimental(ctx)
-	if err != nil {
-		return ExperimentalSettings{}, err
-	}
-	return ExperimentalSettings{Terminal: current.Terminal, Agents: effective}, nil
 }
 
 func (s *SettingsService) NotificationSettings(ctx context.Context) (NotificationSettings, error) {
