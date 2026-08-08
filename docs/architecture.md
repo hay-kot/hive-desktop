@@ -520,6 +520,15 @@ own vocabulary exactly once — HTTP status, MCP error, CLI exit code, Wails
 message. No HTTP status codes or transport concepts in `app/`. Nothing should
 ever need to match on error *text*.
 
+In the frontend, a failure the user has to act on is **raised, not rendered in
+place**: `useErrorDialog().showError(...)` hands it to the single `ErrorDialog`
+App.vue mounts, which shows the text in full and selectable, copies it, and
+files a diagnostic report in one click. The bar is "this could be mistaken for
+success" — a deploy that did not write, not a background poll that will retry.
+Inline error text stays where a surface already has it; it is the record, not
+the interrupt. See ADR
+[a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message](decisions/2026-08-07-a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message.md).
+
 ### Events
 
 The core publishes **payload-carrying typed events** to `app/events`.

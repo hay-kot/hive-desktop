@@ -9,6 +9,7 @@
 import { computed, shallowRef, watch, type ComputedRef, type Ref } from 'vue'
 import { GetFlow, GetLayout, ListFlows, SaveFlow, SaveLayout } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { NodeRuns } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
+import { errorText } from '../../lib/appError'
 import { usePipelineEditor, type PipelineEditorClient } from './usePipelineEditor'
 
 type PipelineEditor = ReturnType<typeof usePipelineEditor>
@@ -44,10 +45,6 @@ function defaultEditorClient(): PipelineEditorClient {
     async saveLayout(id, layout) { await SaveLayout(id, layout) },
     async nodeRuns(flowId, limit) { return await NodeRuns(flowId, limit) },
   }
-}
-
-function errorMessage(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback
 }
 
 function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
@@ -119,7 +116,7 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
         const [wire, wireLayout] = await Promise.all([deps.editorClient.getFlow(id), deps.editorClient.getLayout(id)])
         if (activeFlow.value?.id === id) replaceDraft(wire, wireLayout)
       } catch (err) {
-        editor.error.value = errorMessage(err, 'Could not load the flow.')
+        editor.error.value = errorText(err, 'Could not load the flow.')
       }
     })
   }
@@ -131,7 +128,7 @@ function createFlowsSession(deps: Required<FlowsSessionDeps>): FlowsSession {
       const [wire, wireLayout] = await Promise.all([deps.editorClient.getFlow(id), deps.editorClient.getLayout(id)])
       if (activeFlow.value?.id === id && !editor.dirty.value) replaceDraft(wire, wireLayout)
     } catch (err) {
-      editor.error.value = errorMessage(err, 'Could not reload the flow.')
+      editor.error.value = errorText(err, 'Could not reload the flow.')
     }
   }
 
