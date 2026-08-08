@@ -45,11 +45,9 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
-// mode is the app-level Inbox|Code|Agents switch. The group renders once any
-// second mode is enabled — terminalEnabled (ADR terminal-experimental-gate) or agentsEnabled
-// (ADR a-workspace-declares-its-own-authority) — with each optional segment carrying its own v-if, and once a
-// segment is rendered it is never disabled, because an unavailable terminal
-// or Agents area explains itself inside the mode.
+// mode is the app-level Inbox|Code|Agents switch. A segment is never disabled,
+// because an unavailable terminal or Agents area explains itself inside the
+// mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
 // open; unseenActivity (6d) is the number of events since it was last opened,
@@ -62,8 +60,6 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 const props = defineProps<{
   profileName?: string
   mode?: 'hub' | 'terminal' | 'agents'
-  terminalEnabled?: boolean
-  agentsEnabled?: boolean
   activityActive?: boolean
   errorCount?: number
   unseenActivity?: number
@@ -153,7 +149,7 @@ function onTitlebarDblclick(event: MouseEvent): void {
         ><IconArrowRight class="size-3.5" /></button>
       </nav>
       <div
-        v-if="profileName && (terminalEnabled || agentsEnabled)"
+        v-if="profileName"
         class="ml-1.5 flex h-7 shrink-0 items-center gap-[2px] rounded-[7px] border border-card bg-app p-[2px]"
         style="--wails-draggable: no-drag"
         role="group"
@@ -176,7 +172,6 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @click="emit('set-mode', 'hub')"
         ><IconInbox class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Inbox</span></button>
         <button
-          v-if="terminalEnabled"
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'terminal' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
@@ -187,7 +182,6 @@ function onTitlebarDblclick(event: MouseEvent): void {
           @click="emit('set-mode', 'terminal')"
         ><IconCode class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Code</span></button>
         <button
-          v-if="agentsEnabled"
           type="button"
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'agents' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"

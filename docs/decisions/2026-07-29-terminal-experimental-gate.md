@@ -1,7 +1,14 @@
 # Terminal mode ships dark behind an experimental settings opt-in
 
-- **Status:** accepted
+- **Status:** superseded by [terminal-agents-grafana-and-commands-graduate-out-of-experimental](2026-08-07-terminal-agents-grafana-and-commands-graduate-out-of-experimental.md)
 - **Date:** 2026-07-29
+
+> **Superseded (2026-08-07):** the gate is deleted, taking the whole
+> `experimental` section with it (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental) — the graduation this ADR's
+> consequences named. Point 3's surviving half is the rule that a rendered mode
+> segment is never disabled, because an unavailable terminal explains itself
+> inside the mode; `Available` is now the only axis. Point 2 is moot: with no
+> flag there is no off state for the routes to be absent in.
 
 ## Context
 

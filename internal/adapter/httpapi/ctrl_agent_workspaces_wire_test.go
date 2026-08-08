@@ -16,7 +16,7 @@ import (
 // no mcps and its open misses nothing, which is exactly the shape that carried
 // null before the DTO mappers normalized it.
 func TestAgentWireArraysAreNeverNull(t *testing.T) {
-	h := newAgentHarness(t, true)
+	h := newAgentHarness(t)
 
 	assertNoNullArrays := func(t *testing.T, resp *http.Response, fields ...string) {
 		t.Helper()

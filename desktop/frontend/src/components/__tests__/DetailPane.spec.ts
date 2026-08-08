@@ -39,7 +39,7 @@ describe('DetailPane', () => {
 
   it('lists linked sessions with their liveness and links through to the slug', async () => {
     const sessions = [session(), session({ id: 's2', name: 'review-42-rerun', slug: 'review-42-rerun', running: false })]
-    const wrapper = mount(DetailPane, { props: { item, actions, sessions, canAttachSession: true } })
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions } })
     const rows = wrapper.get('[data-testid="item-sessions"]')
     expect(rows.text()).toContain('review-42')
     expect(rows.text()).toContain('running')
@@ -51,16 +51,8 @@ describe('DetailPane', () => {
 
   it('does not offer to attach a session with no checkout left', async () => {
     const sessions = [session({ state: 'recycled', running: false })]
-    const wrapper = mount(DetailPane, { props: { item, actions, sessions, canAttachSession: true } })
+    const wrapper = mount(DetailPane, { props: { item, actions, sessions } })
     expect(wrapper.get('[data-testid="item-sessions"]').text()).toContain('recycled')
-    await wrapper.get('[data-testid="item-session-s1"]').trigger('click')
-    expect(wrapper.emitted('open-session')).toBeUndefined()
-  })
-
-  // Terminal mode ships dark (ADR terminal-experimental-gate): with it off there is nowhere to
-  // attach, so the rows stay a record of what ran.
-  it('does not offer to attach while terminal mode is off', async () => {
-    const wrapper = mount(DetailPane, { props: { item, actions, sessions: [session()] } })
     await wrapper.get('[data-testid="item-session-s1"]').trigger('click')
     expect(wrapper.emitted('open-session')).toBeUndefined()
   })

@@ -49,7 +49,7 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-07-29 | [`github-tags-and-releases`](2026-07-29-github-tags-and-releases.md) | Publish GitHub tags and Releases as the source-side record of a desktop release | accepted |
 | 2026-07-29 | [`session-rename-keeps-slug-and-tmux-in-step`](2026-07-29-session-rename-keeps-slug-and-tmux-in-step.md) | A session rename renames its tmux session, keeping slug and tmux name in step | accepted |
 | 2026-07-29 | [`terminal-atlas-renderer`](2026-07-29-terminal-atlas-renderer.md) | Terminal panes render through an atlas renderer, not xterm's DOM renderer | accepted |
-| 2026-07-29 | [`terminal-experimental-gate`](2026-07-29-terminal-experimental-gate.md) | Terminal mode ships dark behind an experimental settings opt-in | accepted |
+| 2026-07-29 | [`terminal-experimental-gate`](2026-07-29-terminal-experimental-gate.md) | Terminal mode ships dark behind an experimental settings opt-in | superseded |
 | 2026-07-29 | [`tmux-discovery`](2026-07-29-tmux-discovery.md) | Discover the tmux binary instead of trusting $PATH | accepted |
 | 2026-07-30 | [`action-declared-inputs`](2026-07-30-action-declared-inputs.md) | Actions declare their inputs on the envelope, collected by one generic form | accepted |
 | 2026-07-30 | [`actions-target-terminal-sessions-and-windows`](2026-07-30-actions-target-terminal-sessions-and-windows.md) | An action declares which surfaces it targets, and a terminal action runs without a durable command | accepted |
@@ -74,6 +74,7 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-08-03 | [`a-workspace-declares-its-own-authority`](2026-08-03-a-workspace-declares-its-own-authority.md) | A workspace declares its own authority | accepted |
 | 2026-08-03 | [`agent-workspace-sessions-are-tmux-sessions`](2026-08-03-agent-workspace-sessions-are-tmux-sessions.md) | Agent workspace sessions are tmux sessions | accepted |
 | 2026-08-03 | [`macos-dmg-installer`](2026-08-03-macos-dmg-installer.md) | macOS ships an installer disk image beside the update zip | accepted |
+| 2026-08-03 | [`posthog-ingests-issues-through-the-error-tracking-query-endpoint`](2026-08-03-posthog-ingests-issues-through-the-error-tracking-query-endpoint.md) | PostHog ingests issues through the error-tracking query endpoint | accepted |
 | 2026-08-03 | [`ptyterm-terminals-are-caller-addressed`](2026-08-03-ptyterm-terminals-are-caller-addressed.md) | `ptyterm` terminals are caller-addressed and concurrency-capped | accepted |
 | 2026-08-03 | [`the-scratch-terminal-is-a-tmux-session-the-desktop-owns`](2026-08-03-the-scratch-terminal-is-a-tmux-session-the-desktop-owns.md) | The scratch terminal is a tmux session the desktop owns, pinned above the repositories | proposed |
 | 2026-08-03 | [`the-session-tree-paints-once`](2026-08-03-the-session-tree-paints-once.md) | The session tree paints once, from one tmux call | accepted |
@@ -97,3 +98,5 @@ allocate, so two branches can add an ADR without colliding. Add one with
 | 2026-08-06 | [`pastes-are-tmux-paste-buffer-operations-not-keystrokes`](2026-08-06-pastes-are-tmux-paste-buffer-operations-not-keystrokes.md) | Pastes are tmux paste-buffer operations, not keystrokes | accepted |
 | 2026-08-06 | [`the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set`](2026-08-06-the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set.md) | The app's faces are picked from installed fonts, not from a bundled set | accepted |
 | 2026-08-07 | [`hive-acts-as-the-macos-tcc-responsible-process-for-terminal-children`](2026-08-07-hive-acts-as-the-macos-tcc-responsible-process-for-terminal-children.md) | Hive acts as the macOS TCC responsible process for terminal children | proposed |
+| 2026-08-07 | [`a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message`](2026-08-07-a-failed-operation-the-user-must-act-on-raises-a-shared-error-dialog-not-an-inline-message.md) | A failed operation the user must act on raises a shared error dialog, not an inline message | accepted |
+| 2026-08-07 | [`terminal-agents-grafana-and-commands-graduate-out-of-experimental`](2026-08-07-terminal-agents-grafana-and-commands-graduate-out-of-experimental.md) | Terminal, Agents, Grafana and Commands graduate out of experimental | accepted |

@@ -28,16 +28,6 @@ export function Available(): $CancellablePromise<$models.AgentsAvailability> {
 }
 
 /**
- * Enabled reports the experimental.agents opt-in (ADR a-workspace-declares-its-own-authority / ADR terminal-experimental-gate). The
- * frontend renders the way into the Agents area only when it is on;
- * availability stays a separate axis, because an enabled-but-unavailable area
- * explains itself inside the mode instead of hiding the way in.
- */
-export function Enabled(): $CancellablePromise<boolean> {
-    return $Call.ByID(2300625382);
-}
-
-/**
  * Endpoint reports where the agent control plane is reachable, or
  * KindUnavailable while the loopback server is unbound or HTTP is disabled.
  */

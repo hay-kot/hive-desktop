@@ -28,16 +28,6 @@ export function Available(): $CancellablePromise<$models.TerminalAvailability> {
 }
 
 /**
- * Enabled reports the experimental.terminal opt-in (ADR terminal-experimental-gate). The frontend
- * renders the way into terminal mode only when it is on; availability stays a
- * separate axis, because an enabled-but-unavailable terminal explains itself
- * inside the mode instead of hiding the way in.
- */
-export function Enabled(): $CancellablePromise<boolean> {
-    return $Call.ByID(1465995536);
-}
-
-/**
  * Endpoint reports where the terminal server is reachable, or KindUnavailable
  * while the loopback server is unbound or HTTP is disabled.
  */

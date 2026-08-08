@@ -35,6 +35,7 @@ import githubIcon from '../assets/integrations/github.svg'
 import grafanaIcon from '../assets/integrations/grafana.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
 import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
+import PostHogIntegrationDrawer from './settings/PostHogIntegrationDrawer.vue'
 import WebhookIntegrationDrawer from './settings/WebhookIntegrationDrawer.vue'
 import SettingsLayout from './settings/SettingsLayout.vue'
 import SettingsNavItem from './settings/SettingsNavItem.vue'
@@ -42,6 +43,7 @@ import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import IconWebhook from '~icons/lucide/webhook'
+import PostHogMark from './marks/PostHogMark.vue'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
 import { isConnected, takesCredential, useIntegrations } from '../composables/useIntegrations'
 import type { Integration } from '../types/integrations'
@@ -89,6 +91,7 @@ const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
 
 const githubSettingsOpen = ref(false)
 const grafanaSettingsOpen = ref(false)
+const posthogSettingsOpen = ref(false)
 const webhookSettingsOpen = ref(false)
 
 // The webhook card's badge reflects the same state the drawer edits, so a save
@@ -121,6 +124,7 @@ const { integrations, loaded: integrationsLoaded } = useIntegrations()
 const presentation: Record<string, { description: string }> = {
   'github': { description: 'Issues, pull requests, and notifications' },
   'grafana': { description: 'Metrics and alerts from a Grafana stack' },
+  'posthog': { description: 'Error tracking issues and insight alerts from a PostHog project' },
   'sources.webhook': { description: 'Receive JSON from anything that can POST' },
 }
 
@@ -129,6 +133,7 @@ const presentation: Record<string, { description: string }> = {
 const drawers: Record<string, () => void> = {
   'github': () => { githubSettingsOpen.value = true },
   'grafana': () => { grafanaSettingsOpen.value = true },
+  'posthog': () => { posthogSettingsOpen.value = true },
   'sources.webhook': () => { webhookSettingsOpen.value = true },
 }
 
@@ -235,6 +240,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
               <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' || integration.key === 'grafana' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
                 <img v-if="integration.key === 'github'" :src="githubIcon" alt="" class="size-full" />
                 <img v-else-if="integration.key === 'grafana'" :src="grafanaIcon" alt="" class="size-full object-contain" />
+                <PostHogMark v-else-if="integration.key === 'posthog'" class="size-full" />
                 <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
                 <IconPlug v-else class="size-full" />
               </BaseIconBadge>
@@ -274,6 +280,7 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
 
       <GithubIntegrationDrawer v-if="githubSettingsOpen" @close="githubSettingsOpen = false" />
       <GrafanaIntegrationDrawer v-if="grafanaSettingsOpen" @close="grafanaSettingsOpen = false" />
+      <PostHogIntegrationDrawer v-if="posthogSettingsOpen" @close="posthogSettingsOpen = false" />
       <WebhookIntegrationDrawer v-if="webhookSettingsOpen" @close="webhookSettingsOpen = false" />
     </SettingsPage>
   </SettingsLayout>

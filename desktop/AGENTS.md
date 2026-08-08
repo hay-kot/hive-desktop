@@ -289,7 +289,6 @@ more expensive, which is the whole reason it is being done now.
   keybindings: {}
   paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR tmux-discovery)
   editor: {command: ""}             # single-word CLI launcher "Open in editor" actions run (zed, code, …); "" means none configured
-  experimental: {terminal: false, agents: false}   # ships-dark opt-ins, read at startup; terminal mode (ADR terminal-experimental-gate), the Agents area (ADR a-workspace-declares-its-own-authority)
   development:
     mocks: {mode: live}
     instance: {id: ""}
@@ -402,8 +401,6 @@ persisted by UI writes.
 | `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
 | `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR tmux-discovery); empty searches `$PATH` then the usual package-manager prefixes |
 | `HIVE_DESKTOP_EDITOR_COMMAND` | Single-word CLI launcher "Open in editor" actions run on a directory (zed, code, cursor, subl, or a path); empty means none configured |
-| `HIVE_DESKTOP_EXPERIMENTAL_TERMINAL` | Opt into terminal mode (ships dark, ADR terminal-experimental-gate); off by default, read at startup. **`launch.env` sets it true** — every ships-dark opt-in is on in development |
-| `HIVE_DESKTOP_EXPERIMENTAL_AGENTS` | Opt into the Agents area (ships dark, ADR a-workspace-declares-its-own-authority); off by default, read at startup. **`launch.env` sets it true**; set it false in `overrides.env` to gate the area off locally |
 | `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
 | `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
 | `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR devserver-github-proxy). **Set by `launch.env` — `dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |

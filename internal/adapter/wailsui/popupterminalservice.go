@@ -40,19 +40,15 @@ type PopupTerminalService struct {
 	terminals *app.PopupTerminalsService
 	webhooks  *app.WebhookService
 	transport PopupTerminalTransport
-	enabled   bool
 }
 
-func NewPopupTerminalService(terminals *app.PopupTerminalsService, webhooks *app.WebhookService, transport PopupTerminalTransport, enabled bool) *PopupTerminalService {
-	return &PopupTerminalService{terminals: terminals, webhooks: webhooks, transport: transport, enabled: enabled}
+func NewPopupTerminalService(terminals *app.PopupTerminalsService, webhooks *app.WebhookService, transport PopupTerminalTransport) *PopupTerminalService {
+	return &PopupTerminalService{terminals: terminals, webhooks: webhooks, transport: transport}
 }
 
 // Available reports whether a pop-up terminal can be opened, with a reason the
 // frontend renders as-is when it cannot.
 func (s *PopupTerminalService) Available(ctx context.Context) PopupTerminalAvailability {
-	if !s.enabled {
-		return PopupTerminalAvailability{Reason: "Terminal features are off. Turn them on in Settings ▸ Terminal, then relaunch Hive."}
-	}
 	if err := s.terminals.Available(ctx); err != nil {
 		return PopupTerminalAvailability{Reason: reasonFor(err)}
 	}

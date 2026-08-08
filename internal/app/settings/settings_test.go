@@ -10,6 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/configmigrate"
 )
 
 func isolateSettings(t *testing.T) string {
@@ -32,38 +34,18 @@ func TestDefaultSettingsAreSafe(t *testing.T) {
 	assert.Zero(t, cfg.HTTP.Port)
 	assert.Equal(t, MockLive, cfg.Development.Mocks.Mode)
 	assert.False(t, cfg.Development.Pprof.Enabled)
-	assert.False(t, cfg.Experimental.Terminal, "terminal mode ships dark")
 }
 
-func TestExperimentalTerminalYAMLThenEnvironment(t *testing.T) {
+// The graduated features' gate is gone from the struct, and the decoder is
+// strict — so a settings.yaml written while it existed only stays loadable
+// because the migration drops the section (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
+func TestRetiredExperimentalSectionIsMigratedAway(t *testing.T) {
 	path := isolateSettings(t)
-	require.NoError(t, os.WriteFile(path, []byte("experimental:\n  terminal: true\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("experimental:\n  terminal: true\n  agents: true\n"), 0o600))
 
 	cfg, err := LoadSettings()
 	require.NoError(t, err)
-	assert.True(t, cfg.Experimental.Terminal)
-
-	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL", "false")
-	cfg, err = LoadSettings()
-	require.NoError(t, err)
-	assert.False(t, cfg.Experimental.Terminal, "the environment wins over settings.yaml")
-	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_TERMINAL"))
-}
-
-func TestExperimentalAgentsYAMLThenEnvironment(t *testing.T) {
-	path := isolateSettings(t)
-	require.NoError(t, os.WriteFile(path, []byte("experimental:\n  agents: true\n"), 0o600))
-
-	cfg, err := LoadSettings()
-	require.NoError(t, err)
-	assert.True(t, cfg.Experimental.Agents)
-	assert.False(t, cfg.Experimental.Terminal, "the two flags are independent")
-
-	t.Setenv("HIVE_DESKTOP_EXPERIMENTAL_AGENTS", "false")
-	cfg, err = LoadSettings()
-	require.NoError(t, err)
-	assert.False(t, cfg.Experimental.Agents, "the environment wins over settings.yaml")
-	assert.True(t, cfg.EnvironmentOverridden("HIVE_DESKTOP_EXPERIMENTAL_AGENTS"))
+	assert.Equal(t, configmigrate.SettingsSet.Current, cfg.Version)
 }
 
 func TestPathsTmuxYAMLThenEnvironment(t *testing.T) {

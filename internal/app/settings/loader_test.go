@@ -1,6 +1,7 @@
 package settings
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -36,7 +37,7 @@ func TestLoadSettingsMigratesUnversionedFileAndRoundTrips(t *testing.T) {
 
 func TestLoadSettingsRejectsNewerVersionAndLeavesFileUntouched(t *testing.T) {
 	path := isolateSettings(t)
-	const contents = "version: 2\npolling:\n  interval: 2m\n"
+	contents := fmt.Sprintf("version: %d\npolling:\n  interval: 2m\n", configmigrate.SettingsSet.Current+1)
 	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
 
 	_, err := LoadSettings()

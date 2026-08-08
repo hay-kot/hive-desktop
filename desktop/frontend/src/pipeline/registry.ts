@@ -38,9 +38,13 @@ for (const def of Object.values(byType)) {
 // only need to be unique within one flow's canvas.
 let idCounter = 0
 
+// Go validates every node id against `^[a-z0-9][a-z0-9-]*$`, so the type
+// cannot be interpolated raw: namespaced types carry a dot (and some an
+// underscore), which makes the flow unsaveable at deploy with "id is not a
+// valid slug".
 export function genId(type: string): string {
   idCounter += 1
-  return `${type}-${idCounter}`
+  return `${type.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')}-${idCounter}`
 }
 
 /**

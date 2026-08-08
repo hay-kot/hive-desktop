@@ -36,6 +36,7 @@ import (
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/webhook"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxbin"
@@ -86,9 +87,10 @@ type App struct {
 	Webhooks *WebhookService
 	GitHub   *GitHubService
 	Grafana  *GrafanaService
+	PostHog  *PostHogService
 	// Integrations lists the connector registry with each entry's connection
-	// state. Generic; GitHub and Grafana above are the provider-specific
-	// acquisition halves.
+	// state. Generic; GitHub, Grafana and PostHog above are the
+	// provider-specific acquisition halves.
 	Integrations *IntegrationsService
 	Activity     *ActivityService
 	Jobs         *JobService
@@ -141,6 +143,11 @@ type App struct {
 	// disconnects stacks. Like GitHub, nothing is gated on them.
 	grafanaFetchers *grafana.Fetchers
 	grafanaAuth     *grafana.Authenticator
+
+	// posthogFetchers hands out one per-project fetcher; posthogAuth connects
+	// and disconnects projects. Like GitHub, nothing is gated on them.
+	posthogFetchers *posthog.Fetchers
+	posthogAuth     *posthog.Authenticator
 
 	// sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -330,6 +337,16 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: grafana.Provider})
 	})
 
+	// PostHog binds a host and project to the account at connect time, the same
+	// shape as a Grafana stack, so its registry and binding store are likewise
+	// always wired rather than gated on a mock-mode fetch template.
+	posthogProjects := posthog.NewProjectStore(filepath.Join(cfg.Paths.StateDir, "posthog-projects.json"))
+	a.posthogFetchers = posthog.NewFetchers(posthogProjects, a.credentials, cfg.Logger)
+	a.posthogAuth = posthog.NewAuthenticator(a.credentials, posthogProjects, cfg.Logger, func(credentials.Ref) {
+		a.posthogFetchers.InvalidateAll()
+		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: posthog.Provider})
+	})
+
 	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
@@ -359,6 +376,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, sourceMarks, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
+	a.PostHog = newPostHogService(a.posthogAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
 	a.Activity = newActivityService(a.activityStore)
 	a.Jobs = newJobService(a.jobStore)
@@ -864,13 +882,13 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.execEnv), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.posthogFetchers, a.execEnv), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, env execsource.Environment) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, posthogFetchers *posthog.Fetchers, env execsource.Environment) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
 		webhook.Descriptor.Type:    webhook.NewFactory(),
 		execsource.Descriptor.Type: execsource.NewFactory(env),
@@ -886,6 +904,10 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 		factories[grafana.MetricsDescriptor.Type] = grafana.NewMetricsFactory(grafanaFetchers)
 		factories[grafana.AlertsDescriptor.Type] = grafana.NewAlertsFactory(grafanaFetchers)
 		factories[grafana.IRMAlertsDescriptor.Type] = grafana.NewIRMAlertsFactory(grafanaFetchers)
+	}
+	if posthogFetchers != nil {
+		factories[posthog.ErrorsDescriptor.Type] = posthog.NewErrorsFactory(posthogFetchers)
+		factories[posthog.AlertsDescriptor.Type] = posthog.NewAlertsFactory(posthogFetchers)
 	}
 	return factories
 }
@@ -1058,7 +1080,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 	a.launcher.SetItemSessionLinker(a.Store, cfg.Logger)
 
 	var statusService *hive.StatusService
-	if cfg.MockMode == "" && cfg.Settings.Experimental.Terminal {
+	if cfg.MockMode == "" {
 		statusOptions := []terminaltmux.Option{terminaltmux.WithCommander(tmuxcc.NewCommander(a.tmux.Path, a.execEnv.Environ))}
 		if hiveCfg.Tmux.CaptureRecording.Enabled {
 			recorder, recorderErr := terminaltmux.NewJSONCaptureRecorder(hiveCfg.TmuxCaptureRecordingsDir())

@@ -6,17 +6,12 @@ import { expect, test } from './fixtures.js'
 // the Agents area too: AgentWorkspacesService.Available -> KindUnavailable ->
 // AgentsService.Available{available:false, reason} -> the mode.
 //
-// What it guards is ADR terminal-experimental-gate's "the toggle is never disabled" rule, now
-// proven for a third segment: a build that cannot run a PTY at all must
-// explain itself inside the Agents area rather than leaving a dead button in
-// the title bar. This is the only agent path observable in the server build —
-// starting a session needs a live PTY this build does not have — so nothing
-// else exercises the unavailable branch this phase adds.
-//
-// This project runs against the one server serve.sh opts into
-// experimental.agents per-server (agents-unavailable, port 8938) rather than
-// the global experimental.terminal export every other server carries — see
-// playwright.config.ts and serve.sh's start_server.
+// What it guards is the "the toggle is never disabled" rule, proven for a
+// third segment: a build that cannot run a PTY at all must explain itself
+// inside the Agents area rather than leaving a dead button in the title bar.
+// This is the only agent path observable in the server build — starting a
+// session needs a live PTY this build does not have — so nothing else
+// exercises the unavailable branch.
 
 const feedItemCount = 6
 

@@ -70,12 +70,6 @@ type MountOptions struct {
 	// shared ptyterm stream a workspace session rides (ADR ptyterm-terminals-are-caller-addressed, ADR a-workspace-declares-its-own-authority).
 	// Zero when its stream was not mounted.
 	Agents AgentsTransport
-	// TerminalEnabled is the experimental.terminal opt-in (ADR terminal-experimental-gate). Off means
-	// the frontend never renders the way into terminal mode.
-	TerminalEnabled bool
-	// AgentsEnabled is the experimental.agents opt-in (ADR a-workspace-declares-its-own-authority). Off means the
-	// frontend never renders the way into the Agents area.
-	AgentsEnabled bool
 	// AutoUpdate seeds the updater's initial toggle from settings.yaml.
 	AutoUpdate bool
 	// UpdateChannel is the resolved release channel to follow.
@@ -156,6 +150,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 	services := []application.Service{
 		application.NewService(NewGitHubService(core.GitHub)),
 		application.NewService(NewGrafanaService(core.Grafana)),
+		application.NewService(NewPostHogService(core.PostHog)),
 		application.NewService(NewIntegrationsService(core.Integrations)),
 		application.NewService(NewPipelineService(core.Inbox)),
 		application.NewService(NewSessionService(core.Sessions)),
@@ -170,9 +165,9 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
 		application.NewService(NewPerfService(core.Perf)),
-		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal, opts.TerminalEnabled)),
-		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal, opts.TerminalEnabled)),
-		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents, opts.AgentsEnabled)),
+		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal)),
+		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal)),
+		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents)),
 		application.NewService(u.updater),
 	}
 	if u.native != nil {

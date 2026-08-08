@@ -50,16 +50,9 @@ func (op Op) pattern() string {
 
 func (ctrl *Controller) operations() []Op {
 	ops := ctrl.baseOperations()
-	// Off means the surface is absent rather than answering 503, so a disabled
-	// feature has no route at all (ADR terminal-experimental-gate point 2). The two flags gate
-	// independently: a build can ship agents without terminal mode or vice versa.
-	if ctrl.opts.TerminalEnabled {
-		ops = append(ops, ctrl.terminalOperations()...)
-		ops = append(ops, ctrl.popupTerminalOperations()...)
-	}
-	if ctrl.opts.AgentsEnabled {
-		ops = append(ops, ctrl.agentOperations()...)
-	}
+	ops = append(ops, ctrl.terminalOperations()...)
+	ops = append(ops, ctrl.popupTerminalOperations()...)
+	ops = append(ops, ctrl.agentOperations()...)
 	return ops
 }
 

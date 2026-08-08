@@ -153,20 +153,24 @@ describe('SettingsView', () => {
   // icon, no blurb, no configure gear — rather than being dropped from the
   // list. A connector added in Go before its presentation entry lands must
   // not silently disappear from Settings.
+  //
+  // The provider here is fictional on purpose. This used to name a real
+  // connector that was not implemented yet, which broke the day it was — keep
+  // it fictional so the test stays about the unknown-connector path.
   it('renders a card for a connector type its presentation maps do not know', async () => {
     listIntegrations.mockResolvedValue([
-      { key: 'posthog', title: 'PostHog', stability: 'experimental', provider: 'posthog', types: ['sources.posthog'], accounts: [], envOverride: false },
+      { key: 'zzz-not-a-provider', title: 'Unmapped source', stability: 'experimental', provider: 'zzz-not-a-provider', types: ['sources.zzz'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, { props: { activeCategory: 'integrations' } })
     await flushPromises()
 
-    const card = wrapper.find('[data-testid="integration-posthog"]')
+    const card = wrapper.find('[data-testid="integration-zzz-not-a-provider"]')
     expect(card.exists()).toBe(true)
-    expect(card.text()).toContain('PostHog')
+    expect(card.text()).toContain('Unmapped source')
     // No presentation entry means no blurb, not a crash or a missing card.
-    expect(wrapper.find('[data-testid="integration-posthog-status"]').text()).toBe('Not connected')
+    expect(wrapper.find('[data-testid="integration-zzz-not-a-provider-status"]').text()).toBe('Not connected')
     // No drawer entry means no configure gear, rather than a dead button.
-    expect(wrapper.find('[data-testid="integration-posthog-configure"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="integration-zzz-not-a-provider-configure"]').exists()).toBe(false)
   })
 
   it('reports a connector connected by an environment override', async () => {
@@ -204,7 +208,7 @@ describe('SettingsView', () => {
 
   it('opens Grafana integration settings from the cog', async () => {
     listIntegrations.mockResolvedValue([
-      { key: 'grafana', title: 'Grafana', stability: 'experimental', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts: [], envOverride: false },
+      { key: 'grafana', title: 'Grafana', stability: 'stable', provider: 'grafana', types: ['sources.grafana_alerts', 'sources.grafana_metrics'], accounts: [], envOverride: false },
     ])
     const wrapper = mount(SettingsView, {
       props: { activeCategory: 'integrations' },

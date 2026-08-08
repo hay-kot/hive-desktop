@@ -3,7 +3,7 @@ import { byType, instantiate, palette } from '../registry'
 
 describe('byType', () => {
   it('discovers exactly the node types with app modules (index.ts)', () => {
-    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'notify', 'sources.exec', 'sources.github', 'sources.grafana_alerts', 'sources.grafana_irm_alerts', 'sources.grafana_metrics', 'sources.webhook'])
+    expect(Object.keys(byType).sort()).toEqual(['action', 'feed', 'function', 'github-filter', 'notify', 'sources.exec', 'sources.github', 'sources.grafana_alerts', 'sources.grafana_irm_alerts', 'sources.grafana_metrics', 'sources.posthog_alerts', 'sources.posthog_errors', 'sources.webhook'])
   })
 
   it('every entry carries a `type` matching its registry key and has a glyph/editor/help/defaults', () => {
@@ -28,7 +28,7 @@ describe('palette', () => {
     const grouped = [...palette.Sources, ...palette.Process, ...palette.Destinations]
     expect(grouped.map((def) => def.type).sort()).toEqual(Object.keys(byType).sort())
 
-    expect(palette.Sources.map((d) => d.type).sort()).toEqual(['sources.exec', 'sources.github', 'sources.grafana_alerts', 'sources.grafana_irm_alerts', 'sources.grafana_metrics', 'sources.webhook'])
+    expect(palette.Sources.map((d) => d.type).sort()).toEqual(['sources.exec', 'sources.github', 'sources.grafana_alerts', 'sources.grafana_irm_alerts', 'sources.grafana_metrics', 'sources.posthog_alerts', 'sources.posthog_errors', 'sources.webhook'])
     expect(palette.Process.map((d) => d.type).sort()).toEqual(['function', 'github-filter'])
     expect(palette.Destinations.map((d) => d.type).sort()).toEqual(['action', 'feed', 'notify'])
   })
@@ -40,6 +40,16 @@ describe('instantiate', () => {
     expect(node.type).toBe('feed')
     expect(node.id).toMatch(/^feed-\d+$/)
     expect(node.config).toEqual(byType['feed']!.defaults)
+  })
+
+  // Go rejects a node id that is not `^[a-z0-9][a-z0-9-]*$` when the flow is
+  // deployed, so a generated id that embeds a namespaced type verbatim makes
+  // the node unsaveable. Asserted over every registered type, since the types
+  // carrying a dot are exactly the ones no other test instantiates.
+  it('generates an id Go accepts as a slug for every registered type', () => {
+    for (const type of Object.keys(byType)) {
+      expect(instantiate(type).id).toMatch(/^[a-z0-9][a-z0-9-]*$/)
+    }
   })
 
   it('two instances of the same type never share config (deep clone, not reference)', () => {

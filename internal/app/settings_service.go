@@ -190,51 +190,6 @@ func (s *SettingsService) SetTerminalPoolSize(_ context.Context, size int) error
 	return Wrap(err, KindInternal, "saving settings")
 }
 
-// ExperimentalSettings are the ships-dark opt-ins (ADR terminal-experimental-gate). Each flag is
-// read once at startup, so a persisted change applies on the next launch.
-type ExperimentalSettings struct {
-	Terminal bool
-	Agents   bool
-}
-
-func (s *SettingsService) Experimental(context.Context) (ExperimentalSettings, error) {
-	cfg, err := s.store.Effective()
-	if err != nil {
-		return ExperimentalSettings{}, Wrap(err, KindInternal, "reading settings")
-	}
-	return ExperimentalSettings{Terminal: cfg.Experimental.Terminal, Agents: cfg.Experimental.Agents}, nil
-}
-
-// SetExperimentalTerminal persists the opt-in and returns the effective value
-// after any process environment override is reapplied. The surfaces it gates
-// are mounted at composition time, so the running app is unchanged until the
-// next launch.
-func (s *SettingsService) SetExperimentalTerminal(_ context.Context, enabled bool) (bool, error) {
-	effective, err := s.store.Update(func(current *settings.Settings) error {
-		current.Experimental.Terminal = enabled
-		return nil
-	})
-	if err != nil {
-		return false, Wrap(err, KindInternal, "saving settings")
-	}
-	return effective.Experimental.Terminal, nil
-}
-
-// SetExperimentalAgents persists the Agents-area opt-in and returns the
-// effective value after any process environment override is reapplied. Like
-// SetExperimentalTerminal, the surfaces it gates are mounted at composition
-// time, so the running app is unchanged until the next launch.
-func (s *SettingsService) SetExperimentalAgents(_ context.Context, enabled bool) (bool, error) {
-	effective, err := s.store.Update(func(current *settings.Settings) error {
-		current.Experimental.Agents = enabled
-		return nil
-	})
-	if err != nil {
-		return false, Wrap(err, KindInternal, "saving settings")
-	}
-	return effective.Experimental.Agents, nil
-}
-
 // NotificationSettings is the resolved notification configuration.
 type NotificationSettings struct {
 	Enabled bool
