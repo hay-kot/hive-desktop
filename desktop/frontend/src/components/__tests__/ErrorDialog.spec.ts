@@ -79,7 +79,13 @@ describe('ErrorDialog', () => {
     expect(mocks.SetText).toHaveBeenCalledWith(
       `Deploy failed\n\nInbox was not written. The version already on disk keeps running.\n\nflow: inbox\n\n${DETAIL}`,
     )
-    expect(el('error-dialog-copy')?.textContent).toContain('Copied')
+    expect(el('error-dialog-copy')?.getAttribute('aria-label')).toBe('Copied')
+  })
+
+  it('puts copy beside the message, not among the dialog actions', async () => {
+    await mountDialog()
+
+    expect(el('error-dialog-message')?.contains(el('error-dialog-copy'))).toBe(true)
   })
 
   it('files a diagnostic report in one click and keeps the reference id', async () => {

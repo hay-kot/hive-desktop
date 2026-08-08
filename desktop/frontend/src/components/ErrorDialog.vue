@@ -9,6 +9,7 @@
 import { computed, onMounted } from 'vue'
 import IconCheck from '~icons/lucide/check'
 import IconCircleAlert from '~icons/lucide/circle-alert'
+import IconCopy from '~icons/lucide/copy'
 import BaseButton from './BaseButton.vue'
 import BaseModal from './BaseModal.vue'
 import { useClipboard } from '../composables/useClipboard'
@@ -28,8 +29,8 @@ const reportUnavailable = computed(() => preview.value !== null && !preview.valu
 
 const copyLabel = computed(() => {
   if (copyStatus.value === 'success') return 'Copied'
-  if (copyStatus.value === 'error') return 'Could not copy'
-  return 'Copy'
+  if (copyStatus.value === 'error') return 'Copy failed'
+  return 'Copy error details'
 })
 
 onMounted(() => {
@@ -74,10 +75,24 @@ async function sendReport(): Promise<void> {
         </div>
       </dl>
 
-      <pre
-        class="hive-scroll max-h-[240px] select-text overflow-auto whitespace-pre-wrap break-words rounded-lg border border-strong bg-app px-3 py-2.5 font-mono text-[12.5px] leading-relaxed text-text"
-        data-testid="error-dialog-detail"
-      >{{ detail }}</pre>
+      <!-- Error-toned, not a neutral code block: this is the failure itself,
+           and Copy belongs beside it rather than in the footer among the
+           dialog's own actions. -->
+      <div class="flex items-start gap-2.5 rounded-lg border border-severity-error-border bg-severity-error-tint px-3 py-2.5" data-testid="error-dialog-message">
+        <IconCircleAlert class="mt-px size-4 shrink-0 text-severity-error" />
+        <pre
+          class="hive-scroll max-h-[240px] min-w-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-severity-error"
+          data-testid="error-dialog-detail"
+        >{{ detail }}</pre>
+        <button
+          type="button"
+          class="-mr-1 -mt-0.5 flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-severity-error/70 hover:bg-severity-error/15 hover:text-severity-error"
+          :title="copyLabel"
+          :aria-label="copyLabel"
+          data-testid="error-dialog-copy"
+          @click="copy(text)"
+        ><component :is="copyStatus === 'success' ? IconCheck : IconCopy" class="size-[15px]" /></button>
+      </div>
 
       <div v-if="reportId" class="flex flex-col gap-1.5" data-testid="error-dialog-report-sent">
         <div class="flex items-center gap-2 text-severity-success">
@@ -98,7 +113,6 @@ async function sendReport(): Promise<void> {
 
     <template #footer>
       <BaseButton class="flex-1" :disabled="submitting" data-testid="error-dialog-close" @click="emit('close')">Close</BaseButton>
-      <BaseButton variant="secondary" data-testid="error-dialog-copy" @click="copy(text)">{{ copyLabel }}</BaseButton>
       <BaseButton
         v-if="!reportId"
         variant="secondary"
