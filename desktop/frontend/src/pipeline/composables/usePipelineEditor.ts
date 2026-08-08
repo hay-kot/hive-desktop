@@ -9,6 +9,8 @@
 // response), keeping this file trivially unit-testable with a fake client.
 import { useIntervalFn } from '@vueuse/core'
 import { computed, onMounted, ref } from 'vue'
+import { useErrorDialog } from '../../composables/useErrorDialog'
+import { errorText } from '../../lib/appError'
 import { instantiate } from '../registry'
 import type { FlowNode, Wire } from '../types'
 import {
@@ -50,6 +52,7 @@ export interface PipelineEditorOptions {
 export function usePipelineEditor(client: PipelineEditorClient, options: PipelineEditorOptions = {}) {
   const pollIntervalMs = options.pollIntervalMs ?? 5000
   const nodeRunLimit = options.nodeRunLimit ?? 100
+  const { showError } = useErrorDialog()
 
   const flows = ref<FlowSummary[]>([])
   const activeFlow = ref<EditorFlow | null>(null)
@@ -87,7 +90,7 @@ export function usePipelineEditor(client: PipelineEditorClient, options: Pipelin
       flows.value = (await client.listFlows()) ?? []
     } catch (err) {
       console.warn('Unable to load flows', err)
-      error.value = message(err, 'Could not load flows.')
+      error.value = errorText(err, 'Could not load flows.')
     } finally {
       loadingFlows.value = false
     }
@@ -126,7 +129,7 @@ export function usePipelineEditor(client: PipelineEditorClient, options: Pipelin
       replaceDraft(wireFlow, wireLayout)
     } catch (err) {
       console.warn('Unable to load flow', id, err)
-      error.value = message(err, 'Could not load the flow.')
+      error.value = errorText(err, 'Could not load the flow.')
       activeFlow.value = null
     } finally {
       loadingFlow.value = false
@@ -227,7 +230,17 @@ export function usePipelineEditor(client: PipelineEditorClient, options: Pipelin
       return flowSnapshot
     } catch (err) {
       console.warn('Unable to deploy flow', flow.id, err)
-      error.value = message(err, 'Could not deploy the flow.')
+      // A deploy that fails silently is one the author walks away from
+      // believing it shipped, so this interrupts rather than only marking the
+      // status strip.
+      const detail = errorText(err, 'Could not deploy the flow.')
+      error.value = detail
+      showError({
+        title: 'Deploy failed',
+        summary: `${flow.name || flow.id} was not written. The version already on disk keeps running.`,
+        detail,
+        context: { flow: flow.id },
+      })
       return null
     } finally {
       saving.value = false
@@ -274,8 +287,4 @@ function sameWire(a: Wire, b: Wire): boolean {
 
 function copyJSON<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
-}
-
-function message(err: unknown, fallback: string): string {
-  return err instanceof Error && err.message ? err.message : fallback
 }

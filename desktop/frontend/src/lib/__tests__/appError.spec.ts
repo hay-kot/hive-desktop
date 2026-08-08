@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { appErrorKind, appErrorMessage } from '../appError'
+import { appErrorKind, appErrorMessage, errorText } from '../appError'
 
 // A thrown binding error is a real Error whose `cause` is the JSON the Go
 // adapter's MarshalError produced. These fixtures mirror that exactly — if
@@ -43,5 +43,19 @@ describe('appErrorMessage', () => {
   it('is empty when there is no message to read', () => {
     expect(appErrorMessage(new Error('plain'))).toBe('')
     expect(appErrorMessage(bindingError({ kind: 'internal' }))).toBe('')
+  })
+})
+
+describe('errorText', () => {
+  it('prefers the core message over the runtime one the binding threw', () => {
+    expect(errorText(bindingError({ kind: 'invalid', message: 'flow id must be a slug' }), 'fallback'))
+      .toBe('flow id must be a slug')
+  })
+
+  it('falls back to the thrown message, then to the caller\'s wording', () => {
+    expect(errorText(new Error('fetch failed'), 'fallback')).toBe('fetch failed')
+    expect(errorText(new Error(''), 'fallback')).toBe('fallback')
+    expect(errorText('a string', 'fallback')).toBe('fallback')
+    expect(errorText(undefined, 'fallback')).toBe('fallback')
   })
 })

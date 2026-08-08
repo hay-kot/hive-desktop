@@ -19,6 +19,7 @@ import CreateSessionDialog from './components/CreateSessionDialog.vue'
 import NewSessionDialog from './components/NewSessionDialog.vue'
 import ConfirmationDialog from './components/ConfirmationDialog.vue'
 import CommandPalette from './components/CommandPalette.vue'
+import ErrorDialog from './components/ErrorDialog.vue'
 import ReportProblemDialog from './components/ReportProblemDialog.vue'
 import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
@@ -35,6 +36,7 @@ import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
+import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
@@ -774,6 +776,7 @@ async function toggleMaximise(): Promise<void> {
 
 const { open: paletteOpen, toggle: togglePalette } = useCommandPalette()
 const { open: reportDialogOpen, openDialog: openReportDialog } = useReportDialog()
+const { current: appError, dismissError } = useErrorDialog()
 const {
   open: newSessionOpen, options: newSessionOptions, initial: newSessionInitial, busy: newSessionBusy, error: newSessionError,
   openBlank: openNewSession, openFromItem: openNewSessionFromItem, cancel: cancelNewSession, submit: submitNewSession,
@@ -1404,6 +1407,7 @@ onUnmounted(() => {
     <PopupTerminal v-if="popupTerminalMounted" />
     <CommandPalette />
     <ReportProblemDialog v-if="reportDialogOpen" @close="reportDialogOpen = false" />
+    <ErrorDialog v-if="appError" :error="appError" @close="dismissError" />
     <NewProfileModal
       v-if="newProfileOpen"
       :busy="creatingProfile"
@@ -1418,8 +1422,12 @@ onUnmounted(() => {
       @close="deleteProfileOpen = false"
       @confirm="confirmDeleteProfile"
     />
+    <!-- Deploying from this modal can raise the error dialog. Only one is
+         rendered at a time: BaseModal closes on any Escape, so stacked
+         overlays would both take a single keypress and drop the guard along
+         with the error. Dismissing the error brings the guard back. -->
     <UnsavedFlowChangesModal
-      v-if="pendingNavigation"
+      v-if="pendingNavigation && !appError"
       :busy="unsavedChangesBusy"
       :error="session.error.value"
       @close="cancelPendingNavigation"

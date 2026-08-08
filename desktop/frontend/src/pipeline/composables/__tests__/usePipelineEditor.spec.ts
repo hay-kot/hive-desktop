@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { usePipelineEditor, type PipelineEditorClient } from '../usePipelineEditor'
+import { resetErrorDialogForTests, useErrorDialog } from '../../../composables/useErrorDialog'
 import type { FlowSummary, NodeRunRecord, WireFlow, WireLayout } from '../../lib/wireFlow'
 
 function wireFlow(overrides: Partial<WireFlow> = {}): WireFlow {
@@ -53,6 +54,11 @@ async function mountLoadedEditor(client: PipelineEditorClient = fakeClient()) {
   await flushPromises()
   return mounted
 }
+
+// The error dialog is app-lifetime state a failed deploy raises into.
+beforeEach(() => {
+  resetErrorDialogForTests()
+})
 
 describe('usePipelineEditor', () => {
   it('loads the flows list on mount', async () => {
@@ -223,6 +229,38 @@ describe('usePipelineEditor', () => {
 
     expect(state.error.value).toBe('rejected')
     expect(state.dirty.value).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('deploy raises the error dialog so a failure cannot be walked away from', async () => {
+    const rejection = Object.assign(new Error('call failed'), {
+      cause: { kind: 'invalid', message: 'node "notify": action "ping" is not defined' },
+    })
+    const client = fakeClient({ saveFlow: vi.fn().mockRejectedValue(rejection) })
+    const { state, wrapper } = await mountLoadedEditor(client)
+    await state.selectFlow('flow-1')
+    state.moveNode('src', 1, 1)
+
+    await state.deploy()
+
+    const raised = useErrorDialog().current.value
+    expect(raised?.title).toBe('Deploy failed')
+    // The core's message, not the runtime's — that is the text worth copying.
+    expect(raised?.detail).toBe('node "notify": action "ping" is not defined')
+    expect(raised?.context).toEqual({ flow: 'flow-1' })
+
+    wrapper.unmount()
+  })
+
+  it('deploy raises nothing when it succeeds', async () => {
+    const { state, wrapper } = await mountLoadedEditor()
+    await state.selectFlow('flow-1')
+    state.moveNode('src', 1, 1)
+
+    await state.deploy()
+
+    expect(useErrorDialog().current.value).toBeNull()
 
     wrapper.unmount()
   })
