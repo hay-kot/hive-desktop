@@ -78,15 +78,19 @@ async function sendReport(): Promise<void> {
       <!-- Error-toned, not a neutral code block: this is the failure itself,
            and Copy belongs beside it rather than in the footer among the
            dialog's own actions. -->
+      <!-- The glyph and the button are h-5 boxes against the pre's leading-5,
+           so both centre on the first line however many lines follow. The
+           button's own box is larger than that line and gives the margin back,
+           keeping a 28px target without pushing the row taller. -->
       <div class="flex items-start gap-2.5 rounded-lg border border-severity-error-border bg-severity-error-tint px-3 py-2.5" data-testid="error-dialog-message">
-        <IconCircleAlert class="mt-px size-4 shrink-0 text-severity-error" />
+        <span class="flex h-5 shrink-0 items-center"><IconCircleAlert class="size-4 text-severity-error" /></span>
         <pre
-          class="hive-scroll max-h-[240px] min-w-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-relaxed text-severity-error"
+          class="hive-scroll max-h-[240px] min-w-0 flex-1 select-text overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-severity-error"
           data-testid="error-dialog-detail"
         >{{ detail }}</pre>
         <button
           type="button"
-          class="-mr-1 -mt-0.5 flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-severity-error/70 hover:bg-severity-error/15 hover:text-severity-error"
+          class="-mr-1 -my-1 flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-severity-error/70 hover:bg-severity-error/15 hover:text-severity-error"
           :title="copyLabel"
           :aria-label="copyLabel"
           data-testid="error-dialog-copy"
