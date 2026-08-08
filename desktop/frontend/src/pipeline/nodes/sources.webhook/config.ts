@@ -40,8 +40,9 @@ export interface Config {
 
 export const label = 'Webhook source'
 export const category = 'Sources' as const
+// A protocol rather than a product, so there is no vendor mark to wear and
+// it keeps the generic source hue the branded sources have moved off.
 export const glyph = IconWebhook
-// Blue — source nodes share the sources.github cap color.
 export const accentToken = 'var(--color-node-blue)'
 export const tint = 'var(--color-node-blue-tint)'
 

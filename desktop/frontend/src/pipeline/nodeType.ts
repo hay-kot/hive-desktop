@@ -24,6 +24,14 @@ export interface NodeTypeDefinition<C = Record<string, any>> {
   /** Icon component (unplugin-icons `~icons/lucide/*`). */
   glyph: any
   /**
+   * True when `glyph` is a product logomark rather than a lucide glyph.
+   * Logomarks carry their own aspect and optical weight — PostHog's is 52:28 —
+   * so they are drawn full-bleed in a slightly larger tile, where a glyph
+   * from the 24×24 icon grid needs a fixed 14px optical size to sit right
+   * next to every other node's.
+   */
+  logoMark?: boolean
+  /**
    * Per-type accent color for the canvas card's role cap + glyph icon (a CSS
    * color value, e.g. `var(--color-node-blue)` — see styles/main.css's
    * node-* tokens). Falls back to the generic `var(--color-accent)` when

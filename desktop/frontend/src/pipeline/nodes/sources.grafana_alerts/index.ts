@@ -1,6 +1,6 @@
 import editor from './editor.vue'
 import help from '@nodedocs/sources.grafana_alerts.md?raw'
-import { accentToken, category, defaults, glyph, label, role, tint, type, validate } from './config'
+import { accentToken, category, defaults, glyph, logoMark, label, role, tint, type, validate } from './config'
 import { defineNodeType } from '../../nodeType'
 
 export default defineNodeType({
@@ -9,6 +9,7 @@ export default defineNodeType({
   category,
   role,
   glyph,
+  logoMark,
   accentToken,
   tint,
   defaults,

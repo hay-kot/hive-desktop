@@ -122,6 +122,16 @@ function tintColor(node: FlowNode): string {
   return defFor(node)?.tint ?? 'var(--color-accent-tint)'
 }
 
+/**
+ * A product logomark carries its own aspect and needs the whole tile rather
+ * than a 14px box inside it — PostHog's is 52:28 and would letterbox to about
+ * 7px tall otherwise, well under what the Integrations screen renders. Lucide
+ * glyphs keep the fixed optical size that lines them up with every other node.
+ */
+function isLogoMark(node: FlowNode): boolean {
+  return defFor(node)?.logoMark === true
+}
+
 function cardShadow(node: FlowNode): string {
   const status = statusFor(node)
   if (status === 'error') return '0 0 0 1.5px var(--color-severity-error)'
@@ -617,8 +627,13 @@ onBeforeUnmount(() => {
         <div class="relative flex h-[52px] overflow-hidden rounded-[2px] bg-action-card active:cursor-grabbing" :style="{ boxShadow: cardShadow(node) }">
           <div class="w-1.5 shrink-0" :style="{ background: capColor(node) }" />
           <div class="flex min-w-0 flex-1 items-center gap-2.5 px-[11px]">
-            <span class="flex size-[23px] shrink-0 items-center justify-center rounded-md" :style="{ background: tintColor(node), color: capColor(node) }">
-              <component :is="defFor(node)?.glyph" class="size-3.5" />
+            <span
+              class="flex shrink-0 items-center justify-center rounded-md"
+              :class="isLogoMark(node) ? 'size-[26px] p-[2px]' : 'size-[23px]'"
+              :style="{ background: tintColor(node), color: capColor(node) }"
+              data-testid="flow-node-mark"
+            >
+              <component :is="defFor(node)?.glyph" :class="isLogoMark(node) ? 'size-full' : 'size-3.5'" />
             </span>
             <div class="min-w-0 flex-1">
               <div class="truncate text-[12.5px] font-semibold text-text" data-testid="flow-node-title">{{ titleFor(node) }}</div>

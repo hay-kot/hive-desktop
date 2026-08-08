@@ -75,10 +75,12 @@ function onDragStart(e: DragEvent, type: string) {
             @dragstart="onDragStart($event, def.type)"
           >
             <span
-              class="flex size-[22px] shrink-0 items-center justify-center rounded-md"
+              class="flex shrink-0 items-center justify-center rounded-md"
+              :class="def.logoMark ? 'size-[25px] p-[2px]' : 'size-[22px]'"
               :style="{ background: def.tint ?? 'var(--color-accent-tint)', color: def.accentToken ?? 'var(--color-accent)' }"
+              data-testid="palette-entry-mark"
             >
-              <component :is="def.glyph" class="size-3.5" />
+              <component :is="def.glyph" :class="def.logoMark ? 'size-full' : 'size-3.5'" />
             </span>
             <span class="min-w-0 flex-1">
               <span class="block truncate text-[12.5px] font-medium text-text" data-testid="palette-entry-label">{{ def.label }}</span>

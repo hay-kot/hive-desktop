@@ -123,6 +123,45 @@ describe('FlowsCanvas', () => {
     wrapper.unmount()
   })
 
+  // A source card carries its product's hue and renders the product's own
+  // logomark at tile size; downstream nodes keep the role hue and the 14px
+  // lucide glyph. Asserted here (not just on the registry) because the tile is
+  // where a brand is actually visible to someone scanning a canvas.
+  it('paints a source card with its brand hue and a full-tile mark', () => {
+    const wrapper = mountCanvas({
+      flow: flow({
+        nodes: [
+          { id: 'source', type: 'sources.github', config: {} },
+          { id: 'grafana', type: 'sources.grafana_metrics', config: {} },
+          { id: 'hook', type: 'sources.webhook', config: {} },
+          { id: 'feed', type: 'feed', config: {} },
+        ],
+        wires: [],
+      }),
+    })
+
+    const github = wrapper.get('[data-testid="flow-node-source"] [data-testid="flow-node-mark"]')
+    expect(github.attributes('style')).toContain('var(--color-brand-github-tint)')
+    expect(github.attributes('style')).toContain('var(--color-brand-github)')
+    expect(github.classes()).toContain('size-[26px]')
+
+    const grafana = wrapper.get('[data-testid="flow-node-grafana"] [data-testid="flow-node-mark"]')
+    expect(grafana.attributes('style')).toContain('var(--color-brand-grafana)')
+
+    // A source with no vendor behind it keeps the generic hue and the lucide
+    // tile — the bigger tile is for logomarks, not for sources as a class.
+    const hook = wrapper.get('[data-testid="flow-node-hook"] [data-testid="flow-node-mark"]')
+    expect(hook.attributes('style')).toContain('var(--color-node-blue)')
+    expect(hook.classes()).toContain('size-[23px]')
+
+    // Downstream nodes are unchanged: role hue, 23px tile, 14px glyph.
+    const feed = wrapper.get('[data-testid="flow-node-feed"] [data-testid="flow-node-mark"]')
+    expect(feed.attributes('style')).toContain('var(--color-node-green)')
+    expect(feed.classes()).toContain('size-[23px]')
+
+    wrapper.unmount()
+  })
+
   it('shows ok status with in/out counts and error status with the run error, done below the card', () => {
     const runs = new Map<string, NodeRunRecord>([
       ['source', run({ nodeId: 'source', ok: true, inCount: 4, outCount: 4 })],

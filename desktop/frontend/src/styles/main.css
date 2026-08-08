@@ -68,6 +68,12 @@
   --color-node-orange: var(--hv-node-orange);
   --color-node-orange-tint: var(--hv-node-orange-tint);
   --color-node-port: var(--hv-node-port);
+  --color-brand-github: var(--hv-brand-github);
+  --color-brand-github-tint: var(--hv-brand-github-tint);
+  --color-brand-grafana: var(--hv-brand-grafana);
+  --color-brand-grafana-tint: var(--hv-brand-grafana-tint);
+  --color-brand-posthog: var(--hv-brand-posthog);
+  --color-brand-posthog-tint: var(--hv-brand-posthog-tint);
   --color-canvas: var(--hv-canvas);
   --color-canvas-dot: var(--hv-canvas-dot);
   --color-canvas-toolbar: var(--hv-canvas-toolbar);
@@ -177,6 +183,23 @@
   --hv-node-green-tint: rgba(52, 211, 153, 0.13);
   --hv-node-orange: #f2803c;
   --hv-node-orange-tint: rgba(242, 128, 60, 0.13);
+
+  /* Connector brand hues, for source nodes that stand for a real product.
+     Theme-invariant for the same reason the node-role hues above are: a
+     vendor's identity is not the app's chrome.
+
+     GitHub is the exception — its brand is monochrome (#181717), which
+     disappears against a dark canvas, so it takes a legible neutral drawn
+     from GitHub's own muted foreground instead of the literal mark color.
+     PostHog's cap is their brand blue rather than their orange: their orange
+     sits a few degrees from Grafana's, and the cap is the part that still
+     carries once zoom has shrunk the logomark away. */
+  --hv-brand-github: #8b949e;
+  --hv-brand-github-tint: rgba(139, 148, 158, 0.15);
+  --hv-brand-grafana: #f46800;
+  --hv-brand-grafana-tint: rgba(244, 104, 0, 0.15);
+  --hv-brand-posthog: #1d4aff;
+  --hv-brand-posthog-tint: rgba(29, 74, 255, 0.15);
 
   /* Flows canvas surface chrome — a dark recess relative to --hv-app. */
   --hv-canvas: #0e1014;

@@ -10,7 +10,7 @@
 // (see github_source.go), so an entry sources.github node only accepts messages
 // on that flow-qualified topic — see engine/runGraph.ts's `acceptsEntry`.
 
-import IconGithub from '~icons/lucide/github'
+import GithubMark from '../../../components/marks/GithubMark.vue'
 
 export const type = 'sources.github'
 export const role = 'source' as const
@@ -41,10 +41,14 @@ export interface Config {
 
 export const label = 'GitHub source'
 export const category = 'Sources' as const
-export const glyph = IconGithub
-// Blue — matches the mockup's GitHub source node cap (8c wiring/anatomy).
-export const accentToken = 'var(--color-node-blue)'
-export const tint = 'var(--color-node-blue-tint)'
+// GitHub's own mark, the same one the Integrations screen and the inbox
+// source badge use — a source node stands for a product, so it wears that
+// product's identity rather than a lucide approximation of it.
+export const glyph = GithubMark
+/** A product logomark, not a lucide glyph — see NodeTypeDefinition.logoMark. */
+export const logoMark = true
+export const accentToken = 'var(--color-brand-github)'
+export const tint = 'var(--color-brand-github-tint)'
 
 export const defaults: Config = {
   credential: '',
