@@ -1,6 +1,6 @@
 // Runs on the backend (internal/app/sources/grafana); role 'source' means no runtime.ts here.
 
-import IconBell from '~icons/lucide/bell'
+import GrafanaMark from '../../../components/marks/GrafanaMark.vue'
 
 export const type = 'sources.grafana_alerts'
 export const role = 'source' as const
@@ -18,10 +18,14 @@ export interface Config {
 
 export const label = 'Grafana alerts source'
 export const category = 'Sources' as const
-export const glyph = IconBell
-// Source nodes share the sources.github cap color.
-export const accentToken = 'var(--color-node-blue)'
-export const tint = 'var(--color-node-blue-tint)'
+// Grafana's own mark, shared with the Integrations screen and the inbox
+// source badge. Every Grafana source wears it: the node title is what
+// separates alerts from IRM from metrics.
+export const glyph = GrafanaMark
+/** A product logomark, not a lucide glyph — see NodeTypeDefinition.logoMark. */
+export const logoMark = true
+export const accentToken = 'var(--color-brand-grafana)'
+export const tint = 'var(--color-brand-grafana-tint)'
 
 export const defaults: Config = {
   credential: '',

@@ -1,6 +1,6 @@
 // Runs on the backend (internal/app/sources/posthog); role 'source' means no runtime.ts here.
 
-import IconBellRing from '~icons/lucide/bell-ring'
+import PostHogMark from '../../../components/marks/PostHogMark.vue'
 
 export const type = 'sources.posthog_alerts'
 export const role = 'source' as const
@@ -17,10 +17,13 @@ export interface Config {
 
 export const label = 'PostHog insight alerts source'
 export const category = 'Sources' as const
-export const glyph = IconBellRing
-// Source nodes share the sources.github cap color.
-export const accentToken = 'var(--color-node-blue)'
-export const tint = 'var(--color-node-blue-tint)'
+// PostHog's own mark, shared with the Integrations screen and the inbox
+// source badge. Both PostHog sources wear it; the node title separates them.
+export const glyph = PostHogMark
+/** A product logomark, not a lucide glyph — see NodeTypeDefinition.logoMark. */
+export const logoMark = true
+export const accentToken = 'var(--color-brand-posthog)'
+export const tint = 'var(--color-brand-posthog-tint)'
 
 export const defaults: Config = {
   credential: '',
