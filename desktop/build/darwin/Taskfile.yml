@@ -153,7 +153,7 @@ tasks:
     summary: Ad-hoc signs the app bundle (macOS only)
     internal: true
     cmds:
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app"
+      - codesign --force --deep --entitlements build/darwin/entitlements.plist --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app"
 
   codesign:skip:
     summary: Skips codesigning when cross-compiling
@@ -168,7 +168,7 @@ tasks:
       - cp build/darwin/icons.icns "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app/Contents/Resources"
       - cp "{{.BIN_DIR}}/{{.APP_NAME}}" "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app/Contents/MacOS"
       - cp "build/darwin/Info.dev.plist" "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app/Contents/Info.plist"
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app"
+      - codesign --force --deep --entitlements build/darwin/entitlements.plist --sign - "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app"
       - '"{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}"'
 
   sign:
@@ -180,7 +180,7 @@ tasks:
     deps:
       - task: package
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app" {{.CLI_ARGS}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app" --entitlements build/darwin/entitlements.plist {{.CLI_ARGS}}
 
   sign:notarize:
     summary: Signs and notarizes the application bundle
@@ -193,4 +193,4 @@ tasks:
     deps:
       - task: package
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app" --notarize {{.CLI_ARGS}}
+      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_BUNDLE_NAME}}.app" --entitlements build/darwin/entitlements.plist --notarize {{.CLI_ARGS}}

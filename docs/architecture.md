@@ -805,6 +805,14 @@ not adopted it.
 
 ### Subprocess environment
 
+On macOS the signed app is the TCC responsible process for tmux, shells, agents,
+and their descendants. Both Darwin bundle variants carry the child-process
+privacy usage descriptions, and every signing path applies the Apple Events
+entitlement; access is still granted by the user when macOS prompts, never by an
+entitlement. Full Disk Access is optional for tools that routinely enter other
+apps' protected containers (ADR
+[hive-acts-as-the-macos-tcc-responsible-process-for-terminal-children](decisions/2026-08-07-hive-acts-as-the-macos-tcc-responsible-process-for-terminal-children.md)).
+
 **A command the user wrote runs in the PATH the user has, not the one the app
 inherited** (ADR subprocess-environment). A desktop launch's environment is the launcher's —
 macOS gives an `.app` bundle `/usr/bin:/bin:/usr/sbin:/sbin` — and session hooks
