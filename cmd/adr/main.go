@@ -2,7 +2,7 @@
 //
 // An ADR is identified by its filename, YYYY-MM-DD-slug.md. Nothing allocates a
 // number, so concurrent branches cannot collide on one; `adr check` is the gate
-// that keeps the ids, the index, and every citation in agreement.
+// that keeps the ids and every citation in agreement.
 package main
 
 import (
@@ -30,13 +30,8 @@ func main() {
 				Action:    runNew,
 			},
 			{
-				Name:   "index",
-				Usage:  "regenerate docs/decisions/README.md",
-				Action: runIndex,
-			},
-			{
 				Name:   "check",
-				Usage:  "verify ids, metadata, citations, and the index",
+				Usage:  "verify ids, metadata, and citations",
 				Action: runCheck,
 			},
 		},
@@ -73,28 +68,9 @@ func runNew(_ context.Context, cmd *cli.Command) error {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		return err
 	}
-	if err := writeIndex(); err != nil {
-		return err
-	}
 	fmt.Println(path)
 	fmt.Printf("cite it as: ADR %s\n", slug)
 	return nil
-}
-
-func runIndex(context.Context, *cli.Command) error {
-	return writeIndex()
-}
-
-func writeIndex() error {
-	adrs, problems, err := loadDir(decisionsDir)
-	if err != nil {
-		return err
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("cannot index a directory that does not pass `adr check`:\n  %s",
-			strings.Join(problems, "\n  "))
-	}
-	return os.WriteFile(filepath.Join(decisionsDir, indexFile), []byte(renderIndex(adrs)), 0o644)
 }
 
 func runCheck(context.Context, *cli.Command) error {
@@ -108,17 +84,6 @@ func runCheck(context.Context, *cli.Command) error {
 		return err
 	}
 	problems = append(problems, checkRefs(adrs, files)...)
-
-	want := renderIndex(adrs)
-	got, err := os.ReadFile(filepath.Join(decisionsDir, indexFile))
-	switch {
-	case err != nil && !os.IsNotExist(err):
-		return err
-	case string(got) != want:
-		problems = append(problems, fmt.Sprintf(
-			"%s/%s is out of date. Run 'mise run generate:adr' and commit the result.",
-			decisionsDir, indexFile))
-	}
 
 	if len(problems) > 0 {
 		for _, p := range problems {

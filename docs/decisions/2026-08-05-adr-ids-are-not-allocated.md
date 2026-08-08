@@ -42,16 +42,20 @@ them and forces rewraps in Go comments and table cells. This makes slugs the
 citation handle, so `check:adr` requires them to be globally unique, not merely
 unique within a date.
 
-**The index is generated.** `docs/decisions/README.md` is built from the ADRs
+~~**The index is generated.** `docs/decisions/README.md` is built from the ADRs
 themselves by `cmd/adr` and is never hand-edited. It carries `merge=union` in
 `.gitattributes`: concurrent additions take both sides' rows instead of
-conflicting, and regeneration reorders and dedupes afterward.
+conflicting, and regeneration reorders and dedupes afterward.~~ The index did
+not survive: a union merge lands both sides' rows unordered, nothing after the
+merge reruns the regeneration, and the "stale index" failure surfaces on
+whichever branch touches `docs/decisions/` next. The table duplicated the
+directory listing, so it was removed rather than repaired — the listing is the
+index.
 
 **`cmd/adr` is the gate.** `adr new` writes the file so the name is never typed
 by hand; `adr check` runs in `mise run check` and CI, and fails on a malformed
 id, a filename whose date disagrees with its `Date` field, a duplicate slug, a
-citation or link that does not resolve, a legacy numbered reference, or a stale
-index.
+citation or link that does not resolve, or a legacy numbered reference.
 
 All 74 existing ADRs were renamed and their ~640 references rewritten in one
 change, rather than freezing the old numbers and running two schemes side by
@@ -60,8 +64,9 @@ mechanically; each was resolved by reading its context.
 
 ## Consequences
 
-- Adding an ADR no longer conflicts with another branch adding one. The index is
-  the only shared file, and it is generated and union-merged.
+- Adding an ADR no longer conflicts with another branch adding one. ~~The index
+  is the only shared file, and it is generated and union-merged.~~ With the
+  index removed, there is no shared file at all.
 - Numbers are gone as a sort key. Chronology comes from the filename prefix,
   which is why the `Date` field and the filename are checked against each other
   — a wrong date silently misfiles the ADR.
@@ -70,7 +75,7 @@ mechanically; each was resolved by reading its context.
   land together.
 - References in this repo's history and in merged PR descriptions still say
   `ADR terminal-transport`. They are not rewritten, and the numbers no longer resolve; the
-  index maps a date to a slug for anyone following an old thread.
+  directory listing maps a date to a slug for anyone following an old thread.
 - `check:adr` shells out to `git ls-files` to find citation sites, so it must run
   inside the checkout. It is not part of the pre-commit hook — only `check` and
   CI — because it scans every tracked text file.

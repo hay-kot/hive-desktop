@@ -36,13 +36,13 @@ run = "./scripts/hooks/install.sh"
 
 # ── Code generation ──────────────────────────────────────────────────────────
 
-# Aggregate only. The three generators write disjoint files, so mise running
+# Aggregate only. The generators write disjoint files, so mise running
 # `depends` in parallel is safe here. `bindings` and `icons` are deliberately
 # absent: both need a full app build or image tooling, well past what a routine
 # regeneration should cost.
 [tasks.generate]
 description = "Run all code generators (vendored hivecore is generated upstream)"
-depends = ["generate:enums", "generate:sqlc", "generate:adr"]
+depends = ["generate:enums", "generate:sqlc"]
 
 [tasks."generate:enums"]
 description = "Generate enum methods using go-enum"
@@ -62,12 +62,6 @@ sources = [
 ]
 outputs = { auto = true }
 run = "sqlc generate"
-
-[tasks."generate:adr"]
-description = "Regenerate the decision index from docs/decisions/"
-sources = ["docs/decisions/*.md"]
-outputs = ["docs/decisions/README.md"]
-run = "go run ./cmd/adr index"
 
 [tasks.bindings]
 description = "Regenerate the desktop's Wails TS bindings"
@@ -173,7 +167,7 @@ go mod tidy -diff || {
 """
 
 [tasks."check:generate"]
-description = "Verify generated code (enums, sqlc, ADR index) matches its sources"
+description = "Verify generated code (enums, sqlc) matches its sources"
 run = """
 mise run --force generate
 # -N registers files the generators created that the checkout lacks, for the
@@ -188,8 +182,8 @@ mise run --force generate
 # schema change as stale. Against the index the question is the right one: after
 # regenerating, does the working tree still match what is staged? At pre-push
 # and in CI the tree is committed, so index and HEAD agree and nothing changes.
-git add -N internal/app docs/decisions
-git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go docs/decisions/README.md || {
+git add -N internal/app
+git diff --exit-code -- 'internal/app/*_enum.go' internal/app/store/db.go internal/app/store/models.go internal/app/store/queries.sql.go || {
   echo "Generated files are out of date. Run 'mise run generate' and commit the result." >&2
   exit 1
 }

@@ -1,5 +1,0 @@
-# The decision index is generated from docs/decisions/*.md, and every new ADR
-# appends a row to it. Union keeps both sides' rows instead of raising a
-# conflict; `mise run generate:adr` then reorders and dedupes, and
-# check:adr fails if anyone forgets to run it.
-docs/decisions/README.md merge=union

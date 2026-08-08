@@ -5,13 +5,13 @@ Documentation for the hive-desktop monorepo.
 ## Decisions
 
 Notable architecture/infrastructure decisions are recorded as ADRs in
-[`decisions/`](decisions/) — **[the index lives there](decisions/README.md)** and is
-generated, not hand-maintained.
+[`decisions/`](decisions/), one file per decision — the directory listing is
+the index.
 
 An ADR is identified by its filename, `YYYY-MM-DD-slug.md`. Nothing allocates a
 number, so two branches can add one without colliding, and prose cites the slug
 alone: `(ADR terminal-transport)`. Start one with `mise run adr:new -- "Title"`;
-`mise run check:adr` verifies the ids, the citations, and the index. Superseded
+`mise run check:adr` verifies the ids and the citations. Superseded
 ADRs are marked, not deleted.
 
 ## References
