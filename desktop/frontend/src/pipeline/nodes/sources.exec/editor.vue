@@ -2,12 +2,17 @@
 // sources.exec has no runtime.ts: the command runs in Go, on the poll tick.
 import { computed } from 'vue'
 import BaseButton from '../../../components/BaseButton.vue'
-import { defaultExecSourceIcon, feedIconOptions } from '../../../lib/feedIcons'
-import { SelectField, TextField, TextareaField } from '../../fields'
+import { defaultExecSourceIcon, feedIconComponent, feedIconOptions } from '../../../lib/feedIcons'
+import { MarkImageField, SelectField, TextField, TextareaField, type MarkImageClient } from '../../fields'
 import IconTrash from '~icons/lucide/trash-2'
 import type { Config } from './config'
 
-const props = defineProps<{ config: Config; errors?: string[] }>()
+const props = defineProps<{
+  config: Config
+  errors?: string[]
+  /** The mark picker's backend seam, forwarded to MarkImageField for tests. */
+  client?: MarkImageClient
+}>()
 const emit = defineEmits<{ 'update:config': [config: Config] }>()
 
 const iconOptions = feedIconOptions.map((o) => ({ value: o.value, label: o.label, icon: o.component }))
@@ -47,6 +52,9 @@ function removeEnv(index: number) {
 function addEnv() {
   emit('update:config', { ...props.config, env: { ...(props.config.env ?? {}), '': '' } })
 }
+
+// The mark picker's fallback preview, and what items render with no image set.
+const iconGlyph = computed(() => feedIconComponent(props.config.icon || defaultExecSourceIcon))
 </script>
 
 <template>
@@ -132,9 +140,17 @@ function addEnv() {
       :options="iconOptions"
       searchable
       search-placeholder="Search icons…"
-      hint="Shown on this source's items."
+      hint="Shown on this source's items when no image is set."
       testid="sources.exec-editor-icon"
       @update:model-value="(icon: string) => update({ icon: icon || undefined })"
+    />
+
+    <MarkImageField
+      :model-value="config.image"
+      :glyph="iconGlyph"
+      :client="props.client"
+      testid="sources.exec-editor-mark"
+      @update:model-value="(image: string | undefined) => update({ image })"
     />
   </div>
 </template>

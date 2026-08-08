@@ -171,12 +171,14 @@ describe('presentationFor', () => {
     expect(withIcon).not.toBe(withoutIcon)
   })
 
-  it('resolves the webhook mark image from sourceImages by scope, and none otherwise', () => {
+  it('resolves an uploaded mark image from sourceImages by scope, and none otherwise', () => {
     const url = 'data:image/png;base64,LOGO'
-    expect(presentationFor('webhook').markImage?.(baseItem, { sourceImages: { 'colonyops/hive': url } })).toBe(url)
-    expect(presentationFor('webhook').markImage?.(baseItem, {})).toBeUndefined()
-    expect(presentationFor('webhook').markImage?.(baseItem)).toBeUndefined()
-    // Only the webhook adapter carries an image resolver.
+    for (const kind of ['webhook', 'exec']) {
+      expect(presentationFor(kind).markImage?.(baseItem, { sourceImages: { 'colonyops/hive': url } })).toBe(url)
+      expect(presentationFor(kind).markImage?.(baseItem, {})).toBeUndefined()
+      expect(presentationFor(kind).markImage?.(baseItem)).toBeUndefined()
+    }
+    // Only the adapters whose node config carries an `image` resolve one.
     expect(presentationFor('github').markImage).toBeUndefined()
     expect(presentationFor('generic').markImage).toBeUndefined()
   })

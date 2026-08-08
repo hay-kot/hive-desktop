@@ -98,4 +98,7 @@ rejected.
   reason to fail an edit. A sweep can be added if it ever matters.
 - **Webhook-only, for now.** The `icons` glyph allow-list stays and is the
   fallback. Extending image marks to the feed terminal's `icon` is a follow-up,
-  not built here.
+  not built here. *(Superseded in part: `sources.exec` gained the same mark in
+  #289. The capability is structural — a connector config implementing
+  `MarkImage`/`SetMarkImage` has one — so extending it needed no new decision,
+  only moving the upload RPCs off `WebhookService` onto `FlowsService`.)*

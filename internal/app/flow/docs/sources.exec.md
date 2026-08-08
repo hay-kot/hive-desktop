@@ -12,6 +12,7 @@ Its output is a **snapshot**: what the command prints is the complete current se
 - `env` — optional map of extra environment variables, added to the inherited environment. Values are literal: nothing is expanded or interpolated.
 - `interval` — optional, e.g. `1h`. The shortest time between runs, for a command that is expensive or only worth running occasionally. The command still only runs on a poll tick, so the real cadence rounds up to the next one; empty runs it every tick. It is not persisted — a restart runs every source once.
 - `icon` — optional glyph, from the curated feed icon set, shown on this source's items. Empty uses the default command glyph.
+- `image` — optional uploaded image (the tool's logo) shown as this source's mark instead of the glyph. It is a content hash of a normalized PNG kept in the app data dir, set through the editor's image picker; it is presentation only and never affects ingest. Empty falls back to `icon`.
 
 ## Output contract
 

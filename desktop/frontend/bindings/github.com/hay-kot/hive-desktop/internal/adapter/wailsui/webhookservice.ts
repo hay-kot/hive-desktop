@@ -41,22 +41,6 @@ export function Info(): $CancellablePromise<$models.WebhookInfo> {
 }
 
 /**
- * MarkImages resolves feed-mark hashes to PNG data URLs. A hash with no stored
- * file is omitted, so the feed falls back to the glyph.
- */
-export function MarkImages(hashes: string[] | null): $CancellablePromise<{ [_ in string]?: string } | null> {
-    return $Call.ByID(3349445501, hashes);
-}
-
-/**
- * SetMarkImage stores an uploaded feed-mark image (base64, bare or a data: URL)
- * and returns its hash and stored PNG for preview.
- */
-export function SetMarkImage(data: string): $CancellablePromise<$models.MarkImageView> {
-    return $Call.ByID(913816676, data);
-}
-
-/**
  * SetSettings persists the enable toggle and port.
  */
 export function SetSettings(next: $models.WebhookSettings): $CancellablePromise<void> {

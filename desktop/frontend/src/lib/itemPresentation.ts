@@ -220,6 +220,7 @@ const posthogPresentation: ItemPresentation = {
 const execPresentation: ItemPresentation = {
   sourceLabel: 'Command',
   mark: (item, ctx) => feedIconComponent(ctx?.sourceIcons?.[item.sourceScope] || defaultExecSourceIcon),
+  markImage: (item, ctx) => ctx?.sourceImages?.[item.sourceScope],
 }
 
 const webhookPresentation: ItemPresentation = {

@@ -144,21 +144,22 @@ func (ctrl *Controller) register(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_node_image",
-		Title:       "Read a webhook source's feed mark",
-		Description: "Return a webhook source node's feed-mark image as a PNG. A node with no mark is not_found — its items fall back to the node's glyph.",
+		Title:       "Read a source node's feed mark",
+		Description: "Return a source node's feed-mark image as a PNG. A node with no mark is not_found — its items fall back to the node's glyph.",
 	}, ctrl.GetNodeImage)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "set_node_image",
-		Title: "Set a webhook source's feed mark",
-		Description: "Set a webhook source node's feed-mark image from base64-encoded image bytes (PNG, JPEG, GIF or WebP). " +
-			"It is normalized to a 128x128 PNG and shown on that source's items instead of its icon.",
+		Title: "Set a source node's feed mark",
+		Description: "Set a source node's feed-mark image from base64-encoded image bytes (PNG, JPEG, GIF or WebP). " +
+			"It is normalized to a 128x128 PNG and shown on that source's items instead of its icon. " +
+			"Webhook and command sources carry a mark; other node types are rejected.",
 	}, ctrl.SetNodeImage)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "clear_node_image",
-		Title:       "Clear a webhook source's feed mark",
-		Description: "Clear a webhook source node's feed-mark image so its items revert to the node's icon.",
+		Title:       "Clear a source node's feed mark",
+		Description: "Clear a source node's feed-mark image so its items revert to the node's icon.",
 	}, ctrl.ClearNodeImage)
 
 	mcp.AddTool(srv, &mcp.Tool{
