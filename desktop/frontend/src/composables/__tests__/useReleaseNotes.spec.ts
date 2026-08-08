@@ -13,7 +13,11 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 
 function note(version: string, summary = '') {
-  return { version, date: '2026-08-06', channel: 'dev', summary, body: `notes for ${version}` }
+  return { version, date: '2026-08-06', summary, body: `notes for ${version}`, draft: false }
+}
+
+function draft(summary = '') {
+  return { version: '', date: '', summary, body: 'unreleased work', draft: true }
 }
 
 async function loadComposable() {
@@ -59,13 +63,14 @@ describe('useReleaseNotes', () => {
   })
 
   // The toast is the notification, so it counts as seen the moment it appears —
-  // there is nothing for the user to dismiss.
+  // there is nothing for the user to dismiss. A prerelease bump carries the
+  // draft, and the draft's summary is what it has to say.
   it('raises a toast for a toast presentation and acknowledges immediately', async () => {
     mocks.Pending.mockResolvedValue({
       show: true,
       presentation: 'toast',
       version: '1.3.0-dev.4',
-      entries: [note('1.3.0-dev.4', 'Terminal fixes.')],
+      entries: [draft('Terminal fixes.')],
     })
     const { notes, toasts } = await loadComposable()
 
@@ -80,7 +85,7 @@ describe('useReleaseNotes', () => {
 
   it("opens the dialog from the toast's action", async () => {
     mocks.Pending.mockResolvedValue({
-      show: true, presentation: 'toast', version: '1.3.0-dev.4', entries: [note('1.3.0-dev.4')],
+      show: true, presentation: 'toast', version: '1.3.0-dev.4', entries: [draft()],
     })
     const { notes, toasts } = await loadComposable()
 

@@ -50,8 +50,8 @@ export function useReleaseNotes() {
     }
     // The toast is the notification, so it acknowledges on sight — unlike the
     // modal, there is nothing for the user to actively dismiss, and a toast
-    // that returned every launch on the near-daily dev channel would be the
-    // exact nuisance the toast exists to avoid.
+    // that returned every launch on near-daily prereleases would be the exact
+    // nuisance the toast exists to avoid.
     showToast(`Updated to ${pending.version}`, {
       body: pendingEntries.value[0]?.summary || undefined,
       severity: 'success',

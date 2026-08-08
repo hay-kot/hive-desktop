@@ -24,17 +24,17 @@ type PendingNotes struct {
 	Presentation string
 	// Version is the running version the notes describe.
 	Version string
-	// Entries are the releases crossed to reach Version, newest first. It can
-	// be empty on a genuine upgrade when no version in the range carries an
-	// entry.
+	// Entries are the stable releases crossed to reach Version plus this
+	// build's draft, newest first. It can be empty on a genuine upgrade when
+	// nothing in the range carries notes.
 	Entries releasenotes.Entries
 }
 
 // ReleaseNotesService decides what the What's New surface shows and remembers
-// what the user has already seen. The running version and channel are
-// arguments rather than fields because the ldflags that carry the build
-// identity bind to package main — the adapter supplies both, the same way
-// SystemService receives them.
+// what the user has already seen. The running version is an argument rather
+// than a field because the ldflags that carry the build identity bind to
+// package main — the adapter supplies it, the same way SystemService
+// receives it.
 type ReleaseNotesService struct {
 	entries releasenotes.Entries
 	state   *releasenotes.State
@@ -65,8 +65,8 @@ func NewReleaseNotesService(paths settings.Paths, logger zerolog.Logger) *Releas
 // Recording on first run is a deliberate write from a read: a fresh install
 // has no prior version to have upgraded *from*, so it silently adopts the
 // running version and shows nothing.
-func (s *ReleaseNotesService) Pending(_ context.Context, version, channel string) PendingNotes {
-	if _, published := releasenotes.Channel(version); !published {
+func (s *ReleaseNotesService) Pending(_ context.Context, version string) PendingNotes {
+	if !releasenotes.IsPublished(version) {
 		return PendingNotes{}
 	}
 
@@ -79,21 +79,28 @@ func (s *ReleaseNotesService) Pending(_ context.Context, version, channel string
 		return PendingNotes{}
 	}
 
-	entries := s.entries.Between(acknowledged, version, channel)
-	// Dev builds are cut close to daily, so a modal on nearly every launch
-	// would be hostile; they get the toast instead. An upgrade whose range
-	// carries no entries also degrades to a toast, because a modal whose body
-	// is empty says less than the one line "Updated to X" does.
-	presentation := PresentationModal
-	if channel == settings.ChannelDev || len(entries) == 0 {
-		presentation = PresentationToast
-	}
+	entries := s.entries.Between(acknowledged, version)
 	return PendingNotes{
 		Show:         true,
-		Presentation: presentation,
+		Presentation: presentationFor(entries),
 		Version:      version,
 		Entries:      entries,
 	}
+}
+
+// presentationFor reserves the modal for a launch that crossed a stable
+// release. A prerelease bump carries only the draft, which is the same
+// in-progress list the previous one showed, and prereleases are cut close to
+// daily — a modal on nearly every launch is the nuisance the toast exists to
+// avoid. A range with nothing in it degrades to the toast for a different
+// reason: a modal with an empty body says less than the line "Updated to X".
+func presentationFor(entries releasenotes.Entries) string {
+	for _, entry := range entries {
+		if !entry.Draft {
+			return PresentationModal
+		}
+	}
+	return PresentationToast
 }
 
 // Acknowledge records version as seen. The modal defers this to its dismissal,
@@ -108,8 +115,10 @@ func (s *ReleaseNotesService) Acknowledge(_ context.Context, version string) err
 	return s.state.Acknowledge(version)
 }
 
-// History is every release a user on channel has received, newest first — the
-// About pane's list, and where a dismissed surface can be read again.
-func (s *ReleaseNotesService) History(_ context.Context, channel string) releasenotes.Entries {
-	return s.entries.VisibleIn(channel)
+// History is every set of notes this build carries, newest first: the draft
+// for what it has that no stable release does, then the stable releases
+// themselves. It is the About pane's list, and where a dismissed surface can
+// be read again.
+func (s *ReleaseNotesService) History(_ context.Context) releasenotes.Entries {
+	return s.entries
 }

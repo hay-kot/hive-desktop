@@ -61,14 +61,12 @@ func (v version) channel() string {
 	}
 }
 
-// Channel maps a published version to the channel that publishes it. ok is
-// false when the version is not a published release.
-func Channel(v string) (string, bool) {
-	parsed, ok := parseVersion(v)
-	if !ok {
-		return "", false
-	}
-	return parsed.channel(), true
+// IsPublished reports whether version names a release this project publishes.
+// It is false for source builds ("dev"), "(devel)", go module pseudo-versions
+// and foreign prerelease identifiers — builds with no release to describe.
+func IsPublished(version string) bool {
+	_, ok := parseVersion(version)
+	return ok
 }
 
 // IsNewer reports whether a is a later release than b. An unparseable a is
@@ -86,10 +84,10 @@ func IsNewer(a, b string) bool {
 	return compare(left, right) > 0
 }
 
-// channelRank orders channels along this product's promotion path. SemVer
-// sorts the words "beta" and "dev" lexically, which is the reverse of how a
-// build is promoted here, so ordering goes through this rank instead
-// (ADR release-channels).
+// channelRank orders a version's prerelease identifier along this product's
+// promotion path. SemVer sorts the words "beta" and "dev" lexically, which is
+// the reverse of how a build is promoted here, so ordering goes through this
+// rank instead (ADR release-channels).
 func channelRank(channel string) int {
 	switch channel {
 	case settings.ChannelDev:
@@ -124,13 +122,4 @@ func sign(n int) int {
 	default:
 		return 0
 	}
-}
-
-// visibleIn reports whether a release reaches a user following channel. It is
-// the read side of the publish cascade in ADR release-channels: a stable
-// release is published to stable, beta and dev; a beta to beta and dev; a dev
-// release to dev alone. So a stable user never sees the dev builds that
-// preceded their upgrade, and a dev user sees everything.
-func visibleIn(v version, channel string) bool {
-	return channelRank(v.channel()) >= channelRank(channel)
 }

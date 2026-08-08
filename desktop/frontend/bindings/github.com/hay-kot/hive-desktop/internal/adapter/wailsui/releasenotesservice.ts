@@ -3,7 +3,11 @@
 
 /**
  * ReleaseNotesService exposes the embedded changelog: what to show once after
- * an update, and the full per-channel history the About pane lists.
+ * an update, and the full history the About pane lists.
+ * 
+ * It takes no channel. Every entry a build carries is either a stable release
+ * — which the publish cascade sends to every channel — or this build's own
+ * draft, so there is nothing a user on one channel must be kept from seeing.
  * @module
  */
 
@@ -24,7 +28,8 @@ export function Acknowledge(): $CancellablePromise<void> {
 }
 
 /**
- * History lists every release this build's channel receives, newest first.
+ * History lists this build's draft followed by every stable release it knows
+ * of, newest first.
  */
 export function History(): $CancellablePromise<$models.ReleaseNote[] | null> {
     return $Call.ByID(2514746955);

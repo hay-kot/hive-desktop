@@ -19,10 +19,13 @@ func newTestReleaseNotes(t *testing.T, entries releasenotes.Entries) *ReleaseNot
 func testEntries(versions ...string) releasenotes.Entries {
 	out := make(releasenotes.Entries, 0, len(versions))
 	for _, v := range versions {
-		channel, _ := releasenotes.Channel(v)
-		out = append(out, releasenotes.Entry{Version: v, Channel: channel, Body: "notes for " + v})
+		out = append(out, releasenotes.Entry{Version: v, Body: "notes for " + v})
 	}
 	return out
+}
+
+func testDraft() releasenotes.Entry {
+	return releasenotes.Entry{Draft: true, Summary: "in progress", Body: "unreleased work"}
 }
 
 // A fresh install has no version it upgraded *from*, so it adopts the running
@@ -30,8 +33,8 @@ func testEntries(versions ...string) releasenotes.Entries {
 func TestPendingIsSilentOnAFreshInstall(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable))
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable),
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0"))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0"),
 		"the recorded version keeps it silent on the next launch too")
 }
 
@@ -39,7 +42,7 @@ func TestPendingShowsNotesAfterAnUpgrade(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
 	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	pending := service.Pending(t.Context(), "1.3.0", settings.ChannelStable)
+	pending := service.Pending(t.Context(), "1.3.0")
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationModal, pending.Presentation)
 	assert.Equal(t, "1.3.0", pending.Version)
@@ -52,47 +55,62 @@ func TestPendingStopsAfterAcknowledgement(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
 	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	require.True(t, service.Pending(t.Context(), "1.3.0", settings.ChannelStable).Show)
-	require.True(t, service.Pending(t.Context(), "1.3.0", settings.ChannelStable).Show,
+	require.True(t, service.Pending(t.Context(), "1.3.0").Show)
+	require.True(t, service.Pending(t.Context(), "1.3.0").Show,
 		"an unacknowledged surface returns until it is dismissed")
 
 	require.NoError(t, service.Acknowledge(t.Context(), "1.3.0"))
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.3.0", settings.ChannelStable))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.3.0"))
 }
 
 func TestPendingIsSilentOnSourceBuilds(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0"))
 	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "dev", settings.ChannelDev))
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "(devel)", settings.ChannelDev))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "dev"))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "(devel)"))
 }
 
 func TestPendingIsSilentOnADowngrade(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.2.0"))
 	require.NoError(t, service.Acknowledge(t.Context(), "1.3.0"))
 
-	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0", settings.ChannelStable))
+	assert.Equal(t, PendingNotes{}, service.Pending(t.Context(), "1.2.0"))
 }
 
-// Dev builds are cut close to daily, so they get the toast rather than a modal
-// on nearly every launch.
-func TestPendingUsesAToastOnTheDevChannel(t *testing.T) {
-	service := newTestReleaseNotes(t, testEntries("1.2.0-dev.4", "1.2.0-dev.3"))
+// A prerelease bump carries only the draft — the same in-progress list the
+// previous build showed — so it reports the bump in a toast rather than
+// reopening a modal over it.
+func TestPendingUsesAToastWhenOnlyTheDraftIsNew(t *testing.T) {
+	service := newTestReleaseNotes(t, releasenotes.Entries{testDraft()})
 	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0-dev.3"))
 
-	pending := service.Pending(t.Context(), "1.2.0-dev.4", settings.ChannelDev)
+	pending := service.Pending(t.Context(), "1.2.0-dev.4")
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationToast, pending.Presentation)
+	require.Len(t, pending.Entries, 1)
+	assert.True(t, pending.Entries[0].Draft, "the draft is still what the toast has to offer")
 }
 
-// An upgrade with no entry in range still reports the version bump — a modal
+// Crossing a stable release is the one launch worth a modal, whichever channel
+// the build itself follows — a prerelease user reaching it has arrived at the
+// release they were testing.
+func TestPendingUsesAModalWhenAReleaseIsCrossed(t *testing.T) {
+	service := newTestReleaseNotes(t, releasenotes.Entries{testDraft(), releasenotes.Entry{Version: "1.2.0", Body: "notes"}})
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0-dev.9"))
+
+	pending := service.Pending(t.Context(), "1.2.0")
+	require.True(t, pending.Show)
+	assert.Equal(t, PresentationModal, pending.Presentation)
+}
+
+// An upgrade with nothing in range still reports the version bump — a modal
 // with an empty body would say less than the one-line toast does.
 func TestPendingDegradesToAToastWhenNoEntriesExist(t *testing.T) {
 	service := newTestReleaseNotes(t, testEntries("1.2.0"))
 	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	pending := service.Pending(t.Context(), "1.4.0", settings.ChannelStable)
+	pending := service.Pending(t.Context(), "1.4.0")
 	require.True(t, pending.Show)
 	assert.Equal(t, PresentationToast, pending.Presentation)
 	assert.Empty(t, pending.Entries)
@@ -100,21 +118,22 @@ func TestPendingDegradesToAToastWhenNoEntriesExist(t *testing.T) {
 }
 
 func TestPendingCollectsEverySkippedRelease(t *testing.T) {
-	service := newTestReleaseNotes(t, testEntries("1.2.0-dev.4", "1.2.0-dev.3", "1.2.0-dev.2"))
-	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0-dev.2"))
+	service := newTestReleaseNotes(t, testEntries("1.4.0", "1.3.0", "1.2.0"))
+	require.NoError(t, service.Acknowledge(t.Context(), "1.2.0"))
 
-	pending := service.Pending(t.Context(), "1.2.0-dev.4", settings.ChannelDev)
+	pending := service.Pending(t.Context(), "1.4.0")
 	require.Len(t, pending.Entries, 2, "both crossed releases are reported")
-	assert.Equal(t, "1.2.0-dev.4", pending.Entries[0].Version)
-	assert.Equal(t, "1.2.0-dev.3", pending.Entries[1].Version)
+	assert.Equal(t, "1.4.0", pending.Entries[0].Version)
+	assert.Equal(t, "1.3.0", pending.Entries[1].Version)
 }
 
-func TestHistoryIsScopedToTheChannel(t *testing.T) {
-	service := newTestReleaseNotes(t, testEntries("1.3.0", "1.3.0-beta.1", "1.2.1-dev.1"))
+// History is not scoped to a channel: every entry is either a stable release,
+// which the publish cascade sends everywhere, or this build's own draft.
+func TestHistoryIsEverythingTheBuildCarries(t *testing.T) {
+	entries := releasenotes.Entries{testDraft(), releasenotes.Entry{Version: "1.2.0", Body: "notes"}}
+	service := newTestReleaseNotes(t, entries)
 
-	assert.Len(t, service.History(t.Context(), settings.ChannelStable), 1)
-	assert.Len(t, service.History(t.Context(), settings.ChannelBeta), 2)
-	assert.Len(t, service.History(t.Context(), settings.ChannelDev), 3)
+	assert.Equal(t, entries, service.History(t.Context()))
 }
 
 // The constructor degrades rather than failing when the changelog cannot be
@@ -122,5 +141,5 @@ func TestHistoryIsScopedToTheChannel(t *testing.T) {
 func TestNewReleaseNotesServiceLoadsTheEmbeddedChangelog(t *testing.T) {
 	service := NewReleaseNotesService(settings.Paths{StateDir: t.TempDir()}, zerolog.Nop())
 
-	assert.NotEmpty(t, service.History(t.Context(), settings.ChannelDev))
+	assert.NotEmpty(t, service.History(t.Context()))
 }

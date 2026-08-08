@@ -145,23 +145,28 @@ const links: Link[] = [
   { key: 'report', label: 'Report a problem', hint: 'Build info and logs', external: false, open: openReport },
 ]
 
-// The changelog ships inside the binary, so this list is complete offline and
-// is scoped to the channel this build follows.
+// The changelog ships inside the binary, so this list is complete offline. It
+// leads with the draft — what this build carries that no stable release does —
+// followed by the stable releases themselves.
 const { loadHistory } = useReleaseNotes()
 const history = ref<ReleaseNote[]>([])
 const expanded = ref<string[]>([])
 
-function toggle(version: string): void {
-  expanded.value = expanded.value.includes(version)
-    ? expanded.value.filter((v) => v !== version)
-    : [...expanded.value, version]
+function keyOf(entry: ReleaseNote): string {
+  return entry.draft ? 'draft' : entry.version
+}
+
+function toggle(key: string): void {
+  expanded.value = expanded.value.includes(key)
+    ? expanded.value.filter((k) => k !== key)
+    : [...expanded.value, key]
 }
 
 onMounted(async () => {
   void refresh()
   history.value = await loadHistory()
-  // The release you are on opens by default; the rest are one click away.
-  if (history.value.length > 0) expanded.value = [history.value[0].version]
+  // The newest set of notes opens by default; the rest are one click away.
+  if (history.value.length > 0) expanded.value = [keyOf(history.value[0])]
 })
 </script>
 
@@ -291,27 +296,29 @@ onMounted(async () => {
     <SettingsSection
       v-if="history.length > 0"
       title="Release notes"
-      description="What changed in each version this build's channel has published."
+      description="What changed in each release, and what this build has that no release does yet."
       boxed
       testid="about-release-notes"
     >
-      <div v-for="entry in history" :key="entry.version" class="px-4 py-3">
+      <div v-for="entry in history" :key="keyOf(entry)" class="px-4 py-3">
         <button
           type="button"
           class="flex w-full cursor-pointer items-baseline gap-2.5 text-left"
-          :aria-expanded="expanded.includes(entry.version)"
-          :data-testid="`about-release-${entry.version}`"
-          @click="toggle(entry.version)"
+          :aria-expanded="expanded.includes(keyOf(entry))"
+          :data-testid="`about-release-${keyOf(entry)}`"
+          @click="toggle(keyOf(entry))"
         >
           <IconChevronRight
             class="size-3.5 shrink-0 self-center text-text-4 transition-transform"
-            :class="expanded.includes(entry.version) ? 'rotate-90' : ''"
+            :class="expanded.includes(keyOf(entry)) ? 'rotate-90' : ''"
           />
-          <span class="font-mono text-[13px] font-semibold text-text">{{ entry.version }}</span>
-          <span class="shrink-0 text-[11px] text-text-3">{{ entry.date }}</span>
+          <span class="font-mono text-[13px] font-semibold text-text">
+            {{ entry.draft ? 'Unreleased' : entry.version }}
+          </span>
+          <span v-if="entry.date" class="shrink-0 text-[11px] text-text-3">{{ entry.date }}</span>
           <span v-if="entry.summary" class="min-w-0 flex-1 truncate text-[12px] text-text-3">{{ entry.summary }}</span>
         </button>
-        <div v-if="expanded.includes(entry.version)" class="mt-2.5 pl-6">
+        <div v-if="expanded.includes(keyOf(entry))" class="mt-2.5 pl-6">
           <p v-if="entry.summary" class="mb-2 text-[13px] leading-[1.6] text-text-2">{{ entry.summary }}</p>
           <ReleaseNoteBody :body="entry.body" />
         </div>

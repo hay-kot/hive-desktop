@@ -108,12 +108,13 @@ func gitHubReleaseExists(ctx context.Context, tag string) (bool, error) {
 	return false, fmt.Errorf("gh release view %s: %w", tag, err)
 }
 
-// createGitHubRelease publishes the release with the committed changelog entry
-// as its body. The notes are authored before the release commit and embedded
-// in the binary, so GitHub renders the same text the app's What's New surface
-// does rather than a separately generated list of PR titles.
+// createGitHubRelease publishes the release with the committed release notes
+// as its body — a stable release's own entry, or the draft for a prerelease.
+// Either way the notes are embedded in the binary, so GitHub renders the same
+// text the app's What's New surface does rather than a separately generated
+// list of PR titles.
 func createGitHubRelease(ctx context.Context, version releaseVersion, tag string) error {
-	entry, err := changelogEntry(version)
+	entry, err := notesFor(version)
 	if err != nil {
 		return err
 	}

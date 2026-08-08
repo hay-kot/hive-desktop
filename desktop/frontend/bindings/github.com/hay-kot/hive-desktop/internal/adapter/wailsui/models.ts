@@ -334,17 +334,20 @@ export interface PopupTerminalEndpoint {
 }
 
 /**
- * ReleaseNote is the frontend-facing view of one published release's notes.
- * Date is a plain YYYY-MM-DD string rather than a timestamp: a release is
- * dated, not clocked, and formatting it here keeps the frontend from having to
- * decide what an instant means in the user's timezone.
+ * ReleaseNote is the frontend-facing view of one set of release notes. Date is
+ * a plain YYYY-MM-DD string rather than a timestamp: a release is dated, not
+ * clocked, and formatting it here keeps the frontend from having to decide
+ * what an instant means in the user's timezone.
+ * 
+ * Version and Date are empty when Draft is set — unreleased work has neither
+ * until it is promoted into a stable release.
  */
 export interface ReleaseNote {
     "version": string;
     "date": string;
-    "channel": string;
     "summary": string;
     "body": string;
+    "draft": boolean;
 }
 
 export interface ReportInput {

@@ -137,25 +137,25 @@ func newReleaseCommand() *cli.Command {
 				Usage: "manage the release notes embedded in the app",
 				Commands: []*cli.Command{
 					{
-						Name:      "new",
-						Usage:     "scaffold the changelog entry for a release",
-						ArgsUsage: "<dev|beta|stable|version>",
-						Description: "Writes internal/app/releasenotes/changelog/<version>.md pre-filled with the commit subjects since the previous " +
-							"release tag, for you to edit into prose. The entry must be committed before the release: it is embedded in the binary, " +
-							"and `release publish` refuses a version that has none.",
+						Name:      "promote",
+						Usage:     "turn the accumulated draft into a stable release's changelog entry",
+						ArgsUsage: "<stable|version>",
+						Description: "Moves internal/app/releasenotes/changelog/next.md to <version>.md, stamping the version and date, and leaves an " +
+							"empty draft for the next cycle. Commit the result before releasing: the notes are embedded in the binary, and " +
+							"`release publish` refuses a stable version that has no entry. Prereleases need none — they publish the draft as it stands.",
 						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 							if cmd.NArg() != 1 {
-								return cli.Exit("expected a channel (dev, beta, or stable) or an explicit version", 2)
+								return cli.Exit("expected \"stable\" or an explicit stable version", 2)
 							}
-							version, err := changelogTargetVersion(ctx, cmd.Args().First())
+							version, err := promoteTargetVersion(ctx, cmd.Args().First())
 							if err != nil {
 								return err
 							}
-							path, err := scaffoldChangelogEntry(ctx, version)
+							path, err := promoteDraft(version)
 							if err != nil {
 								return err
 							}
-							fmt.Printf("wrote %s — edit it, then commit it with the release\n", path)
+							fmt.Printf("wrote %s — review it, then commit it with the release\n", path)
 							return nil
 						}),
 					},

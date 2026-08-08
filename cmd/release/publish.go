@@ -744,7 +744,7 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 		return err
 	}
 
-	entry, err := changelogEntry(p.options.version)
+	entry, err := notesFor(p.options.version)
 	if err != nil {
 		return err
 	}

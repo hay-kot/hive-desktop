@@ -17,51 +17,79 @@ Three constraints decided the shape:
    them.** The pipeline builds, signs, notarizes, uploads, then creates the
    GitHub release. Anything derived from the tag exists only after the binary
    is sealed.
-3. **Publishes cascade** (ADR release-channels): stable reaches stable, beta and
-   dev; beta reaches beta and dev; dev reaches dev alone. A stable user
-   upgrading across twenty dev builds must not be shown twenty entries.
+3. **Prereleases are cut close to daily.** Dev and beta versions are numbered
+   `-dev.N` / `-beta.N` and their number is chosen at release time from the tags
+   *and* the live manifests, whose history predates this repository. A scheme
+   that needs one authored file per published version therefore needs that
+   file named for a version nobody can predict, landed through its own pull
+   request, before every one of those releases.
 
 The install path also rules out an install-time trigger: `InstallUpdate` ends by
 relaunching, so the process that would raise the surface is gone.
 
 ## Decision
 
-Release notes are markdown files committed to
-`internal/app/releasenotes/changelog/<version>.md` and embedded with `go:embed`.
-An entry is authored **before** the release commit; `cmd/release` refuses to
-publish a version that has none, reading the entries through the same package
-the app serves them from so the gate validates the exact bytes the binary
-carries.
+Release notes are markdown committed under
+`internal/app/releasenotes/changelog/` and embedded with `go:embed`.
+
+**Only a stable release gets an entry of its own**, at `<version>.md`. Everything
+else accumulates in `next.md`, the draft, which every build embeds and which
+reads as "what this build has that no stable release does". A pull request lands
+its changelog line by appending to the draft, where the reasoning still exists;
+nothing is reconstructed from commit subjects at release time.
+
+That makes a prerelease free to cut: `cmd/release` gates only stable on having
+an entry, and a dev or beta release publishes the draft as it stands. Promotion
+— `release changelog promote` moving the draft to `<version>.md` and stamping
+the version and date — is the one moment notes and a version have to be tracked
+together, and it is the moment the version is fully determined, since a stable
+version is the bare base with no prerelease counter to guess.
+
+Because every committed entry is a stable release, and the publish cascade sends
+a stable release to every channel (ADR release-channels), there is nothing a user
+on one channel must be kept from seeing. The read path carries no channel: an
+entry naming a prerelease is rejected at parse time, which is what keeps that
+true.
 
 The surface is triggered at **launch**, not at install: the running version is
 compared against a last-acknowledged version recorded in
-`<StateDir>/releasenotes.json`. Newer means show the releases crossed to get
-here, narrowed to the channel the build follows. This also covers updates the
-app did not perform — a package manager, a manual reinstall.
+`<StateDir>/releasenotes.json`. Newer means show the stable releases crossed to
+get here, plus the draft. This also covers updates the app did not perform — a
+package manager, a manual reinstall.
 
 The marker lives in the state directory rather than `settings.yaml` because
 `settings.yaml` is dotfiles-managed and shared between machines: having read the
 notes is a fact about one installation, not a preference to carry.
 
-Presentation follows the channel. Stable and beta get a modal; dev gets a toast,
-because dev builds are cut close to daily and a modal on nearly every launch is
-hostile. An upgrade whose range carries no entries degrades to the toast too — a
-modal with an empty body says less than the line "Updated to X". The full
-per-channel history is always readable in Settings ▸ About.
+**The modal is reserved for a launch that crossed a stable release.** A
+prerelease bump carries only the draft — the same in-progress list the previous
+build showed — and a modal repeating it on near-daily builds is hostile, so it
+gets a toast whose action opens the full notes. An upgrade whose range carries
+nothing degrades to the toast too, for a different reason: a modal with an empty
+body says less than the line "Updated to X". The full history is always readable
+in Settings ▸ About, draft first.
 
 A *pending* update is the one case notes cannot come from the binary, since that
 release is not installed. The channel manifest therefore carries `summary` and
-`notes` for its version, which is what populates `UpdateInfo.Notes`.
+`notes` for its version — the promoted entry for a stable release, the draft for
+a prerelease — which is what populates `UpdateInfo.Notes`.
 
 ## Consequences
 
 - Notes are readable offline, at first launch, with no network call — and a
   private repository stays private without costing users their changelog.
-- Every release now needs a written entry. `mise run changelog:new` scaffolds
-  one from the commit subjects since the previous tag, so the cost is editing
-  rather than authoring from nothing, but the release **will** fail without it.
-- The GitHub release body is the committed entry rather than `--generate-notes`
-  output, so the changelog and the release page cannot disagree.
+- Cutting a dev or beta release needs no changelog work at all. A stable release
+  needs the draft promoted and committed first, and **will** fail without it.
+- The changelog is a product history rather than a build log: one file per
+  stable release, not one per prerelease.
+- The draft repeats. A user tracking dev or beta is shown the same accumulating
+  list on every bump, plus whatever landed since. That is accepted as the cost
+  of not authoring per-build entries, and is why those bumps are a toast.
+- A stable release ships the draft's bytes unchanged, so what prerelease users
+  were reading is what the release says. Work that was reverted before the
+  release has to be pruned from the draft at promotion.
+- The GitHub release body is the same committed text, so the changelog and the
+  release page cannot disagree.
 - A build can only ever describe releases up to its own version. That is exactly
   what the What's New surface needs and is why the history list is not a
   substitute for the update check.

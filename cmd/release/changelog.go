@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/hay-kot/hive-desktop/internal/app/releasenotes"
@@ -17,37 +15,53 @@ import (
 // its own directory, the same arrangement flow/docs and actions/docs use.
 const changelogDir = "internal/app/releasenotes/changelog"
 
-// changelogEntry returns the release notes for version.
+func draftPath() string { return filepath.Join(changelogDir, releasenotes.DraftFile) }
+
+func entryPath(version releaseVersion) string {
+	return filepath.Join(changelogDir, version.String()+".md")
+}
+
+// notesFor returns the release notes to publish with version.
 //
-// It reads them through internal/app/releasenotes — the same embedded
-// changelog the app itself serves — rather than off disk, so the gate below
-// validates the exact bytes the shipped binary carries. A published version
-// and the notes describing it cannot drift apart.
-func changelogEntry(version releaseVersion) (releasenotes.Entry, error) {
+// A stable release has an entry of its own, promoted from the draft before the
+// release commit. A prerelease has none and carries the draft instead, which
+// is exactly what its binary embeds — so the GitHub release body and the
+// channel manifest say what the app itself will say.
+//
+// It reads through internal/app/releasenotes — the same embedded changelog the
+// app serves — rather than off disk, so a published version and the notes
+// describing it cannot drift apart.
+func notesFor(version releaseVersion) (releasenotes.Entry, error) {
 	entries, err := releasenotes.Load()
 	if err != nil {
 		return releasenotes.Entry{}, fmt.Errorf("read changelog: %w", err)
 	}
-	entry, ok := entries.Find(version.String())
-	if !ok {
-		return releasenotes.Entry{}, fmt.Errorf(
-			"no changelog entry for %s: write %s/%s.md and commit it before releasing "+
-				"(mise run changelog:new -- %s scaffolds one)",
-			version, changelogDir, version, version)
+	if entry, ok := entries.Find(version.String()); ok {
+		return entry, nil
 	}
+	if version.channel() == "stable" {
+		return releasenotes.Entry{}, fmt.Errorf(
+			"no changelog entry for %s: promote the draft with `mise run changelog:promote -- %s` and commit it before releasing",
+			version, version)
+	}
+	entry, _ := entries.Draft()
 	return entry, nil
 }
 
 // validateChangelogEntry is the release gate. It runs with the other fail-fast
 // checks, before anything is built: notes are embedded in the binary, so an
 // entry written after the build would describe a release that cannot show it.
+//
+// Only a stable release is gated. A prerelease publishes whatever the draft
+// says, including nothing — which is the point, since cutting one is meant to
+// cost no changelog work at all.
 func validateChangelogEntry(version releaseVersion) error {
-	_, err := changelogEntry(version)
+	_, err := notesFor(version)
 	return err
 }
 
 // releaseNotesBody assembles the GitHub release body: the R2 download header
-// followed by the changelog entry. downloadBase is a parameter rather than a
+// followed by the release notes. downloadBase is a parameter rather than a
 // call to downloadBaseURL so the assembled body can be asserted against a
 // literal, the same seam releaseNotesHeader has.
 func releaseNotesBody(version releaseVersion, entry releasenotes.Entry, downloadBase string) string {
@@ -58,101 +72,63 @@ func releaseNotesBody(version releaseVersion, entry releasenotes.Entry, download
 	return body + "\n" + entry.Body + "\n"
 }
 
-// changelogTargetVersion resolves the scaffold's argument: a channel name
-// picks that channel's next version from the local tags, and anything else is
-// taken as an explicit version. Tags alone are enough here — a draft entry does
-// not need the live manifests that publishing validates against.
-func changelogTargetVersion(ctx context.Context, arg string) (releaseVersion, error) {
-	if !validChannel(arg) {
+// promoteTargetVersion resolves the promote command's argument. "stable" picks
+// the next stable version from the same sources planRelease uses — tags *and*
+// the live manifests — because the R2 history predates this repository, and a
+// promotion named off tags alone would write an entry the release then refuses
+// to find.
+func promoteTargetVersion(ctx context.Context, arg string) (releaseVersion, error) {
+	if arg != "stable" {
 		version, err := parsePublishVersion(arg)
 		if err != nil {
 			return releaseVersion{}, fmt.Errorf("invalid version %q: %w", arg, err)
 		}
+		if version.channel() != "stable" {
+			return releaseVersion{}, fmt.Errorf(
+				"%s is a prerelease: only a stable release gets an entry of its own, and a prerelease publishes the draft as it stands", version)
+		}
 		return version, nil
 	}
-	versions, err := releaseTagVersions(ctx)
+	versions, _, err := releaseVersions(ctx)
 	if err != nil {
 		return releaseVersion{}, err
 	}
-	return parsePublishVersion(nextVersion(arg, versions))
+	return parsePublishVersion(nextVersion("stable", versions))
 }
 
-// prTitleSuffix matches the "(#123)" a squashed pull request leaves on its
-// subject line. The number is noise in a user-facing changelog, and its link
-// would 404 for anyone outside this private repository.
-var prTitleSuffix = regexp.MustCompile(`\s*\(#\d+\)$`)
+// promoteDraft turns the accumulated draft into version's entry and leaves an
+// empty draft behind for the next cycle. The bytes are moved unchanged: what
+// prereleases have been showing all along is what the stable release ships.
+func promoteDraft(version releaseVersion) (string, error) {
+	entries, err := releasenotes.Load()
+	if err != nil {
+		return "", fmt.Errorf("read changelog: %w", err)
+	}
+	draft, ok := entries.Draft()
+	if !ok {
+		return "", fmt.Errorf("%s is empty: there is nothing to release", draftPath())
+	}
 
-// dependencyBump matches the subjects Renovate opens. They are real changes but
-// not ones a user of the app has any use for reading about.
-var dependencyBump = regexp.MustCompile(`^Update (dependency|module|.* to v)`)
-
-// scaffoldChangelogEntry writes the entry for version, pre-filled with the
-// commit subjects since the previous release tag. The point is that the author
-// edits and groups prose rather than facing a blank page — the file is a draft,
-// not the generated notes it replaced.
-func scaffoldChangelogEntry(ctx context.Context, version releaseVersion) (string, error) {
-	path := filepath.Join(changelogDir, version.String()+".md")
+	path := entryPath(version)
 	if _, err := os.Stat(path); err == nil {
 		return "", fmt.Errorf("%s already exists", path)
 	}
 
-	subjects, err := commitSubjectsSincePreviousRelease(ctx, version)
-	if err != nil {
-		return "", err
-	}
-	if len(subjects) == 0 {
-		subjects = []string{"Describe what changed."}
-	}
-
-	var body strings.Builder
-	fmt.Fprintf(&body, "---\nversion: %s\ndate: %s\nsummary: \"\"\n---\n\n", version, time.Now().Format(time.DateOnly))
-	for _, subject := range subjects {
-		fmt.Fprintf(&body, "- %s\n", subject)
-	}
-	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
+	header := fmt.Sprintf("---\nversion: %s\ndate: %s\nsummary: %q\n---\n\n",
+		version, time.Now().Format(time.DateOnly), draft.Summary)
+	if err := os.WriteFile(path, []byte(header+draft.Body+"\n"), 0o644); err != nil {
 		return "", fmt.Errorf("write changelog entry: %w", err)
+	}
+	if err := os.WriteFile(draftPath(), []byte(emptyDraft), 0o644); err != nil {
+		return "", fmt.Errorf("reset %s: %w", draftPath(), err)
 	}
 	return path, nil
 }
 
-func commitSubjectsSincePreviousRelease(ctx context.Context, version releaseVersion) ([]string, error) {
-	versions, err := releaseTagVersions(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	revisions := "HEAD"
-	if previous, ok := previousReleaseVersion(version, versions); ok {
-		revisions = "desktop-v" + previous.String() + "..HEAD"
-	}
-	output, err := commandOutput(ctx, "git", "log", "--no-merges", "--format=%s", revisions)
-	if err != nil {
-		return nil, fmt.Errorf("read commits since the previous release: %w", err)
-	}
-
-	var subjects []string
-	for line := range strings.Lines(output) {
-		subject := prTitleSuffix.ReplaceAllString(strings.TrimSpace(line), "")
-		if subject == "" || dependencyBump.MatchString(subject) {
-			continue
-		}
-		subjects = append(subjects, subject)
-	}
-	return subjects, nil
-}
-
-// previousReleaseVersion returns the greatest release below version, which is
-// the baseline a new entry's commit range starts from.
-func previousReleaseVersion(version releaseVersion, versions []releaseVersion) (releaseVersion, bool) {
-	var previous releaseVersion
-	found := false
-	for _, candidate := range versions {
-		if compareChannelRelease(candidate, version) >= 0 {
-			continue
-		}
-		if !found || compareChannelRelease(candidate, previous) > 0 {
-			previous, found = candidate, true
-		}
-	}
-	return previous, found
-}
+// emptyDraft is what next.md holds between a promotion and the next change to
+// land. The file has to exist even when it says nothing: go:embed fails to
+// compile on a pattern that matches no files.
+const emptyDraft = `---
+summary: ""
+---
+`

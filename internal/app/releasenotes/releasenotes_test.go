@@ -8,20 +8,26 @@ import (
 )
 
 // TestChangelogParses is the gate that keeps a malformed entry from shipping:
-// every committed file must have a well-formed header whose version matches
-// its filename.
+// every committed release entry must have a well-formed header whose version
+// matches its filename, and there is at most one draft.
 func TestChangelogParses(t *testing.T) {
 	entries, err := Load()
 	require.NoError(t, err)
-	require.NotEmpty(t, entries, "the embedded changelog must not be empty")
 
+	drafts := 0
 	seen := make(map[string]bool, len(entries))
 	for _, entry := range entries {
+		if entry.Draft {
+			drafts++
+			assert.Empty(t, entry.Version, "the draft describes no version")
+			continue
+		}
 		assert.False(t, seen[entry.Version], "duplicate entry for %s", entry.Version)
 		seen[entry.Version] = true
 		assert.False(t, entry.Date.IsZero(), "%s has no date", entry.Version)
 		assert.NotEmpty(t, entry.Body, "%s has an empty body", entry.Version)
 	}
+	assert.LessOrEqual(t, drafts, 1, "only one entry may be the draft")
 }
 
 func TestChangelogIsOrderedNewestFirst(t *testing.T) {
@@ -37,61 +43,62 @@ func TestChangelogIsOrderedNewestFirst(t *testing.T) {
 func entries(versions ...string) Entries {
 	out := make(Entries, 0, len(versions))
 	for _, v := range versions {
-		channel, _ := Channel(v)
-		out = append(out, Entry{Version: v, Channel: channel, Body: "notes for " + v})
+		out = append(out, Entry{Version: v, Body: "notes for " + v})
 	}
 	return out
 }
 
+func draft() Entry { return Entry{Draft: true, Body: "unreleased work"} }
+
 func versionsOf(e Entries) []string {
 	out := make([]string, 0, len(e))
 	for _, entry := range e {
+		if entry.Draft {
+			out = append(out, "draft")
+			continue
+		}
 		out = append(out, entry.Version)
 	}
 	return out
 }
 
-// A release reaches the channels the publish cascade sends it to and no
-// others: a stable user must never be shown the dev builds that preceded
-// their upgrade.
-func TestVisibleInFollowsThePublishCascade(t *testing.T) {
-	all := entries("1.2.0", "1.2.0-beta.1", "1.2.0-dev.3", "1.2.0-dev.2")
-
-	assert.Equal(t, []string{"1.2.0"}, versionsOf(all.VisibleIn("stable")))
-	assert.Equal(t, []string{"1.2.0", "1.2.0-beta.1"}, versionsOf(all.VisibleIn("beta")))
-	assert.Equal(t,
-		[]string{"1.2.0", "1.2.0-beta.1", "1.2.0-dev.3", "1.2.0-dev.2"},
-		versionsOf(all.VisibleIn("dev")))
-}
-
 func TestBetweenReturnsEveryReleaseCrossed(t *testing.T) {
-	all := entries("1.2.0-dev.4", "1.2.0-dev.3", "1.2.0-dev.2", "1.2.0-dev.1")
+	all := entries("1.4.0", "1.3.0", "1.2.0", "1.1.0")
 
-	assert.Equal(t, []string{"1.2.0-dev.4", "1.2.0-dev.3"},
-		versionsOf(all.Between("1.2.0-dev.2", "1.2.0-dev.4", "dev")),
-		"a user who skipped a build sees both releases they crossed")
+	assert.Equal(t, []string{"1.4.0", "1.3.0"},
+		versionsOf(all.Between("1.2.0", "1.4.0")),
+		"a user who skipped a release sees both sets of notes they crossed")
 
-	assert.Empty(t, all.Between("1.2.0-dev.4", "1.2.0-dev.4", "dev"),
+	assert.Empty(t, all.Between("1.4.0", "1.4.0"),
 		"the version already acknowledged is not shown again")
-	assert.Empty(t, all.Between("1.2.0-dev.4", "1.2.0-dev.2", "dev"),
-		"a downgrade shows nothing")
+	assert.Empty(t, all.Between("1.4.0", "1.2.0"), "a downgrade shows nothing")
 }
 
-// A stable user upgrading past a run of prereleases sees only the stable
-// release, not the dev builds that were published between the two.
-func TestBetweenExcludesPrereleasesForStable(t *testing.T) {
-	all := entries("1.3.0", "1.3.0-beta.1", "1.2.1-dev.2", "1.2.1-dev.1", "1.2.0")
+// The draft is what this build has that no stable release does, so every
+// upgrade that reaches it shows it — including a prerelease bump, which is the
+// only thing such a bump has to say.
+func TestBetweenAlwaysIncludesTheDraft(t *testing.T) {
+	all := Entries{draft(), Entry{Version: "1.2.0", Body: "notes for 1.2.0"}}
 
-	assert.Equal(t, []string{"1.3.0"}, versionsOf(all.Between("1.2.0", "1.3.0", "stable")))
-	assert.Equal(t, []string{"1.3.0", "1.3.0-beta.1"}, versionsOf(all.Between("1.2.0", "1.3.0", "beta")))
+	assert.Equal(t, []string{"draft"}, versionsOf(all.Between("1.3.0-dev.3", "1.3.0-dev.4")))
+	assert.Equal(t, []string{"draft"}, versionsOf(all.Between("1.2.0", "1.3.0-beta.1")))
+	assert.Equal(t, []string{"draft", "1.2.0"}, versionsOf(all.Between("1.1.0", "1.3.0-dev.1")))
+}
+
+// A release still to come is not this build's to describe: a binary can only
+// carry notes up to its own version.
+func TestBetweenExcludesReleasesAboveTheRunningVersion(t *testing.T) {
+	all := entries("1.4.0", "1.3.0", "1.2.0")
+
+	assert.Equal(t, []string{"1.3.0"}, versionsOf(all.Between("1.2.0", "1.3.0")))
 }
 
 func TestBetweenIgnoresUnpublishableVersions(t *testing.T) {
-	all := entries("1.2.0-dev.2", "1.2.0-dev.1")
+	all := Entries{draft(), Entry{Version: "1.2.0", Body: "notes for 1.2.0"}}
 
-	assert.Empty(t, all.Between("1.2.0-dev.1", "dev", "dev"), "a source build has no notes")
-	assert.Equal(t, []string{"1.2.0-dev.2", "1.2.0-dev.1"},
-		versionsOf(all.Between("", "1.2.0-dev.2", "dev")),
+	assert.Empty(t, all.Between("1.2.0", "dev"), "a source build has no notes")
+	assert.Equal(t, []string{"draft", "1.2.0"},
+		versionsOf(all.Between("", "1.3.0-dev.1")),
 		"no recorded version means no lower bound")
 }
 
@@ -106,40 +113,38 @@ func TestOrderingFollowsThePromotionPath(t *testing.T) {
 	assert.True(t, IsNewer("1.2.0", "(devel)"), "nothing recorded means anything published is newer")
 }
 
-func TestChannelRejectsUnpublishedVersions(t *testing.T) {
+func TestIsPublishedRejectsUnreleasedVersions(t *testing.T) {
 	for _, version := range []string{"dev", "(devel)", "v0.0.0-20260101000000-abcdef123456", "1.2.0-rc.1", ""} {
-		_, ok := Channel(version)
-		assert.False(t, ok, "%q must not resolve to a channel", version)
+		assert.False(t, IsPublished(version), "%q must not count as published", version)
 	}
-
-	for version, want := range map[string]string{
-		"1.2.0":          "stable",
-		"v1.2.0":         "stable",
-		"desktop-v1.2.0": "stable",
-		"1.2.0-beta.2":   "beta",
-		"1.2.0-dev.7":    "dev",
-	} {
-		channel, ok := Channel(version)
-		require.True(t, ok, "%q should resolve", version)
-		assert.Equal(t, want, channel, "%q", version)
+	for _, version := range []string{"1.2.0", "v1.2.0", "desktop-v1.2.0", "1.2.0-beta.2", "1.2.0-dev.7"} {
+		assert.True(t, IsPublished(version), "%q should count as published", version)
 	}
 }
 
 func TestFind(t *testing.T) {
-	all := entries("1.2.0-dev.2", "1.2.0-dev.1")
+	all := Entries{draft(), Entry{Version: "1.2.0", Body: "notes for 1.2.0"}}
 
-	entry, ok := all.Find("v1.2.0-dev.2")
+	entry, ok := all.Find("v1.2.0")
 	require.True(t, ok, "the v prefix is accepted")
-	assert.Equal(t, "1.2.0-dev.2", entry.Version)
+	assert.Equal(t, "1.2.0", entry.Version)
 
 	_, ok = all.Find("9.9.9")
-	assert.False(t, ok)
+	assert.False(t, ok, "the draft is not a match for a version it has not been promoted into")
 }
 
 func TestParseEntryRejectsMismatchedFilename(t *testing.T) {
 	_, err := parseEntry("1.2.0.md", []byte("---\nversion: 1.2.1\ndate: 2026-01-01\n---\n\nnotes\n"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "does not match its filename")
+}
+
+// Only a stable release gets an entry of its own; a prerelease's notes live in
+// the draft, which is what keeps the read path free of channel filtering.
+func TestParseEntryRejectsAPrerelease(t *testing.T) {
+	_, err := parseEntry("1.2.0-dev.3.md", []byte("---\nversion: 1.2.0-dev.3\ndate: 2026-01-01\n---\n\nnotes\n"))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), DraftFile)
 }
 
 func TestParseEntryRequiresAValidHeader(t *testing.T) {
@@ -162,8 +167,41 @@ func TestParseEntryReadsSummaryAndBody(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "1.2.0", entry.Version)
-	assert.Equal(t, "stable", entry.Channel)
+	assert.False(t, entry.Draft)
 	assert.Equal(t, "A short line.", entry.Summary)
 	assert.Equal(t, "## Added\n\n- a thing", entry.Body)
 	assert.Equal(t, 2026, entry.Date.Year())
+}
+
+// The draft's header is optional so a pull request can land its changelog line
+// by appending a bullet, without editing frontmatter it does not own.
+func TestParseDraftAcceptsABareBody(t *testing.T) {
+	entry, err := parseDraft([]byte("- a thing\n"))
+	require.NoError(t, err)
+
+	assert.True(t, entry.Draft)
+	assert.Empty(t, entry.Version)
+	assert.True(t, entry.Date.IsZero())
+	assert.Equal(t, "- a thing", entry.Body)
+}
+
+func TestParseDraftReadsItsSummary(t *testing.T) {
+	entry, err := parseDraft([]byte("---\nsummary: A short line.\n---\n\n- a thing\n"))
+	require.NoError(t, err)
+
+	assert.Equal(t, "A short line.", entry.Summary)
+	assert.Equal(t, "- a thing", entry.Body)
+}
+
+// The header-only file a promotion leaves behind has to read as saying
+// nothing, because that emptiness is what Load drops the draft on — and that
+// drop is what lets every reader treat "there is a draft" as "there is
+// something to say".
+func TestParseDraftOfAPromotedFileSaysNothing(t *testing.T) {
+	entry, err := parseDraft([]byte("---\nsummary: \"\"\n---\n"))
+	require.NoError(t, err)
+
+	assert.True(t, entry.Draft)
+	assert.Empty(t, entry.Summary)
+	assert.Empty(t, entry.Body)
 }
