@@ -77,8 +77,11 @@ ADR subprocess-environment. `tmuxcc` had a bare `os.Environ()`. That asymmetry w
   bounded at five seconds and shared with hooks and shell actions — the resolver
   probes once per run and remembers the answer either way. A probe that fails
   degrades to what the app could reach before.
-- Only PATH is adopted from the probe, since that is `execenv.Environ`'s
-  contract; nothing here widens the set of variables a subprocess inherits.
+- ~~Only PATH is adopted from the probe, since that is `execenv.Environ`'s
+  contract; nothing here widens the set of variables a subprocess inherits.~~
+  `Environ`'s contract widened in
+  [ADR a-subprocess-inherits-the-whole-shell-environment-not-just-its-path](2026-08-07-a-subprocess-inherits-the-whole-shell-environment-not-just-its-path.md),
+  and tmux took the wider set with every other consumer.
 - A tmux session created before this app touched the server keeps whatever
   environment it was created with. The environment reaches a session through the
   client that creates it and there is no way to retrofit a live one, so a

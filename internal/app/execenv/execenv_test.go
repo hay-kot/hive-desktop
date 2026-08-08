@@ -3,9 +3,11 @@ package execenv
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -132,7 +134,20 @@ func TestProbeIsBoundedByTheTimeout(t *testing.T) {
 	}
 }
 
-func TestEnvironReplacesOnlyPath(t *testing.T) {
+func environMap(t *testing.T, env []string) map[string]string {
+	t.Helper()
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		name, value, ok := strings.Cut(kv, "=")
+		require.True(t, ok, "every entry is an assignment")
+		_, duplicate := out[name]
+		require.False(t, duplicate, "%s reaches the child once", name)
+		out[name] = value
+	}
+	return out
+}
+
+func TestEnvironCarriesThePathAndThisProcess(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin")
 	t.Setenv("HIVE_EXECENV_MARKER", "kept")
 
@@ -140,20 +155,77 @@ func TestEnvironReplacesOnlyPath(t *testing.T) {
 		return map[string]string{"PATH": "/opt/tools/bin"}, nil
 	}})
 
-	env := r.Environ(t.Context())
-	var paths []string
-	marker := false
-	for _, kv := range env {
-		if value, ok := strings.CutPrefix(kv, "PATH="); ok {
-			paths = append(paths, value)
-		}
-		if kv == "HIVE_EXECENV_MARKER=kept" {
-			marker = true
-		}
+	env := environMap(t, r.Environ(t.Context()))
+	assert.Equal(t, r.Path(t.Context()), env["PATH"])
+	assert.Equal(t, "kept", env["HIVE_EXECENV_MARKER"], "the rest of the environment is passed through")
+}
+
+// EDITOR set in .zshrc is the case that motivated adopting more than PATH: an
+// agent CLI's "open in editor" had nothing to resolve and fell back to whatever
+// was on PATH (#279).
+func TestEnvironAdoptsShellVariablesThisProcessLacks(t *testing.T) {
+	t.Setenv("HIVE_EXECENV_EDITOR", "")
+	require.NoError(t, os.Unsetenv("HIVE_EXECENV_EDITOR"), "t.Setenv registers the restore; this makes it absent")
+
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{"PATH": "/opt/tools/bin", "HIVE_EXECENV_EDITOR": "nvim"}, nil
+	}})
+
+	env := environMap(t, r.Environ(t.Context()))
+	assert.Equal(t, "nvim", env["HIVE_EXECENV_EDITOR"])
+}
+
+// How the app was launched is more specific than what a startup file exports,
+// so a stale rc file cannot shadow a HIVE_DESKTOP_* override the app was
+// started with. An empty value counts as defined: setting one to nothing is how
+// overrides.env opts out of a default.
+func TestEnvironPrefersThisProcessOverTheShell(t *testing.T) {
+	t.Setenv("HIVE_EXECENV_OVERRIDE", "from-launch")
+	t.Setenv("HIVE_EXECENV_OPT_OUT", "")
+
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return map[string]string{
+			"HIVE_EXECENV_OVERRIDE": "from-rc-file",
+			"HIVE_EXECENV_OPT_OUT":  "from-rc-file",
+		}, nil
+	}})
+
+	env := environMap(t, r.Environ(t.Context()))
+	assert.Equal(t, "from-launch", env["HIVE_EXECENV_OVERRIDE"])
+	optOut, present := env["HIVE_EXECENV_OPT_OUT"]
+	require.True(t, present, "the empty assignment itself reaches the child; unset would mean something else")
+	assert.Empty(t, optOut, "an explicit opt-out is not refilled by a startup file")
+}
+
+// These describe the probe shell's own session, not the child's. TMUX is the
+// one that does damage: it tells a spawned process it is inside a tmux client
+// that it is not.
+func TestEnvironDropsTheProbeShellsSessionVariables(t *testing.T) {
+	// The literal list, not the production map: a test that ranges over
+	// shellSessionVars loses an entry's coverage the moment the entry is
+	// dropped, which is the regression it exists to catch.
+	names := []string{"SHLVL", "_", "PWD", "OLDPWD", "TERM", "TMUX", "TMUX_PANE", "SHELL"}
+	require.ElementsMatch(t, names, slices.Collect(maps.Keys(shellSessionVars)))
+
+	// A name this process defines is blocked by precedence before the denylist
+	// is consulted, so each one is made absent to leave the denylist standing
+	// alone — most of these are defined in any environment that runs go test.
+	probed := map[string]string{"PATH": "/opt/tools/bin", "HIVE_EXECENV_MARKER": "adopted"}
+	for _, name := range names {
+		t.Setenv(name, "restored-after")
+		require.NoError(t, os.Unsetenv(name))
+		probed[name] = "probe-shell-" + name
 	}
-	require.Len(t, paths, 1, "exactly one PATH reaches the child")
-	assert.Equal(t, r.Path(t.Context()), paths[0])
-	assert.True(t, marker, "the rest of the environment is passed through")
+	r := NewResolver(Options{Shell: "/bin/zsh", Probe: func(context.Context, string) (map[string]string, error) {
+		return probed, nil
+	}})
+
+	env := environMap(t, r.Environ(t.Context()))
+	require.Equal(t, "adopted", env["HIVE_EXECENV_MARKER"], "a variable outside the list is still adopted")
+	for _, name := range names {
+		_, present := env[name]
+		assert.False(t, present, "%s describes the probe shell, not the child", name)
+	}
 }
 
 // A variable the user exports from a startup file is invisible to a launched
@@ -218,6 +290,54 @@ func TestShellEnvironmentReturnsWhenAChildHoldsThePipeOpen(t *testing.T) {
 	assert.Equal(t, "/opt/tools/bin:/usr/bin", env["PATH"])
 	assert.Less(t, time.Since(start), 8*time.Second,
 		"the probe must end with the shell, not with whatever it left running")
+}
+
+// bash exports a function as BASH_FUNC_x%%=() {…}, a value spanning lines that
+// env gives no way to delimit. Its first line is not a usable definition, and
+// its remaining lines must not land on the variable printed before it.
+func TestShellEnvironmentDropsExportedFunctions(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "shell")
+	require.NoError(t, os.WriteFile(shell, []byte(
+		"#!/bin/sh\n"+
+			"printf 'PATH=/opt/tools/bin\\n'\n"+
+			"printf 'EDITOR=nvim\\n'\n"+
+			"printf 'BASH_FUNC_greet%%%%=() {  echo hi\\n}\\n'\n"+
+			"printf 'PAGER=less\\n'\n"), 0o755))
+
+	env, err := shellEnvironment(t.Context(), shell)
+	require.NoError(t, err)
+	assert.Equal(t, "nvim", env["EDITOR"], "the variable before a function keeps its own value")
+	assert.Equal(t, "less", env["PAGER"], "parsing resumes after one")
+	for name := range env {
+		assert.NotContains(t, name, "BASH_FUNC", "a name that is not a name is not taken")
+	}
+}
+
+// A value is free to span lines, and the lines after the first belong to it —
+// adopting only the first would hand every child a truncated value.
+func TestShellEnvironmentKeepsMultiLineValuesWhole(t *testing.T) {
+	shell := filepath.Join(t.TempDir(), "shell")
+	require.NoError(t, os.WriteFile(shell, []byte(
+		"#!/bin/sh\n"+
+			"echo 'sourcing rc: mode=verbose'\n"+
+			"printf 'PATH=/opt/tools/bin\\n'\n"+
+			"printf 'GREETING=hello\\nnote: level=verbose\\nworld\\n'\n"), 0o755))
+
+	env, err := shellEnvironment(t.Context(), shell)
+	require.NoError(t, err)
+	assert.Equal(t, "hello\nnote: level=verbose\nworld", env["GREETING"],
+		"a continuation line holding an = still belongs to the open value")
+	assert.NotContains(t, env, "sourcing rc: mode", "printed noise is not an assignment")
+	assert.Len(t, env, 2)
+}
+
+func TestIsEnvName(t *testing.T) {
+	assert.True(t, isEnvName("EDITOR"))
+	assert.True(t, isEnvName("_MISE_2"))
+	assert.False(t, isEnvName(""))
+	assert.False(t, isEnvName("2FA"), "a leading digit is not a name")
+	assert.False(t, isEnvName("BASH_FUNC_greet%%"))
+	assert.False(t, isEnvName("café"), "multi-byte runes are not portable names")
 }
 
 func TestShellEnvironmentFailsWhenTheShellReportsNothing(t *testing.T) {

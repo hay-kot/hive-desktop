@@ -131,26 +131,6 @@ func TestCheckRefsSkipsReleasedMigrations(t *testing.T) {
 	}
 }
 
-func TestRenderIndexIsOrderedAndEscaped(t *testing.T) {
-	t.Parallel()
-
-	out := renderIndex([]ADR{
-		{Name: "2026-07-28-b-decision.md", Date: "2026-07-28", Slug: "b-decision", Title: "Second", Status: "accepted"},
-		{Name: "2026-07-25-a-decision.md", Date: "2026-07-25", Slug: "a-decision", Title: "First | piped", Status: "superseded by [x](y.md)"},
-	})
-	first := strings.Index(out, "a-decision")
-	second := strings.Index(out, "b-decision")
-	if first < 0 || second < 0 || first > second {
-		t.Fatalf("rows are not date-ordered:\n%s", out)
-	}
-	if !strings.Contains(out, `First \| piped`) {
-		t.Fatalf("pipe in a title must be escaped:\n%s", out)
-	}
-	if !strings.Contains(out, "| superseded |") {
-		t.Fatalf("status should collapse to its leading word:\n%s", out)
-	}
-}
-
 func TestSlugify(t *testing.T) {
 	t.Parallel()
 

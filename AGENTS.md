@@ -34,7 +34,7 @@ Binaries that support development and release; none ship inside the app.
 
 - **`cmd/release`** — version selection, signing, notarization, and R2 publishing (`mise run release`).
 - **`cmd/vendorhive`** — the `internal/hivecore/` sync tool (`mise run vendor`).
-- **`cmd/adr`** — decision records: `adr new` mints `docs/decisions/YYYY-MM-DD-slug.md` (`mise run adr:new`), `adr index` regenerates the index, `adr check` gates ids, citations, and index freshness (`mise run check:adr`). See ADR adr-ids-are-not-allocated.
+- **`cmd/adr`** — decision records: `adr new` mints `docs/decisions/YYYY-MM-DD-slug.md` (`mise run adr:new`), `adr check` gates ids and citations (`mise run check:adr`). See ADR adr-ids-are-not-allocated.
 - **`cmd/devserver`** — a loopback GitHub proxy for development (`mise run devserver`). Caches responses across dev instances so concurrent worktrees share one rate-limit budget, and rewrites them from config to simulate lifecycle events; also pushes webhook payloads at a running instance. **One proxy serves every worktree** and `dev` is routed through it by default (`launch.env`); opt out by setting `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in `overrides.env`. Starting a second one parks it as a standby that takes over when the live one stops. Its only config is the checked-in `cmd/devserver/devserver.yaml`. See `cmd/devserver/README.md` and ADR devserver-github-proxy.
 - **`cmd/internal/devproxy`** — the address-and-health contract shared by `cmd/devserver` and `cmd/devtools`, so the proxy's port and the worktree's `launch.env` cannot drift apart.
 
@@ -71,8 +71,8 @@ constraint that forced it, not every alternative considered. Keep additions to
 ## Documentation
 
 - `docs/architecture.md` is the standing architectural reference — see [Before building a feature](#before-building-a-feature). Keep it current when the shape changes; it is reviewed as a spec, not as prose.
-- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/`. **Start one with `mise run adr:new -- "The decision, as a sentence"`** — it writes `YYYY-MM-DD-slug.md` with the Status/Date/Context/Decision/Consequences skeleton and regenerates the index. Never hand-name the file and never add a number: there is nothing to allocate, which is what lets concurrent branches each add an ADR without colliding (ADR adr-ids-are-not-allocated).
-- Cite an ADR by its slug alone — `(ADR terminal-transport)` — and link it as `[…](decisions/2026-07-28-terminal-transport.md)`. `mise run check:adr` fails on a citation that does not resolve, so renaming an ADR means fixing its citations in the same change. The index at `docs/decisions/README.md` is generated; edit the ADRs, not the table. Mark superseded ADRs instead of deleting them.
+- Record notable architecture/infrastructure decisions as ADRs in `docs/decisions/`. **Start one with `mise run adr:new -- "The decision, as a sentence"`** — it writes `YYYY-MM-DD-slug.md` with the Status/Date/Context/Decision/Consequences skeleton. Never hand-name the file and never add a number: there is nothing to allocate, which is what lets concurrent branches each add an ADR without colliding (ADR adr-ids-are-not-allocated).
+- Cite an ADR by its slug alone — `(ADR terminal-transport)` — and link it as `[…](decisions/2026-07-28-terminal-transport.md)`. `mise run check:adr` fails on a citation that does not resolve, so renaming an ADR means fixing its citations in the same change. Mark superseded ADRs instead of deleting them.
 - An ADR records *why one choice was made*; `architecture.md` records *the shape that resulted*. A decision that changes the shape updates both.
 - Concrete distribution facts (bucket, domains, manifest schema, publish/rollback runbook, credentials) live in `docs/distribution.md` — keep it current when infra changes.
 
