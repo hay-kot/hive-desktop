@@ -19,6 +19,7 @@ import { loadTerminalFaces, terminalFontStack, resetTerminalFacesForTests } from
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { interceptPaste } from '../lib/terminalPaste'
+import { silenceDeviceReports } from '../lib/terminalReports'
 import { paneMayAutoFocus } from '../lib/terminalTree'
 import { commandEscapesPane, terminalWindowPosition } from '../keybindings/catalog'
 import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
@@ -327,6 +328,7 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
       disposers: [
         finder,
         { dispose: () => output.dispose() },
+        silenceDeviceReports(term),
         term.onData((data: string) => sendInput(state.windowId, data)),
         // onScroll covers what output does to the buffer — the auto-pin to the
         // tail, and a trim moving it — but *not* the user scrolling: xterm's
