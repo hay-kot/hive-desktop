@@ -41,6 +41,11 @@ const xterm = vi.hoisted(() => {
       this.resizeEffect?.(this)
     })
     onDataDisposed = false
+    parser = {
+      registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    }
     private lines = new Map<number, FakeLine>()
     buffer = {
       active: {

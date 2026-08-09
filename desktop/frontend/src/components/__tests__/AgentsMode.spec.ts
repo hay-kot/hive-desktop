@@ -26,6 +26,11 @@ const xterm = vi.hoisted(() => {
     dispose = vi.fn()
     resize = vi.fn()
     focus = vi.fn()
+    parser = {
+      registerCsiHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerDcsHandler: vi.fn(() => ({ dispose: vi.fn() })),
+      registerOscHandler: vi.fn(() => ({ dispose: vi.fn() })),
+    }
 
     constructor(options: Record<string, unknown> = {}) {
       this.options = { ...options }

@@ -35,6 +35,7 @@ import { loadTerminalFaces, terminalFontStack } from '../lib/terminalFaces'
 import { claimAtlasRenderer } from '../lib/terminalRenderer'
 import { setAgentsTreeHandles } from '../lib/agentsTree'
 import { interceptPaste } from '../lib/terminalPaste'
+import { silenceDeviceReports } from '../lib/terminalReports'
 import type { AgentSession, AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 import '@xterm/xterm/css/xterm.css'
 
@@ -486,6 +487,7 @@ function attachStream(created: Terminal, terminalId: string, windowId: string): 
   if (!client.value || !paneHost.value) return
 
   paneWindowId = windowId
+  disposers.push(silenceDeviceReports(created))
   disposers.push(created.onData((data) => send(data)))
   disposers.push({ dispose: interceptPaste(paneHost.value, sendPaste) })
 
