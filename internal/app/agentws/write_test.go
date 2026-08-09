@@ -31,14 +31,16 @@ skills:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(original), 0o600))
 
-	require.NoError(t, WriteManifest(root, "demo", "Renamed", "codex", AutonomyAuto, []string{"hass-mcp"}))
+	require.NoError(t, WriteManifest(root, "demo", ManifestEdit{
+		Name: "Renamed", Agent: "codex", Autonomy: AutonomyAuto,
+		MCPs: []string{"hass-mcp"}, Skills: []string{"pdf-tools"},
+	}))
 
 	raw, err := os.ReadFile(filepath.Join(dir, manifestFileName))
 	require.NoError(t, err)
 	text := string(raw)
 	assert.Contains(t, text, "# hand-authored: do not lose me")
 	assert.Contains(t, text, "# the agent that runs here")
-	assert.Contains(t, text, "pdf-tools")
 
 	ws, err := parseWorkspace([]byte(text))
 	require.NoError(t, err)
@@ -46,38 +48,51 @@ skills:
 	assert.Equal(t, "codex", ws.Agent)
 	assert.Equal(t, AutonomyAuto, ws.Autonomy)
 	assert.Equal(t, []string{"hass-mcp"}, ws.MCPs)
+	assert.Equal(t, []string{"pdf-tools"}, ws.Skills)
 }
 
-func TestWriteManifestOwnsTheMCPsKey(t *testing.T) {
+// TestWriteManifestOwnsTheCapabilityKeys covers both enablement lists: the
+// writer replaces what it is given and removes a key it is given nothing for,
+// rather than writing an empty list.
+func TestWriteManifestOwnsTheCapabilityKeys(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.Mkdir(dir, 0o700))
-	original := "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\n"
+	original := "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\nskills:\n  - hive-mcp\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(original), 0o600))
 
-	require.NoError(t, WriteManifest(root, "demo", "Demo", "claude", AutonomyAsk, []string{"playwright", "home-assistant"}))
+	require.NoError(t, WriteManifest(root, "demo", ManifestEdit{
+		Name: "Demo", Agent: "claude", Autonomy: AutonomyAsk,
+		MCPs: []string{"playwright", "home-assistant"}, Skills: []string{"hive-mcp", "team-notes"},
+	}))
 	raw, err := os.ReadFile(filepath.Join(dir, manifestFileName))
 	require.NoError(t, err)
 	ws, err := parseWorkspace(raw)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"playwright", "home-assistant"}, ws.MCPs)
+	assert.Equal(t, []string{"hive-mcp", "team-notes"}, ws.Skills)
 
-	require.NoError(t, WriteManifest(root, "demo", "Demo", "claude", AutonomyAsk, nil))
+	require.NoError(t, WriteManifest(root, "demo", ManifestEdit{Name: "Demo", Agent: "claude", Autonomy: AutonomyAsk}))
 	raw, err = os.ReadFile(filepath.Join(dir, manifestFileName))
 	require.NoError(t, err)
 	assert.NotContains(t, string(raw), "mcps", "an empty set removes the key rather than writing mcps: []")
+	assert.NotContains(t, string(raw), "skills", "an empty set removes the key rather than writing skills: []")
 	ws, err = parseWorkspace(raw)
 	require.NoError(t, err)
 	assert.Empty(t, ws.MCPs)
+	assert.Empty(t, ws.Skills)
 }
 
 func TestCreateWorkspaceWritesALoadableManifest(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	require.NoError(t, CreateWorkspace(root, "fresh", "Fresh", "claude", AutonomyAsk, []string{"playwright"}))
+	require.NoError(t, CreateWorkspace(root, "fresh", ManifestEdit{
+		Name: "Fresh", Agent: "claude", Autonomy: AutonomyAsk,
+		MCPs: []string{"playwright"}, Skills: []string{"hive-mcp"},
+	}))
 
 	raw, err := os.ReadFile(filepath.Join(root, "fresh", manifestFileName))
 	require.NoError(t, err)
@@ -87,8 +102,9 @@ func TestCreateWorkspaceWritesALoadableManifest(t *testing.T) {
 	assert.Equal(t, "claude", ws.Agent)
 	assert.Equal(t, AutonomyAsk, ws.Autonomy)
 	assert.Equal(t, []string{"playwright"}, ws.MCPs)
+	assert.Equal(t, []string{"hive-mcp"}, ws.Skills)
 
-	err = CreateWorkspace(root, "fresh", "Fresh", "claude", AutonomyAsk, nil)
+	err = CreateWorkspace(root, "fresh", ManifestEdit{Name: "Fresh", Agent: "claude", Autonomy: AutonomyAsk})
 	require.ErrorIs(t, err, os.ErrExist)
 }
 
@@ -96,7 +112,7 @@ func TestCreateWorkspaceScaffoldsAgentsMD(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	require.NoError(t, CreateWorkspace(root, "fresh", "Paperless", "claude", AutonomyAsk, nil))
+	require.NoError(t, CreateWorkspace(root, "fresh", ManifestEdit{Name: "Paperless", Agent: "claude", Autonomy: AutonomyAsk}))
 
 	raw, err := os.ReadFile(filepath.Join(root, "fresh", "AGENTS.md"))
 	require.NoError(t, err)

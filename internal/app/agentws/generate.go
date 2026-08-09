@@ -15,9 +15,9 @@ import (
 // ErrInvalidSkillSlug reports a skill slug that does not resolve to a direct
 // child of the directory it belongs under: a traversal attempt (a "..",
 // an absolute path), the tree root itself ("."), or an empty string. Slugs
-// arrive both from agent-workspace.yaml and from .shared/skills/* directory
-// names, and spec §8 hands the workspace manifest to an agent to write, so
-// this is validated rather than trusted.
+// arrive from agent-workspace.yaml and from skill library directory names,
+// and spec §8 hands the workspace manifest to an agent to write, so this is
+// validated rather than trusted.
 var ErrInvalidSkillSlug = errors.New("agentws: invalid skill slug")
 
 // GenerateInput is Generate's whole world. Nothing in Generate reads the
@@ -28,15 +28,13 @@ type GenerateInput struct {
 	// writes lives under it — there is no side tree anywhere else on the
 	// machine.
 	Dir string
-	// Shared is the absolute <root>/.shared directory. May not exist; an
-	// absent .shared/ is legal, not a failure.
-	Shared string
 
 	Workspace Workspace
 	// Servers is the enabled MCP set, already resolved through the catalogue
 	// with user-shadows-shipped applied.
 	Servers map[string]mcpcatalog.Server
-	// Skills is the workspace's declared skills, already rendered.
+	// Skills is the workspace's enabled skills, already resolved through the
+	// catalogue and rendered.
 	Skills []RenderedSkill
 }
 
@@ -52,6 +50,11 @@ type Result struct {
 	// MissingMCPs are enabled ids that are no longer in the catalogue. The
 	// workspace still opens and they are omitted from .mcp.json (spec §14).
 	MissingMCPs []string
+	// MissingSkills are enabled slugs the catalogue no longer resolves — a
+	// library skill deleted off disk, say. Reported the same way a missing
+	// MCP is, and for the same reason: a capability that vanished must not
+	// stop the workspace opening.
+	MissingSkills []string
 	// Problems are conditions that do not stop the open but that the user
 	// must see — an .icloud placeholder standing in for an authored file,
 	// say.
@@ -60,7 +63,7 @@ type Result struct {
 
 // Generate writes everything a workspace needs to run an agent against: a
 // CLAUDE.md copy of AGENTS.md, one generated MCP config per known agent, the
-// merged skill set at both tree locations, and an empty docs/. It reconciles
+// enabled skill set at both tree locations, and an empty docs/. It reconciles
 // rather than clears-and-rewrites: .claude/skills/, .agents/skills/ and
 // .codex/ are wholly Hive-owned, so a file no longer in the target set is
 // removed and a file that is stays untouched unless its bytes actually
@@ -75,6 +78,17 @@ func Generate(in GenerateInput) (Result, error) {
 	}
 	sort.Strings(res.MissingMCPs)
 
+	resolved := make(map[string]bool, len(in.Skills))
+	for _, rs := range in.Skills {
+		resolved[rs.Slug] = true
+	}
+	for _, slug := range in.Workspace.Skills {
+		if !resolved[slug] {
+			res.MissingSkills = append(res.MissingSkills, slug)
+		}
+	}
+	sort.Strings(res.MissingSkills)
+
 	problem, err := generateClaudeMD(in.Dir)
 	if err != nil {
 		return Result{}, err
@@ -87,7 +101,7 @@ func Generate(in GenerateInput) (Result, error) {
 		return Result{}, err
 	}
 
-	skillFiles, err := mergeSkills(in.Shared, in.Skills)
+	skillFiles, err := skillTree(in.Skills)
 	if err != nil {
 		return Result{}, err
 	}
@@ -176,55 +190,19 @@ func generateMCPFiles(dir string, servers map[string]mcpcatalog.Server) error {
 	return nil
 }
 
-// mergeSkills builds the target skill file set: the workspace's declared
-// skills, then .shared/skills/* filling in anything not already declared
-// (D-D — the same shadow rule a mcps.yaml entry uses against a shipped
-// catalogue entry). Keys are "<slug>/SKILL.md", relative to a skills tree
-// root.
-func mergeSkills(sharedDir string, declared []RenderedSkill) (target map[string][]byte, err error) {
-	target = make(map[string][]byte, len(declared))
-	declaredSlugs := make(map[string]bool, len(declared))
-
-	for _, rs := range declared {
+// skillTree builds the target skill file set from the workspace's enabled
+// skills. Keys are "<slug>/SKILL.md", relative to a skills tree root. The
+// generator reads no library of its own: a skill reaches a workspace only by
+// being named in skills: and resolved before Generate is called, which is
+// what keeps the generator pure (spec §4.4) and what makes a skill scoped to
+// the workspaces that ask for it.
+func skillTree(enabled []RenderedSkill) (target map[string][]byte, err error) {
+	target = make(map[string][]byte, len(enabled))
+	for _, rs := range enabled {
 		if !validSlug(rs.Slug) {
 			return nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, rs.Slug)
 		}
-		target[filepath.Join(rs.Slug, "SKILL.md")] = []byte(rs.Body)
-		declaredSlugs[rs.Slug] = true
-	}
-
-	if sharedDir == "" {
-		return target, nil
-	}
-
-	entries, err := os.ReadDir(filepath.Join(sharedDir, "skills"))
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return target, nil
-		}
-		return nil, fmt.Errorf("agentws: read shared skills: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		slug := entry.Name()
-		if !validSlug(slug) {
-			return nil, fmt.Errorf("%w: %q", ErrInvalidSkillSlug, slug)
-		}
-		if declaredSlugs[slug] {
-			continue
-		}
-
-		body, err := os.ReadFile(filepath.Join(sharedDir, "skills", slug, "SKILL.md"))
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			return nil, fmt.Errorf("agentws: read shared skill %q: %w", slug, err)
-		}
-		target[filepath.Join(slug, "SKILL.md")] = body
+		target[filepath.Join(rs.Slug, skillFileName)] = []byte(rs.Body)
 	}
 	return target, nil
 }

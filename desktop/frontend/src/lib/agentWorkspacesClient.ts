@@ -27,6 +27,7 @@ export interface AgentWorkspace {
   agent: string
   autonomy: string
   mcps: string[]
+  skills: string[]
   problem: string
   /** An unbounded-MCP or missing-manifest explanation, empty when neither applies. */
   notice: string
@@ -63,6 +64,7 @@ export interface WorkspaceEditRequest {
   agent: string
   autonomy: string
   mcps: string[]
+  skills: string[]
 }
 
 /** One row of the merged MCP catalogue: shipped entries plus the user's mcps.yaml. */
@@ -79,6 +81,20 @@ export interface MCPCatalogueEntry {
   command: string
   /** Why the entry will not work — a command that does not resolve on PATH. */
   problem: string
+}
+
+/**
+ * One row of the merged skill catalogue: the skills this build ships plus the
+ * user's library at .shared/skills. Being listed enables nothing — a
+ * workspace carries a skill only by naming its slug in its own skills list.
+ */
+export interface SkillCatalogueEntry {
+  slug: string
+  title: string
+  description: string
+  shipped: boolean
+  /** The shipped slug this library skill replaces, empty otherwise. */
+  shadows: string
 }
 
 /** One row of a workspace's session list. */
@@ -124,6 +140,7 @@ export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
   missingMcps: string[]
+  missingSkills: string[]
 }
 
 export interface StartSessionRequest {
@@ -166,6 +183,9 @@ export interface AgentWorkspacesClient {
   importMCPServers(json: string): Promise<{ added: string[]; servers: MCPCatalogueEntry[] }>
   /** Removes a user-declared server from mcps.yaml; returns the refreshed catalogue. */
   removeMCPServer(id: string): Promise<MCPCatalogueEntry[]>
+  skillCatalogue(): Promise<SkillCatalogueEntry[]>
+  /** Opens the skill library directory in the OS file manager, creating it if missing. */
+  revealSkillsLibrary(): Promise<void>
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
@@ -226,8 +246,13 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async openWorkspace(dir) {
       const body = await post<AgentWorkspaceOpenResult>('/workspaces/open', { dir })
-      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [] }
-      return { workspace: normalizeWorkspace(body.workspace), sessions: body.sessions ?? [], missingMcps: body.missingMcps ?? [] }
+      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [], missingSkills: [] }
+      return {
+        workspace: normalizeWorkspace(body.workspace),
+        sessions: body.sessions ?? [],
+        missingMcps: body.missingMcps ?? [],
+        missingSkills: body.missingSkills ?? [],
+      }
     },
     async deleteWorkspace(dir) {
       await post('/workspaces/delete', { dir })
@@ -249,6 +274,13 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async removeMCPServer(id) {
       const body = await post<{ servers: MCPCatalogueEntry[] | null }>('/mcps/remove', { id })
       return body?.servers ?? []
+    },
+    async skillCatalogue() {
+      const body = await post<{ skills: SkillCatalogueEntry[] | null }>('/skills', {})
+      return body?.skills ?? []
+    },
+    async revealSkillsLibrary() {
+      await post('/skills/reveal', {})
     },
     async sessions(workspace) {
       const body = await post<{ sessions: AgentSession[] | null }>('/sessions', { workspace })
@@ -290,15 +322,15 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', agent: '', autonomy: '', mcps: [], problem: '', notice: '' }
+  return { dir, name: '', agent: '', autonomy: '', mcps: [], skills: [], problem: '', notice: '' }
 }
 
-// normalizeWorkspace guards against a null mcps array on the wire: the Go
-// side now always sends [], but this is the client boundary, so a template
-// or composable can trust AgentWorkspace.mcps is iterable without its own
-// null check regardless.
+// normalizeWorkspace guards against a null mcps or skills array on the wire:
+// the Go side now always sends [], but this is the client boundary, so a
+// template or composable can trust both are iterable without its own null
+// check regardless.
 function normalizeWorkspace(w: AgentWorkspace): AgentWorkspace {
-  return { ...w, mcps: w.mcps ?? [] }
+  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [] }
 }
 
 async function failure(response: Response): Promise<AgentRequestError> {

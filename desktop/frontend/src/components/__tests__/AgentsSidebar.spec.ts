@@ -8,8 +8,8 @@ import type { AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClie
 // Two workspaces and two sessions belonging to each, standing in for the
 // wire responses AgentWorkspacesClient normally decodes.
 const workspaceFixtures: AgentWorkspace[] = [
-  { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], problem: '', notice: '' },
-  { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], problem: '', notice: '' },
+  { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], skills: [], problem: '', notice: '' },
 ]
 
 const recentFixtures: AgentSession[] = [

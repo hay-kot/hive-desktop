@@ -84,18 +84,16 @@ func TestGenerateIsDeterministic(t *testing.T) {
 	require.NoError(t, os.MkdirAll(dirA, 0o700))
 	require.NoError(t, os.MkdirAll(dirB, 0o700))
 
-	const sharedSkill = "# Shared\n\nBody.\n"
-	writeFile(t, filepath.Join(rootA, ".shared", "skills", "shared-one", "SKILL.md"), sharedSkill)
-	writeFile(t, filepath.Join(rootB, ".shared", "skills", "shared-one", "SKILL.md"), sharedSkill)
 	writeFile(t, filepath.Join(dirA, "AGENTS.md"), "# Demo\n")
 	writeFile(t, filepath.Join(dirB, "AGENTS.md"), "# Demo\n")
 
 	ws := testWorkspace()
 	ws.MCPs = []string{"alpha-local", "zulu-remote"}
-	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}}
+	ws.Skills = []string{"hive-mcp", "team-notes"}
+	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}, {Slug: "team-notes", Body: "# Team notes\n"}}
 
-	inA := GenerateInput{Dir: dirA, Shared: filepath.Join(rootA, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
-	inB := GenerateInput{Dir: dirB, Shared: filepath.Join(rootB, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
+	inA := GenerateInput{Dir: dirA, Workspace: ws, Servers: testServers(), Skills: skills}
+	inB := GenerateInput{Dir: dirB, Workspace: ws, Servers: testServers(), Skills: skills}
 
 	resA, err := Generate(inA)
 	require.NoError(t, err)
@@ -140,7 +138,7 @@ func TestGenerateDoesNotRewriteUnchangedFiles(t *testing.T) {
 
 	ws := testWorkspace()
 	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}}
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: ws, Servers: testServers(), Skills: skills}
+	in := GenerateInput{Dir: dir, Workspace: ws, Servers: testServers(), Skills: skills}
 
 	_, err := Generate(in)
 	require.NoError(t, err)
@@ -173,7 +171,7 @@ func TestGenerateReplacesGeneratedAndLeavesAuthored(t *testing.T) {
 	writeFile(t, filepath.Join(dir, manifestFileName), "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n")
 	writeFile(t, filepath.Join(dir, "docs", "notes.md"), "agent notes\n")
 
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: testServers()}
+	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: testServers()}
 	_, err := Generate(in)
 	require.NoError(t, err)
 
@@ -217,7 +215,7 @@ func TestGenerateRemovesASkillNoLongerDeclared(t *testing.T) {
 	dir := t.TempDir()
 
 	in := GenerateInput{
-		Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(),
+		Dir: dir, Workspace: testWorkspace(),
 		Servers: map[string]mcpcatalog.Server{},
 		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 	}
@@ -236,64 +234,55 @@ func TestGenerateRemovesASkillNoLongerDeclared(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp"))
 }
 
-// TestSharedSkillsAreShadowedByTheWorkspace is D-D: on a slug collision the
-// workspace-declared skill wins.
-func TestSharedSkillsAreShadowedByTheWorkspace(t *testing.T) {
+// TestOnlyEnabledSkillsInstall is the enablement contract: the generator
+// installs exactly the skills it was handed and reads no library of its own,
+// so a library skill a workspace has not switched on never lands in its tree.
+func TestOnlyEnabledSkillsInstall(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	shared := filepath.Join(root, ".shared")
-	writeFile(t, filepath.Join(shared, "skills", "hive-mcp", "SKILL.md"), "# shared version\n")
+	writeFile(t, filepath.Join(SkillsLibraryDir(root), "team-notes", "SKILL.md"), "# team notes\n")
 
+	ws := testWorkspace()
+	ws.Skills = []string{"hive-mcp"}
 	in := GenerateInput{
-		Dir: dir, Shared: shared, Workspace: testWorkspace(),
+		Dir: dir, Workspace: ws,
 		Servers: map[string]mcpcatalog.Server{},
-		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# workspace version\n"}},
+		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 	}
-	_, err := Generate(in)
+	res, err := Generate(in)
 	require.NoError(t, err)
+	assert.Empty(t, res.MissingSkills)
 
-	data, err := os.ReadFile(filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
-	require.NoError(t, err)
-	assert.Equal(t, "# workspace version\n", string(data))
+	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp", "SKILL.md"))
+	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "team-notes"),
+		"a library skill the workspace has not enabled must not install")
 }
 
-// TestSharedSkillsInstallWithoutCollision covers the two non-shadow cases: a
-// shared-only skill installs on its own, and an absent .shared/ is legal.
-func TestSharedSkillsInstallWithoutCollision(t *testing.T) {
+// TestMissingSkillsAreReportedNotFatal covers the slug whose catalogue entry
+// went away: the workspace still opens, the skill is simply absent, and the
+// slug is reported the way a missing MCP id is.
+func TestMissingSkillsAreReportedNotFatal(t *testing.T) {
 	t.Parallel()
+	dir := t.TempDir()
 
-	t.Run("SharedOnlySkillInstalls", func(t *testing.T) {
-		t.Parallel()
-		root := t.TempDir()
-		dir := filepath.Join(root, "demo")
-		require.NoError(t, os.MkdirAll(dir, 0o700))
-		shared := filepath.Join(root, ".shared")
-		writeFile(t, filepath.Join(shared, "skills", "team-notes", "SKILL.md"), "# team notes\n")
+	ws := testWorkspace()
+	ws.Skills = []string{"hive-mcp", "deleted-skill"}
+	in := GenerateInput{
+		Dir: dir, Workspace: ws,
+		Servers: map[string]mcpcatalog.Server{},
+		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
+	}
+	res, err := Generate(in)
+	require.NoError(t, err)
 
-		in := GenerateInput{Dir: dir, Shared: shared, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
-		_, err := Generate(in)
-		require.NoError(t, err)
-		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "team-notes", "SKILL.md"))
-		assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "team-notes", "SKILL.md"))
-	})
-
-	t.Run("AbsentSharedGeneratesOwnSkillsOnly", func(t *testing.T) {
-		t.Parallel()
-		dir := t.TempDir()
-		in := GenerateInput{
-			Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(),
-			Servers: map[string]mcpcatalog.Server{},
-			Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
-		}
-		_, err := Generate(in)
-		require.NoError(t, err)
-		assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
-		entries, err := os.ReadDir(filepath.Join(dir, ".claude", "skills"))
-		require.NoError(t, err)
-		assert.Len(t, entries, 1)
-	})
+	assert.Equal(t, []string{"deleted-skill"}, res.MissingSkills)
+	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
+	entries, err := os.ReadDir(filepath.Join(dir, ".claude", "skills"))
+	require.NoError(t, err)
+	assert.Len(t, entries, 1)
 }
 
 // TestCLAUDEMDIsACopyOfAGENTSMD covers the write, the update-on-edit, and the
@@ -303,7 +292,7 @@ func TestCLAUDEMDIsACopyOfAGENTSMD(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, "AGENTS.md"), "# Original\n")
 
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
+	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
 	_, err := Generate(in)
 	require.NoError(t, err)
 	data, err := os.ReadFile(filepath.Join(dir, "CLAUDE.md"))
@@ -331,7 +320,7 @@ func TestGenerateReportsAnEvictedAuthoredFile(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, filepath.Join(dir, ".AGENTS.md.icloud"), "")
 
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
+	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
 	res, err := Generate(in)
 	require.NoError(t, err)
 	require.Len(t, res.Problems, 1)
@@ -352,7 +341,7 @@ func TestGenerateReportsAnUnwritableWorkspace(t *testing.T) {
 	require.NoError(t, os.Chmod(dir, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
 
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
+	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
 	_, err := Generate(in)
 	require.Error(t, err)
 }
@@ -378,7 +367,7 @@ func TestGenerateRejectsATraversingSkillSlug(t *testing.T) {
 			t.Parallel()
 			dir := t.TempDir()
 			in := GenerateInput{
-				Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(),
+				Dir: dir, Workspace: testWorkspace(),
 				Servers: map[string]mcpcatalog.Server{},
 				Skills:  []RenderedSkill{{Slug: c.slug, Body: "x"}},
 			}
@@ -395,7 +384,7 @@ func TestGenerateRejectsATraversingSkillSlug(t *testing.T) {
 func TestDocsIsSeededEmptyAndUntouched(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	in := GenerateInput{Dir: dir, Shared: filepath.Join(dir, ".shared"), Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
+	in := GenerateInput{Dir: dir, Workspace: testWorkspace(), Servers: map[string]mcpcatalog.Server{}}
 
 	_, err := Generate(in)
 	require.NoError(t, err)

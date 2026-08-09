@@ -1406,7 +1406,8 @@ overlap in vocabulary is a coincidence of both being terminals.
 
 `internal/app/agentws` owns the on-disk agent-workspace root
 (`settings.Paths.AgentWorkspacesDir`, default `<ConfigDir>/workspaces`):
-`mcps.yaml`, `.shared/skills/`, and one directory per workspace. Every
+`mcps.yaml`, the skill library at `.shared/skills/`, and one directory per
+workspace. Every
 directory splits **authored** files a user (or an agent, via the
 `hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
 `docs/` — from **generated** ones `agentws.Generate` produces on every open —
@@ -1430,15 +1431,26 @@ it deletes it. Hand-authored workspaces get no scaffold.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `autonomy`, and `mcps:` in
-the manifest (an empty list removes the key); `skills:` and everything else
-stay the user's. `mcps.yaml` gains entries through the same pattern —
+writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`, and
+`skills:` in the manifest (an empty list removes the key); comments and
+everything else stay the user's. `mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
 bare id-to-server map), an id already declared is a conflict rather than an
 overwrite, and only user entries can be removed. The merged catalogue
 (shipped + user, stability, the resolved command line, a LookPath problem) is
 served on the agents API — the surface ADR a-workspace-declares-its-own-authority §5's read-the-command-first
 mitigation runs through.
+
+Skills follow the same two-part shape, and nothing about a workspace's skills
+is implicit: `.shared/skills/<slug>/SKILL.md` is a **library**, shared by
+every workspace and carried only by the ones whose `skills:` list names the
+slug (ADR a-workspace-skill-is-opt-in-from-a-shared-library-not-merged-into-every-workspace). `agentws.SkillCatalogue` merges it with the shipped set —
+which arrives as data, because `prompts` imports `agentws` — under the same
+user-shadows-shipped rule `mcps.yaml` uses. Resolution happens before
+`Generate`, which installs exactly what it is handed: a library entry
+verbatim, a shipped one rendered against this install. An enabled slug the
+catalogue no longer resolves is reported in `MissingSkills` rather than
+failing the open, the way a missing MCP id is.
 
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the

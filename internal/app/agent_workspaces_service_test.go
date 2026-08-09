@@ -70,6 +70,13 @@ func writeMCPLibrary(t *testing.T, root, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "mcps.yaml"), []byte(body), 0o600))
 }
 
+func writeLibrarySkill(t *testing.T, root, slug, body string) {
+	t.Helper()
+	dir := filepath.Join(agentws.SkillsLibraryDir(root), slug)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600))
+}
+
 // fakeAgentBinary writes a script that ignores every argument it is invoked
 // with and execs body -- standing in for a real agent CLI, which would
 // otherwise be required to exercise a live, addressable terminal. Because the
@@ -514,6 +521,86 @@ func TestWorkspaceEditOwnsTheMCPList(t *testing.T) {
 	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", MCPs: []string{"playwright", "playwright"}})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+func TestWorkspaceEditOwnsTheSkillList(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{
+		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive-mcp"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"hive-mcp"}, created.Skills)
+
+	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
+	require.NoError(t, err)
+	assert.Empty(t, updated.Skills)
+
+	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
+		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive-mcp", "hive-mcp"},
+	})
+	require.Error(t, err)
+	assert.Equal(t, KindInvalid, KindOf(err))
+}
+
+// TestSkillCatalogueMergesShippedAndLibrary is the editor's read: the shipped
+// set plus what the library directory holds, with a library slug shadowing a
+// shipped one of the same name.
+func TestSkillCatalogueMergesShippedAndLibrary(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeLibrarySkill(t, root, "release-notes", "---\nname: release-notes\ndescription: Draft release notes.\n---\n# Release notes\n")
+	writeLibrarySkill(t, root, "hive-mcp", "# my own take\n")
+
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	bySlug := map[string]SkillCatalogueItem{}
+	for _, item := range svc.SkillCatalogue(t.Context()) {
+		bySlug[item.Slug] = item
+	}
+
+	custom, ok := bySlug["release-notes"]
+	require.True(t, ok, "a library skill is offered to every workspace")
+	assert.False(t, custom.Shipped)
+	assert.Equal(t, "Draft release notes.", custom.Description)
+
+	shadowed, ok := bySlug["hive-mcp"]
+	require.True(t, ok)
+	assert.Equal(t, "hive-mcp", shadowed.Shadows, "a library slug replaces the shipped entry of the same name")
+
+	shipped, ok := bySlug["hive-flows"]
+	require.True(t, ok, "the shipped set is the other half of the catalogue")
+	assert.True(t, shipped.Shipped)
+}
+
+// TestOpenCarriesOnlyEnabledLibrarySkills is the scoping the library exists
+// for: a library skill lands in a workspace that enables it and nowhere else,
+// and a slug the catalogue no longer resolves is reported rather than
+// failing the open.
+func TestOpenCarriesOnlyEnabledLibrarySkills(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeLibrarySkill(t, root, "release-notes", "# Release notes\n\nDraft them.\n")
+	writeAgentWorkspaceManifest(t, root, "with", "version: 2\nname: With\nagent: claude\nautonomy: ask\n"+
+		"skills:\n  - release-notes\n  - deleted-skill\n")
+	writeAgentWorkspaceManifest(t, root, "without", "version: 2\nname: Without\nagent: claude\nautonomy: ask\n")
+
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	result, err := svc.Open(t.Context(), "with")
+	require.NoError(t, err, "a slug with no catalogue entry does not fail the open")
+	assert.Equal(t, []string{"deleted-skill"}, result.MissingSkills)
+
+	body, err := os.ReadFile(filepath.Join(root, "with", ".claude", "skills", "release-notes", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "# Release notes\n\nDraft them.\n", string(body), "a library skill installs verbatim")
+
+	_, err = svc.Open(t.Context(), "without")
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(root, "without", ".claude", "skills", "release-notes"),
+		"the library is shared; carrying a skill is the workspace's own choice")
 }
 
 func TestImportAndRemoveMCPServers(t *testing.T) {

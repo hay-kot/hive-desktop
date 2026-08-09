@@ -31,6 +31,7 @@ type agentWorkspaceView struct {
 	Agent    string   `json:"agent"`
 	Autonomy string   `json:"autonomy"`
 	MCPs     []string `json:"mcps"`
+	Skills   []string `json:"skills"`
 	Problem  string   `json:"problem"`
 	// Notice explains an agent whose MCP wiring cannot bound its tool set to
 	// the workspace's declared servers, empty when the wiring is bounded or
@@ -71,7 +72,8 @@ type agentSessionView struct {
 
 func toAgentWorkspaceView(w app.WorkspaceView) agentWorkspaceView {
 	return agentWorkspaceView{
-		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy, MCPs: nonNilStrings(w.MCPs), Problem: w.Problem,
+		Dir: w.Dir, Name: w.Name, Agent: w.Agent, Autonomy: w.Autonomy,
+		MCPs: nonNilStrings(w.MCPs), Skills: nonNilStrings(w.Skills), Problem: w.Problem,
 		Notice: w.Notice,
 	}
 }
@@ -185,6 +187,7 @@ type agentWorkspaceEditRequest struct {
 	Agent    string   `json:"agent"`
 	Autonomy string   `json:"autonomy"`
 	Mcps     []string `json:"mcps"`
+	Skills   []string `json:"skills"`
 }
 
 func (b agentWorkspaceEditRequest) Validate() error {
@@ -197,7 +200,7 @@ func (b agentWorkspaceEditRequest) Validate() error {
 }
 
 func (b agentWorkspaceEditRequest) toEdit() app.WorkspaceEdit {
-	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy, MCPs: b.Mcps}
+	return app.WorkspaceEdit{Dir: b.Dir, Name: b.Name, Agent: b.Agent, Autonomy: b.Autonomy, MCPs: b.Mcps, Skills: b.Skills}
 }
 
 // AgentWorkspaceCreate makes a directory under the root with a fresh
@@ -244,6 +247,9 @@ type agentWorkspaceOpenResponse struct {
 	// MissingMCPs names ids the workspace declares that the catalogue does
 	// not resolve; they are simply omitted from what was generated.
 	MissingMCPs []string `json:"missingMcps"`
+	// MissingSkills names skill slugs the workspace declares that the skill
+	// catalogue does not resolve — a library skill deleted off disk, say.
+	MissingSkills []string `json:"missingSkills"`
 }
 
 // AgentWorkspaceOpen regenerates a workspace's disposable artifacts and
@@ -258,9 +264,10 @@ func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Reques
 		return err
 	}
 	return server.JSON(w, http.StatusOK, agentWorkspaceOpenResponse{
-		Workspace:   toAgentWorkspaceView(result.Workspace),
-		Sessions:    toAgentSessionViews(result.Sessions),
-		MissingMCPs: nonNilStrings(result.MissingMCPs),
+		Workspace:     toAgentWorkspaceView(result.Workspace),
+		Sessions:      toAgentSessionViews(result.Sessions),
+		MissingMCPs:   nonNilStrings(result.MissingMCPs),
+		MissingSkills: nonNilStrings(result.MissingSkills),
 	})
 }
 
@@ -402,6 +409,54 @@ func (ctrl *Controller) AgentMCPRemove(w http.ResponseWriter, r *http.Request) e
 		return err
 	}
 	return server.JSON(w, http.StatusOK, agentMCPCatalogueResponse{Servers: ctrl.mcpCatalogueViews(r)})
+}
+
+// agentSkillView is one row of the merged skill catalogue: a skill this build
+// ships, a skill from the user's library, or a library skill replacing a
+// shipped one of the same slug.
+type agentSkillView struct {
+	Slug        string `json:"slug"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Shipped     bool   `json:"shipped"`
+	// Shadows is the shipped slug this library skill replaces, empty
+	// otherwise.
+	Shadows string `json:"shadows"`
+}
+
+type agentSkillCatalogueResponse struct {
+	Skills []agentSkillView `json:"skills"`
+}
+
+// AgentSkillCatalogue lists the merged skill catalogue: the skills this build
+// ships plus the user's library, a library slug shadowing a shipped one of
+// the same name.
+func (ctrl *Controller) AgentSkillCatalogue(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	items := ctrl.core.AgentWorkspaces.SkillCatalogue(r.Context())
+	out := make([]agentSkillView, 0, len(items))
+	for _, item := range items {
+		out = append(out, agentSkillView{
+			Slug: item.Slug, Title: item.Title, Description: item.Description,
+			Shipped: item.Shipped, Shadows: item.Shadows,
+		})
+	}
+	return server.JSON(w, http.StatusOK, agentSkillCatalogueResponse{Skills: out})
+}
+
+// AgentSkillsReveal opens the skill library directory in the OS file manager
+// — where a library skill is authored, since it is a SKILL.md on disk.
+func (ctrl *Controller) AgentSkillsReveal(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.RevealSkillsLibrary(r.Context()); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
 }
 
 type agentSessionsRequest struct {

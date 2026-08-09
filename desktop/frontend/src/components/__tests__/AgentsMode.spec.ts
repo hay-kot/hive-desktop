@@ -97,8 +97,8 @@ class FakeResizeObserver {
 }
 
 const workspaceRows = [
-  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], problem: '', notice: '' },
-  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], problem: '', notice: '' },
+  { dir: 'web-app', name: 'Web App', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
+  { dir: 'api', name: 'API', agent: 'claude', autonomy: '', mcps: [], skills: [], problem: '', notice: '' },
 ]
 
 // A chat row as the cross-workspace listing reports it: terminalId set means
@@ -116,7 +116,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     }),
     openWorkspace: vi.fn((dir: string) => Promise.resolve({
       workspace: workspaceRows.find((ws) => ws.dir === dir) ?? workspaceRows[0],
-      sessions: [], missingMcps: [],
+      sessions: [], missingMcps: [], missingSkills: [],
     })),
     allSessions: vi.fn().mockResolvedValue([]),
     activity: vi.fn().mockResolvedValue([]),
@@ -130,6 +130,9 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     openStream: vi.fn(() => new FakeSocket()),
     openWorkspaceInEditor: vi.fn().mockResolvedValue(undefined),
     revealWorkspace: vi.fn().mockResolvedValue(undefined),
+    mcpCatalogue: vi.fn().mockResolvedValue([]),
+    skillCatalogue: vi.fn().mockResolvedValue([]),
+    revealSkillsLibrary: vi.fn().mockResolvedValue(undefined),
   }
 }
 

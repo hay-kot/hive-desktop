@@ -37,5 +37,28 @@ func TestAgentWireArraysAreNeverNull(t *testing.T) {
 
 	resp2 := h.post(t, AgentWorkspacesPathPrefix+"workspaces/open", testToken, map[string]string{"dir": "hive"})
 	defer func() { _ = resp2.Body.Close() }()
-	assertNoNullArrays(t, resp2, "sessions", "missingMcps")
+	assertNoNullArrays(t, resp2, "sessions", "missingMcps", "missingSkills")
+
+	resp3 := h.post(t, AgentWorkspacesPathPrefix+"skills", testToken, struct{}{})
+	defer func() { _ = resp3.Body.Close() }()
+	assertNoNullArrays(t, resp3, "skills")
+}
+
+// The skill catalogue is the workspace editor's read: the shipped set is
+// served over the wire even with an untouched library, and it carries the
+// labels the rows render from.
+func TestAgentSkillCatalogueServesTheShippedSet(t *testing.T) {
+	h := newAgentHarness(t)
+
+	resp := h.post(t, AgentWorkspacesPathPrefix+"skills", testToken, struct{}{})
+	defer func() { _ = resp.Body.Close() }()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var body agentSkillCatalogueResponse
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+	require.NotEmpty(t, body.Skills)
+	for _, skill := range body.Skills {
+		assert.NotEmpty(t, skill.Slug)
+		assert.NotEmpty(t, skill.Title)
+	}
 }

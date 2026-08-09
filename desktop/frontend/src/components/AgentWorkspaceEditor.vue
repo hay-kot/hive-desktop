@@ -1,12 +1,12 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
-// it shows — name, agent, autonomy, and the mcps list (plus the directory
-// name at creation); skills and hand-written comments in the YAML survive
-// the write untouched. The MCP rows come from the merged catalogue (shipped
-// entries plus mcps.yaml), and pasting MCP JSON lands new servers in
-// mcps.yaml before enabling them here — the library is shared, the toggle is
-// this workspace's own. Deleting the workspace also lives here — the editor
+// it shows — name, agent, autonomy, and the mcps and skills lists (plus the
+// directory name at creation); hand-written comments in the YAML survive the
+// write untouched. Both capability lists work the same way: rows come from a
+// merged catalogue (what the build ships plus what the user's library holds),
+// the library is shared across workspaces, and the toggle is this workspace's
+// own. Deleting the workspace also lives here — the editor
 // is the workspace's whole management surface, so its sidebar row needs no
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
@@ -36,8 +36,9 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue, autonomyFlags,
+  editor, mcpCatalogue, skillCatalogue, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
+  reloadSkillCatalogue, revealSkillsLibrary,
   openWorkspaceInEditor, revealWorkspace,
 } = useAgentWorkspaces()
 
@@ -48,6 +49,7 @@ const name = ref(props.workspace?.name ?? '')
 const agent = ref(props.workspace?.agent || props.agents[0] || '')
 const autonomy = ref(props.workspace?.autonomy || 'ask')
 const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
+const selectedSkills = ref<string[]>([...(props.workspace?.skills ?? [])])
 
 const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
 
@@ -158,6 +160,52 @@ async function removeServer(id: string): Promise<void> {
   }
 }
 
+// ── Skill rows ───────────────────────────────────────────────────────────────
+// Same shape as the MCP rows, including the missing case: a slug the
+// catalogue no longer resolves (a library skill deleted off disk) stays
+// visible so it can be switched off, rather than silently doing nothing.
+interface SkillRow {
+  slug: string
+  title: string
+  description: string
+  shipped: boolean
+  shadows: string
+  missing: boolean
+}
+
+const skillRows = computed<SkillRow[]>(() => {
+  const rows: SkillRow[] = skillCatalogue.value.map((e) => ({
+    slug: e.slug, title: e.title || e.slug, description: e.description,
+    shipped: e.shipped, shadows: e.shadows, missing: false,
+  }))
+  const known = new Set(rows.map((r) => r.slug))
+  for (const slug of selectedSkills.value) {
+    if (!known.has(slug)) rows.push({ slug, title: slug, description: '', shipped: false, shadows: '', missing: true })
+  }
+  return rows
+})
+
+function skillEnabled(slug: string): boolean {
+  return selectedSkills.value.includes(slug)
+}
+
+function toggleSkill(slug: string): void {
+  selectedSkills.value = skillEnabled(slug)
+    ? selectedSkills.value.filter((x) => x !== slug)
+    : [...selectedSkills.value, slug]
+}
+
+const skillError = ref('')
+
+async function openSkillsLibrary(): Promise<void> {
+  skillError.value = ''
+  try {
+    await revealSkillsLibrary()
+  } catch (failure) {
+    skillError.value = failure instanceof Error ? failure.message : 'The skills library could not be opened.'
+  }
+}
+
 // ── Paste-in JSON import ─────────────────────────────────────────────────────
 const importOpen = ref(false)
 const importText = ref('')
@@ -220,6 +268,7 @@ function submit(): void {
     agent: agent.value,
     autonomy: autonomy.value,
     mcps: selectedMCPs.value,
+    skills: selectedSkills.value,
   })
 }
 
@@ -231,6 +280,7 @@ const nameInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 onMounted(async () => {
   void reloadMCPCatalogue()
+  void reloadSkillCatalogue()
   await nextTick()
   ;(creating.value ? dirInput.value : nameInput.value)?.focus()
 })
@@ -442,10 +492,46 @@ onMounted(async () => {
         <p v-if="mcpError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-mcp-error">{{ mcpError }}</p>
       </div>
 
+      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-skills">
+        <span class="text-xs text-text-3">Skills</span>
+        <div v-if="skillRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
+          <div v-for="row in skillRows" :key="row.slug" class="flex items-start gap-2.5 px-3 py-2.5">
+            <AppSwitch
+              size="sm"
+              class="mt-0.5"
+              :model-value="skillEnabled(row.slug)"
+              :aria-label="`Enable ${row.title}`"
+              :disabled="busy"
+              :testid="`agent-workspace-editor-skill-${row.slug}`"
+              @update:model-value="toggleSkill(row.slug)"
+            />
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-1.5">
+                <span class="truncate text-[13px] text-text">{{ row.title }}</span>
+                <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ row.shipped ? 'shipped' : 'custom' }}</span>
+                <span v-if="row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
+              </div>
+              <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
+              <div v-if="row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled slugs without an entry are skipped when the workspace opens</div>
+            </div>
+          </div>
+        </div>
+        <span v-else class="text-xs text-text-4">No skills are available yet.</span>
+        <button
+          type="button"
+          class="self-start cursor-pointer text-[12px] text-accent hover:underline"
+          :disabled="busy"
+          data-testid="agent-workspace-editor-skills-library"
+          @click="openSkillsLibrary"
+        >Open the skills library…</button>
+        <span class="text-xs text-text-4">A skill in the library is a SKILL.md under .shared/skills — shared by every workspace, carried only by the ones that switch it on.</span>
+        <p v-if="skillError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skill-error">{{ skillError }}</p>
+      </div>
+
       <p v-if="!creating" class="text-xs leading-relaxed text-text-4">
         Saving rewrites these fields in agent-workspace.yaml and re-syncs the workspace's
-        generated files. Skills, comments, and anything else in the file stay as written —
-        edit the file for those.
+        generated files. Comments and anything else in the file stay as written — edit the
+        file for those.
       </p>
       <p
         v-if="error && !confirming"

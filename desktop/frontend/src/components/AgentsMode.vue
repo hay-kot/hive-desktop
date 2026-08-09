@@ -46,7 +46,7 @@ const props = defineProps<{ active?: boolean }>()
 
 const {
   checking, available, reason,
-  workspaces, root, agents, editor, missingMCPs,
+  workspaces, root, agents, editor, missingMCPs, missingSkills,
   client, ready,
   openWorkspaceInEditor, revealWorkspace,
   reloadWorkspaces, openWorkspace, regenerateWorkspace, deleteWorkspace,
@@ -669,15 +669,22 @@ onBeforeUnmount(() => {
         @delete-session="removeRow"
       />
 
-      <!-- The pane's chrome is conditional strips: the missing-MCP warning,
-           and — while a session is opening or open — a status bar naming the
-           session's own workspace, which the focus filter need not match. -->
+      <!-- The pane's chrome is conditional strips: the missing-capability
+           warnings, and — while a session is opening or open — a status bar
+           naming the session's own workspace, which the focus filter need not
+           match. -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
           v-if="selectedWorkspace && missingMCPs.length"
           class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
           data-testid="agents-missing-mcps"
         >Missing MCP servers: {{ missingMCPs.join(', ') }}</div>
+
+        <div
+          v-if="selectedWorkspace && missingSkills.length"
+          class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
+          data-testid="agents-missing-skills"
+        >Missing skills: {{ missingSkills.join(', ') }}</div>
 
         <div
           v-if="paneStatus !== 'idle'"

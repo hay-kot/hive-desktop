@@ -2,15 +2,23 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AgentWorkspaceEditor from '../AgentWorkspaceEditor.vue'
 import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composables/useAgentWorkspaces'
-import type { AgentWorkspace, MCPCatalogueEntry } from '../../lib/agentWorkspacesClient'
+import type { AgentWorkspace, MCPCatalogueEntry, SkillCatalogueEntry } from '../../lib/agentWorkspacesClient'
 
 const demo: AgentWorkspace = {
-  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], problem: '', notice: '',
+  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '',
 }
 
 const playwright: MCPCatalogueEntry = {
   id: 'playwright', title: 'Playwright', description: 'Browser automation', shipped: true,
   stability: 'stable', shadows: '', transport: 'stdio', command: 'npx -y @playwright/mcp@latest', problem: '',
+}
+
+const hiveMCP: SkillCatalogueEntry = {
+  slug: 'hive-mcp', title: 'Hive MCP', description: 'Drive this install.', shipped: true, shadows: '',
+}
+
+const releaseNotes: SkillCatalogueEntry = {
+  slug: 'release-notes', title: 'release-notes', description: 'Draft release notes.', shipped: false, shadows: '',
 }
 
 // The drawer teleports to the body.
@@ -102,7 +110,7 @@ describe('AgentWorkspaceEditor', () => {
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [], skills: [] },
     ]])
     wrapper.unmount()
   })
@@ -130,8 +138,38 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'], skills: [] },
     ]])
+    wrapper.unmount()
+  })
+
+  it('save carries the toggled skills list', async () => {
+    const { skillCatalogue } = useAgentWorkspaces()
+    skillCatalogue.value = [hiveMCP, releaseNotes]
+    const wrapper = mountEditor({ ...demo, skills: ['hive-mcp'] })
+    await wrapper.vm.$nextTick()
+
+    // The library skill is offered but off until this workspace switches it
+    // on — the library is shared, the toggle is the workspace's own.
+    el<HTMLButtonElement>('agent-workspace-editor-skill-release-notes')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: ['hive-mcp', 'release-notes'] },
+    ]])
+    wrapper.unmount()
+  })
+
+  it('a declared skill slug the catalogue no longer resolves still rows, marked missing', async () => {
+    const { skillCatalogue } = useAgentWorkspaces()
+    skillCatalogue.value = [hiveMCP]
+    const wrapper = mountEditor({ ...demo, skills: ['deleted-skill'] })
+    await wrapper.vm.$nextTick()
+
+    const row = el<HTMLElement>('agent-workspace-editor-skills')!
+    expect(el('agent-workspace-editor-skill-deleted-skill')).not.toBeNull()
+    expect(row.textContent).toContain('not in the catalogue')
     wrapper.unmount()
   })
 

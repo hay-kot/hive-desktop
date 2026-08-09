@@ -26,8 +26,9 @@ servers: {}
 `
 
 // SeedDefaultsIfMissing installs a commented mcps.yaml (version 1, an empty
-// servers map) only if it does not already exist, and creates .shared/skills/
-// unconditionally. It never interprets or replaces a present mcps.yaml,
+// servers map) only if it does not already exist, and creates the skill
+// library directory unconditionally. It never interprets or replaces a
+// present mcps.yaml,
 // including an empty or invalid one, and follows actions.SeedDefaultsIfMissing
 // (internal/app/actions/seed.go:143-189): write to a temp file, then hard-link
 // it into place, so a concurrent writer that wins the race keeps its own
@@ -38,7 +39,7 @@ servers: {}
 // are unambiguous (.claude/skills, .agents/skills), but no agent this build
 // targets has a portable prompts convention to merge one into.
 func SeedDefaultsIfMissing(root string) (bool, error) {
-	if err := os.MkdirAll(filepath.Join(root, ".shared", "skills"), 0o700); err != nil {
+	if err := os.MkdirAll(SkillsLibraryDir(root), 0o700); err != nil {
 		return false, fmt.Errorf("create .shared/skills: %w", err)
 	}
 

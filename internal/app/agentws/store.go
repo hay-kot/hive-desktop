@@ -12,6 +12,9 @@ import (
 const (
 	libraryFileName  = "mcps.yaml"
 	manifestFileName = "agent-workspace.yaml"
+	sharedDirName    = ".shared"
+	skillsDirName    = "skills"
+	skillFileName    = "SKILL.md"
 )
 
 // WorkspaceStatus is one workspace directory's load outcome, keyed by the
