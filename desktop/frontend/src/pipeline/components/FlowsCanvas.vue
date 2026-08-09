@@ -79,6 +79,17 @@ const CARD_HEIGHT = 52
 const PORT_WIDTH = 9
 const PORT_HEIGHT = 13
 
+/**
+ * Screen-pixel margin around a card that still counts as the node, so a
+ * near-miss grabs it instead of panning the canvas and a wire may be dropped
+ * just short of the target. Divided by zoom where it is used, so the
+ * forgiveness stays constant on screen rather than shrinking as you zoom out.
+ */
+const GRAB_MARGIN = 8
+
+/** Edge length of an output port's transparent grab target, centred on the drawn 9×13 port. */
+const PORT_HIT_SIZE = 20
+
 // ── Positions — layout wins, a deterministic grid slot fills in for a node
 // with no saved position (e.g. hand-authored YAML with no .ui.yaml yet). ───
 
@@ -162,6 +173,28 @@ function portTop(index: number, total: number): number {
 
 function portStyle(index: number, total: number) {
   return { top: `${portTop(index, total)}px`, width: `${PORT_WIDTH}px`, height: `${PORT_HEIGHT}px` }
+}
+
+/**
+ * Geometry of an output port's transparent grab target, straddling the card's
+ * right edge so half of it lies outside the card. It has to be rendered as a
+ * sibling of the card rather than inside it: the card clips its overflow, and
+ * that clip applies to hit-testing too — which is why the drawn port, hung
+ * 5px off the edge, only offers a 4px-wide sliver to aim at.
+ *
+ * Height is clamped to the spacing between ports so stacked targets never
+ * overlap and steal each other's clicks; past three ports that leaves it at
+ * the drawn height and only the width is forgiving.
+ */
+function portHitStyle(index: number, total: number) {
+  const spacing = CARD_HEIGHT / (Math.max(total, 1) + 1)
+  const height = Math.min(PORT_HIT_SIZE, Math.max(PORT_HEIGHT, spacing))
+  return {
+    top: `${portTop(index, total) + PORT_HEIGHT / 2 - height / 2}px`,
+    height: `${height}px`,
+    right: `${-PORT_HIT_SIZE / 2}px`,
+    width: `${PORT_HIT_SIZE}px`,
+  }
 }
 
 /** World-space (canvas-content) coordinates of one port's center, for wire drawing. */
@@ -259,17 +292,13 @@ function onNodeDblClick(node: FlowNode) {
   drawerOpen.value = true
 }
 
-function onSurfaceClick() {
-  selectedNodeId.value = null
-}
-
 // ── Wire creation by drag (8c "WIRING") ─────────────────────────────────
 // A pointerdown on an output port (not the card) starts a drag: wireDraft
 // tracks the source node/port and the pointer's current world position, so
 // the template can render a live dashed path (draftPath) from the source
-// port to the cursor. On every move, nodeAt() hit-tests the drag's current
-// world position against each node's card bbox (a full-card target is a
-// larger, easier-to-hit drop zone than the 9×13 port itself) and
+// port to the cursor. On every move, nodeNear() hit-tests the drag's current
+// world position against each node's card bbox plus GRAB_MARGIN (a whole
+// card is a far easier drop zone to hit than the input port itself) and
 // canConnect() (lib/ports.ts) gates whether that node is actually a legal
 // target — the same gate used again on drop, so the "drop to connect"
 // highlight (hoverTargetId) and the eventual add-wire emit can never
@@ -293,14 +322,19 @@ function clientToWorld(clientX: number, clientY: number): { x: number; y: number
   return { x: (clientX - left - pan.value.x) / zoom.value, y: (clientY - top - pan.value.y) / zoom.value }
 }
 
-/** The node whose 176×52 card bbox contains a world-space point, if any. */
-function nodeAt(worldX: number, worldY: number): FlowNode | null {
+/** The node whose 176×52 card bbox, grown by `margin` world units on every side, contains a world-space point. */
+function nodeAt(worldX: number, worldY: number, margin = 0): FlowNode | null {
   for (const node of props.flow.nodes) {
     const pos = positions.value.get(node.id)
     if (!pos) continue
-    if (worldX >= pos.x && worldX <= pos.x + CARD_WIDTH && worldY >= pos.y && worldY <= pos.y + CARD_HEIGHT) return node
+    if (worldX >= pos.x - margin && worldX <= pos.x + CARD_WIDTH + margin && worldY >= pos.y - margin && worldY <= pos.y + CARD_HEIGHT + margin) return node
   }
   return null
+}
+
+/** nodeAt with GRAB_MARGIN's forgiveness — landing on a card still wins over landing in a neighbour's margin, so the slack can never steal a node you actually hit. */
+function nodeNear(worldX: number, worldY: number): FlowNode | null {
+  return nodeAt(worldX, worldY) ?? nodeAt(worldX, worldY, GRAB_MARGIN / zoom.value)
 }
 
 function onOutputPortPointerDown(e: PointerEvent, node: FlowNode, portIndex: number) {
@@ -311,7 +345,7 @@ function onOutputPortPointerDown(e: PointerEvent, node: FlowNode, portIndex: num
 
   function targetAt(clientX: number, clientY: number): FlowNode | null {
     const world = clientToWorld(clientX, clientY)
-    const target = nodeAt(world.x, world.y)
+    const target = nodeNear(world.x, world.y)
     return target && canConnect(node, portIndex, target, props.flow.wires, (type) => byType[type]) ? target : null
   }
 
@@ -368,8 +402,12 @@ function onDrop(e: DragEvent) {
 
 // ── Pan / zoom / fit ─────────────────────────────────────────────────────
 // Dragging empty canvas space pans in screen pixels, so the graph follows the
-// hand at the same speed regardless of zoom. Node and port pointer handlers
-// remain separate and stop a surface pan from starting.
+// hand at the same speed regardless of zoom, and releasing without having
+// moved deselects. Port pointer handlers stop a surface pan from starting;
+// cards never reach here at all, since the pointer lands on the card element.
+// A press just *outside* a card does reach here, and nodeNear hands it to the
+// node drag — GRAB_MARGIN's slack is what makes a near-miss grab rather than
+// pan.
 
 const viewportRef = ref<HTMLElement | null>(null)
 const zoom = ref(1)
@@ -382,12 +420,23 @@ function onSurfacePointerDown(e: PointerEvent) {
   e.preventDefault()
   stopPanTracking?.()
 
+  const world = clientToWorld(e.clientX, e.clientY)
+  const near = nodeNear(world.x, world.y)
+  if (near) {
+    onNodePointerDown(e, near)
+    return
+  }
+
   const startClientX = e.clientX
   const startClientY = e.clientY
   const origin = pan.value
+  let moved = false
   isPanning.value = true
 
   function onMove(ev: PointerEvent) {
+    if (Math.abs(ev.clientX - startClientX) > DRAG_THRESHOLD || Math.abs(ev.clientY - startClientY) > DRAG_THRESHOLD) {
+      moved = true
+    }
     pan.value = {
       x: origin.x + ev.clientX - startClientX,
       y: origin.y + ev.clientY - startClientY,
@@ -396,7 +445,10 @@ function onSurfacePointerDown(e: PointerEvent) {
 
   const stop = startDrag(e, {
     onMove,
-    onEnd: cleanup,
+    onEnd: () => {
+      if (!moved) selectedNodeId.value = null
+      cleanup()
+    },
   })
 
   function cleanup() {
@@ -561,7 +613,6 @@ onBeforeUnmount(() => {
       backgroundSize: '22px 22px',
       backgroundPosition: '-1px -1px',
     }"
-    @click.self="onSurfaceClick"
     @pointerdown.self="onSurfacePointerDown"
     @wheel.prevent="onWheel"
     @dragenter.prevent="onDragEnter"
@@ -589,7 +640,7 @@ onBeforeUnmount(() => {
             :d="wirePath(wire)"
             fill="none"
             stroke="transparent"
-            stroke-width="16"
+            stroke-width="22"
             class="wire-hitbox"
           />
           <g
@@ -598,6 +649,7 @@ onBeforeUnmount(() => {
             :data-testid="`wire-delete-${i}`"
             @click.stop="emit('remove-wire', wire)"
           >
+            <circle r="12" fill="transparent" />
             <circle r="8" class="wire-delete-bg" />
             <path d="M-3,-3 L3,3 M3,-3 L-3,3" class="wire-delete-x" />
           </g>
@@ -654,9 +706,17 @@ onBeforeUnmount(() => {
             class="port absolute -right-[5px] cursor-crosshair"
             :style="portStyle(p, outputPorts(node).length)"
             :data-testid="`port-out-${node.id}-${p}`"
-            @pointerdown.stop.prevent="onOutputPortPointerDown($event, node, p)"
           />
         </div>
+
+        <span
+          v-for="p in outputPorts(node)"
+          :key="`grab-${p}`"
+          class="absolute cursor-crosshair"
+          :style="portHitStyle(p, outputPorts(node).length)"
+          :data-testid="`port-grab-${node.id}-${p}`"
+          @pointerdown.stop.prevent="onOutputPortPointerDown($event, node, p)"
+        />
 
         <div v-if="wireDraft && hoverTargetId === node.id" class="drop-hint" data-testid="wire-drop-hint">drop to connect</div>
 

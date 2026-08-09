@@ -62,6 +62,17 @@ async function dblClickNode(wrapper: ReturnType<typeof mountCanvas>, testid: str
   await card.trigger('dblclick')
 }
 
+/**
+ * A point clear of every card in flow()/layout() — and of the grab margin
+ * around them, which is what a press on the canvas surface is tested against.
+ * The cards occupy y 20–132 across x 10–776.
+ */
+const EMPTY_SPACE = { clientX: 100, clientY: 300 }
+
+async function pressCanvas(wrapper: ReturnType<typeof mountCanvas>, at: { clientX: number; clientY: number }) {
+  await wrapper.get('[data-testid="flows-canvas"]').trigger('pointerdown', { button: 0, ...at })
+}
+
 // Mirrors FlowsCanvas.vue's own port-position math (CARD_WIDTH/CARD_HEIGHT/
 // PORT_HEIGHT, portTop for a single port) so tests can name a drop point in
 // terms of a node's layout position rather than a hand-computed magic
@@ -76,7 +87,14 @@ function portWorldPos(pos: { x: number; y: number }, output: boolean): { x: numb
   return { x: output ? pos.x + cardWidth : pos.x, y: pos.y + top + portHeight / 2 }
 }
 
-/** Drags a wire from an output port's testid to a world/client point, then releases there. */
+/** The inline px geometry of one output port's transparent grab target. */
+function grabBox(wrapper: ReturnType<typeof mountCanvas>, nodeId: string, port: number) {
+  const style = wrapper.get(`[data-testid="port-grab-${nodeId}-${port}"]`).attributes('style') ?? ''
+  const px = (prop: string) => Number(new RegExp(`\\b${prop}:\\s*(-?[\\d.]+)px`).exec(style)?.[1])
+  return { top: px('top'), height: px('height'), right: px('right'), width: px('width') }
+}
+
+/** Drags a wire from an output port's grab target to a world/client point, then releases there. */
 async function dragWire(wrapper: ReturnType<typeof mountCanvas>, fromTestId: string, to: { x: number; y: number }) {
   const port = wrapper.get(`[data-testid="${fromTestId}"]`)
   await port.trigger('pointerdown', { button: 0 })
@@ -119,6 +137,32 @@ describe('FlowsCanvas', () => {
     const outPort = wrapper.get('[data-testid="port-out-source-0"]')
     expect(outPort.attributes('style')).toContain('width: 9px')
     expect(outPort.attributes('style')).toContain('height: 13px')
+
+    wrapper.unmount()
+  })
+
+  // The drawn port is a 9×13 rect hung 5px off a card that clips its overflow,
+  // leaving a 4px sliver to aim at. The grab target is a separate, transparent
+  // sibling of the card — outside the clip, straddling the edge, and centred on
+  // the same point the wire anchors to.
+  it('gives each output port a 20px grab target straddling the card edge, clamped so stacked ports do not overlap', () => {
+    const wrapper = mountCanvas({
+      flow: flow({ nodes: [{ id: 'one', type: 'sources.github', config: {} }, { id: 'two', type: 'github-filter', config: {} }], wires: [] }),
+    })
+
+    // A lone port sits at the card's vertical centre (26), so a 20px box spans 16–36.
+    const single = grabBox(wrapper, 'one', 0)
+    expect(single).toMatchObject({ width: 20, right: -10, height: 20, top: 16 })
+
+    // github-filter has two ports, their centres 52/3 ≈ 17.33 apart. Each
+    // target stays centred on its own port and clamps to that spacing rather
+    // than the full 20, so the two never overlap and steal each other's clicks.
+    const first = grabBox(wrapper, 'two', 0)
+    const second = grabBox(wrapper, 'two', 1)
+    expect(first.height).toBeCloseTo(52 / 3)
+    expect(first.top + first.height / 2).toBeCloseTo(52 / 3)
+    expect(second.top + second.height / 2).toBeCloseTo((52 / 3) * 2)
+    expect(first.top + first.height).toBeLessThanOrEqual(second.top)
 
     wrapper.unmount()
   })
@@ -238,10 +282,44 @@ describe('FlowsCanvas', () => {
     let card = wrapper.get('[data-testid="flow-node-filter"] > div')
     expect(card.attributes('style')).toContain('var(--color-accent)')
 
-    await wrapper.get('[data-testid="flows-canvas"]').trigger('click')
+    await pressCanvas(wrapper, EMPTY_SPACE)
+    window.dispatchEvent(new PointerEvent('pointerup', EMPTY_SPACE))
+    await nextTick()
 
     card = wrapper.get('[data-testid="flow-node-filter"] > div')
     expect(card.attributes('style')).not.toContain('var(--color-accent)')
+
+    wrapper.unmount()
+  })
+
+  // GRAB_MARGIN's slack: a press that lands just short of a card still grabs
+  // the node rather than panning the canvas out from under it.
+  it('pressing within the grab margin of a card drags that node instead of panning', async () => {
+    const wrapper = mountCanvas() // source card spans x 10–186, y 20–72
+    const content = wrapper.get('[data-testid="canvas-content"]')
+
+    await pressCanvas(wrapper, { clientX: 190, clientY: 76 }) // 4px off the card's bottom-right corner
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 220, clientY: 76 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 220, clientY: 76 }))
+    await nextTick()
+
+    expect(wrapper.emitted('move')).toEqual([['source', 40, 20]])
+    expect(content.attributes('style')).toContain('translate(0px, 0px)')
+
+    wrapper.unmount()
+  })
+
+  it('pressing beyond the grab margin pans, leaving the nearby node alone', async () => {
+    const wrapper = mountCanvas()
+    const content = wrapper.get('[data-testid="canvas-content"]')
+
+    await pressCanvas(wrapper, { clientX: 200, clientY: 90 }) // 14px clear of the source card
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 230, clientY: 90 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 230, clientY: 90 }))
+    await nextTick()
+
+    expect(wrapper.emitted('move')).toBeUndefined()
+    expect(content.attributes('style')).toContain('translate(30px, 0px)')
 
     wrapper.unmount()
   })
@@ -316,18 +394,18 @@ describe('FlowsCanvas', () => {
     const canvas = wrapper.get('[data-testid="flows-canvas"]')
     const content = wrapper.get('[data-testid="canvas-content"]')
 
-    await canvas.trigger('pointerdown', { button: 0, clientX: 100, clientY: 80 })
+    await pressCanvas(wrapper, EMPTY_SPACE)
     expect(canvas.classes()).toContain('cursor-grabbing')
 
-    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 145, clientY: 110 }))
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 145, clientY: 330 }))
     await nextTick()
     expect(content.attributes('style')).toContain('translate(45px, 30px)')
 
-    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 145, clientY: 110 }))
+    window.dispatchEvent(new PointerEvent('pointerup', { clientX: 145, clientY: 330 }))
     await nextTick()
     expect(canvas.classes()).not.toContain('cursor-grabbing')
 
-    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 200 }))
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: 200, clientY: 400 }))
     await nextTick()
     expect(content.attributes('style')).toContain('translate(45px, 30px)')
 
@@ -417,7 +495,7 @@ describe('FlowsCanvas', () => {
     const wrapper = mountCanvas({ flow: flow({ wires: [] }) })
     const filterInput = portWorldPos({ x: 400, y: 20 }, false)
 
-    await dragWire(wrapper, 'port-out-source-0', filterInput)
+    await dragWire(wrapper, 'port-grab-source-0', filterInput)
 
     expect(wrapper.emitted('add-wire')).toEqual([[{ from: 'source', out: 0, to: 'filter' }]])
 
@@ -428,7 +506,7 @@ describe('FlowsCanvas', () => {
     const wrapper = mountCanvas({ flow: flow({ wires: [] }) })
     const filterInput = portWorldPos({ x: 400, y: 20 }, false)
 
-    await wrapper.get('[data-testid="port-out-source-0"]').trigger('pointerdown', { button: 0 })
+    await wrapper.get('[data-testid="port-grab-source-0"]').trigger('pointerdown', { button: 0 })
     window.dispatchEvent(new PointerEvent('pointermove', { clientX: filterInput.x, clientY: filterInput.y }))
     await nextTick()
 
@@ -450,7 +528,7 @@ describe('FlowsCanvas', () => {
     // A point inside source's 176x52 card bbox (source has no port-in at all).
     const overSource = { x: 10 + 40, y: 20 + 26 }
 
-    await dragWire(wrapper, 'port-out-filter-0', overSource)
+    await dragWire(wrapper, 'port-grab-filter-0', overSource)
 
     expect(wrapper.emitted('add-wire')).toBeUndefined()
 
@@ -462,7 +540,7 @@ describe('FlowsCanvas', () => {
     // A point inside filter's own card bbox — the same node the drag started from.
     const overFilter = { x: 400 + 40, y: 20 + 26 }
 
-    await dragWire(wrapper, 'port-out-filter-0', overFilter)
+    await dragWire(wrapper, 'port-grab-filter-0', overFilter)
 
     expect(wrapper.emitted('add-wire')).toBeUndefined()
 
@@ -472,7 +550,7 @@ describe('FlowsCanvas', () => {
   it('a port-drag does not select, move, or open the drawer for the card it started on (disambiguation)', async () => {
     const wrapper = mountCanvas({ flow: flow({ wires: [] }) })
 
-    await dragWire(wrapper, 'port-out-filter-0', { x: 2000, y: 2000 }) // nowhere near any node — cancels
+    await dragWire(wrapper, 'port-grab-filter-0', { x: 2000, y: 2000 }) // nowhere near any node — cancels
 
     expect(wrapper.emitted('add-wire')).toBeUndefined()
     expect(wrapper.emitted('move')).toBeUndefined()
