@@ -12,9 +12,8 @@
 // Installing an available update stays with the title-bar chip, which owns the
 // confirm-and-relaunch flow; this pane checks and points at it.
 import { computed, onMounted, type Component } from 'vue'
-import IconBookOpen from '~icons/lucide/book-open'
-import IconBug from '~icons/lucide/bug'
 import IconCalendar from '~icons/lucide/calendar-days'
+import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCheck from '~icons/lucide/check'
 import IconCopy from '~icons/lucide/copy'
 import IconCpu from '~icons/lucide/cpu'
@@ -131,7 +130,6 @@ const buildSummary = computed(() => {
 
 interface Link {
   key: string
-  icon: Component
   label: string
   hint: string
   external: boolean
@@ -139,9 +137,9 @@ interface Link {
 }
 
 const links: Link[] = [
-  { key: 'docs', icon: IconBookOpen, label: 'Documentation', hint: 'Guides and reference at hivedesktop.com', external: true, open: openDocs },
-  { key: 'updates', icon: IconRefreshCw, label: 'How updates work', hint: 'Channels, what a new version replaces', external: true, open: openUpdatesDoc },
-  { key: 'report', icon: IconBug, label: 'Report a problem', hint: 'Build info, recent logs, and redacted config', external: false, open: openReport },
+  { key: 'docs', label: 'Documentation', hint: 'Guides and reference', external: true, open: openDocs },
+  { key: 'updates', label: 'How updates work', hint: 'Channels and releases', external: true, open: openUpdatesDoc },
+  { key: 'report', label: 'Report a problem', hint: 'Build info and logs', external: false, open: openReport },
 ]
 
 onMounted(() => {
@@ -155,17 +153,17 @@ onMounted(() => {
 
     <section
       v-if="build"
-      class="overflow-hidden rounded-[13px] border border-card bg-raised"
+      class="overflow-hidden rounded-[11px] border border-card bg-raised"
       data-testid="about-identity"
     >
-      <div class="flex flex-col gap-4 p-5 @[560px]/pane:flex-row @[560px]/pane:items-center">
-        <span class="flex size-14 shrink-0 items-center justify-center rounded-[14px] bg-accent-tint text-accent">
-          <HiveMark class="size-8" />
+      <div class="flex flex-col gap-3.5 p-4 @[560px]/pane:flex-row @[560px]/pane:items-center @[560px]/pane:gap-4">
+        <span class="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-card bg-chip text-accent">
+          <HiveMark class="size-[18px]" />
         </span>
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <h2 class="text-[17px] font-semibold tracking-[-.01em] text-text">Hive Desktop</h2>
-            <span class="font-mono text-[13px] text-text-3" data-testid="about-build-version">{{ build.version }}</span>
+            <h2 class="text-[13.5px] font-semibold text-text">Hive Desktop</h2>
+            <span class="font-mono text-[11px] text-text-4" data-testid="about-build-version">{{ build.version }}</span>
             <BaseBadge
               :tone="status.tone"
               variant="pill"
@@ -174,11 +172,11 @@ onMounted(() => {
               data-testid="about-update-status"
             >{{ status.label }}</BaseBadge>
           </div>
-          <p class="mt-1.5 text-[12px] text-text-3" data-testid="about-update-checked">{{ checkedLabel }}</p>
+          <p class="mt-1 text-[12.5px] leading-relaxed text-text-3" data-testid="about-update-checked">{{ checkedLabel }}</p>
         </div>
         <button
           type="button"
-          class="flex shrink-0 cursor-pointer items-center gap-1.5 self-start rounded-[7px] border border-card px-3 py-1.5 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50 @[560px]/pane:self-auto"
+          class="flex shrink-0 cursor-pointer items-center gap-1.5 self-start rounded-lg border border-card px-3.5 py-2 text-[12.5px] font-medium text-text-2 hover:border-strong hover:text-text disabled:cursor-not-allowed disabled:opacity-50 @[560px]/pane:self-auto"
           :disabled="checking"
           data-testid="about-check-update"
           @click="checkForUpdates"
@@ -190,7 +188,7 @@ onMounted(() => {
 
       <div
         v-if="update?.available"
-        class="border-t border-row bg-accent-tint/40 px-5 py-3.5"
+        class="border-t border-row bg-accent-tint/40 px-4 py-3.5"
         data-testid="about-update-available"
       >
         <div class="text-[13px] font-semibold text-text">{{ update.latestVersion }} is available</div>
@@ -208,7 +206,7 @@ onMounted(() => {
       <template #actions>
         <button
           type="button"
-          class="flex cursor-pointer items-center gap-1.5 text-[12px] font-medium text-text-3 hover:text-text"
+          class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-card px-3 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text"
           data-testid="about-copy-build"
           @click="copy(buildSummary)"
         >
@@ -216,18 +214,19 @@ onMounted(() => {
           {{ copied ? 'Copied' : 'Copy build info' }}
         </button>
       </template>
-      <div class="grid grid-cols-1 gap-3 @[440px]/pane:grid-cols-2 @[800px]/pane:grid-cols-4">
+      <!-- Hairlines rather than gaps: four facets of one build, not four cards. -->
+      <div class="grid grid-cols-1 gap-px overflow-hidden rounded-[11px] border border-card bg-row @[440px]/pane:grid-cols-2 @[800px]/pane:grid-cols-4">
         <div
           v-for="stat in stats"
           :key="stat.key"
-          class="flex min-w-0 flex-col gap-2 rounded-[11px] border border-card bg-raised px-4 py-3.5"
+          class="flex min-w-0 flex-col gap-1.5 bg-raised px-4 py-3.5"
           :data-testid="`about-stat-${stat.key}`"
         >
-          <span class="flex items-center gap-1.5 text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">
+          <span class="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">
             <component :is="stat.icon" class="size-3" />{{ stat.label }}
           </span>
-          <span class="truncate font-mono text-[14px] text-text" :data-testid="`about-build-${stat.key}`">{{ stat.value }}</span>
-          <span class="truncate text-[11.5px] text-text-3">{{ stat.hint }}</span>
+          <span class="truncate font-mono text-[16px] tabular-nums text-text" :data-testid="`about-build-${stat.key}`">{{ stat.value }}</span>
+          <span class="truncate text-[11px] text-text-4">{{ stat.hint }}</span>
         </div>
       </div>
     </SettingsSection>
@@ -252,23 +251,21 @@ onMounted(() => {
     </SettingsSection>
 
     <SettingsSection v-if="build" title="Elsewhere">
-      <div class="grid grid-cols-1 gap-3 @[560px]/pane:grid-cols-2">
+      <div class="grid grid-cols-1 gap-3 @[560px]/pane:grid-cols-3">
         <button
           v-for="link in links"
           :key="link.key"
           type="button"
-          class="group flex cursor-pointer items-center gap-3 rounded-[11px] border border-card bg-raised px-4 py-3.5 text-left transition-colors hover:border-strong hover:bg-chip"
+          class="flex cursor-pointer flex-col gap-1 rounded-[11px] border border-card bg-raised px-4 py-3.5 text-left transition-colors hover:border-strong"
           :data-testid="`about-link-${link.key}`"
           @click="link.open()"
         >
-          <span class="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-chip text-text-2 group-hover:text-text">
-            <component :is="link.icon" class="size-4" />
+          <span class="flex items-center justify-between gap-2">
+            <span class="truncate text-[13px] font-semibold text-text">{{ link.label }}</span>
+            <IconExternalLink v-if="link.external" class="size-3 shrink-0 text-text-4" />
+            <IconChevronRight v-else class="size-3.5 shrink-0 text-text-4" />
           </span>
-          <span class="min-w-0 flex-1">
-            <span class="block text-[13px] font-semibold text-text">{{ link.label }}</span>
-            <span class="block truncate text-[11.5px] text-text-3">{{ link.hint }}</span>
-          </span>
-          <IconExternalLink v-if="link.external" class="size-3.5 shrink-0 text-text-4 group-hover:text-text-3" />
+          <span class="truncate text-[12px] text-text-3">{{ link.hint }}</span>
         </button>
       </div>
     </SettingsSection>

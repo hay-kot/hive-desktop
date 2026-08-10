@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import IconBell from '~icons/lucide/bell'
-import IconGauge from '~icons/lucide/gauge'
 import IconPause from '~icons/lucide/pause'
 import IconPlay from '~icons/lucide/play'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
@@ -11,7 +10,7 @@ import { notifySeverityMapping, useNotify, type NotifySeverity } from '../compos
 import { useRuntimeStats } from '../composables/useRuntimeStats'
 import { PAYLOAD_BYTES, useWailsLatency } from '../composables/useWailsLatency'
 import { useToasts } from '../composables/useToasts'
-import { formatBytes } from '../lib/bytes'
+import { formatBytes, formatBytesParts } from '../lib/bytes'
 import AppCheckbox from './AppCheckbox.vue'
 import AppSelect from './AppSelect.vue'
 import BaseButton from './BaseButton.vue'
@@ -300,10 +299,10 @@ useEscapeToClose(() => emit('close'))
           testid="dev-runtime"
         >
           <template #actions>
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-2">
               <button
                 type="button"
-                class="flex cursor-pointer items-center gap-1.5 text-[12px] font-medium text-text-3 hover:text-text"
+                class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-card px-3 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text"
                 data-testid="dev-runtime-poll"
                 @click="togglePolling"
               >
@@ -311,7 +310,7 @@ useEscapeToClose(() => emit('close'))
               </button>
               <button
                 type="button"
-                class="flex cursor-pointer items-center gap-1.5 text-[12px] font-medium text-text-3 hover:text-text"
+                class="flex cursor-pointer items-center gap-1.5 rounded-lg border border-card px-3 py-1.5 text-[12px] font-medium text-text-2 hover:border-strong hover:text-text"
                 data-testid="dev-runtime-refresh"
                 @click="refreshStats"
               ><IconRefreshCw class="size-3.5" />Sample now</button>
@@ -321,69 +320,82 @@ useEscapeToClose(() => emit('close'))
           <p v-if="statsError" class="text-xs text-severity-error" data-testid="dev-runtime-error">{{ statsError }}</p>
 
           <div v-if="stats" class="flex flex-col gap-3">
-            <!-- The chart sits under the numbers, never behind them: a value
-                 drawn over its own gradient is the one thing on this pane you
-                 actually have to read. -->
+            <!-- Stacked bands: type block on top, chart in a full-bleed band
+                 of its own underneath. The number is the thing you came to
+                 read, so nothing is drawn across it. -->
             <div class="grid grid-cols-1 gap-3 @[440px]/pane:grid-cols-2">
               <div
                 class="flex flex-col overflow-hidden rounded-[11px] border border-card bg-raised"
                 data-testid="dev-runtime-memory"
               >
-                <div class="px-4 pb-2.5 pt-3.5">
-                  <span class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">Memory</span>
-                  <div class="mt-1 font-mono text-[22px] leading-none tabular-nums text-text">{{ formatBytes(stats.totalRssBytes) }}</div>
-                  <div class="mt-1.5 text-[11.5px] tabular-nums text-text-3">resident · peak {{ formatBytes(peakRSS) }}</div>
+                <div class="flex flex-col gap-1.5 px-4 pb-3 pt-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-3">Memory</span>
+                    <span class="font-mono text-[11px] tabular-nums text-text-4">peak {{ formatBytes(peakRSS) }}</span>
+                  </div>
+                  <div class="font-mono text-[28px] font-semibold leading-none tabular-nums text-text">
+                    {{ formatBytesParts(stats.totalRssBytes).value }}
+                    <span class="text-[16px] font-medium text-text-3">{{ formatBytesParts(stats.totalRssBytes).unit }}</span>
+                  </div>
+                  <div class="text-[12px] text-text-3">resident</div>
                 </div>
-                <SparkLine :values="rssHistory" class="h-12 text-accent" />
+                <SparkLine :values="rssHistory" class="h-14 text-accent" />
               </div>
               <div
                 class="flex flex-col overflow-hidden rounded-[11px] border border-card bg-raised"
                 data-testid="dev-runtime-cpu"
               >
-                <div class="px-4 pb-2.5 pt-3.5">
-                  <span class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">CPU</span>
-                  <div class="mt-1 font-mono text-[22px] leading-none tabular-nums text-text">{{ stats.totalCpuPercent.toFixed(1) }}%</div>
-                  <div class="mt-1.5 text-[11.5px] tabular-nums text-text-3">of one core · peak {{ peakCPU.toFixed(1) }}%</div>
+                <div class="flex flex-col gap-1.5 px-4 pb-3 pt-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-3">CPU</span>
+                    <span class="font-mono text-[11px] tabular-nums text-text-4">peak {{ peakCPU.toFixed(1) }}%</span>
+                  </div>
+                  <div class="font-mono text-[28px] font-semibold leading-none tabular-nums text-text">
+                    {{ stats.totalCpuPercent.toFixed(1) }}<span class="text-[16px] font-medium text-text-3">%</span>
+                  </div>
+                  <div class="text-[12px] text-text-3">of one core</div>
                 </div>
-                <SparkLine :values="cpuHistory" class="h-12 text-severity-info" />
+                <SparkLine :values="cpuHistory" class="h-14 text-severity-info" />
               </div>
             </div>
 
+            <!-- Hairlines, not gaps: one strip of vitals reads as a single
+                 instrument rather than five cards competing with the two above. -->
             <div
-              class="grid grid-cols-2 gap-x-6 gap-y-3 rounded-[11px] border border-card bg-raised px-4 py-3 @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-5"
+              class="grid grid-cols-2 gap-px overflow-hidden rounded-[11px] border border-card bg-row @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-5"
               data-testid="dev-runtime-vitals"
             >
-              <div v-for="vital in vitals" :key="vital.label" class="min-w-0">
-                <div class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">{{ vital.label }}</div>
-                <div class="mt-1 truncate font-mono text-[15px] tabular-nums text-text">{{ vital.value }}</div>
+              <div v-for="vital in vitals" :key="vital.label" class="flex min-w-0 flex-col gap-1.5 bg-raised px-4 py-3.5">
+                <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ vital.label }}</div>
+                <div class="truncate font-mono text-[16px] tabular-nums text-text">{{ vital.value }}</div>
               </div>
             </div>
 
-            <div class="overflow-hidden rounded-[11px] border border-card bg-raised" data-testid="dev-runtime-go">
-              <div class="border-b border-row px-4 py-3.5">
-                <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-                  <span class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">Go heap</span>
-                  <span class="text-[11.5px] tabular-nums text-text-3" data-testid="dev-runtime-heap-pressure">{{ heapPressure }}% of the next GC target</span>
+            <div class="flex flex-col gap-3.5 rounded-[11px] border border-card bg-raised p-4" data-testid="dev-runtime-go">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                <div class="flex items-baseline gap-2.5">
+                  <span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-3">Go heap</span>
+                  <span class="font-mono text-[16px] tabular-nums text-text">
+                    {{ formatBytes(stats.go.heapAllocBytes) }}
+                    <span class="text-text-4">of {{ formatBytes(stats.go.nextGcBytes) }}</span>
+                  </span>
                 </div>
-                <div class="mt-1 font-mono text-[15px] tabular-nums text-text">
-                  {{ formatBytes(stats.go.heapAllocBytes) }}
-                  <span class="text-[11.5px] text-text-4">of {{ formatBytes(stats.go.nextGcBytes) }}</span>
-                </div>
-                <div class="mt-2.5 h-1.5 overflow-hidden rounded-full bg-chip">
-                  <div class="h-full rounded-full bg-accent transition-[width]" :style="{ width: `${heapPressure}%` }" />
-                </div>
+                <span class="text-[12px] tabular-nums text-text-3" data-testid="dev-runtime-heap-pressure">{{ heapPressure }}% of the next GC target</span>
               </div>
-              <div class="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-3.5 @[560px]/pane:grid-cols-4">
-                <div v-for="row in goRows" :key="row.label" class="min-w-0">
-                  <div class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">{{ row.label }}</div>
-                  <div class="mt-0.5 truncate font-mono text-[13px] tabular-nums text-text">{{ row.value }}</div>
-                  <div class="truncate text-[11px] tabular-nums text-text-3">{{ row.hint }}</div>
+              <div class="h-1 overflow-hidden rounded-full bg-chip">
+                <div class="h-full rounded-full bg-accent transition-[width]" :style="{ width: `${heapPressure}%` }" />
+              </div>
+              <div class="grid grid-cols-2 gap-x-6 gap-y-4 @[560px]/pane:grid-cols-4">
+                <div v-for="row in goRows" :key="row.label" class="flex min-w-0 flex-col gap-1.5">
+                  <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ row.label }}</div>
+                  <div class="truncate font-mono text-[15px] tabular-nums text-text">{{ row.value }}</div>
+                  <div class="truncate text-[11px] tabular-nums text-text-4">{{ row.hint }}</div>
                 </div>
               </div>
             </div>
 
             <div class="overflow-hidden rounded-[11px] border border-card bg-raised" data-testid="dev-runtime-processes">
-              <div class="flex items-center gap-3 border-b border-row px-4 py-2 text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">
+              <div class="flex items-center gap-3 border-b border-row px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">
                 <span class="min-w-0 flex-1">Process</span>
                 <span class="w-20 text-right">Memory</span>
                 <span class="w-14 text-right">CPU</span>
@@ -419,40 +431,43 @@ useEscapeToClose(() => emit('close'))
           description="What one call across the frontend↔Go boundary costs, empty and carrying a payload."
           testid="dev-latency"
         >
-          <BaseCard class="items-start rounded-lg border border-border bg-raised">
-            <template #icon>
-              <span class="flex size-9 items-center justify-center rounded-lg bg-accent-tint text-accent"><IconGauge class="size-4" /></span>
-            </template>
-            <div class="min-w-0 flex-1">
-              <div class="text-[13.5px] font-semibold text-text">Measure the boundary</div>
-              <div class="mt-0.5 text-xs text-text-3">
-                40 calls each, issued one at a time after a warm-up, through the same bound-method plumbing every service call uses.
-              </div>
-
-              <div v-if="latency" class="mt-3 grid grid-cols-1 gap-3 @[420px]/pane:grid-cols-2" data-testid="dev-latency-results">
-                <div
-                  v-for="leg in [{ key: 'empty', label: 'Empty call', value: latency.empty }, { key: 'payload', label: `${formatBytes(PAYLOAD_BYTES)} payload`, value: latency.payload }]"
-                  :key="leg.key"
-                  class="rounded-[9px] border border-row px-3 py-2.5"
-                  :data-testid="`dev-latency-${leg.key}`"
-                >
-                  <div class="text-[10.5px] font-semibold uppercase tracking-[.1em] text-text-4">{{ leg.label }}</div>
-                  <div class="mt-1 font-mono text-[13px] text-text">{{ leg.value.p50.toFixed(2) }}ms <span class="text-[11px] text-text-4">p50</span></div>
-                  <div class="mt-0.5 font-mono text-[11.5px] text-text-3">
-                    p95 {{ leg.value.p95.toFixed(2) }}ms · max {{ leg.value.max.toFixed(2) }}ms · n={{ leg.value.samples }}
-                  </div>
+          <div class="flex flex-col gap-3.5 rounded-[11px] border border-card bg-raised p-4">
+            <div class="flex flex-col gap-3.5 @[420px]/pane:flex-row @[420px]/pane:items-center @[420px]/pane:gap-4">
+              <span class="flex size-[34px] shrink-0 items-center justify-center rounded-[9px] border border-card bg-chip font-mono text-[13px] font-semibold text-accent">ms</span>
+              <div class="min-w-0 flex-1">
+                <div class="text-[13.5px] font-semibold text-text">Measure the boundary</div>
+                <div class="mt-0.5 text-xs leading-relaxed text-text-3">
+                  40 calls each, issued one at a time after a warm-up, through the same bound-method plumbing every service call uses.
                 </div>
               </div>
+              <BaseButton size="sm" class="shrink-0 self-start @[420px]/pane:self-auto" :busy="measuring" data-testid="dev-latency-measure" @click="measure">
+                {{ measuring ? 'Measuring…' : 'Measure' }}
+              </BaseButton>
+            </div>
 
-              <p v-if="latencyError" class="mt-3 text-xs text-severity-error" data-testid="dev-latency-error">{{ latencyError }}</p>
-
-              <div class="mt-3">
-                <BaseButton size="sm" :busy="measuring" data-testid="dev-latency-measure" @click="measure">
-                  {{ measuring ? 'Measuring…' : 'Measure round-trip' }}
-                </BaseButton>
+            <div
+              v-if="latency"
+              class="grid grid-cols-2 gap-px overflow-hidden rounded-[9px] border border-card bg-row"
+              data-testid="dev-latency-results"
+            >
+              <div
+                v-for="leg in [{ key: 'empty', label: 'Empty call', value: latency.empty }, { key: 'payload', label: `${formatBytes(PAYLOAD_BYTES)} payload`, value: latency.payload }]"
+                :key="leg.key"
+                class="flex flex-col gap-1.5 bg-raised px-4 py-3"
+                :data-testid="`dev-latency-${leg.key}`"
+              >
+                <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ leg.label }}</div>
+                <div class="font-mono text-[16px] tabular-nums text-text">
+                  {{ leg.value.p50.toFixed(2) }}<span class="text-[11px] text-text-4">ms p50</span>
+                </div>
+                <div class="font-mono text-[11px] tabular-nums text-text-4">
+                  p95 {{ leg.value.p95.toFixed(2) }} · max {{ leg.value.max.toFixed(2) }} · n={{ leg.value.samples }}
+                </div>
               </div>
             </div>
-          </BaseCard>
+
+            <p v-if="latencyError" class="text-xs text-severity-error" data-testid="dev-latency-error">{{ latencyError }}</p>
+          </div>
         </SettingsSection>
 
         <SettingsSection
