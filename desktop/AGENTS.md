@@ -195,6 +195,21 @@ cannot report it at all, which is what gopsutil is there for. Spans answer "why
 was that click slow"; this answers "what is this build costing, and is it
 growing".
 
+Frame rate, dropped frames and event-loop lag come from `useFrameStats`, which
+**starts at boot, not when the pane opens** — the jank worth catching happens in
+the terminal or a long feed, so a sampler scoped to the pane would only measure
+the pane. Go make something stutter, then open `/dev` and read the last ten
+seconds. Frames past twice the display period and lag past 50ms are also
+recorded as `ui` spans, so `perf.jsonl` keeps history beyond that window. The
+sampler pauses while the window is occluded, since `requestAnimationFrame`
+stops there and the gap is the OS declining to draw, not a stall.
+
+Two things WebKit does not give us, so do not go looking: `longtask` /
+`long-animation-frame` observers (Chromium-only, so no attribution of *which*
+task blocked) and `performance.memory` (no JS heap size to sit beside the Go
+heap). `performance.now()` is also clamped to ~1ms, which is why the round-trip
+figures are timed in batches rather than per call.
+
 The webview is **not** in that total: on macOS the WebKit processes are XPC
 services parented to launchd, not children of the app, so they cannot be
 attributed without a private API. The pane states this rather than

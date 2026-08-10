@@ -160,6 +160,18 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({ Focused: mocks.Focused }))
+// App starts the app-wide frame sampler at boot when the developer tools are
+// enabled, which they are in a Vite build. Stubbed here: its rAF loop and the
+// perf spans it records for long frames are not this file's subject.
+vi.mock('../composables/useFrameStats', async () => {
+  const { shallowRef } = await vi.importActual<typeof import('vue')>('vue')
+  const stats = shallowRef({ fps: 0, frameMs: 0, worstFrameMs: 0, dropped: 0, windowMs: 10_000, lagMs: 0, worstLagMs: 0, buckets: [] })
+  return {
+    startFrameStats: vi.fn(),
+    stopFrameStats: vi.fn(),
+    useFrameStats: () => ({ stats, running: shallowRef(false) }),
+  }
+})
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,

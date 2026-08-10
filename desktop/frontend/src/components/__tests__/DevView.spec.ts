@@ -45,6 +45,21 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   Ping: mocks.Ping,
   Echo: mocks.Echo,
 }))
+// The frame sampler is app-wide and started at boot; the pane only reads it.
+vi.mock('../../composables/useFrameStats', async () => {
+  const { shallowRef } = await vi.importActual<typeof import('vue')>('vue')
+  const stats = shallowRef({
+    fps: 118.4,
+    frameMs: 8.4,
+    worstFrameMs: 184,
+    dropped: 3,
+    windowMs: 10_000,
+    lagMs: 2,
+    worstLagMs: 96,
+    buckets: [8, 9, 184, 8],
+  })
+  return { useFrameStats: () => ({ stats, running: shallowRef(true) }) }
+})
 
 const MB = 1024 * 1024
 
@@ -393,6 +408,7 @@ describe('DevView runtime panel', () => {
     expect(vitals).toContain('87')
     expect(vitals).toContain('2h 14m')
     expect(vitals).toContain('10 of 12')
+    expect(vitals).toContain('2 / 96ms')
 
     const processes = wrapper.get('[data-testid="dev-runtime-processes"]').text()
     expect(processes).toContain('hive-desktop')
@@ -420,6 +436,18 @@ describe('DevView runtime panel', () => {
     await flushPromises()
 
     expect(wrapper.get('[data-testid="dev-runtime-processes"]').text()).toContain("not the webview's rendering helpers")
+
+    wrapper.unmount()
+  })
+
+  it('shows how the UI thread is coping, sampled since boot rather than since the pane opened', async () => {
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    const tile = wrapper.get('[data-testid="dev-runtime-frames"]').text()
+    expect(tile).toContain('118')
+    expect(tile).toContain('worst 184ms')
+    expect(tile).toContain('3 dropped in 10s')
 
     wrapper.unmount()
   })

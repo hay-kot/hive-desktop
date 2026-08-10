@@ -47,6 +47,14 @@ already settings-gated rather than build-gated, for the same reason.
    both halves side by side and walks the process tree, capped, so a terminal's
    shell or an agent counts against the app rather than disappearing.
 
+5. **The UI-thread samplers run app-wide, not with the pane.** Frame times come
+   from a `requestAnimationFrame` loop and event-loop lag from the overshoot of
+   a 250ms probe; both start at boot under the same gate. A sampler that ran
+   only while the pane was open would measure the pane, and the pane is never
+   what janks. High-frequency samples land in plain arrays and are published to
+   Vue once per probe tick, so reactivity is not in the path of the thing being
+   measured.
+
 ## Consequences
 
 - **The webview is not measured, and the panel says so.** On macOS the WebKit
@@ -68,4 +76,15 @@ already settings-gated rather than build-gated, for the same reason.
   shipped build otherwise shows, which is why it is off by default.
 - The round-trip measurement calls `Ping` and `Echo`, two service methods that
   exist only to be timed. They are on the RPC surface of every build; both are
-  trivial and `Echo` caps its payload.
+  trivial and `Echo` caps its payload. It times batches rather than single
+  calls: WebKit clamps `performance.now()` to about a millisecond and a round
+  trip costs a fraction of one, so per-call samples were 0 or 1 and their
+  percentiles were quantisation.
+- WebKit ships neither the Long Tasks nor the Long Animation Frame observer, so
+  a long frame is a duration with no attribution — the pane can say a frame took
+  184ms but not what held the thread. `performance.memory` is absent too, so
+  there is no JS heap figure beside the Go one.
+- The frame sampler keeps the page animating, which stops the webview idling
+  down. It is gated off by default and pauses while the window is occluded, but
+  a build launched with the tools on will use marginally more power than one
+  without.

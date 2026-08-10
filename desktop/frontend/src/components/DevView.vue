@@ -7,6 +7,7 @@ import IconRefreshCw from '~icons/lucide/refresh-cw'
 import { Notify as NotifyNative } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice'
 import { useNotificationSettings } from '../composables/useNotificationSettings'
 import { notifySeverityMapping, useNotify, type NotifySeverity } from '../composables/useNotify'
+import { useFrameStats } from '../composables/useFrameStats'
 import { useRuntimeStats } from '../composables/useRuntimeStats'
 import { PAYLOAD_BYTES, useWailsLatency } from '../composables/useWailsLatency'
 import { useToasts } from '../composables/useToasts'
@@ -215,6 +216,9 @@ onUnmounted(stopCountdown)
 // is what this program asked for, and on a cgo-heavy shell the gap between them
 // is the native side the Go runtime cannot see.
 const { stats, rssHistory, cpuHistory, polling, error: statsError, refresh: refreshStats, start, stop } = useRuntimeStats()
+// Sampled app-wide since boot, so this window covers whatever was on screen
+// before the pane was opened.
+const { stats: frames } = useFrameStats()
 const { report: latency, measuring, error: latencyError, measure } = useWailsLatency()
 
 const processRows = computed(() => {
@@ -260,6 +264,7 @@ const vitals = computed(() => {
     { label: 'Processes', value: `${processRows.value.length}` },
     { label: 'Cores', value: `${sample.go.gomaxprocs} of ${sample.go.numCpu}` },
     { label: 'Uptime', value: uptime.value },
+    { label: 'UI lag', value: `${frames.value.lagMs.toFixed(0)} / ${frames.value.worstLagMs.toFixed(0)}ms` },
   ]
 })
 
@@ -325,7 +330,7 @@ useEscapeToClose(() => emit('close'))
             <!-- Stacked bands: type block on top, chart in a full-bleed band
                  of its own underneath. The number is the thing you came to
                  read, so nothing is drawn across it. -->
-            <div class="grid grid-cols-1 gap-3 @[440px]/pane:grid-cols-2">
+            <div class="grid grid-cols-1 gap-3 @[440px]/pane:grid-cols-2 @[720px]/pane:grid-cols-3">
               <div
                 class="flex flex-col overflow-hidden rounded-[11px] border border-card bg-raised"
                 data-testid="dev-runtime-memory"
@@ -359,12 +364,30 @@ useEscapeToClose(() => emit('close'))
                 </div>
                 <SparkLine :values="cpuHistory" class="h-14 text-severity-info" />
               </div>
+              <div
+                class="flex flex-col overflow-hidden rounded-[11px] border border-card bg-raised"
+                data-testid="dev-runtime-frames"
+              >
+                <div class="flex flex-col gap-1.5 px-4 pb-3 pt-4">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-3">Frames</span>
+                    <span class="font-mono text-[11px] tabular-nums text-text-4">worst {{ frames.worstFrameMs.toFixed(0) }}ms</span>
+                  </div>
+                  <div class="font-mono text-[28px] font-semibold leading-none tabular-nums text-text">
+                    {{ frames.fps.toFixed(0) }}<span class="text-[16px] font-medium text-text-3"> fps</span>
+                  </div>
+                  <div class="text-[12px] tabular-nums text-text-3">{{ frames.dropped }} dropped in 10s</div>
+                </div>
+                <!-- Worst frame per 250ms, so a single 200ms stall stays visible
+                     instead of being averaged into a smooth line. -->
+                <SparkLine :values="frames.buckets" class="h-14 text-severity-warning" />
+              </div>
             </div>
 
             <!-- Hairlines, not gaps: one strip of vitals reads as a single
                  instrument rather than five cards competing with the two above. -->
             <div
-              class="grid grid-cols-2 overflow-hidden rounded-[11px] border border-card bg-raised @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-5"
+              class="grid grid-cols-2 overflow-hidden rounded-[11px] border border-card bg-raised @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-6"
               data-testid="dev-runtime-vitals"
             >
               <div v-for="vital in vitals" :key="vital.label" class="-ml-px -mt-px flex min-w-0 flex-col gap-1.5 border-l border-t border-border px-4 py-3.5">
