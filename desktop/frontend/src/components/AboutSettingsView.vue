@@ -188,7 +188,7 @@ onMounted(() => {
 
       <div
         v-if="update?.available"
-        class="border-t border-row bg-accent-tint/40 px-4 py-3.5"
+        class="border-t border-border bg-accent-tint/40 px-4 py-3.5"
         data-testid="about-update-available"
       >
         <div class="text-[13px] font-semibold text-text">{{ update.latestVersion }} is available</div>
@@ -215,11 +215,11 @@ onMounted(() => {
         </button>
       </template>
       <!-- Hairlines rather than gaps: four facets of one build, not four cards. -->
-      <div class="grid grid-cols-1 gap-px overflow-hidden rounded-[11px] border border-card bg-row @[440px]/pane:grid-cols-2 @[800px]/pane:grid-cols-4">
+      <div class="grid grid-cols-1 overflow-hidden rounded-[11px] border border-card bg-raised @[440px]/pane:grid-cols-2 @[800px]/pane:grid-cols-4">
         <div
           v-for="stat in stats"
           :key="stat.key"
-          class="flex min-w-0 flex-col gap-1.5 bg-raised px-4 py-3.5"
+          class="-ml-px -mt-px flex min-w-0 flex-col gap-1.5 border-l border-t border-border px-4 py-3.5"
           :data-testid="`about-stat-${stat.key}`"
         >
           <span class="flex items-center gap-1.5 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">

@@ -241,8 +241,10 @@ const uptime = computed(() => {
 const peakRSS = computed(() => (rssHistory.value.length ? Math.max(...rssHistory.value) : 0))
 const peakCPU = computed(() => (cpuHistory.value.length ? Math.max(...cpuHistory.value) : 0))
 
-// Where the heap sits against the ceiling that triggers the next collection —
-// the number that says whether a GC is imminent, which a bare heap size does not.
+// Where the heap sits against the ceiling that triggers the next collection.
+// Stated, not drawn: as a bar it swung end to end every couple of seconds —
+// the heap sawtooths between collections — and read as motion rather than as a
+// measurement.
 const heapPressure = computed(() => {
   const go = stats.value?.go
   if (!go?.nextGcBytes) return 0
@@ -362,17 +364,17 @@ useEscapeToClose(() => emit('close'))
             <!-- Hairlines, not gaps: one strip of vitals reads as a single
                  instrument rather than five cards competing with the two above. -->
             <div
-              class="grid grid-cols-2 gap-px overflow-hidden rounded-[11px] border border-card bg-row @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-5"
+              class="grid grid-cols-2 overflow-hidden rounded-[11px] border border-card bg-raised @[440px]/pane:grid-cols-3 @[720px]/pane:grid-cols-5"
               data-testid="dev-runtime-vitals"
             >
-              <div v-for="vital in vitals" :key="vital.label" class="flex min-w-0 flex-col gap-1.5 bg-raised px-4 py-3.5">
+              <div v-for="vital in vitals" :key="vital.label" class="-ml-px -mt-px flex min-w-0 flex-col gap-1.5 border-l border-t border-border px-4 py-3.5">
                 <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ vital.label }}</div>
                 <div class="truncate font-mono text-[16px] tabular-nums text-text">{{ vital.value }}</div>
               </div>
             </div>
 
-            <div class="flex flex-col gap-3.5 rounded-[11px] border border-card bg-raised p-4" data-testid="dev-runtime-go">
-              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <div class="overflow-hidden rounded-[11px] border border-card bg-raised" data-testid="dev-runtime-go">
+              <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3.5">
                 <div class="flex items-baseline gap-2.5">
                   <span class="font-mono text-[10px] font-semibold uppercase tracking-[.14em] text-text-3">Go heap</span>
                   <span class="font-mono text-[16px] tabular-nums text-text">
@@ -380,13 +382,10 @@ useEscapeToClose(() => emit('close'))
                     <span class="text-text-4">of {{ formatBytes(stats.go.nextGcBytes) }}</span>
                   </span>
                 </div>
-                <span class="text-[12px] tabular-nums text-text-3" data-testid="dev-runtime-heap-pressure">{{ heapPressure }}% of the next GC target</span>
+                <span class="text-[12px] tabular-nums text-text-3" data-testid="dev-runtime-heap-pressure">{{ heapPressure }}% of next GC target</span>
               </div>
-              <div class="h-1 overflow-hidden rounded-full bg-chip">
-                <div class="h-full rounded-full bg-accent transition-[width]" :style="{ width: `${heapPressure}%` }" />
-              </div>
-              <div class="grid grid-cols-2 gap-x-6 gap-y-4 @[560px]/pane:grid-cols-4">
-                <div v-for="row in goRows" :key="row.label" class="flex min-w-0 flex-col gap-1.5">
+              <div class="grid grid-cols-2 @[560px]/pane:grid-cols-4">
+                <div v-for="row in goRows" :key="row.label" class="-ml-px -mt-px flex min-w-0 flex-col gap-1.5 border-l border-t border-border px-4 py-3.5">
                   <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ row.label }}</div>
                   <div class="truncate font-mono text-[15px] tabular-nums text-text">{{ row.value }}</div>
                   <div class="truncate text-[11px] tabular-nums text-text-4">{{ row.hint }}</div>
@@ -395,7 +394,7 @@ useEscapeToClose(() => emit('close'))
             </div>
 
             <div class="overflow-hidden rounded-[11px] border border-card bg-raised" data-testid="dev-runtime-processes">
-              <div class="flex items-center gap-3 border-b border-row px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">
+              <div class="flex items-center gap-3 border-b border-border px-4 py-2.5 font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">
                 <span class="min-w-0 flex-1">Process</span>
                 <span class="w-20 text-right">Memory</span>
                 <span class="w-14 text-right">CPU</span>
@@ -404,7 +403,7 @@ useEscapeToClose(() => emit('close'))
               <div
                 v-for="row in processRows"
                 :key="row.pid"
-                class="flex items-center gap-3 border-b border-row px-4 py-2 text-[12.5px] text-text-2 last:border-b-0"
+                class="flex items-center gap-3 border-b border-border px-4 py-2 text-[12.5px] text-text-2 last:border-b-0"
               >
                 <span class="min-w-0 flex-1 truncate" :class="row.self ? 'font-semibold text-text' : ''">
                   {{ row.name || 'unknown' }}
@@ -414,10 +413,10 @@ useEscapeToClose(() => emit('close'))
                 <span class="w-14 text-right font-mono tabular-nums">{{ row.cpuPercent.toFixed(1) }}%</span>
                 <span class="hidden w-16 text-right font-mono tabular-nums @[560px]/pane:block">{{ row.threads }}</span>
               </div>
-              <p v-if="stats.childrenTruncated" class="border-t border-row px-4 py-2 text-[11px] text-text-4">
+              <p v-if="stats.childrenTruncated" class="border-t border-border px-4 py-2 text-[11px] text-text-4">
                 Only the first processes in the tree are listed; the totals above are a floor.
               </p>
-              <p v-else-if="processRows.length === 1" class="border-t border-row px-4 py-2 text-[11px] text-text-4">
+              <p v-else-if="processRows.length === 1" class="border-t border-border px-4 py-2 text-[11px] text-text-4">
                 Nothing else is parented to Hive right now. Only processes Hive is the parent of are counted — a terminal's
                 shell or an agent, not the webview's rendering helpers, which the OS starts and owns.
               </p>
@@ -447,13 +446,13 @@ useEscapeToClose(() => emit('close'))
 
             <div
               v-if="latency"
-              class="grid grid-cols-2 gap-px overflow-hidden rounded-[9px] border border-card bg-row"
+              class="grid grid-cols-2 overflow-hidden rounded-[9px] border border-card bg-raised"
               data-testid="dev-latency-results"
             >
               <div
                 v-for="leg in [{ key: 'empty', label: 'Empty call', value: latency.empty }, { key: 'payload', label: `${formatBytes(PAYLOAD_BYTES)} payload`, value: latency.payload }]"
                 :key="leg.key"
-                class="flex flex-col gap-1.5 bg-raised px-4 py-3"
+                class="-ml-px flex flex-col gap-1.5 border-l border-border px-4 py-3"
                 :data-testid="`dev-latency-${leg.key}`"
               >
                 <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ leg.label }}</div>

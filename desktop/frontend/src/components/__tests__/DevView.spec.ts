@@ -401,12 +401,15 @@ describe('DevView runtime panel', () => {
     wrapper.unmount()
   })
 
-  it('sizes the heap bar against the ceiling that triggers the next collection', async () => {
+  it('states the heap against the ceiling that triggers the next collection', async () => {
     const wrapper = mount(DevView)
     await flushPromises()
 
     // 41 MB in use against an 82 MB target.
-    expect(wrapper.get('[data-testid="dev-runtime-heap-pressure"]').text()).toBe('50% of the next GC target')
+    const go = wrapper.get('[data-testid="dev-runtime-go"]').text()
+    expect(go).toContain('41.0 MB')
+    expect(go).toContain('of 82.0 MB')
+    expect(wrapper.get('[data-testid="dev-runtime-heap-pressure"]').text()).toBe('50% of next GC target')
 
     wrapper.unmount()
   })

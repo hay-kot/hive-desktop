@@ -15,11 +15,13 @@
 // baseline draws a flat line at the top of the box and reads as a rule.
 import { computed, ref, watch } from 'vue'
 
+// The caller owns the height — this sets none, so a bare `class="h-14"` lands
+// rather than losing to an `h-full` here.
 const props = withDefaults(defineProps<{
   values: number[]
   /** Slots on the x axis. Samples fill it from the right. */
   capacity?: number
-}>(), { capacity: 60 })
+}>(), { capacity: 40 })
 
 const WIDTH = 100
 const HEIGHT = 32
@@ -77,7 +79,7 @@ const points = computed(() => {
     :viewBox="`0 0 ${WIDTH} ${HEIGHT}`"
     preserveAspectRatio="none"
     aria-hidden="true"
-    class="block h-full w-full"
+    class="block w-full"
   >
     <polyline
       v-if="points"

@@ -2,8 +2,10 @@ import { onScopeDispose, ref, shallowRef } from 'vue'
 import { Stats } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/devtoolsservice'
 import type { RuntimeStats } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
-/** How many samples the sparklines keep — two minutes at the default cadence. */
-const HISTORY = 60
+// Samples the sparklines keep. It matches SparkLine's slot count, so the line
+// spans the card once this many have landed — a bit over a minute at the
+// default cadence — and scrolls from then on.
+const HISTORY = 40
 
 const DEFAULT_INTERVAL_MS = 2000
 
