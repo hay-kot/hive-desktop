@@ -457,12 +457,14 @@ describe('DevView runtime panel', () => {
     await vi.advanceTimersByTimeAsync(0)
     await flushPromises()
 
-    // 5 warm-up calls plus 40 timed ones, per leg.
-    expect(mocks.Ping).toHaveBeenCalledTimes(45)
-    expect(mocks.Echo).toHaveBeenCalledTimes(45)
+    // 5 warm-up calls plus 5 batches of 20, per leg.
+    expect(mocks.Ping).toHaveBeenCalledTimes(105)
+    expect(mocks.Echo).toHaveBeenCalledTimes(105)
     expect(mocks.Echo).toHaveBeenCalledWith(65536)
-    expect(wrapper.get('[data-testid="dev-latency-empty"]').text()).toContain('p50')
+    expect(wrapper.get('[data-testid="dev-latency-empty"]').text()).toContain('ms per call')
     expect(wrapper.get('[data-testid="dev-latency-payload"]').text()).toContain('64.0 KB payload')
+    // The clock's granularity is why the calls are batched, so it is stated.
+    expect(wrapper.get('[data-testid="dev-latency-resolution"]').text()).toContain('resolves to')
 
     wrapper.unmount()
   })

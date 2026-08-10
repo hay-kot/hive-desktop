@@ -457,13 +457,20 @@ useEscapeToClose(() => emit('close'))
               >
                 <div class="font-mono text-[10px] font-semibold uppercase tracking-[.12em] text-text-3">{{ leg.label }}</div>
                 <div class="font-mono text-[16px] tabular-nums text-text">
-                  {{ leg.value.p50.toFixed(2) }}<span class="text-[11px] text-text-4">ms p50</span>
+                  {{ leg.value.meanMs.toFixed(3) }}<span class="text-[11px] text-text-4">ms per call</span>
                 </div>
                 <div class="font-mono text-[11px] tabular-nums text-text-4">
-                  p95 {{ leg.value.p95.toFixed(2) }} · max {{ leg.value.max.toFixed(2) }} · n={{ leg.value.samples }}
+                  {{ leg.value.minMs.toFixed(3) }}–{{ leg.value.maxMs.toFixed(3) }} per batch · n={{ leg.value.calls }}
                 </div>
               </div>
             </div>
+
+            <!-- Not a footnote for its own sake: at 1ms granularity a per-call
+                 timing is 0 or 1 and nothing else, which is what the batching
+                 exists to get around. -->
+            <p v-if="latency" class="text-[11px] tabular-nums text-text-4" data-testid="dev-latency-resolution">
+              Timed in batches of 20 — this webview's clock resolves to {{ latency.resolutionMs.toFixed(3) }}ms, coarser than one call.
+            </p>
 
             <p v-if="latencyError" class="text-xs text-severity-error" data-testid="dev-latency-error">{{ latencyError }}</p>
           </div>
