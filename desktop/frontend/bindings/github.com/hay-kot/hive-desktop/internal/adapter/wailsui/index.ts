@@ -4,6 +4,7 @@
 import * as ActionsService from "./actionsservice.js";
 import * as ActivityService from "./activityservice.js";
 import * as AgentsService from "./agentsservice.js";
+import * as DevToolsService from "./devtoolsservice.js";
 import * as FlowsService from "./flowsservice.js";
 import * as GitHubService from "./githubservice.js";
 import * as GrafanaService from "./grafanaservice.js";
@@ -28,6 +29,7 @@ export {
     ActionsService,
     ActivityService,
     AgentsService,
+    DevToolsService,
     FlowsService,
     GitHubService,
     GrafanaService,
@@ -55,6 +57,7 @@ export type {
     AgentsEndpoint,
     AppearanceSettings,
     BuildInfo,
+    DevToolsInfo,
     EditorChoice,
     EditorSettings,
     FlowSummary,
@@ -75,6 +78,7 @@ export type {
     ReportInput,
     ReportPreview,
     ReportResult,
+    RuntimeStats,
     SessionStatusSnapshot,
     SystemInfo,
     TerminalAvailability,

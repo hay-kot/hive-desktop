@@ -192,6 +192,13 @@ type PerfSettings struct {
 	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED"`
 }
 
+// DevToolsSettings makes the in-app developer tools reachable in a build that
+// was not served by Vite (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting). Off in a shipped build; the dev task
+// turns it on through launch.env.
+type DevToolsSettings struct {
+	Enabled bool `yaml:"enabled" env:"HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED"`
+}
+
 type DebugSettings struct {
 	PauseIngest Duration `yaml:"pause_ingest" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST"`
 	PauseCommit Duration `yaml:"pause_commit" env:"HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT"`
@@ -221,6 +228,7 @@ type DevelopmentSettings struct {
 	Wails    ServerSettings    `yaml:"wails"              envPrefix:"HIVE_DESKTOP_DEVELOPMENT_WAILS_"`
 	Pprof    PprofSettings     `yaml:"pprof"`
 	Perf     PerfSettings      `yaml:"perf"`
+	DevTools DevToolsSettings  `yaml:"devtools"`
 	Debug    DebugSettings     `yaml:"debug"`
 }
 
@@ -255,11 +263,12 @@ func DefaultSettings() Settings {
 		HTTP:          HTTPSettings{Enabled: true, Host: "127.0.0.1", Port: 0},
 		Skills:        SkillsSettings{AutoUpdate: true},
 		Development: DevelopmentSettings{
-			Mocks: MockSettings{Mode: MockLive},
-			Vite:  ServerSettings{Host: "127.0.0.1", Port: 0},
-			Wails: ServerSettings{Host: "127.0.0.1", Port: 0},
-			Pprof: PprofSettings{Enabled: false},
-			Perf:  PerfSettings{Enabled: false},
+			Mocks:    MockSettings{Mode: MockLive},
+			Vite:     ServerSettings{Host: "127.0.0.1", Port: 0},
+			Wails:    ServerSettings{Host: "127.0.0.1", Port: 0},
+			Pprof:    PprofSettings{Enabled: false},
+			Perf:     PerfSettings{Enabled: false},
+			DevTools: DevToolsSettings{Enabled: false},
 		},
 	}
 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import DevView from '../DevView.vue'
 import { chooseOption, selectedLabel } from '../../test-utils/select'
 
@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => ({
   delivery: { value: 'auto' },
   notificationSound: { value: true },
   permission: { value: 'granted' },
+  Stats: vi.fn(),
+  Ping: vi.fn(),
+  Echo: vi.fn(),
 }))
 
 vi.mock('../../composables/useActivity', () => ({
@@ -37,6 +40,41 @@ vi.mock('../../composables/useNotificationSettings', () => ({
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/notificationservice', () => ({
   Notify: mocks.Notify,
 }))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/devtoolsservice', () => ({
+  Stats: mocks.Stats,
+  Ping: mocks.Ping,
+  Echo: mocks.Echo,
+}))
+
+const MB = 1024 * 1024
+
+function runtimeSample(overrides: Record<string, unknown> = {}) {
+  return {
+    sampledAtUnixMs: 1_770_000_000_000,
+    uptimeMs: 2 * 3_600_000 + 14 * 60_000,
+    process: { pid: 100, name: 'hive-desktop', rssBytes: 214 * MB, cpuPercent: 3.4, threads: 42 },
+    children: [{ pid: 101, name: 'Hive Web Content', rssBytes: 180 * MB, cpuPercent: 1.2, threads: 12 }],
+    childrenTruncated: false,
+    totalRssBytes: 394 * MB,
+    totalCpuPercent: 4.6,
+    go: {
+      goroutines: 87,
+      gomaxprocs: 10,
+      numCpu: 12,
+      heapAllocBytes: 41 * MB,
+      heapSysBytes: 68 * MB,
+      heapObjects: 120_000,
+      stackSysBytes: 2 * MB,
+      totalSysBytes: 92 * MB,
+      nextGcBytes: 82 * MB,
+      gcCount: 142,
+      lastGcUnixMs: 1_770_000_000_000,
+      lastPauseMs: 0.4,
+      totalPauseMs: 61,
+    },
+    ...overrides,
+  }
+}
 
 const autoBody = 'Dev tools auto test: uses focus and notification settings.'
 
@@ -74,6 +112,9 @@ beforeEach(() => {
   mocks.delivery.value = 'auto'
   mocks.notificationSound.value = true
   mocks.permission.value = 'granted'
+  mocks.Stats.mockResolvedValue(runtimeSample())
+  mocks.Ping.mockResolvedValue(1_770_000_000_000)
+  mocks.Echo.mockResolvedValue('x')
 })
 
 afterEach(() => {
@@ -335,6 +376,90 @@ describe('DevView notification test card', () => {
     expect(wrapper.get('[data-testid="dev-notification-actions"]').classes()).toEqual(
       expect.arrayContaining(['flex-col', '@[420px]/notify-test:flex-row']),
     )
+
+    wrapper.unmount()
+  })
+})
+
+describe('DevView runtime panel', () => {
+  it('reports the whole process tree, not just what the Go runtime can see', async () => {
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="dev-runtime-memory"]').text()).toContain('394 MB')
+    expect(wrapper.get('[data-testid="dev-runtime-cpu"]').text()).toContain('4.6%')
+
+    const vitals = wrapper.get('[data-testid="dev-runtime-vitals"]').text()
+    expect(vitals).toContain('87')
+    expect(vitals).toContain('2h 14m')
+    expect(vitals).toContain('10 of 12')
+
+    const processes = wrapper.get('[data-testid="dev-runtime-processes"]').text()
+    expect(processes).toContain('hive-desktop')
+    expect(processes).toContain('Hive Web Content')
+
+    wrapper.unmount()
+  })
+
+  it('sizes the heap bar against the ceiling that triggers the next collection', async () => {
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    // 41 MB in use against an 82 MB target.
+    expect(wrapper.get('[data-testid="dev-runtime-heap-pressure"]').text()).toBe('50% of the next GC target')
+
+    wrapper.unmount()
+  })
+
+  it('says the webview is not counted when nothing else is parented to Hive', async () => {
+    mocks.Stats.mockResolvedValue(runtimeSample({ children: [], totalRssBytes: 214 * MB, totalCpuPercent: 3.4 }))
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="dev-runtime-processes"]').text()).toContain("not the webview's rendering helpers")
+
+    wrapper.unmount()
+  })
+
+  it('keeps sampling on an interval until it is paused', async () => {
+    const wrapper = mount(DevView)
+    await flushPromises()
+    expect(mocks.Stats).toHaveBeenCalledTimes(1)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(mocks.Stats).toHaveBeenCalledTimes(2)
+
+    await wrapper.get('[data-testid="dev-runtime-poll"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(mocks.Stats).toHaveBeenCalledTimes(2)
+
+    wrapper.unmount()
+  })
+
+  it('surfaces a failed sample instead of an empty panel', async () => {
+    mocks.Stats.mockRejectedValue(new Error('process is gone'))
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="dev-runtime-error"]').text()).toContain('process is gone')
+
+    wrapper.unmount()
+  })
+
+  it('prices an empty call and a payload call separately', async () => {
+    const wrapper = mount(DevView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="dev-latency-measure"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(0)
+    await flushPromises()
+
+    // 5 warm-up calls plus 40 timed ones, per leg.
+    expect(mocks.Ping).toHaveBeenCalledTimes(45)
+    expect(mocks.Echo).toHaveBeenCalledTimes(45)
+    expect(mocks.Echo).toHaveBeenCalledWith(65536)
+    expect(wrapper.get('[data-testid="dev-latency-empty"]').text()).toContain('p50')
+    expect(wrapper.get('[data-testid="dev-latency-payload"]').text()).toContain('64.0 KB payload')
 
     wrapper.unmount()
   })

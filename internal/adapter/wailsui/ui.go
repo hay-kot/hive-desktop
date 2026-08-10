@@ -165,6 +165,7 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
 		application.NewService(NewPerfService(core.Perf)),
+		application.NewService(NewDevToolsService(core.DevTools)),
 		application.NewService(NewTerminalService(core.Terminals, core.Webhooks, opts.Terminal)),
 		application.NewService(NewPopupTerminalService(core.PopupTerminals, core.Webhooks, opts.PopupTerminal)),
 		application.NewService(NewAgentsService(core.AgentWorkspaces, core.Webhooks, opts.Agents)),

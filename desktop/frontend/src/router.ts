@@ -95,11 +95,12 @@ export function createAppRouter(history: RouterHistory = createWebHashHistory())
     },
   ]
 
-  // Keep this record out of production bundles entirely; the catchall below
-  // handles /dev there just like any other unknown route.
-  if (import.meta.env.DEV) {
-    routes.push({ path: '/dev', name: 'dev', component: ShellPage })
-  }
+  // Registered in every build: the developer tools are reachable in a shipped
+  // one when development.devtools.enabled is on (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting), and that answer
+  // arrives from the backend after the router is built. The pane itself is the
+  // gate — App.vue renders it only when the tools are allowed and sends the
+  // route back to the feed otherwise.
+  routes.push({ path: '/dev', name: 'dev', component: ShellPage })
 
   routes.push({ path: '/:pathMatch(.*)*', redirect: { name: 'feed' } })
 

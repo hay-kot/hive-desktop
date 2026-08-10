@@ -4,6 +4,9 @@
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore: Unused imports
 import * as dispatch$0 from "../../app/dispatch/models.js";
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-ignore: Unused imports
+import * as procstats$0 from "../../app/procstats/models.js";
 
 /**
  * AgentsAvailability gates the Agents area. Like terminal mode, it depends on
@@ -96,16 +99,29 @@ export interface BuildInfo {
     "date": string;
 
     /**
-     * RepoURL links to the project's GitHub repository. Always populated.
+     * Channel is the release channel this version belongs to (stable, beta,
+     * dev). Empty marks an unreleased build — which is also when the updater
+     * engine is absent, so the About screen reads it as "self-update is off
+     * for this build" rather than showing an update state it cannot reach.
      */
-    "repoUrl": string;
+    "channel": string;
 
     /**
-     * ReleaseURL links to the GitHub release for this build's tag. It is empty
-     * for dev/unreleased builds that have no matching published release, so the
-     * frontend can hide the link rather than send users to a 404.
+     * OS and Arch are the Go build target this binary was compiled for, and
+     * GoVersion the toolchain that compiled it — the same facts the problem
+     * reporter attaches, shown so they can be read (and quoted) without
+     * generating a bundle.
      */
-    "releaseUrl": string;
+    "os": string;
+    "arch": string;
+    "goVersion": string;
+}
+
+/**
+ * DevToolsInfo is what the frontend needs before it decides to render the pane.
+ */
+export interface DevToolsInfo {
+    "enabled": boolean;
 }
 
 /**
@@ -326,6 +342,22 @@ export interface ReportResult {
 }
 
 /**
+ * RuntimeStats is the frontend-facing sample: the desktop process, the tree
+ * below it, and the Go runtime's own accounting, with the tree totals
+ * pre-summed so every caller reads the same number.
+ */
+export interface RuntimeStats {
+    "sampledAtUnixMs": number;
+    "uptimeMs": number;
+    "process": procstats$0.Process;
+    "children": procstats$0.Process[] | null;
+    "childrenTruncated": boolean;
+    "totalRssBytes": number;
+    "totalCpuPercent": number;
+    "go": procstats$0.GoRuntime;
+}
+
+/**
  * SessionStatusSnapshot is one poll result in the units the browser timer uses.
  */
 export interface SessionStatusSnapshot {
@@ -380,8 +412,21 @@ export interface UpdateInfo {
     "available": boolean;
     "currentVersion": string;
     "latestVersion": string;
+
+    /**
+     * Notes is whatever the release manifest carried. The provider does not
+     * populate it today; there is no public changelog to link to instead, the
+     * source repository being private.
+     */
     "notes": string;
-    "releaseUrl": string;
+
+    /**
+     * CheckedAt is when the cached result was produced, RFC3339, or empty when
+     * no check has completed. It covers background poll ticks too, so the
+     * About screen can say when the app last looked without the user pressing
+     * anything.
+     */
+    "checkedAt": string;
 }
 
 /**

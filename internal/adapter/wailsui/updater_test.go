@@ -109,7 +109,7 @@ func TestUpdaterServiceCheckNowAvailable(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, info.Available)
 	require.Equal(t, "1.3.0", info.LatestVersion)
-	require.Equal(t, ReleaseURL("1.3.0"), info.ReleaseURL)
+	require.Equal(t, "new stuff", info.Notes)
 	// Status reflects the cached result.
 	require.True(t, s.Status().Available)
 }
@@ -124,6 +124,10 @@ func TestUpdaterServiceCheckNowUpToDate(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, info.Available)
 	require.Equal(t, "1.2.3", info.CurrentVersion)
+	// An up-to-date answer is still an answer: About distinguishes it from
+	// "never checked" by the timestamp alone.
+	require.NotEmpty(t, info.CheckedAt)
+	require.Equal(t, info.CheckedAt, s.Status().CheckedAt)
 }
 
 func TestUpdaterServiceCheckNowError(t *testing.T) {

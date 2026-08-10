@@ -32,8 +32,15 @@ type UpdateInfo struct {
 	Available      bool   `json:"available"`
 	CurrentVersion string `json:"currentVersion"`
 	LatestVersion  string `json:"latestVersion"`
-	Notes          string `json:"notes"`
-	ReleaseURL     string `json:"releaseUrl"`
+	// Notes is whatever the release manifest carried. The provider does not
+	// populate it today; there is no public changelog to link to instead, the
+	// source repository being private.
+	Notes string `json:"notes"`
+	// CheckedAt is when the cached result was produced, RFC3339, or empty when
+	// no check has completed. It covers background poll ticks too, so the
+	// About screen can say when the app last looked without the user pressing
+	// anything.
+	CheckedAt string `json:"checkedAt"`
 }
 
 // UpdaterService exposes desktop self-update to the frontend: an enable/disable
@@ -222,9 +229,10 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 		return UpdateInfo{Enabled: enabled, Available: false, CurrentVersion: s.currentVersion}, err
 	}
 
+	checkedAt := time.Now().UTC().Format(time.RFC3339)
 	var info UpdateInfo
 	if rel == nil {
-		info = UpdateInfo{Enabled: enabled, Available: false, CurrentVersion: s.currentVersion}
+		info = UpdateInfo{Enabled: enabled, Available: false, CurrentVersion: s.currentVersion, CheckedAt: checkedAt}
 	} else {
 		info = UpdateInfo{
 			Enabled:        enabled,
@@ -232,7 +240,7 @@ func (s *UpdaterService) check(ctx context.Context) (UpdateInfo, error) {
 			CurrentVersion: s.currentVersion,
 			LatestVersion:  rel.Version,
 			Notes:          rel.Notes,
-			ReleaseURL:     ReleaseURL(rel.Version),
+			CheckedAt:      checkedAt,
 		}
 	}
 
