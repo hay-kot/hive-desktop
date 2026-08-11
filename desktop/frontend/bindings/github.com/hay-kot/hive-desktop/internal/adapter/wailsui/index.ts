@@ -16,6 +16,7 @@ import * as PipelineService from "./pipelineservice.js";
 import * as PopupTerminalService from "./popupterminalservice.js";
 import * as PostHogService from "./posthogservice.js";
 import * as PromptsService from "./promptsservice.js";
+import * as ReleaseNotesService from "./releasenotesservice.js";
 import * as ReportService from "./reportservice.js";
 import * as SessionService from "./sessionservice.js";
 import * as SettingsService from "./settingsservice.js";
@@ -41,6 +42,7 @@ export {
     PopupTerminalService,
     PostHogService,
     PromptsService,
+    ReleaseNotesService,
     ReportService,
     SessionService,
     SettingsService,
@@ -70,11 +72,13 @@ export type {
     NotificationToast,
     NotifyInput,
     PathInfo,
+    PendingReleaseNotes,
     PerfInfo,
     PerfRecordResult,
     PerfSample,
     PopupTerminalAvailability,
     PopupTerminalEndpoint,
+    ReleaseNote,
     ReportInput,
     ReportPreview,
     ReportResult,

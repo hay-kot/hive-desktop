@@ -620,6 +620,13 @@ User-editable config (`flows/`, `actions.yml`, `settings.yaml`) lives under
 state (SQLite: items, triage, offsets, queued commands) lives under the data
 dir. Respect the boundary when adding persistence.
 
+The version whose release notes the user has seen
+(`<StateDir>/releasenotes.json`) is the boundary read the other way round: it
+looks like a preference, but `settings.yaml` is shared between machines and
+"I have read these notes" is a fact about one installation — acknowledging on
+a laptop must not suppress the notes on a desktop that has yet to update
+(ADR release-notes-ship-inside-the-binary).
+
 The agent-workspace root (`AgentWorkspacesDir`, default
 `<ConfigDir>/workspaces`) is the one place this boundary is deliberately
 crossed: it resolves under the config root so it can be dotfiles-/iCloud-synced

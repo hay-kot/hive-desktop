@@ -9,8 +9,8 @@ import (
 )
 
 // publishGitHubRelease records a published version on GitHub: it creates and
-// pushes the lightweight desktop-v<version> tag and a GitHub Release whose notes
-// capture the commits since the previous desktop release tag. This is the
+// pushes the lightweight desktop-v<version> tag and a GitHub Release whose body
+// is the version's committed changelog entry. This is the
 // source-side record only — R2 remains the artifact store (decision 0003), so no
 // binaries are attached. It is idempotent: an existing tag or release at the
 // release commit is left untouched, so it can be re-run to recover a publish
@@ -108,23 +108,25 @@ func gitHubReleaseExists(ctx context.Context, tag string) (bool, error) {
 	return false, fmt.Errorf("gh release view %s: %w", tag, err)
 }
 
+// createGitHubRelease publishes the release with the committed release notes
+// as its body — a stable release's own entry, or the draft for a prerelease.
+// Either way the notes are embedded in the binary, so GitHub renders the same
+// text the app's What's New surface does rather than a separately generated
+// list of PR titles.
 func createGitHubRelease(ctx context.Context, version releaseVersion, tag string) error {
-	previous, err := previousOriginReleaseTag(ctx, version)
+	entry, err := notesFor(version)
 	if err != nil {
 		return err
 	}
+
 	prerelease := version.channel() != "stable"
-	fmt.Printf("==> creating GitHub release %s (prerelease=%t, notes since %s)\n", tag, prerelease, previousLabel(previous))
+	fmt.Printf("==> creating GitHub release %s (prerelease=%t)\n", tag, prerelease)
 
 	args := []string{
 		"release", "create", tag,
 		"--verify-tag",
 		"--title", releaseTitle(version),
-		"--notes", releaseNotesHeader(version, downloadBaseURL()),
-		"--generate-notes",
-	}
-	if previous != "" {
-		args = append(args, "--notes-start-tag", previous)
+		"--notes", releaseNotesBody(version, entry, downloadBaseURL()),
 	}
 	if prerelease {
 		// dev and beta builds never sit above a shipped stable on the releases
@@ -138,8 +140,9 @@ func releaseTitle(version releaseVersion) string {
 	return "Hive Desktop " + version.String()
 }
 
-// releaseNotesHeader is prepended to GitHub's generated commit/PR notes. It
-// states plainly that downloads come from R2, not this release's assets.
+// releaseNotesHeader is prepended to the changelog entry in a GitHub release
+// body. It states plainly that downloads come from R2, not this release's
+// assets.
 func releaseNotesHeader(version releaseVersion, downloadBase string) string {
 	prefix := fmt.Sprintf("%s/desktop/releases/%s", downloadBase, version)
 	return fmt.Sprintf(
@@ -148,49 +151,4 @@ func releaseNotesHeader(version releaseVersion, downloadBase string) string {
 			"- Checksums: %s/SHA256SUMS\n",
 		version.channel(), prefix, prefix,
 	)
-}
-
-// previousOriginReleaseTag returns the tag to start generated notes from: the
-// greatest desktop-v* tag below version that is present on origin. It returns ""
-// when there is no earlier tag or the earlier tag was never pushed (the tags
-// predating this flow), letting GitHub pick its own baseline.
-func previousOriginReleaseTag(ctx context.Context, version releaseVersion) (string, error) {
-	versions, err := releaseTagVersions(ctx)
-	if err != nil {
-		return "", err
-	}
-	previous, ok := previousReleaseVersion(version, versions)
-	if !ok {
-		return "", nil
-	}
-	tag := "desktop-v" + previous.String()
-	sha, err := originTagCommit(ctx, tag)
-	if err != nil {
-		return "", err
-	}
-	if sha == "" {
-		return "", nil
-	}
-	return tag, nil
-}
-
-func previousReleaseVersion(version releaseVersion, versions []releaseVersion) (releaseVersion, bool) {
-	var previous releaseVersion
-	found := false
-	for _, candidate := range versions {
-		if compareChannelRelease(candidate, version) >= 0 {
-			continue
-		}
-		if !found || compareChannelRelease(candidate, previous) > 0 {
-			previous, found = candidate, true
-		}
-	}
-	return previous, found
-}
-
-func previousLabel(tag string) string {
-	if tag == "" {
-		return "the first release"
-	}
-	return tag
 }

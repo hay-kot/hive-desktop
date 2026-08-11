@@ -45,10 +45,19 @@ type platformManifest struct {
 	InstallerSize   int64  `json:"installer_size,omitempty"`
 }
 
+// channelManifest is the channel pointer the updater polls. summary and notes
+// carry the version's changelog entry, which is the only place a pending
+// release's notes exist — the app's own copy is embedded in the build it
+// describes, and that build is not installed yet. Nothing renders them today;
+// they reach the frontend as UpdateInfo.Notes and stop there. Both are
+// optional, because manifests published before the changelog existed still
+// have to parse.
 type channelManifest struct {
 	Channel   string                      `json:"channel"`
 	Version   string                      `json:"version"`
 	PubDate   string                      `json:"pub_date"`
+	Summary   string                      `json:"summary,omitempty"`
+	Notes     string                      `json:"notes,omitempty"`
 	Platforms map[string]platformManifest `json:"platforms"`
 }
 

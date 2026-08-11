@@ -115,8 +115,8 @@ func newReleaseCommand() *cli.Command {
 				Name:      "github",
 				Usage:     "push the release tag and create the GitHub release",
 				ArgsUsage: "<version>",
-				Description: "Records a published version on GitHub: pushes the lightweight desktop-v<version> tag and creates a GitHub Release whose notes " +
-					"capture the commits since the previous desktop release tag (dev and beta are marked prerelease). Downloads still come from R2 (decision 0003); " +
+				Description: "Records a published version on GitHub: pushes the lightweight desktop-v<version> tag and creates a GitHub Release whose body is " +
+					"the version's committed changelog entry (dev and beta are marked prerelease). Downloads still come from R2 (decision 0003); " +
 					"this attaches no artifacts. Idempotent — safe to re-run to record a release whose GitHub step failed after the R2 upload. Requires an authenticated gh.",
 				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.NArg() != 1 {
@@ -131,6 +131,35 @@ func newReleaseCommand() *cli.Command {
 					}
 					return publishGitHubRelease(ctx, version)
 				}),
+			},
+			{
+				Name:  "changelog",
+				Usage: "manage the release notes embedded in the app",
+				Commands: []*cli.Command{
+					{
+						Name:      "promote",
+						Usage:     "turn the accumulated draft into a stable release's changelog entry",
+						ArgsUsage: "<stable|version>",
+						Description: "Moves internal/app/releasenotes/changelog/next.md to <version>.md, stamping the version and date, and leaves an " +
+							"empty draft for the next cycle. Commit the result before releasing: the notes are embedded in the binary, and " +
+							"`release publish` refuses a stable version that has no entry. Prereleases need none — they publish the draft as it stands.",
+						Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
+							if cmd.NArg() != 1 {
+								return cli.Exit("expected \"stable\" or an explicit stable version", 2)
+							}
+							version, err := promoteTargetVersion(ctx, cmd.Args().First())
+							if err != nil {
+								return err
+							}
+							path, err := promoteDraft(version)
+							if err != nil {
+								return err
+							}
+							fmt.Printf("wrote %s — review it, then commit it with the release\n", path)
+							return nil
+						}),
+					},
+				},
 			},
 			{
 				Name:      "verify",
@@ -215,6 +244,9 @@ func planRelease(ctx context.Context, channel, candidate string, validateSource 
 		return releasePlan{}, fmt.Errorf("candidate %s belongs to %s, not %s", candidate, version.channel(), channel)
 	}
 	if err := validateManifestAdvancement(version, manifests); err != nil {
+		return releasePlan{}, err
+	}
+	if err := validateChangelogEntry(version); err != nil {
 		return releasePlan{}, err
 	}
 

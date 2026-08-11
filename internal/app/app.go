@@ -97,6 +97,9 @@ type App struct {
 	Prompts      *PromptsService
 	Skills       *SkillsService
 	Report       *ReportService
+	// ReleaseNotes serves the changelog embedded in this binary and remembers
+	// which version's notes the user has seen.
+	ReleaseNotes *ReleaseNotesService
 	Terminals    *TerminalsService
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
 	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
@@ -376,6 +379,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	})
 	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.System = newSystemService(cfg.Paths)
+	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
 	a.Grafana = newGrafanaService(a.grafanaAuth)

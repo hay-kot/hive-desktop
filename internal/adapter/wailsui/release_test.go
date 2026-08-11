@@ -31,6 +31,11 @@ func TestReleaseChannel(t *testing.T) {
 		{"1.2.3-rc.1", "", false},
 		{"1.2.3-beta", "", false},
 		{"1.2", "", false},
+		// The prerelease number is an integer, matching what cmd/release can
+		// actually publish — these are what the pattern used to admit.
+		{"1.2.3-dev.1a", "", false},
+		{"1.2.3-dev.1.2", "", false},
+		{"1.2.3-dev.beta", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.version, func(t *testing.T) {
