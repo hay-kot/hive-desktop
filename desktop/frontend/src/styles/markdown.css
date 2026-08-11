@@ -1,7 +1,8 @@
 /* Rendered GitHub-flavored markdown (renderGithubMarkdown output). Shared by
-   every .markdown-body surface — the feed's DetailPane and the tasks detail
-   pane — so the app's markdown reads the same everywhere; click handling for
-   the links is shared too (lib/markdownLinks.ts). */
+   every .markdown-body surface — the feed's DetailPane, the tasks detail
+   pane, and the Agents canvas pane — so the app's markdown reads the same
+   everywhere; click handling for the links is shared too
+   (lib/markdownLinks.ts). */
 .markdown-body h1, .markdown-body h2, .markdown-body h3,
 .markdown-body h4, .markdown-body h5, .markdown-body h6 {
   margin: 20px 0 8px; color: var(--color-text); font-weight: 650; line-height: 1.3;

@@ -215,6 +215,16 @@ func (ctrl *Controller) agentOperations() []Op {
 			Request: agentSessionIDRequest{}, Status: http.StatusNoContent, Handler: ctrl.AgentSessionDelete,
 			Errors: agentErrors("no such session"),
 		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "canvas", Summary: "Read one chat session's canvas: every block in order, as the agent last wrote it. A session that exists but has no canvas answers an empty canvas. Mutations have no HTTP surface — the agent writes through the hive-canvas MCP server.",
+			Request: agentCanvasRequest{}, Response: agentCanvasView{}, Handler: ctrl.AgentCanvas,
+			Errors: agentErrors("no such session"),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "canvases", Summary: "List a workspace's canvases, most recently updated first — metadata only (session id, timestamps, block count), for the canvas pane's picker. A canvas whose session record was deleted no longer exists; one whose session is merely closed still lists.",
+			Request: agentCanvasListRequest{}, Response: agentCanvasListResponse{}, Handler: ctrl.AgentCanvasList,
+			Errors: agentErrors(""),
+		},
 	}
 }
 

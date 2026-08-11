@@ -81,6 +81,22 @@ vi.mock('../../lib/agentWorkspacesClient', async (importOriginal) => ({
   createAgentWorkspacesClient: mocks.createAgentWorkspacesClient,
 }))
 
+// Captures every useWailsEvent registration (AgentsMode's dot and the canvas
+// pane's refetch both listen) so a test can fire canvas:updated by hand.
+const wailsEvents = vi.hoisted(() => ({
+  handlers: [] as Array<[string, (event: { data: unknown }) => void]>,
+  fire(name: string, data: unknown) {
+    for (const [registered, handler] of this.handlers) {
+      if (registered === name) handler({ data })
+    }
+  },
+}))
+vi.mock('../../composables/useWailsEvent', () => ({
+  useWailsEvent: (name: string, handler: (event: { data: unknown }) => void) => {
+    wailsEvents.handlers.push([name, handler])
+  },
+}))
+
 class FakeSocket {
   static OPEN = 1
   readyState = 1
@@ -136,6 +152,8 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     skillPackages: vi.fn().mockResolvedValue({ packages: [], skills: [], problem: '' }),
     revealSkillPackages: vi.fn().mockResolvedValue(undefined),
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
+    canvas: vi.fn().mockResolvedValue({ workspace: 'web-app', session: 7, createdAt: 0, updatedAt: 0, blocks: [] }),
+    canvases: vi.fn().mockResolvedValue([]),
   }
 }
 
@@ -171,6 +189,7 @@ describe('AgentsMode', () => {
     resetAgentWorkspacesForTests()
     resetAgentSessionsAllForTests()
     xterm.FakeTerminal.instances = []
+    wailsEvents.handlers = []
     globalThis.ResizeObserver = FakeResizeObserver as unknown as typeof ResizeObserver
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.Endpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
@@ -376,6 +395,62 @@ describe('AgentsMode', () => {
 
     expect(client.startSession).toHaveBeenCalledWith(expect.objectContaining({ workspace: 'api', name: 'Ship it' }))
     expect(wrapper.findComponent(NewChatDialog).exists()).toBe(false)
+  })
+
+  // The canvas is a sibling pane: opening and closing it must never re-key or
+  // unmount the terminal host — the same element survives the round trip.
+  it('keeps the terminal pane element across a canvas toggle', async () => {
+    const { wrapper, router } = await mountWithOpenChat()
+    const paneBefore = wrapper.find('[data-testid="agents-session-pane"]').element
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+    expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+    expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agents-session-pane"]').element).toBe(paneBefore)
+  })
+
+  // ?canvas names a view of the open chat, so with no chat open it renders
+  // nothing — and closing the chat takes the query along.
+  it('renders no canvas without an open chat, and drops ?canvas with the chat', async () => {
+    const { wrapper: idle } = await mountAgentsMode('/workspaces/web-app?canvas=1')
+    expect(idle.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
+
+    const { wrapper, router } = await mountWithOpenChat()
+    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBe('1')
+
+    wrapper.findComponent(AgentsSidebar).vm.$emit('close-session', { ...chatRow })
+    await flushPromises()
+
+    expect(router.currentRoute.value.query.chat).toBeUndefined()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+  })
+
+  // A write to the open chat's canvas while the pane is closed lights the dot;
+  // opening the pane is what reads it, so opening clears it.
+  it('marks the canvas toggle on a write while closed and clears it on open', async () => {
+    const { wrapper } = await mountWithOpenChat()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
+
+    wailsEvents.fire('canvas:updated', 99)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
+
+    wailsEvents.fire('canvas:updated', 7)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="agents-pane-statusbar-canvas"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
   })
 
   // An unnamed chat is still a named chat — the default is applied at launch,

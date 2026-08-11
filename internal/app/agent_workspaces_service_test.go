@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
@@ -39,12 +40,12 @@ func newTestAgentWorkspacesService(t *testing.T, root string, commands map[strin
 	require.NoError(t, awStore.Reload())
 
 	return newAgentWorkspacesService(awStore, manager, db, newTestSkillsService(t), commands, "", nil, nil,
-		func(context.Context) string { return testMCPEndpoint })
+		func(context.Context) string { return testMCPBaseURL }, canvas.NewStore(t.TempDir()))
 }
 
-// testMCPEndpoint stands in for this run's loopback MCP endpoint, which the
-// catalogue substitutes into the shipped hive-desktop entry.
-const testMCPEndpoint = "http://127.0.0.1:24917/mcp"
+// testMCPBaseURL stands in for this run's loopback base URL, which the
+// catalogue joins with each app-hosted entry's RuntimePath.
+const testMCPBaseURL = "http://127.0.0.1:24917"
 
 // liveAgentSessionCount is the test-side equivalent of the service's own
 // liveSessionCount, used to assert how many agentws-* tmux sessions a call
@@ -311,16 +312,29 @@ func TestDeleteEndsLiveTerminals(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, liveAgentSessionCount(t, svc))
 
+	canvases, isStore := svc.canvases.(*canvas.Store)
+	require.True(t, isStore)
+	_, err = canvases.Upsert("demo", s1.ID, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	require.NoError(t, err)
+	_, err = canvases.Upsert("demo", s2.ID, canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	require.NoError(t, err)
+
 	require.NoError(t, svc.DeleteSession(t.Context(), s1.ID))
 	_, ok, err := svc.db.GetAgentWorkspaceSession(t.Context(), s1.ID)
 	require.NoError(t, err)
 	assert.False(t, ok, "the record is gone too")
+	_, ok, err = canvases.Load("demo", s1.ID)
+	require.NoError(t, err)
+	assert.False(t, ok, "the session's canvas dies with its record")
 	assert.Equal(t, 1, liveAgentSessionCount(t, svc))
 
 	require.NoError(t, svc.DeleteWorkspace(t.Context(), "demo"))
 	_, ok, err = svc.db.GetAgentWorkspaceSession(t.Context(), s2.ID)
 	require.NoError(t, err)
 	assert.False(t, ok)
+	metas, err := canvases.List("demo")
+	require.NoError(t, err)
+	assert.Empty(t, metas, "the workspace's canvases go with it")
 	assert.Equal(t, 0, liveAgentSessionCount(t, svc), "every live terminal the workspace held is gone")
 }
 
@@ -690,10 +704,10 @@ func TestImportAndRemoveMCPServers(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err), "a shipped entry is disabled per workspace, never removed")
 }
 
-// The desktop's own entry ships with no URL — the loopback port is allocated
-// at startup — so the catalogue is what substitutes this run's live endpoint.
-// A workspace generated against a static placeholder would point its agent at
-// an address nothing answers.
+// The desktop's own entries ship with no URL — the loopback port is allocated
+// at startup — so the catalogue is what substitutes this run's live base
+// joined with each entry's RuntimePath. A workspace generated against a
+// static placeholder would point its agent at an address nothing answers.
 func TestCatalogueResolvesTheDesktopsOwnEndpoint(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
@@ -706,8 +720,13 @@ func TestCatalogueResolvesTheDesktopsOwnEndpoint(t *testing.T) {
 
 	require.Contains(t, byID, "hive-desktop")
 	assert.True(t, byID["hive-desktop"].Shipped)
-	assert.Equal(t, testMCPEndpoint, byID["hive-desktop"].Command)
+	assert.Equal(t, testMCPBaseURL+"/mcp", byID["hive-desktop"].Command)
 	assert.Empty(t, byID["hive-desktop"].Problem)
+
+	require.Contains(t, byID, "hive-canvas")
+	assert.True(t, byID["hive-canvas"].Shipped)
+	assert.Equal(t, testMCPBaseURL+"/mcp/canvas", byID["hive-canvas"].Command)
+	assert.Empty(t, byID["hive-canvas"].Problem)
 }
 
 // With the loopback server down there is no endpoint to resolve, and the entry
@@ -716,7 +735,7 @@ func TestCatalogueReportsAProblemWhenTheServerIsDown(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
-	svc.mcpEndpoint = func(context.Context) string { return "" }
+	svc.mcpBase = func(context.Context) string { return "" }
 
 	byID := make(map[string]MCPCatalogueItem)
 	for _, item := range svc.MCPCatalogue(t.Context()) {
@@ -777,7 +796,7 @@ func TestGeneratedMCPConfigCarriesTheLiveEndpoint(t *testing.T) {
 
 	generated, err := os.ReadFile(filepath.Join(root, "demo", ".mcp.json"))
 	require.NoError(t, err)
-	assert.Contains(t, string(generated), testMCPEndpoint)
+	assert.Contains(t, string(generated), testMCPBaseURL+"/mcp")
 }
 
 func TestOpenWorkspaceInEditor(t *testing.T) {

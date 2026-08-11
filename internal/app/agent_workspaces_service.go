@@ -77,28 +77,38 @@ type AgentWorkspacesService struct {
 	// so a settings change applies without restarting. Empty means none
 	// configured.
 	editorCommand func(context.Context) (string, error)
-	// mcpEndpoint reads this run's own MCP endpoint URL, empty when the
-	// loopback server is down. Read per call rather than captured, because the
-	// listener's port is not known when this service is built and can change
-	// if it rebinds.
-	mcpEndpoint func(context.Context) string
+	// mcpBase reads this run's own loopback base URL, empty when the server
+	// is down. Read per call rather than captured, because the listener's
+	// port is not known when this service is built and can change if it
+	// rebinds.
+	mcpBase  func(context.Context) string
+	canvases canvasDeleter
 }
 
-func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpEndpoint func(context.Context) string) *AgentWorkspacesService {
-	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpEndpoint: mcpEndpoint}
+func newAgentWorkspacesService(store *agentws.Store, terminals *tmuxcc.Manager, db *store.DB, skills *SkillsService, commands map[string]string, rootProblem string, execEnv *execenv.Resolver, editorCommand func(context.Context) (string, error), mcpBase func(context.Context) string, canvases canvasDeleter) *AgentWorkspacesService {
+	return &AgentWorkspacesService{store: store, terminals: terminals, db: db, skills: skills, commands: commands, rootProblem: rootProblem, execEnv: execEnv, editorCommand: editorCommand, mcpBase: mcpBase, canvases: canvases}
 }
 
-// catalogue is the merged catalogue with this install's own entry resolved.
-// mcpcatalog ships hive-desktop carrying no URL, because the loopback port is
-// allocated at startup (Descriptor.RuntimeURL), so the live endpoint is
-// substituted here — and an entry that cannot be resolved reports why rather
-// than rendering an address nothing answers, the same posture problemFor takes
-// for a command that is not on PATH.
+// canvasDeleter is the slice of the canvas store session/workspace deletion
+// rides on: a chat's canvas dies with its record, so the delete happens
+// inside the operation rather than beside it.
+type canvasDeleter interface {
+	DeleteSession(workspace string, session int64) error
+	DeleteWorkspace(workspace string) error
+}
+
+// catalogue is the merged catalogue with this install's own entries resolved.
+// mcpcatalog ships its app-hosted entries carrying no URL, because the
+// loopback port is allocated at startup (Descriptor.RuntimeURL), so the live
+// base joined with each entry's RuntimePath is substituted here — and an
+// entry that cannot be resolved reports why rather than rendering an address
+// nothing answers, the same posture problemFor takes for a command that is
+// not on PATH.
 func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.CatalogueEntry {
 	entries := agentws.Catalogue(ctx, s.store.Library().Library, s.lookPath())
-	endpoint := ""
-	if s.mcpEndpoint != nil {
-		endpoint = s.mcpEndpoint(ctx)
+	base := ""
+	if s.mcpBase != nil {
+		base = s.mcpBase(ctx)
 	}
 	for i, entry := range entries {
 		descriptor, ok := mcpcatalog.Lookup(entry.ID)
@@ -107,11 +117,11 @@ func (s *AgentWorkspacesService) catalogue(ctx context.Context) []agentws.Catalo
 		if !ok || !entry.Shipped || !descriptor.RuntimeURL {
 			continue
 		}
-		if endpoint == "" {
+		if base == "" {
 			entries[i].Problem = "the local HTTP server is not running; set http.enabled in settings.yaml"
 			continue
 		}
-		entries[i].Server.URL = endpoint
+		entries[i].Server.URL = base + descriptor.RuntimePath
 	}
 	return entries
 }
@@ -535,6 +545,13 @@ func (s *AgentWorkspacesService) DeleteSession(ctx context.Context, id int64) er
 	if _, err := s.terminals.KillSession(ctx, sessionName(rec.ID)); err != nil {
 		return terminalError(err, "closing session %q", rec.Name)
 	}
+	// Canvas before record: a failure here keeps the record, which beats an
+	// orphaned canvas the workspace listing would show as a dated ghost.
+	if s.canvases != nil {
+		if err := s.canvases.DeleteSession(rec.Workspace, rec.ID); err != nil {
+			return Wrap(err, KindInternal, "deleting canvas for session %q", rec.Name)
+		}
+	}
 	if err := s.db.DeleteAgentWorkspaceSession(ctx, id); err != nil {
 		return Wrap(err, KindInternal, "deleting session %q", rec.Name)
 	}
@@ -559,6 +576,11 @@ func (s *AgentWorkspacesService) DeleteWorkspace(ctx context.Context, dir string
 	}
 	if err := s.db.DeleteAgentWorkspaceSessionsByWorkspace(ctx, dir); err != nil {
 		return Wrap(err, KindInternal, "deleting sessions for workspace %q", dir)
+	}
+	if s.canvases != nil {
+		if err := s.canvases.DeleteWorkspace(dir); err != nil {
+			return Wrap(err, KindInternal, "deleting canvases for workspace %q", dir)
+		}
 	}
 	return nil
 }
@@ -977,7 +999,14 @@ func (s *AgentWorkspacesService) launchTerminal(ctx context.Context, rec store.A
 	}
 
 	name := sessionName(rec.ID)
-	if err := s.terminals.NewSession(ctx, name, dir, line); err != nil {
+	// The record id is the canvas tools' session argument; handing it to the
+	// process at launch is what lets the agent name its own chat without
+	// guessing (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry).
+	env := []string{
+		fmt.Sprintf("HIVE_AGENT_SESSION=%d", rec.ID),
+		"HIVE_AGENT_WORKSPACE=" + dir,
+	}
+	if err := s.terminals.NewSession(ctx, name, dir, line, env); err != nil {
 		return SessionView{}, terminalError(err, "launching session %q", rec.Name)
 	}
 

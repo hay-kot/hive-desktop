@@ -177,6 +177,35 @@ export interface MissingSkillPackage {
   selectedBy: string[]
 }
 
+/** One block on a chat's canvas; kind decides which content field is set. */
+export interface CanvasBlock {
+  id: string
+  kind: 'markdown' | 'link' | string
+  title: string
+  body: string
+  url: string
+  createdAt: number
+  updatedAt: number
+}
+
+/** One chat session's canvas, blocks in display order. */
+export interface ChatCanvas {
+  workspace: string
+  session: number
+  createdAt: number
+  updatedAt: number
+  blocks: CanvasBlock[]
+}
+
+/** One row of a workspace's canvas listing — metadata only, for the picker. */
+export interface ChatCanvasMeta {
+  workspace: string
+  session: number
+  createdAt: number
+  updatedAt: number
+  blockCount: number
+}
+
 export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
@@ -243,6 +272,10 @@ export interface AgentWorkspacesClient {
   resumeSession(request: ResumeSessionRequest): Promise<AgentSession>
   closeSession(id: number): Promise<{ closed: boolean }>
   deleteSession(id: number): Promise<void>
+  /** One chat session's canvas; a session with no canvas answers empty, an unknown session rejects. */
+  canvas(session: number): Promise<ChatCanvas>
+  /** A workspace's canvases, most recently updated first — metadata only. */
+  canvases(workspace: string): Promise<ChatCanvasMeta[]>
   /** The shared tmux stream a session's terminalId addresses (ADR agent-workspace-sessions-are-tmux-sessions). */
   openStream(name: string): WebSocket
 }
@@ -363,6 +396,15 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async deleteSession(id) {
       await post('/sessions/delete', { id })
+    },
+    async canvas(session) {
+      const body = await post<ChatCanvas>('/canvas', { session })
+      if (!body) throw new AgentRequestError('the canvas could not be read', '')
+      return { ...body, blocks: body.blocks ?? [] }
+    },
+    async canvases(workspace) {
+      const body = await post<{ canvases: ChatCanvasMeta[] | null }>('/canvases', { workspace })
+      return body?.canvases ?? []
     },
     openStream,
   }

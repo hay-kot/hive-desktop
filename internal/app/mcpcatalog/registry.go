@@ -24,6 +24,20 @@ var registry = map[string]Descriptor{
 		Stability:   StabilityBeta,
 		Server:      Server{Transport: TransportHttp},
 		RuntimeURL:  true,
+		RuntimePath: "/mcp",
+	},
+	// The desktop's canvas server (ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry): the surface an agent
+	// puts content in front of the user through. Its own entry rather than
+	// more hive-desktop tools, so a workspace can have a canvas without
+	// granting the app-control surface — and vice versa.
+	"hive-canvas": {
+		Type:        "hive-canvas",
+		Title:       "Hive Canvas",
+		Description: "A canvas beside this chat: put markdown and link blocks in front of the user in the Agents area while the conversation keeps running.",
+		Stability:   StabilityExperimental,
+		Server:      Server{Transport: TransportHttp},
+		RuntimeURL:  true,
+		RuntimePath: "/mcp/canvas",
 	},
 	"chrome-devtools": {
 		Type:        "chrome-devtools",

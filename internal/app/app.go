@@ -16,6 +16,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/agentws"
+	"github.com/hay-kot/hive-desktop/internal/app/canvas"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
 	"github.com/hay-kot/hive-desktop/internal/app/events"
@@ -112,6 +113,7 @@ type App struct {
 	PopupTerminals  *PopupTerminalsService
 	AgentWorkspaces *AgentWorkspacesService
 	Tasks           *TasksService
+	Canvas          *CanvasService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -419,7 +421,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
-	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpEndpoint)
+	canvasStore := canvas.NewStore(filepath.Join(cfg.Paths.StateDir, "canvases"))
+	a.Canvas = newCanvasService(canvasStore, a.Store, func(workspace string, session int64) {
+		a.Events.Publish(a.ctx, events.CanvasUpdated{Workspace: workspace, Session: session})
+	})
+	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL, canvasStore)
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
 	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
 	// Tasks answering KindUnavailable instead.
@@ -547,12 +553,13 @@ func (a *App) Start(ctx context.Context) error {
 // RuntimePaths returns the immutable location snapshot used by this process.
 func (a *App) RuntimePaths() settings.Paths { return a.paths }
 
-// mcpEndpoint reports this run's own MCP endpoint URL, or empty when the
-// loopback server is not running. It is what lets a workspace declare
-// hive-desktop in its mcps: list and get an address that actually answers —
-// mcpcatalog ships that entry with no URL, because the port is allocated at
-// startup (ADR mcp-replaces-the-agent-facing-http-api).
-func (a *App) mcpEndpoint(ctx context.Context) string {
+// mcpBaseURL reports this run's own loopback base URL, or empty when the
+// server is not running. It is what lets a workspace declare an app-hosted
+// entry (hive-desktop, hive-canvas) in its mcps: list and get an address that
+// actually answers — mcpcatalog ships those entries with no URL, because the
+// port is allocated at startup, and the catalogue joins this base with each
+// entry's RuntimePath (ADR mcp-replaces-the-agent-facing-http-api).
+func (a *App) mcpBaseURL(ctx context.Context) string {
 	if a.Webhooks == nil {
 		return ""
 	}
@@ -560,7 +567,7 @@ func (a *App) mcpEndpoint(ctx context.Context) string {
 	if !running || port == 0 {
 		return ""
 	}
-	return MCPEndpointAt(a.Webhooks.Host(), port)
+	return HTTPBaseURLAt(a.Webhooks.Host(), port)
 }
 
 // HiveConn exposes the connection to the vendored Hive action database

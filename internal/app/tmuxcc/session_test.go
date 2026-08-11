@@ -58,7 +58,7 @@ func TestManagerNewSessionCreatesADetachedSession(t *testing.T) {
 	cmds := &fakeSessionCommands{}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude --resume 'abc'"))
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude --resume 'abc'", nil))
 	require.Equal(t, [][]string{
 		{"has-session", "-t", "agentws-1"},
 		{"new-session", "-d", "-s", "agentws-1", "-c", "/work/dir", "--", resolveLoginShell(), "-l", "-c", "claude --resume 'abc'"},
@@ -71,7 +71,7 @@ func TestManagerNewSessionOpensAnInteractiveShellForAnEmptyCommand(t *testing.T)
 	cmds := &fakeSessionCommands{}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", ""))
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "", nil))
 	require.Equal(t, [][]string{
 		{"has-session", "-t", "agentws-1"},
 		{"new-session", "-d", "-s", "agentws-1", "-c", "/work/dir", "--", resolveLoginShell(), "-l"},
@@ -92,11 +92,29 @@ func TestManagerNewSessionRunsWithTheResolvedEnvironment(t *testing.T) {
 		Environ: func(context.Context) []string { return resolved },
 	})
 
-	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude"))
+	require.NoError(t, m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude", nil))
 	require.Len(t, cmds.envs, 2)
 	for _, env := range cmds.envs {
 		require.Equal(t, resolved, env)
 	}
+}
+
+func TestManagerNewSessionSetsSessionEnvironment(t *testing.T) {
+	t.Parallel()
+
+	cmds := &fakeSessionCommands{}
+	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
+
+	env := []string{"HIVE_AGENT_SESSION=7", "HIVE_AGENT_WORKSPACE=/work/dir"}
+	require.NoError(t, m.NewSession(t.Context(), "agentws-7", "/work/dir", "claude", env))
+	require.Equal(t, [][]string{
+		{"has-session", "-t", "agentws-7"},
+		{
+			"new-session", "-d", "-s", "agentws-7", "-c", "/work/dir",
+			"-e", "HIVE_AGENT_SESSION=7", "-e", "HIVE_AGENT_WORKSPACE=/work/dir",
+			"--", resolveLoginShell(), "-l", "-c", "claude",
+		},
+	}, cmds.calls)
 }
 
 func TestManagerNewSessionRejectsAnExistingName(t *testing.T) {
@@ -105,7 +123,7 @@ func TestManagerNewSessionRejectsAnExistingName(t *testing.T) {
 	cmds := &fakeSessionCommands{present: map[string]bool{"agentws-1": true}}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	err := m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude")
+	err := m.NewSession(t.Context(), "agentws-1", "/work/dir", "claude", nil)
 	require.ErrorIs(t, err, ErrSessionExists)
 }
 
@@ -115,7 +133,7 @@ func TestManagerNewSessionRejectsAnEmptyName(t *testing.T) {
 	cmds := &fakeSessionCommands{}
 	m := newTestManager(t, nil, ManagerOptions{runTmux: cmds.run})
 
-	err := m.NewSession(t.Context(), "", "/work/dir", "claude")
+	err := m.NewSession(t.Context(), "", "/work/dir", "claude", nil)
 	require.ErrorIs(t, err, ErrInvalidName)
 	require.Empty(t, cmds.calls, "an invalid name is rejected before any tmux call")
 }

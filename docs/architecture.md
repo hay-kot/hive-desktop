@@ -1538,6 +1538,21 @@ alongside whatever the user's own global codex config already has, and the UI
 states that rather than leaving an unbounded tool set looking identical to a
 bounded one.
 
+Each chat session may have a **canvas** — agent-written markdown and link
+blocks shown in a pane beside the conversation
+(ADR the-canvas-is-a-per-chat-file-served-over-its-own-mcp-entry). Content is
+one JSON file per session under `<StateDir>/canvases/<workspace>/`, owned by
+`internal/app/canvas` and served by `CanvasService`, which resolves every
+call through the session record — the record is the authority on the
+workspace, and its deletion deletes the canvas. Writes exist only as the
+`hive-canvas` MCP tools (a second app-hosted server in `mcpsrv`, mounted at
+`/mcp/canvas`); the frontend reads over the agents HTTP client and re-reads
+on the coalesced `canvas:updated` wake-up. The agent learns its own session
+id from `HIVE_AGENT_SESSION`, injected at launch via `tmux new-session -e`.
+An app-hosted catalogue entry declares its mount as `Descriptor.RuntimePath`,
+joined with the live loopback base when the catalogue is rendered; a pinning
+test in `mcpsrv` keeps those paths agreeing with the adapter's constants.
+
 `agentws.Watcher` follows the tree's own shape rather than `ActionsWatcher`'s
 or `FlowsWatcher`'s flat one: fsnotify is not recursive and the tree is
 nested, so it maintains a watch at two levels — one on the root itself (which

@@ -45,6 +45,14 @@ type ActionsUpdated struct{ Count int }
 // AgentWorkspacesUpdated reports that the workspace set was reloaded.
 type AgentWorkspacesUpdated struct{ Count int }
 
+// CanvasUpdated reports that one chat session's canvas changed — a block was
+// put or removed, or the canvas cleared. The content itself is stored state a
+// reader re-reads; the payload names which canvas.
+type CanvasUpdated struct {
+	Workspace string
+	Session   int64
+}
+
 // ConnectionUpdated reports that one provider's stored credentials changed —
 // connected, rotated, or disconnected. Provider names which ("github"), so a
 // consumer can ignore a provider it does not use; the new state is not in the
@@ -74,5 +82,6 @@ func (JobsUpdated) eventName() string            { return "jobs.updated" }
 func (FlowsUpdated) eventName() string           { return "flows.updated" }
 func (ActionsUpdated) eventName() string         { return "actions.updated" }
 func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }
+func (CanvasUpdated) eventName() string          { return "canvas.updated" }
 func (ConnectionUpdated) eventName() string      { return "connection.updated" }
 func (NotificationRaised) eventName() string     { return "notification.raised" }
