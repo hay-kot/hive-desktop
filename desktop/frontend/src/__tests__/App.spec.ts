@@ -160,6 +160,18 @@ vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui
 }))
 
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({ Focused: mocks.Focused }))
+// App starts the app-wide frame sampler at boot when the developer tools are
+// enabled, which they are in a Vite build. Stubbed here: its rAF loop and the
+// perf spans it records for long frames are not this file's subject.
+vi.mock('../composables/useFrameStats', async () => {
+  const { shallowRef } = await vi.importActual<typeof import('vue')>('vue')
+  const stats = shallowRef({ fps: 0, frameMs: 0, worstFrameMs: 0, dropped: 0, windowMs: 10_000, lagMs: 0, worstLagMs: 0, buckets: [] })
+  return {
+    startFrameStats: vi.fn(),
+    stopFrameStats: vi.fn(),
+    useFrameStats: () => ({ stats, running: shallowRef(false) }),
+  }
+})
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,
@@ -300,7 +312,7 @@ describe('App', () => {
     mocks.SetFlowEnabled.mockImplementation(async (id: string, enabled: boolean) => ({ id, name: 'Personal', enabled, valid: true }))
     mocks.DeleteFlow.mockResolvedValue(undefined)
     mocks.On.mockReturnValue(() => {})
-    mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: false, currentVersion: 'dev', latestVersion: '', notes: '', releaseUrl: '' })
+    mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: false, currentVersion: 'dev', latestVersion: '', notes: '' })
     mocks.InstallUpdate.mockResolvedValue(undefined)
     mocks.NotificationSettings.mockResolvedValue({ notificationsEnabled: true, systemNotificationsEnabled: true, notificationSound: true })
     mocks.SetNotificationSettings.mockResolvedValue(undefined)
@@ -454,7 +466,7 @@ describe('App', () => {
   })
 
   it('confirms updates in-app and shows install failures', async () => {
-    mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: true, currentVersion: '1.2.0', latestVersion: '1.3.0', notes: '', releaseUrl: '' })
+    mocks.UpdaterStatus.mockResolvedValue({ enabled: true, available: true, currentVersion: '1.2.0', latestVersion: '1.3.0', notes: '' })
     mocks.InstallUpdate.mockRejectedValue(new Error('checksum mismatch'))
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     const wrapper = await mountApp()

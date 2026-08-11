@@ -185,6 +185,40 @@ query API by design.
 The **ui-perf** skill carries the full loop: confirming the gate, the naming
 rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
 
+### Reading what the app costs
+
+The developer-tools pane (`/dev`, "Open developer tools" in the palette) polls
+`internal/app/procstats`: resident memory and CPU for the app **and the process
+tree below it** (a terminal's shell, an agent), plus goroutines, heap, GC, and a
+measured Wails round trip. RSS is what the OS charges for and `runtime.MemStats`
+cannot report it at all, which is what gopsutil is there for. Spans answer "why
+was that click slow"; this answers "what is this build costing, and is it
+growing".
+
+Frame rate, dropped frames and event-loop lag come from `useFrameStats`, which
+**starts at boot, not when the pane opens** — the jank worth catching happens in
+the terminal or a long feed, so a sampler scoped to the pane would only measure
+the pane. Go make something stutter, then open `/dev` and read the last ten
+seconds. Frames past twice the display period and lag past 50ms are also
+recorded as `ui` spans, so `perf.jsonl` keeps history beyond that window. The
+sampler pauses while the window is occluded, since `requestAnimationFrame`
+stops there and the gap is the OS declining to draw, not a stall.
+
+Two things WebKit does not give us, so do not go looking: `longtask` /
+`long-animation-frame` observers (Chromium-only, so no attribution of *which*
+task blocked) and `performance.memory` (no JS heap size to sit beside the Go
+heap). `performance.now()` is also clamped to ~1ms, which is why the round-trip
+figures are timed in batches rather than per call.
+
+The webview is **not** in that total: on macOS the WebKit processes are XPC
+services parented to launchd, not children of the app, so they cannot be
+attributed without a private API. The pane states this rather than
+under-reporting silently.
+
+Set `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED=1` to open it on a signed build,
+which is the one worth measuring (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting); a Vite dev build
+always has it.
+
 ## Testing
 
 - **Unit** (`mise run test:desktop`): Go logic (`go test ./desktop/...
@@ -297,6 +331,7 @@ more expensive, which is the whole reason it is being done now.
     wails: {host: 127.0.0.1, port: 0}
     pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
     perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl); `dev` turns it on
+    devtools: {enabled: false} # makes the developer-tools pane reachable outside a Vite build (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting)
     debug: {pause_ingest: 0s, pause_commit: 0s}
   ```
 
@@ -410,6 +445,7 @@ persisted by UI writes.
 | `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
 | `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR pprof-debug-endpoint); off by default, needs `http.enabled` |
 | `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl). Off by default; `launch.env` sets it so `dev` records |
+| `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED` | Make the developer-tools pane (runtime metrics, Wails round-trip, notification tests) reachable in a build Vite did not serve (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting). Off by default; a Vite dev build always has it. Opened from the command palette |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
 | `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
 | `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |

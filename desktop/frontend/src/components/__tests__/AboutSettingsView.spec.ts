@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   SetEnabled: vi.fn(),
   CheckNow: vi.fn(),
   OpenURL: vi.fn(),
+  SetText: vi.fn(),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice', () => ({
   Build: mocks.Build,
@@ -19,6 +20,7 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
 }))
 vi.mock('@wailsio/runtime', () => ({
   Browser: { OpenURL: mocks.OpenURL },
+  Clipboard: { SetText: mocks.SetText },
 }))
 
 function updateInfo(overrides: Record<string, unknown> = {}) {
@@ -28,7 +30,7 @@ function updateInfo(overrides: Record<string, unknown> = {}) {
     currentVersion: '1.4.0',
     latestVersion: '',
     notes: '',
-    releaseUrl: '',
+    checkedAt: '',
     ...overrides,
   }
 }
@@ -38,8 +40,10 @@ function buildInfo(overrides: Record<string, unknown> = {}) {
     version: '1.4.0',
     commit: 'abc1234',
     date: '2026-07-01T12:00:00Z',
-    repoUrl: 'https://github.com/hay-kot/hive-desktop',
-    releaseUrl: 'https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0',
+    channel: 'stable',
+    os: 'darwin',
+    arch: 'arm64',
+    goVersion: 'go1.24.2',
     ...overrides,
   }
 }
@@ -50,33 +54,55 @@ beforeEach(() => {
   mocks.Status.mockResolvedValue(updateInfo())
   mocks.SetEnabled.mockResolvedValue(undefined)
   mocks.CheckNow.mockResolvedValue(updateInfo())
+  mocks.OpenURL.mockResolvedValue(undefined)
+  mocks.SetText.mockResolvedValue(undefined)
 })
 
 describe('AboutSettingsView', () => {
-  it('renders the build info and links to the repo and GitHub release', async () => {
-    mocks.OpenURL.mockResolvedValue(undefined)
+  it('renders a card per build fact', async () => {
     const wrapper = mount(AboutSettingsView)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="about-build-version"]').text()).toBe('1.4.0')
     expect(wrapper.find('[data-testid="about-build-commit"]').text()).toBe('abc1234')
-    expect(wrapper.find('[data-testid="about-build-date"]').text()).toBe('2026-07-01T12:00:00Z')
-
-    await wrapper.find('[data-testid="about-build-repo"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop')
-
-    await wrapper.find('[data-testid="about-build-release"]').trigger('click')
-    expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive-desktop/releases/tag/desktop-v1.4.0')
+    expect(wrapper.find('[data-testid="about-build-date"]').text()).toContain('2026')
+    expect(wrapper.find('[data-testid="about-build-platform"]').text()).toBe('macOS · arm64')
+    expect(wrapper.find('[data-testid="about-stat-platform"]').text()).toContain('go1.24.2')
   })
 
-  it('keeps the repo link but hides the release link for dev builds', async () => {
-    mocks.Build.mockResolvedValue(buildInfo({ version: 'dev', releaseUrl: '' }))
+  // The source repository is private, so a commit, tag or release page is a
+  // 404 for everyone but its author. Only the product site is linkable.
+  it('offers no link into the source repository', async () => {
+    const wrapper = mount(AboutSettingsView)
+    await flushPromises()
+
+    expect(wrapper.html()).not.toContain('github.com')
+
+    await wrapper.find('[data-testid="about-link-docs"]').trigger('click')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/docs')
+
+    await wrapper.find('[data-testid="about-link-updates"]').trigger('click')
+    expect(mocks.OpenURL).toHaveBeenCalledWith('https://hivedesktop.com/docs/help/updates')
+  })
+
+  it('reads a build with no published release as one that cannot self-update', async () => {
+    mocks.Build.mockResolvedValue(buildInfo({ version: 'dev', commit: 'HEAD', channel: '' }))
     const wrapper = mount(AboutSettingsView)
     await flushPromises()
 
     expect(wrapper.find('[data-testid="about-build-version"]').text()).toBe('dev')
-    expect(wrapper.find('[data-testid="about-build-repo"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="about-build-release"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="about-stat-commit"]').text()).toContain('Not stamped')
+    expect(wrapper.find('[data-testid="about-update-status"]').text()).toBe('Unreleased build')
+  })
+
+  it('copies the build as a summary worth pasting into an issue', async () => {
+    const wrapper = mount(AboutSettingsView)
+    await flushPromises()
+
+    await wrapper.find('[data-testid="about-copy-build"]').trigger('click')
+    expect(mocks.SetText).toHaveBeenCalledWith(
+      'Hive Desktop 1.4.0 (stable)\nCommit abc1234 · built 2026-07-01T12:00:00Z\ndarwin/arm64 · go1.24.2',
+    )
   })
 
   it('toggles automatic updates through the service', async () => {
@@ -89,7 +115,7 @@ describe('AboutSettingsView', () => {
   })
 
   it('checks for updates and shows an available result inline', async () => {
-    mocks.CheckNow.mockResolvedValue(updateInfo({ available: true, latestVersion: '1.5.0' }))
+    mocks.CheckNow.mockResolvedValue(updateInfo({ available: true, latestVersion: '1.5.0', notes: 'Faster feed rendering.' }))
     const wrapper = mount(AboutSettingsView)
     await flushPromises()
 
@@ -97,16 +123,18 @@ describe('AboutSettingsView', () => {
     await flushPromises()
     expect(mocks.CheckNow).toHaveBeenCalled()
     expect(wrapper.find('[data-testid="about-update-available"]').text()).toContain('1.5.0')
+    expect(wrapper.find('[data-testid="about-update-notes"]').text()).toBe('Faster feed rendering.')
+    expect(wrapper.find('[data-testid="about-update-status"]').text()).toBe('Update available')
   })
 
-  it('shows up to date after a check finds nothing', async () => {
-    mocks.CheckNow.mockResolvedValue(updateInfo({ available: false }))
+  it('reports when the last check landed, background polls included', async () => {
+    const checkedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+    mocks.Status.mockResolvedValue(updateInfo({ checkedAt }))
     const wrapper = mount(AboutSettingsView)
     await flushPromises()
 
-    await wrapper.find('[data-testid="about-check-update"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.find('[data-testid="about-update-uptodate"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="about-update-status"]').text()).toBe('Up to date')
+    expect(wrapper.find('[data-testid="about-update-checked"]').text()).toBe('Checked 5 minutes ago.')
   })
 
   it('restores the switch when persisting automatic updates fails', async () => {

@@ -3,6 +3,7 @@ package wailsui
 import (
 	"context"
 	"errors"
+	"runtime"
 
 	"github.com/hay-kot/hive-desktop/internal/app"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -23,14 +24,17 @@ type SystemService struct {
 // NewSystemService constructs the service over the core's system service and
 // the running binary's build info.
 func NewSystemService(system *app.SystemService, version, commit, date string) *SystemService {
+	channel, _ := ReleaseChannel(version)
 	return &SystemService{
 		system: system,
 		build: BuildInfo{
-			Version:    version,
-			Commit:     ShortCommit(commit),
-			Date:       date,
-			RepoURL:    RepoURL(),
-			ReleaseURL: ReleaseURL(version),
+			Version:   version,
+			Commit:    ShortCommit(commit),
+			Date:      date,
+			Channel:   channel,
+			OS:        runtime.GOOS,
+			Arch:      runtime.GOARCH,
+			GoVersion: runtime.Version(),
 		},
 	}
 }
@@ -82,12 +86,18 @@ type BuildInfo struct {
 	// Commit is the short (7-character) git revision the build was cut from.
 	Commit string `json:"commit"`
 	Date   string `json:"date"`
-	// RepoURL links to the project's GitHub repository. Always populated.
-	RepoURL string `json:"repoUrl"`
-	// ReleaseURL links to the GitHub release for this build's tag. It is empty
-	// for dev/unreleased builds that have no matching published release, so the
-	// frontend can hide the link rather than send users to a 404.
-	ReleaseURL string `json:"releaseUrl"`
+	// Channel is the release channel this version belongs to (stable, beta,
+	// dev). Empty marks an unreleased build — which is also when the updater
+	// engine is absent, so the About screen reads it as "self-update is off
+	// for this build" rather than showing an update state it cannot reach.
+	Channel string `json:"channel"`
+	// OS and Arch are the Go build target this binary was compiled for, and
+	// GoVersion the toolchain that compiled it — the same facts the problem
+	// reporter attaches, shown so they can be read (and quoted) without
+	// generating a bundle.
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	GoVersion string `json:"goVersion"`
 }
 
 // Build returns the version, commit, and date this desktop app was built from.

@@ -101,6 +101,9 @@ type App struct {
 	// Perf records UI spans to a JSONL file when development.perf.enabled is
 	// on. Always non-nil; a disabled recorder is a no-op (ADR ui-performance-spans-are-recorded-to-jsonl).
 	Perf *PerfService
+	// DevTools samples what the install costs the machine, for the in-app
+	// developer tools (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting).
+	DevTools *DevToolsService
 
 	PopupTerminals  *PopupTerminalsService
 	AgentWorkspaces *AgentWorkspacesService
@@ -388,6 +391,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore)
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
+	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpEndpoint)

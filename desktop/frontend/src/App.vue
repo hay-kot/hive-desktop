@@ -3,6 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { Events, Window } from '@wailsio/runtime'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
+import IconGauge from '~icons/lucide/gauge'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import IconList from '~icons/lucide/list'
 import IconPalette from '~icons/lucide/palette'
@@ -38,6 +39,8 @@ import { useFeedState } from './composables/useFeedState'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
+import { useDevTools } from './composables/useDevTools'
+import { startFrameStats } from './composables/useFrameStats'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
 import { sessionRepository } from './composables/useTerminalSessions'
@@ -63,12 +66,15 @@ import {
 import type { SidebarSelection } from './types/feed'
 import { kind } from './lib/itemPresentation'
 
-// Only true when Vite is serving in dev mode (under `wails3 dev`). Keeping
-// these imports inside this compile-time conditional prevents developer tools
-// and their notification implementation from shipping in production bundles.
+// Only true when Vite is serving in dev mode (under `wails3 dev`). The dev
+// strip is that build's own chrome and never ships; the developer tools behind
+// it can also be turned on in a shipped build, where the numbers they report
+// are the ones that matter (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting), so their chunk is defined
+// unconditionally and simply never fetched unless the pane opens.
 const devMode = import.meta.env.DEV
 const DevBar = devMode ? defineAsyncComponent(() => import('./components/DevBar.vue')) : null
-const DevView = devMode ? defineAsyncComponent(() => import('./components/DevView.vue')) : null
+const DevView = defineAsyncComponent(() => import('./components/DevView.vue'))
+const { enabled: devToolsEnabled, resolve: resolveDevTools } = useDevTools()
 
 // Async so xterm.js stays out of the initial bundle: terminal mode is opt-in
 // and the hub must not pay for it at startup. Mounted only once the mode is
@@ -150,7 +156,7 @@ const router = useRouter()
 const route = useRoute()
 const flowsActive = computed(() => route.name === 'flows')
 const activityActive = computed(() => route.name === 'activity')
-const devActive = computed(() => devMode && route.name === 'dev')
+const devActive = computed(() => devToolsEnabled.value && route.name === 'dev')
 const applicationSettingsActive = computed(() => route.name === 'application-settings')
 const profileSettingsActive = computed(() => route.name === 'profile-settings')
 // Resolved against router.ts's section lists rather than a whitelist repeated
@@ -498,6 +504,18 @@ function toastSeverity(severity: string): 'info' | 'success' | 'warning' | 'erro
   return known.includes(severity as (typeof known)[number]) ? severity as (typeof known)[number] : 'info'
 }
 onMounted(() => {
+  // /dev is a real route in every build, so a shipped one that was not asked to
+  // expose the tools sends it back to the feed once the gate answers. The frame
+  // sampler starts with it rather than with the pane: the jank worth catching
+  // happens in the terminal or a long feed, so a sampler scoped to the pane
+  // would only ever measure the pane.
+  void resolveDevTools().then((allowed) => {
+    if (!allowed) {
+      if (route.name === 'dev') void router.push({ name: 'feed' })
+      return
+    }
+    startFrameStats()
+  })
   // The Go flow engine commits before it announces, so this is the moment
   // membership claims and inbox items are readable — not log:appended, which
   // only says a source observed something that may route nowhere at all.
@@ -989,6 +1007,19 @@ useCommands(computed(() => {
     run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
   })
 
+  // The palette is the only way in outside a Vite build, where the dev strip
+  // carries the link.
+  if (devToolsEnabled.value) {
+    cmds.push({
+      id: 'dev:open',
+      title: 'Open developer tools',
+      group: 'View',
+      keywords: ['runtime', 'performance', 'memory', 'cpu', 'diagnostics'],
+      icon: IconGauge,
+      run: () => { void router.push({ name: 'dev' }) },
+    })
+  }
+
   // Jump to any node in the active flow by name (8d) — opens the canvas
   // focused/centered on that node, same as "Reveal in flow" from the sidebar.
   for (const node of session.activeFlow.value?.nodes ?? []) {
@@ -1221,7 +1252,7 @@ onUnmounted(() => {
           @add="openNewProfile"
           @open-settings="requestOpenSettings('application')"
         />
-        <DevView v-if="devMode && devActive" @close="closeSettings" />
+        <DevView v-if="devActive" @close="closeSettings" />
         <SettingsView
           v-else-if="applicationSettingsActive"
           :active-category="applicationSettingsSection"

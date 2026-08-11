@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Browser } from '@wailsio/runtime'
 import { Build } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/systemservice'
 import {
@@ -8,22 +8,30 @@ import {
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/updaterservice'
 import type { BuildInfo, UpdateInfo } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/models'
 
+// The product site is the only public surface: the source repository is
+// private, so there is no commit, tag or release page to send anyone to.
+const docsURL = 'https://hivedesktop.com/docs'
+const updatesDocURL = 'https://hivedesktop.com/docs/help/updates'
+
 function errText(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
 // useAboutSettings drives the About pane: which build is running, where it came
 // from, and the auto-update controls that replace it. autoUpdate mirrors the
-// persisted toggle; update holds the last check result so the pane can render
-// "up to date" / "vX available" inline, and checkedOnce distinguishes "never
-// checked" from an up-to-date answer.
+// persisted toggle; update holds the last check result, whose checkedAt covers
+// background poll ticks as well as manual checks, so the pane can say when the
+// app last looked without the user pressing anything.
 export function useAboutSettings() {
   const build = ref<BuildInfo | null>(null)
   const update = ref<UpdateInfo | null>(null)
   const autoUpdate = ref(true)
   const checking = ref(false)
-  const checkedOnce = ref(false)
   const error = ref('')
+
+  // Empty on a build with no published release — a source build reports no
+  // channel, and that is also when the updater engine is absent.
+  const released = computed(() => (build.value?.channel ?? '') !== '')
 
   async function refresh(): Promise<void> {
     error.value = ''
@@ -57,7 +65,6 @@ export function useAboutSettings() {
     error.value = ''
     try {
       update.value = await CheckNow()
-      checkedOnce.value = true
     } catch (err) {
       error.value = errText(err)
     } finally {
@@ -65,10 +72,7 @@ export function useAboutSettings() {
     }
   }
 
-  // Guarded by a non-empty url — dev builds have no releaseUrl, so the pane
-  // only wires a link when there is somewhere to go.
-  async function openExternal(url: string | undefined): Promise<void> {
-    if (!url) return
+  async function openExternal(url: string): Promise<void> {
     error.value = ''
     try {
       await Browser.OpenURL(url)
@@ -82,12 +86,12 @@ export function useAboutSettings() {
     update,
     autoUpdate,
     checking,
-    checkedOnce,
     error,
+    released,
     refresh,
     setAutoUpdate,
     checkForUpdates,
-    openReleaseNotes: () => openExternal(build.value?.releaseUrl),
-    openRepo: () => openExternal(build.value?.repoUrl),
+    openDocs: () => openExternal(docsURL),
+    openUpdatesDoc: () => openExternal(updatesDocURL),
   }
 }

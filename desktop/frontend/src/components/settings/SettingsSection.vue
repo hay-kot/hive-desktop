@@ -28,7 +28,9 @@ withDefaults(defineProps<{
 
 <template>
   <section class="flex flex-col gap-2.5" :data-testid="testid">
-    <SettingsHeading :title="title" :description="description" />
+    <SettingsHeading :title="title" :description="description">
+      <template v-if="$slots.actions" #actions><slot name="actions" /></template>
+    </SettingsHeading>
     <div
       v-if="boxed"
       class="divide-y divide-row overflow-hidden rounded-[11px] border border-card bg-raised"
