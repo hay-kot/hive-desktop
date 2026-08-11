@@ -44,7 +44,7 @@ jobs:
           cache: true
 
       - name: Set up mise
-        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
 
       # Both checks are also local git hooks (see lefthook.yml); the mise task
       # is the single definition so the two can never drift.
@@ -93,7 +93,7 @@ jobs:
           cache: true
 
       - name: Set up mise
-        uses: jdx/mise-action@9e7f7633ff6f6d6048a9418a68d48f288f50eb14 # v4
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4
 
       # First in the job: it is the fastest of the three and the only one that
       # reports a compile error legibly, so a broken tree fails here rather than
