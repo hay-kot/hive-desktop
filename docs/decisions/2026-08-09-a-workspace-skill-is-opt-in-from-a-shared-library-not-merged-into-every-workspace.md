@@ -52,6 +52,27 @@ in a directory named for its slug, which is the format every target agent
 already reads, so the library needs no format of its own and installs its
 entries verbatim.
 
+### Grouping is presentation, derived from the slug
+
+A catalogue of individually-toggled skills gets long, and the shipped set is
+already one de-facto bucket: every shipped slug is `hive-*`. The editor
+therefore groups rows by the slug prefix before the first hyphen, and only
+where two or more skills share one — `hive-mcp` and `hive-flows` collapse
+under `hive`, a lone `release-notes` stays a plain row. A group carries an
+enabled count in its header and a switch that turns the whole set on.
+
+This is deliberately **not** a package model. The group is computed in the
+frontend, not declared in the catalogue or served on the API; `skills:` still
+names individual slugs, the library directory layout is unchanged, and
+nothing about a group is a thing a workspace can enable. Naming a skill
+`<bucket>-<name>` is the whole of joining a bucket.
+
+Packages as a unit of enablement — a manifest, cross-package slug collision
+rules, per-skill overrides — were considered and deferred. What would earn
+them is a *distribution* story: installing a set from a source and updating it
+as a unit. Absent that, a package is a folder with extra steps, and it would
+also break the symmetry with `mcps.yaml`, which has no grouping of its own.
+
 ## Consequences
 
 - An install whose `.shared/skills/` entries were relied on being everywhere

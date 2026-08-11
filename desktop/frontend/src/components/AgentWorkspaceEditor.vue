@@ -11,6 +11,7 @@
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
 import { computed, nextTick, onMounted, ref } from 'vue'
+import IconChevronDown from '~icons/lucide/chevron-down'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
 import IconFolderOpen from '~icons/lucide/folder-open'
@@ -193,6 +194,94 @@ function toggleSkill(slug: string): void {
   selectedSkills.value = skillEnabled(slug)
     ? selectedSkills.value.filter((x) => x !== slug)
     : [...selectedSkills.value, slug]
+}
+
+// ── Skill groups ─────────────────────────────────────────────────────────────
+// A group is the slug prefix before the first hyphen, and it exists only when
+// two or more skills share one — hive-mcp and hive-flows make a "hive" group;
+// a lone release-notes stays a plain row rather than becoming a group of one.
+// This is presentation, derived here rather than declared in the catalogue: a
+// group is not a thing a workspace can enable, and the manifest still names
+// individual slugs. A collapsed group's header carries its enabled count, so
+// a long list stays readable without expanding anything.
+interface SkillGroup {
+  name: string
+  rows: SkillRow[]
+  enabled: number
+}
+
+function groupNameOf(slug: string): string {
+  const hyphen = slug.indexOf('-')
+  return hyphen > 0 ? slug.slice(0, hyphen) : ''
+}
+
+const skillGroups = computed<SkillGroup[]>(() => {
+  const counts = new Map<string, number>()
+  for (const row of skillRows.value) {
+    const name = groupNameOf(row.slug)
+    if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
+
+  const groups = new Map<string, SkillGroup>()
+  for (const row of skillRows.value) {
+    const name = groupNameOf(row.slug)
+    if ((counts.get(name) ?? 0) < 2) continue
+    const group = groups.get(name) ?? { name, rows: [], enabled: 0 }
+    group.rows.push(row)
+    if (skillEnabled(row.slug)) group.enabled += 1
+    groups.set(name, group)
+  }
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
+})
+
+/**
+ * The section as one flat list: each group's header, its rows while expanded,
+ * then the rows no group claimed. Flat because a collapsed group contributes
+ * nothing — filtering rows out of one list is the whole of collapsing — and
+ * because it keeps a single row template rather than one per nesting level.
+ */
+type SkillListItem =
+  | { kind: 'group', key: string, group: SkillGroup }
+  | { kind: 'row', key: string, row: SkillRow, indented: boolean }
+
+const skillListItems = computed<SkillListItem[]>(() => {
+  const items: SkillListItem[] = []
+  for (const group of skillGroups.value) {
+    items.push({ kind: 'group', key: `group-${group.name}`, group })
+    if (!skillGroupExpanded(group.name)) continue
+    for (const row of group.rows) items.push({ kind: 'row', key: row.slug, row, indented: true })
+  }
+  const grouped = new Set(skillGroups.value.flatMap((g) => g.rows.map((r) => r.slug)))
+  for (const row of skillRows.value) {
+    if (!grouped.has(row.slug)) items.push({ kind: 'row', key: row.slug, row, indented: false })
+  }
+  return items
+})
+
+/** Groups the user has expanded or collapsed by hand, overriding the default. */
+const skillGroupOverrides = ref<Record<string, boolean>>({})
+
+// A group is collapsed by default — its header's count is the whole point, so
+// the list stays short — except when it holds a slug the catalogue no longer
+// resolves. That row carries a warning, and a warning folded out of sight is
+// not a warning.
+function skillGroupExpanded(name: string): boolean {
+  const override = skillGroupOverrides.value[name]
+  if (override !== undefined) return override
+  return skillGroups.value.some((group) => group.name === name && group.rows.some((row) => row.missing))
+}
+
+function toggleSkillGroupExpanded(name: string): void {
+  skillGroupOverrides.value = { ...skillGroupOverrides.value, [name]: !skillGroupExpanded(name) }
+}
+
+// A partly-enabled group switches fully on, so one click is always "give this
+// workspace the whole set" rather than an ambiguous inversion.
+function toggleSkillGroup(group: SkillGroup): void {
+  const slugs = group.rows.map((row) => row.slug)
+  selectedSkills.value = group.enabled === group.rows.length
+    ? selectedSkills.value.filter((slug) => !slugs.includes(slug))
+    : [...selectedSkills.value, ...slugs.filter((slug) => !skillEnabled(slug))]
 }
 
 const skillError = ref('')
@@ -495,26 +584,50 @@ onMounted(async () => {
       <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-skills">
         <span class="text-xs text-text-3">Skills</span>
         <div v-if="skillRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
-          <div v-for="row in skillRows" :key="row.slug" class="flex items-start gap-2.5 px-3 py-2.5">
-            <AppSwitch
-              size="sm"
-              class="mt-0.5"
-              :model-value="skillEnabled(row.slug)"
-              :aria-label="`Enable ${row.title}`"
-              :disabled="busy"
-              :testid="`agent-workspace-editor-skill-${row.slug}`"
-              @update:model-value="toggleSkill(row.slug)"
-            />
-            <div class="min-w-0 flex-1">
-              <div class="flex items-center gap-1.5">
-                <span class="truncate text-[13px] text-text">{{ row.title }}</span>
-                <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ row.shipped ? 'shipped' : 'custom' }}</span>
-                <span v-if="row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
-              </div>
-              <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
-              <div v-if="row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled slugs without an entry are skipped when the workspace opens</div>
+          <template v-for="item in skillListItems" :key="item.key">
+            <div v-if="item.kind === 'group'" class="flex items-center gap-2.5 px-3 py-2.5">
+              <AppSwitch
+                size="sm"
+                :model-value="item.group.enabled === item.group.rows.length"
+                :aria-label="`Enable every ${item.group.name} skill`"
+                :disabled="busy"
+                :testid="`agent-workspace-editor-skill-group-${item.group.name}`"
+                @update:model-value="toggleSkillGroup(item.group)"
+              />
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
+                :aria-expanded="skillGroupExpanded(item.group.name)"
+                :data-testid="`agent-workspace-editor-skill-group-toggle-${item.group.name}`"
+                @click="toggleSkillGroupExpanded(item.group.name)"
+              >
+                <span class="truncate font-mono text-[13px] text-text">{{ item.group.name }}</span>
+                <span class="shrink-0 text-[11px] text-text-4">{{ item.group.enabled }} of {{ item.group.rows.length }} on</span>
+                <IconChevronDown class="size-3 shrink-0 text-text-4 transition-transform" :class="{ '-rotate-90': !skillGroupExpanded(item.group.name) }" />
+              </button>
             </div>
-          </div>
+
+            <div v-else class="flex items-start gap-2.5 py-2.5 pr-3" :class="item.indented ? 'pl-9' : 'pl-3'">
+              <AppSwitch
+                size="sm"
+                class="mt-0.5"
+                :model-value="skillEnabled(item.row.slug)"
+                :aria-label="`Enable ${item.row.title}`"
+                :disabled="busy"
+                :testid="`agent-workspace-editor-skill-${item.row.slug}`"
+                @update:model-value="toggleSkill(item.row.slug)"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-[13px] text-text">{{ item.row.title }}</span>
+                  <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ item.row.shipped ? 'shipped' : 'custom' }}</span>
+                  <span v-if="item.row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
+                </div>
+                <div v-if="item.row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ item.row.description }}</div>
+                <div v-if="item.row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled slugs without an entry are skipped when the workspace opens</div>
+              </div>
+            </div>
+          </template>
         </div>
         <span v-else class="text-xs text-text-4">No skills are available yet.</span>
         <button

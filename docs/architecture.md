@@ -1452,6 +1452,14 @@ verbatim, a shipped one rendered against this install. An enabled slug the
 catalogue no longer resolves is reported in `MissingSkills` rather than
 failing the open, the way a missing MCP id is.
 
+The editor groups skill rows by the slug prefix before the first hyphen, where
+two or more share one — the shipped set is already `hive-*`. That grouping is
+computed in the frontend and is presentation only: a group is not a thing a
+workspace can enable, `skills:` still names individual slugs, and joining a
+bucket is naming a skill `<bucket>-<name>`. Packages as a unit of enablement
+are deferred until skills have a distribution story to update as a unit
+(ADR a-workspace-skill-is-opt-in-from-a-shared-library-not-merged-into-every-workspace).
+
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the
 settings-configured editor (`editor.command`, a single word — the agent-command

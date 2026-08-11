@@ -21,6 +21,10 @@ const releaseNotes: SkillCatalogueEntry = {
   slug: 'release-notes', title: 'release-notes', description: 'Draft release notes.', shipped: false, shadows: '',
 }
 
+const hiveFlows: SkillCatalogueEntry = {
+  slug: 'hive-flows', title: 'Flows', description: 'Author flows.', shipped: true, shadows: '',
+}
+
 // The drawer teleports to the body.
 function el<T extends HTMLElement>(testid: string): T | null {
   return document.querySelector<T>(`[data-testid="${testid}"]`)
@@ -207,6 +211,72 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-mcp-import-format')!.click()
     await wrapper.vm.$nextTick()
     expect(el('agent-workspace-editor-mcp-error')).not.toBeNull()
+    wrapper.unmount()
+  })
+})
+
+describe('AgentWorkspaceEditor skill groups', () => {
+  // Two or more skills sharing a slug prefix collapse into one group, so a
+  // catalogue that grows stays a short list. A lone slug is not a group of
+  // one, and the manifest still names individual skills either way.
+  it('groups a shared prefix and leaves a lone slug a plain row', async () => {
+    const { skillCatalogue } = useAgentWorkspaces()
+    skillCatalogue.value = [hiveMCP, hiveFlows, releaseNotes]
+    const wrapper = mountEditor({ ...demo, skills: ['hive-mcp'] })
+    await wrapper.vm.$nextTick()
+
+    const header = el<HTMLElement>('agent-workspace-editor-skill-group-toggle-hive')!
+    expect(header.textContent).toContain('hive')
+    expect(header.textContent).toContain('1 of 2 on')
+    expect(header.getAttribute('aria-expanded')).toBe('false')
+
+    // Collapsed: the members are not rendered, the ungrouped row still is.
+    expect(el('agent-workspace-editor-skill-hive-mcp')).toBeNull()
+    expect(el('agent-workspace-editor-skill-release-notes')).not.toBeNull()
+    expect(el('agent-workspace-editor-skill-group-release')).toBeNull()
+
+    header.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-skill-hive-mcp')).not.toBeNull()
+    expect(el('agent-workspace-editor-skill-hive-flows')).not.toBeNull()
+    wrapper.unmount()
+  })
+
+  it('a group holding a slug the catalogue lost opens itself, so the warning shows', async () => {
+    const { skillCatalogue } = useAgentWorkspaces()
+    skillCatalogue.value = [hiveMCP, hiveFlows]
+    const wrapper = mountEditor({ ...demo, skills: ['hive-ghost'] })
+    await wrapper.vm.$nextTick()
+
+    const header = el<HTMLElement>('agent-workspace-editor-skill-group-toggle-hive')!
+    expect(header.getAttribute('aria-expanded')).toBe('true')
+    expect(el('agent-workspace-editor-skill-hive-ghost')).not.toBeNull()
+    expect(el<HTMLElement>('agent-workspace-editor-skills')!.textContent).toContain('not in the catalogue')
+
+    // Still the user's to fold away once seen.
+    header.click()
+    await wrapper.vm.$nextTick()
+    expect(el('agent-workspace-editor-skill-hive-ghost')).toBeNull()
+    wrapper.unmount()
+  })
+
+  it('a partly-enabled group switches the whole set on, then off', async () => {
+    const { skillCatalogue } = useAgentWorkspaces()
+    skillCatalogue.value = [hiveMCP, hiveFlows, releaseNotes]
+    const wrapper = mountEditor({ ...demo, skills: ['hive-mcp'] })
+    await wrapper.vm.$nextTick()
+
+    el<HTMLButtonElement>('agent-workspace-editor-skill-group-hive')!.click()
+    await wrapper.vm.$nextTick()
+    expect(el<HTMLElement>('agent-workspace-editor-skill-group-toggle-hive')!.textContent).toContain('2 of 2 on')
+
+    el<HTMLButtonElement>('agent-workspace-editor-skill-group-hive')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [] },
+    ]])
     wrapper.unmount()
   })
 })
