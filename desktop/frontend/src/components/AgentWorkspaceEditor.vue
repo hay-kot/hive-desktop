@@ -1,16 +1,17 @@
 <script setup lang="ts">
 // Create/edit editor for an agent workspace's manifest, in the app's
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
-// it shows — name, agent, autonomy, and the mcps list (plus the directory
-// name at creation); skills and hand-written comments in the YAML survive
-// the write untouched. The MCP rows come from the merged catalogue (shipped
-// entries plus mcps.yaml), and pasting MCP JSON lands new servers in
-// mcps.yaml before enabling them here — the library is shared, the toggle is
-// this workspace's own. Deleting the workspace also lives here — the editor
+// it shows — name, agent, autonomy, and the mcps and skills lists (plus the
+// directory name at creation); hand-written comments in the YAML survive the
+// write untouched. Both capability lists work the same way: a shared library
+// on disk declares what exists (mcps.yaml, skills.yml) and the toggle is this
+// workspace's own. The skills list names packages, not individual skills
+// (ADR skill-packages-are-the-unit-a-workspace-enables). Deleting the workspace also lives here — the editor
 // is the workspace's whole management surface, so its sidebar row needs no
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
 import { computed, nextTick, onMounted, ref } from 'vue'
+import IconChevronDown from '~icons/lucide/chevron-down'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconFolderCog from '~icons/lucide/folder-cog'
 import IconFolderOpen from '~icons/lucide/folder-open'
@@ -24,7 +25,7 @@ import DrawerSheet from './DrawerSheet.vue'
 import InlineConfirm from './InlineConfirm.vue'
 import { CodeField } from '../pipeline/fields'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
-import type { AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
+import type { AgentWorkspace, SkillPackageMember, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
   /** The workspace being edited, or null to create one. */
@@ -36,8 +37,9 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue, autonomyFlags,
+  editor, mcpCatalogue, skillPackages, skillPackagesProblem, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
+  reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
 } = useAgentWorkspaces()
 
@@ -48,6 +50,7 @@ const name = ref(props.workspace?.name ?? '')
 const agent = ref(props.workspace?.agent || props.agents[0] || '')
 const autonomy = ref(props.workspace?.autonomy || 'ask')
 const selectedMCPs = ref<string[]>([...(props.workspace?.mcps ?? [])])
+const selectedSkills = ref<string[]>([...(props.workspace?.skills ?? [])])
 
 const agentOptions = computed<AppSelectOption[]>(() => props.agents.map((a) => ({ value: a, label: a })))
 
@@ -158,6 +161,76 @@ async function removeServer(id: string): Promise<void> {
   }
 }
 
+// ── Skill package rows ───────────────────────────────────────────────────────
+// A workspace enables packages, not skills: skills.yml defines each package as
+// glob patterns, and the rows show what those patterns select right now. An
+// enabled name skills.yml no longer defines still rows, so it can be switched
+// off rather than silently selecting nothing.
+interface SkillPackageRow {
+  name: string
+  title: string
+  description: string
+  members: SkillPackageMember[]
+  missing: boolean
+}
+
+const skillRows = computed<SkillPackageRow[]>(() => {
+  const rows: SkillPackageRow[] = skillPackages.value.map((pkg) => ({
+    name: pkg.name, title: pkg.title || pkg.name, description: pkg.description,
+    members: pkg.members, missing: false,
+  }))
+  const known = new Set(rows.map((r) => r.name))
+  for (const name of selectedSkills.value) {
+    if (!known.has(name)) rows.push({ name, title: name, description: '', members: [], missing: true })
+  }
+  return rows
+})
+
+function skillEnabled(name: string): boolean {
+  return selectedSkills.value.includes(name)
+}
+
+function toggleSkill(name: string): void {
+  selectedSkills.value = skillEnabled(name)
+    ? selectedSkills.value.filter((x) => x !== name)
+    : [...selectedSkills.value, name]
+}
+
+// A package's members are worth seeing before enabling it — it is the whole
+// authority the package grants — but not worth the height by default, so the
+// list expands on demand.
+const expandedSkillPackages = ref<string[]>([])
+
+function skillPackageExpanded(name: string): boolean {
+  return expandedSkillPackages.value.includes(name)
+}
+
+function toggleSkillPackageExpanded(name: string): void {
+  expandedSkillPackages.value = skillPackageExpanded(name)
+    ? expandedSkillPackages.value.filter((x) => x !== name)
+    : [...expandedSkillPackages.value, name]
+}
+
+const skillError = ref('')
+
+async function openSkillPackages(): Promise<void> {
+  skillError.value = ''
+  try {
+    await revealSkillPackages()
+  } catch (failure) {
+    skillError.value = failure instanceof Error ? failure.message : 'skills.yml could not be opened.'
+  }
+}
+
+async function openSharedSkills(): Promise<void> {
+  skillError.value = ''
+  try {
+    await revealSharedSkills()
+  } catch (failure) {
+    skillError.value = failure instanceof Error ? failure.message : 'The skills folder could not be opened.'
+  }
+}
+
 // ── Paste-in JSON import ─────────────────────────────────────────────────────
 const importOpen = ref(false)
 const importText = ref('')
@@ -220,6 +293,7 @@ function submit(): void {
     agent: agent.value,
     autonomy: autonomy.value,
     mcps: selectedMCPs.value,
+    skills: selectedSkills.value,
   })
 }
 
@@ -231,6 +305,7 @@ const nameInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 onMounted(async () => {
   void reloadMCPCatalogue()
+  void reloadSkillPackages()
   await nextTick()
   ;(creating.value ? dirInput.value : nameInput.value)?.focus()
 })
@@ -442,10 +517,74 @@ onMounted(async () => {
         <p v-if="mcpError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-mcp-error">{{ mcpError }}</p>
       </div>
 
+      <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-skills">
+        <span class="text-xs text-text-3">Skill packages</span>
+        <div v-if="skillRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
+          <div v-for="row in skillRows" :key="row.name" class="flex flex-col">
+            <div class="flex items-start gap-2.5 px-3 py-2.5">
+              <AppSwitch
+                size="sm"
+                class="mt-0.5"
+                :model-value="skillEnabled(row.name)"
+                :aria-label="`Enable ${row.title}`"
+                :disabled="busy"
+                :testid="`agent-workspace-editor-skill-${row.name}`"
+                @update:model-value="toggleSkill(row.name)"
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-[13px] text-text">{{ row.title }}</span>
+                  <button
+                    v-if="!row.missing"
+                    type="button"
+                    class="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-text-4 hover:text-text-3"
+                    :aria-expanded="skillPackageExpanded(row.name)"
+                    :data-testid="`agent-workspace-editor-skill-members-${row.name}`"
+                    @click="toggleSkillPackageExpanded(row.name)"
+                  >
+                    {{ row.members.length }} {{ row.members.length === 1 ? 'skill' : 'skills' }}
+                    <IconChevronDown class="size-3 transition-transform" :class="{ '-rotate-90': !skillPackageExpanded(row.name) }" />
+                  </button>
+                </div>
+                <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
+                <div v-if="!row.missing && !row.members.length" class="text-[11px] text-severity-warning">matches no skill — check its patterns in skills.yml</div>
+                <div v-if="row.missing" class="text-[11px] text-severity-warning">not defined in skills.yml — an enabled package without a definition brings nothing</div>
+              </div>
+            </div>
+            <ul v-if="skillPackageExpanded(row.name) && row.members.length" class="flex flex-col gap-1 border-t border-row px-3 py-2 pl-9">
+              <li v-for="member in row.members" :key="member.slug" class="flex items-center gap-1.5">
+                <span class="truncate font-mono text-[11.5px] text-text-3">{{ member.slug }}</span>
+                <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ member.shipped ? 'shipped' : 'custom' }}</span>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <span v-else class="text-xs text-text-4">No packages are defined yet.</span>
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="cursor-pointer text-[12px] text-accent hover:underline"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-skills-packages"
+            @click="openSkillPackages"
+          >Edit skills.yml…</button>
+          <button
+            type="button"
+            class="cursor-pointer text-[12px] text-accent hover:underline"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-skills-shared"
+            @click="openSharedSkills"
+          >Open the skills folder…</button>
+        </div>
+        <span class="text-xs text-text-4">A package is glob patterns over skill names in skills.yml. Names come from the skills Hive ships and the SKILL.md files under .shared/skills.</span>
+        <p v-if="skillPackagesProblem" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skills-problem">{{ skillPackagesProblem }}</p>
+        <p v-if="skillError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skill-error">{{ skillError }}</p>
+      </div>
+
       <p v-if="!creating" class="text-xs leading-relaxed text-text-4">
         Saving rewrites these fields in agent-workspace.yaml and re-syncs the workspace's
-        generated files. Skills, comments, and anything else in the file stay as written —
-        edit the file for those.
+        generated files. Comments and anything else in the file stay as written — edit the
+        file for those.
       </p>
       <p
         v-if="error && !confirming"

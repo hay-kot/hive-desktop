@@ -40,29 +40,40 @@ Describe what this workspace is for: the tasks its agent is expected to
 handle, and how it should approach them.
 `
 
+// ManifestEdit is the set of manifest fields a writer owns: what the in-app
+// editor sets, and nothing else. Everything the file says beyond these keys —
+// comments, key order, keys this build does not know — survives a write.
+type ManifestEdit struct {
+	Name     string
+	Agent    string
+	Autonomy Autonomy
+	MCPs     []string
+	Skills   []string
+}
+
 // CreateWorkspace makes dir under root, writes its first manifest, and seeds
 // an AGENTS.md scaffold for the user to shape. The directory already existing
 // is returned as-is so the caller can classify it (errors.Is(err, fs.ErrExist)).
-func CreateWorkspace(root, dir, name, agent string, autonomy Autonomy, mcps []string) error {
+func CreateWorkspace(root, dir string, edit ManifestEdit) error {
 	if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
 		return err
 	}
-	if err := WriteManifest(root, dir, name, agent, autonomy, mcps); err != nil {
+	if err := WriteManifest(root, dir, edit); err != nil {
 		return err
 	}
-	scaffold := fmt.Sprintf(agentsScaffold, name)
+	scaffold := fmt.Sprintf(agentsScaffold, edit.Name)
 	if err := os.WriteFile(filepath.Join(root, dir, "AGENTS.md"), []byte(scaffold), 0o600); err != nil {
 		return fmt.Errorf("AGENTS.md: write: %w", err)
 	}
 	return nil
 }
 
-// WriteManifest sets exactly name, agent, autonomy, and mcps in dir's
+// WriteManifest sets exactly the ManifestEdit fields in dir's
 // agent-workspace.yaml, creating a fresh version-current document when the
 // file does not exist and editing the existing document in place when it
-// does — everything else the file says survives. An empty mcps removes the
-// key rather than writing an empty list.
-func WriteManifest(root, dir, name, agent string, autonomy Autonomy, mcps []string) error {
+// does — everything else the file says survives. An empty mcps or skills
+// removes the key rather than writing an empty list.
+func WriteManifest(root, dir string, edit ManifestEdit) error {
 	path := filepath.Join(root, dir, manifestFileName)
 
 	var doc, mapping *yaml.Node
@@ -87,18 +98,28 @@ func WriteManifest(root, dir, name, agent string, autonomy Autonomy, mcps []stri
 		key   string
 		value any
 	}{
-		{"name", name},
-		{"agent", agent},
-		{"autonomy", string(autonomy)},
+		{"name", edit.Name},
+		{"agent", edit.Agent},
+		{"autonomy", string(edit.Autonomy)},
 	} {
 		if err := setManifestValue(mapping, field.key, field.value); err != nil {
 			return err
 		}
 	}
-	if len(mcps) == 0 {
-		removeManifestKey(mapping, "mcps")
-	} else if err := setManifestValue(mapping, "mcps", mcps); err != nil {
-		return err
+	for _, list := range []struct {
+		key    string
+		values []string
+	}{
+		{"mcps", edit.MCPs},
+		{"skills", edit.Skills},
+	} {
+		if len(list.values) == 0 {
+			removeManifestKey(mapping, list.key)
+			continue
+		}
+		if err := setManifestValue(mapping, list.key, list.values); err != nil {
+			return err
+		}
 	}
 
 	out, err := encodeManifestDoc(doc)

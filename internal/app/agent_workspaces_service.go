@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -136,6 +137,7 @@ type WorkspaceView struct {
 	Agent    string   `json:"agent"`
 	Autonomy string   `json:"autonomy"`
 	MCPs     []string `json:"mcps"`
+	Skills   []string `json:"skills"`
 	Problem  string   `json:"problem"`
 	// Notice mirrors SessionView.Notice's MCP explanation, shown on the
 	// workspace row itself: an agent whose wiring cannot bound its tool set to
@@ -207,6 +209,9 @@ type OpenResult struct {
 	Workspace   WorkspaceView
 	Sessions    []SessionView
 	MissingMCPs []string
+	// MissingPackages names skill packages the workspace enables that
+	// skills.yml does not define.
+	MissingPackages []string
 }
 
 // Available reports tmux availability -- the same axis terminal mode reports
@@ -240,8 +245,8 @@ func (s *AgentWorkspacesService) List(context.Context) ([]WorkspaceView, error) 
 // Open regenerates the workspace's disposable artifacts and returns its
 // sessions. It is the only entry point that writes into a workspace, and the
 // resolution chain Generate itself stays pure over: mcps: [...] resolves
-// through the store's Catalogue, skills: [...] through SkillsService.
-// RenderSkill.
+// through the store's Catalogue, skills: [...] through skills.yml's packages
+// (ADR skill-packages-are-the-unit-a-workspace-enables).
 func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResult, error) {
 	if !validWorkspaceDir(dir) {
 		return OpenResult{}, Errorf(KindInvalid, "workspace %q is not a valid workspace directory name", dir)
@@ -255,7 +260,7 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	}
 	ws := st.Workspace
 
-	rendered, err := s.resolveSkills(ctx, ws)
+	rendered, missingPackages, err := s.resolveSkills(ctx, ws)
 	if err != nil {
 		return OpenResult{}, err
 	}
@@ -263,7 +268,6 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 	workspaceDir := filepath.Join(s.store.Root(), dir)
 	genResult, err := agentws.Generate(agentws.GenerateInput{
 		Dir:       workspaceDir,
-		Shared:    filepath.Join(s.store.Root(), ".shared"),
 		Workspace: ws,
 		Servers:   s.resolveServers(ctx, ws),
 		Skills:    rendered,
@@ -286,7 +290,10 @@ func (s *AgentWorkspacesService) Open(ctx context.Context, dir string) (OpenResu
 		view.Problem = strings.Join(genResult.Problems, "; ")
 	}
 
-	return OpenResult{Workspace: view, Sessions: sessions, MissingMCPs: genResult.MissingMCPs}, nil
+	return OpenResult{
+		Workspace: view, Sessions: sessions,
+		MissingMCPs: genResult.MissingMCPs, MissingPackages: missingPackages,
+	}, nil
 }
 
 // Sessions lists a workspace's session rows without regenerating its
@@ -576,15 +583,23 @@ func (s *AgentWorkspacesService) AutonomyFlags(context.Context) map[string]map[s
 	return out
 }
 
-// WorkspaceEdit names the manifest fields the in-app editor writes. Skills
-// and anything else the manifest says are untouched — WriteManifest edits the
-// document in place, so they stay the user's.
+// WorkspaceEdit names the manifest fields the in-app editor writes. Anything
+// else the manifest says is untouched — WriteManifest edits the document in
+// place, so comments and keys the editor does not own stay the user's.
 type WorkspaceEdit struct {
 	Dir      string
 	Name     string
 	Agent    string
 	Autonomy string
 	MCPs     []string
+	Skills   []string
+}
+
+func (e WorkspaceEdit) manifest() agentws.ManifestEdit {
+	return agentws.ManifestEdit{
+		Name: strings.TrimSpace(e.Name), Agent: e.Agent, Autonomy: agentws.Autonomy(e.Autonomy),
+		MCPs: e.MCPs, Skills: e.Skills,
+	}
 }
 
 func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
@@ -600,15 +615,23 @@ func (s *AgentWorkspacesService) validateEdit(req WorkspaceEdit) error {
 	if !agentws.Autonomy(req.Autonomy).IsValid() {
 		return Errorf(KindInvalid, "autonomy %q is not valid (expected %s)", req.Autonomy, strings.Join(agentws.AutonomyNames(), ", "))
 	}
-	seen := make(map[string]bool, len(req.MCPs))
-	for _, id := range req.MCPs {
-		if id == "" {
-			return Errorf(KindInvalid, "mcps entries must not be empty")
+	for _, list := range []struct {
+		label  string
+		values []string
+	}{
+		{"mcp", req.MCPs},
+		{"skill package", req.Skills},
+	} {
+		seen := make(map[string]bool, len(list.values))
+		for _, id := range list.values {
+			if id == "" {
+				return Errorf(KindInvalid, "%ss entries must not be empty", list.label)
+			}
+			if seen[id] {
+				return Errorf(KindInvalid, "duplicate %s %q", list.label, id)
+			}
+			seen[id] = true
 		}
-		if seen[id] {
-			return Errorf(KindInvalid, "duplicate mcp %q", id)
-		}
-		seen[id] = true
 	}
 	return nil
 }
@@ -619,7 +642,7 @@ func (s *AgentWorkspacesService) CreateWorkspace(ctx context.Context, req Worksp
 	if err := s.validateEdit(req); err != nil {
 		return WorkspaceView{}, err
 	}
-	if err := agentws.CreateWorkspace(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy), req.MCPs); err != nil {
+	if err := agentws.CreateWorkspace(s.store.Root(), req.Dir, req.manifest()); err != nil {
 		if errors.Is(err, fs.ErrExist) {
 			return WorkspaceView{}, Errorf(KindConflict, "workspace %q already exists", req.Dir)
 		}
@@ -637,7 +660,7 @@ func (s *AgentWorkspacesService) UpdateWorkspace(ctx context.Context, req Worksp
 	if _, ok := s.workspaceStatus(req.Dir); !ok {
 		return WorkspaceView{}, Errorf(KindNotFound, "workspace %q not found", req.Dir)
 	}
-	if err := agentws.WriteManifest(s.store.Root(), req.Dir, strings.TrimSpace(req.Name), req.Agent, agentws.Autonomy(req.Autonomy), req.MCPs); err != nil {
+	if err := agentws.WriteManifest(s.store.Root(), req.Dir, req.manifest()); err != nil {
 		return WorkspaceView{}, Wrap(err, KindInvalid, "updating workspace %q", req.Dir)
 	}
 	return s.reloadedView(ctx, req.Dir)
@@ -680,6 +703,92 @@ func (s *AgentWorkspacesService) MCPCatalogue(ctx context.Context) []MCPCatalogu
 		})
 	}
 	return items
+}
+
+// SkillPackageItem is one row of the package catalogue as the UI shows it: a
+// package from skills.yml and the skills it currently resolves to. Members
+// are what the patterns select right now, not a stored list — adding a
+// matching skill changes every workspace that enabled the package.
+type SkillPackageItem struct {
+	Name        string               `json:"name"`
+	Title       string               `json:"title"`
+	Description string               `json:"description"`
+	Members     []SkillPackageMember `json:"members"`
+}
+
+// SkillPackageMember is one skill a package selects, with where it came from.
+type SkillPackageMember struct {
+	Slug    string `json:"slug"`
+	Shipped bool   `json:"shipped"`
+}
+
+// SkillPackages lists the packages a workspace editor offers for its skills:
+// list, plus the problem skills.yml itself has, if any. A source that cannot
+// be read contributes no names rather than failing the listing: an open is
+// where that is reported, because that is the call whose result changes.
+func (s *AgentWorkspacesService) SkillPackages(ctx context.Context) ([]SkillPackageItem, string) {
+	shipped, _ := s.shippedSkills(ctx)
+	shared, _ := s.sharedSkills()
+
+	library := s.store.SkillLibrary()
+	problem := ""
+	if !library.Valid && library.Err != nil {
+		problem = library.Err.Error()
+	}
+
+	entries := agentws.SkillPackageCatalogue(library.Library, agentws.SkillNames(shipped, shared))
+	items := make([]SkillPackageItem, 0, len(entries))
+	for _, e := range entries {
+		members := make([]SkillPackageMember, 0, len(e.Members))
+		for _, m := range e.Members {
+			members = append(members, SkillPackageMember{Slug: m.Slug, Shipped: m.Shipped})
+		}
+		items = append(items, SkillPackageItem{
+			Name: e.Name, Title: e.Title, Description: e.Description, Members: members,
+		})
+	}
+	return items, problem
+}
+
+// RevealSkillPackages opens skills.yml in the OS file manager's default
+// handler — packages are defined by editing that file, which is the authoring
+// act this release offers. A missing file is seeded first, so the action
+// always lands somewhere real.
+func (s *AgentWorkspacesService) RevealSkillPackages(context.Context) error {
+	if err := agentws.SeedDefaultsIfMissing(s.store.Root()); err != nil {
+		return Wrap(err, KindInternal, "seeding skills.yml")
+	}
+	path := agentws.SkillLibraryPath(s.store.Root())
+	return Wrap(osopen.Open(path), KindInternal, "opening %s", path)
+}
+
+// RevealSharedSkills opens the shared skills directory in the OS file
+// manager — where a skill a package can select is authored, since it is a
+// SKILL.md a user writes. The directory is created if missing: startup seeds
+// it, but a user who deleted it must still be able to open it and drop a
+// skill back in.
+func (s *AgentWorkspacesService) RevealSharedSkills(context.Context) error {
+	dir := agentws.SharedSkillsDir(s.store.Root())
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return Wrap(err, KindInternal, "creating %s", dir)
+	}
+	return Wrap(osopen.Open(dir), KindInternal, "opening %s", dir)
+}
+
+// shippedSkills is the catalogue's shipped half: every listed prompt as an
+// installable skill. It renders against an empty prompts.Input, so a prompt
+// that needs caller-supplied context the workspace editor does not have (the
+// keybindings catalog) is absent from the catalogue rather than offered and
+// unresolvable.
+func (s *AgentWorkspacesService) shippedSkills(ctx context.Context) ([]agentws.ShippedSkill, error) {
+	if s.skills == nil {
+		return nil, nil
+	}
+	return s.skills.ShippedSkills(ctx)
+}
+
+func (s *AgentWorkspacesService) sharedSkills() ([]agentws.SharedSkill, error) {
+	return agentws.LoadSharedSkills(agentws.SharedSkillsDir(s.store.Root()))
 }
 
 // ImportMCPServers parses pasted MCP JSON (claude's mcpServers wrapper or a
@@ -966,27 +1075,56 @@ func (s *AgentWorkspacesService) resolveServers(ctx context.Context, ws agentws.
 	return servers
 }
 
-// resolveSkills renders a workspace's declared skill slugs through
-// SkillsService.RenderSkill, which takes the underlying prompt id
-// ("mcp") rather than the installed slug ("hive-mcp") skillSlug
-// mints — so a declared slug is unminted here before rendering.
-func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.Workspace) ([]agentws.RenderedSkill, error) {
+// resolveSkills expands a workspace's enabled packages into the skills they
+// select and renders each: a shared skill installs its authored file
+// verbatim, a shipped one is rendered per install through
+// SkillsService.RenderSkill, which takes the underlying prompt id ("mcp")
+// rather than the installed slug ("hive-mcp") skillSlug mints. It also
+// reports the packages skills.yml does not define — a workspace naming one
+// still opens, the same way a missing MCP id does not stop a launch.
+func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.Workspace) (rendered []agentws.RenderedSkill, missingPackages []string, err error) {
 	if len(ws.Skills) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
-	rendered := make([]agentws.RenderedSkill, 0, len(ws.Skills))
-	for _, slug := range ws.Skills {
-		id, ok := skillIDFromSlug(slug)
+
+	// Unlike SkillCatalogue, neither read is allowed to degrade here: an
+	// unreadable shared directory would silently generate a tree without
+	// those skills, which reads as a successful open of a workspace that has
+	// quietly lost half its capability.
+	shared, err := s.sharedSkills()
+	if err != nil {
+		return nil, nil, Wrap(err, KindInternal, "workspace %q: reading the shared skills", ws.Dir)
+	}
+	shipped, err := s.shippedSkills(ctx)
+	if err != nil {
+		return nil, nil, Wrap(err, KindInternal, "workspace %q: reading the shipped skills", ws.Dir)
+	}
+
+	bodies := make(map[string]string, len(shared))
+	for _, skill := range shared {
+		bodies[skill.Slug] = skill.Body
+	}
+
+	library := s.store.SkillLibrary()
+	selected, missingPackages := agentws.SelectSkills(library.Library, ws.Skills, agentws.SkillNames(shipped, shared))
+
+	rendered = make([]agentws.RenderedSkill, 0, len(selected))
+	for _, name := range selected {
+		if body, ok := bodies[name.Slug]; ok {
+			rendered = append(rendered, agentws.RenderedSkill{Slug: name.Slug, Body: body})
+			continue
+		}
+		id, ok := skillIDFromSlug(name.Slug)
 		if !ok {
-			return nil, Errorf(KindInvalid, "workspace %q: unknown skill %q", ws.Dir, slug)
+			continue
 		}
-		name, body, err := s.skills.RenderSkill(ctx, id)
+		slug, body, err := s.skills.RenderSkill(ctx, id)
 		if err != nil {
-			return nil, Wrap(err, KindInvalid, "workspace %q: rendering skill %q", ws.Dir, slug)
+			return nil, nil, Wrap(err, KindInternal, "workspace %q: rendering skill %q", ws.Dir, name.Slug)
 		}
-		rendered = append(rendered, agentws.RenderedSkill{Slug: name, Body: body})
+		rendered = append(rendered, agentws.RenderedSkill{Slug: slug, Body: body})
 	}
-	return rendered, nil
+	return rendered, missingPackages, nil
 }
 
 func (s *AgentWorkspacesService) workspaceStatus(dir string) (agentws.WorkspaceStatus, bool) {
@@ -1025,7 +1163,8 @@ func workspaceView(st agentws.WorkspaceStatus) WorkspaceView {
 	}
 	return WorkspaceView{
 		Dir: st.Dir, Name: st.Workspace.Name, Agent: st.Workspace.Agent,
-		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs, Problem: problem,
+		Autonomy: string(st.Workspace.Autonomy), MCPs: st.Workspace.MCPs,
+		Skills: st.Workspace.Skills, Problem: problem,
 		Notice: notice,
 	}
 }

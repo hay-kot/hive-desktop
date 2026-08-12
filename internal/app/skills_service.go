@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/hay-kot/hive-desktop/internal/app/agentws"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/skills"
@@ -304,18 +305,25 @@ func (s *SkillsService) view(ctx context.Context, in prompts.Input) (SkillsCatal
 	return SkillsCatalog{Skills: entries, Targets: targetInfos, AutoUpdate: cfg.Skills.AutoUpdate}, nil
 }
 
-// SkillSlugs lists every shipped skill's installed slug ("hive-" + id) — the
-// set the seeded hive workspace declares (agentws.SyncHiveWorkspaceSkills).
-func (s *SkillsService) SkillSlugs(ctx context.Context) ([]string, error) {
+// ShippedSkills lists every skill this build ships as a workspace can enable
+// it: the installed slug plus the labels the skill catalogue shows. A prompt
+// that cannot render without caller-supplied context (the keybindings
+// catalog, which only the frontend holds) is absent from the listing, so the
+// catalogue never offers a skill a workspace open could not resolve.
+func (s *SkillsService) ShippedSkills(ctx context.Context) ([]agentws.ShippedSkill, error) {
 	list, err := s.prompts.Catalog(ctx, prompts.Input{})
 	if err != nil {
 		return nil, err
 	}
-	slugs := make([]string, 0, len(list))
+	out := make([]agentws.ShippedSkill, 0, len(list))
 	for _, p := range list {
-		slugs = append(slugs, skillSlug(p.ID))
+		out = append(out, agentws.ShippedSkill{
+			Slug:        skillSlug(p.ID),
+			Title:       p.Title,
+			Description: p.Description,
+		})
 	}
-	return slugs, nil
+	return out, nil
 }
 
 // skillMap renders the current catalog as a lookup for the installer's sync.

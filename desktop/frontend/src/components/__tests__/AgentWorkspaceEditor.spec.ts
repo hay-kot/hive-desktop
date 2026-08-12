@@ -2,15 +2,29 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
 import AgentWorkspaceEditor from '../AgentWorkspaceEditor.vue'
 import { resetAgentWorkspacesForTests, useAgentWorkspaces } from '../../composables/useAgentWorkspaces'
-import type { AgentWorkspace, MCPCatalogueEntry } from '../../lib/agentWorkspacesClient'
+import type { AgentWorkspace, MCPCatalogueEntry, SkillPackage } from '../../lib/agentWorkspacesClient'
 
 const demo: AgentWorkspace = {
-  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], problem: '', notice: '',
+  dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '',
 }
 
 const playwright: MCPCatalogueEntry = {
   id: 'playwright', title: 'Playwright', description: 'Browser automation', shipped: true,
   stability: 'stable', shadows: '', transport: 'stdio', command: 'npx -y @playwright/mcp@latest', problem: '',
+}
+
+const hivePackage: SkillPackage = {
+  name: 'hive',
+  title: 'Hive',
+  description: 'Configure Hive Desktop itself.',
+  members: [{ slug: 'hive-mcp', shipped: true }, { slug: 'hive-flows', shipped: true }],
+}
+
+const infraPackage: SkillPackage = {
+  name: 'infra',
+  title: 'infra',
+  description: 'Terraform and Kubernetes.',
+  members: [{ slug: 'terraform-plan', shipped: false }],
 }
 
 // The drawer teleports to the body.
@@ -102,7 +116,7 @@ describe('AgentWorkspaceEditor', () => {
 
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'full', mcps: [], skills: [] },
     ]])
     wrapper.unmount()
   })
@@ -130,8 +144,67 @@ describe('AgentWorkspaceEditor', () => {
     el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
 
     expect(wrapper.emitted('save')).toEqual([[
-      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'] },
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: ['playwright'], skills: [] },
     ]])
+    wrapper.unmount()
+  })
+
+  it('save carries the toggled package list', async () => {
+    const { skillPackages } = useAgentWorkspaces()
+    skillPackages.value = [hivePackage, infraPackage]
+    const wrapper = mountEditor({ ...demo, skills: ['hive'] })
+    await wrapper.vm.$nextTick()
+
+    // A package is offered but off until this workspace switches it on — the
+    // definitions are shared, the toggle is the workspace's own.
+    el<HTMLButtonElement>('agent-workspace-editor-skill-infra')!.click()
+    await wrapper.vm.$nextTick()
+    el<HTMLButtonElement>('agent-workspace-editor-save')!.click()
+
+    expect(wrapper.emitted('save')).toEqual([[
+      { dir: 'demo', name: 'Demo', agent: 'claude', autonomy: 'ask', mcps: [], skills: ['hive', 'infra'] },
+    ]])
+    wrapper.unmount()
+  })
+
+  it('a package expands to the skills its patterns select', async () => {
+    const { skillPackages } = useAgentWorkspaces()
+    skillPackages.value = [hivePackage]
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    const members = el<HTMLButtonElement>('agent-workspace-editor-skill-members-hive')!
+    expect(members.textContent).toContain('2 skills')
+    expect(members.getAttribute('aria-expanded')).toBe('false')
+
+    const section = el<HTMLElement>('agent-workspace-editor-skills')!
+    expect(section.textContent).not.toContain('hive-mcp')
+
+    members.click()
+    await wrapper.vm.$nextTick()
+    expect(section.textContent).toContain('hive-mcp')
+    expect(section.textContent).toContain('hive-flows')
+    wrapper.unmount()
+  })
+
+  it('an enabled package skills.yml no longer defines still rows, marked missing', async () => {
+    const { skillPackages } = useAgentWorkspaces()
+    skillPackages.value = [hivePackage]
+    const wrapper = mountEditor({ ...demo, skills: ['deleted-package'] })
+    await wrapper.vm.$nextTick()
+
+    expect(el('agent-workspace-editor-skill-deleted-package')).not.toBeNull()
+    expect(el<HTMLElement>('agent-workspace-editor-skills')!.textContent).toContain('not defined in skills.yml')
+    wrapper.unmount()
+  })
+
+  it('a package whose patterns match nothing says so', async () => {
+    const { skillPackages } = useAgentWorkspaces()
+    skillPackages.value = [{ name: 'typoed', title: 'typoed', description: '', members: [] }]
+    const wrapper = mountEditor()
+    await wrapper.vm.$nextTick()
+
+    expect(el<HTMLElement>('agent-workspace-editor-skills')!.textContent).toContain('matches no skill')
     wrapper.unmount()
   })
 

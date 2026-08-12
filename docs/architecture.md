@@ -1413,7 +1413,9 @@ overlap in vocabulary is a coincidence of both being terminals.
 
 `internal/app/agentws` owns the on-disk agent-workspace root
 (`settings.Paths.AgentWorkspacesDir`, default `<ConfigDir>/workspaces`):
-`mcps.yaml`, `.shared/skills/`, and one directory per workspace. Every
+`mcps.yaml`, `skills.yml`, the shared skills directory `.shared/skills/`, and
+one directory per
+workspace. Every
 directory splits **authored** files a user (or an agent, via the
 `hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
 `docs/` — from **generated** ones `agentws.Generate` produces on every open —
@@ -1437,15 +1439,31 @@ it deletes it. Hand-authored workspaces get no scaffold.
 The app writes authored YAML only through the node-tree editors in `write.go`
 and `librarywrite.go` — parse, edit in place, re-encode — so comments, key
 order, and keys the writer does not own survive; `yaml.Marshal` is never the
-writer. The workspace editor owns `name`, `agent`, `autonomy`, and `mcps:` in
-the manifest (an empty list removes the key); `skills:` and everything else
-stay the user's. `mcps.yaml` gains entries through the same pattern —
+writer. The workspace editor owns `name`, `agent`, `autonomy`, `mcps:`, and
+`skills:` in the manifest (an empty list removes the key); comments and
+everything else stay the user's. `mcps.yaml` gains entries through the same pattern —
 `ParseMCPImport` accepts pasted MCP JSON (claude's `mcpServers` wrapper or a
 bare id-to-server map), an id already declared is a conflict rather than an
 overwrite, and only user entries can be removed. The merged catalogue
 (shipped + user, stability, the resolved command line, a LookPath problem) is
 served on the agents API — the surface ADR a-workspace-declares-its-own-authority §5's read-the-command-first
 mitigation runs through.
+
+Skills follow the same shape one level up: the unit a workspace enables is a
+**package**, not a skill (ADR skill-packages-are-the-unit-a-workspace-enables).
+`skills.yml` defines each package as glob patterns — `include` admits,
+`exclude` carves out, a pattern with no wildcard is an exact name — over a
+name-space with two sources: the skills this build ships (rendered per install,
+handed to `agentws` as data because `prompts` imports it) and the
+`SKILL.md` files under `.shared/skills/`. A shared file of the same name as a
+shipped skill wins. A workspace's `skills:` list names packages; generation
+installs the union of what they select, so two packages selecting one skill
+need no collision rule and a newly authored skill reaches every workspace whose
+package pattern already matches it, with no manifest edited. Resolution happens
+before `Generate`, which expands no pattern and reads no directory of its own.
+An enabled package `skills.yml` does not define is reported in
+`MissingPackages` rather than failing the open; a package that matches nothing
+lists with no members, because an empty package is a pattern to fix.
 
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the

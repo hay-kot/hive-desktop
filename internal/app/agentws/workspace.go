@@ -26,7 +26,9 @@ type Workspace struct {
 	Agent    string   `yaml:"agent"`
 	Autonomy Autonomy `yaml:"autonomy"`
 	MCPs     []string `yaml:"mcps,omitempty"`
-	Skills   []string `yaml:"skills,omitempty"`
+	// Skills names skill packages defined in skills.yml, not individual
+	// skills — the unit a workspace enables is the package (ADR skill-packages-are-the-unit-a-workspace-enables).
+	Skills []string `yaml:"skills,omitempty"`
 }
 
 // Validate checks the fields Workspace owns directly. autonomy is no longer
@@ -50,13 +52,13 @@ func (w Workspace) Validate() error {
 		return fmt.Errorf("agent-workspace.yaml: duplicate mcp %q", dup)
 	}
 	if dup := firstDuplicate(w.Skills); dup != "" {
-		return fmt.Errorf("agent-workspace.yaml: duplicate skill %q", dup)
+		return fmt.Errorf("agent-workspace.yaml: duplicate skill package %q", dup)
 	}
 	if slices.Contains(w.MCPs, "") {
 		return fmt.Errorf("agent-workspace.yaml: mcps entries must not be empty")
 	}
 	if slices.Contains(w.Skills, "") {
-		return fmt.Errorf("agent-workspace.yaml: skills entries must not be empty")
+		return fmt.Errorf("agent-workspace.yaml: skill package entries must not be empty")
 	}
 	return nil
 }

@@ -27,6 +27,7 @@ export interface AgentWorkspace {
   agent: string
   autonomy: string
   mcps: string[]
+  skills: string[]
   problem: string
   /** An unbounded-MCP or missing-manifest explanation, empty when neither applies. */
   notice: string
@@ -63,6 +64,8 @@ export interface WorkspaceEditRequest {
   agent: string
   autonomy: string
   mcps: string[]
+  /** Skill package names from skills.yml, not individual skills. */
+  skills: string[]
 }
 
 /** One row of the merged MCP catalogue: shipped entries plus the user's mcps.yaml. */
@@ -78,6 +81,33 @@ export interface MCPCatalogueEntry {
   /** What the entry launches: the command line for stdio, the URL for http/sse. */
   command: string
   /** Why the entry will not work — a command that does not resolve on PATH. */
+  problem: string
+}
+
+/**
+ * One skill a package selects, with where it came from: shipped by this build
+ * (rendered per install) or authored under .shared/skills.
+ */
+export interface SkillPackageMember {
+  slug: string
+  shipped: boolean
+}
+
+/**
+ * One skill package from skills.yml, with the skills its glob patterns select
+ * right now. Members are resolved, not stored — a new skill matching the
+ * pattern joins every workspace that enabled the package.
+ */
+export interface SkillPackage {
+  name: string
+  title: string
+  description: string
+  members: SkillPackageMember[]
+}
+
+/** The package catalogue plus why skills.yml could not be read, if it could not. */
+export interface SkillPackagesPayload {
+  packages: SkillPackage[]
   problem: string
 }
 
@@ -124,6 +154,8 @@ export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
   missingMcps: string[]
+  /** Enabled package names skills.yml does not define. */
+  missingPackages: string[]
 }
 
 export interface StartSessionRequest {
@@ -166,6 +198,11 @@ export interface AgentWorkspacesClient {
   importMCPServers(json: string): Promise<{ added: string[]; servers: MCPCatalogueEntry[] }>
   /** Removes a user-declared server from mcps.yaml; returns the refreshed catalogue. */
   removeMCPServer(id: string): Promise<MCPCatalogueEntry[]>
+  skillPackages(): Promise<SkillPackagesPayload>
+  /** Opens skills.yml, where packages are defined. */
+  revealSkillPackages(): Promise<void>
+  /** Opens the shared skills directory, where a skill a package selects is authored. */
+  revealSharedSkills(): Promise<void>
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
@@ -226,8 +263,13 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async openWorkspace(dir) {
       const body = await post<AgentWorkspaceOpenResult>('/workspaces/open', { dir })
-      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [] }
-      return { workspace: normalizeWorkspace(body.workspace), sessions: body.sessions ?? [], missingMcps: body.missingMcps ?? [] }
+      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [], missingPackages: [] }
+      return {
+        workspace: normalizeWorkspace(body.workspace),
+        sessions: body.sessions ?? [],
+        missingMcps: body.missingMcps ?? [],
+        missingPackages: body.missingPackages ?? [],
+      }
     },
     async deleteWorkspace(dir) {
       await post('/workspaces/delete', { dir })
@@ -249,6 +291,16 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     async removeMCPServer(id) {
       const body = await post<{ servers: MCPCatalogueEntry[] | null }>('/mcps/remove', { id })
       return body?.servers ?? []
+    },
+    async skillPackages() {
+      const body = await post<{ packages: SkillPackage[] | null, problem: string }>('/skills', {})
+      return { packages: body?.packages ?? [], problem: body?.problem ?? '' }
+    },
+    async revealSkillPackages() {
+      await post('/skills/reveal', {})
+    },
+    async revealSharedSkills() {
+      await post('/skills/shared', {})
     },
     async sessions(workspace) {
       const body = await post<{ sessions: AgentSession[] | null }>('/sessions', { workspace })
@@ -290,15 +342,15 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
 }
 
 function emptyWorkspace(dir: string): AgentWorkspace {
-  return { dir, name: '', agent: '', autonomy: '', mcps: [], problem: '', notice: '' }
+  return { dir, name: '', agent: '', autonomy: '', mcps: [], skills: [], problem: '', notice: '' }
 }
 
-// normalizeWorkspace guards against a null mcps array on the wire: the Go
-// side now always sends [], but this is the client boundary, so a template
-// or composable can trust AgentWorkspace.mcps is iterable without its own
-// null check regardless.
+// normalizeWorkspace guards against a null mcps or skills array on the wire:
+// the Go side now always sends [], but this is the client boundary, so a
+// template or composable can trust both are iterable without its own null
+// check regardless.
 function normalizeWorkspace(w: AgentWorkspace): AgentWorkspace {
-  return { ...w, mcps: w.mcps ?? [] }
+  return { ...w, mcps: w.mcps ?? [], skills: w.skills ?? [] }
 }
 
 async function failure(response: Response): Promise<AgentRequestError> {

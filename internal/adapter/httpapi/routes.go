@@ -111,7 +111,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve, missingPackages skill packages skills.yml does not define.",
 			Request: agentWorkspaceDirRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
@@ -121,7 +121,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps) in place. Comments, key order, and keys the editor does not own — skills and anything else — survive the write; an empty mcps removes the key.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps, and skills — which names skill packages, not individual skills) in place. Comments, key order, and keys the editor does not own survive the write; an empty mcps or skills removes the key.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
 			Errors: agentErrors("no such workspace"),
 		},
@@ -154,6 +154,21 @@ func (ctrl *Controller) agentOperations() []Op {
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "mcps/remove", Summary: "Delete a user-declared server from mcps.yaml and return the refreshed catalogue. Shipped entries are refused — a workspace disables one by dropping the id from its own mcps list.",
 			Request: agentMCPRemoveRequest{}, Response: agentMCPCatalogueResponse{}, Handler: ctrl.AgentMCPRemove,
 			Errors: agentErrors("no user-declared server of that id", ErrResp{Status: 400, When: "the id names a shipped entry"}),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills", Summary: "List the skill packages defined in skills.yml, each with the skills its glob patterns currently select. Names come from the skills this build ships (hive-*) and the ones authored under .shared/skills. A workspace carries a package's skills only by naming the package in its own skills list.",
+			Response: agentSkillPackagesResponse{}, Handler: ctrl.AgentSkillPackages,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills/reveal", Summary: "Open skills.yml, where packages are defined, seeding it first if it is missing.",
+			Status: http.StatusNoContent, Handler: ctrl.AgentSkillPackagesReveal,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills/shared", Summary: "Open the shared skills directory (.shared/skills) in the OS file manager, creating it if missing. A skill there is a SKILL.md in a directory named for it, and a package selects it by name.",
+			Status: http.StatusNoContent, Handler: ctrl.AgentSharedSkillsReveal,
+			Errors: agentErrors(""),
 		},
 		{
 			Method: "POST", Path: AgentWorkspacesPathPrefix + "sessions", Summary: "List a workspace's sessions without regenerating its artifacts, unlike workspaces/open. terminalId is empty for a session with no live terminal.",

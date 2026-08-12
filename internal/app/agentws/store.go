@@ -10,8 +10,12 @@ import (
 )
 
 const (
-	libraryFileName  = "mcps.yaml"
-	manifestFileName = "agent-workspace.yaml"
+	libraryFileName      = "mcps.yaml"
+	skillLibraryFileName = "skills.yml"
+	manifestFileName     = "agent-workspace.yaml"
+	sharedDirName        = ".shared"
+	skillsDirName        = "skills"
+	skillFileName        = "SKILL.md"
 )
 
 // WorkspaceStatus is one workspace directory's load outcome, keyed by the
@@ -34,6 +38,14 @@ type LibraryStatus struct {
 	Err     error
 }
 
+// SkillLibraryStatus is skills.yml's outcome, kept the same way and for the
+// same reason as mcps.yaml's.
+type SkillLibraryStatus struct {
+	Library SkillLibrary
+	Valid   bool
+	Err     error
+}
+
 // Store holds a per-workspace last-good snapshot of the workspace root,
 // reloading on demand (Reload) or from a Watcher. It follows flow.FlowStore
 // rather than actions.ActionStore: the root is a directory of N independently
@@ -47,6 +59,7 @@ type Store struct {
 
 	mu       sync.Mutex
 	library  LibraryStatus
+	skills   SkillLibraryStatus
 	statuses map[string]WorkspaceStatus
 }
 
@@ -93,6 +106,13 @@ func (s *Store) Library() LibraryStatus {
 	return s.library
 }
 
+// SkillLibrary returns skills.yml's last-good outcome.
+func (s *Store) SkillLibrary() SkillLibraryStatus {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.skills
+}
+
 func (s *Store) reloadLocked() error {
 	entries, err := os.ReadDir(s.root)
 	if err != nil {
@@ -103,11 +123,12 @@ func (s *Store) reloadLocked() error {
 	}
 
 	s.library = s.reloadLibraryLocked()
+	s.skills = s.reloadSkillLibraryLocked()
 
 	statuses := make(map[string]WorkspaceStatus, len(entries))
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == libraryFileName || !entry.IsDir() {
+		if !entry.IsDir() {
 			continue
 		}
 
@@ -143,4 +164,18 @@ func (s *Store) reloadLibraryLocked() LibraryStatus {
 		return LibraryStatus{Library: s.library.Library, Valid: false, Err: err}
 	}
 	return LibraryStatus{Library: lib, Valid: true}
+}
+
+// reloadSkillLibraryLocked loads skills.yml, keeping the previous last-good
+// value when the file is present but broken — a typo in a package pattern
+// must not empty every workspace's skill set on the next reload.
+func (s *Store) reloadSkillLibraryLocked() SkillLibraryStatus {
+	lib, err := LoadSkillLibrary(filepath.Join(s.root, skillLibraryFileName))
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return SkillLibraryStatus{Library: SkillLibrary{}, Valid: true}
+		}
+		return SkillLibraryStatus{Library: s.skills.Library, Valid: false, Err: err}
+	}
+	return SkillLibraryStatus{Library: lib, Valid: true}
 }
