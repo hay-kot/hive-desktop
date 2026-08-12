@@ -198,14 +198,18 @@ export const commandCatalog: BindableCommand[] = [
     paletteHidden: true,
     escapesPane: true,
   },
+  // ⌘N, the chord every app spells "new thing" with — a session is this app's.
+  // It escapes a focused pane because Code is where a second session is most
+  // often wanted, and a pane owns every key there otherwise.
   {
     id: 'session.new',
     title: 'New session…',
     group: 'General',
     keywords: ['session', 'create', 'hive', 'agent', 'launch', 'new'],
     icon: IconSquarePlus,
-    defaultCombos: ['mod+shift+n'],
+    defaultCombos: ['mod+n'],
     context: 'global',
+    escapesPane: true,
   },
   {
     id: 'terminal.popup.toggle',
