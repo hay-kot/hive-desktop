@@ -1,7 +1,6 @@
 package agentws
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -25,42 +24,72 @@ const defaultMCPsYAML = `version: 1
 servers: {}
 `
 
-// SeedDefaultsIfMissing installs a commented mcps.yaml (version 1, an empty
-// servers map) only if it does not already exist, and creates the skill
-// library directory unconditionally. It never interprets or replaces a
-// present mcps.yaml,
-// including an empty or invalid one, and follows actions.SeedDefaultsIfMissing
-// (internal/app/actions/seed.go:143-189): write to a temp file, then hard-link
-// it into place, so a concurrent writer that wins the race keeps its own
-// bytes intact. The returned boolean reports whether this invocation
-// installed mcps.yaml.
+const defaultSkillsYAML = `version: 1
+
+# Skill packages: a named set of skills a workspace enables as a unit. A
+# package is glob patterns over skill names, never copies of the skills, so
+# one skill can belong to several packages and a new skill joins every
+# workspace that wants it by matching a pattern already here.
+#
+# Names come from two places: the skills this build ships (hive-*) and the
+# ones you author under .shared/skills/<name>/SKILL.md. A pattern with no
+# wildcard is just an exact name.
+#
+#   infra:
+#     title: Infrastructure
+#     include: ["terraform-*", "k8s-*", "runbook"]
+#     exclude: ["terraform-experimental"]
+packages:
+  hive:
+    title: Hive
+    description: Configure Hive Desktop itself — flows, actions, settings, webhooks.
+    include:
+      - "hive-*"
+`
+
+// SeedDefaultsIfMissing installs a commented mcps.yaml (an empty servers map)
+// and a skills.yml defining the shipped hive package, each only if it does not
+// already exist, and creates the shared skills directory unconditionally. It
+// never interprets or replaces a present file, including an empty or invalid
+// one.
 //
 // .shared/prompts/ is deliberately not created — see the package doc: skills
 // are unambiguous (.claude/skills, .agents/skills), but no agent this build
-// targets has a portable prompts convention to merge one into.
-func SeedDefaultsIfMissing(root string) (bool, error) {
-	if err := os.MkdirAll(SkillsLibraryDir(root), 0o700); err != nil {
-		return false, fmt.Errorf("create .shared/skills: %w", err)
+// targets has a portable prompts convention to install one into.
+func SeedDefaultsIfMissing(root string) error {
+	if err := os.MkdirAll(SharedSkillsDir(root), 0o700); err != nil {
+		return fmt.Errorf("create .shared/skills: %w", err)
 	}
+	if err := seedFileIfMissing(root, libraryFileName, defaultMCPsYAML); err != nil {
+		return err
+	}
+	return seedFileIfMissing(root, skillLibraryFileName, defaultSkillsYAML)
+}
 
-	path := filepath.Join(root, libraryFileName)
+// seedFileIfMissing installs content at <root>/<name> only when nothing is
+// there, following actions.SeedDefaultsIfMissing
+// (internal/app/actions/seed.go:143-189): write a temp file, then hard-link it
+// into place, so a concurrent writer that wins the race keeps its own bytes
+// intact.
+func seedFileIfMissing(root, name, content string) error {
+	path := filepath.Join(root, name)
 	if _, err := os.Lstat(path); err == nil {
-		return false, nil
+		return nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return false, fmt.Errorf("stat mcps.yaml seed target: %w", err)
+		return fmt.Errorf("stat %s seed target: %w", name, err)
 	}
 
 	if err := os.MkdirAll(root, 0o700); err != nil {
-		return false, fmt.Errorf("create agent workspace root: %w", err)
+		return fmt.Errorf("create agent workspace root: %w", err)
 	}
-	f, err := os.CreateTemp(root, ".mcps-seed-*")
+	f, err := os.CreateTemp(root, ".seed-*")
 	if err != nil {
-		return false, fmt.Errorf("create mcps.yaml seed temp: %w", err)
+		return fmt.Errorf("create %s seed temp: %w", name, err)
 	}
 	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }()
 	if err = f.Chmod(0o600); err == nil {
-		_, err = f.Write([]byte(defaultMCPsYAML))
+		_, err = f.WriteString(content)
 	}
 	if err == nil {
 		err = f.Sync()
@@ -69,13 +98,13 @@ func SeedDefaultsIfMissing(root string) (bool, error) {
 		err = closeErr
 	}
 	if err != nil {
-		return false, fmt.Errorf("write mcps.yaml seed: %w", err)
+		return fmt.Errorf("write %s seed: %w", name, err)
 	}
 	if err := os.Link(tmp, path); err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return false, nil
+			return nil
 		}
-		return false, fmt.Errorf("install mcps.yaml seed: %w", err)
+		return fmt.Errorf("install %s seed: %w", name, err)
 	}
 	d, err := os.Open(root)
 	if err == nil {
@@ -86,9 +115,9 @@ func SeedDefaultsIfMissing(root string) (bool, error) {
 		}
 	}
 	if err != nil {
-		return false, fmt.Errorf("sync agent workspace root: %w", err)
+		return fmt.Errorf("sync agent workspace root: %w", err)
 	}
-	return true, nil
+	return nil
 }
 
 const hiveWorkspaceYAML = `version: 1
@@ -96,14 +125,14 @@ name: Hive
 agent: claude
 autonomy: ask
 skills:
-  - hive-mcp
+  - hive
 `
 
 const hiveAgentsMD = `# Hive
 
 This workspace drives Hive Desktop itself — settings, the feed, flows,
-actions, keybindings, and webhooks — through the full set of hive skills,
-which the app keeps up to date here automatically.
+actions, keybindings, and webhooks — through the "hive" skill package, which
+tracks the skills this build ships.
 
 Autonomy is "ask": nothing here runs unprompted.
 `
@@ -113,9 +142,9 @@ Autonomy is "ask": nothing here runs unprompted.
 // §4), plus an AGENTS.md explaining what the workspace is for. It gives a
 // user an agent surface for configuration and feed curation without
 // authoring YAML first — the orchestrator case from spec §1, working on
-// first launch. The manifest's skills: list is not this seed's to keep
-// current: SyncHiveWorkspaceSkills rewrites it to the full shipped set on
-// every startup, including the one that just seeded it.
+// first launch. Its skills: list names the seeded hive package rather than
+// individual skills, so a release that adds or removes a shipped skill
+// changes what this workspace carries with no edit to the manifest.
 //
 // Callers must invoke this only when EnsureRoot creates root for the first
 // time, never on every open: deleting the workspace must leave it deleted
@@ -132,40 +161,4 @@ func SeedHiveWorkspace(root string) error {
 		return fmt.Errorf("write hive workspace AGENTS.md: %w", err)
 	}
 	return nil
-}
-
-// SyncHiveWorkspaceSkills rewrites the seeded hive workspace's skills: list
-// to slugs, editing the manifest's node tree in place so comments and keys
-// the sync does not own survive. It runs on every startup — the workspace
-// exists to drive Hive Desktop, so it tracks the full shipped skill set as
-// releases add or remove skills, including hand-removed entries. A missing
-// manifest is left missing: deleting the workspace must leave it deleted
-// (spec §14). The returned boolean reports whether the file was rewritten.
-func SyncHiveWorkspaceSkills(root string, slugs []string) (bool, error) {
-	path := filepath.Join(root, "hive", manifestFileName)
-	raw, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("hive workspace manifest: %w", err)
-	}
-	doc, mapping, err := parseManifestNode(raw)
-	if err != nil {
-		return false, fmt.Errorf("hive workspace manifest: %w", err)
-	}
-	if err := setManifestValue(mapping, "skills", slugs); err != nil {
-		return false, fmt.Errorf("hive workspace manifest: %w", err)
-	}
-	out, err := encodeManifestDoc(doc)
-	if err != nil {
-		return false, fmt.Errorf("hive workspace manifest: %w", err)
-	}
-	if bytes.Equal(raw, out) {
-		return false, nil
-	}
-	if err := writeFileAtomic(path, out); err != nil {
-		return false, fmt.Errorf("hive workspace manifest: %w", err)
-	}
-	return true, nil
 }

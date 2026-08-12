@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,28 +38,38 @@ func TestAgentWireArraysAreNeverNull(t *testing.T) {
 
 	resp2 := h.post(t, AgentWorkspacesPathPrefix+"workspaces/open", testToken, map[string]string{"dir": "hive"})
 	defer func() { _ = resp2.Body.Close() }()
-	assertNoNullArrays(t, resp2, "sessions", "missingMcps", "missingSkills")
+	assertNoNullArrays(t, resp2, "sessions", "missingMcps", "missingPackages")
 
 	resp3 := h.post(t, AgentWorkspacesPathPrefix+"skills", testToken, struct{}{})
 	defer func() { _ = resp3.Body.Close() }()
-	assertNoNullArrays(t, resp3, "skills")
+	assertNoNullArrays(t, resp3, "packages")
 }
 
-// The skill catalogue is the workspace editor's read: the shipped set is
-// served over the wire even with an untouched library, and it carries the
-// labels the rows render from.
-func TestAgentSkillCatalogueServesTheShippedSet(t *testing.T) {
+// The package catalogue is the workspace editor's read. A fresh install has
+// the seeded hive package, and its members are the skills this build ships —
+// resolved through the glob, not enumerated anywhere.
+func TestAgentSkillPackagesServeTheSeededHivePackage(t *testing.T) {
 	h := newAgentHarness(t)
 
 	resp := h.post(t, AgentWorkspacesPathPrefix+"skills", testToken, struct{}{})
 	defer func() { _ = resp.Body.Close() }()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	var body agentSkillCatalogueResponse
+	var body agentSkillPackagesResponse
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
-	require.NotEmpty(t, body.Skills)
-	for _, skill := range body.Skills {
-		assert.NotEmpty(t, skill.Slug)
-		assert.NotEmpty(t, skill.Title)
+	assert.Empty(t, body.Problem)
+	require.NotEmpty(t, body.Packages)
+
+	var hive agentSkillPackageView
+	for _, pkg := range body.Packages {
+		if pkg.Name == "hive" {
+			hive = pkg
+		}
+	}
+	require.Equal(t, "hive", hive.Name, "the seeded package must be served")
+	require.NotEmpty(t, hive.Members, "hive-* selects the shipped skills")
+	for _, member := range hive.Members {
+		assert.True(t, member.Shipped)
+		assert.True(t, strings.HasPrefix(member.Slug, "hive-"), "member %q does not match the package pattern", member.Slug)
 	}
 }

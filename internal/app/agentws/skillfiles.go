@@ -11,36 +11,42 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LibrarySkill is one user-authored skill in the library at
+// SharedSkill is one skill authored in the shared skills directory,
 // <root>/.shared/skills/<slug>/SKILL.md. Body is the file verbatim: the
-// library is authored in the format agents already read, so a workspace that
-// enables the slug installs those exact bytes and nothing re-renders them.
-type LibrarySkill struct {
+// directory is authored in the format agents already read, so a workspace
+// that a package brings it to installs those exact bytes and nothing
+// re-renders them.
+type SharedSkill struct {
 	Slug        string
 	Description string
 	Body        string
 }
 
-// SkillsLibraryDir is the library directory under a workspace root.
-func SkillsLibraryDir(root string) string {
+// SharedSkillsDir is the shared skills directory under a workspace root.
+func SharedSkillsDir(root string) string {
 	return filepath.Join(root, sharedDirName, skillsDirName)
 }
 
-// LoadSkillLibrary reads every <slug>/SKILL.md under dir, sorted by slug. A
-// missing directory is an empty library rather than a failure. A directory
-// carrying no SKILL.md, or named something no workspace could declare, is
-// skipped: the library is a directory a user drops files into, so one stray
-// entry must not empty the catalogue every workspace editor reads.
-func LoadSkillLibrary(dir string) ([]LibrarySkill, error) {
+// SkillLibraryPath is skills.yml under a workspace root.
+func SkillLibraryPath(root string) string {
+	return filepath.Join(root, skillLibraryFileName)
+}
+
+// LoadSharedSkills reads every <slug>/SKILL.md under dir, sorted by slug. A
+// missing directory is an empty set rather than a failure. A directory
+// carrying no SKILL.md, or named something no package could select, is
+// skipped: this is a directory a user drops files into, so one stray entry
+// must not fail the read every workspace open depends on.
+func LoadSharedSkills(dir string) ([]SharedSkill, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("agentws: read skill library: %w", err)
+		return nil, fmt.Errorf("agentws: read shared skills: %w", err)
 	}
 
-	out := make([]LibrarySkill, 0, len(entries))
+	out := make([]SharedSkill, 0, len(entries))
 	for _, entry := range entries {
 		slug := entry.Name()
 		if !entry.IsDir() || !validSlug(slug) {
@@ -51,9 +57,9 @@ func LoadSkillLibrary(dir string) ([]LibrarySkill, error) {
 			if errors.Is(err, os.ErrNotExist) {
 				continue
 			}
-			return nil, fmt.Errorf("agentws: read skill %q: %w", slug, err)
+			return nil, fmt.Errorf("agentws: read shared skill %q: %w", slug, err)
 		}
-		out = append(out, LibrarySkill{
+		out = append(out, SharedSkill{
 			Slug:        slug,
 			Description: skillDescription(body),
 			Body:        string(body),
@@ -66,8 +72,8 @@ func LoadSkillLibrary(dir string) ([]LibrarySkill, error) {
 // skillDescription reads the description out of a SKILL.md's YAML
 // frontmatter, or "" when the file has none. A file with no frontmatter is
 // still a usable skill — every agent reads the body — so an unparseable
-// header costs the entry its catalogue description, never its place in the
-// library.
+// header costs the entry its catalogue description, never its place in a
+// package.
 func skillDescription(body []byte) string {
 	const fence = "---\n"
 	if !bytes.HasPrefix(body, []byte(fence)) {

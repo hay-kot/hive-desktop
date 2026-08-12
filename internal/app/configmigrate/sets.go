@@ -21,6 +21,9 @@ var (
 	// Baseline == Current == 1: the shipped hive-desktop entry lives in the Go
 	// registry, so no user library needed rewriting for it.
 	MCPLibrarySet = Set{Name: "mcps", Baseline: 1, Current: 1}
+	// SkillLibrarySet covers skills.yml (internal/app/agentws), the skill
+	// packages a workspace enables.
+	SkillLibrarySet = Set{Name: "skills", Baseline: 1, Current: 1}
 	// AgentWorkspaceSet covers agent-workspace.yaml. Version 2 renames the
 	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api).
 	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 2, Migrations: []Migration{

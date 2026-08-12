@@ -3,10 +3,10 @@
 // DrawerSheet editor shell (the ActionEditor pattern). It writes the fields
 // it shows — name, agent, autonomy, and the mcps and skills lists (plus the
 // directory name at creation); hand-written comments in the YAML survive the
-// write untouched. Both capability lists work the same way: rows come from a
-// merged catalogue (what the build ships plus what the user's library holds),
-// the library is shared across workspaces, and the toggle is this workspace's
-// own. Deleting the workspace also lives here — the editor
+// write untouched. Both capability lists work the same way: a shared library
+// on disk declares what exists (mcps.yaml, skills.yml) and the toggle is this
+// workspace's own. The skills list names packages, not individual skills
+// (ADR skill-packages-are-the-unit-a-workspace-enables). Deleting the workspace also lives here — the editor
 // is the workspace's whole management surface, so its sidebar row needs no
 // menu. Delete follows FolderEditModal.vue's shape: a quiet footer action
 // that expands into an InlineConfirm over a dimmed, inert form.
@@ -25,7 +25,7 @@ import DrawerSheet from './DrawerSheet.vue'
 import InlineConfirm from './InlineConfirm.vue'
 import { CodeField } from '../pipeline/fields'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
-import type { AgentWorkspace, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
+import type { AgentWorkspace, SkillPackageMember, WorkspaceEditRequest } from '../lib/agentWorkspacesClient'
 
 const props = defineProps<{
   /** The workspace being edited, or null to create one. */
@@ -37,9 +37,9 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue, skillCatalogue, autonomyFlags,
+  editor, mcpCatalogue, skillPackages, skillPackagesProblem, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
-  reloadSkillCatalogue, revealSkillsLibrary,
+  reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
 } = useAgentWorkspaces()
 
@@ -161,137 +161,73 @@ async function removeServer(id: string): Promise<void> {
   }
 }
 
-// ── Skill rows ───────────────────────────────────────────────────────────────
-// Same shape as the MCP rows, including the missing case: a slug the
-// catalogue no longer resolves (a library skill deleted off disk) stays
-// visible so it can be switched off, rather than silently doing nothing.
-interface SkillRow {
-  slug: string
+// ── Skill package rows ───────────────────────────────────────────────────────
+// A workspace enables packages, not skills: skills.yml defines each package as
+// glob patterns, and the rows show what those patterns select right now. An
+// enabled name skills.yml no longer defines still rows, so it can be switched
+// off rather than silently selecting nothing.
+interface SkillPackageRow {
+  name: string
   title: string
   description: string
-  shipped: boolean
-  shadows: string
+  members: SkillPackageMember[]
   missing: boolean
 }
 
-const skillRows = computed<SkillRow[]>(() => {
-  const rows: SkillRow[] = skillCatalogue.value.map((e) => ({
-    slug: e.slug, title: e.title || e.slug, description: e.description,
-    shipped: e.shipped, shadows: e.shadows, missing: false,
+const skillRows = computed<SkillPackageRow[]>(() => {
+  const rows: SkillPackageRow[] = skillPackages.value.map((pkg) => ({
+    name: pkg.name, title: pkg.title || pkg.name, description: pkg.description,
+    members: pkg.members, missing: false,
   }))
-  const known = new Set(rows.map((r) => r.slug))
-  for (const slug of selectedSkills.value) {
-    if (!known.has(slug)) rows.push({ slug, title: slug, description: '', shipped: false, shadows: '', missing: true })
+  const known = new Set(rows.map((r) => r.name))
+  for (const name of selectedSkills.value) {
+    if (!known.has(name)) rows.push({ name, title: name, description: '', members: [], missing: true })
   }
   return rows
 })
 
-function skillEnabled(slug: string): boolean {
-  return selectedSkills.value.includes(slug)
+function skillEnabled(name: string): boolean {
+  return selectedSkills.value.includes(name)
 }
 
-function toggleSkill(slug: string): void {
-  selectedSkills.value = skillEnabled(slug)
-    ? selectedSkills.value.filter((x) => x !== slug)
-    : [...selectedSkills.value, slug]
+function toggleSkill(name: string): void {
+  selectedSkills.value = skillEnabled(name)
+    ? selectedSkills.value.filter((x) => x !== name)
+    : [...selectedSkills.value, name]
 }
 
-// ── Skill groups ─────────────────────────────────────────────────────────────
-// A group is the slug prefix before the first hyphen, and it exists only when
-// two or more skills share one — hive-mcp and hive-flows make a "hive" group;
-// a lone release-notes stays a plain row rather than becoming a group of one.
-// This is presentation, derived here rather than declared in the catalogue: a
-// group is not a thing a workspace can enable, and the manifest still names
-// individual slugs. A collapsed group's header carries its enabled count, so
-// a long list stays readable without expanding anything.
-interface SkillGroup {
-  name: string
-  rows: SkillRow[]
-  enabled: number
+// A package's members are worth seeing before enabling it — it is the whole
+// authority the package grants — but not worth the height by default, so the
+// list expands on demand.
+const expandedSkillPackages = ref<string[]>([])
+
+function skillPackageExpanded(name: string): boolean {
+  return expandedSkillPackages.value.includes(name)
 }
 
-function groupNameOf(slug: string): string {
-  const hyphen = slug.indexOf('-')
-  return hyphen > 0 ? slug.slice(0, hyphen) : ''
-}
-
-const skillGroups = computed<SkillGroup[]>(() => {
-  const counts = new Map<string, number>()
-  for (const row of skillRows.value) {
-    const name = groupNameOf(row.slug)
-    if (name) counts.set(name, (counts.get(name) ?? 0) + 1)
-  }
-
-  const groups = new Map<string, SkillGroup>()
-  for (const row of skillRows.value) {
-    const name = groupNameOf(row.slug)
-    if ((counts.get(name) ?? 0) < 2) continue
-    const group = groups.get(name) ?? { name, rows: [], enabled: 0 }
-    group.rows.push(row)
-    if (skillEnabled(row.slug)) group.enabled += 1
-    groups.set(name, group)
-  }
-  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name))
-})
-
-/**
- * The section as one flat list: each group's header, its rows while expanded,
- * then the rows no group claimed. Flat because a collapsed group contributes
- * nothing — filtering rows out of one list is the whole of collapsing — and
- * because it keeps a single row template rather than one per nesting level.
- */
-type SkillListItem =
-  | { kind: 'group', key: string, group: SkillGroup }
-  | { kind: 'row', key: string, row: SkillRow, indented: boolean }
-
-const skillListItems = computed<SkillListItem[]>(() => {
-  const items: SkillListItem[] = []
-  for (const group of skillGroups.value) {
-    items.push({ kind: 'group', key: `group-${group.name}`, group })
-    if (!skillGroupExpanded(group.name)) continue
-    for (const row of group.rows) items.push({ kind: 'row', key: row.slug, row, indented: true })
-  }
-  const grouped = new Set(skillGroups.value.flatMap((g) => g.rows.map((r) => r.slug)))
-  for (const row of skillRows.value) {
-    if (!grouped.has(row.slug)) items.push({ kind: 'row', key: row.slug, row, indented: false })
-  }
-  return items
-})
-
-/** Groups the user has expanded or collapsed by hand, overriding the default. */
-const skillGroupOverrides = ref<Record<string, boolean>>({})
-
-// A group is collapsed by default — its header's count is the whole point, so
-// the list stays short — except when it holds a slug the catalogue no longer
-// resolves. That row carries a warning, and a warning folded out of sight is
-// not a warning.
-function skillGroupExpanded(name: string): boolean {
-  const override = skillGroupOverrides.value[name]
-  if (override !== undefined) return override
-  return skillGroups.value.some((group) => group.name === name && group.rows.some((row) => row.missing))
-}
-
-function toggleSkillGroupExpanded(name: string): void {
-  skillGroupOverrides.value = { ...skillGroupOverrides.value, [name]: !skillGroupExpanded(name) }
-}
-
-// A partly-enabled group switches fully on, so one click is always "give this
-// workspace the whole set" rather than an ambiguous inversion.
-function toggleSkillGroup(group: SkillGroup): void {
-  const slugs = group.rows.map((row) => row.slug)
-  selectedSkills.value = group.enabled === group.rows.length
-    ? selectedSkills.value.filter((slug) => !slugs.includes(slug))
-    : [...selectedSkills.value, ...slugs.filter((slug) => !skillEnabled(slug))]
+function toggleSkillPackageExpanded(name: string): void {
+  expandedSkillPackages.value = skillPackageExpanded(name)
+    ? expandedSkillPackages.value.filter((x) => x !== name)
+    : [...expandedSkillPackages.value, name]
 }
 
 const skillError = ref('')
 
-async function openSkillsLibrary(): Promise<void> {
+async function openSkillPackages(): Promise<void> {
   skillError.value = ''
   try {
-    await revealSkillsLibrary()
+    await revealSkillPackages()
   } catch (failure) {
-    skillError.value = failure instanceof Error ? failure.message : 'The skills library could not be opened.'
+    skillError.value = failure instanceof Error ? failure.message : 'skills.yml could not be opened.'
+  }
+}
+
+async function openSharedSkills(): Promise<void> {
+  skillError.value = ''
+  try {
+    await revealSharedSkills()
+  } catch (failure) {
+    skillError.value = failure instanceof Error ? failure.message : 'The skills folder could not be opened.'
   }
 }
 
@@ -369,7 +305,7 @@ const nameInput = ref<HTMLInputElement | null>(null)
 const dirInput = ref<HTMLInputElement | null>(null)
 onMounted(async () => {
   void reloadMCPCatalogue()
-  void reloadSkillCatalogue()
+  void reloadSkillPackages()
   await nextTick()
   ;(creating.value ? dirInput.value : nameInput.value)?.focus()
 })
@@ -582,62 +518,66 @@ onMounted(async () => {
       </div>
 
       <div class="flex flex-col gap-1.5" data-testid="agent-workspace-editor-skills">
-        <span class="text-xs text-text-3">Skills</span>
+        <span class="text-xs text-text-3">Skill packages</span>
         <div v-if="skillRows.length" class="flex flex-col divide-y divide-row rounded-lg border border-strong bg-raised">
-          <template v-for="item in skillListItems" :key="item.key">
-            <div v-if="item.kind === 'group'" class="flex items-center gap-2.5 px-3 py-2.5">
-              <AppSwitch
-                size="sm"
-                :model-value="item.group.enabled === item.group.rows.length"
-                :aria-label="`Enable every ${item.group.name} skill`"
-                :disabled="busy"
-                :testid="`agent-workspace-editor-skill-group-${item.group.name}`"
-                @update:model-value="toggleSkillGroup(item.group)"
-              />
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left"
-                :aria-expanded="skillGroupExpanded(item.group.name)"
-                :data-testid="`agent-workspace-editor-skill-group-toggle-${item.group.name}`"
-                @click="toggleSkillGroupExpanded(item.group.name)"
-              >
-                <span class="truncate font-mono text-[13px] text-text">{{ item.group.name }}</span>
-                <span class="shrink-0 text-[11px] text-text-4">{{ item.group.enabled }} of {{ item.group.rows.length }} on</span>
-                <IconChevronDown class="size-3 shrink-0 text-text-4 transition-transform" :class="{ '-rotate-90': !skillGroupExpanded(item.group.name) }" />
-              </button>
-            </div>
-
-            <div v-else class="flex items-start gap-2.5 py-2.5 pr-3" :class="item.indented ? 'pl-9' : 'pl-3'">
+          <div v-for="row in skillRows" :key="row.name" class="flex flex-col">
+            <div class="flex items-start gap-2.5 px-3 py-2.5">
               <AppSwitch
                 size="sm"
                 class="mt-0.5"
-                :model-value="skillEnabled(item.row.slug)"
-                :aria-label="`Enable ${item.row.title}`"
+                :model-value="skillEnabled(row.name)"
+                :aria-label="`Enable ${row.title}`"
                 :disabled="busy"
-                :testid="`agent-workspace-editor-skill-${item.row.slug}`"
-                @update:model-value="toggleSkill(item.row.slug)"
+                :testid="`agent-workspace-editor-skill-${row.name}`"
+                @update:model-value="toggleSkill(row.name)"
               />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <span class="truncate text-[13px] text-text">{{ item.row.title }}</span>
-                  <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ item.row.shipped ? 'shipped' : 'custom' }}</span>
-                  <span v-if="item.row.shadows" class="shrink-0 text-[10px] text-severity-warning">replaces shipped</span>
+                  <span class="truncate text-[13px] text-text">{{ row.title }}</span>
+                  <button
+                    v-if="!row.missing"
+                    type="button"
+                    class="flex shrink-0 cursor-pointer items-center gap-1 text-[11px] text-text-4 hover:text-text-3"
+                    :aria-expanded="skillPackageExpanded(row.name)"
+                    :data-testid="`agent-workspace-editor-skill-members-${row.name}`"
+                    @click="toggleSkillPackageExpanded(row.name)"
+                  >
+                    {{ row.members.length }} {{ row.members.length === 1 ? 'skill' : 'skills' }}
+                    <IconChevronDown class="size-3 transition-transform" :class="{ '-rotate-90': !skillPackageExpanded(row.name) }" />
+                  </button>
                 </div>
-                <div v-if="item.row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ item.row.description }}</div>
-                <div v-if="item.row.missing" class="text-[11px] text-severity-warning">not in the catalogue — enabled slugs without an entry are skipped when the workspace opens</div>
+                <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
+                <div v-if="!row.missing && !row.members.length" class="text-[11px] text-severity-warning">matches no skill — check its patterns in skills.yml</div>
+                <div v-if="row.missing" class="text-[11px] text-severity-warning">not defined in skills.yml — an enabled package without a definition brings nothing</div>
               </div>
             </div>
-          </template>
+            <ul v-if="skillPackageExpanded(row.name) && row.members.length" class="flex flex-col gap-1 border-t border-row px-3 py-2 pl-9">
+              <li v-for="member in row.members" :key="member.slug" class="flex items-center gap-1.5">
+                <span class="truncate font-mono text-[11.5px] text-text-3">{{ member.slug }}</span>
+                <span class="shrink-0 rounded-full border border-card px-1.5 py-px text-[10px] text-text-4">{{ member.shipped ? 'shipped' : 'custom' }}</span>
+              </li>
+            </ul>
+          </div>
         </div>
-        <span v-else class="text-xs text-text-4">No skills are available yet.</span>
-        <button
-          type="button"
-          class="self-start cursor-pointer text-[12px] text-accent hover:underline"
-          :disabled="busy"
-          data-testid="agent-workspace-editor-skills-library"
-          @click="openSkillsLibrary"
-        >Open the skills library…</button>
-        <span class="text-xs text-text-4">A skill in the library is a SKILL.md under .shared/skills — shared by every workspace, carried only by the ones that switch it on.</span>
+        <span v-else class="text-xs text-text-4">No packages are defined yet.</span>
+        <div class="flex items-center gap-3">
+          <button
+            type="button"
+            class="cursor-pointer text-[12px] text-accent hover:underline"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-skills-packages"
+            @click="openSkillPackages"
+          >Edit skills.yml…</button>
+          <button
+            type="button"
+            class="cursor-pointer text-[12px] text-accent hover:underline"
+            :disabled="busy"
+            data-testid="agent-workspace-editor-skills-shared"
+            @click="openSharedSkills"
+          >Open the skills folder…</button>
+        </div>
+        <span class="text-xs text-text-4">A package is glob patterns over skill names in skills.yml. Names come from the skills Hive ships and the SKILL.md files under .shared/skills.</span>
+        <p v-if="skillPackagesProblem" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skills-problem">{{ skillPackagesProblem }}</p>
         <p v-if="skillError" class="text-xs text-severity-error" data-testid="agent-workspace-editor-skill-error">{{ skillError }}</p>
       </div>
 

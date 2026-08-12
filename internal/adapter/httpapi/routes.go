@@ -111,7 +111,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps and missingSkills name declared ids the catalogues do not resolve.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/open", Summary: "Regenerate a workspace's disposable artifacts (CLAUDE.md, .mcp.json, .codex/config.toml, .claude/, .agents/, an empty docs/) from its manifest and return its sessions. This is the only call that writes into a workspace; missingMcps names declared MCP ids the catalogue does not resolve, missingPackages skill packages skills.yml does not define.",
 			Request: agentWorkspaceDirRequest{}, Response: agentWorkspaceOpenResponse{}, Handler: ctrl.AgentWorkspaceOpen,
 			Errors: agentErrors("no such workspace, or its manifest is invalid"),
 		},
@@ -121,7 +121,7 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("", ErrResp{Status: 409, When: "a workspace directory of that name already exists"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps, skills) in place. Comments, key order, and keys the editor does not own survive the write; an empty mcps or skills removes the key.",
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "workspaces/update", Summary: "Rewrite a workspace manifest's editable fields (name, agent, autonomy, mcps, and skills — which names skill packages, not individual skills) in place. Comments, key order, and keys the editor does not own survive the write; an empty mcps or skills removes the key.",
 			Request: agentWorkspaceEditRequest{}, Response: agentWorkspaceView{}, Handler: ctrl.AgentWorkspaceUpdate,
 			Errors: agentErrors("no such workspace"),
 		},
@@ -156,13 +156,18 @@ func (ctrl *Controller) agentOperations() []Op {
 			Errors: agentErrors("no user-declared server of that id", ErrResp{Status: 400, When: "the id names a shipped entry"}),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills", Summary: "List the merged skill catalogue: the skills this build ships plus the user's library at .shared/skills, sorted by slug. A library slug shadowing a shipped one wins and says so. Nothing here is enabled by being listed — a workspace carries a skill only by naming its slug in its own skills list.",
-			Response: agentSkillCatalogueResponse{}, Handler: ctrl.AgentSkillCatalogue,
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills", Summary: "List the skill packages defined in skills.yml, each with the skills its glob patterns currently select. Names come from the skills this build ships (hive-*) and the ones authored under .shared/skills. A workspace carries a package's skills only by naming the package in its own skills list.",
+			Response: agentSkillPackagesResponse{}, Handler: ctrl.AgentSkillPackages,
 			Errors: agentErrors(""),
 		},
 		{
-			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills/reveal", Summary: "Open the skill library directory (.shared/skills) in the OS file manager, creating it if it is missing. A library skill is a SKILL.md in a directory named for its slug.",
-			Status: http.StatusNoContent, Handler: ctrl.AgentSkillsReveal,
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills/reveal", Summary: "Open skills.yml, where packages are defined, seeding it first if it is missing.",
+			Status: http.StatusNoContent, Handler: ctrl.AgentSkillPackagesReveal,
+			Errors: agentErrors(""),
+		},
+		{
+			Method: "POST", Path: AgentWorkspacesPathPrefix + "skills/shared", Summary: "Open the shared skills directory (.shared/skills) in the OS file manager, creating it if missing. A skill there is a SKILL.md in a directory named for it, and a package selects it by name.",
+			Status: http.StatusNoContent, Handler: ctrl.AgentSharedSkillsReveal,
 			Errors: agentErrors(""),
 		},
 		{

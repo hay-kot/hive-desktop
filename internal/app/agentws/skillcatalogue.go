@@ -12,47 +12,56 @@ type ShippedSkill struct {
 	Description string
 }
 
-// SkillCatalogueEntry is one row of the merged skill catalogue: a shipped
-// skill, a library skill, or a library skill that replaces a shipped one.
-type SkillCatalogueEntry struct {
-	Slug        string
+// SkillPackageEntry is one row of the package catalogue — a package as the
+// workspace editor shows it, with the names it currently resolves to. Members
+// are resolved for display rather than declared: a package is patterns, so
+// what it contains is a question only the current name-space can answer.
+type SkillPackageEntry struct {
+	Name        string
 	Title       string
 	Description string
-	Shipped     bool
-	// Shadows is the shipped slug this library skill replaces, empty
-	// otherwise.
-	Shadows string
+	Members     []SkillName
 }
 
-// SkillCatalogue merges the shipped set with the user library into one list
-// sorted by slug. A library slug shadowing a shipped one wins and says so —
-// the same rule mcps.yaml follows against the shipped MCP registry
-// (Catalogue), stated once for both halves of a workspace's capability
-// declaration. Nothing here is enabled by being present: a workspace carries
-// a skill only by naming its slug in skills:.
-func SkillCatalogue(shipped []ShippedSkill, library []LibrarySkill) []SkillCatalogueEntry {
-	entries := make(map[string]SkillCatalogueEntry, len(shipped)+len(library))
+// SkillNames is the name-space packages glob over: every shipped skill plus
+// every skill authored in the shared directory, sorted, with a shared skill
+// of the same name winning — a slug is one skill, and the authored copy is
+// the one the user can see and edit.
+func SkillNames(shipped []ShippedSkill, sharedSkills []SharedSkill) []SkillName {
+	names := make(map[string]SkillName, len(shipped)+len(sharedSkills))
 	for _, s := range shipped {
-		entries[s.Slug] = SkillCatalogueEntry{
-			Slug:        s.Slug,
-			Title:       s.Title,
-			Description: s.Description,
-			Shipped:     true,
-		}
+		names[s.Slug] = SkillName{Slug: s.Slug, Shipped: true}
+	}
+	for _, s := range sharedSkills {
+		names[s.Slug] = SkillName{Slug: s.Slug}
 	}
 
-	for _, s := range library {
-		entry := SkillCatalogueEntry{Slug: s.Slug, Title: s.Slug, Description: s.Description}
-		if _, ok := entries[s.Slug]; ok {
-			entry.Shadows = s.Slug
-		}
-		entries[s.Slug] = entry
-	}
-
-	out := make([]SkillCatalogueEntry, 0, len(entries))
-	for _, entry := range entries {
-		out = append(out, entry)
+	out := make([]SkillName, 0, len(names))
+	for _, name := range names {
+		out = append(out, name)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Slug < out[j].Slug })
+	return out
+}
+
+// SkillPackageCatalogue lists every defined package with the names it
+// resolves to, sorted by package name. A package matching nothing is listed
+// with no members rather than hidden: an empty package is a pattern to fix,
+// and hiding it would make skills.yml and the editor disagree.
+func SkillPackageCatalogue(lib SkillLibrary, names []SkillName) []SkillPackageEntry {
+	out := make([]SkillPackageEntry, 0, len(lib.Packages))
+	for id, pkg := range lib.Packages {
+		title := pkg.Title
+		if title == "" {
+			title = id
+		}
+		out = append(out, SkillPackageEntry{
+			Name:        id,
+			Title:       title,
+			Description: pkg.Description,
+			Members:     pkg.Members(names),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }

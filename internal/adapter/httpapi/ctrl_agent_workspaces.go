@@ -247,9 +247,9 @@ type agentWorkspaceOpenResponse struct {
 	// MissingMCPs names ids the workspace declares that the catalogue does
 	// not resolve; they are simply omitted from what was generated.
 	MissingMCPs []string `json:"missingMcps"`
-	// MissingSkills names skill slugs the workspace declares that the skill
-	// catalogue does not resolve — a library skill deleted off disk, say.
-	MissingSkills []string `json:"missingSkills"`
+	// MissingPackages names skill packages the workspace enables that
+	// skills.yml does not define.
+	MissingPackages []string `json:"missingPackages"`
 }
 
 // AgentWorkspaceOpen regenerates a workspace's disposable artifacts and
@@ -264,10 +264,10 @@ func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Reques
 		return err
 	}
 	return server.JSON(w, http.StatusOK, agentWorkspaceOpenResponse{
-		Workspace:     toAgentWorkspaceView(result.Workspace),
-		Sessions:      toAgentSessionViews(result.Sessions),
-		MissingMCPs:   nonNilStrings(result.MissingMCPs),
-		MissingSkills: nonNilStrings(result.MissingSkills),
+		Workspace:       toAgentWorkspaceView(result.Workspace),
+		Sessions:        toAgentSessionViews(result.Sessions),
+		MissingMCPs:     nonNilStrings(result.MissingMCPs),
+		MissingPackages: nonNilStrings(result.MissingPackages),
 	})
 }
 
@@ -411,48 +411,69 @@ func (ctrl *Controller) AgentMCPRemove(w http.ResponseWriter, r *http.Request) e
 	return server.JSON(w, http.StatusOK, agentMCPCatalogueResponse{Servers: ctrl.mcpCatalogueViews(r)})
 }
 
-// agentSkillView is one row of the merged skill catalogue: a skill this build
-// ships, a skill from the user's library, or a library skill replacing a
-// shipped one of the same slug.
-type agentSkillView struct {
-	Slug        string `json:"slug"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Shipped     bool   `json:"shipped"`
-	// Shadows is the shipped slug this library skill replaces, empty
-	// otherwise.
-	Shadows string `json:"shadows"`
+// agentSkillPackageView is one row of the package catalogue: a package from
+// skills.yml and the skills its patterns currently select.
+type agentSkillPackageView struct {
+	Name        string                 `json:"name"`
+	Title       string                 `json:"title"`
+	Description string                 `json:"description"`
+	Members     []agentSkillMemberView `json:"members"`
 }
 
-type agentSkillCatalogueResponse struct {
-	Skills []agentSkillView `json:"skills"`
+// agentSkillMemberView is one skill a package selects, with its provenance:
+// shipped by this build (rendered per install) or authored in the shared
+// skills directory.
+type agentSkillMemberView struct {
+	Slug    string `json:"slug"`
+	Shipped bool   `json:"shipped"`
 }
 
-// AgentSkillCatalogue lists the merged skill catalogue: the skills this build
-// ships plus the user's library, a library slug shadowing a shipped one of
-// the same name.
-func (ctrl *Controller) AgentSkillCatalogue(w http.ResponseWriter, r *http.Request) error {
+type agentSkillPackagesResponse struct {
+	Packages []agentSkillPackageView `json:"packages"`
+	// Problem is why skills.yml could not be read, empty when it is fine. The
+	// packages listed are then the last-good set.
+	Problem string `json:"problem"`
+}
+
+// AgentSkillPackages lists the skill packages a workspace can enable, each
+// with the names its glob patterns currently select.
+func (ctrl *Controller) AgentSkillPackages(w http.ResponseWriter, r *http.Request) error {
 	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
 		return err
 	}
-	items := ctrl.core.AgentWorkspaces.SkillCatalogue(r.Context())
-	out := make([]agentSkillView, 0, len(items))
+	items, problem := ctrl.core.AgentWorkspaces.SkillPackages(r.Context())
+	out := make([]agentSkillPackageView, 0, len(items))
 	for _, item := range items {
-		out = append(out, agentSkillView{
-			Slug: item.Slug, Title: item.Title, Description: item.Description,
-			Shipped: item.Shipped, Shadows: item.Shadows,
+		members := make([]agentSkillMemberView, 0, len(item.Members))
+		for _, m := range item.Members {
+			members = append(members, agentSkillMemberView{Slug: m.Slug, Shipped: m.Shipped})
+		}
+		out = append(out, agentSkillPackageView{
+			Name: item.Name, Title: item.Title, Description: item.Description, Members: members,
 		})
 	}
-	return server.JSON(w, http.StatusOK, agentSkillCatalogueResponse{Skills: out})
+	return server.JSON(w, http.StatusOK, agentSkillPackagesResponse{Packages: out, Problem: problem})
 }
 
-// AgentSkillsReveal opens the skill library directory in the OS file manager
-// — where a library skill is authored, since it is a SKILL.md on disk.
-func (ctrl *Controller) AgentSkillsReveal(w http.ResponseWriter, r *http.Request) error {
+// AgentSkillPackagesReveal opens skills.yml, where packages are defined.
+func (ctrl *Controller) AgentSkillPackagesReveal(w http.ResponseWriter, r *http.Request) error {
 	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
 		return err
 	}
-	if err := ctrl.core.AgentWorkspaces.RevealSkillsLibrary(r.Context()); err != nil {
+	if err := ctrl.core.AgentWorkspaces.RevealSkillPackages(r.Context()); err != nil {
+		return err
+	}
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// AgentSharedSkillsReveal opens the shared skills directory, where a skill a
+// package can select is authored.
+func (ctrl *Controller) AgentSharedSkillsReveal(w http.ResponseWriter, r *http.Request) error {
+	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
+		return err
+	}
+	if err := ctrl.core.AgentWorkspaces.RevealSharedSkills(r.Context()); err != nil {
 		return err
 	}
 	w.WriteHeader(http.StatusNoContent)

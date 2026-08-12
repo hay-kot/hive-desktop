@@ -1406,7 +1406,8 @@ overlap in vocabulary is a coincidence of both being terminals.
 
 `internal/app/agentws` owns the on-disk agent-workspace root
 (`settings.Paths.AgentWorkspacesDir`, default `<ConfigDir>/workspaces`):
-`mcps.yaml`, the skill library at `.shared/skills/`, and one directory per
+`mcps.yaml`, `skills.yml`, the shared skills directory `.shared/skills/`, and
+one directory per
 workspace. Every
 directory splits **authored** files a user (or an agent, via the
 `hive-agent-workspaces` skill) writes — `agent-workspace.yaml`, `AGENTS.md`,
@@ -1441,24 +1442,21 @@ overwrite, and only user entries can be removed. The merged catalogue
 served on the agents API — the surface ADR a-workspace-declares-its-own-authority §5's read-the-command-first
 mitigation runs through.
 
-Skills follow the same two-part shape, and nothing about a workspace's skills
-is implicit: `.shared/skills/<slug>/SKILL.md` is a **library**, shared by
-every workspace and carried only by the ones whose `skills:` list names the
-slug (ADR a-workspace-skill-is-opt-in-from-a-shared-library-not-merged-into-every-workspace). `agentws.SkillCatalogue` merges it with the shipped set —
-which arrives as data, because `prompts` imports `agentws` — under the same
-user-shadows-shipped rule `mcps.yaml` uses. Resolution happens before
-`Generate`, which installs exactly what it is handed: a library entry
-verbatim, a shipped one rendered against this install. An enabled slug the
-catalogue no longer resolves is reported in `MissingSkills` rather than
-failing the open, the way a missing MCP id is.
-
-The editor groups skill rows by the slug prefix before the first hyphen, where
-two or more share one — the shipped set is already `hive-*`. That grouping is
-computed in the frontend and is presentation only: a group is not a thing a
-workspace can enable, `skills:` still names individual slugs, and joining a
-bucket is naming a skill `<bucket>-<name>`. Packages as a unit of enablement
-are deferred until skills have a distribution story to update as a unit
-(ADR a-workspace-skill-is-opt-in-from-a-shared-library-not-merged-into-every-workspace).
+Skills follow the same shape one level up: the unit a workspace enables is a
+**package**, not a skill (ADR skill-packages-are-the-unit-a-workspace-enables).
+`skills.yml` defines each package as glob patterns — `include` admits,
+`exclude` carves out, a pattern with no wildcard is an exact name — over a
+name-space with two sources: the skills this build ships (rendered per install,
+handed to `agentws` as data because `prompts` imports it) and the
+`SKILL.md` files under `.shared/skills/`. A shared file of the same name as a
+shipped skill wins. A workspace's `skills:` list names packages; generation
+installs the union of what they select, so two packages selecting one skill
+need no collision rule and a newly authored skill reaches every workspace whose
+package pattern already matches it, with no manifest edited. Resolution happens
+before `Generate`, which expands no pattern and reads no directory of its own.
+An enabled package `skills.yml` does not define is reported in
+`MissingPackages` rather than failing the open; a package that matches nothing
+lists with no members, because an empty package is a pattern to fix.
 
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the

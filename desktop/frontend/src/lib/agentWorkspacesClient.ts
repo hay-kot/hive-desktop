@@ -64,6 +64,7 @@ export interface WorkspaceEditRequest {
   agent: string
   autonomy: string
   mcps: string[]
+  /** Skill package names from skills.yml, not individual skills. */
   skills: string[]
 }
 
@@ -84,17 +85,30 @@ export interface MCPCatalogueEntry {
 }
 
 /**
- * One row of the merged skill catalogue: the skills this build ships plus the
- * user's library at .shared/skills. Being listed enables nothing — a
- * workspace carries a skill only by naming its slug in its own skills list.
+ * One skill a package selects, with where it came from: shipped by this build
+ * (rendered per install) or authored under .shared/skills.
  */
-export interface SkillCatalogueEntry {
+export interface SkillPackageMember {
   slug: string
+  shipped: boolean
+}
+
+/**
+ * One skill package from skills.yml, with the skills its glob patterns select
+ * right now. Members are resolved, not stored — a new skill matching the
+ * pattern joins every workspace that enabled the package.
+ */
+export interface SkillPackage {
+  name: string
   title: string
   description: string
-  shipped: boolean
-  /** The shipped slug this library skill replaces, empty otherwise. */
-  shadows: string
+  members: SkillPackageMember[]
+}
+
+/** The package catalogue plus why skills.yml could not be read, if it could not. */
+export interface SkillPackagesPayload {
+  packages: SkillPackage[]
+  problem: string
 }
 
 /** One row of a workspace's session list. */
@@ -140,7 +154,8 @@ export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
   missingMcps: string[]
-  missingSkills: string[]
+  /** Enabled package names skills.yml does not define. */
+  missingPackages: string[]
 }
 
 export interface StartSessionRequest {
@@ -183,9 +198,11 @@ export interface AgentWorkspacesClient {
   importMCPServers(json: string): Promise<{ added: string[]; servers: MCPCatalogueEntry[] }>
   /** Removes a user-declared server from mcps.yaml; returns the refreshed catalogue. */
   removeMCPServer(id: string): Promise<MCPCatalogueEntry[]>
-  skillCatalogue(): Promise<SkillCatalogueEntry[]>
-  /** Opens the skill library directory in the OS file manager, creating it if missing. */
-  revealSkillsLibrary(): Promise<void>
+  skillPackages(): Promise<SkillPackagesPayload>
+  /** Opens skills.yml, where packages are defined. */
+  revealSkillPackages(): Promise<void>
+  /** Opens the shared skills directory, where a skill a package selects is authored. */
+  revealSharedSkills(): Promise<void>
   sessions(workspace: string): Promise<AgentSession[]>
   /** Polled while the area is active; '' spans every workspace. Omits a session with no live tmux session. */
   activity(workspace: string): Promise<AgentSessionActivity[]>
@@ -246,12 +263,12 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
     },
     async openWorkspace(dir) {
       const body = await post<AgentWorkspaceOpenResult>('/workspaces/open', { dir })
-      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [], missingSkills: [] }
+      if (!body) return { workspace: emptyWorkspace(dir), sessions: [], missingMcps: [], missingPackages: [] }
       return {
         workspace: normalizeWorkspace(body.workspace),
         sessions: body.sessions ?? [],
         missingMcps: body.missingMcps ?? [],
-        missingSkills: body.missingSkills ?? [],
+        missingPackages: body.missingPackages ?? [],
       }
     },
     async deleteWorkspace(dir) {
@@ -275,12 +292,15 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       const body = await post<{ servers: MCPCatalogueEntry[] | null }>('/mcps/remove', { id })
       return body?.servers ?? []
     },
-    async skillCatalogue() {
-      const body = await post<{ skills: SkillCatalogueEntry[] | null }>('/skills', {})
-      return body?.skills ?? []
+    async skillPackages() {
+      const body = await post<{ packages: SkillPackage[] | null, problem: string }>('/skills', {})
+      return { packages: body?.packages ?? [], problem: body?.problem ?? '' }
     },
-    async revealSkillsLibrary() {
+    async revealSkillPackages() {
       await post('/skills/reveal', {})
+    },
+    async revealSharedSkills() {
+      await post('/skills/shared', {})
     },
     async sessions(workspace) {
       const body = await post<{ sessions: AgentSession[] | null }>('/sessions', { workspace })

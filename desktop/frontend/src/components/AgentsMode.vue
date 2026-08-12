@@ -46,7 +46,7 @@ const props = defineProps<{ active?: boolean }>()
 
 const {
   checking, available, reason,
-  workspaces, root, agents, editor, missingMCPs, missingSkills,
+  workspaces, root, agents, editor, missingMCPs, missingPackages,
   client, ready,
   openWorkspaceInEditor, revealWorkspace,
   reloadWorkspaces, openWorkspace, regenerateWorkspace, deleteWorkspace,
@@ -681,10 +681,10 @@ onBeforeUnmount(() => {
         >Missing MCP servers: {{ missingMCPs.join(', ') }}</div>
 
         <div
-          v-if="selectedWorkspace && missingSkills.length"
+          v-if="selectedWorkspace && missingPackages.length"
           class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
           data-testid="agents-missing-skills"
-        >Missing skills: {{ missingSkills.join(', ') }}</div>
+        >Missing skill packages: {{ missingPackages.join(', ') }}</div>
 
         <div
           v-if="paneStatus !== 'idle'"

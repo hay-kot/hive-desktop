@@ -116,7 +116,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     }),
     openWorkspace: vi.fn((dir: string) => Promise.resolve({
       workspace: workspaceRows.find((ws) => ws.dir === dir) ?? workspaceRows[0],
-      sessions: [], missingMcps: [], missingSkills: [],
+      sessions: [], missingMcps: [], missingPackages: [],
     })),
     allSessions: vi.fn().mockResolvedValue([]),
     activity: vi.fn().mockResolvedValue([]),
@@ -131,8 +131,9 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     openWorkspaceInEditor: vi.fn().mockResolvedValue(undefined),
     revealWorkspace: vi.fn().mockResolvedValue(undefined),
     mcpCatalogue: vi.fn().mockResolvedValue([]),
-    skillCatalogue: vi.fn().mockResolvedValue([]),
-    revealSkillsLibrary: vi.fn().mockResolvedValue(undefined),
+    skillPackages: vi.fn().mockResolvedValue({ packages: [], problem: '' }),
+    revealSkillPackages: vi.fn().mockResolvedValue(undefined),
+    revealSharedSkills: vi.fn().mockResolvedValue(undefined),
   }
 }
 

@@ -86,6 +86,45 @@ func LoadLibrary(path string) (Library, error) {
 	return lib, nil
 }
 
+// LoadSkillLibrary reads and validates skills.yml at path.
+func LoadSkillLibrary(path string) (SkillLibrary, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return SkillLibrary{}, fmt.Errorf("read skills.yml %s: %w", path, err)
+	}
+	data, _, err := configmigrate.SkillLibrarySet.Apply(raw)
+	if err != nil {
+		return SkillLibrary{}, fmt.Errorf("skills.yml %s: %w", path, err)
+	}
+	if data == nil {
+		data = raw
+	}
+	lib, err := parseSkillLibrary(data)
+	if err != nil {
+		return SkillLibrary{}, fmt.Errorf("skills.yml %s: %w", path, err)
+	}
+	return lib, nil
+}
+
+// parseSkillLibrary strictly decodes a skills.yml document already in hand,
+// checks version == configmigrate.SkillLibrarySet.Current, and validates it.
+func parseSkillLibrary(data []byte) (SkillLibrary, error) {
+	var l SkillLibrary
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
+	if err := dec.Decode(&l); err != nil && !errors.Is(err, io.EOF) {
+		return SkillLibrary{}, fmt.Errorf("skills.yml: %w", err)
+	}
+
+	if l.Version != configmigrate.SkillLibrarySet.Current {
+		return SkillLibrary{}, fmt.Errorf("skills.yml: version must be %d, got %d", configmigrate.SkillLibrarySet.Current, l.Version)
+	}
+	if err := l.Validate(); err != nil {
+		return SkillLibrary{}, err
+	}
+	return l, nil
+}
+
 // parseLibrary strictly decodes an mcps.yaml document already in hand, checks
 // version == configmigrate.MCPLibrarySet.Current, and validates it.
 func parseLibrary(data []byte) (Library, error) {

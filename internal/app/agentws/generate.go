@@ -33,8 +33,9 @@ type GenerateInput struct {
 	// Servers is the enabled MCP set, already resolved through the catalogue
 	// with user-shadows-shipped applied.
 	Servers map[string]mcpcatalog.Server
-	// Skills is the workspace's enabled skills, already resolved through the
-	// catalogue and rendered.
+	// Skills is what the workspace's enabled packages select, already
+	// resolved and rendered. Packages are not a concept here: the generator
+	// installs the skills it is handed and never asks where they came from.
 	Skills []RenderedSkill
 }
 
@@ -50,11 +51,6 @@ type Result struct {
 	// MissingMCPs are enabled ids that are no longer in the catalogue. The
 	// workspace still opens and they are omitted from .mcp.json (spec §14).
 	MissingMCPs []string
-	// MissingSkills are enabled slugs the catalogue no longer resolves — a
-	// library skill deleted off disk, say. Reported the same way a missing
-	// MCP is, and for the same reason: a capability that vanished must not
-	// stop the workspace opening.
-	MissingSkills []string
 	// Problems are conditions that do not stop the open but that the user
 	// must see — an .icloud placeholder standing in for an authored file,
 	// say.
@@ -77,17 +73,6 @@ func Generate(in GenerateInput) (Result, error) {
 		}
 	}
 	sort.Strings(res.MissingMCPs)
-
-	resolved := make(map[string]bool, len(in.Skills))
-	for _, rs := range in.Skills {
-		resolved[rs.Slug] = true
-	}
-	for _, slug := range in.Workspace.Skills {
-		if !resolved[slug] {
-			res.MissingSkills = append(res.MissingSkills, slug)
-		}
-	}
-	sort.Strings(res.MissingSkills)
 
 	problem, err := generateClaudeMD(in.Dir)
 	if err != nil {
@@ -190,12 +175,11 @@ func generateMCPFiles(dir string, servers map[string]mcpcatalog.Server) error {
 	return nil
 }
 
-// skillTree builds the target skill file set from the workspace's enabled
-// skills. Keys are "<slug>/SKILL.md", relative to a skills tree root. The
-// generator reads no library of its own: a skill reaches a workspace only by
-// being named in skills: and resolved before Generate is called, which is
-// what keeps the generator pure (spec §4.4) and what makes a skill scoped to
-// the workspaces that ask for it.
+// skillTree builds the target skill file set from the skills the workspace's
+// packages selected. Keys are "<slug>/SKILL.md", relative to a skills tree
+// root. The generator reads no library and expands no pattern of its own:
+// resolution happens before Generate is called, which is what keeps the
+// generator pure (spec §4.4).
 func skillTree(enabled []RenderedSkill) (target map[string][]byte, err error) {
 	target = make(map[string][]byte, len(enabled))
 	for _, rs := range enabled {

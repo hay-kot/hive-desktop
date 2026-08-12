@@ -70,11 +70,17 @@ func writeMCPLibrary(t *testing.T, root, body string) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "mcps.yaml"), []byte(body), 0o600))
 }
 
-func writeLibrarySkill(t *testing.T, root, slug, body string) {
+func writeSharedSkill(t *testing.T, root, slug, body string) {
 	t.Helper()
-	dir := filepath.Join(agentws.SkillsLibraryDir(root), slug)
+	dir := filepath.Join(agentws.SharedSkillsDir(root), slug)
 	require.NoError(t, os.MkdirAll(dir, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o600))
+}
+
+func writeSkillPackages(t *testing.T, root, body string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(root, 0o700))
+	require.NoError(t, os.WriteFile(agentws.SkillLibraryPath(root), []byte(body), 0o600))
 }
 
 // fakeAgentBinary writes a script that ignores every argument it is invoked
@@ -93,8 +99,9 @@ func TestOpenResolvesMCPsAndSkills(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	writeMCPLibrary(t, root, "version: 1\nservers:\n  my-user-mcp:\n    command: \"true\"\n")
+	writeSkillPackages(t, root, "version: 1\npackages:\n  hive:\n    include: [\"hive-mcp\"]\n")
 	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\n"+
-		"mcps:\n  - playwright\n  - my-user-mcp\nskills:\n  - hive-mcp\n")
+		"mcps:\n  - playwright\n  - my-user-mcp\nskills:\n  - hive\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
@@ -523,84 +530,119 @@ func TestWorkspaceEditOwnsTheMCPList(t *testing.T) {
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
-func TestWorkspaceEditOwnsTheSkillList(t *testing.T) {
+func TestWorkspaceEditOwnsTheSkillPackageList(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	created, err := svc.CreateWorkspace(t.Context(), WorkspaceEdit{
-		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive-mcp"},
+		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive"},
 	})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"hive-mcp"}, created.Skills)
+	assert.Equal(t, []string{"hive"}, created.Skills)
 
 	updated, err := svc.UpdateWorkspace(t.Context(), WorkspaceEdit{Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask"})
 	require.NoError(t, err)
 	assert.Empty(t, updated.Skills)
 
 	_, err = svc.UpdateWorkspace(t.Context(), WorkspaceEdit{
-		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive-mcp", "hive-mcp"},
+		Dir: "demo", Name: "Demo", Agent: "claude", Autonomy: "ask", Skills: []string{"hive", "hive"},
 	})
 	require.Error(t, err)
 	assert.Equal(t, KindInvalid, KindOf(err))
 }
 
-// TestSkillCatalogueMergesShippedAndLibrary is the editor's read: the shipped
-// set plus what the library directory holds, with a library slug shadowing a
-// shipped one of the same name.
-func TestSkillCatalogueMergesShippedAndLibrary(t *testing.T) {
+// TestSkillPackagesResolveMembers is the editor's read: packages from
+// skills.yml, each carrying the skills its patterns currently select across
+// both sources.
+func TestSkillPackagesResolveMembers(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeLibrarySkill(t, root, "release-notes", "---\nname: release-notes\ndescription: Draft release notes.\n---\n# Release notes\n")
-	writeLibrarySkill(t, root, "hive-mcp", "# my own take\n")
+	writeSharedSkill(t, root, "terraform-plan", "# terraform plan\n")
+	writeSharedSkill(t, root, "runbook", "# runbook\n")
+	writeSkillPackages(t, root, "version: 1\npackages:\n"+
+		"  hive:\n    title: Hive\n    include: [\"hive-*\"]\n    exclude: [\"hive-settings\"]\n"+
+		"  infra:\n    include: [\"terraform-*\", \"runbook\"]\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
-	bySlug := map[string]SkillCatalogueItem{}
-	for _, item := range svc.SkillCatalogue(t.Context()) {
-		bySlug[item.Slug] = item
+	items, problem := svc.SkillPackages(t.Context())
+	assert.Empty(t, problem)
+	byName := map[string]SkillPackageItem{}
+	for _, item := range items {
+		byName[item.Name] = item
 	}
 
-	custom, ok := bySlug["release-notes"]
-	require.True(t, ok, "a library skill is offered to every workspace")
-	assert.False(t, custom.Shipped)
-	assert.Equal(t, "Draft release notes.", custom.Description)
-
-	shadowed, ok := bySlug["hive-mcp"]
+	infra, ok := byName["infra"]
 	require.True(t, ok)
-	assert.Equal(t, "hive-mcp", shadowed.Shadows, "a library slug replaces the shipped entry of the same name")
+	slugs := make([]string, 0, len(infra.Members))
+	for _, m := range infra.Members {
+		slugs = append(slugs, m.Slug)
+		assert.False(t, m.Shipped, "a shared skill is not shipped")
+	}
+	assert.Equal(t, []string{"runbook", "terraform-plan"}, slugs)
 
-	shipped, ok := bySlug["hive-flows"]
-	require.True(t, ok, "the shipped set is the other half of the catalogue")
-	assert.True(t, shipped.Shipped)
+	hive, ok := byName["hive"]
+	require.True(t, ok)
+	assert.Equal(t, "Hive", hive.Title)
+	require.NotEmpty(t, hive.Members, "the shipped skills are in the name-space packages match")
+	for _, m := range hive.Members {
+		assert.True(t, m.Shipped)
+		assert.NotEqual(t, "hive-settings", m.Slug, "exclude carves a member out")
+	}
 }
 
-// TestOpenCarriesOnlyEnabledLibrarySkills is the scoping the library exists
-// for: a library skill lands in a workspace that enables it and nowhere else,
-// and a slug the catalogue no longer resolves is reported rather than
-// failing the open.
-func TestOpenCarriesOnlyEnabledLibrarySkills(t *testing.T) {
+// TestOpenInstallsWhatThePackagesSelect is the scoping packages exist for: a
+// workspace carries a skill because a package it enabled selects it, and a
+// package skills.yml does not define is reported rather than failing the open.
+func TestOpenInstallsWhatThePackagesSelect(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
-	writeLibrarySkill(t, root, "release-notes", "# Release notes\n\nDraft them.\n")
+	writeSharedSkill(t, root, "terraform-plan", "# Terraform plan\n\nRun it.\n")
+	writeSharedSkill(t, root, "release-notes", "# Release notes\n")
+	writeSkillPackages(t, root, "version: 1\npackages:\n  infra:\n    include: [\"terraform-*\"]\n")
 	writeAgentWorkspaceManifest(t, root, "with", "version: 2\nname: With\nagent: claude\nautonomy: ask\n"+
-		"skills:\n  - release-notes\n  - deleted-skill\n")
+		"skills:\n  - infra\n  - ghost\n")
 	writeAgentWorkspaceManifest(t, root, "without", "version: 2\nname: Without\nagent: claude\nautonomy: ask\n")
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
 	result, err := svc.Open(t.Context(), "with")
-	require.NoError(t, err, "a slug with no catalogue entry does not fail the open")
-	assert.Equal(t, []string{"deleted-skill"}, result.MissingSkills)
+	require.NoError(t, err, "a package with no definition does not fail the open")
+	assert.Equal(t, []string{"ghost"}, result.MissingPackages)
 
-	body, err := os.ReadFile(filepath.Join(root, "with", ".claude", "skills", "release-notes", "SKILL.md"))
+	body, err := os.ReadFile(filepath.Join(root, "with", ".claude", "skills", "terraform-plan", "SKILL.md"))
 	require.NoError(t, err)
-	assert.Equal(t, "# Release notes\n\nDraft them.\n", string(body), "a library skill installs verbatim")
+	assert.Equal(t, "# Terraform plan\n\nRun it.\n", string(body), "a shared skill installs verbatim")
+	assert.NoDirExists(t, filepath.Join(root, "with", ".claude", "skills", "release-notes"),
+		"a shared skill no enabled package selects is not carried")
 
 	_, err = svc.Open(t.Context(), "without")
 	require.NoError(t, err)
-	assert.NoDirExists(t, filepath.Join(root, "without", ".claude", "skills", "release-notes"),
-		"the library is shared; carrying a skill is the workspace's own choice")
+	assert.NoDirExists(t, filepath.Join(root, "without", ".claude", "skills", "terraform-plan"),
+		"packages are shared; enabling one is the workspace's own choice")
+}
+
+// TestOpenAddsASkillToEveryWorkspaceThatMatched is the payoff over naming
+// skills one by one: a new file matching a package's pattern reaches every
+// workspace that enabled it, with no manifest edited.
+func TestOpenAddsASkillToEveryWorkspaceThatMatched(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeSharedSkill(t, root, "terraform-plan", "# plan\n")
+	writeSkillPackages(t, root, "version: 1\npackages:\n  infra:\n    include: [\"terraform-*\"]\n")
+	writeAgentWorkspaceManifest(t, root, "demo", "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nskills:\n  - infra\n")
+
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+	_, err := svc.Open(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(root, "demo", ".claude", "skills", "terraform-apply"))
+
+	writeSharedSkill(t, root, "terraform-apply", "# apply\n")
+	_, err = svc.Open(t.Context(), "demo")
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(root, "demo", ".claude", "skills", "terraform-apply", "SKILL.md"),
+		"the pattern picked the new skill up with no manifest change")
 }
 
 func TestImportAndRemoveMCPServers(t *testing.T) {

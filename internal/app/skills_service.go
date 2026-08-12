@@ -326,20 +326,6 @@ func (s *SkillsService) ShippedSkills(ctx context.Context) ([]agentws.ShippedSki
 	return out, nil
 }
 
-// SkillSlugs lists every shipped skill's installed slug ("hive-" + id) — the
-// set the seeded hive workspace declares (agentws.SyncHiveWorkspaceSkills).
-func (s *SkillsService) SkillSlugs(ctx context.Context) ([]string, error) {
-	shipped, err := s.ShippedSkills(ctx)
-	if err != nil {
-		return nil, err
-	}
-	slugs := make([]string, 0, len(shipped))
-	for _, skill := range shipped {
-		slugs = append(slugs, skill.Slug)
-	}
-	return slugs, nil
-}
-
 // skillMap renders the current catalog as a lookup for the installer's sync.
 func (s *SkillsService) skillMap(ctx context.Context, in prompts.Input) (map[string]skills.Skill, error) {
 	list, err := s.prompts.Catalog(ctx, in)

@@ -9,7 +9,7 @@ import {
   type AgentWorkspacesClient,
   type MCPCatalogueEntry,
   type ResumeSessionRequest,
-  type SkillCatalogueEntry,
+  type SkillPackage,
   type StartSessionRequest,
   type WorkspaceEditRequest,
 } from '../lib/agentWorkspacesClient'
@@ -37,7 +37,8 @@ const agents = ref<string[]>([])
 const editor = ref<AgentEditor>({ command: '', title: '' })
 const autonomyFlags = ref<Record<string, Record<string, string[]>>>({})
 const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
-const skillCatalogue = ref<SkillCatalogueEntry[]>([])
+const skillPackages = ref<SkillPackage[]>([])
+const skillPackagesProblem = ref('')
 // rootProblem is the one signal from the workspaces payload this composable
 // tracks separately from the top-level available/reason: it is the
 // configured root path itself being unreachable (spec §14), a distinct axis
@@ -46,7 +47,7 @@ const skillCatalogue = ref<SkillCatalogueEntry[]>([])
 const rootProblem = ref('')
 
 const missingMCPs = ref<string[]>([])
-const missingSkills = ref<string[]>([])
+const missingPackages = ref<string[]>([])
 
 // The availability answer and the transport are resolved once per run: like
 // the pop-up terminal's probe, there is no program to install and nothing
@@ -102,7 +103,7 @@ async function openWorkspace(dir: string): Promise<void> {
   const result = await regenerateWorkspace(dir)
   if (!result) return
   missingMCPs.value = result.missingMcps
-  missingSkills.value = result.missingSkills
+  missingPackages.value = result.missingPackages
 }
 
 // regenerateWorkspace re-syncs a workspace's generated files and folds its
@@ -175,23 +176,30 @@ async function removeMCPServer(id: string): Promise<void> {
   mcpCatalogue.value = await client.value.removeMCPServer(id)
 }
 
-// The skill catalogue loads on demand beside the MCP one, and for the same
+// The package catalogue loads on demand beside the MCP one, and for the same
 // reason: the workspace editor is its only reader. It is re-read rather than
-// cached across opens because its library half is a directory the user can
-// change under the app.
-async function reloadSkillCatalogue(): Promise<void> {
+// cached across opens because both halves — skills.yml and the shared skills
+// directory — are files the user can change under the app.
+async function reloadSkillPackages(): Promise<void> {
   await ensureProbed()
   if (!client.value) return
   try {
-    skillCatalogue.value = await client.value.skillCatalogue()
+    const payload = await client.value.skillPackages()
+    skillPackages.value = payload.packages
+    skillPackagesProblem.value = payload.problem
   } catch {
     // Keep the last-good rows, matching the reload functions above.
   }
 }
 
-async function revealSkillsLibrary(): Promise<void> {
+async function revealSkillPackages(): Promise<void> {
   if (!client.value) throw new Error('The Agents area is unavailable.')
-  await client.value.revealSkillsLibrary()
+  await client.value.revealSkillPackages()
+}
+
+async function revealSharedSkills(): Promise<void> {
+  if (!client.value) throw new Error('The Agents area is unavailable.')
+  await client.value.revealSharedSkills()
 }
 
 async function openWorkspaceInEditor(dir: string): Promise<void> {
@@ -233,7 +241,7 @@ async function deleteSession(id: number): Promise<void> {
 /** Clears what openWorkspace recorded — called when the focus changes. */
 function resetOpenWorkspace(): void {
   missingMCPs.value = []
-  missingSkills.value = []
+  missingPackages.value = []
 }
 
 export function useAgentWorkspaces(): {
@@ -251,9 +259,10 @@ export function useAgentWorkspaces(): {
   editor: Ref<AgentEditor>
   autonomyFlags: Ref<Record<string, Record<string, string[]>>>
   mcpCatalogue: Ref<MCPCatalogueEntry[]>
-  skillCatalogue: Ref<SkillCatalogueEntry[]>
+  skillPackages: Ref<SkillPackage[]>
+  skillPackagesProblem: Ref<string>
   missingMCPs: Ref<string[]>
-  missingSkills: Ref<string[]>
+  missingPackages: Ref<string[]>
   ready: () => Promise<void>
   reloadWorkspaces: () => Promise<void>
   openWorkspace: (dir: string) => Promise<void>
@@ -264,8 +273,9 @@ export function useAgentWorkspaces(): {
   reloadMCPCatalogue: () => Promise<void>
   importMCPServers: (json: string) => Promise<string[]>
   removeMCPServer: (id: string) => Promise<void>
-  reloadSkillCatalogue: () => Promise<void>
-  revealSkillsLibrary: () => Promise<void>
+  reloadSkillPackages: () => Promise<void>
+  revealSkillPackages: () => Promise<void>
+  revealSharedSkills: () => Promise<void>
   openWorkspaceInEditor: (dir: string) => Promise<void>
   revealWorkspace: (dir: string) => Promise<void>
   startSession: (request: StartSessionRequest) => Promise<AgentSession>
@@ -278,13 +288,13 @@ export function useAgentWorkspaces(): {
   return {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
-    root, rootProblem, agents, editor, autonomyFlags, mcpCatalogue, skillCatalogue,
-    missingMCPs, missingSkills,
+    root, rootProblem, agents, editor, autonomyFlags, mcpCatalogue,
+    skillPackages, skillPackagesProblem, missingMCPs, missingPackages,
     ready: ensureProbed,
     reloadWorkspaces, openWorkspace, regenerateWorkspace,
     createWorkspace, updateWorkspace, deleteWorkspace,
     reloadMCPCatalogue, importMCPServers, removeMCPServer,
-    reloadSkillCatalogue, revealSkillsLibrary,
+    reloadSkillPackages, revealSkillPackages, revealSharedSkills,
     openWorkspaceInEditor, revealWorkspace,
     startSession, resumeSession, closeSession, renameSession, deleteSession, resetOpenWorkspace,
   }
@@ -306,7 +316,8 @@ export function resetAgentWorkspacesForTests(): void {
   editor.value = { command: '', title: '' }
   autonomyFlags.value = {}
   mcpCatalogue.value = []
-  skillCatalogue.value = []
+  skillPackages.value = []
+  skillPackagesProblem.value = ''
   missingMCPs.value = []
-  missingSkills.value = []
+  missingPackages.value = []
 }

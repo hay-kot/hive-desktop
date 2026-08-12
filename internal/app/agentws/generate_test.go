@@ -89,7 +89,7 @@ func TestGenerateIsDeterministic(t *testing.T) {
 
 	ws := testWorkspace()
 	ws.MCPs = []string{"alpha-local", "zulu-remote"}
-	ws.Skills = []string{"hive-mcp", "team-notes"}
+	ws.Skills = []string{"hive", "notes"}
 	skills := []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}, {Slug: "team-notes", Body: "# Team notes\n"}}
 
 	inA := GenerateInput{Dir: dirA, Workspace: ws, Servers: testServers(), Skills: skills}
@@ -234,55 +234,30 @@ func TestGenerateRemovesASkillNoLongerDeclared(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp"))
 }
 
-// TestOnlyEnabledSkillsInstall is the enablement contract: the generator
-// installs exactly the skills it was handed and reads no library of its own,
-// so a library skill a workspace has not switched on never lands in its tree.
-func TestOnlyEnabledSkillsInstall(t *testing.T) {
+// TestGenerateInstallsExactlyWhatItIsHanded is the generator's half of the
+// package contract: it expands no pattern and reads no directory of its own,
+// so a shared skill no enabled package selected never lands in the tree.
+func TestGenerateInstallsExactlyWhatItIsHanded(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.MkdirAll(dir, 0o700))
-	writeFile(t, filepath.Join(SkillsLibraryDir(root), "team-notes", "SKILL.md"), "# team notes\n")
+	writeFile(t, filepath.Join(SharedSkillsDir(root), "team-notes", skillFileName), "# team notes\n")
 
 	ws := testWorkspace()
-	ws.Skills = []string{"hive-mcp"}
+	ws.Skills = []string{"hive"}
 	in := GenerateInput{
 		Dir: dir, Workspace: ws,
 		Servers: map[string]mcpcatalog.Server{},
 		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
 	}
-	res, err := Generate(in)
+	_, err := Generate(in)
 	require.NoError(t, err)
-	assert.Empty(t, res.MissingSkills)
 
 	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
 	assert.FileExists(t, filepath.Join(dir, ".agents", "skills", "hive-mcp", "SKILL.md"))
 	assert.NoDirExists(t, filepath.Join(dir, ".claude", "skills", "team-notes"),
-		"a library skill the workspace has not enabled must not install")
-}
-
-// TestMissingSkillsAreReportedNotFatal covers the slug whose catalogue entry
-// went away: the workspace still opens, the skill is simply absent, and the
-// slug is reported the way a missing MCP id is.
-func TestMissingSkillsAreReportedNotFatal(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-
-	ws := testWorkspace()
-	ws.Skills = []string{"hive-mcp", "deleted-skill"}
-	in := GenerateInput{
-		Dir: dir, Workspace: ws,
-		Servers: map[string]mcpcatalog.Server{},
-		Skills:  []RenderedSkill{{Slug: "hive-mcp", Body: "# MCP\n"}},
-	}
-	res, err := Generate(in)
-	require.NoError(t, err)
-
-	assert.Equal(t, []string{"deleted-skill"}, res.MissingSkills)
-	assert.FileExists(t, filepath.Join(dir, ".claude", "skills", "hive-mcp", "SKILL.md"))
-	entries, err := os.ReadDir(filepath.Join(dir, ".claude", "skills"))
-	require.NoError(t, err)
-	assert.Len(t, entries, 1)
+		"a shared skill no enabled package selected must not install")
 }
 
 // TestCLAUDEMDIsACopyOfAGENTSMD covers the write, the update-on-edit, and the
