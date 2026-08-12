@@ -14,6 +14,7 @@ import previewJson from "./preview.json";
 import pricingJson from "./pricing.json";
 import qolJson from "./qol.json";
 import siteJson from "./site.json";
+import surfacesJson from "./surfaces.json";
 
 /** Palette keys components map to CSS custom properties. */
 const accent = z.enum(["amber", "green", "green2", "blue", "violet", "red", "muted"]);
@@ -124,6 +125,31 @@ const pipelineSchema = z.object({
   }),
 });
 
+/**
+ * The app's three title-bar modes. Two of them ship behind experimental flags
+ * that default to off, so `status` and `note` are required on every entry —
+ * a surface cannot be listed here without saying how you reach it.
+ */
+const surfacesSchema = z.object({
+  eyebrow: z.string(),
+  title: z.string(),
+  intro: z.string(),
+  surfaces: z.array(
+    z.object({
+      name: z.string(),
+      icon: z.string(),
+      accent,
+      status: z.string(),
+      statusAccent: accent,
+      tagline: z.string(),
+      body: z.string(),
+      points: z.array(z.string()),
+      note: z.string(),
+    }),
+  ),
+  footnote: z.string(),
+});
+
 const onboardingSchema = z.object({
   eyebrow: z.string(),
   title: z.string(),
@@ -197,13 +223,6 @@ const previewSchema = z.object({
   sidebar: z.object({
     title: z.string(),
     sources: z.string(),
-    views: z.object({
-      inbox: z.object({ label: z.string(), count: z.string() }),
-      moreLabel: z.string(),
-      /** The app persists this folder's open/closed state; drawn closed here. */
-      moreCollapsed: z.boolean().optional(),
-      more: z.array(z.string()),
-    }),
     feedsLabel: z.string(),
     /** A row is either a feed or a folder holding feeds — one level deep. */
     feeds: z.array(
@@ -212,6 +231,9 @@ const previewSchema = z.object({
         children: z.array(feedRow).optional(),
       }),
     ),
+    /** Feeds are the app's only primary destinations; Trash sits under them as
+     * a de-emphasised utility surface. There is no aggregate inbox view. */
+    trash: feedRow,
     footer: z.object({ title: z.string(), subtitle: z.string() }),
   }),
   search: z.object({ placeholder: z.string() }),
@@ -265,6 +287,7 @@ export const hero = parse("hero", heroSchema, heroJson);
 export const qol = parse("qol", qolSchema, qolJson);
 export const features = parse("features", featuresSchema, featuresJson);
 export const pipeline = parse("pipeline", pipelineSchema, pipelineJson);
+export const surfaces = parse("surfaces", surfacesSchema, surfacesJson);
 export const onboarding = parse("onboarding", onboardingSchema, onboardingJson);
 export const beta = parse("beta", betaSchema, betaJson);
 export const pricing = parse("pricing", pricingSchema, pricingJson);

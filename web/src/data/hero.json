@@ -1,8 +1,8 @@
 {
-  "eyebrow": "Feeds in · triaged work out",
-  "titleLines": ["Every feed you watch,", "triaged before you get there."],
-  "subtitle": "Hive pulls the GitHub work you actually care about into one inbox, then runs flows that filter it, hand an item to a coding agent, or fire a command, so you always know what to work on next.",
+  "eyebrow": "Personal automation for the agent era",
+  "titleLines": ["Everything that wants your attention,", "down to one ping per change."],
+  "subtitle": "Hive watches GitHub, your Grafana alerts, and anything that can POST a webhook, then routes them through rules your own coding agent wrote. One local queue, one ping per real change, and a config file that lives in your dotfiles.",
   "primaryCta": { "label": "Request early access", "href": "#beta" },
-  "secondaryCta": { "label": "Read the docs", "href": null, "external": true },
-  "note": "Private beta · macOS today, Linux next · install link comes with your invite"
+  "secondaryCta": { "label": "Read the docs", "href": "/docs" },
+  "note": "Private beta · macOS and Linux · one-time license, never a subscription"
 }

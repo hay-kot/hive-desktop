@@ -11,15 +11,11 @@
   ],
   "sidebar": {
     "title": "Hive",
-    "sources": "GitHub · 3 sources",
-    "views": {
-      "inbox": { "label": "Inbox", "count": "23" },
-      "moreLabel": "More",
-      "moreCollapsed": true,
-      "more": ["Open", "Archive", "All", "Ignored"]
-    },
+    "sources": "GitHub · Grafana · 4 sources",
     "feedsLabel": "FEEDS",
     "feeds": [
+      { "label": "Needs My Review", "icon": "pr", "count": "3" },
+      { "label": "Firing Alerts", "icon": "bell", "count": "2" },
       { "label": "Assigned", "icon": "at", "count": "0" },
       {
         "label": "hive-desktop",
@@ -42,6 +38,7 @@
         ]
       }
     ],
+    "trash": { "label": "Trash", "count": "0" },
     "footer": { "title": "Edit flow", "subtitle": "Open editor" }
   },
   "search": { "placeholder": "Search items, sources, people…" },
@@ -90,11 +87,11 @@
       "snippet": "hay-kot · Summary"
     },
     {
-      "title": "Grafana source integration with multi-instance support",
-      "age": "11h",
+      "title": "Terminal mode: split panes",
+      "age": "12h",
       "type": "Issue",
       "accent": "issue",
-      "context": "GitHub · hay-kot/hive-desktop #15",
+      "context": "GitHub · hay-kot/hive-desktop #31",
       "snippet": "hay-kot · Summary"
     }
   ],
@@ -127,6 +124,12 @@
         "accent": "violet",
         "title": "Queue for another agent",
         "meta": "Publish message"
+      },
+      {
+        "icon": "⧉",
+        "accent": "amber",
+        "title": "Copy triage summary",
+        "meta": "Copy to clipboard"
       }
     ],
     "footnote": "Actions defined in desktop actions.yml"

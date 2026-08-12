@@ -1,0 +1,145 @@
+{
+  "slug": "github-notifications",
+  "them": {
+    "name": "GitHub notifications",
+    "url": "https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters",
+    "summary": "The inbox at github.com/notifications, plus the custom filters you can save alongside it. It is free, it is already there, and it covers every repository you watch without any setup at all — which is genuinely most of what most people need."
+  },
+  "thesis": "GitHub gives you a list. Hive gives you a rules engine, and triage that ends in an action.",
+  "description": "Where GitHub's own inbox stops — filter caps, no full-text search, no exclusions, and no way to act on a match — and what a rules engine in front of it changes.",
+  "complement": false,
+  "verdict": {
+    "chooseThem": [
+      "Your notifications already fit in the built-in inbox — for most people, they do.",
+      "You want it free, with nothing to install and nothing to configure.",
+      "You need it on any machine you sign into, and on your phone.",
+      "You would rather not run one more desktop app."
+    ],
+    "chooseUs": [
+      "You hit the fifteen-filter ceiling, or need to match on something GitHub cannot filter on.",
+      "You need to exclude things, not just include them.",
+      "The things that interrupt you are not all GitHub.",
+      "You want a matching item to start something — a session, a command, a message."
+    ]
+  },
+  "us": "Hive polls the same notification inbox, and any GitHub search query you can write, alongside Grafana and your own webhooks. What comes back runs through filters and JavaScript you control, lands in feeds you arranged, and carries actions you defined.",
+  "difference": {
+    "title": "A list versus a rules engine",
+    "body": [
+      "GitHub's inbox is a list with a saved-view feature on top. Custom filters cap at fifteen, match on five qualifiers, cannot search the title or body of anything, and cannot express 'not this'. Nothing that matches can trigger anything — the only outcomes are read, done, and unsubscribe. Since April 2026 it also keeps three months rather than five.",
+      "Hive treats the same stream as input to a program. Filters are declarative and their reject branch is wireable, so what fails a rule can go somewhere useful instead of nowhere. Past that, a JavaScript node with durable memory can split one notification into several tracked items, or collapse many into one.",
+      "This is a trade, not a free upgrade: you are exchanging something free and universal for something you install, pay for once, and configure."
+    ]
+  },
+  "theirWins": [
+    {
+      "title": "It is free and already running",
+      "body": "No install, no license, no configuration, nothing to keep up to date. Hive is a paid desktop app you have to set up before it does anything for you."
+    },
+    {
+      "title": "It is everywhere you are",
+      "body": "Any browser, any machine you sign into, and a first-party mobile app. Hive runs on the Mac or Linux box it is installed on and nowhere else."
+    },
+    {
+      "title": "Complete coverage with zero setup",
+      "body": "Everything you watch shows up automatically. Hive only ever shows you what a source you configured went and asked for."
+    },
+    {
+      "title": "It is the source of truth",
+      "body": "Marking something done in GitHub is the real state, everywhere. Hive keeps triage local on purpose, which means its read state and GitHub's are two different things."
+    }
+  ],
+  "ourWins": [
+    {
+      "title": "Rules without a ceiling",
+      "body": "As many feeds and filters as you want, matching on repositories, authors, labels, types and notification reasons with glob patterns, includes and excludes — and anything else you can express in JavaScript."
+    },
+    {
+      "title": "Triage that ends in an action",
+      "body": "An item can launch a coding-agent session from a prompt template, run a shell command, publish a message, or render to your clipboard. GitHub's inbox has no concept of doing something to a notification."
+    },
+    {
+      "title": "More than GitHub in the same queue",
+      "body": "Grafana alerts and PromQL series, and a local endpoint anything can POST to, sitting in the same sidebar as your review requests."
+    },
+    {
+      "title": "It keeps what you tell it to keep",
+      "body": "Items live in local SQLite under retention rules you control, rather than a three-month server-side window."
+    }
+  ],
+  "rows": [
+    {
+      "label": "Free",
+      "them": { "value": "yes" },
+      "us": { "value": "no", "note": "one-time license" }
+    },
+    {
+      "label": "Nothing to install; works in any browser and on mobile",
+      "them": { "value": "yes" },
+      "us": { "value": "no", "note": "macOS and Linux desktop" }
+    },
+    {
+      "label": "Covers everything you watch with no setup",
+      "them": { "value": "yes" },
+      "us": { "value": "partial", "note": "you point sources at queries" }
+    },
+    {
+      "label": "Read state is authoritative on GitHub",
+      "them": { "value": "yes" },
+      "us": { "value": "no", "note": "triage is local and never written back" }
+    },
+    {
+      "label": "More than fifteen saved filters",
+      "them": {
+        "value": "no",
+        "source": "https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters",
+        "note": "fifteen custom filters maximum"
+      },
+      "us": { "value": "yes" }
+    },
+    {
+      "label": "Full-text search over titles and bodies",
+      "them": {
+        "value": "no",
+        "source": "https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters",
+        "note": "filters cannot match issue or PR text"
+      },
+      "us": { "value": "yes" }
+    },
+    {
+      "label": "Exclusions and negation",
+      "them": {
+        "value": "no",
+        "source": "https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters",
+        "note": "no NOT or minus qualifier"
+      },
+      "us": { "value": "yes", "note": "excludes beat includes" }
+    },
+    {
+      "label": "A match can trigger an action",
+      "them": {
+        "value": "no",
+        "source": "https://docs.github.com/en/subscriptions-and-notifications/reference/inbox-filters",
+        "note": "read, done and unsubscribe only"
+      },
+      "us": { "value": "yes" }
+    },
+    {
+      "label": "Sources beyond GitHub",
+      "them": { "value": "n/a" },
+      "us": { "value": "yes", "note": "Grafana and webhooks" }
+    },
+    {
+      "label": "Retention beyond three months",
+      "them": {
+        "value": "no",
+        "source": "https://github.blog/changelog/2026-04-24-changes-to-notification-retention-and-archived-repository-watches/",
+        "note": "cut from five months to three in April 2026"
+      },
+      "us": { "value": "yes", "note": "local, under your own retention rules" }
+    }
+  ],
+  "closing": "If the built-in inbox holds everything you care about, use it — it is free, it is complete, and it is already open. Hive is for the case where you have outgrown a list: when you need to exclude things, match on text, pull in something that is not GitHub, or have a match start real work.",
+  "verifiedAt": "2026-08-05",
+  "theirVersion": "github.com, August 2026"
+}
