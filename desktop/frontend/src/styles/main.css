@@ -74,6 +74,8 @@
   --color-brand-grafana-tint: var(--hv-brand-grafana-tint);
   --color-brand-posthog: var(--hv-brand-posthog);
   --color-brand-posthog-tint: var(--hv-brand-posthog-tint);
+  --color-brand-gitea: var(--hv-brand-gitea);
+  --color-brand-gitea-tint: var(--hv-brand-gitea-tint);
   --color-canvas: var(--hv-canvas);
   --color-canvas-dot: var(--hv-canvas-dot);
   --color-canvas-toolbar: var(--hv-canvas-toolbar);
@@ -200,6 +202,8 @@
   --hv-brand-grafana-tint: rgba(244, 104, 0, 0.15);
   --hv-brand-posthog: #1d4aff;
   --hv-brand-posthog-tint: rgba(29, 74, 255, 0.15);
+  --hv-brand-gitea: #609926;
+  --hv-brand-gitea-tint: rgba(96, 153, 38, 0.15);
 
   /* Flows canvas surface chrome — a dark recess relative to --hv-app. */
   --hv-canvas: #0e1014;

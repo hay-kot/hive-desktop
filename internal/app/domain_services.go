@@ -10,6 +10,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/jobs"
 	"github.com/hay-kot/hive-desktop/internal/app/prompts"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
@@ -217,6 +218,24 @@ func (s *PostHogService) Connect(ctx context.Context, url, token string, project
 
 func (s *PostHogService) Disconnect(ctx context.Context, account string) error {
 	return Wrap(s.auth.Disconnect(ctx, account), KindInternal, "disconnecting PostHog")
+}
+
+// GiteaService wraps the Gitea instance auth. Connecting is one call: a token
+// belongs to exactly one account on exactly one instance, so there is nothing
+// to enumerate and pick between the way a PostHog key's projects are.
+type GiteaService struct{ auth *gitea.Authenticator }
+
+func newGiteaService(auth *gitea.Authenticator) *GiteaService {
+	return &GiteaService{auth: auth}
+}
+
+func (s *GiteaService) Connect(ctx context.Context, url, token string) (gitea.Instance, error) {
+	instance, err := s.auth.Connect(ctx, url, token)
+	return instance, Wrap(err, KindUnauthenticated, "connecting to Gitea")
+}
+
+func (s *GiteaService) Disconnect(ctx context.Context, account string) error {
+	return Wrap(s.auth.Disconnect(ctx, account), KindInternal, "disconnecting Gitea")
 }
 
 // PromptsService owns the paste-ready LLM prompts. Prompt text lives in

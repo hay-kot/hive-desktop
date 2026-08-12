@@ -33,6 +33,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	execsource "github.com/hay-kot/hive-desktop/internal/app/sources/exec"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
@@ -86,10 +87,11 @@ type App struct {
 	System   *SystemService
 	Webhooks *WebhookService
 	GitHub   *GitHubService
+	Gitea    *GiteaService
 	Grafana  *GrafanaService
 	PostHog  *PostHogService
 	// Integrations lists the connector registry with each entry's connection
-	// state. Generic; GitHub, Grafana and PostHog above are the
+	// state. Generic; GitHub, Gitea, Grafana and PostHog above are the
 	// provider-specific acquisition halves.
 	Integrations *IntegrationsService
 	Activity     *ActivityService
@@ -154,6 +156,11 @@ type App struct {
 	// and disconnects projects. Like GitHub, nothing is gated on them.
 	posthogFetchers *posthog.Fetchers
 	posthogAuth     *posthog.Authenticator
+
+	// giteaFetchers hands out one per-account fetcher; giteaAuth connects and
+	// disconnects instances. Like GitHub, nothing is gated on them.
+	giteaFetchers *gitea.Fetchers
+	giteaAuth     *gitea.Authenticator
 
 	// sources resolves the current flow set into live connector instances.
 	// Both ingress paths go through it — the poll producer takes its
@@ -353,6 +360,15 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: posthog.Provider})
 	})
 
+	// Gitea binds a host to the account at connect time, the same shape again,
+	// so its registry and binding store are likewise always wired.
+	giteaInstances := gitea.NewInstanceStore(filepath.Join(cfg.Paths.StateDir, "gitea-instances.json"))
+	a.giteaFetchers = gitea.NewFetchers(giteaInstances, a.credentials, cfg.Logger)
+	a.giteaAuth = gitea.NewAuthenticator(a.credentials, giteaInstances, cfg.Logger, func(credentials.Ref) {
+		a.giteaFetchers.InvalidateAll()
+		a.Events.Publish(a.ctx, events.ConnectionUpdated{Provider: gitea.Provider})
+	})
+
 	a.outputs = a.buildOutputWorker(cfg)
 	a.retention = ingest.NewMaintenance(db, store.DefaultRetentionPolicy(), ingest.DefaultRetentionInterval, cfg.Logger)
 	a.scripts = runtime.NewScriptRegistry()
@@ -385,6 +401,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
 	a.GitHub = newGitHubService(a.gitHubConnection)
+	a.Gitea = newGiteaService(a.giteaAuth)
 	a.Grafana = newGrafanaService(a.grafanaAuth)
 	a.PostHog = newPostHogService(a.posthogAuth)
 	a.Integrations = newIntegrationsService(a.credentials)
@@ -863,13 +880,13 @@ func (a *App) buildEngine(logger zerolog.Logger) *runtime.Engine {
 // declared and not wired is a source node the editor offers and nothing ever
 // polls.
 func (a *App) buildSources(logger zerolog.Logger) *ingest.Resolver {
-	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.posthogFetchers, a.execEnv), logger)
+	return ingest.NewResolver(a.flowStore, sourceFactories(a.fetchers, a.grafanaFetchers, a.posthogFetchers, a.giteaFetchers, a.execEnv), logger)
 }
 
 // sourceFactories is the instance half of the connector registry. It is a
 // function of its dependencies rather than a method so the bijection test can
 // hold it against the descriptors without standing up an App.
-func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, posthogFetchers *posthog.Fetchers, env execsource.Environment) map[string]connector.Factory {
+func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetchers, posthogFetchers *posthog.Fetchers, giteaFetchers *gitea.Fetchers, env execsource.Environment) map[string]connector.Factory {
 	factories := map[string]connector.Factory{
 		webhook.Descriptor.Type:    webhook.NewFactory(),
 		execsource.Descriptor.Type: execsource.NewFactory(env),
@@ -889,6 +906,9 @@ func sourceFactories(fetchers *ghsource.Fetchers, grafanaFetchers *grafana.Fetch
 	if posthogFetchers != nil {
 		factories[posthog.ErrorsDescriptor.Type] = posthog.NewErrorsFactory(posthogFetchers)
 		factories[posthog.AlertsDescriptor.Type] = posthog.NewAlertsFactory(posthogFetchers)
+	}
+	if giteaFetchers != nil {
+		factories[gitea.Descriptor.Type] = gitea.NewFactory(giteaFetchers)
 	}
 	return factories
 }

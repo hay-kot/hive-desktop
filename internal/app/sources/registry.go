@@ -20,6 +20,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/exec"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/gitea"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/grafana"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/posthog"
@@ -34,6 +35,7 @@ import (
 // map is the only form where the set of connectors can be read off one file.
 var descriptors = map[string]connector.Descriptor{
 	exec.Descriptor.Type:             exec.Descriptor,
+	gitea.Descriptor.Type:            gitea.Descriptor,
 	github.Descriptor.Type:           github.Descriptor,
 	grafana.MetricsDescriptor.Type:   grafana.MetricsDescriptor,
 	grafana.AlertsDescriptor.Type:    grafana.AlertsDescriptor,
