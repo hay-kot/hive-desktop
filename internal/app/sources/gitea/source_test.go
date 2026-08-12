@@ -45,6 +45,15 @@ func produce(t *testing.T, fetchers *Fetchers, cfg *Config) ([]store.Msg, error)
 	return msgs, err
 }
 
+// parseRef turns the credential string connectedFetchers hands back into the
+// ref the fetcher registry is keyed on.
+func parseRef(t *testing.T, ref string) credentials.Ref {
+	t.Helper()
+	parsed, err := credentials.ParseRef(ref)
+	require.NoError(t, err)
+	return parsed
+}
+
 // issueJSON is one search result, as Gitea sends it.
 func issueJSON(number int, title, state string) string {
 	return fmt.Sprintf(`{"id":%d,"number":%d,"title":%q,"state":%q,
