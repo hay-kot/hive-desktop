@@ -1592,19 +1592,36 @@ onBeforeUnmount(() => {
               <!-- Chats take a repository's header rather than the scratch
                    section's: it heads several rows, so its name cannot be one of
                    them the way the scratch terminal's is. -->
-              <button
+              <div
                 v-if="group.kind !== 'scratch'"
-                type="button"
-                class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
+                class="repo-group"
+                role="button"
+                tabindex="0"
                 :data-testid="group.kind === 'chats' ? 'terminal-chats-group' : 'terminal-repo-group'"
                 :data-repo="group.key"
                 :aria-expanded="groupExpanded(group)"
                 @click="toggleGroup(group)"
+                @keydown.enter.self.prevent="toggleGroup(group)"
+                @keydown.space.self.prevent="toggleGroup(group)"
               >
                 <span class="min-w-0 truncate text-[13.5px] text-text">{{ group.name }}</span>
-                <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+                <!-- The count and the add button share a cell: starting a
+                     session in the repository you are pointing at is worth more
+                     than the count is while you are pointing at it. -->
+                <div class="group-trailing" @click.stop>
+                  <span class="group-count font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+                  <button
+                    v-if="group.kind === 'repo' && group.key"
+                    type="button"
+                    class="row-action group-add"
+                    :title="`New session in ${group.name}`"
+                    :aria-label="`New session in ${group.name}`"
+                    data-testid="terminal-repo-new-session"
+                    @click="openNewSession(group.key)"
+                  ><IconPlus class="size-3" /></button>
+                </div>
                 <component :is="groupExpanded(group) ? IconChevronDown : IconChevronRight" class="size-3 shrink-0 text-text-4" />
-              </button>
+              </div>
               <!-- The scratch section is one repository's worth of chrome for a
                    session that is not one: the same header, and its tabs where a
                    repository lists its sessions. Its own controls live in the
@@ -2195,7 +2212,19 @@ onBeforeUnmount(() => {
 .tree-hint-key { color: var(--color-text-3); }
 
 .session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 20px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
-/* The pinned section's heading. A repository's is a <button>; this one holds
+/* A repository's heading. Like the pinned section's it holds a control, which a
+   button cannot contain, so it is a div wearing a button's role. */
+.repo-group { display: flex; height: 36px; width: 100%; align-items: center; gap: 8px; padding-left: 12px; padding-right: 12px; text-align: left; cursor: pointer; }
+.repo-group:hover { background: var(--color-chip); }
+.repo-group:focus-visible { outline: none; }
+/* One cell, two occupants: the count is what the row says at rest, the add
+   button what it offers under the pointer. */
+.group-trailing { display: grid; margin-left: auto; min-width: 18px; height: 18px; flex: none; align-self: center; }
+.group-count, .group-add { grid-area: 1 / 1; }
+.group-count { display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.repo-group:hover .group-count, .group-trailing:focus-within .group-count { opacity: 0; }
+.repo-group:hover .group-add, .group-add:focus-visible { opacity: 1; }
+/* The pinned section's heading. This one holds
    the terminal's own controls, which a button cannot contain, so it is a row
    wearing the same box. */
 .group-row { position: relative; display: flex; height: 36px; width: 100%; align-items: center; gap: 8px; padding-left: 12px; padding-right: 12px; text-align: left; cursor: pointer; }

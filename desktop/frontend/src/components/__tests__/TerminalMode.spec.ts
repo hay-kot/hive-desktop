@@ -376,6 +376,20 @@ describe('TerminalMode', () => {
     expect(mocks.openBlank).toHaveBeenCalledWith('hay-kot/hive')
   })
 
+  it('starts a new session in the repository whose header was clicked', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-testid="terminal-repo-new-session"]').trigger('click')
+    expect(mocks.openBlank).toHaveBeenCalledWith('hay-kot/hive')
+  })
+
+  // The group stays collapsed-or-not: the button is inside the header, and a
+  // click that reached the header would toggle the whole repository shut.
+  it('does not toggle the group when its add button is clicked', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-testid="terminal-repo-new-session"]').trigger('click')
+    expect(sessionRows(wrapper)).toHaveLength(2)
+  })
+
   it('collapses a repo group without losing the attached session', async () => {
     const { wrapper } = await mountAvailable()
     await sessionRows(wrapper)[0].trigger('click')
