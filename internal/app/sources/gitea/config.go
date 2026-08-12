@@ -79,7 +79,9 @@ type Config struct {
 	// Credential names the account this source fetches as,
 	// "gitea/<host>-<login>". A ref and never a token: flows/ is
 	// dotfiles-managed, so an embedded token would be a token in a git repo.
-	Credential string `json:"credential" yaml:"credential" jsonschema:"title=Credential,description=The connected Gitea account to fetch as, as 'gitea/<host>-<login>'."`
+	// The description carries no comma on purpose: the jsonschema tag parser
+	// splits on one, so anything after it is dropped from the reflected schema.
+	Credential string `json:"credential" yaml:"credential" jsonschema:"title=Credential,description=The connected Gitea account to fetch as - written 'gitea/<host>-<login>'."`
 	// Kind selects the fetch shape.
 	Kind string `json:"kind" yaml:"kind" jsonschema:"title=Kind,enum=search,enum=notifications,description=search runs a filtered issue and pull-request query; notifications drains the authenticated user's inbox."`
 	// Items narrows a search to one item type. Empty means all.
