@@ -3,26 +3,44 @@ import { computed, nextTick, ref, watch } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import IconSearch from '~icons/lucide/search'
 import IconZap from '~icons/lucide/zap'
+import AppIcon from './AppIcon.vue'
 import { useCommandPalette, type Command } from '../composables/useCommands'
 
 const { open, query, results, toggle, run } = useCommandPalette()
 
 // ── Selection tracking ────────────────────────────────────────────────────────
 
-const selectedIndex = ref(0)
+// The selection is a command, not a position. `results` is rebuilt whenever
+// anything it reads changes — and in the Code view that includes session
+// statuses, which poll — so a selection held as an index and reset on every
+// rebuild walks back to the top under the user's own arrow keys. Holding the
+// id instead means a rebuild that still contains the row leaves it selected,
+// and one that does not falls back to the top.
+const selectedID = ref<string | null>(null)
 const inputRef = ref<HTMLInputElement | null>(null)
 const rowElements = new Map<number, HTMLElement>()
 
-// Reset selection and row map when results change
-watch(results, () => {
-  selectedIndex.value = 0
+const selectedIndex = computed<number>({
+  get() {
+    const at = results.value.findIndex((cmd) => cmd.id === selectedID.value)
+    return at >= 0 ? at : 0
+  },
+  set(index: number) {
+    selectedID.value = results.value[index]?.id ?? null
+  },
+})
+
+// Typing is a new question, so it answers with the best match rather than
+// keeping whatever was highlighted for the last one.
+watch(query, () => {
+  selectedID.value = null
   rowElements.clear()
 })
 
 // Autofocus input when palette opens
 watch(open, async (v) => {
   if (v) {
-    selectedIndex.value = 0
+    selectedID.value = null
     rowElements.clear()
     await nextTick()
     inputRef.value?.focus()
@@ -43,7 +61,7 @@ function setRowRef(el: Element | ComponentPublicInstance | null, index: number):
 
 interface TitleParts { pre: string; match: string; post: string }
 interface HeaderEntry { kind: 'header'; group: string }
-interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; parts: TitleParts }
+interface CmdEntry { kind: 'cmd'; cmd: Command; index: number; parts: TitleParts; scope: string }
 type DisplayEntry = HeaderEntry | CmdEntry
 
 /** Split a title around the first case-insensitive occurrence of the query. */
@@ -64,6 +82,15 @@ function titleParts(title: string, query: string): TitleParts {
 const displayList = computed<DisplayEntry[]>(() => {
   const q = query.value.trim()
   const entries: DisplayEntry[] = []
+  // Ranked results interleave groups, so section headers would mislabel the
+  // rows under them; while filtering, each row carries its group as a scope
+  // prefix instead.
+  if (q) {
+    results.value.forEach((cmd, i) => {
+      entries.push({ kind: 'cmd', cmd, index: i, parts: titleParts(cmd.title, q), scope: cmd.group ?? '' })
+    })
+    return entries
+  }
   let lastGroup: string | undefined = undefined
   results.value.forEach((cmd, i) => {
     const group = cmd.group ?? ''
@@ -71,7 +98,7 @@ const displayList = computed<DisplayEntry[]>(() => {
       if (group) entries.push({ kind: 'header', group })
       lastGroup = group
     }
-    entries.push({ kind: 'cmd', cmd, index: i, parts: titleParts(cmd.title, q) })
+    entries.push({ kind: 'cmd', cmd, index: i, parts: titleParts(cmd.title, q), scope: '' })
   })
   return entries
 })
@@ -145,8 +172,14 @@ function onKeydown(e: KeyboardEvent): void {
                 @mousemove="selectedIndex = entry.index"
               >
                 <span class="palette-chip" aria-hidden="true">
-                  <component :is="entry.cmd.icon ?? IconZap" />
+                  <AppIcon
+                    v-if="!entry.cmd.icon && entry.cmd.iconName"
+                    :name="entry.cmd.iconName"
+                    :style="entry.cmd.iconColor ? { color: entry.cmd.iconColor } : undefined"
+                  />
+                  <component :is="entry.cmd.icon ?? IconZap" v-else />
                 </span>
+                <span v-if="entry.scope" class="palette-scope" data-testid="command-palette-command-scope">{{ entry.scope }} ›</span>
                 <span class="palette-title" data-testid="command-palette-command-title">{{ entry.parts.pre }}<span class="palette-title-match">{{ entry.parts.match }}</span>{{ entry.parts.post }}</span>
                 <span v-if="entry.cmd.hint" class="palette-hint">{{ entry.cmd.hint }}</span>
                 <span v-if="entry.index === selectedIndex" class="palette-enter-badge" aria-hidden="true">↵</span>
@@ -305,6 +338,16 @@ function onKeydown(e: KeyboardEvent): void {
 .palette-chip svg {
   width: 14px;
   height: 14px;
+}
+
+/* Scope prefix while filtering — the group, read per row instead of as a header */
+.palette-scope {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-3);
 }
 
 /* Title with matched-substring highlight */

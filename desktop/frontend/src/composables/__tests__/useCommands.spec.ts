@@ -6,6 +6,7 @@ import {
   sortCommands,
   useCommandPalette,
   useCommands,
+  useShellEscape,
   type Command,
 } from '../useCommands'
 
@@ -47,24 +48,39 @@ describe('useCommands', () => {
     expect(scoreCommand('missing', cmd)).toBe(-1)
   })
 
-  it('sorts commands by group and title', () => {
+  it('sorts commands by group placement, keeping registration order within a group', () => {
     const sorted = sortCommands([
       command({ id: 'profile-work', title: 'Work profile', group: 'Profiles' }),
       command({ id: 'feed-desktop', title: 'Desktop feed', group: 'Feeds' }),
       command({ id: 'profile-personal', title: 'Personal profile', group: 'Profiles' }),
+      command({ id: 'session-attach', title: 'Attach session', group: 'Sessions', order: -1 }),
     ])
 
-    expect(sorted.map((cmd) => cmd.id)).toEqual(['feed-desktop', 'profile-personal', 'profile-work'])
+    expect(sorted.map((cmd) => cmd.id)).toEqual([
+      'session-attach',
+      'feed-desktop',
+      'profile-work',
+      'profile-personal',
+    ])
   })
 
-  it('filters and ranks within grouped results', () => {
+  it('ranks a stronger match above an earlier group', () => {
     const results = filterAndScore('profile', [
       command({ id: 'profile-prefix', title: 'Profile settings', group: 'Profiles' }),
       command({ id: 'profile-keyword', title: 'Desktop feed', group: 'Profiles', keywords: ['profile'] }),
       command({ id: 'feed-keyword', title: 'Review inbox', group: 'Feeds', keywords: ['profile'] }),
     ])
 
-    expect(results.map((cmd) => cmd.id)).toEqual(['feed-keyword', 'profile-prefix', 'profile-keyword'])
+    expect(results.map((cmd) => cmd.id)).toEqual(['profile-prefix', 'feed-keyword', 'profile-keyword'])
+  })
+
+  it('breaks score ties by group placement', () => {
+    const results = filterAndScore('profile', [
+      command({ id: 'feed-keyword', title: 'Review inbox', group: 'Feeds', keywords: ['profile'] }),
+      command({ id: 'session-keyword', title: 'Attach session', group: 'Sessions', order: -1, keywords: ['profile'] }),
+    ])
+
+    expect(results.map((cmd) => cmd.id)).toEqual(['session-keyword', 'feed-keyword'])
   })
 
   it('registers commands and removes them when the effect scope is disposed', () => {
@@ -110,5 +126,51 @@ describe('useCommands', () => {
     expect(handler).toHaveBeenCalledTimes(1)
     expect(palette.open.value).toBe(false)
     expect(palette.query.value).toBe('')
+  })
+
+  it('routes !-queries to the shell escape instead of the fuzzy list', () => {
+    const palette = useCommandPalette()
+
+    scope.run(() => {
+      useCommands([command({ id: 'decoy', title: '!important looking row' })])
+      useShellEscape((line) => [command({ id: 'shell:run', title: `Run: ${line}` })])
+    })
+
+    palette.query.value = '!git status'
+
+    expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['shell:run'])
+    expect(palette.results.value[0].title).toBe('Run: git status')
+  })
+
+  it('offers nothing for a bare ! and when every escape declines', () => {
+    const palette = useCommandPalette()
+    const lines: string[] = []
+
+    scope.run(() => useShellEscape((line) => {
+      lines.push(line)
+      return []
+    }))
+
+    palette.query.value = '!'
+    expect(palette.results.value).toEqual([])
+    palette.query.value = '!   '
+    expect(palette.results.value).toEqual([])
+    expect(lines).toEqual([])
+
+    palette.query.value = '!ls'
+    expect(palette.results.value).toEqual([])
+    expect(lines).toEqual(['ls'])
+  })
+
+  it('releases the shell escape when its scope is disposed', () => {
+    const palette = useCommandPalette()
+
+    scope.run(() => useShellEscape((line) => [command({ id: 'shell:run', title: line })]))
+    palette.query.value = '!ls'
+    expect(palette.results.value).toHaveLength(1)
+
+    scope.stop()
+
+    expect(palette.results.value).toEqual([])
   })
 })

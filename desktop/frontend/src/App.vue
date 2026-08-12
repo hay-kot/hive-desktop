@@ -3,7 +3,10 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { Events, Window } from '@wailsio/runtime'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
+import IconBot from '~icons/lucide/bot'
+import IconCode from '~icons/lucide/code'
 import IconGauge from '~icons/lucide/gauge'
+import IconInbox from '~icons/lucide/inbox'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import IconList from '~icons/lucide/list'
 import IconPalette from '~icons/lucide/palette'
@@ -66,7 +69,8 @@ import {
   type ProfileSettingsSection,
 } from './router'
 import type { SidebarSelection } from './types/feed'
-import { kind } from './lib/itemPresentation'
+import { containerLine, kind } from './lib/itemPresentation'
+import { actionTypeMeta } from './lib/actionPresentation'
 
 // Only true when Vite is serving in dev mode (under `wails3 dev`). The dev
 // strip is that build's own chrome and never ships; the developer tools behind
@@ -946,17 +950,19 @@ const anyOverlayOpen = computed(() =>
   paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
 )
 
-// Seed commands — reactive getter so they update when profiles/flows load
+// Seed commands — reactive getter so they update when profiles/flows load.
+// Filtered by where the user is standing: a row whose command cannot fire
+// there — a feed command over the terminal, a session launcher outside a
+// session (ADR quick-terminal-launchers-are-session-scoped) — does not appear,
+// and the hub's own objects (feeds, profiles, flow nodes, themes) are listed
+// only on the hub, the way Code lists sessions and windows only there.
 useCommands(computed(() => {
   const cmds: Command[] = []
 
-  // Bindable app commands (nav, refresh, …) and the configured launchers, each
-  // with its live shortcut hint. A session-scoped command is listed only where
-  // it can run: the palette does not otherwise filter by context, but a row
-  // that opens a terminal in the wrong place is not an inert row (ADR quick-terminal-launchers-are-session-scoped).
+  // Bindable app commands and the configured launchers, each with its live
+  // shortcut hint.
   for (const command of bindableCommands.value) {
-    if (command.paletteHidden) continue
-    if (command.context === 'terminal-session' && !contextActive(command.context)) continue
+    if (command.paletteHidden || !contextActive(command.context)) continue
     cmds.push({
       id: command.id,
       title: command.title,
@@ -968,57 +974,141 @@ useCommands(computed(() => {
     })
   }
 
-  // Profiles
-  for (const p of profiles.value) {
-    cmds.push({
-      id: `profile:${p.id}`,
-      title: `Switch to profile: ${p.name}`,
-      group: 'Profiles',
-      icon: IconLayoutGrid,
-      run: () => requestSelectProfile(p.id),
-    })
+  // A row per mode this one is not: with the other modes' objects hidden,
+  // these keep a mode change reachable without the title bar.
+  if (shellLoaded.value && !onboardingActive.value) {
+    if (mode.value !== 'hub') {
+      cmds.push({
+        id: 'mode:hub',
+        title: 'Go to Inbox',
+        group: 'View',
+        keywords: ['inbox', 'hub', 'feed', 'mode'],
+        icon: IconInbox,
+        run: () => setMode('hub'),
+      })
+    }
+    if (mode.value !== 'terminal') {
+      cmds.push({
+        id: 'mode:terminal',
+        title: 'Go to Code',
+        group: 'View',
+        keywords: ['code', 'terminal', 'sessions', 'mode'],
+        icon: IconCode,
+        run: () => setMode('terminal'),
+      })
+    }
+    if (mode.value !== 'agents') {
+      cmds.push({
+        id: 'mode:agents',
+        title: 'Go to Agents',
+        group: 'View',
+        keywords: ['agents', 'chat', 'mode'],
+        icon: IconBot,
+        run: () => setMode('agents'),
+      })
+    }
   }
 
-  // Feeds — All items always first, then individual feeds
-  const profileName = activeProfile.value?.name
+  if (hubActive.value) {
+    // Profiles
+    for (const p of profiles.value) {
+      cmds.push({
+        id: `profile:${p.id}`,
+        title: `Switch to profile: ${p.name}`,
+        group: 'Profiles',
+        icon: IconLayoutGrid,
+        run: () => requestSelectProfile(p.id),
+      })
+    }
 
-  cmds.push({
-    id: 'view:trash',
-    title: 'Open Trash',
-    group: 'Feeds',
-    icon: IconList,
-    hint: profileName,
-    run: () => navigateSidebar({ type: 'trash' }),
-  })
+    // Feeds — Trash first, then the sidebar's feeds in their own order.
+    const profileName = activeProfile.value?.name
 
-  for (const f of activeProfile.value?.feeds ?? []) {
     cmds.push({
-      id: `feed:${f.id}`,
-      title: `Select feed: ${f.name}`,
+      id: 'view:trash',
+      title: 'Open Trash',
       group: 'Feeds',
-      icon: IconRss,
+      icon: IconList,
       hint: profileName,
-      run: () => navigateSidebar({ type: 'feed', feedId: f.id }),
+      run: () => navigateSidebar({ type: 'trash' }),
     })
+
+    for (const f of activeProfile.value?.feeds ?? []) {
+      cmds.push({
+        id: `feed:${f.id}`,
+        title: `Select feed: ${f.name}`,
+        group: 'Feeds',
+        icon: IconRss,
+        hint: profileName,
+        run: () => navigateSidebar({ type: 'feed', feedId: f.id }),
+      })
+    }
+
+    // The selected item's configured actions, under its own reference — the
+    // same set the detail pane draws as cards. Running one from here goes
+    // through invokeAction, so an action that declares inputs opens its form
+    // and an interactive launch-session opens the session dialog, exactly as a
+    // card click does.
+    if (feedNavActive.value && selectedItem.value) {
+      const itemGroup = containerLine(selectedItem.value) || 'Item'
+      for (const action of actions.value) {
+        const meta = actionTypeMeta(action.type)
+        cmds.push({
+          id: `item:action:${action.id}`,
+          title: action.label,
+          group: itemGroup,
+          order: -3,
+          keywords: ['action', 'item', action.type],
+          iconName: meta.icon,
+          iconColor: meta.color,
+          run: () => void invokeAction(action.id),
+        })
+      }
+    }
+
+    cmds.push({
+      id: 'profile:new',
+      title: 'New profile…',
+      group: 'Profiles',
+      keywords: ['workspace', 'create'],
+      run: openNewProfile,
+    })
+
+    // View — enter/exit the flows canvas for the active profile.
+    cmds.push({
+      id: 'flow:edit',
+      title: flowsActive.value ? 'Back to feed' : 'Edit flow…',
+      group: 'View',
+      keywords: ['flows', 'pipeline', 'nodes', 'canvas', 'editor'],
+      icon: IconWorkflow,
+      run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
+    })
+
+    // Jump to any node in the active flow by name (8d) — opens the canvas
+    // focused/centered on that node, same as "Reveal in flow" from the sidebar.
+    for (const node of session.activeFlow.value?.nodes ?? []) {
+      cmds.push({
+        id: `flow:node:${node.id}`,
+        title: `Jump to node: ${node.name || node.type}`,
+        group: 'Flow',
+        keywords: ['flows', 'node', 'canvas', 'reveal'],
+        icon: IconShare2,
+        run: () => openFlows(node.id),
+      })
+    }
+
+    // Themes
+    for (const t of themes) {
+      cmds.push({
+        id: `theme:${t}`,
+        title: `Theme: ${themeLabels[t]}`,
+        group: 'Theme',
+        keywords: ['theme', 'appearance', t],
+        icon: IconPalette,
+        run: () => setTheme(t),
+      })
+    }
   }
-
-  cmds.push({
-    id: 'profile:new',
-    title: 'New profile…',
-    group: 'Profiles',
-    keywords: ['workspace', 'create'],
-    run: openNewProfile,
-  })
-
-  // View — enter/exit the flows canvas for the active profile.
-  cmds.push({
-    id: 'flow:edit',
-    title: flowsActive.value ? 'Back to feed' : 'Edit flow…',
-    group: 'View',
-    keywords: ['flows', 'pipeline', 'nodes', 'canvas', 'editor'],
-    icon: IconWorkflow,
-    run: () => { flowsActive.value ? requestExitFlows() : openFlows() },
-  })
 
   // The palette is the only way in outside a Vite build, where the dev strip
   // carries the link.
@@ -1030,31 +1120,6 @@ useCommands(computed(() => {
       keywords: ['runtime', 'performance', 'memory', 'cpu', 'diagnostics'],
       icon: IconGauge,
       run: () => { void router.push({ name: 'dev' }) },
-    })
-  }
-
-  // Jump to any node in the active flow by name (8d) — opens the canvas
-  // focused/centered on that node, same as "Reveal in flow" from the sidebar.
-  for (const node of session.activeFlow.value?.nodes ?? []) {
-    cmds.push({
-      id: `flow:node:${node.id}`,
-      title: `Jump to node: ${node.name || node.type}`,
-      group: 'Flow',
-      keywords: ['flows', 'node', 'canvas', 'reveal'],
-      icon: IconShare2,
-      run: () => openFlows(node.id),
-    })
-  }
-
-  // Themes
-  for (const t of themes) {
-    cmds.push({
-      id: `theme:${t}`,
-      title: `Theme: ${themeLabels[t]}`,
-      group: 'Theme',
-      keywords: ['theme', 'appearance', t],
-      icon: IconPalette,
-      run: () => setTheme(t),
     })
   }
 

@@ -113,7 +113,7 @@ export interface UseTerminalWindows {
   start: () => Promise<void>
   reconnect: () => Promise<void>
   select: (windowId: string) => Promise<void>
-  newWindow: () => Promise<void>
+  newWindow: (command?: string) => Promise<void>
   closeWindow: (windowId: string) => Promise<void>
   rename: (windowId: string, name: string) => Promise<void>
   moveWindow: (windowId: string, position: number) => Promise<void>
@@ -804,11 +804,18 @@ export function useTerminalWindows(slug: string, client: TerminalClient): UseTer
 
   // Whichever of the two arrives second activates the window: the stream may
   // announce it before this call returns.
-  async function newWindow(): Promise<void> {
+  // `command` is typed into the new window rather than handed to tmux's
+  // new-window: tmux would parse the line as its own command words, and `;` in
+  // it separates tmux commands. Sent as input, the shell reads it the way it
+  // reads anything else the user types — history included — and stays alive
+  // once it finishes. The pane's input queue holds the bytes if the shell has
+  // not started reading yet, so this does not race the window coming up.
+  async function newWindow(command = ''): Promise<void> {
     const created = await control(() => client.newWindow(slug), 'Could not create a window.')
     if (created?.windowId) {
       if (findTab(created.windowId)) activateCreated(created.windowId)
       else pendingActivate = created.windowId
+      if (command) sendInput(created.windowId, `${command}\r`)
     }
   }
 

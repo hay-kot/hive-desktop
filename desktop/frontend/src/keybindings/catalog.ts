@@ -80,7 +80,8 @@ export interface BindableCommand {
 const DIRECT_WINDOW_COMMANDS = 9
 const WINDOW_PREFIX = 'terminal.select-window-'
 
-function terminalWindowCommandID(position: number): string {
+/** The jump command for the 1-based `position` in the window strip. */
+export function terminalWindowCommandID(position: number): string {
   return WINDOW_PREFIX + position
 }
 
@@ -92,9 +93,10 @@ export function terminalWindowPosition(commandID: string): number | null {
 }
 
 // Generated rather than written out: nine entries that differ in a digit, and
-// one implementation behind them. They are palette-hidden because the palette
-// does not filter by context — nine rows naming windows that do not exist would
-// otherwise sit in it on the feed.
+// one implementation behind them. They are palette-hidden because the Code view
+// contributes a palette row per real window, named and carrying these combos as
+// hints — nine positional aliases beside those would say less and double the
+// list.
 const windowJumpCommands: BindableCommand[] = Array.from({ length: DIRECT_WINDOW_COMMANDS }, (_, index) => {
   const position = index + 1
   return {

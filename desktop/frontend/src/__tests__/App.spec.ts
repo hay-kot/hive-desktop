@@ -508,6 +508,33 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // A configured action was reachable from the detail pane's cards and the row
+  // menu, but never from the palette. It is grouped under the item it acts on,
+  // the way Code groups a session's operations under the session.
+  it('offers the selected item\u2019s configured actions, under the item\u2019s own reference', async () => {
+    mocks.ActionViews.mockResolvedValue([
+      { id: 'review', label: 'Review PR', type: 'shell', inputs: [] },
+    ])
+    mocks.InvokeAction.mockResolvedValue({ commandId: 7, status: 'completed', stdout: '', stderr: '' })
+    mocks.ListInboxItemsByFeed.mockResolvedValue(inboxItems())
+    const wrapper = await mountApp()
+    await wrapper.findAll('[data-testid="feed-item"]')[0]!.trigger('click')
+    await flushPromises()
+
+    const { results, query } = useCommandPalette()
+    query.value = ''
+    const cmd = results.value.find((candidate) => candidate.id === 'item:action:review')
+    expect(cmd?.title).toBe('Review PR')
+    expect(cmd?.group).toBe('acme/app #1')
+
+    await cmd!.run()
+    await flushPromises()
+    expect(mocks.InvokeAction).toHaveBeenCalledWith('review', 1, {})
+
+    query.value = ''
+    wrapper.unmount()
+  })
+
   // A launcher is a line of actions.yml that has to become both a palette row
   // and a chord of its own — this is where those two meet the app.
   it('offers a configured launcher in the palette and opens it on the session it is attached to', async () => {
@@ -562,6 +589,42 @@ describe('App', () => {
     expect(results.value.map((cmd) => cmd.id)).not.toContain('launcher.lazygit')
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', altKey: true }))
     expect(popup.visible.value).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  // The palette is scoped to where the user stands: the hub's objects (feeds,
+  // profiles, flow nodes, themes) and the feed commands drop out of the Code
+  // view, the terminal commands drop out of the hub, and the mode jumps cover
+  // the navigation the hidden rows used to carry.
+  it('filters palette rows by mode: hub objects vanish in Code view, terminal rows on the feed', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    const { results, query } = useCommandPalette()
+    query.value = ''
+
+    let ids = results.value.map((cmd) => cmd.id)
+    expect(ids).toContain('feed:personal/desktop')
+    expect(ids).toContain('feed.refresh')
+    expect(ids.filter((id) => id.startsWith('theme:')).length).toBeGreaterThan(0)
+    expect(ids).not.toContain('terminal.focus-sidebar')
+    expect(ids).toContain('mode:terminal')
+    expect(ids).not.toContain('mode:hub')
+
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    ids = results.value.map((cmd) => cmd.id)
+    expect(ids).not.toContain('feed:personal/desktop')
+    expect(ids).not.toContain('view:trash')
+    expect(ids).not.toContain('flow:edit')
+    expect(ids).not.toContain('flow:node:src')
+    expect(ids).not.toContain('feed.refresh')
+    expect(ids.filter((id) => id.startsWith('theme:'))).toEqual([])
+    expect(ids.filter((id) => id.startsWith('profile:'))).toEqual([])
+    expect(ids).toContain('terminal.focus-sidebar')
+    expect(ids).toContain('session.new')
+    expect(ids).toContain('mode:hub')
+    expect(ids).not.toContain('mode:terminal')
 
     wrapper.unmount()
   })
