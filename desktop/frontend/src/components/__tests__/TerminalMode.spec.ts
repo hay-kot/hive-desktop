@@ -10,6 +10,7 @@ import { resetSessionStatusesForTests } from '../../composables/useSessionStatus
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
+import { useCommandPalette } from '../../composables/useCommands'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
@@ -374,6 +375,20 @@ describe('TerminalMode', () => {
 
     await wrapper.get('[data-testid="terminal-new-session"]').trigger('click')
     expect(mocks.openBlank).toHaveBeenCalledWith('hay-kot/hive')
+  })
+
+  it('starts a new session in the repository whose header was clicked', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-testid="terminal-repo-new-session"]').trigger('click')
+    expect(mocks.openBlank).toHaveBeenCalledWith('hay-kot/hive')
+  })
+
+  // The group stays collapsed-or-not: the button is inside the header, and a
+  // click that reached the header would toggle the whole repository shut.
+  it('does not toggle the group when its add button is clicked', async () => {
+    const { wrapper } = await mountAvailable()
+    await wrapper.get('[data-testid="terminal-repo-new-session"]').trigger('click')
+    expect(sessionRows(wrapper)).toHaveLength(2)
   })
 
   it('collapses a repo group without losing the attached session', async () => {
@@ -2386,6 +2401,151 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountAvailable()
 
       expect(wrapper.find('[data-testid="terminal-tree-hints"]').exists()).toBe(true)
+      wrapper.unmount()
+    })
+  })
+
+  // ── Command palette library ────────────────────────────────────────────────
+  // The mode's objects, offered where the hub's palette offers its feeds: the
+  // attached session's windows and operations under the session's own name,
+  // and an attach row for every other session.
+
+  describe('command palette library', () => {
+    function paletteResults() {
+      const palette = useCommandPalette()
+      palette.query.value = ''
+      return palette.results
+    }
+
+    // The user's ask: `!<cmd>` is a quick way to get a shell running that
+    // command in the session's own context — a window in the strip, not an
+    // ephemeral pop-up, so it outlives the command and can be returned to.
+    it('opens a window on the attached session for a !-query and types the line into it', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+      const palette = useCommandPalette()
+
+      palette.query.value = '!npm test'
+      expect(palette.results.value.map((cmd) => cmd.id)).toEqual(['shell:run'])
+      expect(palette.results.value[0].title).toBe('Run: npm test')
+      expect(palette.results.value[0].hint).toBe('new window in fix the parser')
+
+      palette.results.value[0].run()
+      expect(session.newWindow).toHaveBeenCalledWith('npm test')
+
+      // A bare ! has nothing to run.
+      palette.query.value = '!'
+      expect(palette.results.value).toEqual([])
+
+      palette.query.value = ''
+      wrapper.unmount()
+    })
+
+    // Nothing attached is the session picker: there is no session for the line
+    // to run in, so the escape declines rather than guessing one.
+    it('offers no shell escape while no session is attached', async () => {
+      const { wrapper } = await mountAvailable()
+      const palette = useCommandPalette()
+
+      palette.query.value = '!npm test'
+      expect(palette.results.value).toEqual([])
+
+      palette.query.value = ''
+      wrapper.unmount()
+    })
+
+    it('lists the attached session: its windows in strip order, then its operations', async () => {
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper, router } = await mountAt('/terminal/hive-fix-parser')
+      const results = paletteResults()
+
+      const windows = results.value.filter((cmd) => cmd.id.startsWith('terminal:window:'))
+      expect(windows.map((cmd) => cmd.title)).toEqual(['Go to window: agent', 'Go to window: shell'])
+      expect(windows[0].group).toBe('fix the parser')
+
+      const byId = new Map(results.value.map((cmd) => [cmd.id, cmd]))
+      for (const id of ['terminal:session:kill', 'terminal:session:detail', 'terminal:session:rename', 'terminal:session:recycle', 'terminal:session:delete']) {
+        expect(byId.has(id), id).toBe(true)
+        expect(byId.get(id)?.group).toBe('fix the parser')
+      }
+      // Running already — nothing to start.
+      expect(byId.has('terminal:session:start')).toBe(false)
+
+      // Every other attachable session, never the attached one.
+      expect(byId.has('terminal:attach:hive-bump-deps')).toBe(true)
+      expect(byId.has('terminal:attach:Scratch')).toBe(true)
+      expect(byId.has('terminal:attach:hive-fix-parser')).toBe(false)
+
+      byId.get('terminal:window:@2')!.run()
+      expect(session.select).toHaveBeenCalledWith('@2')
+
+      byId.get('terminal:attach:hive-bump-deps')!.run()
+      await flushPromises()
+      expect(router.currentRoute.value.params.slug).toBe('hive-bump-deps')
+
+      wrapper.unmount()
+    })
+
+    it('runs a configured session action against the attached session', async () => {
+      mocks.TerminalActionViews.mockImplementation(async (surface: string) => (
+        surface === 'session' ? [{ id: 'standup', label: 'Post standup', type: 'shell', inputs: [] }] : []
+      ))
+      mocks.InvokeTerminalAction.mockResolvedValue(undefined)
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+      const results = paletteResults()
+
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:session:terminal-action:standup')
+      expect(cmd?.title).toBe('Post standup')
+      expect(cmd?.group).toBe('fix the parser')
+
+      await cmd!.run()
+      await flushPromises()
+      expect(mocks.InvokeTerminalAction).toHaveBeenCalledWith('standup', { slug: 'hive-fix-parser', windowId: '' }, {})
+
+      wrapper.unmount()
+    })
+
+    // A window action needs a window, and the palette's is the one on screen.
+    it('runs a configured window action against the active window', async () => {
+      mocks.TerminalActionViews.mockImplementation(async (surface: string) => (
+        surface === 'window' ? [{ id: 'tail-log', label: 'Tail log', type: 'shell', inputs: [] }] : []
+      ))
+      mocks.InvokeTerminalAction.mockResolvedValue(undefined)
+      const session = fakeSession()
+      mocks.useTerminalWindows.mockReturnValue(session)
+      const { wrapper } = await mountAt('/terminal/hive-fix-parser')
+      const results = paletteResults()
+
+      const cmd = results.value.find((candidate) => candidate.id === 'terminal:window:action:terminal-action:tail-log')
+      expect(cmd?.title).toBe('Tail log')
+      expect(cmd?.group).toBe('fix the parser')
+      // The label says what it does; the hint says what it does it to.
+      expect(cmd?.hint).toBe('agent')
+
+      await cmd!.run()
+      await flushPromises()
+      expect(mocks.InvokeTerminalAction).toHaveBeenCalledWith('tail-log', { slug: 'hive-fix-parser', windowId: '@1' }, {})
+
+      wrapper.unmount()
+    })
+
+    it('offers only attach rows with nothing attached, and withdraws everything off-screen', async () => {
+      const { wrapper } = await mountAt()
+      const results = paletteResults()
+
+      const ids = results.value.map((cmd) => cmd.id)
+      expect(ids).toContain('terminal:attach:hive-fix-parser')
+      expect(ids).toContain('terminal:attach:hive-bump-deps')
+      expect(ids.some((id) => id.startsWith('terminal:session:') || id.startsWith('terminal:window:'))).toBe(false)
+
+      // Mounted but hidden behind another mode: the library must not follow.
+      await wrapper.setProps({ active: false })
+      expect(results.value.some((cmd) => cmd.id.startsWith('terminal:'))).toBe(false)
+
       wrapper.unmount()
     })
   })

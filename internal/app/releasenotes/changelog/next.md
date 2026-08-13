@@ -30,6 +30,18 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
 - **A notify terminal node**, so a feed can notify on new items.
 - **In-app problem reporting** to a private bucket, and a documentation site
   with search on the landing page.
+- **`!` in the command palette runs a shell command** in the Code view — the
+  rest of the line opens a window on the attached session and types it there,
+  so it runs in that checkout and the shell outlives it.
+- **The command palette knows where you are.** Code view lists the attached
+  session's windows and operations, every other session as an attach row, and
+  the configured session and window actions — none of which were reachable
+  from it before.
+- **Your configured actions are in the palette.** The selected inbox item's
+  actions are listed under its own reference, and running one opens its input
+  form exactly as the detail pane's cards do.
+- **A `+` on a repository in the session tree** starts a session in it,
+  replacing the session count under the pointer.
 
 ## Changed
 
@@ -40,7 +52,11 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   gained date groups, hover actions, and mark-all-as-read.
 - One source message is split into per-entity feed items rather than one
   combined row.
-- The New Session form preselects the agent `hive` would actually run.
+- The New Session form preselects the agent `hive` would actually run, and the
+  dialog opens on ⌘N.
+- The command palette no longer lists rows that cannot run where you are
+  standing — feed commands over a terminal, feeds and themes outside the
+  inbox — and ranks a strong title match above an early group.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
 - The app icon is the four-node hive mark.

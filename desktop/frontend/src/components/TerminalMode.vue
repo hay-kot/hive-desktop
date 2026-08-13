@@ -17,12 +17,15 @@ import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
 import IconListFilter from '~icons/lucide/list-filter'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
+import IconPencil from '~icons/lucide/pencil'
 import IconPinOff from '~icons/lucide/pin-off'
 import IconPlay from '~icons/lucide/play'
 import IconPlus from '~icons/lucide/plus'
+import IconRecycle from '~icons/lucide/recycle'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
 import IconRotateCw from '~icons/lucide/rotate-cw'
 import IconSearch from '~icons/lucide/search'
+import IconSquare from '~icons/lucide/square'
 import IconTerminal from '~icons/lucide/terminal'
 import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
@@ -36,6 +39,7 @@ import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
 import TerminalTab from './TerminalTab.vue'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
+import { useCommands, useShellEscape, type Command } from '../composables/useCommands'
 import { useTerminalActions } from '../composables/useTerminalActions'
 import { useTerminalAvailability } from '../composables/useTerminalAvailability'
 import { sessionRepository, terminalSessionGroups, useTerminalSessions, type TerminalSessionGroup, type TerminalSessionRow } from '../composables/useTerminalSessions'
@@ -55,6 +59,7 @@ import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../
 import { appErrorMessage } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
+import { terminalWindowCommandID } from '../keybindings/catalog'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
@@ -892,6 +897,186 @@ function relativeWindow(delta: number): TerminalWindowTab | undefined {
   return tabs[(at + delta + tabs.length) % tabs.length]
 }
 
+// The Code view's palette library: the attached session's windows and
+// operations under the session's own name, then every other session as an
+// attach row — the mode's objects, the way the hub's palette lists its feeds.
+// Registered here because everything it acts on lives in this component, and
+// gated on `active` inside the getter: the mode is mounted once and only
+// hidden, so scope disposal never fires on a trip to the hub.
+useCommands(() => {
+  if (!props.active) return []
+  const cmds: Command[] = []
+
+  const attached = attachedRow.value
+  if (attached) {
+    const group = attached.name
+    windowRowsFor(attached).forEach((win, index) => {
+      cmds.push({
+        id: `terminal:window:${win.windowId}`,
+        title: `Go to window: ${win.name}`,
+        group,
+        order: -3,
+        keywords: ['window', 'tab', 'jump', 'switch'],
+        icon: IconTerminal,
+        hint: formatCombo(combosFor(terminalWindowCommandID(index + 1))[0] ?? ''),
+        run: () => openTreeWindow(attached, win),
+      })
+    })
+
+    const hive = isHiveSession(attached)
+    if ((hive && attached.state === 'active') || isScratch(attached)) {
+      if (!rowRunning(attached)) {
+        cmds.push({
+          id: 'terminal:session:start',
+          title: isScratch(attached) ? 'Start terminal' : 'Start session',
+          group,
+          order: -3,
+          keywords: ['session', 'run', 'launch'],
+          icon: IconPlay,
+          run: () => void startSession(attached.slug),
+        })
+      }
+      cmds.push({
+        id: 'terminal:session:kill',
+        title: 'Kill terminal…',
+        group,
+        order: -3,
+        keywords: ['session', 'stop'],
+        icon: IconSquare,
+        run: () => requestKill(attached),
+      })
+    }
+    if (hive) {
+      cmds.push({
+        id: 'terminal:session:detail',
+        title: 'Session details…',
+        group,
+        order: -3,
+        keywords: ['session', 'info'],
+        icon: IconInfo,
+        run: () => void openSessionDetail(attached),
+      }, {
+        id: 'terminal:session:rename',
+        title: 'Rename session…',
+        group,
+        order: -3,
+        keywords: ['session'],
+        icon: IconPencil,
+        run: () => requestRename(attached),
+      })
+      if (attached.state === 'active') {
+        cmds.push({
+          id: 'terminal:session:recycle',
+          title: 'Recycle session…',
+          group,
+          order: -3,
+          keywords: ['session', 'reset'],
+          icon: IconRecycle,
+          run: () => void requestRecycle(attached),
+        })
+      }
+      cmds.push({
+        id: 'terminal:session:delete',
+        title: 'Delete session…',
+        group,
+        order: -3,
+        keywords: ['session', 'remove'],
+        icon: IconTrash,
+        run: () => void requestDelete(attached),
+      })
+      for (const entry of sessionActionEntries.value) {
+        if (entry.kind !== 'action') continue
+        cmds.push({
+          id: `terminal:session:${entry.id}`,
+          title: entry.label,
+          group,
+          order: -3,
+          keywords: ['session', 'action'],
+          iconName: entry.iconName,
+          iconColor: entry.iconColor,
+          run: () => runSessionAction(attached, entry.id),
+        })
+      }
+      // A window action needs a window, and the palette's window is the one on
+      // screen — the row menu is where the other windows' copies live. The
+      // window's name is in the hint because an action's label says what it
+      // does, not what it does it to.
+      const activeWindow = windowRowsFor(attached).find((win) => win.active)
+      if (activeWindow) {
+        for (const entry of windowActionEntries.value) {
+          if (entry.kind !== 'action') continue
+          cmds.push({
+            id: `terminal:window:action:${entry.id}`,
+            title: entry.label,
+            group,
+            order: -3,
+            keywords: ['window', 'action', activeWindow.name],
+            iconName: entry.iconName,
+            iconColor: entry.iconColor,
+            hint: activeWindow.name,
+            run: () => runWindowAction(attached, activeWindow.windowId, entry.id),
+          })
+        }
+      }
+    }
+    if (isChat(attached)) {
+      cmds.push({
+        id: 'terminal:chat:open-in-agents',
+        title: 'Open in Agents',
+        group,
+        order: -3,
+        keywords: ['chat', 'agents'],
+        icon: IconBot,
+        run: () => openChatInAgents(attached),
+      }, {
+        id: 'terminal:chat:unpin',
+        title: 'Unpin from Code',
+        group,
+        order: -3,
+        keywords: ['chat', 'pin'],
+        icon: IconPinOff,
+        run: () => unpinSlug(attached.slug),
+      })
+    }
+  }
+
+  for (const group of sessionGroups.value) {
+    for (const row of group.sessions) {
+      if (row.slug === activeSlug.value) continue
+      cmds.push({
+        id: `terminal:attach:${row.slug}`,
+        title: `Attach session: ${row.name}`,
+        group: 'Sessions',
+        order: -2,
+        keywords: [row.slug, group.name, 'session', 'attach', 'switch', 'open'],
+        icon: IconTerminal,
+        hint: group.name,
+        run: () => selectSessionRow(row),
+      })
+    }
+  }
+
+  return cmds
+})
+
+// `!` in the palette opens a window on the attached session running the rest of
+// the line — a shell in that checkout, in the strip beside the others, which
+// outlives the command the way a window does. It needs a session to open in, so
+// the picker offers nothing; the hint names the one it found.
+useShellEscape((line) => {
+  if (!props.active) return []
+  const attached = attachedRow.value
+  if (!attached) return []
+  return [{
+    id: 'shell:run',
+    title: `Run: ${line}`,
+    keywords: ['shell', 'terminal', 'window', 'run'],
+    icon: IconTerminal,
+    hint: `new window in ${attached.name}`,
+    run: () => void current.value?.newWindow(line),
+  }]
+})
+
 onMounted(() => setTerminalTreeHandles({
   focusTree: focusTreeCursor,
   // Selected, not just focused: `/` on a field that already has a query means
@@ -1592,19 +1777,36 @@ onBeforeUnmount(() => {
               <!-- Chats take a repository's header rather than the scratch
                    section's: it heads several rows, so its name cannot be one of
                    them the way the scratch terminal's is. -->
-              <button
+              <div
                 v-if="group.kind !== 'scratch'"
-                type="button"
-                class="flex h-9 w-full cursor-pointer items-center gap-2 px-3 text-left hover:bg-chip"
+                class="repo-group"
+                role="button"
+                tabindex="0"
                 :data-testid="group.kind === 'chats' ? 'terminal-chats-group' : 'terminal-repo-group'"
                 :data-repo="group.key"
                 :aria-expanded="groupExpanded(group)"
                 @click="toggleGroup(group)"
+                @keydown.enter.self.prevent="toggleGroup(group)"
+                @keydown.space.self.prevent="toggleGroup(group)"
               >
                 <span class="min-w-0 truncate text-[13.5px] text-text">{{ group.name }}</span>
-                <span class="ml-auto shrink-0 font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+                <!-- The count and the add button share a cell: starting a
+                     session in the repository you are pointing at is worth more
+                     than the count is while you are pointing at it. -->
+                <div class="group-trailing" @click.stop>
+                  <span class="group-count font-mono text-[11.5px]" :class="groupAttached(group) ? 'text-accent' : 'text-text-4'">{{ group.sessions.length }}</span>
+                  <button
+                    v-if="group.kind === 'repo' && group.key"
+                    type="button"
+                    class="row-action group-add"
+                    :title="`New session in ${group.name}`"
+                    :aria-label="`New session in ${group.name}`"
+                    data-testid="terminal-repo-new-session"
+                    @click="openNewSession(group.key)"
+                  ><IconPlus class="size-3" /></button>
+                </div>
                 <component :is="groupExpanded(group) ? IconChevronDown : IconChevronRight" class="size-3 shrink-0 text-text-4" />
-              </button>
+              </div>
               <!-- The scratch section is one repository's worth of chrome for a
                    session that is not one: the same header, and its tabs where a
                    repository lists its sessions. Its own controls live in the
@@ -2195,7 +2397,19 @@ onBeforeUnmount(() => {
 .tree-hint-key { color: var(--color-text-3); }
 
 .session-row { position: relative; display: flex; height: 30px; width: 100%; align-items: center; gap: 8px; padding-left: 20px; padding-right: 12px; text-align: left; color: var(--color-text); cursor: pointer; }
-/* The pinned section's heading. A repository's is a <button>; this one holds
+/* A repository's heading. Like the pinned section's it holds a control, which a
+   button cannot contain, so it is a div wearing a button's role. */
+.repo-group { display: flex; height: 36px; width: 100%; align-items: center; gap: 8px; padding-left: 12px; padding-right: 12px; text-align: left; cursor: pointer; }
+.repo-group:hover { background: var(--color-chip); }
+.repo-group:focus-visible { outline: none; }
+/* One cell, two occupants: the count is what the row says at rest, the add
+   button what it offers under the pointer. */
+.group-trailing { display: grid; margin-left: auto; min-width: 18px; height: 18px; flex: none; align-self: center; }
+.group-count, .group-add { grid-area: 1 / 1; }
+.group-count { display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.repo-group:hover .group-count, .group-trailing:focus-within .group-count { opacity: 0; }
+.repo-group:hover .group-add, .group-add:focus-visible { opacity: 1; }
+/* The pinned section's heading. This one holds
    the terminal's own controls, which a button cannot contain, so it is a row
    wearing the same box. */
 .group-row { position: relative; display: flex; height: 36px; width: 100%; align-items: center; gap: 8px; padding-left: 12px; padding-right: 12px; text-align: left; cursor: pointer; }
