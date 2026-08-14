@@ -52,6 +52,15 @@ func TestConfigValidateRejectsValuesGiteaWouldSilentlyIgnore(t *testing.T) {
 	require.ErrorContains(t, (&Config{Credential: testCredential, Kind: KindSearch, Involving: []string{"watching"}}).Validate(), "unknown involving")
 }
 
+// The labels parameter is comma-joined with no escaping, so a label containing
+// a comma would silently become two nonexistent filters.
+func TestConfigValidateRejectsUnsendableLabels(t *testing.T) {
+	t.Parallel()
+
+	require.ErrorContains(t, (&Config{Credential: testCredential, Kind: KindSearch, Labels: []string{" "}}).Validate(), "blank")
+	require.ErrorContains(t, (&Config{Credential: testCredential, Kind: KindSearch, Labels: []string{"needs: design, ux"}}).Validate(), "comma")
+}
+
 func TestConfigValidateRejectsDuplicateInvolving(t *testing.T) {
 	t.Parallel()
 
@@ -121,8 +130,9 @@ func TestSearchRequestsAreOnePerInvolvement(t *testing.T) {
 	}
 }
 
-// "all" is the connector's word for "do not filter", which Gitea spells by
-// omitting the parameter — sending type=all would filter to nothing.
+// "all" is the connector's word for "do not filter", which the client spells
+// by omitting the parameter: Gitea ignores a type it does not recognize, so
+// sending type=all would only work by accident.
 func TestSearchRequestsSpellAllItemsAsNoTypeFilter(t *testing.T) {
 	t.Parallel()
 

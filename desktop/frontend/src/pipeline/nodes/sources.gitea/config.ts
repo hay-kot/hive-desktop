@@ -5,9 +5,7 @@ import GiteaMark from '../../../components/marks/GiteaMark.vue'
 export const type = 'sources.gitea'
 export const role = 'source' as const
 // The inbox item sourceKind this node's items carry — the single source of
-// truth lib/itemPresentation.ts's sourceKindForNodeType and (via
-// engine/runGraph.ts's BACKEND_SOURCE_TYPES) the backend-source node set both
-// derive from.
+// truth lib/itemPresentation.ts's sourceKindForNodeType derives from.
 export const sourceKind = 'gitea'
 
 export const KINDS = ['search', 'notifications'] as const
@@ -97,6 +95,14 @@ export function validate(config: Config): string[] {
     for (const involving of config.involving ?? []) {
       if (!INVOLVING.includes(involving)) {
         errors.push(`involving must be one of ${INVOLVING.join(', ')}`)
+        break
+      }
+    }
+    // Gitea's labels parameter is comma-joined with no escaping, so a label
+    // carrying one would silently split into two nonexistent filters.
+    for (const label of config.labels ?? []) {
+      if (label.includes(',')) {
+        errors.push(`label "${label}" contains a comma, which Gitea's search cannot express`)
         break
       }
     }

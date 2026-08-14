@@ -161,6 +161,11 @@ func (c *Config) validateSearch() error {
 		if strings.TrimSpace(label) == "" {
 			return fmt.Errorf("gitea source: labels must not contain a blank entry")
 		}
+		// The labels parameter is comma-joined with no escaping, so a label
+		// carrying one would silently split into two nonexistent filters.
+		if strings.Contains(label, ",") {
+			return fmt.Errorf("gitea source: label %q contains a comma, which Gitea's search cannot express", label)
+		}
 	}
 	return nil
 }
