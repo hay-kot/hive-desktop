@@ -111,9 +111,9 @@ func TestConnectStoresTokenAndURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "good", token, "the token lands in the credential store")
 
-	url, err := env.stacks.URL(ref)
+	entry, err := env.stacks.Get(ref)
 	require.NoError(t, err)
-	assert.Equal(t, server.URL, url, "the non-secret stack URL is persisted")
+	assert.Equal(t, server.URL, entry.URL, "the non-secret stack URL is persisted")
 }
 
 func TestConnectRejectsBadTokenWithoutStoring(t *testing.T) {
@@ -130,8 +130,8 @@ func TestConnectRejectsBadTokenWithoutStoring(t *testing.T) {
 	ref := credentials.Ref{Provider: Provider, Account: accountID(hostOf(t, server.URL), 1)}
 	_, err = env.creds.Get(ref)
 	require.ErrorIs(t, err, credentials.ErrNotFound)
-	url, _ := env.stacks.URL(ref)
-	assert.Empty(t, url)
+	entry, _ := env.stacks.Get(ref)
+	assert.Empty(t, entry.URL)
 }
 
 // A validated token is stored before the stack URL. If that URL write fails,
@@ -195,8 +195,8 @@ func TestDisconnectRemovesTokenAndURL(t *testing.T) {
 	ref := credentials.Ref{Provider: Provider, Account: stack.Account}
 	_, err = env.creds.Get(ref)
 	require.ErrorIs(t, err, credentials.ErrNotFound)
-	url, _ := env.stacks.URL(ref)
-	assert.Empty(t, url)
+	entry, _ := env.stacks.Get(ref)
+	assert.Empty(t, entry.URL)
 }
 
 func TestDisconnectIsIdempotent(t *testing.T) {

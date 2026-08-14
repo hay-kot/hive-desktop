@@ -21,7 +21,7 @@ func connectedFetcher(t *testing.T, baseURL string) (*fetcher, credentials.Ref) 
 	stacks := NewStackStore(filepath.Join(t.TempDir(), "grafana-stacks.json"))
 	ref := credentials.Ref{Provider: Provider, Account: "host-1"}
 	require.NoError(t, creds.Set(ref, "token"))
-	require.NoError(t, stacks.Set(ref, baseURL))
+	require.NoError(t, stacks.Set(ref, stackEntry{URL: baseURL}))
 	return NewFetchers(stacks, creds, zerolog.Nop()).For(ref), ref
 }
 
@@ -43,7 +43,7 @@ func TestFetcherRequiresAToken(t *testing.T) {
 	creds := credentials.NewMemoryStore()
 	stacks := NewStackStore(filepath.Join(t.TempDir(), "grafana-stacks.json"))
 	ref := credentials.Ref{Provider: Provider, Account: "host-1"}
-	require.NoError(t, stacks.Set(ref, "https://grafana.example.com")) // URL but no token
+	require.NoError(t, stacks.Set(ref, stackEntry{URL: "https://grafana.example.com"})) // URL but no token
 
 	_, err := NewFetchers(stacks, creds, zerolog.Nop()).For(ref).Query(t.Context(), "ds", "up")
 	assert.ErrorIs(t, err, sourcehttp.ErrUnauthorized)

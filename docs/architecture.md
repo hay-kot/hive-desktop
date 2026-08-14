@@ -303,6 +303,9 @@ internal/
                                   #   an item — a leaf, so every forge connector
                                   #   shares one convention without importing
                                   #   another connector
+      bindingstore/               #   the ref-keyed JSON file a self-hosted
+                                  #   connector binds its non-secret host/project
+                                  #   half into at connect time — a leaf
       github/                     #   Descriptor + Config + Factory
         feed/                     #   fetch layer: per-account response cache,
                                   #   conditional requests, rate-limit cooldown

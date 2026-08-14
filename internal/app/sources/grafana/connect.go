@@ -80,7 +80,7 @@ func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Stac
 	if err := a.creds.Set(ref, token); err != nil {
 		return Stack{}, err
 	}
-	if err := a.stacks.Set(ref, base); err != nil {
+	if err := a.stacks.Set(ref, stackEntry{URL: base}); err != nil {
 		if rollbackErr := a.rollbackToken(ref, previousToken, hadPrevious); rollbackErr != nil {
 			return Stack{}, errors.Join(err, fmt.Errorf("rollback grafana token: %w", rollbackErr))
 		}

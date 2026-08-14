@@ -175,10 +175,11 @@ func (fx *fetcher) stack() (base, token string, err error) {
 	if until, cooling := fx.inCooldown(); cooling {
 		return "", "", fmt.Errorf("grafana %s: %w until %s", fx.ref, sourcehttp.ErrRateLimited, until.Format(time.RFC3339))
 	}
-	base, err = fx.stacks.URL(fx.ref)
+	entry, err := fx.stacks.Get(fx.ref)
 	if err != nil {
 		return "", "", fmt.Errorf("grafana %s: reading stack URL: %w", fx.ref, err)
 	}
+	base = entry.URL
 	if base == "" {
 		return "", "", fmt.Errorf("grafana %s: stack is not connected", fx.ref)
 	}
