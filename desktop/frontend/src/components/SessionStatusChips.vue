@@ -127,10 +127,15 @@ function openPullRequest(): void {
       ><IconTriangleAlert class="size-3" aria-hidden="true" />git failed</span>
     </AppTooltip>
 
+    <!-- h-6/rounded-[7px] is PaneStatusBar's button metric, not a value of its
+         own: the pull request chip sits in the same row as the editor and
+         Finder buttons, so a hover rect of a different height and corner reads
+         as a mistake. Only the clickable chips take it — the git states have no
+         hover state to size. -->
     <AppTooltip v-if="pr" :text="prTitle">
       <button
         type="button"
-        class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 hover:bg-chip"
+        class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[7px] px-1.5 hover:bg-chip"
         :class="prTone"
         data-testid="session-status-pr"
         @click="openPullRequest"
@@ -149,7 +154,7 @@ function openPullRequest(): void {
     <AppTooltip v-else-if="pullRequestError" :text="`${pullRequestError} — click to retry`">
       <button
         type="button"
-        class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 text-severity-error hover:bg-chip"
+        class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[7px] px-1.5 text-severity-error hover:bg-chip"
         data-testid="session-status-pr-error"
         @click="emit('refresh-pull-request')"
       ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>

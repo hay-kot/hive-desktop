@@ -51,6 +51,9 @@ defineEmits<{ 'open-editor': []; reveal: [] }>()
       class="truncate text-[11px] text-severity-error"
       :data-testid="`${testid}-error`"
     >{{ error }}</span>
+    <!-- size-6/rounded-[7px] is also what SessionStatusChips' clickable chips
+         use, so everything hoverable in this row shares one height and corner.
+         Changing it here means changing it there. -->
     <AppTooltip v-if="editorTitle" :text="`Open in ${editorTitle}`">
       <button
         type="button"
