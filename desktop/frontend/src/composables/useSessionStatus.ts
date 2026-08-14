@@ -96,8 +96,14 @@ export function useSessionStatus(sessionId: Ref<string>): {
 
   // A blurred window's checkout keeps changing — an agent is committing in it —
   // so refocusing is the moment the bar is most likely to be stale.
+  //
+  // It is also the one moment worth spending a request to go behind the pull
+  // request cache: you were just somewhere else, and opening a pull request in
+  // a browser is the commonest reason to have been. Waiting out the TTL after
+  // that reads as the bar not working. Focus is user-driven and infrequent, so
+  // this cannot turn into polling GitHub.
   watch(focused, (isFocused) => {
-    if (isFocused) void refresh()
+    if (isFocused) void refresh({ refreshPullRequest: true })
   })
 
   onScopeDispose(() => {

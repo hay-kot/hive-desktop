@@ -1,6 +1,7 @@
 import { mount } from '@vue/test-utils'
 import { describe, expect, it } from 'vitest'
 import PaneStatusBar from '../PaneStatusBar.vue'
+import { tooltipFor } from '../../test-utils/tooltip'
 
 function mountBar(props: Record<string, unknown> = {}, slots: Record<string, string> = {}) {
   return mount(PaneStatusBar, { props: { testid: 'pane-statusbar', label: 'Web App', ...props }, slots })
@@ -38,9 +39,9 @@ describe('PaneStatusBar', () => {
   })
 
   it('labels the editor button with the configured editor', () => {
-    const button = mountBar({ editorTitle: 'VS Code' }).get('[data-testid="pane-statusbar-open-editor"]')
-    expect(button.attributes('title')).toBe('Open in VS Code')
-    expect(button.attributes('aria-label')).toBe('Open in VS Code')
+    const wrapper = mountBar({ editorTitle: 'VS Code' })
+    expect(tooltipFor(wrapper, 'pane-statusbar-open-editor')).toBe('Open in VS Code')
+    expect(wrapper.get('[data-testid="pane-statusbar-open-editor"]').attributes('aria-label')).toBe('Open in VS Code')
   })
 
   it('emits rather than acting, since each area reaches its backend differently', async () => {

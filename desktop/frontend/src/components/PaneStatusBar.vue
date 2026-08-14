@@ -9,6 +9,7 @@
 import IconCode from '~icons/lucide/code'
 import IconFolder from '~icons/lucide/folder'
 import IconFolderOpen from '~icons/lucide/folder-open'
+import AppTooltip from './AppTooltip.vue'
 
 withDefaults(defineProps<{
   /**
@@ -50,22 +51,23 @@ defineEmits<{ 'open-editor': []; reveal: [] }>()
       class="truncate text-[11px] text-severity-error"
       :data-testid="`${testid}-error`"
     >{{ error }}</span>
-    <button
-      v-if="editorTitle"
-      type="button"
-      class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-      :title="`Open in ${editorTitle}`"
-      :aria-label="`Open in ${editorTitle}`"
-      :data-testid="`${testid}-open-editor`"
-      @click="$emit('open-editor')"
-    ><IconCode class="size-3.5" /></button>
-    <button
-      type="button"
-      class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-      title="Show in Finder"
-      aria-label="Show in Finder"
-      :data-testid="`${testid}-reveal`"
-      @click="$emit('reveal')"
-    ><IconFolderOpen class="size-3.5" /></button>
+    <AppTooltip v-if="editorTitle" :text="`Open in ${editorTitle}`">
+      <button
+        type="button"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+        :aria-label="`Open in ${editorTitle}`"
+        :data-testid="`${testid}-open-editor`"
+        @click="$emit('open-editor')"
+      ><IconCode class="size-3.5" /></button>
+    </AppTooltip>
+    <AppTooltip text="Show in Finder">
+      <button
+        type="button"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+        aria-label="Show in Finder"
+        :data-testid="`${testid}-reveal`"
+        @click="$emit('reveal')"
+      ><IconFolderOpen class="size-3.5" /></button>
+    </AppTooltip>
   </div>
 </template>

@@ -16,6 +16,7 @@ import { resetAgentSessionsAllForTests } from '../../composables/useAgentSession
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
+import { tooltipFor } from '../../test-utils/tooltip'
 
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
@@ -2622,14 +2623,26 @@ describe('TerminalMode', () => {
       expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42−7')
       // Icon-only, so the tooltip is the whole explanation and has to exist —
       // an aria-label renders none, which is what left the arrow a mystery.
-      expect(wrapper.get('[data-testid="session-status-dirty"]').attributes('title'))
-        .toBe('Uncommitted changes in this checkout')
-      expect(wrapper.get('[data-testid="session-status-unpushed"]').attributes('title'))
-        .toBe('Commits on this branch that the remote does not have')
+      expect(tooltipFor(wrapper, 'session-status-dirty')).toBe('Uncommitted changes in this checkout')
+      expect(tooltipFor(wrapper, 'session-status-unpushed')).toBe('Commits on this branch that the remote does not have')
       expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
       expect(wrapper.get('[data-testid="session-status-checks"]').text()).toBe('passing')
       // The lookup is keyed by what git resolved, not by anything read twice.
       expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
+
+      wrapper.unmount()
+    })
+
+    it('opens the pull request in a browser when its chip is clicked', async () => {
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+      await wrapper.get('[data-testid="session-status-pr"]').trigger('click')
+
+      expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive/pull/311')
 
       wrapper.unmount()
     })
@@ -2657,8 +2670,8 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountWithStatusBar()
 
       expect(wrapper.find('[data-testid="session-status-pr"]').exists()).toBe(false)
-      const failure = wrapper.get('[data-testid="session-status-pr-error"]')
-      expect(failure.attributes('title')).toContain('Bad credentials')
+      expect(wrapper.find('[data-testid="session-status-pr-error"]').exists()).toBe(true)
+      expect(tooltipFor(wrapper, 'session-status-pr-error')).toContain('Bad credentials')
 
       wrapper.unmount()
     })
@@ -2672,7 +2685,7 @@ describe('TerminalMode', () => {
       const { wrapper } = await mountWithStatusBar()
 
       expect(wrapper.find('[data-testid="session-status-dirty"]').exists()).toBe(false)
-      expect(wrapper.get('[data-testid="session-status-git-error"]').attributes('title')).toBe('git status: exit 128')
+      expect(tooltipFor(wrapper, 'session-status-git-error')).toBe('git status: exit 128')
 
       wrapper.unmount()
     })

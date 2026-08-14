@@ -9,6 +9,7 @@ import IconFilePen from '~icons/lucide/file-pen'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
+import AppTooltip from './AppTooltip.vue'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = defineProps<{
@@ -73,84 +74,80 @@ function openPullRequest(): void {
 
 <template>
   <div v-if="git" class="flex min-w-0 items-center gap-2 text-[11px]" data-testid="session-status-chips">
-    <span
-      v-if="showBranch"
-      class="flex min-w-0 items-center gap-1 text-text-3"
-      :title="git.path"
-      data-testid="session-status-branch"
-    >
-      <IconGitBranch class="size-3 shrink-0 text-text-4" aria-hidden="true" />
-      <span class="truncate font-mono">{{ git.branch }}</span>
-    </span>
+    <AppTooltip v-if="showBranch" :text="git.path" class="min-w-0">
+      <span
+        class="flex min-w-0 items-center gap-1 text-text-3"
+        data-testid="session-status-branch"
+      >
+        <IconGitBranch class="size-3 shrink-0 text-text-4" aria-hidden="true" />
+        <span class="truncate font-mono">{{ git.branch }}</span>
+      </span>
+    </AppTooltip>
 
-    <span
-      v-if="showDiff"
-      class="flex shrink-0 items-center gap-1 font-mono"
-      title="Lines changed against the default branch"
-      data-testid="session-status-diff"
-    >
-      <span class="text-severity-success">+{{ git.additions }}</span>
-      <span class="text-severity-error">−{{ git.deletions }}</span>
-    </span>
+    <AppTooltip v-if="showDiff" text="Lines changed against the default branch">
+      <span class="flex shrink-0 items-center gap-1 font-mono" data-testid="session-status-diff">
+        <span class="text-severity-success">+{{ git.additions }}</span>
+        <span class="text-severity-error">−{{ git.deletions }}</span>
+      </span>
+    </AppTooltip>
 
-    <!-- Icon-only, and each one carries a `title`: an icon explained by
-         nothing at all is what made the first version of this row read as a
-         set of buttons. aria-label alone does not do it — it names the element
-         for a screen reader and renders no tooltip on hover, which is the
-         mistake that left the arrow below unexplained. -->
-    <span
-      v-if="git.resolved && git.dirty"
-      class="flex shrink-0 text-severity-warning"
-      title="Uncommitted changes in this checkout"
-      role="img"
-      aria-label="Uncommitted changes in this checkout"
-      data-testid="session-status-dirty"
-    ><IconFilePen class="size-3.5" /></span>
+    <!-- Icon-only, each explained by its tooltip alone — which is why these use
+         AppTooltip rather than `title`. An icon nothing explains is what made
+         the first version of this row read as a set of buttons, and a `title`
+         that takes a second and a half to appear is barely better than none. -->
+    <AppTooltip v-if="git.resolved && git.dirty" text="Uncommitted changes in this checkout">
+      <span
+        class="flex shrink-0 text-severity-warning"
+        role="img"
+        aria-label="Uncommitted changes in this checkout"
+        data-testid="session-status-dirty"
+      ><IconFilePen class="size-3.5" /></span>
+    </AppTooltip>
 
-    <span
-      v-if="git.resolved && git.unpushed"
-      class="flex shrink-0 text-text-3"
-      title="Commits on this branch that the remote does not have"
-      role="img"
-      aria-label="Commits on this branch that the remote does not have"
-      data-testid="session-status-unpushed"
-    ><IconArrowUp class="size-3.5" /></span>
+    <AppTooltip v-if="git.resolved && git.unpushed" text="Commits on this branch that the remote does not have">
+      <span
+        class="flex shrink-0 text-text-3"
+        role="img"
+        aria-label="Commits on this branch that the remote does not have"
+        data-testid="session-status-unpushed"
+      ><IconArrowUp class="size-3.5" /></span>
+    </AppTooltip>
 
     <!-- The git read failed. Saying so beats a bar that silently reports a
          clean branch it never managed to look at. -->
-    <span
-      v-if="git.error"
-      class="flex shrink-0 items-center gap-1 text-severity-error"
-      :title="git.error"
-      data-testid="session-status-git-error"
-    ><IconTriangleAlert class="size-3" aria-hidden="true" />git failed</span>
+    <AppTooltip v-if="git.error" :text="git.error">
+      <span
+        class="flex shrink-0 items-center gap-1 text-severity-error"
+        data-testid="session-status-git-error"
+      ><IconTriangleAlert class="size-3" aria-hidden="true" />git failed</span>
+    </AppTooltip>
 
-    <button
-      v-if="pr"
-      type="button"
-      class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 hover:bg-chip"
-      :class="prTone"
-      :title="prTitle"
-      data-testid="session-status-pr"
-      @click="openPullRequest"
-    >
-      <IconGitPullRequest class="size-3" aria-hidden="true" />
-      <span class="font-mono">{{ prLabel }}</span>
-      <!-- The check state is a word for the same reason the git states above
-           are: a tick, a cross and a dot are three glyphs the reader has to
-           learn, and "passing" is none. -->
-      <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
-    </button>
+    <AppTooltip v-if="pr" :text="prTitle">
+      <button
+        type="button"
+        class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 hover:bg-chip"
+        :class="prTone"
+        data-testid="session-status-pr"
+        @click="openPullRequest"
+      >
+        <IconGitPullRequest class="size-3" aria-hidden="true" />
+        <span class="font-mono">{{ prLabel }}</span>
+        <!-- The check state is a word for the same reason the git states above
+             are: a tick, a cross and a dot are three glyphs the reader has to
+             learn, and "passing" is none. -->
+        <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
+      </button>
+    </AppTooltip>
 
     <!-- A failed lookup, never rendered as "no pull request": the branch may
          well have one, and claiming otherwise is a fact this cannot support. -->
-    <button
-      v-else-if="pullRequestError"
-      type="button"
-      class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 text-severity-error hover:bg-chip"
-      :title="`${pullRequestError} — click to retry`"
-      data-testid="session-status-pr-error"
-      @click="emit('refresh-pull-request')"
-    ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>
+    <AppTooltip v-else-if="pullRequestError" :text="`${pullRequestError} — click to retry`">
+      <button
+        type="button"
+        class="flex shrink-0 cursor-pointer items-center gap-1 rounded-[6px] px-1 text-severity-error hover:bg-chip"
+        data-testid="session-status-pr-error"
+        @click="emit('refresh-pull-request')"
+      ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>
+    </AppTooltip>
   </div>
 </template>
