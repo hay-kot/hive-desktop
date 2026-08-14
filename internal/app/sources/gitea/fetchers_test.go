@@ -12,6 +12,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
 // Gitea has no batched query, so absence confirmation is a request per item run
@@ -57,9 +59,9 @@ func TestItemStatesLooksUpEveryRefConcurrently(t *testing.T) {
 
 	fetchers, ref := connectedFetchers(t, server.URL)
 
-	refs := make([]ItemRef, 0, 12)
+	refs := make([]itemRef, 0, 12)
 	for number := 1; number <= 12; number++ {
-		refs = append(refs, ItemRef{Repo: "acme/app", Num: number})
+		refs = append(refs, itemRef{Repo: "acme/app", Num: number})
 	}
 
 	states, err := fetchers.For(parseRef(t, ref)).ItemStates(t.Context(), refs)
@@ -91,7 +93,7 @@ func TestItemStatesKeepsUnaddressableRefsInPlace(t *testing.T) {
 	defer server.Close()
 
 	fetchers, ref := connectedFetchers(t, server.URL)
-	states, err := fetchers.For(parseRef(t, ref)).ItemStates(t.Context(), []ItemRef{
+	states, err := fetchers.For(parseRef(t, ref)).ItemStates(t.Context(), []itemRef{
 		{Repo: "no-slash", Num: 1},
 		{Repo: "acme/app", Num: 2},
 		{Repo: "acme/app", Num: 0},
@@ -102,6 +104,61 @@ func TestItemStatesKeepsUnaddressableRefsInPlace(t *testing.T) {
 	assert.False(t, states[0].Found)
 	assert.True(t, states[1].Found)
 	assert.False(t, states[2].Found)
+}
+
+// A 429 arms the account's cooldown: sourcehttp classifies the response, but
+// pausing polling is the provider's job.
+func TestSearchArmsCooldownAndSkips(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	fetchers, ref := connectedFetchers(t, server.URL)
+	fx := fetchers.For(parseRef(t, ref))
+	cfg := &Config{Credential: ref, Kind: KindSearch}
+
+	_, err := fx.Search(t.Context(), cfg)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	require.EqualValues(t, 1, hits.Load())
+
+	// The cooldown is armed, so the next poll must not reach the server.
+	_, err = fx.Search(t.Context(), cfg)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	assert.EqualValues(t, 1, hits.Load(), "a fetcher in cooldown must not hit the instance again")
+
+	// Clearing the cooldowns (as connect/disconnect does) lets it poll again.
+	fetchers.InvalidateAll()
+	_, _ = fx.Search(t.Context(), cfg)
+	assert.EqualValues(t, 2, hits.Load())
+}
+
+// A bare 429 carries no reset time; the fallback cooldown still arms.
+func TestSearchArmsDefaultCooldownWithoutResetHeaders(t *testing.T) {
+	t.Parallel()
+
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	fetchers, ref := connectedFetchers(t, server.URL)
+	fx := fetchers.For(parseRef(t, ref))
+	cfg := &Config{Credential: ref, Kind: KindSearch}
+
+	_, err := fx.Search(t.Context(), cfg)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+
+	_, err = fx.Search(t.Context(), cfg)
+	require.ErrorIs(t, err, sourcehttp.ErrRateLimited)
+	assert.EqualValues(t, 1, hits.Load())
 }
 
 // One failed lookup fails the call: the caller cannot tell a lookup that never
@@ -115,6 +172,6 @@ func TestItemStatesFailsWhenALookupFails(t *testing.T) {
 	defer server.Close()
 
 	fetchers, ref := connectedFetchers(t, server.URL)
-	_, err := fetchers.For(parseRef(t, ref)).ItemStates(t.Context(), []ItemRef{{Repo: "acme/app", Num: 1}})
+	_, err := fetchers.For(parseRef(t, ref)).ItemStates(t.Context(), []itemRef{{Repo: "acme/app", Num: 1}})
 	assert.ErrorContains(t, err, "confirming absent items")
 }

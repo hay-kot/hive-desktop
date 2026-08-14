@@ -43,6 +43,33 @@ describe('useGiteaConnection', () => {
     expect(error.value).toContain('does not answer as a Gitea or Forgejo instance')
   })
 
+  it('ignores a second connect while one is in flight', async () => {
+    let resolveConnect!: (value: typeof connected) => void
+    mocks.Connect.mockReturnValue(
+      new Promise((resolve) => {
+        resolveConnect = resolve
+      }),
+    )
+    const { connect, busy } = useGiteaConnection()
+
+    const first = connect('https://git.example.com', 'gta_token')
+    await expect(connect('https://git.example.com', 'gta_token')).resolves.toBe(false)
+    expect(mocks.Connect).toHaveBeenCalledTimes(1)
+
+    resolveConnect(connected)
+    await expect(first).resolves.toBe(true)
+    expect(busy.value).toBe(false)
+  })
+
+  // Wails rejections can arrive as bare strings rather than Errors.
+  it('surfaces a string rejection as the error message', async () => {
+    mocks.Connect.mockRejectedValue('gitea: token is empty')
+    const { connect, error } = useGiteaConnection()
+
+    await expect(connect('https://git.example.com', '')).resolves.toBe(false)
+    expect(error.value).toBe('gitea: token is empty')
+  })
+
   it('falls back to a generic message when the failure carries none', async () => {
     mocks.Connect.mockRejectedValue({})
     const { connect, error } = useGiteaConnection()

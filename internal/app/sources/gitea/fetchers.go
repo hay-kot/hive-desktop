@@ -140,10 +140,10 @@ func (fx *fetcher) Notifications(ctx context.Context, limit int) ([]Item, error)
 	return notificationItems(threads), nil
 }
 
-// ItemState is the current lifecycle of one item that left a snapshot. Found is
+// itemState is the current lifecycle of one item that left a snapshot. Found is
 // false when the item is gone or its repository is no longer readable, which is
 // a verdict rather than a failure.
-type ItemState struct {
+type itemState struct {
 	Found     bool
 	State     string
 	Title     string
@@ -151,8 +151,8 @@ type ItemState struct {
 	UpdatedAt int64
 }
 
-// ItemRef addresses one item for a state lookup.
-type ItemRef struct {
+// itemRef addresses one item for a state lookup.
+type itemRef struct {
 	Repo string
 	Num  int
 }
@@ -160,8 +160,8 @@ type ItemRef struct {
 // ItemStates looks up the current state of items that left a source's result
 // set. Results are index-parallel to refs; a ref that cannot be addressed comes
 // back zero-valued (Found false) rather than failing the batch.
-func (fx *fetcher) ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState, error) {
-	out := make([]ItemState, len(refs))
+func (fx *fetcher) ItemStates(ctx context.Context, refs []itemRef) ([]itemState, error) {
+	out := make([]itemState, len(refs))
 	if len(refs) == 0 {
 		return out, nil
 	}
@@ -186,7 +186,7 @@ func (fx *fetcher) ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState,
 				return nil
 			}
 			// Distinct index per goroutine, so the slice needs no lock.
-			out[i] = ItemState{
+			out[i] = itemState{
 				Found:     true,
 				State:     issue.LifecycleState(),
 				Title:     issue.Title,

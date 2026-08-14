@@ -76,14 +76,41 @@ func TestClassifyReopen(t *testing.T) {
 func TestClassifyLabelChange(t *testing.T) {
 	t.Parallel()
 
-	previous := observation(t, searchItem("open", 1000, "bug"))
-	current := observation(t, searchItem("open", 2000, "bug", "p1"))
+	for name, tc := range map[string]struct {
+		previous []string
+		current  []string
+		summary  string
+	}{
+		"added":   {previous: []string{"bug"}, current: []string{"bug", "p1"}, summary: "Labels added: p1"},
+		"removed": {previous: []string{"bug", "p1"}, current: []string{"bug"}, summary: "Labels removed: p1"},
+		"swapped": {previous: []string{"bug"}, current: []string{"p1"}, summary: "Labels changed"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			previous := observation(t, searchItem("open", 1000, tc.previous...))
+			current := observation(t, searchItem("open", 2000, tc.current...))
+
+			out := classifier{}.Classify(&previous, current)
+
+			assert.Equal(t, "labels", out.Kind)
+			assert.Equal(t, tc.summary, out.Summary)
+			assert.Equal(t, store.AttentionActivity, out.Attention)
+		})
+	}
+}
+
+// Gitea reports labels in whatever order it holds them; the same set reordered
+// is not a change.
+func TestClassifyReorderedLabelsAreTrivial(t *testing.T) {
+	t.Parallel()
+
+	previous := observation(t, searchItem("open", 1000, "bug", "p1"))
+	current := observation(t, searchItem("open", 1000, "p1", "bug"))
 
 	out := classifier{}.Classify(&previous, current)
 
-	assert.Equal(t, "labels", out.Kind)
-	assert.Equal(t, "Labels added: p1", out.Summary)
-	assert.Equal(t, store.AttentionActivity, out.Attention)
+	assert.Equal(t, store.AttentionTrivial, out.Attention)
+	assert.Equal(t, store.TransitionNone, out.Transition)
 }
 
 // A notification carries no labels at all. Comparing one against a search
@@ -118,24 +145,24 @@ func TestClassifyUnchangedItemIsTrivial(t *testing.T) {
 }
 
 type stubStates struct {
-	gotRefs []ItemRef
-	states  []ItemState
+	gotRefs []itemRef
+	states  []itemState
 	err     error
 }
 
-func (s *stubStates) ItemStates(_ context.Context, refs []ItemRef) ([]ItemState, error) {
+func (s *stubStates) ItemStates(_ context.Context, refs []itemRef) ([]itemState, error) {
 	s.gotRefs = refs
 	if s.states != nil {
 		return s.states, s.err
 	}
-	return make([]ItemState, len(refs)), s.err
+	return make([]itemState, len(refs)), s.err
 }
 
 func TestConfirmAbsenceArchivesATerminalItem(t *testing.T) {
 	t.Parallel()
 
 	previous := []store.Observation{observation(t, searchItem("open", 1000))}
-	stub := &stubStates{states: []ItemState{{
+	stub := &stubStates{states: []itemState{{
 		Found: true, State: "merged", Title: "Fix the checkout flow",
 		URL: "https://git.example.com/acme/app/pulls/42", UpdatedAt: 2000,
 	}}}
@@ -143,7 +170,7 @@ func TestConfirmAbsenceArchivesATerminalItem(t *testing.T) {
 	verdicts, err := (&absenceConfirmer{fetcher: stub}).ConfirmAbsence(t.Context(), previous)
 	require.NoError(t, err)
 
-	assert.Equal(t, []ItemRef{{Repo: "acme/app", Num: 42}}, stub.gotRefs)
+	assert.Equal(t, []itemRef{{Repo: "acme/app", Num: 42}}, stub.gotRefs)
 	verdict, ok := verdicts["acme/app#42"]
 	require.True(t, ok)
 	assert.True(t, verdict.Terminal)
@@ -162,7 +189,7 @@ func TestConfirmAbsenceKeepsAStillOpenItem(t *testing.T) {
 	t.Parallel()
 
 	previous := []store.Observation{observation(t, searchItem("open", 1000))}
-	stub := &stubStates{states: []ItemState{{Found: true, State: "open", UpdatedAt: 1500}}}
+	stub := &stubStates{states: []itemState{{Found: true, State: "open", UpdatedAt: 1500}}}
 
 	verdicts, err := (&absenceConfirmer{fetcher: stub}).ConfirmAbsence(t.Context(), previous)
 	require.NoError(t, err)
@@ -178,7 +205,7 @@ func TestConfirmAbsenceYieldsNoVerdictForAnUnresolvableItem(t *testing.T) {
 	t.Parallel()
 
 	previous := []store.Observation{observation(t, searchItem("open", 1000))}
-	stub := &stubStates{states: []ItemState{{Found: false}}}
+	stub := &stubStates{states: []itemState{{Found: false}}}
 
 	verdicts, err := (&absenceConfirmer{fetcher: stub}).ConfirmAbsence(t.Context(), previous)
 	require.NoError(t, err)

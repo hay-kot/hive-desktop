@@ -173,7 +173,7 @@ func titleCase(value string) string {
 // itemStates is the fetch half of absence confirmation, a field so a test can
 // answer without the network.
 type itemStates interface {
-	ItemStates(ctx context.Context, refs []ItemRef) ([]ItemState, error)
+	ItemStates(ctx context.Context, refs []itemRef) ([]itemState, error)
 }
 
 type absenceConfirmer struct{ fetcher itemStates }
@@ -196,7 +196,7 @@ type resolvedAbsence struct {
 // rather than archiving it on a lookup failure.
 func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.Observation) (map[string]store.AbsenceVerdict, error) {
 	resolvable := make([]resolvedAbsence, 0, len(previous))
-	refs := make([]ItemRef, 0, len(previous))
+	refs := make([]itemRef, 0, len(previous))
 	for _, observation := range previous {
 		var item Item
 		if err := json.Unmarshal(observation.Payload, &item); err != nil {
@@ -207,7 +207,7 @@ func (c *absenceConfirmer) ConfirmAbsence(ctx context.Context, previous []store.
 			continue
 		}
 		resolvable = append(resolvable, resolvedAbsence{observation: observation, item: item})
-		refs = append(refs, ItemRef{Repo: item.Repo, Num: item.Num})
+		refs = append(refs, itemRef{Repo: item.Repo, Num: item.Num})
 	}
 
 	states, err := c.fetcher.ItemStates(ctx, refs)
