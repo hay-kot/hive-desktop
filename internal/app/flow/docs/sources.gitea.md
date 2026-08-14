@@ -29,4 +29,6 @@ Filters are typed fields rather than a query string because Gitea has no search 
 
 An item that stops appearing in a search — merged, closed, relabelled out of the filter, or simply pushed off the page by newer activity — has its current state looked up before anything is archived, one request per item. A notifications source needs no such lookup: Gitea reports each thread's subject state on the notification itself.
 
+The access token needs the `read:user` scope (connecting resolves which account it authenticates as), plus `read:issue` for a search source and `read:notification` for a notifications one.
+
 `credential` is a reference, never a token. Flow files are meant to live in a dotfiles repo, so the secret stays in the OS keychain and only the account name is written here. The host is bound to the account when it is connected, which is why the account half names it — a node cannot point an account's token at a different server, and two instances never collide.

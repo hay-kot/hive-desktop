@@ -95,7 +95,11 @@ async function onDisconnect(account: string) {
     <div class="mt-5">
       <SettingsField label="Connect an instance" hint="The token is validated once and stored in your keychain; only the URL is written to disk." testid="gitea-connect">
         <div class="mb-2.5 rounded-lg border border-border bg-app px-3 py-2.5 text-xs leading-relaxed text-text-3" data-testid="gitea-connect-help">
-          Create an <span class="text-text-2">access token</span> with <span class="text-text-2">read</span> permission on issues, repositories and notifications, then paste it below. Forgejo instances work the same way.
+          Create an <span class="text-text-2">access token</span> with the
+          <span class="font-mono text-text-2">read:user</span>,
+          <span class="font-mono text-text-2">read:issue</span> and
+          <span class="font-mono text-text-2">read:notification</span>
+          scopes, then paste it below. Forgejo instances work the same way.
           <div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1">
             <button type="button" class="cursor-pointer text-accent hover:underline" data-testid="gitea-connect-docs" @click="openDocs">Gitea docs ↗</button>
             <button v-if="instanceTokensUrl" type="button" class="cursor-pointer text-accent hover:underline" data-testid="gitea-connect-instance-link" @click="openInstanceTokens">Tokens on your instance ↗</button>
