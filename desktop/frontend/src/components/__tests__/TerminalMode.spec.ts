@@ -2620,9 +2620,12 @@ describe('TerminalMode', () => {
       expect(wrapper.find('[data-testid="terminal-pane-statusbar-workspace"]').exists()).toBe(false)
       expect(wrapper.get('[data-testid="session-status-branch"]').text()).toBe('feat/parser')
       expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42−7')
-      // Spelled out, not left as glyphs whose only explanation is a tooltip.
-      expect(wrapper.get('[data-testid="session-status-dirty"]').text()).toBe('uncommitted')
-      expect(wrapper.get('[data-testid="session-status-unpushed"]').text()).toBe('unpushed')
+      // Icon-only, so the tooltip is the whole explanation and has to exist —
+      // an aria-label renders none, which is what left the arrow a mystery.
+      expect(wrapper.get('[data-testid="session-status-dirty"]').attributes('title'))
+        .toBe('Uncommitted changes in this checkout')
+      expect(wrapper.get('[data-testid="session-status-unpushed"]').attributes('title'))
+        .toBe('Commits on this branch that the remote does not have')
       expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
       expect(wrapper.get('[data-testid="session-status-checks"]').text()).toBe('passing')
       // The lookup is keyed by what git resolved, not by anything read twice.

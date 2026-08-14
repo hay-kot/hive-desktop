@@ -4,11 +4,11 @@
 // which is why it sits in PaneStatusBar's slot rather than in the bar itself.
 import { computed } from 'vue'
 import { Browser } from '@wailsio/runtime'
+import IconArrowUp from '~icons/lucide/arrow-up'
+import IconFilePen from '~icons/lucide/file-pen'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
-import IconPencil from '~icons/lucide/pencil'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
-import IconUpload from '~icons/lucide/upload'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = defineProps<{
@@ -93,22 +93,28 @@ function openPullRequest(): void {
       <span class="text-severity-error">−{{ git.deletions }}</span>
     </span>
 
-    <!-- Every state below is spelled out rather than left as a bare glyph. An
-         icon whose only explanation is a tooltip reads as a button you have
-         not worked out yet, which is worse than the two words it saves. -->
+    <!-- Icon-only, and each one carries a `title`: an icon explained by
+         nothing at all is what made the first version of this row read as a
+         set of buttons. aria-label alone does not do it — it names the element
+         for a screen reader and renders no tooltip on hover, which is the
+         mistake that left the arrow below unexplained. -->
     <span
       v-if="git.resolved && git.dirty"
-      class="flex shrink-0 items-center gap-1 text-severity-warning"
-      title="This checkout has changes that are not committed"
+      class="flex shrink-0 text-severity-warning"
+      title="Uncommitted changes in this checkout"
+      role="img"
+      aria-label="Uncommitted changes in this checkout"
       data-testid="session-status-dirty"
-    ><IconPencil class="size-3" aria-hidden="true" />uncommitted</span>
+    ><IconFilePen class="size-3.5" /></span>
 
     <span
       v-if="git.resolved && git.unpushed"
-      class="flex shrink-0 items-center gap-1 text-text-4"
-      title="This branch has commits the remote does not have"
+      class="flex shrink-0 text-text-3"
+      title="Commits on this branch that the remote does not have"
+      role="img"
+      aria-label="Commits on this branch that the remote does not have"
       data-testid="session-status-unpushed"
-    ><IconUpload class="size-3" aria-hidden="true" />unpushed</span>
+    ><IconArrowUp class="size-3.5" /></span>
 
     <!-- The git read failed. Saying so beats a bar that silently reports a
          clean branch it never managed to look at. -->
