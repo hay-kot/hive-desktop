@@ -363,10 +363,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.openWebhook(runCtx, cfg)
 
 	a.Inbox = newInboxService(db, a.actionStore, a.outputs)
+	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.Sessions = &sessionsDeps{
-		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, tmux: a.terminals,
+		launcher: a.launcher, manager: a.sessions, statuses: a.sessions, git: a.sessions, tmux: a.terminals,
 		jobs: a.jobStore, links: db, catalog: a.actionStore, dispatcher: a.dispatcher,
 		recorder: a.activityStore, logger: cfg.Logger,
+		pullRequests:  newSessionPullRequests(gitHubClient, a.credentials),
+		execEnv:       a.execEnv,
+		editorCommand: a.Settings.Editor,
 		defaultAgentEnv: func(ctx context.Context) string {
 			return a.execEnv.Getenv(ctx, config.EnvDefaultAgent)
 		},
@@ -377,7 +381,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
-	a.Settings = newSettingsService(cfg.SettingsStore, a.producer, a.fetchers, a.execEnv.LookPath)
 	a.System = newSystemService(cfg.Paths)
 	a.ReleaseNotes = NewReleaseNotesService(cfg.Paths, cfg.Logger)
 	a.Webhooks = newWebhookService(cfg.SettingsStore, db, a.webhook, a.webhookHost, a.webhookPort)
@@ -1041,9 +1044,10 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		AgentFlags:   profile.ShellFlags(),
 	})
 	exec := newTmuxExecutor(newEnvExecutor(a.execEnv), a.tmux)
+	gitExec := git.NewExecutor(hiveCfg.GitPath, exec)
 	sessions := hive.NewSessionService(
 		stores.NewSessionStore(database),
-		git.NewExecutor(hiveCfg.GitPath, exec),
+		gitExec,
 		hiveCfg,
 		bus,
 		exec,
@@ -1072,7 +1076,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		terminalManager.Register(terminaltmux.NewFromPreviewMatchers(hiveCfg.Tmux.PreviewWindowMatcher, statusOptions...))
 		statusService = hive.NewStatusService(terminalManager, hiveCfg.Git.StatusWorkers)
 	}
-	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, hiveCfg.Tmux.PollInterval)
+	a.sessions = dispatch.NewHiveSessionManager(sessions, statusService, gitExec, hiveCfg.Tmux.PollInterval)
 	a.publisher = dispatch.NewHiveMessagePublisher(hive.NewMessageService(stores.NewMessageStore(database, hiveCfg.Messaging.MaxMessages), hiveCfg, bus))
 	return nil
 }

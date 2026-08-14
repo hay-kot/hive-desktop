@@ -9,9 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/colonyops/hive/pkg/osopen"
+
 	"github.com/hay-kot/hive-desktop/internal/app/actions"
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/dispatch"
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
 	"github.com/rs/zerolog"
 )
@@ -48,6 +51,13 @@ type sessionStatusSource interface {
 	RunningSessions(ctx context.Context, ids []string) (map[string]bool, error)
 }
 
+// sessionGitSource reads a session's checkout. Its own interface rather than a
+// tenth method on sessionManager: reading git is not part of managing a
+// session's lifecycle, and only the status bar asks for it.
+type sessionGitSource interface {
+	SessionGitStatus(ctx context.Context, id string) (dispatch.SessionGitStatus, error)
+}
+
 // sessionTmux renames the live tmux session behind a slug. Hive's rename
 // recomputes the slug and saves; the tmux session keeps its old name, so
 // without this the stored slug addresses nothing.
@@ -76,12 +86,20 @@ type SessionsService struct {
 	launcher   sessionLauncher
 	manager    sessionManager
 	statuses   sessionStatusSource
+	git        sessionGitSource
 	tmux       sessionTmux
 	jobs       sessionJobRunner
 	links      itemSessionStore
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
 	recorder   activity.Recorder
+	// pullRequests answers the status bar's PR half. nil in a build with no
+	// GitHub client, which reads as disconnected.
+	pullRequests *sessionPullRequests
+	// execEnv and editorCommand are the "open in editor" pair, resolved the
+	// same way the Agents area resolves them.
+	execEnv       *execenv.Resolver
+	editorCommand func(context.Context) (string, error)
 	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
 	// would. nil leaves the agent hive's config resolved.
 	defaultAgentEnv func(context.Context) string
@@ -243,6 +261,76 @@ func (s *SessionsService) SessionDetail(ctx context.Context, id string) (dispatc
 		return dispatch.SessionDetail{}, Wrap(err, KindNotFound, "reading session %q", id)
 	}
 	return detail, nil
+}
+
+// SessionGitStatus reads the session's checkout for the status bar: branch,
+// dirty, unpushed, and the line delta against the default branch. A session
+// with no live checkout answers an unresolved status rather than an error —
+// there is nothing wrong, there is just nothing to read.
+func (s *SessionsService) SessionGitStatus(ctx context.Context, id string) (dispatch.SessionGitStatus, error) {
+	if s.git == nil {
+		return dispatch.SessionGitStatus{}, Errorf(KindUnavailable, "session git status is unavailable")
+	}
+	if strings.TrimSpace(id) == "" {
+		return dispatch.SessionGitStatus{}, Errorf(KindInvalid, "session id is required")
+	}
+	status, err := s.git.SessionGitStatus(ctx, id)
+	if err != nil {
+		return dispatch.SessionGitStatus{}, Wrap(err, KindNotFound, "reading git status for session %q", id)
+	}
+	return status, nil
+}
+
+// SessionPullRequest resolves the pull request for a branch SessionGitStatus
+// already reported. The branch is passed rather than read again because
+// resolving it costs a git subprocess the caller has just paid for, and
+// because the two halves refresh on different cadences — git on a timer, this
+// against a network cache.
+func (s *SessionsService) SessionPullRequest(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
+	if s.pullRequests == nil {
+		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusDisconnected}, nil
+	}
+	return s.pullRequests.Lookup(ctx, key, refresh)
+}
+
+// OpenSessionInEditor launches the configured editor on the session's
+// checkout, detached. It takes a session id, never a path: launching a
+// configured program on a caller-supplied directory is not this API's to
+// offer, the same guard AgentWorkspacesService.OpenWorkspaceInEditor keeps.
+func (s *SessionsService) OpenSessionInEditor(ctx context.Context, id string) error {
+	dir, err := s.sessionCheckout(ctx, id)
+	if err != nil {
+		return err
+	}
+	command := ""
+	if s.editorCommand != nil {
+		if configured, err := s.editorCommand(ctx); err == nil {
+			command = configured
+		}
+	}
+	return launchEditor(ctx, s.execEnv, command, dir)
+}
+
+// RevealSession opens the session's checkout in the OS file manager.
+func (s *SessionsService) RevealSession(ctx context.Context, id string) error {
+	dir, err := s.sessionCheckout(ctx, id)
+	if err != nil {
+		return err
+	}
+	return Wrap(osopen.Open(dir), KindInternal, "opening %s", dir)
+}
+
+// sessionCheckout resolves the directory a session's own record names, which
+// is what keeps open and reveal off arbitrary paths.
+func (s *SessionsService) sessionCheckout(ctx context.Context, id string) (string, error) {
+	detail, err := s.SessionDetail(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if detail.Path == "" {
+		return "", Errorf(KindConflict, "session %q has no checkout", detail.Name)
+	}
+	return detail.Path, nil
 }
 
 // SessionRisk reports the work a delete or recycle of id would discard, so the

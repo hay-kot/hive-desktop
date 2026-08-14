@@ -33,10 +33,12 @@ import ActionInputsDialog from './ActionInputsDialog.vue'
 import AppMenu from './AppMenu.vue'
 import BaseButton from './BaseButton.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
+import PaneStatusBar from './PaneStatusBar.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
 import SessionDetailDialog from './SessionDetailDialog.vue'
 import SessionRenameDialog from './SessionRenameDialog.vue'
 import SessionRowMenu from './SessionRowMenu.vue'
+import SessionStatusChips from './SessionStatusChips.vue'
 import TerminalTab from './TerminalTab.vue'
 import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { useCommands, useShellEscape, type Command } from '../composables/useCommands'
@@ -52,8 +54,11 @@ import { useTerminalWindowListings } from '../composables/useTerminalWindowListi
 import { useTerminalWindows, type TerminalWindowTab, type UseTerminalWindows } from '../composables/useTerminalWindows'
 import { useNewSession } from '../composables/useNewSession'
 import { useResizablePanel } from '../composables/useResizablePanel'
+import { useEditorSettings } from '../composables/useEditorSettings'
 import { useSessionActions } from '../composables/useSessionActions'
+import { useSessionStatus } from '../composables/useSessionStatus'
 import { useSessionStatuses } from '../composables/useSessionStatuses'
+import { useTerminalStatusBar } from '../composables/useTerminalStatusBar'
 import { useWailsEvent } from '../composables/useWailsEvent'
 import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
@@ -61,6 +66,7 @@ import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
 import { terminalWindowCommandID } from '../keybindings/catalog'
 import { Available } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/terminalservice'
+import { OpenSessionInEditor, RevealSession } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { SessionStatus, SessionWindowStatus } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 import type { MenuEntry } from '../types/menu'
 import '@xterm/xterm/css/xterm.css'
@@ -587,6 +593,37 @@ watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], 
 // this mode reads: without this a pinned chat's name and liveness would be
 // whatever they were when the Agents area was last on screen.
 watch(() => props.active, (active) => { if (active) void reloadRecents() }, { immediate: true })
+
+// The status bar. Only a hive session gets one: the scratch terminal and the
+// pinned chats are tmux sessions with no checkout behind them, so there is no
+// branch, no pull request, and nothing to open in an editor.
+const { showStatusBar } = useTerminalStatusBar()
+const { title: editorTitle, refresh: reloadEditor } = useEditorSettings()
+watch(() => props.active, (active) => { if (active) void reloadEditor() }, { immediate: true })
+
+const statusBarRow = computed(() => {
+  if (!showStatusBar.value || !visibleSlug.value) return null
+  return activeSessions.value.find((row) => row.slug === visibleSlug.value) ?? null
+})
+const statusBarSessionId = computed(() => statusBarRow.value?.id ?? '')
+const {
+  git: sessionGit, pullRequest: sessionPullRequest, pullRequestError: sessionPullRequestError,
+  refresh: refreshSessionStatus,
+} = useSessionStatus(statusBarSessionId)
+// An open or reveal that failed, cleared by the next attempt. Separate from
+// actionError, which belongs to the terminal actions menu.
+const statusBarError = ref('')
+
+async function runStatusBarAction(action: (id: string) => Promise<void>): Promise<void> {
+  const id = statusBarSessionId.value
+  if (!id) return
+  statusBarError.value = ''
+  try {
+    await action(id)
+  } catch (error) {
+    statusBarError.value = error instanceof Error ? error.message : String(error)
+  }
+}
 
 // A session dying moves nothing the sweep above watches — not the session set,
 // not the pool, not the setting — while its last window closing empties the
@@ -2152,6 +2189,27 @@ onBeforeUnmount(() => {
              yet, so the chrome stays out of the way and the panel below does
              the talking. The sidebar tree is the only window list — there is
              no tab strip to keep in step with it (ADR the-sidebar-tree-is-the-only-window-list). -->
+        <!-- Above the notices, and outside the started/not-started split: a
+             session whose tmux is not running still has a checkout to open,
+             which is often exactly why you came looking for it. -->
+        <PaneStatusBar
+          v-if="statusBarRow"
+          testid="terminal-pane-statusbar"
+          :label="statusBarRow.name"
+          :path="sessionGit?.path ?? ''"
+          :error="statusBarError"
+          :editor-title="editorTitle"
+          @open-editor="runStatusBarAction(OpenSessionInEditor)"
+          @reveal="runStatusBarAction(RevealSession)"
+        >
+          <SessionStatusChips
+            :git="sessionGit"
+            :pull-request="sessionPullRequest"
+            :pull-request-error="sessionPullRequestError"
+            @refresh-pull-request="refreshSessionStatus({ refreshPullRequest: true })"
+          />
+        </PaneStatusBar>
+
         <template v-if="visible && !notStarted">
           <p v-if="actionError" class="shrink-0 border-b border-border px-3 py-1.5 text-[11.5px] text-severity-error" data-testid="terminal-action-error">{{ actionError }}</p>
 

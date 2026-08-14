@@ -94,7 +94,7 @@ func newHiveSessionsWith(t *testing.T, cfg *config.Config, exec executil.Executo
 		io.Discard,
 		io.Discard,
 	)
-	return NewHiveSessionManager(svc, nil, 0), store
+	return NewHiveSessionManager(svc, nil, nil, 0), store
 }
 
 type listingSessionManagement struct {
@@ -225,7 +225,7 @@ func TestHiveSessionManagerProjectsLiveStatusForActiveSessions(t *testing.T) {
 		{ID: "s2", State: session.StateActive},
 		{ID: "s3", State: session.StateRecycled},
 		{ID: "s4", State: session.StateActive},
-	}}, statuses, 1750*time.Millisecond)
+	}}, statuses, nil, 1750*time.Millisecond)
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)
@@ -256,7 +256,7 @@ func TestHiveSessionManagerRunningSessionsProbesOnlyTheNamedActiveSessions(t *te
 		{ID: "s1", State: session.StateActive},
 		{ID: "s2", State: session.StateRecycled},
 		{ID: "s3", State: session.StateActive},
-	}}, statuses, time.Second)
+	}}, statuses, nil, time.Second)
 
 	got, err := manager.RunningSessions(t.Context(), []string{"s1", "s2"})
 	require.NoError(t, err)
@@ -272,7 +272,7 @@ func TestHiveSessionManagerRunningSessionsProbesOnlyTheNamedActiveSessions(t *te
 func TestHiveSessionManagerRunningSessionsReportsNothingWhenTerminalUnavailable(t *testing.T) {
 	manager := NewHiveSessionManager(listingSessionManagement{sessions: []session.Session{
 		{ID: "s1", State: session.StateActive},
-	}}, &fakeSessionStatusSource{}, time.Second)
+	}}, &fakeSessionStatusSource{}, nil, time.Second)
 
 	got, err := manager.RunningSessions(t.Context(), []string{"s1"})
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestHiveSessionManagerRunningSessionsReportsNothingWhenTerminalUnavailable(
 }
 
 func TestHiveSessionManagerReturnsEmptyStatusWhenTerminalUnavailable(t *testing.T) {
-	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, 1500*time.Millisecond)
+	manager := NewHiveSessionManager(listingSessionManagement{}, &fakeSessionStatusSource{}, nil, 1500*time.Millisecond)
 
 	got, err := manager.SessionStatuses(t.Context())
 	require.NoError(t, err)

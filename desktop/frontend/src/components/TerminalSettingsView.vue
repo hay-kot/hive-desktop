@@ -31,6 +31,7 @@ import {
 import { TERMINAL_FONT } from '../lib/terminalFaces'
 import { loadInstalledFonts, useInstalledFonts } from '../composables/useInstalledFonts'
 import { setTerminalPoolSize, terminalPoolSizes, useTerminalPoolSize } from '../composables/useTerminalPoolSize'
+import { setTerminalShowStatusBar, useTerminalStatusBar } from '../composables/useTerminalStatusBar'
 import { setTerminalShowWindows, useTerminalShowWindows } from '../composables/useTerminalShowWindows'
 
 // Async so xterm and its addons stay on the terminal chunk rather than joining
@@ -47,6 +48,7 @@ const {
 } = useTerminalFont()
 const { monospace: fontFamilies } = useInstalledFonts()
 const { showWindows } = useTerminalShowWindows()
+const { showStatusBar } = useTerminalStatusBar()
 const { poolSize } = useTerminalPoolSize()
 
 const fontSizeOptions = terminalFontSizes.map((value) => ({
@@ -204,6 +206,17 @@ onMounted(() => {
           aria-label="Always show windows"
           testid="settings-terminal-show-windows"
           @update:model-value="setTerminalShowWindows"
+        />
+      </SettingsRow>
+      <SettingsRow
+        label="Session status bar"
+        hint="Show the attached session's directory, branch and pull request above the terminal, with buttons to open its checkout."
+      >
+        <AppSwitch
+          :model-value="showStatusBar"
+          aria-label="Session status bar"
+          testid="settings-terminal-show-status-bar"
+          @update:model-value="setTerminalShowStatusBar"
         />
       </SettingsRow>
       <SettingsRow

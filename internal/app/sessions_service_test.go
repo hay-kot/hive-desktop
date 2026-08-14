@@ -36,6 +36,7 @@ type fakeSessionManager struct {
 	sessions []dispatch.SessionSummary
 	statuses dispatch.SessionStatusSnapshot
 	details  map[string]dispatch.SessionDetail
+	gitByID  map[string]dispatch.SessionGitStatus
 	risk     dispatch.SessionRisk
 	running  map[string]bool
 	err      error
@@ -66,6 +67,14 @@ func (f *fakeSessionManager) SessionDetail(_ context.Context, id string) (dispat
 		return dispatch.SessionDetail{}, errors.New("no such session")
 	}
 	return detail, nil
+}
+
+func (f *fakeSessionManager) SessionGitStatus(_ context.Context, id string) (dispatch.SessionGitStatus, error) {
+	status, ok := f.gitByID[id]
+	if !ok {
+		return dispatch.SessionGitStatus{}, errors.New("no such session")
+	}
+	return status, nil
 }
 
 func (f *fakeSessionManager) RunningSessions(_ context.Context, ids []string) (map[string]bool, error) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -861,22 +860,7 @@ func (s *AgentWorkspacesService) OpenWorkspaceInEditor(ctx context.Context, dir 
 		return err
 	}
 	command, _ := s.Editor(ctx)
-	if command == "" {
-		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › General")
-	}
-	path, err := s.execEnv.LookPath(ctx, command)
-	if err != nil {
-		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › General", command)
-	}
-	// WithoutCancel: the editor must outlive the request that launched it —
-	// a request-scoped context would kill it the moment the response is sent.
-	cmd := exec.CommandContext(context.WithoutCancel(ctx), path, workspaceDir)
-	cmd.Env = s.execEnv.Environ(ctx)
-	if err := cmd.Start(); err != nil {
-		return Wrap(err, KindInternal, "launching %s", command)
-	}
-	go func() { _ = cmd.Wait() }()
-	return nil
+	return launchEditor(ctx, s.execEnv, command, workspaceDir)
 }
 
 // RevealWorkspace opens the workspace directory in the OS file manager.

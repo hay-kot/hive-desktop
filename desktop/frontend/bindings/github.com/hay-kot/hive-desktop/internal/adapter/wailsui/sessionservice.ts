@@ -62,6 +62,13 @@ export function ListSessions(): $CancellablePromise<dispatch$0.SessionSummary[] 
 }
 
 /**
+ * OpenSessionInEditor launches the configured editor on the session's checkout.
+ */
+export function OpenSessionInEditor(id: string): $CancellablePromise<void> {
+    return $Call.ByID(399827487, id);
+}
+
+/**
  * PruneSessions starts the prune of every recycled and corrupted session as a
  * background job and returns the job id.
  */
@@ -95,14 +102,41 @@ export function RenderTerminalClipboardAction(actionID: string, target: dispatch
 }
 
 /**
+ * RevealSession opens the session's checkout in the OS file manager.
+ */
+export function RevealSession(id: string): $CancellablePromise<void> {
+    return $Call.ByID(4238087246, id);
+}
+
+/**
  * SessionDetail reads one session in full, for the detail view.
  */
 export function SessionDetail(id: string): $CancellablePromise<dispatch$0.SessionDetail> {
     return $Call.ByID(3289077136, id);
 }
 
+/**
+ * SessionGitStatus reads the session's checkout for the session status bar.
+ * Cheap and local — four git subprocesses — so the bar polls it, unlike
+ * SessionPullRequest.
+ */
+export function SessionGitStatus(id: string): $CancellablePromise<dispatch$0.SessionGitStatus> {
+    return $Call.ByID(1839794617, id);
+}
+
 export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLaunchOptions> {
     return $Call.ByID(715924228);
+}
+
+/**
+ * SessionPullRequest resolves the pull request for a branch SessionGitStatus
+ * reported, answering from a short-lived cache unless refresh is set. Its
+ * Status field says why there is nothing to show — no pull request, no
+ * connected account, or a remote that is not GitHub — so a caller never has to
+ * read an empty result as "none".
+ */
+export function SessionPullRequest(key: dispatch$0.SessionPullRequestKey, refresh: boolean): $CancellablePromise<dispatch$0.SessionPullRequest> {
+    return $Call.ByID(3974550559, key, refresh);
 }
 
 /**

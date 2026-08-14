@@ -109,6 +109,10 @@ type Appearance struct {
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. On by default.
 	TerminalShowWindows bool `yaml:"terminal_show_windows" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS"`
+	// TerminalShowStatusBar gives the attached session the same status bar a
+	// chat has, plus git and pull-request state. Off by default: it costs a
+	// strip of vertical space above every terminal.
+	TerminalShowStatusBar bool `yaml:"terminal_show_status_bar" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_STATUS_BAR"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached at
 	// once for instant switching (ADR terminal-attach-pool). Like the other appearance values it
 	// is carried verbatim and healed by the frontend: anything outside 1-6 reads

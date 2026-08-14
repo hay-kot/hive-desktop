@@ -8,6 +8,7 @@ import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
+import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
 import { useCommandPalette } from '../../composables/useCommands'
@@ -22,6 +23,10 @@ const mocks = vi.hoisted(() => ({
   ListSessions: vi.fn(),
   SessionStatuses: vi.fn(),
   SessionDetail: vi.fn(),
+  SessionGitStatus: vi.fn(),
+  SessionPullRequest: vi.fn(),
+  OpenSessionInEditor: vi.fn(),
+  RevealSession: vi.fn(),
   SessionRisk: vi.fn(),
   RenameSession: vi.fn(),
   DeleteSession: vi.fn(),
@@ -36,6 +41,9 @@ const mocks = vi.hoisted(() => ({
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  AppearanceSettings: vi.fn(),
+  EditorSettings: vi.fn(),
+  OpenURL: vi.fn(),
   AgentsAvailable: vi.fn(),
   allSessions: vi.fn(),
   resumeSession: vi.fn(),
@@ -67,15 +75,25 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   Scratch: mocks.Scratch,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  AppearanceSettings: mocks.AppearanceSettings,
+  EditorSettings: mocks.EditorSettings,
+  SetEditor: vi.fn(),
   SetTerminalFontSize: mocks.SetTerminalFontSize,
   SetTerminalShowWindows: vi.fn(),
+  SetTerminalShowStatusBar: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({
+  Focused: vi.fn().mockResolvedValue(true),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
   SessionStatuses: mocks.SessionStatuses,
   SessionDetail: mocks.SessionDetail,
+  SessionGitStatus: mocks.SessionGitStatus,
+  SessionPullRequest: mocks.SessionPullRequest,
+  OpenSessionInEditor: mocks.OpenSessionInEditor,
+  RevealSession: mocks.RevealSession,
   SessionRisk: mocks.SessionRisk,
   RenameSession: mocks.RenameSession,
   DeleteSession: mocks.DeleteSession,
@@ -98,6 +116,7 @@ vi.mock('../../composables/useNewSession', () => ({
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: vi.fn().mockReturnValue(() => {}) },
   Clipboard: { SetText: mocks.SetClipboardText },
+  Browser: { OpenURL: mocks.OpenURL },
 }))
 
 // The sidebar sweeps every session in one call, so a listing mock answers a map
@@ -208,6 +227,9 @@ describe('TerminalMode', () => {
     resetAgentWorkspacesForTests()
     resetAgentSessionsAllForTests()
     resetTerminalPinnedChatsForTests()
+    // The bar's setting is a module singleton, so a test that turns it on would
+    // otherwise leave it on for the rest of the file.
+    setTerminalShowStatusBar(false)
     paneMayAutoFocus.value = true
     // The Agents area answers unavailable by default, which is what a build with
     // the experimental gate off looks like: no chats to pin, no Chats section.
@@ -232,6 +254,18 @@ describe('TerminalMode', () => {
     })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
     mocks.TerminalActionViews.mockResolvedValue([])
+    // The status bar ships off, so most of these tests never reach the reads
+    // below; they answer anyway so a test that turns it on does not have to
+    // restate the whole set.
+    mocks.AppearanceSettings.mockResolvedValue({
+      theme: '', terminalFontSize: '', terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
+    })
+    mocks.EditorSettings.mockResolvedValue({ command: 'zed', title: 'Zed', choices: [] })
+    mocks.SessionGitStatus.mockResolvedValue({
+      path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
+      additions: 0, deletions: 0, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+    })
+    mocks.SessionPullRequest.mockResolvedValue({ status: 'none' })
   })
 
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
@@ -2545,6 +2579,122 @@ describe('TerminalMode', () => {
       // Mounted but hidden behind another mode: the library must not follow.
       await wrapper.setProps({ active: false })
       expect(results.value.some((cmd) => cmd.id.startsWith('terminal:'))).toBe(false)
+
+      wrapper.unmount()
+    })
+  })
+
+  describe('session status bar', () => {
+    async function mountWithStatusBar(session = fakeSession()) {
+      setTerminalShowStatusBar(true)
+      const mounted = await mountAvailable(session)
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    it('stays out of the way until the setting turns it on', async () => {
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar"]').exists()).toBe(false)
+      expect(mocks.SessionGitStatus).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('names the session and reports its branch, diff and pull request', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
+        additions: 42, deletions: 7, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+      })
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: 'APPROVED', checks: 'passing',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.get('[data-testid="terminal-pane-statusbar-workspace"]').text()).toBe('fix the parser')
+      expect(wrapper.get('[data-testid="session-status-branch"]').text()).toBe('feat/parser')
+      expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42 −7')
+      expect(wrapper.find('[data-testid="session-status-dirty"]').exists()).toBe(true)
+      expect(wrapper.find('[data-testid="session-status-unpushed"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
+      // The lookup is keyed by what git resolved, not by anything read twice.
+      expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
+
+      wrapper.unmount()
+    })
+
+    it('still offers the buttons for a session with no pull request', async () => {
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-pr"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="session-status-pr-error"]').exists()).toBe(false)
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await wrapper.get('[data-testid="terminal-pane-statusbar-reveal"]').trigger('click')
+      await flushPromises()
+      expect(mocks.OpenSessionInEditor).toHaveBeenCalledWith('1')
+      expect(mocks.RevealSession).toHaveBeenCalledWith('1')
+
+      wrapper.unmount()
+    })
+
+    // The bar must never say "no pull request" because the lookup broke: the
+    // branch may well have one, and the user would act on the wrong fact.
+    it('reports a failed pull-request lookup as a failure, not as having none', async () => {
+      mocks.SessionPullRequest.mockRejectedValue(new Error('Bad credentials'))
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-pr"]').exists()).toBe(false)
+      const failure = wrapper.get('[data-testid="session-status-pr-error"]')
+      expect(failure.attributes('title')).toContain('Bad credentials')
+
+      wrapper.unmount()
+    })
+
+    it('surfaces a failed git read instead of showing a clean branch it never saw', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
+        additions: 0, deletions: 0, owner: '', repo: '', resolved: true, error: 'git status: exit 128',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-dirty"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="session-status-git-error"]').attributes('title')).toBe('git status: exit 128')
+
+      wrapper.unmount()
+    })
+
+    it('gives the scratch terminal no bar, because it has no checkout', async () => {
+      setTerminalShowStatusBar(true)
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-scratch-heading"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar"]').exists()).toBe(false)
+      expect(mocks.SessionGitStatus).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('surfaces an open that failed and clears it on the next attempt', async () => {
+      mocks.OpenSessionInEditor.mockRejectedValueOnce(new Error('editor "zed" was not found on PATH'))
+
+      const { wrapper } = await mountWithStatusBar()
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[data-testid="terminal-pane-statusbar-error"]').text()).toBe('editor "zed" was not found on PATH')
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar-error"]').exists()).toBe(false)
 
       wrapper.unmount()
     })
