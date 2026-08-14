@@ -106,8 +106,8 @@ func TestSearchIssuesSendsEveryFilter(t *testing.T) {
 	assert.False(t, issues[1].IsPullRequest(), "an item with no pull_request block is an issue")
 }
 
-// The zero request must not send empty parameters: Gitea treats an empty
-// `type=` as a filter value rather than as "unset".
+// The zero request must not send empty parameters: the request should state
+// only what it means, and Gitea would ignore an empty `type=` anyway.
 func TestSearchIssuesOmitsUnsetFilters(t *testing.T) {
 	t.Parallel()
 

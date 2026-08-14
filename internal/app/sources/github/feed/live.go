@@ -484,7 +484,7 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []Item {
 			Labels:    labels,
 			Branch:    suggestedBranch(kind, si.Number, si.Title),
 			Body:      si.Body,
-			Prompt:    suggestedPrompt(kind, si.Title, si.URL, si.Body),
+			Prompt:    itemtext.Prompt(kind, si.Title, si.URL, si.Body),
 			URL:       si.URL,
 		})
 	}
@@ -517,7 +517,7 @@ func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) 
 			Reason:    n.Reason,
 			Branch:    suggestedBranch(kind, num, n.Subject.Title),
 			Body:      fmt.Sprintf("GitHub notification for %s in %s.", strings.ToLower(kind), repo),
-			Prompt:    suggestedPrompt(kind, n.Subject.Title, htmlURLForSubject(repo, kind, num), ""),
+			Prompt:    itemtext.Prompt(kind, n.Subject.Title, htmlURLForSubject(repo, kind, num), ""),
 			URL:       htmlURLForSubject(repo, kind, num),
 		})
 	}
@@ -558,8 +558,4 @@ const branchPrefix = "gh"
 
 func suggestedBranch(kind string, num int, title string) string {
 	return itemtext.Branch(branchPrefix, kind, num, title)
-}
-
-func suggestedPrompt(kind, title, url, body string) string {
-	return itemtext.Prompt(kind, title, url, body)
 }

@@ -27,7 +27,7 @@ Filters are typed fields rather than a query string because Gitea has no search 
 
 `involving` is the one field that costs more than it looks: the API intersects those relationships, so a union is one request per entry, issued on every poll. Two entries is two requests; the results are merged, deduplicated, and cut back to `limit`.
 
-An item that stops appearing in a search — merged, closed, relabelled out of the filter, or simply pushed off the page by newer activity — has its current state looked up before anything is archived, one request per item. A notifications source needs no such lookup: Gitea reports each thread's subject state on the notification itself.
+An item that stops appearing in a search — merged, closed, relabelled out of the filter, or simply pushed off the page by newer activity — has its current state looked up before anything is archived, one request per item. A notifications source usually skips that: Gitea reports each thread's subject state on the notification itself, so most items are archived before they ever leave the inbox — only an item pushed off the page while still open gets the lookup.
 
 The access token needs the `read:user` scope (connecting resolves which account it authenticates as), plus `read:issue` for a search source and `read:notification` for a notifications one.
 

@@ -48,6 +48,7 @@ wants the intersection instead cannot express it — that is the trade, and the
 composition (several source nodes into one feed) is the same one GitHub users
 make, since GitHub's qualifiers intersect too.
 
-Gitea's vocabulary does not leak into the flow file:  `items: all` is the
+Gitea's vocabulary does not leak into the flow file: `items: all` is the
 connector's word for "do not filter", which the client spells by omitting
-`type` — sending `type=all` would filter to nothing.
+`type` — the endpoint ignores a `type` it does not recognize, so sending
+`type=all` would only work by accident.

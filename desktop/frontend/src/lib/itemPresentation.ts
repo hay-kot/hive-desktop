@@ -256,8 +256,7 @@ export function presentationFor(sourceKind: string | undefined): ItemPresentatio
 // Each backend source node's config module exports its sourceKind next to
 // its node `type` — the only place a flow node type maps to a sourceKind, so
 // provider N+1 adds a node module and never touches a hand-maintained list
-// here (engine/runGraph.ts's BACKEND_SOURCE_TYPES derives its own set from
-// the same node modules' `type` exports).
+// here.
 
 const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [githubSourceNode.type]: githubSourceNode.sourceKind,
