@@ -149,5 +149,7 @@ func viewOfPullRequest(pr ghclient.PullRequest) dispatch.SessionPullRequest {
 		URL:            pr.URL,
 		ReviewDecision: pr.ReviewDecision,
 		Checks:         string(pr.Checks),
+		Additions:      pr.Additions,
+		Deletions:      pr.Deletions,
 	}
 }

@@ -32,8 +32,15 @@ defineEmits<{ 'open-editor': []; reveal: [] }>()
 </script>
 
 <template>
-  <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1" :data-testid="testid">
-    <div v-if="label" class="flex min-w-0 items-center gap-1.5">
+  <!-- Every item in this row is a 24px-tall box carrying its own px-1.5, so the
+       space between any two is their padding plus one gap and stays even
+       whether the neighbours are text, an icon or a button. Growing the padding
+       instead of the gap is what this avoids: the icon buttons are size-6 to
+       match SessionStatusChips, and widening them would break that. The row's
+       own px-1.5 completes the first and last item's padding to the 12px inset
+       the bar had when it was px-3 with bare children. -->
+  <div class="flex shrink-0 items-center gap-1 border-b border-border px-1.5 py-1" :data-testid="testid">
+    <div v-if="label" class="flex h-6 min-w-0 items-center gap-1.5 px-1.5">
       <IconFolder class="size-3.5 shrink-0 text-text-4" aria-hidden="true" />
       <span
         class="min-w-0 truncate text-[11px] text-text-3"
@@ -44,11 +51,11 @@ defineEmits<{ 'open-editor': []; reveal: [] }>()
 
     <!-- Between the name and the buttons, so an area's own status reads as
          part of the same strip rather than as a second bar. -->
-    <div class="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden"><slot /></div>
+    <div class="flex min-w-0 flex-1 items-center overflow-hidden"><slot /></div>
 
     <span
       v-if="error"
-      class="truncate text-[11px] text-severity-error"
+      class="flex h-6 shrink-0 items-center truncate px-1.5 text-[11px] text-severity-error"
       :data-testid="`${testid}-error`"
     >{{ error }}</span>
     <!-- size-6/rounded-[7px] is also what SessionStatusChips' clickable chips

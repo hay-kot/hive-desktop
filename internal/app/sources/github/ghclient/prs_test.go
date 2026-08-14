@@ -42,7 +42,7 @@ func TestPullRequestsByBranchAnswersEachRefByPosition(t *testing.T) {
 
 	server, request := prServer(t, `{"data":{
       "r0": {"pullRequests":{"nodes":[{"number":311,"title":"Session top bar","state":"OPEN","isDraft":false,
-        "url":"https://github.com/acme/site/pull/311","reviewDecision":"APPROVED",
+        "url":"https://github.com/acme/site/pull/311","reviewDecision":"APPROVED","additions":420,"deletions":37,
         "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"SUCCESS"}}}]}}]}},
       "r1": {"pullRequests":{"nodes":[]}}
     }}`)
@@ -57,6 +57,8 @@ func TestPullRequestsByBranchAnswersEachRefByPosition(t *testing.T) {
 	assert.Equal(t, PullRequest{
 		Found: true, Number: 311, Title: "Session top bar", State: "OPEN",
 		URL: "https://github.com/acme/site/pull/311", ReviewDecision: "APPROVED", Checks: CheckStatePassing,
+		// The pull request's own counts, not the working tree's.
+		Additions: 420, Deletions: 37,
 	}, results[0])
 	// A branch with no pull request is data, not an error.
 	assert.False(t, results[1].Found)

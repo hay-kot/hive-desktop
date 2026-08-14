@@ -43,6 +43,10 @@ type PullRequest struct {
 	Title          string
 	ReviewDecision string // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or empty
 	Checks         CheckState
+	// Additions and Deletions are the pull request's own line counts, which are
+	// not the working tree's: the branch may have moved since it was opened.
+	Additions int
+	Deletions int
 }
 
 // PullRequestsByBranch resolves each ref's pull request in a single GraphQL
@@ -81,6 +85,8 @@ func (c *Client) PullRequestsByBranch(ctx context.Context, refs []BranchRef) ([]
 			Title:          node.Title,
 			ReviewDecision: node.ReviewDecision,
 			Checks:         checkState(node.rollupState()),
+			Additions:      node.Additions,
+			Deletions:      node.Deletions,
 		}
 	}
 	return out, nil
@@ -107,7 +113,7 @@ func buildPullRequestQuery(refs []BranchRef) (doc string, variables map[string]a
 		fmt.Fprintf(&b, "  r%d: repository(owner: $o%d, name: $n%d) {\n", i, i, i)
 		fmt.Fprintf(&b, "    pullRequests(headRefName: $b%d, first: 1, orderBy: {field: UPDATED_AT, direction: DESC}) {\n", i)
 		b.WriteString(`      nodes {
-        number title state isDraft url reviewDecision
+        number title state isDraft url reviewDecision additions deletions
         commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }
       }
     }
@@ -146,6 +152,8 @@ type gqlPRNode struct {
 	IsDraft        bool   `json:"isDraft"`
 	URL            string `json:"url"`
 	ReviewDecision string `json:"reviewDecision"`
+	Additions      int    `json:"additions"`
+	Deletions      int    `json:"deletions"`
 	Commits        struct {
 		Nodes []struct {
 			Commit struct {

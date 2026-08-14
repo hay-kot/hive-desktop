@@ -226,6 +226,14 @@ export interface SessionPullRequest {
      * checks configured.
      */
     "checks": string;
+
+    /**
+     * Additions and Deletions are the pull request's own line counts, which are
+     * deliberately not SessionGitStatus's: those measure the working tree
+     * against the default branch and drift the moment the branch moves on.
+     */
+    "additions": number;
+    "deletions": number;
 }
 
 /**

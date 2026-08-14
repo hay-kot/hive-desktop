@@ -118,6 +118,10 @@ onBeforeUnmount(hide)
   color: var(--color-text-2);
   font-size: 11px;
   line-height: 1.35;
+  /* pre-line so a caller can put a second line in — the branch chip leads with
+     the branch name and follows with the path — while still wrapping long text
+     at max-width. */
+  white-space: pre-line;
   box-shadow: 0 10px 28px -10px rgb(0 0 0 / .55);
 }
 </style>

@@ -219,6 +219,11 @@ type SessionPullRequest struct {
 	// Checks is passing, pending, failing, or empty for a head commit with no
 	// checks configured.
 	Checks string `json:"checks"`
+	// Additions and Deletions are the pull request's own line counts, which are
+	// deliberately not SessionGitStatus's: those measure the working tree
+	// against the default branch and drift the moment the branch moves on.
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
 }
 
 // ItemSessionLinker persists the association between an inbox item and a
