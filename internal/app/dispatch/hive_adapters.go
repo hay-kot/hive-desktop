@@ -224,6 +224,10 @@ type SessionPullRequest struct {
 	// against the default branch and drift the moment the branch moves on.
 	Additions int `json:"additions"`
 	Deletions int `json:"deletions"`
+	// Cached reports that this answer came from the in-process cache rather
+	// than the network, which is what lets a caller tell "this just arrived"
+	// from "this was already known". The bar animates only the former.
+	Cached bool `json:"cached"`
 }
 
 // ItemSessionLinker persists the association between an inbox item and a

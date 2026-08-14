@@ -234,6 +234,13 @@ export interface SessionPullRequest {
      */
     "additions": number;
     "deletions": number;
+
+    /**
+     * Cached reports that this answer came from the in-process cache rather
+     * than the network, which is what lets a caller tell "this just arrived"
+     * from "this was already known". The bar animates only the former.
+     */
+    "cached": boolean;
 }
 
 /**

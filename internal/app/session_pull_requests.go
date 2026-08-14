@@ -78,7 +78,11 @@ func (p *sessionPullRequests) fresh(key dispatch.SessionPullRequestKey) (dispatc
 	if !ok || p.now().Sub(entry.readAt) > sessionPRCacheTTL {
 		return dispatch.SessionPullRequest{}, false
 	}
-	return entry.view, true
+	// Stamped on the way out rather than on the way in: the same view is a
+	// fresh answer the first time it is returned and a cached one after.
+	view := entry.view
+	view.Cached = true
+	return view, true
 }
 
 func (p *sessionPullRequests) fetch(ctx context.Context, key dispatch.SessionPullRequestKey) (dispatch.SessionPullRequest, error) {

@@ -2647,7 +2647,7 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('copies the pull request in both share formats', async () => {
+    it('copies the pull request as a Markdown link', async () => {
       mocks.SessionPullRequest.mockResolvedValue({
         status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
         url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
@@ -2656,16 +2656,10 @@ describe('TerminalMode', () => {
 
       const { wrapper } = await mountWithStatusBar()
 
-      await wrapper.get('[data-testid="session-status-copy-markdown"]').trigger('click')
+      await wrapper.get('[data-testid="session-status-copy"]').trigger('click')
       await flushPromises()
       expect(mocks.SetClipboardText).toHaveBeenCalledWith(
         '[[hive] Fix the parser `(+420, -37)`](https://github.com/hay-kot/hive/pull/311)',
-      )
-
-      await wrapper.get('[data-testid="session-status-copy-plain"]').trigger('click')
-      await flushPromises()
-      expect(mocks.SetClipboardText).toHaveBeenLastCalledWith(
-        '[hive] Fix the parser (+420, -37)\nhttps://github.com/hay-kot/hive/pull/311',
       )
 
       wrapper.unmount()
@@ -2692,7 +2686,7 @@ describe('TerminalMode', () => {
       expect(branch.classes()).toContain('min-w-0')
       expect(branch.get('.font-mono').classes()).toContain('truncate')
 
-      for (const testid of ['session-status-diff', 'session-status-pr', 'session-status-copy-markdown']) {
+      for (const testid of ['session-status-diff', 'session-status-pr', 'session-status-copy']) {
         expect(wrapper.get(`[data-testid="${testid}"]`).classes()).toContain('shrink-0')
       }
 
@@ -2703,11 +2697,33 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('offers no copy buttons for a branch with no pull request to share', async () => {
+    // Animating a cached answer animates nothing arriving: it was known before
+    // the bar painted. Only a read that actually went to the network eases in.
+    it('eases the pull request in only when it just arrived', async () => {
+      const found = {
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
+        additions: 420, deletions: 37,
+      }
+      mocks.SessionPullRequest.mockResolvedValue({ ...found, cached: false })
+
+      // Asserted on the computed rather than the rendered Transition because
+      // this suite stubs transitions out, so the prop never reaches the DOM.
+      const fresh = await mountWithStatusBar()
+      expect(fresh.wrapper.findComponent({ name: 'SessionStatusChips' }).vm.animateArrival).toBe(true)
+      fresh.wrapper.unmount()
+
+      mocks.SessionPullRequest.mockResolvedValue({ ...found, cached: true })
+
+      const cachedMount = await mountWithStatusBar()
+      expect(cachedMount.wrapper.findComponent({ name: 'SessionStatusChips' }).vm.animateArrival).toBe(false)
+      cachedMount.wrapper.unmount()
+    })
+
+    it('offers no copy button for a branch with no pull request to share', async () => {
       const { wrapper } = await mountWithStatusBar()
 
-      expect(wrapper.find('[data-testid="session-status-copy-markdown"]').exists()).toBe(false)
-      expect(wrapper.find('[data-testid="session-status-copy-plain"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="session-status-copy"]').exists()).toBe(false)
 
       wrapper.unmount()
     })

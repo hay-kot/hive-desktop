@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { markdownPullRequestLink, plainPullRequestLink } from '../prLink'
+import { markdownPullRequestLink } from '../prLink'
 import type { SessionPullRequest } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 function pullRequest(overrides: Partial<SessionPullRequest> = {}): SessionPullRequest {
@@ -18,20 +18,13 @@ function pullRequest(overrides: Partial<SessionPullRequest> = {}): SessionPullRe
   } as SessionPullRequest
 }
 
-// These two assertions are the contract with the `prlink` shell script this
-// replaces. Links already pasted into Slack and chat threads read a certain
-// way, so drifting from it — even by a space — makes the app's links visibly
-// different from the ones already out there.
+// The contract with the `prlink` shell script this replaces. Links already
+// pasted into Slack and chat threads read a certain way, so drifting from it —
+// even by a space — makes the app's links visibly different from those.
 describe('pull request links', () => {
   it('renders the Markdown form the shell script produced', () => {
     expect(markdownPullRequestLink(pullRequest(), 'hive-desktop')).toBe(
       '[[hive-desktop] Give a session an optional status bar `(+420, -37)`](https://github.com/hay-kot/hive-desktop/pull/315)',
-    )
-  })
-
-  it('renders the plain form with the URL on its own line', () => {
-    expect(plainPullRequestLink(pullRequest(), 'hive-desktop')).toBe(
-      '[hive-desktop] Give a session an optional status bar (+420, -37)\nhttps://github.com/hay-kot/hive-desktop/pull/315',
     )
   })
 

@@ -2,7 +2,7 @@
 // The session half of the status bar: what the checkout looks like, and what
 // its branch's pull request is doing. Session-only — a chat has no branch —
 // which is why it sits in PaneStatusBar's slot rather than in the bar itself.
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Browser } from '@wailsio/runtime'
 // The two git-state glyphs are chosen as a pair rather than each on its own
 // merits. Both are a container with a mark on it — a file carrying its changes,
@@ -10,16 +10,15 @@ import { Browser } from '@wailsio/runtime'
 // and read as two of the same kind of thing. Mixing a solid glyph with a bare
 // stroke does not, whichever two you pick.
 import IconCheck from '~icons/lucide/check'
+import IconCopy from '~icons/lucide/copy'
 import IconFileDiff from '~icons/lucide/file-diff'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
-import IconType from '~icons/lucide/type'
 import IconUpload from '~icons/lucide/upload'
 import AppTooltip from './AppTooltip.vue'
-import IconMarkdown from './IconMarkdown.vue'
 import { useClipboard } from '../composables/useClipboard'
-import { markdownPullRequestLink, plainPullRequestLink } from '../lib/prLink'
+import { markdownPullRequestLink } from '../lib/prLink'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = defineProps<{
@@ -45,6 +44,10 @@ const showGitGroup = computed(() => {
   return showBranch.value || showDiff.value || !!git.error || (git.resolved && (git.dirty || git.unpushed))
 })
 const showPRGroup = computed(() => props.pullRequest?.status === 'found' || !!props.pullRequestError)
+
+// A cached pull request was known before the bar painted, so there is nothing
+// to announce; a failed lookup did just arrive, so it animates like a fresh one.
+const animateArrival = computed(() => !props.pullRequest?.cached)
 
 // Only a found pull request has anything to render; the other statuses say why
 // there is none, and none of them is worth a chip of its own — a branch with no
@@ -82,20 +85,15 @@ function openPullRequest(): void {
   if (url) void Browser.OpenURL(url)
 }
 
-// Which button last copied, so only that one shows the tick. A shared boolean
-// would flash both, which reads as having copied something twice.
 const { copy, copied } = useClipboard()
-const copiedFrom = ref<'markdown' | 'plain' | ''>('')
-const copiedFormat = computed(() => (copied.value ? copiedFrom.value : ''))
 
-async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
+async function copyLink(): Promise<void> {
   const found = pr.value
   // The repository name alone, as the shell script used: the owner is already
   // implied by wherever this is being pasted.
   const repo = props.git?.repo
   if (!found || !repo) return
-  copiedFrom.value = format
-  await copy(format === 'markdown' ? markdownPullRequestLink(found, repo) : plainPullRequestLink(found, repo))
+  await copy(markdownPullRequestLink(found, repo))
 }
 </script>
 
@@ -160,19 +158,23 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
       </AppTooltip>
     </div>
 
-    <!-- The pull request arrives a beat after the git half: git is local
-         subprocesses, this is a network round trip. Fading it in rather than
-         letting it appear stops the row jumping, and marks it as something that
-         landed rather than something that was always there. Enter only — a
-         leave transition would make switching sessions flicker. -->
-    <Transition name="pr-arrive">
-      <div v-if="showPRGroup" class="flex shrink-0 items-center gap-1">
+    <!-- Animated only when the answer actually came off the network. A cached
+         one is already known by the time the bar paints, so fading it in would
+         animate nothing arriving — the reason the backend reports `cached` at
+         all. Enter only: a leave transition would make switching sessions
+         flicker. -->
+    <Transition :css="animateArrival" name="pr-arrive">
+      <div v-if="showPRGroup" class="flex shrink-0 items-center">
         <!-- A rule, not a wider gap. Everything left of here describes the
              checkout and everything right of it the remote, and a gap cannot
              say that — it only reads as uneven spacing, which is how this row
-             looked before. -->
-        <span v-if="showGitGroup" class="mr-1 h-3.5 w-px shrink-0 bg-border" aria-hidden="true" />
+             looked before.
+             It sits outside the gap-1 group below on purpose: as a child of it
+             the group's gap would land on the rule's right only, and mx-2 would
+             read as 8px left and 12px right. -->
+        <span v-if="showGitGroup" class="mx-2 h-3.5 w-px shrink-0 bg-border" aria-hidden="true" />
 
+        <div class="flex shrink-0 items-center gap-1">
         <!-- h-6/rounded-[7px] is PaneStatusBar's button metric: these sit in the
              same row as the editor and Finder buttons, so a hover rect of a
              different height or corner reads as a mistake. -->
@@ -192,39 +194,23 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
           <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
         </button>
 
-      <!-- Both formats side by side rather than one button and a setting
-           deciding what it produces: which one you want depends on where you
-           are pasting, so a stored preference is a trip to Settings before
-           every other paste. Flush against the chip because they act on it — a
-           gap here would read as three unrelated controls. -->
-      <template v-if="pr">
-        <AppTooltip :text="copiedFormat === 'markdown' ? 'Copied' : 'Copy Markdown link'">
-          <button
-            type="button"
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-4 hover:bg-chip hover:text-text"
-            :class="{ 'text-severity-success': copiedFormat === 'markdown' }"
-            aria-label="Copy Markdown link"
-            data-testid="session-status-copy-markdown"
-            @click="copyLink('markdown')"
-          >
-            <IconCheck v-if="copiedFormat === 'markdown'" class="size-3.5" />
-            <IconMarkdown v-else class="w-3.5" />
-          </button>
-        </AppTooltip>
-        <AppTooltip :text="copiedFormat === 'plain' ? 'Copied' : 'Copy plain text link'">
-          <button
-            type="button"
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-4 hover:bg-chip hover:text-text"
-            :class="{ 'text-severity-success': copiedFormat === 'plain' }"
-            aria-label="Copy plain text link"
-            data-testid="session-status-copy-plain"
-            @click="copyLink('plain')"
-          >
-            <IconCheck v-if="copiedFormat === 'plain'" class="size-3.5" />
-            <IconType v-else class="size-3.5" />
-          </button>
-        </AppTooltip>
-      </template>
+      <!-- One button, one format. Both were offered when the shape was still
+           in question; the Markdown link is the one that gets used, so the
+           second was width spent on a choice nobody was making. It is labelled
+           plainly as copy — its tooltip says what lands on the clipboard. -->
+      <AppTooltip v-if="pr" :text="copied ? 'Copied' : 'Copy link to this pull request'">
+        <button
+          type="button"
+          class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-4 hover:bg-chip hover:text-text"
+          :class="{ 'text-severity-success': copied }"
+          aria-label="Copy link to this pull request"
+          data-testid="session-status-copy"
+          @click="copyLink"
+        >
+          <IconCheck v-if="copied" class="size-3.5" />
+          <IconCopy v-else class="size-3.5" />
+        </button>
+      </AppTooltip>
 
       <!-- A failed lookup, never rendered as "no pull request": the branch may
            well have one, and claiming otherwise is a fact this cannot support. -->
@@ -236,6 +222,7 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
           @click="emit('refresh-pull-request')"
         ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>
       </AppTooltip>
+        </div>
       </div>
     </Transition>
   </div>

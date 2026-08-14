@@ -49,9 +49,14 @@ func TestSessionPullRequestsAnswersFromCacheUntilRefreshed(t *testing.T) {
 		URL: "https://github.com/acme/site/pull/311", ReviewDecision: "REVIEW_REQUIRED", Checks: "pending",
 	}, first)
 
-	_, err = lookup.Lookup(t.Context(), key, false)
+	assert.False(t, first.Cached, "the read that fetched it is not a cached answer")
+
+	second, err := lookup.Lookup(t.Context(), key, false)
 	require.NoError(t, err)
 	assert.Equal(t, int64(1), calls.Load(), "a fresh entry must not cost a second round trip")
+	// The bar animates the pull request in only when it actually just arrived,
+	// so "came from cache" has to be visible to the caller.
+	assert.True(t, second.Cached)
 
 	_, err = lookup.Lookup(t.Context(), key, true)
 	require.NoError(t, err)
