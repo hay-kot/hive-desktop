@@ -2696,8 +2696,9 @@ describe('TerminalMode', () => {
         expect(wrapper.get(`[data-testid="${testid}"]`).classes()).toContain('shrink-0')
       }
 
-      // Truncating is only acceptable because hovering recovers the full name.
-      expect(tooltipFor(wrapper, 'session-status-branch')).toBe('feat/parser\n/tmp/fix-parser')
+      // The branch carries no tooltip, so a name cut this way cannot be read
+      // back. Pinned so that stays a decision rather than an oversight.
+      expect(tooltipFor(wrapper, 'session-status-branch')).toBe('')
 
       wrapper.unmount()
     })

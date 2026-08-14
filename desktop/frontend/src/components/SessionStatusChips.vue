@@ -13,11 +13,11 @@ import IconCheck from '~icons/lucide/check'
 import IconFileDiff from '~icons/lucide/file-diff'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
-import IconLink from '~icons/lucide/link'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconType from '~icons/lucide/type'
 import IconUpload from '~icons/lucide/upload'
 import AppTooltip from './AppTooltip.vue'
+import IconMarkdown from './IconMarkdown.vue'
 import { useClipboard } from '../composables/useClipboard'
 import { markdownPullRequestLink, plainPullRequestLink } from '../lib/prLink'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
@@ -45,8 +45,6 @@ const showGitGroup = computed(() => {
   return showBranch.value || showDiff.value || !!git.error || (git.resolved && (git.dirty || git.unpushed))
 })
 const showPRGroup = computed(() => props.pullRequest?.status === 'found' || !!props.pullRequestError)
-
-const branchTooltip = computed(() => [props.git?.branch, props.git?.path].filter(Boolean).join('\n'))
 
 // Only a found pull request has anything to render; the other statuses say why
 // there is none, and none of them is worth a chip of its own — a branch with no
@@ -79,15 +77,6 @@ const checksTone = computed(() => {
   }
 })
 
-const prTitle = computed(() => {
-  const found = pr.value
-  if (!found) return ''
-  const parts = [found.title || `Pull request #${found.number}`]
-  if (found.reviewDecision) parts.push(found.reviewDecision.toLowerCase().replace(/_/g, ' '))
-  if (found.checks) parts.push(`checks ${found.checks}`)
-  return parts.join(' · ')
-})
-
 function openPullRequest(): void {
   const url = pr.value?.url
   if (url) void Browser.OpenURL(url)
@@ -118,19 +107,18 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
        loose parts.
        Overflow: the branch is the only item allowed to shrink, so a narrow pane
        truncates the branch name and everything else — diff, state icons, the
-       pull request and its copy buttons — stays whole. Its tooltip carries the
-       full name for exactly that reason. -->
+       pull request and its copy buttons — stays whole. It carries no tooltip,
+       so a name cut this way cannot be read back. -->
   <div v-if="git" class="flex min-w-0 items-center text-[11px]" data-testid="session-status-chips">
     <div v-if="showGitGroup" class="flex min-w-0 items-center gap-1">
-      <!-- The branch name leads the tooltip because this is the item that
-           truncates: once the pane is narrow enough to cut it, hovering is the
-           only way left to read it. -->
-      <AppTooltip v-if="showBranch" :text="branchTooltip" class="min-w-0">
-        <span class="flex h-6 min-w-0 items-center gap-1 px-1.5 text-text-3" data-testid="session-status-branch">
-          <IconGitBranch class="size-3 shrink-0 text-text-4" aria-hidden="true" />
-          <span class="truncate font-mono">{{ git.branch }}</span>
-        </span>
-      </AppTooltip>
+      <span
+        v-if="showBranch"
+        class="flex h-6 min-w-0 items-center gap-1 px-1.5 text-text-3"
+        data-testid="session-status-branch"
+      >
+        <IconGitBranch class="size-3 shrink-0 text-text-4" aria-hidden="true" />
+        <span class="truncate font-mono">{{ git.branch }}</span>
+      </span>
 
       <AppTooltip v-if="showDiff" text="Lines changed against the default branch">
         <span class="flex h-6 shrink-0 items-center gap-1 px-1.5 font-mono" data-testid="session-status-diff">
@@ -172,18 +160,24 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
       </AppTooltip>
     </div>
 
-    <!-- A rule, not a wider gap. Everything left of here describes the
-         checkout and everything right of it the remote, and a gap cannot say
-         that — it only reads as uneven spacing, which is how this row looked
-         before. -->
-    <span v-if="showGitGroup && showPRGroup" class="mx-2 h-3.5 w-px shrink-0 bg-border" aria-hidden="true" />
+    <!-- The pull request arrives a beat after the git half: git is local
+         subprocesses, this is a network round trip. Fading it in rather than
+         letting it appear stops the row jumping, and marks it as something that
+         landed rather than something that was always there. Enter only — a
+         leave transition would make switching sessions flicker. -->
+    <Transition name="pr-arrive">
+      <div v-if="showPRGroup" class="flex shrink-0 items-center gap-1">
+        <!-- A rule, not a wider gap. Everything left of here describes the
+             checkout and everything right of it the remote, and a gap cannot
+             say that — it only reads as uneven spacing, which is how this row
+             looked before. -->
+        <span v-if="showGitGroup" class="mr-1 h-3.5 w-px shrink-0 bg-border" aria-hidden="true" />
 
-    <div v-if="showPRGroup" class="flex shrink-0 items-center gap-1">
-      <!-- h-6/rounded-[7px] is PaneStatusBar's button metric: these sit in the
-           same row as the editor and Finder buttons, so a hover rect of a
-           different height or corner reads as a mistake. -->
-      <AppTooltip v-if="pr" :text="prTitle">
+        <!-- h-6/rounded-[7px] is PaneStatusBar's button metric: these sit in the
+             same row as the editor and Finder buttons, so a hover rect of a
+             different height or corner reads as a mistake. -->
         <button
+          v-if="pr"
           type="button"
           class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-[7px] px-1.5 hover:bg-chip"
           :class="prTone"
@@ -197,7 +191,6 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
                has to learn, and "passing" is none. -->
           <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
         </button>
-      </AppTooltip>
 
       <!-- Both formats side by side rather than one button and a setting
            deciding what it produces: which one you want depends on where you
@@ -215,7 +208,7 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
             @click="copyLink('markdown')"
           >
             <IconCheck v-if="copiedFormat === 'markdown'" class="size-3.5" />
-            <IconLink v-else class="size-3.5" />
+            <IconMarkdown v-else class="w-3.5" />
           </button>
         </AppTooltip>
         <AppTooltip :text="copiedFormat === 'plain' ? 'Copied' : 'Copy plain text link'">
@@ -243,6 +236,27 @@ async function copyLink(format: 'markdown' | 'plain'): Promise<void> {
           @click="emit('refresh-pull-request')"
         ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>
       </AppTooltip>
-    </div>
+      </div>
+    </Transition>
   </div>
 </template>
+
+<style scoped>
+/* Short and small: the row is chrome, and anything longer or further than this
+   pulls the eye off whatever the terminal below is doing. Enter only — nothing
+   animates on the way out, so switching sessions swaps cleanly. */
+.pr-arrive-enter-active {
+  transition: opacity 180ms ease-out, transform 180ms ease-out;
+}
+
+.pr-arrive-enter-from {
+  opacity: 0;
+  transform: translateX(-4px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pr-arrive-enter-active {
+    transition: none;
+  }
+}
+</style>
