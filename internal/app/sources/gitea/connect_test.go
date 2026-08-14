@@ -3,6 +3,7 @@ package gitea
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -108,6 +109,71 @@ func TestConnectRejectsABadToken(t *testing.T) {
 	refs, err := credentials.ListProvider(creds, Provider)
 	require.NoError(t, err)
 	assert.Empty(t, refs)
+}
+
+// Gitea validates any presented credential, so an invalid token 401s even the
+// version probe — that must read as a token rejection, not as "this host is
+// not a Gitea instance".
+func TestConnectReportsATokenRejectionFromTheVersionProbe(t *testing.T) {
+	t.Parallel()
+
+	server := giteaServer(t, "octocat", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v1/version" {
+			w.Header().Set("X-Handled", "1")
+			w.WriteHeader(http.StatusUnauthorized)
+		}
+	})
+	auth, creds, _ := newAuthenticator(t)
+
+	_, err := auth.Connect(t.Context(), server.URL, "expired")
+	require.ErrorContains(t, err, "rejected the token")
+
+	refs, err := credentials.ListProvider(creds, Provider)
+	require.NoError(t, err)
+	assert.Empty(t, refs)
+}
+
+// A validated token is stored before the binding. If the binding write fails,
+// the token must be rolled back rather than left orphaned in the keychain with
+// no instance to fetch against.
+func TestConnectRollsBackTokenWhenBindingWriteFails(t *testing.T) {
+	t.Parallel()
+
+	server := giteaServer(t, "octocat", nil)
+	creds := credentials.NewMemoryStore()
+	auth := NewAuthenticator(creds, unwritableInstanceStore(t), zerolog.Nop(), nil)
+
+	_, err := auth.Connect(t.Context(), server.URL, "gta_token")
+	require.Error(t, err, "a failed binding write fails the connect")
+
+	refs, err := credentials.ListProvider(creds, Provider)
+	require.NoError(t, err)
+	assert.Empty(t, refs, "the token is rolled back when the binding cannot be stored")
+}
+
+func TestConnectRestoresPreviousTokenWhenBindingWriteFails(t *testing.T) {
+	t.Parallel()
+
+	server := giteaServer(t, "octocat", nil)
+	creds := credentials.NewMemoryStore()
+	host := server.Listener.Addr().String()
+	ref := credentials.Ref{Provider: Provider, Account: accountID(host, "octocat")}
+	require.NoError(t, creds.Set(ref, "old"))
+	auth := NewAuthenticator(creds, unwritableInstanceStore(t), zerolog.Nop(), nil)
+
+	_, err := auth.Connect(t.Context(), server.URL, "new")
+	require.Error(t, err)
+
+	token, err := creds.Get(ref)
+	require.NoError(t, err)
+	assert.Equal(t, "old", token, "the previous token is restored when a reconnect cannot store the binding")
+}
+
+func unwritableInstanceStore(t *testing.T) *InstanceStore {
+	t.Helper()
+	blocker := filepath.Join(t.TempDir(), "blocker")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o600))
+	return NewInstanceStore(filepath.Join(blocker, "gitea-instances.json"))
 }
 
 func TestConnectRequiresAToken(t *testing.T) {

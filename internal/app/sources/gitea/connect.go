@@ -56,7 +56,9 @@ func NewAuthenticator(creds credentials.Store, instances *InstanceStore, logger 
 // The version probe runs first and is what makes a wrong URL diagnosable: a
 // host that is not a Gitea or Forgejo instance answers /api/v1/version with a
 // 404 or HTML, where /api/v1/user would answer 401 and read as "your token was
-// rejected".
+// rejected". The probe cannot separate the two failures on its own — Gitea
+// validates any presented credential, so an invalid token 401s even /version —
+// which is why an unauthorized answer there still reads as a token rejection.
 func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Instance, error) {
 	base, host, err := normalizeInstanceURL(rawURL)
 	if err != nil {
@@ -69,6 +71,9 @@ func (a *Authenticator) Connect(ctx context.Context, rawURL, token string) (Inst
 
 	client := a.newClient(base, token)
 	version, err := client.Version(ctx)
+	if errors.Is(err, sourcehttp.ErrUnauthorized) {
+		return Instance{}, fmt.Errorf("gitea rejected the token")
+	}
 	if err != nil {
 		return Instance{}, fmt.Errorf("%s does not answer as a Gitea or Forgejo instance: %w", base, err)
 	}
