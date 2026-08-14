@@ -3,8 +3,13 @@ package dispatch
 import (
 	"context"
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
+	"github.com/colonyops/hive/pkg/executil"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -124,4 +129,54 @@ func TestSessionGitStatusLeavesCoordinatesEmptyForANonGitHubRemote(t *testing.T)
 	assert.Equal(t, "feat/bar", got.Branch)
 	assert.Empty(t, got.Owner)
 	assert.Empty(t, got.Repo)
+}
+
+// The stubs above pin the seam's shape; this pins the git invocations behind
+// it, which is the half a stub cannot check. It also covers the shape a
+// session commonly has before its first push: no upstream and no
+// origin/<default>, so "unpushed" is genuinely unanswerable while everything
+// else still reads.
+func TestSessionGitStatusAgainstARealCheckout(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	runGit := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, string(out))
+	}
+	runGit("init", "--initial-branch=main", "-q")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\n"), 0o600))
+	runGit("add", "a.txt")
+	runGit("commit", "-qm", "first")
+	runGit("checkout", "-qb", "feat/bar")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "a.txt"), []byte("one\ntwo\nthree\n"), 0o600))
+
+	manager := NewHiveSessionManager(
+		oneSessionManagement{session: session.Session{
+			ID: "s1", Path: dir, Remote: "https://github.com/acme/site", State: session.StateActive,
+		}},
+		nil,
+		git.NewExecutor("git", &executil.RealExecutor{}),
+		0,
+	)
+
+	got, err := manager.SessionGitStatus(t.Context(), "s1")
+	require.NoError(t, err)
+	assert.True(t, got.Resolved)
+	assert.Equal(t, "feat/bar", got.Branch)
+	assert.True(t, got.Dirty)
+	// No remote at all, so DiffStats falls back to the working tree against
+	// HEAD rather than against a default branch it cannot resolve.
+	assert.Equal(t, 2, got.Additions)
+	assert.Equal(t, 0, got.Deletions)
+	assert.Equal(t, "acme", got.Owner)
+	assert.Equal(t, "site", got.Repo)
+	// Said out loud rather than reported as "nothing to push", which is the
+	// claim the zero value would otherwise make.
+	assert.NotEmpty(t, got.Error)
+	assert.False(t, got.Unpushed)
 }
