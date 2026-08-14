@@ -15,9 +15,13 @@ import { onBeforeUnmount, ref } from 'vue'
 const props = withDefaults(defineProps<{
   /** The tooltip text. Empty renders the trigger alone, with no tooltip at all. */
   text: string
-  /** Hover dwell before it appears. Long enough not to fire on cursor transit. */
+  /**
+   * Hover dwell before it appears. Long enough to read as a deliberate point
+   * rather than firing under a cursor on its way past, and still far short of
+   * the platform's own ~1.5s.
+   */
   delay?: number
-}>(), { delay: 140 })
+}>(), { delay: 300 })
 
 const GAP = 6
 const EDGE = 8

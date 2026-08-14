@@ -4,10 +4,14 @@
 // which is why it sits in PaneStatusBar's slot rather than in the bar itself.
 import { computed } from 'vue'
 import { Browser } from '@wailsio/runtime'
+// The two git-state glyphs are chosen as a pair, not individually: a pencil and
+// an arrow are both single open strokes at the same weight, where file-pen's
+// enclosing rectangle made it read as a boxed control sitting beside a bare
+// stroke. They also line up as a sequence — written, then sent.
 import IconArrowUp from '~icons/lucide/arrow-up'
-import IconFilePen from '~icons/lucide/file-pen'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
+import IconPencil from '~icons/lucide/pencil'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import AppTooltip from './AppTooltip.vue'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
@@ -101,7 +105,7 @@ function openPullRequest(): void {
         role="img"
         aria-label="Uncommitted changes in this checkout"
         data-testid="session-status-dirty"
-      ><IconFilePen class="size-3.5" /></span>
+      ><IconPencil class="size-3" /></span>
     </AppTooltip>
 
     <AppTooltip v-if="git.resolved && git.unpushed" text="Commits on this branch that the remote does not have">
@@ -110,7 +114,7 @@ function openPullRequest(): void {
         role="img"
         aria-label="Commits on this branch that the remote does not have"
         data-testid="session-status-unpushed"
-      ><IconArrowUp class="size-3.5" /></span>
+      ><IconArrowUp class="size-3" /></span>
     </AppTooltip>
 
     <!-- The git read failed. Saying so beats a bar that silently reports a

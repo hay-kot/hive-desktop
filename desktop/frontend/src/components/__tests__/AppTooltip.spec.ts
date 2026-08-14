@@ -28,7 +28,7 @@ describe('AppTooltip', () => {
     await wrapper.trigger('pointerenter')
     expect(bubble()).toBeNull()
 
-    vi.advanceTimersByTime(139)
+    vi.advanceTimersByTime(299)
     await wrapper.vm.$nextTick()
     expect(bubble()).toBeNull()
 
