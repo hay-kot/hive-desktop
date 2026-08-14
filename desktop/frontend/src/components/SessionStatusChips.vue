@@ -4,13 +4,11 @@
 // which is why it sits in PaneStatusBar's slot rather than in the bar itself.
 import { computed } from 'vue'
 import { Browser } from '@wailsio/runtime'
-import IconCheck from '~icons/lucide/check'
-import IconCircleDot from '~icons/lucide/circle-dot'
 import IconGitBranch from '~icons/lucide/git-branch'
 import IconGitPullRequest from '~icons/lucide/git-pull-request'
+import IconPencil from '~icons/lucide/pencil'
 import IconTriangleAlert from '~icons/lucide/triangle-alert'
 import IconUpload from '~icons/lucide/upload'
-import IconX from '~icons/lucide/x'
 import type { SessionGitStatus, SessionPullRequest } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
 const props = defineProps<{
@@ -23,12 +21,9 @@ const props = defineProps<{
 const emit = defineEmits<{ 'refresh-pull-request': [] }>()
 
 const showBranch = computed(() => !!props.git?.resolved && !!props.git.branch)
-const diff = computed(() => {
-  const git = props.git
-  if (!git?.resolved) return ''
-  if (!git.additions && !git.deletions) return ''
-  return `+${git.additions} −${git.deletions}`
-})
+// Split rather than one string: additions and deletions are coloured
+// separately, the way every diff the user reads elsewhere colours them.
+const showDiff = computed(() => !!props.git?.resolved && !!(props.git.additions || props.git.deletions))
 
 // Only a found pull request has anything to render; the other statuses say why
 // there is none, and none of them is worth a chip of its own — a branch with no
@@ -51,6 +46,14 @@ const prTone = computed(() => {
   if (found.reviewDecision === 'CHANGES_REQUESTED') return 'text-severity-warning'
   if (found.reviewDecision === 'APPROVED') return 'text-severity-success'
   return 'text-text-3'
+})
+
+const checksTone = computed(() => {
+  switch (pr.value?.checks) {
+    case 'passing': return 'text-severity-success'
+    case 'failing': return 'text-severity-error'
+    default: return 'text-severity-warning'
+  }
 })
 
 const prTitle = computed(() => {
@@ -81,25 +84,31 @@ function openPullRequest(): void {
     </span>
 
     <span
-      v-if="git.resolved && git.dirty"
-      class="shrink-0 text-severity-warning"
-      title="Uncommitted changes"
-      data-testid="session-status-dirty"
-    >●</span>
-
-    <span
-      v-if="diff"
-      class="shrink-0 font-mono text-text-4"
+      v-if="showDiff"
+      class="flex shrink-0 items-center gap-1 font-mono"
       title="Lines changed against the default branch"
       data-testid="session-status-diff"
-    >{{ diff }}</span>
+    >
+      <span class="text-severity-success">+{{ git.additions }}</span>
+      <span class="text-severity-error">−{{ git.deletions }}</span>
+    </span>
 
-    <IconUpload
+    <!-- Every state below is spelled out rather than left as a bare glyph. An
+         icon whose only explanation is a tooltip reads as a button you have
+         not worked out yet, which is worse than the two words it saves. -->
+    <span
+      v-if="git.resolved && git.dirty"
+      class="flex shrink-0 items-center gap-1 text-severity-warning"
+      title="This checkout has changes that are not committed"
+      data-testid="session-status-dirty"
+    ><IconPencil class="size-3" aria-hidden="true" />uncommitted</span>
+
+    <span
       v-if="git.resolved && git.unpushed"
-      class="size-3 shrink-0 text-text-4"
-      aria-label="Unpushed commits"
+      class="flex shrink-0 items-center gap-1 text-text-4"
+      title="This branch has commits the remote does not have"
       data-testid="session-status-unpushed"
-    />
+    ><IconUpload class="size-3" aria-hidden="true" />unpushed</span>
 
     <!-- The git read failed. Saying so beats a bar that silently reports a
          clean branch it never managed to look at. -->
@@ -108,7 +117,7 @@ function openPullRequest(): void {
       class="flex shrink-0 items-center gap-1 text-severity-error"
       :title="git.error"
       data-testid="session-status-git-error"
-    ><IconTriangleAlert class="size-3" aria-hidden="true" />git</span>
+    ><IconTriangleAlert class="size-3" aria-hidden="true" />git failed</span>
 
     <button
       v-if="pr"
@@ -121,9 +130,10 @@ function openPullRequest(): void {
     >
       <IconGitPullRequest class="size-3" aria-hidden="true" />
       <span class="font-mono">{{ prLabel }}</span>
-      <IconCheck v-if="pr.checks === 'passing'" class="size-3 text-severity-success" aria-label="Checks passing" />
-      <IconX v-else-if="pr.checks === 'failing'" class="size-3 text-severity-error" aria-label="Checks failing" />
-      <IconCircleDot v-else-if="pr.checks === 'pending'" class="size-3 text-severity-warning" aria-label="Checks pending" />
+      <!-- The check state is a word for the same reason the git states above
+           are: a tick, a cross and a dot are three glyphs the reader has to
+           learn, and "passing" is none. -->
+      <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
     </button>
 
     <!-- A failed lookup, never rendered as "no pull request": the branch may
@@ -135,6 +145,6 @@ function openPullRequest(): void {
       :title="`${pullRequestError} — click to retry`"
       data-testid="session-status-pr-error"
       @click="emit('refresh-pull-request')"
-    ><IconTriangleAlert class="size-3" aria-hidden="true" />PR</button>
+    ><IconTriangleAlert class="size-3" aria-hidden="true" />PR failed</button>
   </div>
 </template>

@@ -11,8 +11,12 @@ import IconFolder from '~icons/lucide/folder'
 import IconFolderOpen from '~icons/lucide/folder-open'
 
 withDefaults(defineProps<{
-  /** What the pane is working in, as the user names it. */
-  label: string
+  /**
+   * What the pane is working in, as the user names it. Empty drops the name
+   * entirely: the Code view's sidebar already names the session in front of
+   * you, so repeating it here is a row of chrome carrying nothing.
+   */
+  label?: string
   /** The full path, shown on hover. */
   path?: string
   /** A failed open or reveal, shown until the next attempt. */
@@ -21,14 +25,14 @@ withDefaults(defineProps<{
   editorTitle?: string
   /** Prefix for this bar's test ids, so each area keeps its own. */
   testid: string
-}>(), { path: '', error: '', editorTitle: '' })
+}>(), { label: '', path: '', error: '', editorTitle: '' })
 
 defineEmits<{ 'open-editor': []; reveal: [] }>()
 </script>
 
 <template>
   <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1" :data-testid="testid">
-    <div class="flex min-w-0 items-center gap-1.5">
+    <div v-if="label" class="flex min-w-0 items-center gap-1.5">
       <IconFolder class="size-3.5 shrink-0 text-text-4" aria-hidden="true" />
       <span
         class="min-w-0 truncate text-[11px] text-text-3"

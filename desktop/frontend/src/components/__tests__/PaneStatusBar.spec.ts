@@ -14,6 +14,14 @@ describe('PaneStatusBar', () => {
     expect(name.attributes('title')).toBe('/home/hayden/workspaces/web-app')
   })
 
+  // The Code view drops it: its sidebar names the session already, so the row
+  // would spend its left edge repeating what is beside it.
+  it('drops the name and its folder entirely when no label is given', () => {
+    const wrapper = mountBar({ label: '' })
+    expect(wrapper.find('[data-testid="pane-statusbar-workspace"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="pane-statusbar-reveal"]').exists()).toBe(true)
+  })
+
   // The two areas prefix their own ids, which is what lets each keep the test
   // surface it had before the bar was shared.
   it('prefixes every test id with the one it was given', () => {

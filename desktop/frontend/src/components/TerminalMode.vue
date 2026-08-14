@@ -2192,11 +2192,12 @@ onBeforeUnmount(() => {
         <!-- Above the notices, and outside the started/not-started split: a
              session whose tmux is not running still has a checkout to open,
              which is often exactly why you came looking for it. -->
+        <!-- No name and no folder: the sidebar already says which session this
+             is, and repeating it here spends the row on nothing. The branch
+             chip carries the checkout path on hover instead. -->
         <PaneStatusBar
           v-if="statusBarRow"
           testid="terminal-pane-statusbar"
-          :label="statusBarRow.name"
-          :path="sessionGit?.path ?? ''"
           :error="statusBarError"
           :editor-title="editorTitle"
           @open-editor="runStatusBarAction(OpenSessionInEditor)"

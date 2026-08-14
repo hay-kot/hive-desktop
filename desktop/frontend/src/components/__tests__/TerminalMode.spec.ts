@@ -2604,7 +2604,7 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    it('names the session and reports its branch, diff and pull request', async () => {
+    it('reports the branch, diff and pull request without renaming the session', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
         additions: 42, deletions: 7, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
@@ -2616,12 +2616,15 @@ describe('TerminalMode', () => {
 
       const { wrapper } = await mountWithStatusBar()
 
-      expect(wrapper.get('[data-testid="terminal-pane-statusbar-workspace"]').text()).toBe('fix the parser')
+      // The sidebar already names the session, so the bar does not.
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar-workspace"]').exists()).toBe(false)
       expect(wrapper.get('[data-testid="session-status-branch"]').text()).toBe('feat/parser')
-      expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42 −7')
-      expect(wrapper.find('[data-testid="session-status-dirty"]').exists()).toBe(true)
-      expect(wrapper.find('[data-testid="session-status-unpushed"]').exists()).toBe(true)
+      expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42−7')
+      // Spelled out, not left as glyphs whose only explanation is a tooltip.
+      expect(wrapper.get('[data-testid="session-status-dirty"]').text()).toBe('uncommitted')
+      expect(wrapper.get('[data-testid="session-status-unpushed"]').text()).toBe('unpushed')
       expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
+      expect(wrapper.get('[data-testid="session-status-checks"]').text()).toBe('passing')
       // The lookup is keyed by what git resolved, not by anything read twice.
       expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
 
