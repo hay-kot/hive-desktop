@@ -34,6 +34,15 @@ export function useSessionStatus(sessionId: Ref<string>): {
   let sequence = 0
   let timer: ReturnType<typeof setTimeout> | undefined
 
+  // The last answer for each session, so switching back to one paints from
+  // memory instead of blanking for the ~100ms a git read takes. Without this
+  // every tab switch tore the bar down and rebuilt it, which is the flash.
+  // Held per composable instance — the Code view mounts once — and bounded by
+  // the number of sessions visited in a run, which is small enough not to
+  // warrant eviction.
+  const lastGit = new Map<string, SessionGitStatus>()
+  const lastPullRequest = new Map<string, SessionPullRequest>()
+
   async function refresh(options: { refreshPullRequest?: boolean } = {}): Promise<void> {
     const id = sessionId.value
     const current = ++sequence
@@ -54,10 +63,12 @@ export function useSessionStatus(sessionId: Ref<string>): {
     }
     if (current !== sequence) return
     git.value = status
+    lastGit.set(id, status)
 
     if (!status.resolved || !status.owner || !status.repo || !status.branch) {
       pullRequest.value = null
       pullRequestError.value = ''
+      lastPullRequest.delete(id)
       return
     }
     try {
@@ -68,6 +79,7 @@ export function useSessionStatus(sessionId: Ref<string>): {
       if (current !== sequence) return
       pullRequest.value = pr
       pullRequestError.value = ''
+      lastPullRequest.set(id, pr)
     } catch (error) {
       if (current !== sequence) return
       // Kept apart from a null pull request: the branch may well have one, and
@@ -86,10 +98,17 @@ export function useSessionStatus(sessionId: Ref<string>): {
     schedule()
   }
 
-  watch(sessionId, () => {
-    pullRequest.value = null
+  watch(sessionId, (id) => {
+    // Seeded from the last answer for *this* session, never carried over from
+    // the one being left: showing another session's branch for a frame would be
+    // worse than the blank it replaces. A session not seen yet still starts
+    // empty — there is nothing honest to show — so it fills in once.
+    const remembered = id ? lastPullRequest.get(id) : undefined
+    git.value = (id ? lastGit.get(id) : undefined) ?? null
+    // Marked cached so restoring it does not replay the arrival animation: it
+    // was known before this paint, which is exactly what `cached` means.
+    pullRequest.value = remembered ? { ...remembered, cached: true } : null
     pullRequestError.value = ''
-    git.value = null
     void refresh()
     schedule()
   }, { immediate: true })
