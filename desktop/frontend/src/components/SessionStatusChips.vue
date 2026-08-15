@@ -1,14 +1,8 @@
 <script setup lang="ts">
-// The session half of the status bar: what the checkout looks like, and what
-// its branch's pull request is doing. Session-only — a chat has no branch —
+// The session half of the status bar. Session-only — a chat has no branch —
 // which is why it sits in PaneStatusBar's slot rather than in the bar itself.
 import { computed } from 'vue'
 import { Browser } from '@wailsio/runtime'
-// The two git-state glyphs are chosen as a pair rather than each on its own
-// merits. Both are a container with a mark on it — a file carrying its changes,
-// a tray with something leaving it — so they share a silhouette and a density
-// and read as two of the same kind of thing. Mixing a solid glyph with a bare
-// stroke does not, whichever two you pick.
 import IconCheck from '~icons/lucide/check'
 import IconCopy from '~icons/lucide/copy'
 import IconFileDiff from '~icons/lucide/file-diff'
@@ -31,12 +25,9 @@ const props = defineProps<{
 const emit = defineEmits<{ 'refresh-pull-request': [] }>()
 
 const showBranch = computed(() => !!props.git?.resolved && !!props.git.branch)
-// Split rather than one string: additions and deletions are coloured
-// separately, the way every diff the user reads elsewhere colours them.
 const showDiff = computed(() => !!props.git?.resolved && !!(props.git.additions || props.git.deletions))
 
-// The row's two halves: what the checkout looks like, and what the remote has
-// to say about it. Tracked so the rule between them appears only when it has
+// Tracked so the rule between the two halves appears only when it has
 // something on both sides to separate.
 const showGitGroup = computed(() => {
   const git = props.git
@@ -46,12 +37,11 @@ const showGitGroup = computed(() => {
 const showPRGroup = computed(() => props.pullRequest?.status === 'found' || !!props.pullRequestError)
 
 // A cached pull request was known before the bar painted, so there is nothing
-// to announce; a failed lookup did just arrive, so it animates like a fresh one.
+// to announce.
 const animateArrival = computed(() => !props.pullRequest?.cached)
 
-// Only a found pull request has anything to render; the other statuses say why
-// there is none, and none of them is worth a chip of its own — a branch with no
-// PR is the normal state of a session that has not pushed yet.
+// The other statuses say why there is no pull request, and none of them is
+// worth a chip: a branch without one is the normal state of an unpushed session.
 const pr = computed(() => (props.pullRequest?.status === 'found' ? props.pullRequest : null))
 
 const prLabel = computed(() => {
@@ -89,8 +79,8 @@ const { copy, copied } = useClipboard()
 
 async function copyLink(): Promise<void> {
   const found = pr.value
-  // The repository name alone, as the shell script used: the owner is already
-  // implied by wherever this is being pasted.
+  // The repository name alone, as the shell script used: the owner is implied
+  // by wherever this is being pasted.
   const repo = props.git?.repo
   if (!found || !repo) return
   await copy(markdownPullRequestLink(found, repo))
@@ -98,14 +88,8 @@ async function copyLink(): Promise<void> {
 </script>
 
 <template>
-  <!-- One metric for every item in this row: a 24px-tall box, px-1.5 when it
-       carries text and a 24px square when it is icon-only, plus a gap-1 between
-       them. Before this the text chips were bare and only the clickable ones
-       had a box, so nothing shared a baseline or an edge and the row read as
-       loose parts.
-       Overflow: the branch is the only item allowed to shrink, so a narrow pane
-       truncates the branch name and everything else — diff, state icons, the
-       pull request and its copy buttons — stays whole. It carries no tooltip,
+  <!-- The branch is the only item allowed to shrink, so a narrow pane truncates
+       the branch name and everything else stays whole. It carries no tooltip,
        so a name cut this way cannot be read back. -->
   <div v-if="git" class="flex min-w-0 items-center text-[11px]" data-testid="session-status-chips">
     <div v-if="showGitGroup" class="flex min-w-0 items-center gap-1">
@@ -125,11 +109,8 @@ async function copyLink(): Promise<void> {
         </span>
       </AppTooltip>
 
-      <!-- Icon-only, each explained by its tooltip alone — which is why these
-           use AppTooltip rather than `title`. An icon nothing explains is what
-           made the first version of this row read as a set of buttons, and a
-           `title` that takes a second and a half to appear is barely better
-           than none. -->
+      <!-- Icon-only, so the tooltip is the whole explanation — AppTooltip
+           rather than `title`, which WebKit takes ~1.5s to show. -->
       <AppTooltip v-if="git.resolved && git.dirty" text="Uncommitted changes in this checkout">
         <span
           class="flex size-6 shrink-0 items-center justify-center text-severity-warning"
@@ -148,8 +129,8 @@ async function copyLink(): Promise<void> {
         ><IconUpload class="size-3.5" /></span>
       </AppTooltip>
 
-      <!-- The git read failed. Saying so beats a bar that silently reports a
-           clean branch it never managed to look at. -->
+      <!-- Saying the read failed beats silently reporting a clean branch the
+           bar never managed to look at. -->
       <AppTooltip v-if="git.error" :text="git.error">
         <span
           class="flex h-6 shrink-0 items-center gap-1 px-1.5 text-severity-error"
@@ -158,26 +139,16 @@ async function copyLink(): Promise<void> {
       </AppTooltip>
     </div>
 
-    <!-- Animated only when the answer actually came off the network. A cached
-         one is already known by the time the bar paints, so fading it in would
-         animate nothing arriving — the reason the backend reports `cached` at
-         all. Enter only: a leave transition would make switching sessions
-         flicker. -->
+    <!-- Enter only: a leave transition would make switching sessions flicker. -->
     <Transition :css="animateArrival" name="pr-arrive">
       <div v-if="showPRGroup" class="flex shrink-0 items-center">
-        <!-- A rule, not a wider gap. Everything left of here describes the
-             checkout and everything right of it the remote, and a gap cannot
-             say that — it only reads as uneven spacing, which is how this row
-             looked before.
-             It sits outside the gap-1 group below on purpose: as a child of it
-             the group's gap would land on the rule's right only, and mx-2 would
-             read as 8px left and 12px right. -->
+        <!-- Outside the gap-1 group below on purpose: as a child of it the
+             group's gap would land on the rule's right only. -->
         <span v-if="showGitGroup" class="mx-2 h-3.5 w-px shrink-0 bg-border" aria-hidden="true" />
 
         <div class="flex shrink-0 items-center gap-1">
-        <!-- h-6/rounded-[7px] is PaneStatusBar's button metric: these sit in the
-             same row as the editor and Finder buttons, so a hover rect of a
-             different height or corner reads as a mistake. -->
+        <!-- h-6/rounded-[7px] is PaneStatusBar's button metric; these share a
+             row with its editor and Finder buttons. -->
         <button
           v-if="pr"
           type="button"
@@ -188,16 +159,9 @@ async function copyLink(): Promise<void> {
         >
           <IconGitPullRequest class="size-3" aria-hidden="true" />
           <span class="font-mono">{{ prLabel }}</span>
-          <!-- The check state is a word for the same reason the git states
-               above are: a tick, a cross and a dot are three glyphs the reader
-               has to learn, and "passing" is none. -->
           <span v-if="pr.checks" :class="checksTone" data-testid="session-status-checks">{{ pr.checks }}</span>
         </button>
 
-      <!-- One button, one format. Both were offered when the shape was still
-           in question; the Markdown link is the one that gets used, so the
-           second was width spent on a choice nobody was making. It is labelled
-           plainly as copy — its tooltip says what lands on the clipboard. -->
       <AppTooltip v-if="pr" :text="copied ? 'Copied' : 'Copy link to this pull request'">
         <button
           type="button"
@@ -229,9 +193,8 @@ async function copyLink(): Promise<void> {
 </template>
 
 <style scoped>
-/* Short and small: the row is chrome, and anything longer or further than this
-   pulls the eye off whatever the terminal below is doing. Enter only — nothing
-   animates on the way out, so switching sessions swaps cleanly. */
+/* Short and small: the row is chrome, and anything longer pulls the eye off
+   whatever the terminal below is doing. */
 .pr-arrive-enter-active {
   transition: opacity 180ms ease-out, transform 180ms ease-out;
 }

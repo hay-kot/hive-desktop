@@ -19,8 +19,8 @@ const PERSIST_DELAY_MS = 400
 // lives in Settings ▸ General rather than with any one of them.
 export function useEditorSettings() {
   const command = ref('')
-  // The configured command's display name, resolved by Go so a button
-  // labelling the action does not reproduce the command→title catalogue here.
+  // Resolved by Go so a button labelling the action does not reproduce the
+  // command→title catalogue here.
   const title = ref('')
   const choices = ref<EditorChoice[]>([])
   const error = ref('')

@@ -594,9 +594,8 @@ watch([showAllWindows, attachable, client, sessionsLoaded, () => props.active], 
 // whatever they were when the Agents area was last on screen.
 watch(() => props.active, (active) => { if (active) void reloadRecents() }, { immediate: true })
 
-// The status bar. Only a hive session gets one: the scratch terminal and the
-// pinned chats are tmux sessions with no checkout behind them, so there is no
-// branch, no pull request, and nothing to open in an editor.
+// Only a hive session gets a status bar: the scratch terminal and the pinned
+// chats are tmux sessions with no checkout behind them.
 const { showStatusBar } = useTerminalStatusBar()
 const { title: editorTitle, refresh: reloadEditor } = useEditorSettings()
 watch(() => props.active, (active) => { if (active) void reloadEditor() }, { immediate: true })
@@ -610,8 +609,7 @@ const {
   git: sessionGit, pullRequest: sessionPullRequest, pullRequestError: sessionPullRequestError,
   refresh: refreshSessionStatus,
 } = useSessionStatus(statusBarSessionId)
-// An open or reveal that failed, cleared by the next attempt. Separate from
-// actionError, which belongs to the terminal actions menu.
+// Separate from actionError, which belongs to the terminal actions menu.
 const statusBarError = ref('')
 
 async function runStatusBarAction(action: (id: string) => Promise<void>): Promise<void> {
@@ -2189,12 +2187,9 @@ onBeforeUnmount(() => {
              yet, so the chrome stays out of the way and the panel below does
              the talking. The sidebar tree is the only window list — there is
              no tab strip to keep in step with it (ADR the-sidebar-tree-is-the-only-window-list). -->
-        <!-- Above the notices, and outside the started/not-started split: a
-             session whose tmux is not running still has a checkout to open,
-             which is often exactly why you came looking for it. -->
-        <!-- No name and no folder: the sidebar already says which session this
-             is, and repeating it here spends the row on nothing. The branch
-             chip carries the checkout path on hover instead. -->
+        <!-- Outside the started/not-started split: a session whose tmux is not
+             running still has a checkout to open. No name or folder passed —
+             the sidebar already says which session this is. -->
         <PaneStatusBar
           v-if="statusBarRow"
           testid="terminal-pane-statusbar"

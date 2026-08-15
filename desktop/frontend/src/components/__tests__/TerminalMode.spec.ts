@@ -255,9 +255,8 @@ describe('TerminalMode', () => {
     })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
     mocks.TerminalActionViews.mockResolvedValue([])
-    // The status bar ships off, so most of these tests never reach the reads
-    // below; they answer anyway so a test that turns it on does not have to
-    // restate the whole set.
+    // Answered even though the bar ships off, so a test that turns it on does
+    // not have to restate the whole set.
     mocks.AppearanceSettings.mockResolvedValue({
       theme: '', terminalFontSize: '', terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
     })
@@ -2665,10 +2664,8 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
-    // Overflow has to give somewhere, and the branch name is the only thing in
-    // the row that can be re-read on hover. Everything else — the diff, the
-    // state icons, the pull request and its copy buttons — is fixed width and
-    // must survive a narrow pane whole.
+    // The branch is the only thing in the row that can be re-read on hover, so
+    // everything else must survive a narrow pane whole.
     it('lets only the branch give up width when the row overflows', async () => {
       mocks.SessionGitStatus.mockResolvedValue({
         path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,

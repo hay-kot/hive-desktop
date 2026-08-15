@@ -35,9 +35,7 @@ describe('useSessionStatus', () => {
     mocks.SessionPullRequest.mockResolvedValue({ status: 'none' })
   })
 
-  // Switching tabs used to tear the bar down and rebuild it: the status was
-  // blanked on every switch, and a git read takes long enough to see. A session
-  // already looked at now repaints from memory, so there is nothing to flash.
+  // A git read takes long enough that blanking on every switch is visible.
   it('seeds a revisited session from its last answer instead of blanking', async () => {
     const sessionId = ref('1')
     await withStatus(sessionId, async (status) => {

@@ -12,15 +12,14 @@ import (
 )
 
 // sessionPRCacheTTL bounds how stale a session's pull-request badge may be.
-// The status bar polls its git half far more often than this: git is local
-// subprocesses, this is a network round trip against a shared rate limit.
+// The bar polls its git half far more often: that is local subprocesses, this
+// is a network round trip against a shared rate limit.
 const sessionPRCacheTTL = 5 * time.Minute
 
 // sessionPullRequests answers "what is this branch's pull request" for the
 // session status bar, over the app's own GitHub client rather than the `gh`
-// CLI. That is what lets it keep "no pull request" apart from "the lookup
-// failed" — a distinction the CLI path loses, because it caches an empty
-// result on error and shows a blank badge for the whole TTL.
+// CLI — which caches an empty result on error and so cannot keep "no pull
+// request" apart from "the lookup failed".
 type sessionPullRequests struct {
 	client *ghclient.Client
 	creds  credentials.Store
@@ -50,8 +49,8 @@ func newSessionPullRequests(client *ghclient.Client, creds credentials.Store) *s
 // user clicking the badge asks for.
 func (p *sessionPullRequests) Lookup(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
 	if key.Owner == "" || key.Repo == "" || key.Branch == "" {
-		// Not a GitHub remote, or a checkout whose branch did not resolve.
-		// Neither is a failure the bar should report as one.
+		// Not a GitHub remote, or a branch that did not resolve — neither is a
+		// failure the bar should report as one.
 		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusUnsupported}, nil
 	}
 
@@ -78,8 +77,8 @@ func (p *sessionPullRequests) fresh(key dispatch.SessionPullRequestKey) (dispatc
 	if !ok || p.now().Sub(entry.readAt) > sessionPRCacheTTL {
 		return dispatch.SessionPullRequest{}, false
 	}
-	// Stamped on the way out rather than on the way in: the same view is a
-	// fresh answer the first time it is returned and a cached one after.
+	// Stamped on the way out: the same view is fresh the first time it is
+	// returned and cached after.
 	view := entry.view
 	view.Cached = true
 	return view, true
@@ -99,9 +98,8 @@ func (p *sessionPullRequests) fetch(ctx context.Context, key dispatch.SessionPul
 	}
 
 	ref := ghclient.BranchRef{Owner: key.Owner, Repo: key.Repo, Branch: key.Branch}
-	// Several connected accounts are the reason this loops: a repository one
-	// account cannot see resolves to a null alias, not an error, so the only
-	// way to know another account can see it is to ask.
+	// A repository an account cannot see resolves to a null alias, not an
+	// error, so the only way to know another account can see it is to ask.
 	var lastErr error
 	for _, token := range tokens {
 		results, err := p.client.WithTokenCopy(token).PullRequestsByBranch(ctx, []ghclient.BranchRef{ref})
@@ -120,10 +118,10 @@ func (p *sessionPullRequests) fetch(ctx context.Context, key dispatch.SessionPul
 	return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusNone}, nil
 }
 
-// tokens lists every token that could see the repository. The environment
-// override is provider-wide and names no account, so a headless run stores no
-// ref at all and would otherwise list nothing; the ref below exists only to
-// give credentials.Resolve something well-formed to answer the override with.
+// tokens lists every token that could see the repository. The env override is
+// provider-wide and names no account, so a headless run stores no ref at all;
+// the synthetic ref exists only to give credentials.Resolve something
+// well-formed to answer it with.
 func (p *sessionPullRequests) tokens() ([]string, error) {
 	refs, err := credentials.ListProvider(p.creds, ghsource.Provider)
 	if err != nil {

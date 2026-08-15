@@ -65,8 +65,7 @@ func (s *SessionService) SessionGitStatus(ctx context.Context, id string) (dispa
 
 // SessionPullRequest resolves the pull request for a branch SessionGitStatus
 // reported, answering from a short-lived cache unless refresh is set. Its
-// Status field says why there is nothing to show — no pull request, no
-// connected account, or a remote that is not GitHub — so a caller never has to
+// Status field says why there is nothing to show, so a caller never has to
 // read an empty result as "none".
 func (s *SessionService) SessionPullRequest(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
 	return s.sessions.SessionPullRequest(ctx, key, refresh)

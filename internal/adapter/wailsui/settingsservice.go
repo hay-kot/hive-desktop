@@ -213,10 +213,9 @@ type EditorChoice struct {
 // EditorSettings is the configured "open in editor" command plus the detected
 // choices the selector offers. Command is empty when none is configured; it
 // may name a command outside Choices when settings.yaml was authored by hand.
-// Title is Command's display name, so a button labelling the action does not
-// have to reproduce the catalogue's command→title mapping in TypeScript. It is
-// empty exactly when Command is, and falls back to the command itself for one
-// outside the catalogue.
+// Title is Command's display name, so the frontend does not reproduce the
+// command→title catalogue. Empty exactly when Command is, and the command
+// itself for one outside the catalogue.
 type EditorSettings struct {
 	Command string         `json:"command"`
 	Title   string         `json:"title"`

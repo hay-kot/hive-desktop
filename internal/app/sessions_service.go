@@ -53,7 +53,7 @@ type sessionStatusSource interface {
 
 // sessionGitSource reads a session's checkout. Its own interface rather than a
 // tenth method on sessionManager: reading git is not part of managing a
-// session's lifecycle, and only the status bar asks for it.
+// session's lifecycle.
 type sessionGitSource interface {
 	SessionGitStatus(ctx context.Context, id string) (dispatch.SessionGitStatus, error)
 }
@@ -93,11 +93,9 @@ type SessionsService struct {
 	catalog    *actions.ActionStore
 	dispatcher *dispatch.Dispatcher
 	recorder   activity.Recorder
-	// pullRequests answers the status bar's PR half. nil in a build with no
-	// GitHub client, which reads as disconnected.
-	pullRequests *sessionPullRequests
-	// execEnv and editorCommand are the "open in editor" pair, resolved the
-	// same way the Agents area resolves them.
+	// pullRequests is nil in a build with no GitHub client, which reads as
+	// disconnected.
+	pullRequests  *sessionPullRequests
 	execEnv       *execenv.Resolver
 	editorCommand func(context.Context) (string, error)
 	// defaultAgentEnv reads HIVE_DEFAULT_AGENT the way the user's terminal
@@ -282,10 +280,9 @@ func (s *SessionsService) SessionGitStatus(ctx context.Context, id string) (disp
 }
 
 // SessionPullRequest resolves the pull request for a branch SessionGitStatus
-// already reported. The branch is passed rather than read again because
-// resolving it costs a git subprocess the caller has just paid for, and
-// because the two halves refresh on different cadences — git on a timer, this
-// against a network cache.
+// already reported. The branch is passed rather than read again: resolving it
+// costs a git subprocess the caller has just paid for, and the two halves
+// refresh on different cadences.
 func (s *SessionsService) SessionPullRequest(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
 	if s.pullRequests == nil {
 		return dispatch.SessionPullRequest{Status: dispatch.PullRequestStatusDisconnected}, nil
@@ -295,8 +292,7 @@ func (s *SessionsService) SessionPullRequest(ctx context.Context, key dispatch.S
 
 // OpenSessionInEditor launches the configured editor on the session's
 // checkout, detached. It takes a session id, never a path: launching a
-// configured program on a caller-supplied directory is not this API's to
-// offer, the same guard AgentWorkspacesService.OpenWorkspaceInEditor keeps.
+// configured program on a caller-supplied directory is not this API's to offer.
 func (s *SessionsService) OpenSessionInEditor(ctx context.Context, id string) error {
 	dir, err := s.sessionCheckout(ctx, id)
 	if err != nil {

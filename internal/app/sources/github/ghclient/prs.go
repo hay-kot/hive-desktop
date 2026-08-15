@@ -6,8 +6,7 @@ import (
 	"strings"
 )
 
-// BranchRef addresses one branch's pull request: the repository it lives in and
-// the head branch name.
+// BranchRef addresses one branch's pull request.
 type BranchRef struct {
 	Owner  string
 	Repo   string
@@ -20,14 +19,10 @@ type BranchRef struct {
 type CheckState string
 
 const (
-	// CheckStateNone reports a head commit with no checks configured.
-	CheckStateNone CheckState = ""
-	// CheckStatePassing reports SUCCESS.
+	// CheckStateNone is a head commit with no checks configured.
+	CheckStateNone    CheckState = ""
 	CheckStatePassing CheckState = "passing"
-	// CheckStatePending reports PENDING or EXPECTED — and any rollup state
-	// GitHub adds later, which must never read as passing.
 	CheckStatePending CheckState = "pending"
-	// CheckStateFailing reports FAILURE or ERROR.
 	CheckStateFailing CheckState = "failing"
 )
 
@@ -53,11 +48,9 @@ type PullRequest struct {
 // request, aliased so out[i] answers refs[i].
 //
 // A repository the token cannot see resolves to a null alias rather than
-// failing the batch (postGraphQL's tolerateNotFound), so one inaccessible
-// repository among many still lets the rest answer — it reports Found: false,
-// the same as a branch with no pull request. The distinction the caller needs
-// is between this and a transport or auth failure, and that arrives as an
-// error for the whole batch.
+// failing the batch (postGraphQL's tolerateNotFound), and reports Found: false
+// like a branch with no pull request. A transport or auth failure is what
+// arrives as an error, for the whole batch.
 func (c *Client) PullRequestsByBranch(ctx context.Context, refs []BranchRef) ([]PullRequest, error) {
 	if len(refs) == 0 {
 		return nil, nil

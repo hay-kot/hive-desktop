@@ -4,15 +4,14 @@ import {
   SetTerminalShowStatusBar as PersistTerminalShowStatusBar,
 } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice'
 
-// Whether the attached session gets a status bar. A module singleton like
-// useTerminalShowWindows's, shared by SettingsView's toggle and the terminal
-// pane; settings.yaml is the only store and ships with the bar off, since it
-// costs a strip of vertical space above every terminal.
+// A module singleton like useTerminalShowWindows's, shared by SettingsView's
+// toggle and the terminal pane. Ships off: the bar costs a strip of vertical
+// space above every terminal.
 const showStatusBar: Ref<boolean> = ref(false)
 
 let hydrated = false
-// Same staleness guard as useTerminalShowWindows: a toggle made while the
-// hydrating read is in flight must not be overwritten by its result.
+// A toggle made while the hydrating read is in flight must not be overwritten
+// by its result.
 let version = 0
 let persistChain: Promise<void> = Promise.resolve()
 
