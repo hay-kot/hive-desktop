@@ -172,6 +172,7 @@ appearance:
   terminal_line_height: 0 # 1 to 1.6 in tenths; 0 means the default, 1.2 (ADR terminal-line-height-and-letter-spacing)
   terminal_letter_spacing: 0 # extra tracking in device pixels, 0 to 3 (ADR terminal-line-height-and-letter-spacing)
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
+  terminal_show_status_bar: false # give the attached session a bar carrying its checkout's git and pull-request state (ADR session-git-and-pull-request-status-is-computed-in-app-not-shelled-out-to-hive-or-gh)
   terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR terminal-attach-pool)
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
