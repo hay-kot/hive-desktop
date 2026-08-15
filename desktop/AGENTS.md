@@ -1,466 +1,142 @@
 # Agent Instructions — Hive Desktop
 
-Scope: the `desktop/` Wails app, its Wails adapter under
-`internal/adapter/wailsui/**`, and the headless core under `internal/app/**`.
-The repository-root `AGENTS.md` still applies (git standards, quality gates,
-landing-the-plane). `desktop/README.md` is the long-form reference — native
-shell, pinned versions, parent-module adaptations, icons, and the flows/actions
-data model. **Read `README.md` before changing native-shell, build, or icon
-wiring; do not duplicate its detail here.**
+Scope: `desktop/`, `internal/adapter/wailsui/**`, `internal/app/**`. The
+repository-root `AGENTS.md` also applies.
 
-**Read [`../docs/architecture.md`](../docs/architecture.md) before adding a
-subsystem, an entrypoint, or an extension point.** It names the pattern each
-part of the app follows and maps "what you are building" to the section that
-specifies it. This file describes how the code is arranged *today*;
-`architecture.md` describes the shape it is moving to. Where they disagree,
-`architecture.md` wins for new work — the differences are called out under
-[Patterns and gotchas](#patterns-and-gotchas).
+Two references, neither duplicated here — read them instead:
+
+- **`../docs/architecture.md`** — read before adding a subsystem, an entrypoint,
+  or an extension point. It names the pattern each part of the app follows.
+  Where it and the code disagree, it wins for new work.
+- **`desktop/README.md`** — the long-form reference: native shell, pinned
+  versions, settings, icons, the actions catalog, the e2e harness.
 
 ## What this app is
 
-A Wails v3 desktop shell (Vue 3 + TypeScript frontend, Go backend) that renders
-a GitHub-backed feed. A **flow** (`flows/*.yaml`) wires `sources.github` nodes
-through filters into `feed`, `action`, and `notify` terminals; a background
-producer polls sources, appends to an event log, and commits durable
-`feed_item` rows the sidebar reads. `action` and `notify` nodes emit durable
-`output_command`s that an output worker dispatches (`launch-session`, `shell`,
-`publish-message`, `notify`). GitHub is a **connector, not a login**: its
-credential is acquired by an OAuth device flow with a PAT fallback and stored
-in the OS keychain, and nothing in the app is gated on holding one.
+A Wails v3 shell (Vue 3 + TypeScript frontend, Go backend) rendering a
+GitHub-backed feed. A **flow** (`flows/*.yaml`) wires `sources.*` nodes through
+filters into `feed`, `action`, and `notify` terminals. A background producer
+polls sources and appends to an event log; the engine commits `feed_item` rows
+and durable `output_command`s that an output worker dispatches.
 
-## Code layout
+GitHub is a **connector, not a login** — nothing in the app is gated on holding
+a credential.
 
-Go — `desktop/` is `main()` and nothing else; every Wails service lives in the
-adapter, and the logic they call lives in the core:
-
-```
-desktop/
-  main.go                 # bootstrap + wiring: build the core, mount the adapter, run
-  buildinfo.go            # -X main.version stamping; must stay in package main
-  build/                  # platform Taskfiles, config.yml, icon masters, scripts
-  e2e/                    # Docker-only Playwright harness (fixtures, scripts, tests)
-  frontend/               # Vue 3 + TS + Vite + Tailwind v4
-internal/adapter/wailsui/ # the driving adapter — the only package importing Wails
-  *service.go             # Wails service structs exposed to the frontend (RPC surface)
-  events.go               # event registration + the emit* wake-up signals
-  notify.go tray.go updater.go release.go focusstate.go
-  e2e/                    # the server-side half the Playwright suite drives
-internal/app/             # the headless core — no transport, no Wails
-  settings/               # env-var surface, data/config/flows/actions paths, settings.yaml
-  credentials/            # Ref{Provider,Account} -> keychain value, + a ref index
-  store/                  # sqlc-backed SQLite: event log, inbox_item, output_command
-  flow/                   # flow YAML parse/validate/save, FlowsWatcher, sidebar
-    docs/                 # per-node-type markdown — ALSO the frontend's node help
-  actions/                # actions.yml store, watcher, seed, editable model, Refs
-    docs/                 # per-action-type markdown, rendered into the prompt
-  ingest/                 # the producer loop and retention: sources -> event log
-    resolver.go           # the flow set -> live connector instances
-  runtime/                # the flow engine: index a flow, run a batch, commit
-    js/                   # the ScriptRuntime port's goja implementation
-    testdata/parity/      # fixture flows + expected commits (see Testing)
-  dispatch/               # output worker, dispatcher, executors
-  icons/                  # the curated feed glyph set (a leaf: flow + webhook)
-  releasenotes/           # the embedded changelog + the seen-version marker
-    changelog/next.md       # the draft: append your line here, in the PR that
-                            #   earns it. Prereleases publish it as it stands
-    changelog/<version>.md  # one per STABLE release, promoted from the draft
-                            #   before the release commit; the release gate
-                            #   refuses a stable version with no entry
-                            #   (ADR release-notes-ship-inside-the-binary)
-  sources/                # the connector registry — registry.go is the whole map
-    connector/            # the vocabulary a connector is declared in
-    github/               # the GitHub connector; feed/ is its fetch layer,
-                          #   ghclient/ its owned HTTP client (ADR owned-github-client —
-                          #   nothing outside internal/hivecore imports the
-                          #   vendored github.Client anymore)
-    webhook/              # the webhook connector and its local ingress
-  activity/ jobs/ prompts/
-```
-
-The dependency rule is enforced, not just documented: `depguard` fails any
-`internal/app` package that imports Wails or `internal/adapter`.
-
-Frontend (`frontend/src/`): `App.vue` + `components/` (feed UI), `composables/`
-(`useFeedState`, `useGitHubConnection`, …), `pipeline/` (the flow editor — canvas, node
-palette, node editors), `lib/` (presentation
-helpers), `types/`. TS bindings to Go services are **generated** into
-`frontend/bindings/` — see Code generation.
-
-**Flow execution is Go's, and nothing about it lives here.**
-`internal/app/runtime` owns graph execution and `runtime.Engine` (a field on
-`App`) drives it: it installs a runner per enabled flow at startup, reinstalls
-on a flows change, and drains the event log on every append — all with this
-window closed (ADRs goja-script-runtime, flow-engine-in-go). **Do not add node execution logic to the
-frontend.** A new node
-type gets its editor (`nodes/<type>/{config.ts,editor.vue,index.ts}`) here,
-and its schema, validation, docs *and execution* in Go. See `architecture.md`
-▸ Execution model. `pipeline/__tests__/import-hygiene.spec.ts` fails if a
-`nodes/*/runtime.ts` reappears.
-
-**A source connector is declared in Go and adding one barely touches this
-directory.** `internal/app/sources` holds a `connector.Descriptor` per
-connector — type, title, credentials provider, pull/push mode, stability,
-capabilities, config schema — and `flow`'s node registry, `runtime`'s
-behaviour registry and **Settings ▸ Integrations** all *derive* their source
-entries from it (ADR source-connector-registry). Source node types are namespaced:
-`sources.github`, `sources.webhook`. A new connector still needs a
-`nodes/<type>/` editor entry here until forms are schema-driven, but nothing
-else — it gets its Integrations card for free, and `useIntegrations` supplies
-its connected accounts to any editor that needs an account picker.
-
-The frontend learns that a run landed from **`inbox:updated`**, not
-`log:appended`. The log growing only says a source observed something, which
-may route nowhere; `inbox:updated` fires after the engine has committed, which
-is the moment membership claims and inbox items are readable.
-
-## Development
-
-Drive everything through the **root** mise tasks (canonical entry points):
+## Commands
 
 ```bash
-mise run dev           # Run Wails directly with this worktree's launch.env
-mise run dev:prepare   # Create/reuse the isolated instance and launch.env
-mise run dev:fresh     # Safely reseed the instance and regenerate launch.env
-mise run dev:reset     # Safely remove the marked instance and launch.env
-mise run serve         # headless HTTP server build on localhost:8080 (agent UI loop)
-mise run build         # build the app (macOS emits desktop/bin/hive-desktop)
-mise run bindings      # regenerate frontend TS bindings after Go service changes
-mise run icons         # regenerate committed icon assets from SVG masters
-mise run test:desktop  # frontend vitest + Go tests (unit)
-mise run e2e           # Docker-only Playwright regression gate
+mise run dev           # Wails with this worktree's launch.env
+mise run serve         # headless HTTP build on :8080 — the agent UI loop
+mise run test:desktop  # frontend vitest + Go unit tests
+mise run bindings      # regenerate TS bindings after a Wails service change
+mise run e2e           # Docker-only Playwright gate
 mise run devserver     # the shared GitHub proxy `dev` routes through
 ```
 
-`dev` goes through `cmd/devserver` by default — `launch.env` carries the
-API base, and one proxy serves every worktree so concurrent streams share a
-rate-limit budget and a response cache (ADR devserver-github-proxy). Leave `mise run devserver`
-running; starting a second parks it as a standby that takes over if the first
-stops. Nothing preflights the proxy — if it is not answering, GitHub calls fail
-as transport errors in the log. To use real GitHub, set
-`HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE=""` in the gitignored `overrides.env`.
+`dev:prepare` / `dev:fresh` / `dev:reset` manage this worktree's isolated
+instance. `solo up` brings up devserver + app together from `.solo.yml`.
 
-`solo up` brings the session up from the checked-in `.solo.yml` (devserver + the
-app) and `solo down` tears it down.
+## Never
 
-Go lint/format is the root `mise run lint` (golangci-lint); frontend type
-errors surface via `vue-tsc` in the build. Run quality gates after changes.
+- **Never run Playwright or the e2e harness on the host.** `mise run e2e` is
+  Docker-only and there is no host fallback.
+- **Never verify UI with a local GUI build.** Use `mise run serve` and drive it
+  with browser tooling. Assets are `//go:embed`ded, so a frontend edit needs a
+  re-run; use `dev` for a Vite HMR loop instead.
+- **Never edit generated files** — `frontend/bindings/`, `store/models.go`,
+  `store/queries.sql.go`, `*_enum.go`.
+- **Never add `init()`.** `gochecknoinits` is on; use package-variable
+  initialization (`var _ = registerEvents()`).
+- **Never put flow-node execution in the frontend.** Execution is Go's
+  (`internal/app/runtime`); `pipeline/__tests__/import-hygiene.spec.ts` fails if
+  a `nodes/*/runtime.ts` reappears.
+- **Never call an `emit*` helper from the core.** They are unexported and
+  `forbidigo` fails the build.
+- **Never import Wails or `internal/adapter` from `internal/app`.** `depguard`
+  enforces it.
+- **Never put a token in config.** `flows/` is dotfiles-managed; config holds
+  credential refs only.
+- **Never gate the app on being connected to GitHub.**
+- **Never reach for `internal/hivecore/github/token.go`** — vendored, unused,
+  superseded by `app/credentials`.
+- **Never `go build ./desktop`** — the package is `main` and named `desktop`, so
+  it collides with the directory. Use
+  `go build -o ./desktop/bin/hive-desktop ./desktop` (`-tags server` for
+  headless). The mise tasks already do this.
 
-### Manual / UI verification
+## Architecture rules
 
-Use the **headless server build** for the agent UI loop — never a local GUI
-build:
+- **The core publishes typed payloads; the Wails boundary degrades them to
+  wake-up signals.** On receipt the frontend re-reads the service. Adding an
+  event is three things: a payload type in `app/events/events.go`, a publish
+  from the core, and a subscriber in `wailsui/events.go`.
+- **`inbox:updated` is the feed's signal, not `log:appended`.** A log row may
+  route nowhere; `inbox:updated` fires after the engine commits, which is when
+  items are readable.
+- Subscriptions use `events.Coalesce()`. A consumer needing every event in order
+  uses `events.Buffer(n)` — the delta is in the payload.
+- **A source connector is declared in Go.** `internal/app/sources/registry.go`
+  is the whole map; the flow node registry, the runtime behaviour registry, and
+  Settings ▸ Integrations all derive from a `connector.Descriptor`. A new
+  connector needs a `nodes/<type>/` editor entry here and nothing else.
+- **Flows and actions hot-reload, last-good.** A broken file keeps the previous
+  set rather than blanking the running app.
+- **LLM prompt text is Go-owned** — `internal/app/prompts/templates/`. Nothing
+  in the frontend builds a prompt string. Per-type prose belongs in
+  `flow/docs/<type>.md`, and a bijection test enforces that a new type
+  documents itself.
+- **Node docs cross the language boundary.** The frontend imports
+  `internal/app/flow/docs/*.md` via the `@nodedocs` alias, declared in **both**
+  `vite.config.ts` and `vitest.config.ts`. An LLM reads them too, so keep them
+  free of UI-only references like "the row below".
 
-```bash
-mise run serve                       # serves at http://localhost:8080
-HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE=onboarding mise run serve
-```
+## Code generation
 
-`onboarding` mode reads its flows from a fresh scratch directory rather than
-the real config root, so it shows first run even on a machine that already has
-workspaces, and the walk cannot touch them. The directory is per-process, so a
-`dev` rebuild — which any Go edit triggers — starts the walk over. Set
-`HIVE_DESKTOP_FLOWS_DIR` to opt out and point it at a fixture set instead.
+Run `mise run generate` (sqlc, enums) and commit the output alongside its input.
 
-Drive it with Playwright/browser tooling, read screenshots under
-`desktop/e2e/screenshots`, edit, repeat. Assets are `//go:embed`ded, so
-frontend edits require re-running `serve`; for a fast frontend loop use
-`dev` (Vite HMR). Native-shell behavior (Dock icon, traffic-light
-centering, close-hides-window, tray menu, template-icon tinting) is a **manual**
-verification concern — it cannot be checked headlessly.
-
-### Measuring a slow interaction
-
-`usePerf` records spans to `perf.jsonl` under the state directory for later
-analysis (ADR ui-performance-spans-are-recorded-to-jsonl). It is on in `dev` via `launch.env` and off in a
-shipped build, so instrumentation can be added freely to chase something and
-left in place — a disabled recorder costs a boolean check.
-
-```ts
-const perf = usePerf('feed')                             // scope = subsystem
-await perf.track('item:open', () => open(id), { id })    // wrap sync or async work
-const end = perf.start('render', { count }); end()       // or open and close a span
-perf.record('paint', durationMs)                         // or report a duration you measured
-```
-
-Keep `name` stable across calls so samples aggregate, and put the varying part
-in attrs: an id interpolated into the name gives every sample a unique one and
-nothing groups. Samples buffer and flush in batches, so read the file after
-exercising the app;
-`perfInfo()` returns its path. Analysis is `jq` over the file — there is no
-query API by design.
-
-The **ui-perf** skill carries the full loop: confirming the gate, the naming
-rules, and the jq recipes for percentiles, outliers, and grouping by attribute.
-
-### Reading what the app costs
-
-The developer-tools pane (`/dev`, "Open developer tools" in the palette) polls
-`internal/app/procstats`: resident memory and CPU for the app **and the process
-tree below it** (a terminal's shell, an agent), plus goroutines, heap, GC, and a
-measured Wails round trip. RSS is what the OS charges for and `runtime.MemStats`
-cannot report it at all, which is what gopsutil is there for. Spans answer "why
-was that click slow"; this answers "what is this build costing, and is it
-growing".
-
-Frame rate, dropped frames and event-loop lag come from `useFrameStats`, which
-**starts at boot, not when the pane opens** — the jank worth catching happens in
-the terminal or a long feed, so a sampler scoped to the pane would only measure
-the pane. Go make something stutter, then open `/dev` and read the last ten
-seconds. Frames past twice the display period and lag past 50ms are also
-recorded as `ui` spans, so `perf.jsonl` keeps history beyond that window. The
-sampler pauses while the window is occluded, since `requestAnimationFrame`
-stops there and the gap is the OS declining to draw, not a stall.
-
-Two things WebKit does not give us, so do not go looking: `longtask` /
-`long-animation-frame` observers (Chromium-only, so no attribution of *which*
-task blocked) and `performance.memory` (no JS heap size to sit beside the Go
-heap). `performance.now()` is also clamped to ~1ms, which is why the round-trip
-figures are timed in batches rather than per call.
-
-The webview is **not** in that total: on macOS the WebKit processes are XPC
-services parented to launchd, not children of the app, so they cannot be
-attributed without a private API. The pane states this rather than
-under-reporting silently.
-
-Set `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED=1` to open it on a signed build,
-which is the one worth measuring (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting); a Vite dev build
-always has it.
+`mise run bindings` **must** run with the working directory at `desktop/` so the
+Wails CLI treats it as the app package. Binding method ids hash the Go package
+path, so _moving_ a service invalidates them; `mise run check:bindings` catches
+it.
 
 ## Testing
 
-- **Unit** (`mise run test:desktop`): Go logic (`go test ./desktop/...
-  ./internal/app/... ./internal/adapter/...`) + frontend `vitest`. `store` and
-  `runtime` tests use real SQLite. This is the default gate for
-  backend/frontend changes.
-- **Engine fixtures** (`internal/app/runtime/testdata/parity/*.json`): a flow, a
-  batch of log messages, and the exact `CommitBatch` they are worth. A change
-  to routing, sink tagging or node-run accounting belongs in one of these; they
-  are cheaper to read than the engine and they were the proof the port off the
-  browser engine was faithful (ADR flow-engine-in-go).
-- **E2E** (`mise run e2e`): **Docker-only.** Builds the digest-pinned
-  Go/Playwright image in `desktop/e2e/Dockerfile` and runs Playwright inside it
-  against private feed / onboarding / pipeline / action-smoke server instances.
+`mise run test:desktop` is the default gate. `store` and `runtime` tests use
+real SQLite.
 
-**CRITICAL: never run Playwright or the e2e harness on the host.** `run-docker.sh`
-mints a fresh 256-bit harness marker that both the image command and the server
-launcher require, so host Playwright cannot start the servers. There is no host
-fallback — Docker must be available. Each server gets a private data/config root
-so parallel projects never mutate checked-in fixtures or share SQLite state.
+Engine behaviour changes — routing, sink tagging, node-run accounting — belong
+in a fixture under `internal/app/runtime/testdata/parity/*.json`: a flow, a
+batch of messages, and the exact `CommitBatch` they are worth.
 
-## Code generation — never edit generated files by hand
+## Mock modes
 
-- **sqlc** (`internal/app/store/`): queries in `queries/`,
-  migrations in `migrations/*.up.sql`. Regenerate with the root `mise run
-  generate`; `models.go` and `queries.sql.go` are committed and generated.
-  Commit generated output alongside the SQL change.
-- **Wails TS bindings** (`frontend/bindings/`): after changing a Wails service
-  method or its types, run `mise run bindings`. Bindings **must** be
-  generated with the working directory at `desktop/` so the Wails CLI treats it
-  as the app package while Go walks up to the parent module. Binding method IDs
-  hash the Go package path, so *moving* a service invalidates them too —
-  `mise run check:bindings` (also a CI step) is what catches that. The Vite
-  plugin and typed events depend on these — a stale binding is a frontend type
-  error.
+`HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE`: `feed` / `pipeline` / `action-smoke`
+start with `github/octocat` connected and seed fixed rows; `onboarding` starts
+with nothing connected and grants a fake device flow after ~1.5s. Unset means
+live backends. The live producer and output worker are skipped in all of them.
 
-## Patterns and gotchas
+**A mock connection must write the credential it pretends to hold**, not just
+flip a status flag — everything that resolves an account off the credential
+store works live and silently fails otherwise.
 
-These describe the code **as it is today**. For new work follow
-`../docs/architecture.md` — extending a superseded pattern makes the migration
-more expensive, which is the whole reason it is being done now.
+## Release notes
 
-- **Single Go module.** `desktop/` has no `go.mod`; it is the
-  `github.com/hay-kot/hive-desktop/desktop` package inside the root module. Because
-  the package is `main` and named `desktop`, you **must** give the binary an
-  explicit output path — `go build -o ./desktop/bin/hive-desktop ./desktop`
-  (add `-tags server` for the headless variant). A bare `go build ./desktop`
-  collides with this directory. The mise tasks already do this correctly.
-- **No `init()`.** This repo enables `gochecknoinits`. Event registration in
-  `wailsui/events.go` uses package-variable initialization
-  (`var _ = registerEvents()`), not `init()`. Follow that pattern.
-- **The core publishes payloads; the Wails boundary degrades them to wake-up
-  signals.** `app/events` carries typed payloads (`LogAppended{NextOffset}`,
-  `JobsUpdated{JobID}`, …) and `wailsui.Subscribe` maps each one to the Wails
-  event the frontend already knows — `connection:updated`, `log:appended`,
-  `flows:updated`, `actions:updated`. On receipt the frontend re-reads the
-  relevant service; the signal just says "something changed".
+A user-visible change appends its line to
+`internal/app/releasenotes/changelog/next.md` **in the PR that earns it**.
+Prereleases publish that draft as it stands; a stable release promotes it to
+`changelog/<version>.md`, and the release gate refuses a stable version with no
+entry (ADR release-notes-ship-inside-the-binary).
 
-  `inbox:updated` is the one that matters most for the feed: the flow engine
-  publishes `InboxUpdated` after it commits, and that — not `log:appended` — is
-  when membership claims and inbox items are readable. A log row may route
-  nowhere at all.
+## Settings and environment
 
-  Adding an event is three things: a payload type in `app/events/events.go`
-  (its `eventName` method is unexported, so an adapter cannot invent one), a
-  publish from the core, and a subscriber in `wailsui/events.go` that
-  registers the Wails event and emits it. The `emit*` helpers are unexported
-  and stay that way — the core must never call one, and `forbidigo` fails the
-  build if it does.
+The canonical shape is the `settings.Settings` struct
+(`internal/app/settings/settings.go`): `yaml:` tags for keys, doc comments for
+meaning, `DefaultSettings()` for what ships, `env:` tags for the
+`HIVE_DESKTOP_*` overrides. It is the only complete list — do not copy it.
 
-  Every `wailsui` subscription uses `events.Coalesce()`: the frontend re-reads
-  on receipt, so a dropped intermediate is not observable, and a busy webview
-  must never hold up the producer goroutine that published. A consumer that
-  needs every event in order uses `events.Buffer(n)` instead — the delta is
-  in the payload, which is why an MCP or streaming consumer does not have to
-  "re-read the service". See `architecture.md` ▸ Events.
-- **Mock modes** (`HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE`): `feed`/`pipeline`/`action-smoke` start
-  with `github/octocat` connected; `onboarding` starts with no workspaces and
-  nothing connected, and its fake device flow grants after ~1.5s — the two
-  together are what make it the first-run mode. Unset → live backends. A mock
-  connection must write the credential it pretends to hold, not just flip a
-  status flag: everything that resolves an account off the credential store
-  works live and fails in mock mode otherwise. In mock modes the live producer
-  and output-worker background loop are skipped; `feed`/`action-smoke` seed
-  fixed `feed_item` rows (see `mockseed.go`). Use these for deterministic
-  offline/e2e runs — do not hit real GitHub in tests.
-- **Config vs data split.** User-editable config (flows, `actions.yml`,
-  `settings.yaml`) lives in `$XDG_CONFIG_HOME/hive/desktop/` (so it can live in
-  a dotfiles repo); app-local state lives under the data root's `desktop/`
-  directory. Startup resolves safe defaults → strict YAML validation →
-  `HIVE_DESKTOP_*` overrides → effective-value validation, and injects one
-  immutable path snapshot. The fixed
-  `bootstrap.yaml` stores only `data_dir` and `config_dir`; explicit desktop
-  path overrides win. The canonical safe settings shape is:
+Adding a setting also means updating `desktop/README.md` and
+`internal/app/prompts/templates/settings.tmpl`, which an LLM reads and cannot
+resolve from the struct.
 
-  ```yaml
-  polling: {interval: 5m}
-  updates: {enabled: true, channel: ""}
-  notifications: {enabled: true, delivery: auto, sound: true}
-  appearance: {theme: "", font_family: "", mono_font_family: "", terminal_font_size: "", terminal_font_family: "", terminal_font_weight: 0, terminal_font_weight_bold: 0, terminal_line_height: 0, terminal_letter_spacing: 0, terminal_show_windows: true, terminal_show_status_bar: false, terminal_pool_size: 3}   # font_family/mono_font_family: the app chrome's faces — an installed family, a CSS generic (system-ui/ui-monospace), or "" for the bundled Inter/JetBrains Mono (ADR the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set); neither touches a terminal; terminal_font_size: small/medium/large/xl/xxl, "" = medium; terminal_font_family: an installed monospace family, "" = the bundled JetBrains Mono (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font); terminal_font_weight/_bold: 300/350/400/600/700, 0 = the defaults 350/700 (ADR terminal-typography-is-configurable); terminal_line_height: 1 to 1.6 in tenths, 0 = the default 1.2, and terminal_letter_spacing: 0-3 extra device pixels of tracking (ADR terminal-line-height-and-letter-spacing); terminal_show_windows lists every session's windows in the terminal sidebar; terminal_show_status_bar gives the attached session a bar carrying its checkout's git and pull-request state (ADR session-git-and-pull-request-status-is-computed-in-app-not-shelled-out-to-hive-or-gh), off by default; terminal_pool_size is how many sessions stay attached for instant switching (1-6, ADR terminal-attach-pool)
-  http: {enabled: true, host: 127.0.0.1, port: 0}   # loopback server: webhook listener + agent API (ADR agent-http-api)
-  keybindings: {}
-  paths: {tmux: ""}                 # absolute path to tmux; "" discovers it (ADR tmux-discovery)
-  editor: {command: ""}             # single-word CLI launcher "Open in editor" actions run (zed, code, …); "" means none configured
-  development:
-    mocks: {mode: live}
-    instance: {id: ""}
-    github: {api_base: ""}   # loopback-only devserver override (ADR devserver-github-proxy)
-    vite: {host: 127.0.0.1, port: 0}
-    wails: {host: 127.0.0.1, port: 0}
-    pprof: {enabled: false}   # mounts on the loopback HTTP server when on (ADR pprof-debug-endpoint)
-    perf: {enabled: false}    # records UI spans to perf.jsonl under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl); `dev` turns it on
-    devtools: {enabled: false} # makes the developer-tools pane reachable outside a Vite build (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting)
-    debug: {pause_ingest: 0s, pause_commit: 0s}
-  ```
-
-  The loopback HTTP server (webhook listener + agent API) is on by default and
-  allocates directly through port `0`. Pprof is off by default; when enabled it
-  mounts `/debug/pprof/` on that same server (`httpapi.PprofHandler`, ADR pprof-debug-endpoint),
-  so it has no address of its own and needs `http.enabled`. Dev uses
-  `cmd/devtools` plus the gitignored worktree-local `.hive-desktop/`; normal
-  runs reuse it, while `dev:fresh` and `dev:reset` are
-  marker-guarded destructive operations that refuse while a configured dev
-  server is active. `prepare` writes non-secret `launch.env`; the `dev`
-  mise task loads it followed by optional gitignored `overrides.env`, then
-  starts Wails through `devtools run`, which owns the session's teardown so a
-  closed terminal cannot leave the app running (ADR shutdown-is-signalled-and-bounded).
-  Data/config/ports are isolated, but the OS keychain,
-  the fixed bootstrap pointer, and `hive.db` are shared: dev sets
-  `HIVE_DESKTOP_HIVE_DATA_DIR` to the installed hive data dir so sessions created
-  in dev land in the real hive database (desktop-pipeline.db and feed state stay
-  worktree-isolated). Set it to the worktree data dir in `overrides.env` to
-  re-isolate. e2e leaves it unset, so its hive.db stays isolated.
-- **Flows/actions are code, hot-reloaded and last-good.** Flow parsing is strict
-  and validated by Go on save/deploy (unique node ids, known types, source
-  limits within GitHub caps, action refs that exist, valid wires). `FlowsWatcher`
-  and `ActionsWatcher` watch the *directory* (so atomic editor saves work) and
-  reload live; a broken file keeps the **last-good** set rather than blanking
-  the running app. The app's own SaveFlow/SaveLayout writes intentionally
-  trigger the same reload + wake-up.
-- **Keychain / secrets.** Credentials go through `app/credentials`, keyed by
-  `Ref{Provider, Account}` — values in the OS keychain, refs in a JSON index
-  beside the state dir because keychains cannot enumerate. The keychain is the
-  truth and the index is a cache: a ref present in the index but absent from
-  the keychain reads as `ErrNotFound` and is pruned. `HIVE_GITHUB_TOKEN`
-  overrides every `github/*` credential for headless runs
-  (`credentials.EnvOverrideName` derives it from the provider name);
-  `HIVE_GITHUB_CLIENT_ID` overrides the device-flow client id. Never log or
-  persist credential values elsewhere.
-
-  Two rules govern new work: **config holds refs, never tokens** (`flows/` is
-  dotfiles-managed, so an embedded token is a token in a git repo), and
-  **GitHub is a connector, not a login** — do not add code that gates the app
-  on being connected to GitHub. Lookup is generic and lives in
-  `app/credentials`; only *acquisition* is provider-specific and lives with
-  the connector (`sources/github/connect.go`). See `architecture.md` ▸
-  Credentials and docs/decisions/0013.
-
-  The vendored `internal/hivecore/github/token.go` single-slot store is
-  untouched and unused by the app. Do not reach for it.
-- **First run creates a workspace before it offers an account.** The order is
-  create workspace → connect GitHub → feed, and the connect step is skippable
-  past a warning. A workspace created with no account connected has an
-  *empty* graph, which is a valid flow — a source node names the credential
-  it fetches as, so there is no unconfigured source node to stand in for one.
-  `FlowsService.SeedStarter` is what fills it in once an account exists, and
-  `flow.FlowStore.Create` takes its starter graph from its caller so `flow`
-  names no connector.
-- **LLM prompts are Go-owned** (docs/decisions/0009). All prompt text lives in
-  `internal/app/prompts/templates/`; nothing in the frontend builds a
-  prompt string. Adding one is a template plus a `definitions` entry — Settings
-  ▸ LLM prompts lists whatever the registry reports. Per-type prose belongs in
-  `flow/docs/<type>.md` / `actions/docs/<type>.md`, never in a prompt template,
-  and a registry↔docs bijection test enforces that a new type documents itself.
-- **Node docs are shared across the language boundary.** The frontend imports
-  `internal/app/flow/docs/*.md` through the `@nodedocs` Vite alias
-  rather than keeping a copy — it is declared in **both** `vite.config.ts` and
-  `vitest.config.ts`, each with a matching `server.fs.allow` entry (the files
-  sit outside the Vite root). These docs are read by the node drawer *and* by
-  an LLM, so keep them free of UI-only references like "the row below".
-
-## Environment variables
-
-Desktop-owned configuration uses `HIVE_DESKTOP_<NAMESPACE>_<FIELD>`. Every
-value is parsed and validated; settings overrides are process-local and are not
-persisted by UI writes.
-
-| Var | Purpose |
-| --- | --- |
-| `HIVE_DESKTOP_DATA_DIR` | Desktop data root |
-| `HIVE_DESKTOP_HIVE_DATA_DIR` | Override only the hive.db data dir (defaults to the data root). `dev` points it at the installed hive data dir so dev sessions land in the real hive database; desktop state stays worktree-isolated |
-| `HIVE_DESKTOP_CONFIG_DIR` | Desktop config root |
-| `HIVE_DESKTOP_FLOWS_DIR` | Override only `flows/` |
-| `HIVE_DESKTOP_ACTIONS_PATH` | Override only `actions.yml` |
-| `HIVE_DESKTOP_LOG_LEVEL` | Root logger level |
-| `HIVE_DESKTOP_POLLING_INTERVAL` | Pull-source interval (minimum `60s`) |
-| `HIVE_DESKTOP_UPDATES_ENABLED` | Enable update checks |
-| `HIVE_DESKTOP_UPDATES_CHANNEL` | `stable`, `beta`, or `dev` |
-| `HIVE_DESKTOP_NOTIFICATIONS_ENABLED` | Enable notifications |
-| `HIVE_DESKTOP_NOTIFICATIONS_DELIVERY` | `auto`, `system`, or `app` |
-| `HIVE_DESKTOP_NOTIFICATIONS_SOUND` | Enable notification sound |
-| `HIVE_DESKTOP_APPEARANCE_THEME` | Frontend theme id |
-| `HIVE_DESKTOP_APPEARANCE_FONT_FAMILY` | The family the app's chrome draws with — any installed family, or a CSS generic like `system-ui`; empty is the bundled Inter (ADR the-app-s-faces-are-picked-from-installed-fonts-not-from-a-bundled-set). Does not affect a terminal |
-| `HIVE_DESKTOP_APPEARANCE_MONO_FONT_FAMILY` | The family the app's monospace text draws with (timestamps, ids, the flow editor); empty is the bundled JetBrains Mono. Does not affect a terminal |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_SIZE` | Terminal font size preset (`small`/`medium`/`large`/`xl`/`xxl`); empty means medium |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_FAMILY` | Terminal font family — any installed monospace family; empty is the bundled JetBrains Mono. Icons come from a bundled symbol face behind whatever is chosen (ADR bundled-faces-are-jetbrains-mono-inter-and-a-symbol-font) |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT` | Weight normal terminal text draws at (`300`/`350`/`400`/`600`/`700`); `0` means the default, 350 |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_FONT_WEIGHT_BOLD` | Weight bold terminal text draws at; `0` means the default, 700 |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LINE_HEIGHT` | Cell-height multiplier (`1` to `1.6` in tenths); `0` means the default, 1.2 (ADR terminal-line-height-and-letter-spacing) |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_LETTER_SPACING` | Extra tracking in device pixels (`0` to `3`); `0` is also the default (ADR terminal-line-height-and-letter-spacing) |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_WINDOWS` | List every active session's windows in the terminal sidebar, not just the attached one's; on by default |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_SHOW_STATUS_BAR` | Show a status bar above the attached session carrying its checkout's branch, dirty/unpushed state, line delta and pull request, plus open-in-editor and reveal (ADR session-git-and-pull-request-status-is-computed-in-app-not-shelled-out-to-hive-or-gh); off by default |
-| `HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE` | Sessions the terminal view keeps attached for instant switching (1-6, ADR terminal-attach-pool); values outside the range read as the default, 3 |
-| `HIVE_DESKTOP_HTTP_ENABLED` | Enable the loopback HTTP server (webhook listener + agent API); on by default |
-| `HIVE_DESKTOP_HTTP_HOST` | HTTP loopback host |
-| `HIVE_DESKTOP_HTTP_PORT` | HTTP port; `0` asks the OS to allocate |
-| `HIVE_DESKTOP_PATHS_TMUX` | Absolute path to tmux, skipping discovery (ADR tmux-discovery); empty searches `$PATH` then the usual package-manager prefixes |
-| `HIVE_DESKTOP_EDITOR_COMMAND` | Single-word CLI launcher "Open in editor" actions run on a directory (zed, code, cursor, subl, or a path); empty means none configured |
-| `HIVE_DESKTOP_DEVELOPMENT_MOCKS_MODE` | `live`, `feed`, `pipeline`, `action-smoke`, or `onboarding` |
-| `HIVE_DESKTOP_DEVELOPMENT_INSTANCE_ID` | Optional development instance label |
-| `HIVE_DESKTOP_DEVELOPMENT_GITHUB_API_BASE` | Point the GitHub REST/GraphQL base at `cmd/devserver` (dev caching proxy + event simulator, ADR devserver-github-proxy). **Set by `launch.env` — `dev` is proxied by default**; set it empty in `overrides.env` to use real GitHub. Loopback-only, validated. Applies to both the fetch layer and the connect flow; the OAuth device flow still goes to github.com |
-| `HIVE_DESKTOP_DEVELOPMENT_VITE_HOST` | Dev Vite host; currently must be `127.0.0.1` because Wails constructs a localhost frontend URL |
-| `HIVE_DESKTOP_DEVELOPMENT_VITE_PORT` | Dev Vite port; `0` preselects a free port |
-| `HIVE_DESKTOP_DEVELOPMENT_WAILS_HOST` | Dev Wails loopback host |
-| `HIVE_DESKTOP_DEVELOPMENT_WAILS_PORT` | Dev Wails port; `0` preselects a free port |
-| `HIVE_DESKTOP_DEVELOPMENT_PPROF_ENABLED` | Mount `/debug/pprof/` on the loopback HTTP server (ADR pprof-debug-endpoint); off by default, needs `http.enabled` |
-| `HIVE_DESKTOP_DEVELOPMENT_PERF_ENABLED` | Record UI performance spans to `perf.jsonl` under the state dir (ADR ui-performance-spans-are-recorded-to-jsonl). Off by default; `launch.env` sets it so `dev` records |
-| `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED` | Make the developer-tools pane (runtime metrics, Wails round-trip, notification tests) reachable in a build Vite did not serve (ADR developer-tools-are-reachable-in-a-shipped-build-behind-a-setting). Off by default; a Vite dev build always has it. Opened from the command palette |
-| `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_INGEST` | Ingestion crash-window delay |
-| `HIVE_DESKTOP_DEVELOPMENT_DEBUG_PAUSE_COMMIT` | Commit crash-window delay |
-| `HIVE_DESKTOP_DEVTOOLS_LOG_LEVEL` | `cmd/devtools` console verbosity (default `info`) |
-| `HIVE_DESKTOP_E2E_HARNESS` | Marker-gates Docker-only e2e routes |
-
-External boundaries keep their own names: `XDG_*` locates defaults;
-`WAILS_SERVER_HOST`/`PORT` and `WAILS_VITE_HOST`/`PORT` belong to the
-framework and receive the dev-launcher bridge; `HIVE_GITHUB_TOKEN` and
-`HIVE_GITHUB_CLIENT_ID` are credential/provider inputs; build, release-secret,
-and vendored Hive variables are not desktop settings.
+Variables read outside that struct — the data/config roots, `HIVE_GITHUB_TOKEN`,
+the devtools and e2e markers — are documented in `desktop/README.md`.
