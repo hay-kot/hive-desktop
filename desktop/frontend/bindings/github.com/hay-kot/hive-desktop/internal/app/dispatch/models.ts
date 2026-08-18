@@ -83,9 +83,8 @@ export interface MessageExecutionOutcome {
 
 /**
  * PullRequestStatus is why a session has no pull request to show, or that it
- * does. The four are kept apart deliberately: a bar that renders "no pull
- * request" for a failed lookup or a disconnected account tells the user the
- * branch has none, which is a different and wrong fact.
+ * does. The four are kept apart deliberately: rendering "no pull request" for
+ * a failed lookup or a disconnected account states a different, wrong fact.
  */
 export enum PullRequestStatus {
     /**
@@ -93,26 +92,9 @@ export enum PullRequestStatus {
      */
     $zero = "",
 
-    /**
-     * PullRequestStatusNone reports a branch GitHub has no pull request for.
-     */
     PullRequestStatusNone = "none",
-
-    /**
-     * PullRequestStatusFound reports one, described by the rest of the view.
-     */
     PullRequestStatusFound = "found",
-
-    /**
-     * PullRequestStatusDisconnected reports that no GitHub account is
-     * connected, so nothing was asked.
-     */
     PullRequestStatusDisconnected = "disconnected",
-
-    /**
-     * PullRequestStatusUnsupported reports a session whose remote is not a
-     * GitHub one, or whose branch did not resolve.
-     */
     PullRequestStatusUnsupported = "unsupported",
 };
 
@@ -149,9 +131,8 @@ export interface SessionExecutionOutcome {
 
 /**
  * SessionGitStatus is one session's checkout as the session status bar reads
- * it. Resolved separates "git answered" from the zero value, so a bar can tell
- * a clean branch from a session it has not read yet or cannot read at all;
- * Error carries why when a read failed, and is never a substitute for it.
+ * it. Resolved separates "git answered" from the zero value; Error carries why
+ * a read failed and is never a substitute for it.
  */
 export interface SessionGitStatus {
     "path": string;
@@ -160,15 +141,13 @@ export interface SessionGitStatus {
     "unpushed": boolean;
 
     /**
-     * Additions and Deletions are lines against the default branch, not
-     * against HEAD — the same figure hive's own session list shows.
+     * Additions and Deletions are lines against the default branch, not HEAD.
      */
     "additions": number;
     "deletions": number;
 
     /**
-     * Owner and Repo are the session remote's GitHub coordinates, empty for a
-     * remote that is not a GitHub one.
+     * Owner and Repo are empty for a remote that is not a GitHub one.
      */
     "owner": string;
     "repo": string;
@@ -228,25 +207,21 @@ export interface SessionPullRequest {
     "checks": string;
 
     /**
-     * Additions and Deletions are the pull request's own line counts, which are
-     * deliberately not SessionGitStatus's: those measure the working tree
-     * against the default branch and drift the moment the branch moves on.
+     * The pull request's own line counts, deliberately not SessionGitStatus's:
+     * those measure the working tree and drift as the branch moves on.
      */
     "additions": number;
     "deletions": number;
 
     /**
-     * Cached reports that this answer came from the in-process cache rather
-     * than the network, which is what lets a caller tell "this just arrived"
-     * from "this was already known". The bar animates only the former.
+     * Cached distinguishes "this just arrived" from "this was already known".
+     * The bar animates only the former.
      */
     "cached": boolean;
 }
 
 /**
  * SessionPullRequestKey addresses the pull request a session's branch has.
- * Git is what resolves the branch, so the key is built from a SessionGitStatus
- * rather than read again.
  */
 export interface SessionPullRequestKey {
     "owner": string;

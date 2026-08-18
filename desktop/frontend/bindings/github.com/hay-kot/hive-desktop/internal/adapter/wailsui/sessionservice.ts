@@ -131,8 +131,7 @@ export function SessionLaunchOptions(): $CancellablePromise<dispatch$0.SessionLa
 /**
  * SessionPullRequest resolves the pull request for a branch SessionGitStatus
  * reported, answering from a short-lived cache unless refresh is set. Its
- * Status field says why there is nothing to show — no pull request, no
- * connected account, or a remote that is not GitHub — so a caller never has to
+ * Status field says why there is nothing to show, so a caller never has to
  * read an empty result as "none".
  */
 export function SessionPullRequest(key: dispatch$0.SessionPullRequestKey, refresh: boolean): $CancellablePromise<dispatch$0.SessionPullRequest> {
