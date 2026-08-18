@@ -42,6 +42,10 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   form exactly as the detail pane's cards do.
 - **A `+` on a repository in the session tree** starts a session in it,
   replacing the session count under the pointer.
+- **An optional status bar above a session** (Settings ▸ Terminal), carrying
+  its branch, uncommitted and unpushed state, lines changed, and its pull
+  request's review and CI status — plus the open-in-editor and show-in-Finder
+  buttons a chat already had.
 
 ## Changed
 

@@ -172,6 +172,7 @@ appearance:
   terminal_line_height: 0 # 1 to 1.6 in tenths; 0 means the default, 1.2 (ADR terminal-line-height-and-letter-spacing)
   terminal_letter_spacing: 0 # extra tracking in device pixels, 0 to 3 (ADR terminal-line-height-and-letter-spacing)
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
+  terminal_show_status_bar: false # give the attached session a bar carrying its checkout's git and pull-request state (ADR session-git-and-pull-request-status-is-computed-in-app-not-shelled-out-to-hive-or-gh)
   terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR terminal-attach-pool)
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
@@ -438,3 +439,44 @@ and action-seed deliberately starts without an action fixture to verify exact
 first-run seeding. Action smoke also gets a local bare Git remote. This keeps
 parallel browser projects from mutating checked-in fixtures or sharing
 SQLite/action state. Docker must be available; there is no host fallback.
+
+## Reading what the app costs
+
+The developer-tools pane (`/dev`, "Open developer tools" in the palette) polls
+`internal/app/procstats`: resident memory and CPU for the app **and the process
+tree below it** (a terminal's shell, an agent), plus goroutines, heap, GC, and a
+measured Wails round trip. RSS is what the OS charges for and `runtime.MemStats`
+cannot report it at all, which is what gopsutil is there for. Spans answer "why
+was that click slow"; this answers "what is this build costing, and is it
+growing".
+
+Frame rate, dropped frames and event-loop lag come from `useFrameStats`, which
+**starts at boot, not when the pane opens** — the jank worth catching happens in
+the terminal or a long feed, so a sampler scoped to the pane would only measure
+the pane. Go make something stutter, then open `/dev` and read the last ten
+seconds. Frames past twice the display period and lag past 50ms are also
+recorded as `ui` spans, so `perf.jsonl` keeps history beyond that window. The
+sampler pauses while the window is occluded, since `requestAnimationFrame`
+stops there and the gap is the OS declining to draw, not a stall.
+
+Two things WebKit does not give us, so do not go looking: `longtask` /
+`long-animation-frame` observers (Chromium-only, so no attribution of _which_
+task blocked) and `performance.memory` (no JS heap size to sit beside the Go
+heap). `performance.now()` is also clamped to ~1ms, which is why the round-trip
+figures are timed in batches rather than per call.
+
+The webview is **not** in that total: on macOS the WebKit processes are XPC
+services parented to launchd, not children of the app, so they cannot be
+attributed without a private API. The pane states this rather than
+under-reporting silently.
+
+Set `HIVE_DESKTOP_DEVELOPMENT_DEVTOOLS_ENABLED=1` to open it on a signed build,
+which is the one worth measuring (ADR
+developer-tools-are-reachable-in-a-shipped-build-behind-a-setting); a Vite dev
+build always has it.
+
+Recording UI spans to `perf.jsonl` is the `usePerf` hook, on in `dev` via
+`launch.env` and off in a shipped build (ADR
+ui-performance-spans-are-recorded-to-jsonl). The **ui-perf** agent skill carries
+the full loop: the naming rules and the jq recipes for percentiles, outliers,
+and grouping by attribute.

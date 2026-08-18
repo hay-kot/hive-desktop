@@ -19,6 +19,9 @@ const PERSIST_DELAY_MS = 400
 // lives in Settings ▸ General rather than with any one of them.
 export function useEditorSettings() {
   const command = ref('')
+  // Resolved by Go so a button labelling the action does not reproduce the
+  // command→title catalogue here.
+  const title = ref('')
   const choices = ref<EditorChoice[]>([])
   const error = ref('')
 
@@ -32,6 +35,7 @@ export function useEditorSettings() {
     try {
       const settings = await LoadEditorSettings()
       command.value = settings.command
+      title.value = settings.title
       persisted = settings.command
       choices.value = settings.choices ?? []
     } catch (err) {
@@ -63,5 +67,5 @@ export function useEditorSettings() {
     if (command.value !== persisted) void save(command.value)
   }, true)
 
-  return { command, choices, error, refresh, setCommand }
+  return { command, title, choices, error, refresh, setCommand }
 }

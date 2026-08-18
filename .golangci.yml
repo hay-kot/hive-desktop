@@ -74,9 +74,12 @@ linters:
         # blanket pass for internal/app/*_test.go: a test file is only
         # allowlisted where it itself exercises a seam interface with a
         # vendored type — hive_adapters_test.go (constructs the vendored hive
-        # services it wraps) and launch_session_executor_test.go (its fake
+        # services it wraps), session_git_status_test.go (its
+        # oneSessionManagement returns session.Session to satisfy
+        # hive_adapters.go's SessionManagement interface) and
+        # launch_session_executor_test.go (its fake
         # SessionCreator returns *session.Session to satisfy
-        # hive_adapters.go's SessionCreator interface) both do; dbext_test.go
+        # hive_adapters.go's SessionCreator interface) all do; dbext_test.go
         # exercises the vendored migration runner directly. Every other test
         # file under internal/app — including app_test.go, sources_test.go,
         # settings_service_test.go — is expected to stay clean of hivecore
@@ -91,6 +94,7 @@ linters:
             - "!**/internal/app/app.go"
             - "!**/internal/app/dispatch/hive_adapters.go"
             - "!**/internal/app/dispatch/hive_adapters_test.go"
+            - "!**/internal/app/dispatch/session_git_status_test.go"
             - "!**/internal/app/dispatch/launch_session_executor_test.go"
             - "!**/internal/app/store/dbext.go"
             - "!**/internal/app/store/dbext_test.go"

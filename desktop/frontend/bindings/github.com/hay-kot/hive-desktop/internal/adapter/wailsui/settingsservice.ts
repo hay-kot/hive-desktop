@@ -104,6 +104,10 @@ export function SetTerminalPoolSize(size: number): $CancellablePromise<void> {
     return $Call.ByID(3703274857, size);
 }
 
+export function SetTerminalShowStatusBar(show: boolean): $CancellablePromise<void> {
+    return $Call.ByID(441812278, show);
+}
+
 export function SetTerminalShowWindows(show: boolean): $CancellablePromise<void> {
     return $Call.ByID(2890059572, show);
 }

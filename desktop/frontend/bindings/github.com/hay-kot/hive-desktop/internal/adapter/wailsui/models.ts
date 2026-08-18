@@ -78,6 +78,12 @@ export interface AppearanceSettings {
     "terminalShowWindows": boolean;
 
     /**
+     * TerminalShowStatusBar gives the attached session a status bar carrying
+     * its checkout's git and pull-request state. Ships off.
+     */
+    "terminalShowStatusBar": boolean;
+
+    /**
      * TerminalPoolSize is how many sessions the terminal view keeps attached
      * for instant switching (ADR terminal-attach-pool). Carried verbatim; the frontend heals
      * anything outside 1-6 to the default, 3.
@@ -138,9 +144,13 @@ export interface EditorChoice {
  * EditorSettings is the configured "open in editor" command plus the detected
  * choices the selector offers. Command is empty when none is configured; it
  * may name a command outside Choices when settings.yaml was authored by hand.
+ * Title is Command's display name, so the frontend does not reproduce the
+ * command→title catalogue. Empty exactly when Command is, and the command
+ * itself for one outside the catalogue.
  */
 export interface EditorSettings {
     "command": string;
+    "title": string;
     "choices": EditorChoice[] | null;
 }
 

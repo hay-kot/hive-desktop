@@ -82,6 +82,23 @@ export interface MessageExecutionOutcome {
 }
 
 /**
+ * PullRequestStatus is why a session has no pull request to show, or that it
+ * does. The four are kept apart deliberately: rendering "no pull request" for
+ * a failed lookup or a disconnected account states a different, wrong fact.
+ */
+export enum PullRequestStatus {
+    /**
+     * The Go zero value for the underlying type of the enum.
+     */
+    $zero = "",
+
+    PullRequestStatusNone = "none",
+    PullRequestStatusFound = "found",
+    PullRequestStatusDisconnected = "disconnected",
+    PullRequestStatusUnsupported = "unsupported",
+};
+
+/**
  * SessionDetail is one session read in full, for a detail view.
  */
 export interface SessionDetail {
@@ -112,6 +129,32 @@ export interface SessionExecutionOutcome {
     "name": string;
 }
 
+/**
+ * SessionGitStatus is one session's checkout as the session status bar reads
+ * it. Resolved separates "git answered" from the zero value; Error carries why
+ * a read failed and is never a substitute for it.
+ */
+export interface SessionGitStatus {
+    "path": string;
+    "branch": string;
+    "dirty": boolean;
+    "unpushed": boolean;
+
+    /**
+     * Additions and Deletions are lines against the default branch, not HEAD.
+     */
+    "additions": number;
+    "deletions": number;
+
+    /**
+     * Owner and Repo are empty for a remote that is not a GitHub one.
+     */
+    "owner": string;
+    "repo": string;
+    "resolved": boolean;
+    "error": string;
+}
+
 export interface SessionInvocationInput {
     "name": string;
     "repository": string;
@@ -135,6 +178,55 @@ export interface SessionLaunchOptions {
 export interface SessionLaunchRepository {
     "name": string;
     "repository": string;
+}
+
+/**
+ * SessionPullRequest is the branch's pull request as the session status bar
+ * shows it. Everything below Status is meaningful only for
+ * PullRequestStatusFound.
+ */
+export interface SessionPullRequest {
+    "status": PullRequestStatus;
+    "number": number;
+    "title": string;
+    "state": string;
+    "isDraft": boolean;
+    "url": string;
+
+    /**
+     * ReviewDecision is GitHub's own vocabulary — APPROVED,
+     * CHANGES_REQUESTED, REVIEW_REQUIRED — or empty when review is not
+     * required.
+     */
+    "reviewDecision": string;
+
+    /**
+     * Checks is passing, pending, failing, or empty for a head commit with no
+     * checks configured.
+     */
+    "checks": string;
+
+    /**
+     * The pull request's own line counts, deliberately not SessionGitStatus's:
+     * those measure the working tree and drift as the branch moves on.
+     */
+    "additions": number;
+    "deletions": number;
+
+    /**
+     * Cached distinguishes "this just arrived" from "this was already known".
+     * The bar animates only the former.
+     */
+    "cached": boolean;
+}
+
+/**
+ * SessionPullRequestKey addresses the pull request a session's branch has.
+ */
+export interface SessionPullRequestKey {
+    "owner": string;
+    "repo": string;
+    "branch": string;
 }
 
 /**

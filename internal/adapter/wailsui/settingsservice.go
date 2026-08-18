@@ -66,6 +66,9 @@ type AppearanceSettings struct {
 	// TerminalShowWindows lists every active session's tmux windows in the
 	// terminal sidebar, not just the attached session's. Ships on.
 	TerminalShowWindows bool `json:"terminalShowWindows"`
+	// TerminalShowStatusBar gives the attached session a status bar carrying
+	// its checkout's git and pull-request state. Ships off.
+	TerminalShowStatusBar bool `json:"terminalShowStatusBar"`
 	// TerminalPoolSize is how many sessions the terminal view keeps attached
 	// for instant switching (ADR terminal-attach-pool). Carried verbatim; the frontend heals
 	// anything outside 1-6 to the default, 3.
@@ -110,6 +113,7 @@ func (s *SettingsService) AppearanceSettings(ctx context.Context) (AppearanceSet
 		TerminalLineHeight:     current.TerminalLineHeight,
 		TerminalLetterSpacing:  current.TerminalLetterSpacing,
 		TerminalShowWindows:    current.TerminalShowWindows,
+		TerminalShowStatusBar:  current.TerminalShowStatusBar,
 		TerminalPoolSize:       current.TerminalPoolSize,
 	}, nil
 }
@@ -170,6 +174,10 @@ func (s *SettingsService) SetTerminalShowWindows(ctx context.Context, show bool)
 	return s.settings.SetTerminalShowWindows(ctx, show)
 }
 
+func (s *SettingsService) SetTerminalShowStatusBar(ctx context.Context, show bool) error {
+	return s.settings.SetTerminalShowStatusBar(ctx, show)
+}
+
 func (s *SettingsService) SetTerminalPoolSize(ctx context.Context, size int) error {
 	return s.settings.SetTerminalPoolSize(ctx, size)
 }
@@ -205,8 +213,12 @@ type EditorChoice struct {
 // EditorSettings is the configured "open in editor" command plus the detected
 // choices the selector offers. Command is empty when none is configured; it
 // may name a command outside Choices when settings.yaml was authored by hand.
+// Title is Command's display name, so the frontend does not reproduce the
+// command→title catalogue. Empty exactly when Command is, and the command
+// itself for one outside the catalogue.
 type EditorSettings struct {
 	Command string         `json:"command"`
+	Title   string         `json:"title"`
 	Choices []EditorChoice `json:"choices"`
 }
 
@@ -220,7 +232,7 @@ func (s *SettingsService) EditorSettings(ctx context.Context) (EditorSettings, e
 	for _, c := range detected {
 		choices = append(choices, EditorChoice{Command: c.Command, Title: c.Title, Found: c.Found})
 	}
-	return EditorSettings{Command: command, Choices: choices}, nil
+	return EditorSettings{Command: command, Title: s.settings.EditorTitle(command), Choices: choices}, nil
 }
 
 // SetEditor persists the editor command; empty clears it.

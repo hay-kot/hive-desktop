@@ -83,6 +83,7 @@ type AppearanceSettings struct {
 	TerminalLineHeight     float64
 	TerminalLetterSpacing  int
 	TerminalShowWindows    bool
+	TerminalShowStatusBar  bool
 	TerminalPoolSize       int
 }
 
@@ -102,6 +103,7 @@ func (s *SettingsService) Appearance(context.Context) (AppearanceSettings, error
 		TerminalLineHeight:     cfg.Appearance.TerminalLineHeight,
 		TerminalLetterSpacing:  cfg.Appearance.TerminalLetterSpacing,
 		TerminalShowWindows:    cfg.Appearance.TerminalShowWindows,
+		TerminalShowStatusBar:  cfg.Appearance.TerminalShowStatusBar,
 		TerminalPoolSize:       cfg.Appearance.TerminalPoolSize,
 	}, nil
 }
@@ -177,6 +179,14 @@ func (s *SettingsService) SetTerminalLetterSpacing(_ context.Context, spacing in
 func (s *SettingsService) SetTerminalShowWindows(_ context.Context, show bool) error {
 	_, err := s.store.Update(func(current *settings.Settings) error {
 		current.Appearance.TerminalShowWindows = show
+		return nil
+	})
+	return Wrap(err, KindInternal, "saving settings")
+}
+
+func (s *SettingsService) SetTerminalShowStatusBar(_ context.Context, show bool) error {
+	_, err := s.store.Update(func(current *settings.Settings) error {
+		current.Appearance.TerminalShowStatusBar = show
 		return nil
 	})
 	return Wrap(err, KindInternal, "saving settings")
@@ -282,6 +292,15 @@ func (s *SettingsService) Editor(context.Context) (string, error) {
 		return "", Wrap(err, KindInternal, "reading settings")
 	}
 	return cfg.Editor.Command, nil
+}
+
+// EditorTitle is the display title a configured command is labelled with, and
+// "" for no command at all.
+func (s *SettingsService) EditorTitle(command string) string {
+	if command == "" {
+		return ""
+	}
+	return editorTitle(command)
 }
 
 // SetEditor persists the editor command. Empty clears the setting; anything

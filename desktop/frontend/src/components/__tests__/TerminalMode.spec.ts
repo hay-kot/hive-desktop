@@ -8,6 +8,7 @@ import { resetTerminalFontForTests } from '../../composables/useTerminalFont'
 import { resetTerminalSessionsForTests } from '../../composables/useTerminalSessions'
 import { resetSessionStatusesForTests } from '../../composables/useSessionStatuses'
 import { setTerminalShowWindows } from '../../composables/useTerminalShowWindows'
+import { setTerminalShowStatusBar } from '../../composables/useTerminalStatusBar'
 import { resetTerminalWindowListingsForTests } from '../../composables/useTerminalWindowListings'
 import { resetTerminalPinnedChatsForTests, useTerminalPinnedChats } from '../../composables/useTerminalPinnedChats'
 import { useCommandPalette } from '../../composables/useCommands'
@@ -15,6 +16,7 @@ import { resetAgentSessionsAllForTests } from '../../composables/useAgentSession
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { closeTerminalWindow, focusTerminalFilter, newTerminalWindow, paneMayAutoFocus, selectTerminalWindow, stepTerminalWindow } from '../../lib/terminalTree'
 import { createAppRouter } from '../../router'
+import { tooltipFor } from '../../test-utils/tooltip'
 
 const mocks = vi.hoisted(() => ({
   Available: vi.fn(),
@@ -22,6 +24,10 @@ const mocks = vi.hoisted(() => ({
   ListSessions: vi.fn(),
   SessionStatuses: vi.fn(),
   SessionDetail: vi.fn(),
+  SessionGitStatus: vi.fn(),
+  SessionPullRequest: vi.fn(),
+  OpenSessionInEditor: vi.fn(),
+  RevealSession: vi.fn(),
   SessionRisk: vi.fn(),
   RenameSession: vi.fn(),
   DeleteSession: vi.fn(),
@@ -36,6 +42,9 @@ const mocks = vi.hoisted(() => ({
   useTerminalWindows: vi.fn(),
   openBlank: vi.fn(),
   SetTerminalFontSize: vi.fn(),
+  AppearanceSettings: vi.fn(),
+  EditorSettings: vi.fn(),
+  OpenURL: vi.fn(),
   AgentsAvailable: vi.fn(),
   allSessions: vi.fn(),
   resumeSession: vi.fn(),
@@ -67,15 +76,25 @@ vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wail
   Scratch: mocks.Scratch,
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/settingsservice', () => ({
-  AppearanceSettings: vi.fn().mockResolvedValue({ theme: '', terminalFontSize: '', terminalShowWindows: true, terminalPoolSize: 3 }),
+  AppearanceSettings: mocks.AppearanceSettings,
+  EditorSettings: mocks.EditorSettings,
+  SetEditor: vi.fn(),
   SetTerminalFontSize: mocks.SetTerminalFontSize,
   SetTerminalShowWindows: vi.fn(),
+  SetTerminalShowStatusBar: vi.fn(),
   SetTerminalPoolSize: vi.fn(),
+}))
+vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/windowservice', () => ({
+  Focused: vi.fn().mockResolvedValue(true),
 }))
 vi.mock('../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice', () => ({
   ListSessions: mocks.ListSessions,
   SessionStatuses: mocks.SessionStatuses,
   SessionDetail: mocks.SessionDetail,
+  SessionGitStatus: mocks.SessionGitStatus,
+  SessionPullRequest: mocks.SessionPullRequest,
+  OpenSessionInEditor: mocks.OpenSessionInEditor,
+  RevealSession: mocks.RevealSession,
   SessionRisk: mocks.SessionRisk,
   RenameSession: mocks.RenameSession,
   DeleteSession: mocks.DeleteSession,
@@ -98,6 +117,7 @@ vi.mock('../../composables/useNewSession', () => ({
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: vi.fn().mockReturnValue(() => {}) },
   Clipboard: { SetText: mocks.SetClipboardText },
+  Browser: { OpenURL: mocks.OpenURL },
 }))
 
 // The sidebar sweeps every session in one call, so a listing mock answers a map
@@ -208,6 +228,9 @@ describe('TerminalMode', () => {
     resetAgentWorkspacesForTests()
     resetAgentSessionsAllForTests()
     resetTerminalPinnedChatsForTests()
+    // The bar's setting is a module singleton, so a test that turns it on would
+    // otherwise leave it on for the rest of the file.
+    setTerminalShowStatusBar(false)
     paneMayAutoFocus.value = true
     // The Agents area answers unavailable by default, which is what a build with
     // the experimental gate off looks like: no chats to pin, no Chats section.
@@ -232,6 +255,17 @@ describe('TerminalMode', () => {
     })
     mocks.SessionRisk.mockResolvedValue({ uncommittedChanges: false, unpushedCommits: false, recycleDeletes: false })
     mocks.TerminalActionViews.mockResolvedValue([])
+    // Answered even though the bar ships off, so a test that turns it on does
+    // not have to restate the whole set.
+    mocks.AppearanceSettings.mockResolvedValue({
+      theme: '', terminalFontSize: '', terminalShowWindows: true, terminalShowStatusBar: false, terminalPoolSize: 3,
+    })
+    mocks.EditorSettings.mockResolvedValue({ command: 'zed', title: 'Zed', choices: [] })
+    mocks.SessionGitStatus.mockResolvedValue({
+      path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
+      additions: 0, deletions: 0, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+    })
+    mocks.SessionPullRequest.mockResolvedValue({ status: 'none' })
   })
 
   it('renders the unavailable panel with the reason instead of gating the mode', async () => {
@@ -2545,6 +2579,219 @@ describe('TerminalMode', () => {
       // Mounted but hidden behind another mode: the library must not follow.
       await wrapper.setProps({ active: false })
       expect(results.value.some((cmd) => cmd.id.startsWith('terminal:'))).toBe(false)
+
+      wrapper.unmount()
+    })
+  })
+
+  describe('session status bar', () => {
+    async function mountWithStatusBar(session = fakeSession()) {
+      setTerminalShowStatusBar(true)
+      const mounted = await mountAvailable(session)
+      await mounted.wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+      return mounted
+    }
+
+    it('stays out of the way until the setting turns it on', async () => {
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-session-row"][data-slug="hive-fix-parser"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar"]').exists()).toBe(false)
+      expect(mocks.SessionGitStatus).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('reports the branch, diff and pull request without renaming the session', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
+        additions: 42, deletions: 7, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+      })
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: 'APPROVED', checks: 'passing',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      // The sidebar already names the session, so the bar does not.
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar-workspace"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="session-status-branch"]').text()).toBe('feat/parser')
+      expect(wrapper.get('[data-testid="session-status-diff"]').text()).toBe('+42−7')
+      // Icon-only, so the tooltip is the whole explanation and has to exist —
+      // an aria-label renders none, which is what left the arrow a mystery.
+      expect(tooltipFor(wrapper, 'session-status-dirty')).toBe('Uncommitted changes in this checkout')
+      expect(tooltipFor(wrapper, 'session-status-unpushed')).toBe('Commits on this branch that the remote does not have')
+      expect(wrapper.get('[data-testid="session-status-pr"]').text()).toContain('#311')
+      expect(wrapper.get('[data-testid="session-status-checks"]').text()).toBe('passing')
+      // The lookup is keyed by what git resolved, not by anything read twice.
+      expect(mocks.SessionPullRequest).toHaveBeenCalledWith({ owner: 'hay-kot', repo: 'hive', branch: 'feat/parser' }, false)
+
+      wrapper.unmount()
+    })
+
+    it('opens the pull request in a browser when its chip is clicked', async () => {
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+      await wrapper.get('[data-testid="session-status-pr"]').trigger('click')
+
+      expect(mocks.OpenURL).toHaveBeenCalledWith('https://github.com/hay-kot/hive/pull/311')
+
+      wrapper.unmount()
+    })
+
+    it('copies the pull request as a Markdown link', async () => {
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
+        additions: 420, deletions: 37,
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      await wrapper.get('[data-testid="session-status-copy"]').trigger('click')
+      await flushPromises()
+      expect(mocks.SetClipboardText).toHaveBeenCalledWith(
+        '[[hive] Fix the parser `(+420, -37)`](https://github.com/hay-kot/hive/pull/311)',
+      )
+
+      wrapper.unmount()
+    })
+
+    // The branch is the only thing in the row that can be re-read on hover, so
+    // everything else must survive a narrow pane whole.
+    it('lets only the branch give up width when the row overflows', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: true, unpushed: true,
+        additions: 420, deletions: 37, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+      })
+      mocks.SessionPullRequest.mockResolvedValue({
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: 'passing',
+        additions: 420, deletions: 37,
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      const branch = wrapper.get('[data-testid="session-status-branch"]')
+      expect(branch.classes()).toContain('min-w-0')
+      expect(branch.get('.font-mono').classes()).toContain('truncate')
+
+      for (const testid of ['session-status-diff', 'session-status-pr', 'session-status-copy']) {
+        expect(wrapper.get(`[data-testid="${testid}"]`).classes()).toContain('shrink-0')
+      }
+
+      // The branch carries no tooltip, so a name cut this way cannot be read
+      // back. Pinned so that stays a decision rather than an oversight.
+      expect(tooltipFor(wrapper, 'session-status-branch')).toBe('')
+
+      wrapper.unmount()
+    })
+
+    // Animating a cached answer animates nothing arriving: it was known before
+    // the bar painted. Only a read that actually went to the network eases in.
+    it('eases the pull request in only when it just arrived', async () => {
+      const found = {
+        status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
+        url: 'https://github.com/hay-kot/hive/pull/311', reviewDecision: '', checks: '',
+        additions: 420, deletions: 37,
+      }
+      mocks.SessionPullRequest.mockResolvedValue({ ...found, cached: false })
+
+      // Asserted on the computed rather than the rendered Transition because
+      // this suite stubs transitions out, so the prop never reaches the DOM.
+      const fresh = await mountWithStatusBar()
+      expect(fresh.wrapper.findComponent({ name: 'SessionStatusChips' }).vm.animateArrival).toBe(true)
+      fresh.wrapper.unmount()
+
+      mocks.SessionPullRequest.mockResolvedValue({ ...found, cached: true })
+
+      const cachedMount = await mountWithStatusBar()
+      expect(cachedMount.wrapper.findComponent({ name: 'SessionStatusChips' }).vm.animateArrival).toBe(false)
+      cachedMount.wrapper.unmount()
+    })
+
+    it('offers no copy button for a branch with no pull request to share', async () => {
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-copy"]').exists()).toBe(false)
+
+      wrapper.unmount()
+    })
+
+    it('still offers the buttons for a session with no pull request', async () => {
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-pr"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="session-status-pr-error"]').exists()).toBe(false)
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await wrapper.get('[data-testid="terminal-pane-statusbar-reveal"]').trigger('click')
+      await flushPromises()
+      expect(mocks.OpenSessionInEditor).toHaveBeenCalledWith('1')
+      expect(mocks.RevealSession).toHaveBeenCalledWith('1')
+
+      wrapper.unmount()
+    })
+
+    // The bar must never say "no pull request" because the lookup broke: the
+    // branch may well have one, and the user would act on the wrong fact.
+    it('reports a failed pull-request lookup as a failure, not as having none', async () => {
+      mocks.SessionPullRequest.mockRejectedValue(new Error('Bad credentials'))
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-pr"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="session-status-pr-error"]').exists()).toBe(true)
+      expect(tooltipFor(wrapper, 'session-status-pr-error')).toContain('Bad credentials')
+
+      wrapper.unmount()
+    })
+
+    it('surfaces a failed git read instead of showing a clean branch it never saw', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
+        additions: 0, deletions: 0, owner: '', repo: '', resolved: true, error: 'git status: exit 128',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.find('[data-testid="session-status-dirty"]').exists()).toBe(false)
+      expect(tooltipFor(wrapper, 'session-status-git-error')).toBe('git status: exit 128')
+
+      wrapper.unmount()
+    })
+
+    it('gives the scratch terminal no bar, because it has no checkout', async () => {
+      setTerminalShowStatusBar(true)
+      const { wrapper } = await mountAvailable()
+      await wrapper.get('[data-testid="terminal-scratch-heading"]').trigger('click')
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar"]').exists()).toBe(false)
+      expect(mocks.SessionGitStatus).not.toHaveBeenCalled()
+
+      wrapper.unmount()
+    })
+
+    it('surfaces an open that failed and clears it on the next attempt', async () => {
+      mocks.OpenSessionInEditor.mockRejectedValueOnce(new Error('editor "zed" was not found on PATH'))
+
+      const { wrapper } = await mountWithStatusBar()
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.get('[data-testid="terminal-pane-statusbar-error"]').text()).toBe('editor "zed" was not found on PATH')
+
+      await wrapper.get('[data-testid="terminal-pane-statusbar-open-editor"]').trigger('click')
+      await flushPromises()
+      expect(wrapper.find('[data-testid="terminal-pane-statusbar-error"]').exists()).toBe(false)
 
       wrapper.unmount()
     })

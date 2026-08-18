@@ -16,15 +16,13 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
 import IconBot from '~icons/lucide/bot'
-import IconCode from '~icons/lucide/code'
-import IconFolder from '~icons/lucide/folder'
-import IconFolderOpen from '~icons/lucide/folder-open'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import AgentsSidebar from './AgentsSidebar.vue'
 import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
 import BaseButton from './BaseButton.vue'
 import ChatRenameDialog from './ChatRenameDialog.vue'
 import NewChatDialog from './NewChatDialog.vue'
+import PaneStatusBar from './PaneStatusBar.vue'
 import { useAgentWorkspaces } from '../composables/useAgentWorkspaces'
 import { useAgentSessionsAll } from '../composables/useAgentSessionsAll'
 import { useTerminalFont } from '../composables/useTerminalFont'
@@ -686,42 +684,16 @@ onBeforeUnmount(() => {
           data-testid="agents-missing-skills"
         >Missing skill packages: {{ missingPackages.join(', ') }}</div>
 
-        <div
+        <PaneStatusBar
           v-if="paneStatus !== 'idle'"
-          class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1"
-          data-testid="agents-pane-statusbar"
-        >
-          <div class="flex min-w-0 flex-1 items-center gap-1.5">
-            <IconFolder class="size-3.5 shrink-0 text-text-4" aria-hidden="true" />
-            <span
-              class="min-w-0 truncate text-[11px] text-text-3"
-              :title="paneWorkspaceDir"
-              data-testid="agents-pane-statusbar-workspace"
-            >{{ paneWorkspaceName }}</span>
-          </div>
-          <span
-            v-if="paneActionError"
-            class="truncate text-[11px] text-severity-error"
-            data-testid="agents-pane-statusbar-error"
-          >{{ paneActionError }}</span>
-          <button
-            v-if="editor.command"
-            type="button"
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-            :title="`Open in ${editor.title}`"
-            :aria-label="`Open in ${editor.title}`"
-            data-testid="agents-pane-statusbar-open-editor"
-            @click="openPaneWorkspaceInEditor"
-          ><IconCode class="size-3.5" /></button>
-          <button
-            type="button"
-            class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
-            title="Show in Finder"
-            aria-label="Show in Finder"
-            data-testid="agents-pane-statusbar-reveal"
-            @click="revealPaneWorkspace"
-          ><IconFolderOpen class="size-3.5" /></button>
-        </div>
+          testid="agents-pane-statusbar"
+          :label="paneWorkspaceName"
+          :path="paneWorkspaceDir"
+          :error="paneActionError"
+          :editor-title="editor.command ? editor.title : ''"
+          @open-editor="openPaneWorkspaceInEditor"
+          @reveal="revealPaneWorkspace"
+        />
 
         <div class="relative min-h-0 flex-1 bg-app">
           <!-- TerminalTab.vue's shape, for the same reasons: xterm opens in the

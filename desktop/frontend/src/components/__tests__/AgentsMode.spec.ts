@@ -7,6 +7,7 @@ import NewChatDialog from '../NewChatDialog.vue'
 import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspaces'
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { createAppRouter } from '../../router'
+import { tooltipFor } from '../../test-utils/tooltip'
 
 // App.vue mounts AgentsMode once and hides it with v-show on a trip to the
 // hub (ADR terminal-mode-is-hidden-not-unmounted): the component itself must never re-key or v-if anything
@@ -210,8 +211,7 @@ describe('AgentsMode', () => {
     await startChat(wrapper)
 
     expect(wrapper.get('[data-testid="agents-pane-statusbar-workspace"]').text()).toBe('Web App')
-    const openInEditor = wrapper.get('[data-testid="agents-pane-statusbar-open-editor"]')
-    expect(openInEditor.attributes('title')).toBe('Open in Zed')
+    expect(tooltipFor(wrapper, 'agents-pane-statusbar-open-editor')).toBe('Open in Zed')
   })
 
   it('routes the bar actions at the open chat\'s workspace directory', async () => {

@@ -3,6 +3,8 @@ package app
 import (
 	"context"
 	"os/exec"
+
+	"github.com/hay-kot/hive-desktop/internal/app/execenv"
 )
 
 // EditorChoice is one editor the Settings selector offers: a CLI command, the
@@ -34,6 +36,31 @@ func editorTitle(command string) string {
 		}
 	}
 	return command
+}
+
+// launchEditor runs the configured editor on dir and returns without waiting
+// for it. Callers pass a directory they resolved themselves — never one a
+// request supplied — because this execs an arbitrary configured program.
+func launchEditor(ctx context.Context, env *execenv.Resolver, command, dir string) error {
+	if command == "" {
+		return Errorf(KindInvalid, "no editor is configured; choose one in Settings › General")
+	}
+	if env == nil {
+		return Errorf(KindUnavailable, "the editor cannot be launched from this build")
+	}
+	path, err := env.LookPath(ctx, command)
+	if err != nil {
+		return Errorf(KindInvalid, "editor %q was not found on PATH; choose another in Settings › General", command)
+	}
+	// WithoutCancel: the editor must outlive the request that launched it —
+	// a request-scoped context would kill it the moment the response is sent.
+	cmd := exec.CommandContext(context.WithoutCancel(ctx), path, dir)
+	cmd.Env = env.Environ(ctx)
+	if err := cmd.Start(); err != nil {
+		return Wrap(err, KindInternal, "launching %s", command)
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }
 
 // detectEditors reports the known catalogue with each command resolved

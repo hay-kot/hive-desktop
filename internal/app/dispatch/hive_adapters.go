@@ -9,6 +9,7 @@ import (
 
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
+	"github.com/hay-kot/hive-desktop/internal/hivecore/core/git"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/messaging"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/session"
 	"github.com/hay-kot/hive-desktop/internal/hivecore/core/terminal"
@@ -152,6 +153,69 @@ type SessionRisk struct {
 	RecycleDeletes bool `json:"recycleDeletes"`
 }
 
+// SessionGitStatus is one session's checkout as the session status bar reads
+// it. Resolved separates "git answered" from the zero value; Error carries why
+// a read failed and is never a substitute for it.
+type SessionGitStatus struct {
+	Path     string `json:"path"`
+	Branch   string `json:"branch"`
+	Dirty    bool   `json:"dirty"`
+	Unpushed bool   `json:"unpushed"`
+	// Additions and Deletions are lines against the default branch, not HEAD.
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
+	// Owner and Repo are empty for a remote that is not a GitHub one.
+	Owner    string `json:"owner"`
+	Repo     string `json:"repo"`
+	Resolved bool   `json:"resolved"`
+	Error    string `json:"error"`
+}
+
+// SessionPullRequestKey addresses the pull request a session's branch has.
+type SessionPullRequestKey struct {
+	Owner  string `json:"owner"`
+	Repo   string `json:"repo"`
+	Branch string `json:"branch"`
+}
+
+// PullRequestStatus is why a session has no pull request to show, or that it
+// does. The four are kept apart deliberately: rendering "no pull request" for
+// a failed lookup or a disconnected account states a different, wrong fact.
+type PullRequestStatus string
+
+const (
+	PullRequestStatusNone         PullRequestStatus = "none"
+	PullRequestStatusFound        PullRequestStatus = "found"
+	PullRequestStatusDisconnected PullRequestStatus = "disconnected"
+	PullRequestStatusUnsupported  PullRequestStatus = "unsupported"
+)
+
+// SessionPullRequest is the branch's pull request as the session status bar
+// shows it. Everything below Status is meaningful only for
+// PullRequestStatusFound.
+type SessionPullRequest struct {
+	Status  PullRequestStatus `json:"status"`
+	Number  int               `json:"number"`
+	Title   string            `json:"title"`
+	State   string            `json:"state"`
+	IsDraft bool              `json:"isDraft"`
+	URL     string            `json:"url"`
+	// ReviewDecision is GitHub's own vocabulary — APPROVED,
+	// CHANGES_REQUESTED, REVIEW_REQUIRED — or empty when review is not
+	// required.
+	ReviewDecision string `json:"reviewDecision"`
+	// Checks is passing, pending, failing, or empty for a head commit with no
+	// checks configured.
+	Checks string `json:"checks"`
+	// The pull request's own line counts, deliberately not SessionGitStatus's:
+	// those measure the working tree and drift as the branch moves on.
+	Additions int `json:"additions"`
+	Deletions int `json:"deletions"`
+	// Cached distinguishes "this just arrived" from "this was already known".
+	// The bar animates only the former.
+	Cached bool `json:"cached"`
+}
+
 // ItemSessionLinker persists the association between an inbox item and a
 // session created for it, so the item can find the session again after a
 // restart. Consumer-defined: the launcher needs one write, not a store.
@@ -256,11 +320,24 @@ func (l *HiveSessionLauncher) SessionLaunchOptions(ctx context.Context) (Session
 type HiveSessionManager struct {
 	sessions           SessionManagement
 	statuses           sessionStatusSource
+	git                sessionGit
 	statusPollInterval time.Duration
 }
 
-func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, statusPollInterval time.Duration) *HiveSessionManager {
-	return &HiveSessionManager{sessions: sessions, statuses: statuses, statusPollInterval: statusPollInterval}
+// sessionGit is the read-only slice of the vendored git executor a session's
+// status needs. Narrowed rather than taking git.Git whole so the seam cannot
+// grow a Checkout or a ResetHard: reporting status must not move a worktree.
+type sessionGit interface {
+	Branch(ctx context.Context, dir string) (string, error)
+	IsClean(ctx context.Context, dir string) (bool, error)
+	HasUnpushedCommits(ctx context.Context, dir string) (bool, error)
+	DiffStats(ctx context.Context, dir string) (additions, deletions int, err error)
+}
+
+var _ sessionGit = (git.Git)(nil)
+
+func NewHiveSessionManager(sessions SessionManagement, statuses sessionStatusSource, gitExec sessionGit, statusPollInterval time.Duration) *HiveSessionManager {
+	return &HiveSessionManager{sessions: sessions, statuses: statuses, git: gitExec, statusPollInterval: statusPollInterval}
 }
 
 // ListSessions returns every session, recycled and corrupted included: an
@@ -395,6 +472,69 @@ func (m *HiveSessionManager) SessionRisk(ctx context.Context, id string) (Sessio
 		UnpushedCommits:    risk.UnpushedCommits,
 		RecycleDeletes:     s.CloneStrategy == session.CloneStrategyWorktree,
 	}, nil
+}
+
+// SessionGitStatus reads one session's checkout: its branch, whether it is
+// dirty, whether it has commits the remote does not, and the line delta
+// against the default branch.
+//
+// Unlike SessionRisk it reports failures instead of assuming the risky answer.
+// Hive treats an IsClean error as dirty because a delete confirmation must
+// over-warn; a badge claiming "dirty" on a git that never ran is a lie the
+// user acts on.
+func (m *HiveSessionManager) SessionGitStatus(ctx context.Context, id string) (SessionGitStatus, error) {
+	s, err := m.sessions.GetSession(ctx, id)
+	if err != nil {
+		return SessionGitStatus{}, fmt.Errorf("get hive session: %w", err)
+	}
+	if s.State != session.StateActive || s.Path == "" {
+		return SessionGitStatus{}, nil
+	}
+	if m.git == nil {
+		return SessionGitStatus{Error: "git is unavailable"}, nil
+	}
+
+	owner, repo := gitHubCoordinates(s.Remote)
+	status := SessionGitStatus{Path: s.Path, Owner: owner, Repo: repo}
+
+	branch, err := m.git.Branch(ctx, s.Path)
+	if err != nil {
+		// Every other read needs the working checkout Branch proves, so its
+		// failure stands for the whole status.
+		return SessionGitStatus{Path: s.Path, Owner: owner, Repo: repo, Error: err.Error()}, nil
+	}
+	status.Branch = branch
+	status.Resolved = true
+
+	if clean, err := m.git.IsClean(ctx, s.Path); err == nil {
+		status.Dirty = !clean
+	} else {
+		status.Error = err.Error()
+	}
+	if unpushed, err := m.git.HasUnpushedCommits(ctx, s.Path); err == nil {
+		status.Unpushed = unpushed
+	} else if status.Error == "" {
+		// A worktree with no upstream reaches here on every read, so it must
+		// not displace a real error above.
+		status.Error = err.Error()
+	}
+	if additions, deletions, err := m.git.DiffStats(ctx, s.Path); err == nil {
+		status.Additions, status.Deletions = additions, deletions
+	} else if status.Error == "" {
+		status.Error = err.Error()
+	}
+	return status, nil
+}
+
+// gitHubCoordinates reads owner and repo off a remote, and answers empty for
+// one hosted anywhere but github.com. git.ExtractOwnerRepo is host-agnostic —
+// every forge uses the same path shape — so this check is what keeps a Gitea
+// session from being looked up against GitHub's API.
+func gitHubCoordinates(remote string) (owner, repo string) {
+	if git.ExtractHost(remote) != "github.com" {
+		return "", ""
+	}
+	return git.ExtractOwnerRepo(remote)
 }
 
 // SpawnTmuxSession creates the tmux session for a session hive already holds,

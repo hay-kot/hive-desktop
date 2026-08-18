@@ -56,6 +56,31 @@ func (s *SessionService) SessionDetail(ctx context.Context, id string) (dispatch
 	return s.sessions.SessionDetail(ctx, id)
 }
 
+// SessionGitStatus reads the session's checkout for the session status bar.
+// Cheap and local — four git subprocesses — so the bar polls it, unlike
+// SessionPullRequest.
+func (s *SessionService) SessionGitStatus(ctx context.Context, id string) (dispatch.SessionGitStatus, error) {
+	return s.sessions.SessionGitStatus(ctx, id)
+}
+
+// SessionPullRequest resolves the pull request for a branch SessionGitStatus
+// reported, answering from a short-lived cache unless refresh is set. Its
+// Status field says why there is nothing to show, so a caller never has to
+// read an empty result as "none".
+func (s *SessionService) SessionPullRequest(ctx context.Context, key dispatch.SessionPullRequestKey, refresh bool) (dispatch.SessionPullRequest, error) {
+	return s.sessions.SessionPullRequest(ctx, key, refresh)
+}
+
+// OpenSessionInEditor launches the configured editor on the session's checkout.
+func (s *SessionService) OpenSessionInEditor(ctx context.Context, id string) error {
+	return s.sessions.OpenSessionInEditor(ctx, id)
+}
+
+// RevealSession opens the session's checkout in the OS file manager.
+func (s *SessionService) RevealSession(ctx context.Context, id string) error {
+	return s.sessions.RevealSession(ctx, id)
+}
+
 // ItemSessions returns the sessions an inbox item spawned, newest first, with
 // the state hive reports for each now. Slug is the attach target.
 func (s *SessionService) ItemSessions(ctx context.Context, itemID int64) ([]dispatch.ItemSessionView, error) {
