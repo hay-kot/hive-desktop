@@ -1,36 +1,40 @@
 <script setup lang="ts">
-// The Agents area's sidebar: one tree in one scroll region — workspaces as
-// expandable parent rows, their chats nested beneath — drawn in the Code
-// view's row language (full-bleed rows, a traveling accent rail on the open
-// chat, a trailing status slot that swaps to an ellipsis menu toggle on
-// hover, the same activity marks, the same drawn tree connector). Position
-// is what states which workspace a chat belongs to, so it holds for every
-// workspace at once; focusing a workspace no longer hides the others.
+// The Agents area's sidebar: workspaces as parent rows with their chats nested
+// beneath, in one scroll region. Position is what states which workspace a chat
+// belongs to, so it holds for every workspace at once; focusing a workspace no
+// longer hides the others.
 //
-// It diverges from the Code view's tree in one place on purpose: the chevron
-// leads the row rather than trailing it, because a workspace row is two or
-// three lines tall and a trailing chevron on a tall row does not read as the
-// handle for what is under it.
+// The row language is the hub sidebar's (SideBar.vue, SidebarFeedRow.vue), not
+// the Code view's: single-line rounded rows, an 18px bordered icon chip leading
+// each one, a tinted row for the selection, and actions revealed in a slot the
+// row already reserves. A workspace row is SideBar's folder header — its chip
+// swaps to a fold chevron on hover — and a chat row is a feed row. What the
+// Code view still lends is the activity vocabulary: the spinner, the approval
+// alert, and the liveness dot mean here exactly what they mean there.
 //
 // This component owns no pane state and no router — those stay in
 // AgentsMode.vue. Every action that reaches the pane (resuming, closing,
 // starting a chat) or the manifest (create/edit workspace — delete lives in
 // the editor) is an emitted event; only tree state, the chat row menus, and
 // the chat delete confirmation live here.
-import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { computed, ref, watch, type Component } from 'vue'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircleAlert from '~icons/lucide/circle-alert'
-import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
+import IconEllipsis from '~icons/lucide/ellipsis'
+import IconFolder from '~icons/lucide/folder'
 import IconFolderPlus from '~icons/lucide/folder-plus'
+import IconFolderX from '~icons/lucide/folder-x'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
+import IconMessageSquare from '~icons/lucide/message-square'
 import IconPencil from '~icons/lucide/pencil'
 import IconPin from '~icons/lucide/pin'
 import IconPinOff from '~icons/lucide/pin-off'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
+import AgentIcon, { agentHasIcon } from './AgentIcon.vue'
 import AppMenu from './AppMenu.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
@@ -93,9 +97,9 @@ watch(() => props.active, (active) => {
 }, { immediate: true })
 
 // ── The tree ─────────────────────────────────────────────────────────────
-// One node per workspace, carrying its own chats and the rollup its collapsed
-// row summarises. Chats keep the order the cross-workspace read hands over
-// (newest record first, stable under a resume — internal/app/store/queries:
+// One node per workspace, carrying its own chats and the rollup its folded row
+// summarises. Chats keep the order the cross-workspace read hands over (newest
+// record first, stable under a resume — internal/app/store/queries:
 // ListAllAgentWorkspaceSessions), so grouping costs no ordering.
 interface WorkspaceNode {
   dir: string
@@ -138,12 +142,12 @@ const tree = computed<WorkspaceNode[]>(() => {
 })
 
 // Expand/collapse is transient view state, not configuration — localStorage,
-// exactly as the Code view's group collapse. A workspace the user has never
-// toggled has no entry and takes the default, which is open only where
-// something is live or the open chat sits: a root's worth of dormant
-// workspaces would otherwise bury the one being worked in. An explicit toggle
-// always wins, including over the open chat, which is what makes a deliberate
-// fold stay folded.
+// the same call the hub sidebar's folder collapse and the Code view's group
+// collapse make. A workspace the user has never toggled has no entry and takes
+// the default, which is open only where something is live or the open chat
+// sits: a root's worth of dormant workspaces would otherwise bury the one being
+// worked in. An explicit toggle always wins, including over the open chat,
+// which is what makes a deliberate fold stay folded.
 const expansion = useStorage<Record<string, boolean>>('hive.agents.sidebar.workspaces', {})
 
 function expanded(node: WorkspaceNode): boolean {
@@ -159,7 +163,7 @@ function editWorkspace(node: WorkspaceNode): void {
   if (node.workspace) emit('edit-workspace', node.workspace)
 }
 
-// The row body focuses; the chevron folds. Focus is what regenerates the
+// The chip folds; the rest of the row focuses. Focus is what regenerates the
 // workspace's files and fills the missing-capability strips above the pane, so
 // it survived the filter it used to double as — but it only ever moves now.
 // Clearing it would change nothing on screen except silently dropping those
@@ -189,12 +193,28 @@ watch(() => props.selectedWorkspace, (dir) => {
   if (dir) unfold(dir)
 }, { immediate: true })
 
-// ── Row indicators, in the Code view's vocabulary (TerminalMode.vue): a
-// spinning loader while the agent works, an alert while it waits on approval.
-// Any other live chat gets the green session-liveness dot the Code view puts
-// on a running session — ready-and-waiting is still live — and an idle chat
-// an explicit hollow ring the same size, so live-vs-idle is always stated
-// rather than implied by absence. ─────────────────────────────────────────
+// ── What a row's chip and its tooltip say ────────────────────────────────
+// A workspace's chip carries its agent's brand mark where there is one, which
+// is the half of the old `agent · autonomy` line worth a glance; the whole line
+// is the row's tooltip. A directory the listing lost says so in the chip
+// instead, since it has no agent to name.
+function workspaceGlyph(node: WorkspaceNode): Component {
+  return node.workspace ? IconFolder : IconFolderX
+}
+
+function workspaceTooltip(node: WorkspaceNode): string {
+  if (!node.workspace) return `${node.dir}\nThis directory is no longer in the workspace root.`
+  const parts = [node.name, `${node.workspace.agent} · ${node.workspace.autonomy || '—'}`]
+  if (node.workspace.problem) parts.push(node.workspace.problem)
+  else if (node.workspace.notice) parts.push(node.workspace.notice)
+  return parts.join('\n')
+}
+
+// The Code view's vocabulary, unchanged: a spinning loader while the agent
+// works, an alert while it waits on approval. Any other live chat gets the
+// green liveness dot — ready-and-waiting is still live — and an idle chat an
+// explicit hollow ring the same size, so live-vs-idle is always stated rather
+// than implied by absence.
 interface StatusIndicator {
   icon: Component
   cls: string
@@ -217,29 +237,32 @@ const sessionIndicators = computed<Record<number, StatusIndicator>>(() => {
   return out
 })
 
-// The meta line answers "what is it doing": the activity word for a live chat,
-// or how long ago a stopped one was last opened. Where it is, the row's
-// position under its workspace already says.
-function sessionMeta(session: AgentSession): string {
-  switch (props.sessionActivity[session.id]) {
-    case 'approval': return 'needs approval'
-    case 'active': return 'working'
-    case 'ready': return 'ready'
-  }
-  if (session.terminalId) return 'live'
+// A dormant chat says how long ago it was opened; a live one does not, because
+// its mark in the trailing slot already says the only thing an age would
+// compete with.
+function chatAge(session: AgentSession): string {
+  if (session.terminalId || sessionIndicators.value[session.id]) return ''
   const age = relativeAge(session.lastOpenedAt)
   return age === 'now' ? 'just now' : `${age} ago`
 }
 
-// ── Chat row menus (the Code view's ellipsis + AppMenu shape) ────────────
-// One menu is ever open, keyed 's:<id>'. The toggle sits in the same fixed
-// slot the status indicator occupies, so every trailing element shares the
-// header +'s vertical axis. The menu anchors to the row element and
-// teleports (AppMenu's anchored mode): the tree scrolls, and an absolute
-// panel inside a scroll region would extend it instead of floating over the
-// sidebar. Workspace rows carry no menu — the editor is a workspace's whole
-// management surface, delete included, so their hover slot is a single edit
-// button.
+function chatTooltip(session: AgentSession): string {
+  const parts = [session.name]
+  const indicator = sessionIndicators.value[session.id]
+  if (indicator) parts.push(indicator.label)
+  else if (session.terminalId) parts.push('Agent running')
+  if (session.notice) parts.push(session.notice)
+  return parts.join('\n')
+}
+
+// ── Chat row menus (the hub sidebar's ellipsis + AppMenu shape) ──────────
+// One menu is ever open, keyed 's:<id>'. The toggle shares the trailing slot
+// with the status mark, so neither hovering a row nor opening its menu moves
+// the name. The menu anchors to the row element and teleports (AppMenu's
+// anchored mode): the tree scrolls, and an absolute panel inside a scroll
+// region would extend it instead of floating over the sidebar. Workspace rows
+// carry no menu — the editor is a workspace's whole management surface, delete
+// included, so their reserved action is a single edit button.
 const openMenu = ref('')
 const menuToggles = new Map<string, HTMLElement>()
 const menuAnchors = new Map<string, HTMLElement>()
@@ -298,51 +321,6 @@ const { size: sidebarWidth, startResize: startSidebarResize, step: stepSidebar }
   storageKey: 'hive.panel.agents.sidebar', defaultSize: 260, min: 180, max: 400, edge: 'right',
 })
 
-// ── The selection rail (the Code view's traveling mark, TerminalMode.vue) ─
-// One rail for the whole tree, measured off the open chat's row rather than
-// drawn by it, so changing the selection reads as the same mark relocating.
-// The focused workspace states itself in accent instead — two rails in one
-// scroll region would read as two competing selections.
-interface SelectionRail { y: number; height: number; shown: boolean }
-const treeContent = ref<HTMLElement | null>(null)
-const rail = ref<SelectionRail>({ y: 0, height: 0, shown: false })
-
-// A rail with no row to sit on fades out where it stands rather than
-// resetting, so it does not travel from a stale origin when one reappears.
-function measureRail(): void {
-  const content = treeContent.value
-  const row = content?.querySelector<HTMLElement>('[data-testid="agents-sidebar-session-row"][data-open="true"]')
-  if (!content || !row) {
-    rail.value = { ...rail.value, shown: false }
-    return
-  }
-  rail.value = {
-    y: row.getBoundingClientRect().top - content.getBoundingClientRect().top,
-    height: row.offsetHeight,
-    shown: true,
-  }
-}
-
-// The stored expansion map mutates in place, so the fold state reaches this
-// watch as a key rather than by identity.
-const foldKey = computed(() => tree.value.map((node) => `${node.dir}:${expanded(node) ? 1 : 0}`).join('|'))
-
-watch(
-  () => [props.openSessionId, tree.value, foldKey.value] as const,
-  () => void nextTick(measureRail),
-  { immediate: true },
-)
-
-// Rows also move without a selection change — a notice line appearing, a
-// workspace refilling after a reload — and a content resize is every one of
-// those.
-watch(treeContent, (el, _previous, onCleanup) => {
-  if (!el || typeof ResizeObserver === 'undefined') return
-  const observer = new ResizeObserver(() => measureRail())
-  observer.observe(el)
-  onCleanup(() => observer.disconnect())
-})
-
 // ── Focus handle for the global keymap (agents.focus-sidebar) ────────────
 const rootEl = ref<HTMLElement | null>(null)
 defineExpose({ focus: () => rootEl.value?.focus() })
@@ -356,23 +334,23 @@ defineExpose({ focus: () => rootEl.value?.focus() })
     data-testid="agents-workspace-sidebar"
     tabindex="-1"
   >
-    <div class="hive-scroll min-h-9 flex-1 overflow-y-auto pb-4" data-testid="agents-sidebar-tree">
+    <div class="hive-scroll min-h-9 flex-1 overflow-y-auto px-2.5 pt-3 pb-4" data-testid="agents-sidebar-tree">
       <!-- One header for one region. Both + actions live here because a
            workspace and a chat are created at different depths of the same
            tree, and the tree has one top. -->
-      <div class="flex items-center gap-1 px-3 pt-2.5 pb-1">
-        <span class="font-mono text-[10.5px] uppercase tracking-[0.12em] text-text-4">Workspaces</span>
+      <div class="section-label">
+        <span>WORKSPACES</span>
         <button
           type="button"
-          class="ml-auto flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-chip hover:text-text"
+          class="section-action ml-auto"
           title="New workspace"
           aria-label="New workspace"
           data-testid="agents-sidebar-new-workspace"
           @click="emit('create-workspace')"
-        ><IconFolderPlus class="size-3.5" /></button>
+        ><IconFolderPlus class="size-3" /></button>
         <button
           type="button"
-          class="flex size-5 shrink-0 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-chip hover:text-text disabled:cursor-default disabled:opacity-40"
+          class="section-action"
           title="New chat"
           aria-label="New chat"
           data-testid="agents-sidebar-new-session"
@@ -380,140 +358,144 @@ defineExpose({ focus: () => rootEl.value?.focus() })
           :aria-busy="startingSession"
           @click="emit('request-new-session')"
         >
-          <IconLoaderCircle v-if="startingSession" class="size-3.5 animate-spin" />
-          <IconPlus v-else class="size-3.5" />
+          <IconLoaderCircle v-if="startingSession" class="size-3 animate-spin" />
+          <IconPlus v-else class="size-3" />
         </button>
       </div>
 
-      <p v-if="workspacesError" class="px-3 py-2 text-xs text-severity-error" data-testid="agents-sidebar-workspaces-error">{{ workspacesError }}</p>
+      <p v-if="workspacesError" class="px-1.5 py-2 text-xs text-severity-error" data-testid="agents-sidebar-workspaces-error">{{ workspacesError }}</p>
       <div
         v-else-if="rootProblem"
-        class="flex flex-col gap-2 px-3 py-3 text-xs text-text-3"
+        class="flex flex-col gap-2 px-1.5 py-2 text-xs text-text-3"
         data-testid="agents-sidebar-root-missing"
       >
         <p class="leading-relaxed">The configured workspace root is unavailable:</p>
         <p class="font-mono text-[11px] text-severity-error">{{ rootProblem }}</p>
         <p class="leading-relaxed">Point <code>agent_workspaces.dir</code> in settings.yaml at a reachable folder; Settings ▸ Agents shows where it resolves.</p>
       </div>
-      <p v-else-if="!workspacesLoaded" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="agents-sidebar-workspaces-loading">Loading…</p>
-      <p v-else-if="!tree.length" class="px-3 py-2 text-xs text-text-3" data-testid="agents-sidebar-workspaces-empty">
+      <p v-else-if="!workspacesLoaded" class="px-1.5 py-2 font-mono text-xs text-text-4" data-testid="agents-sidebar-workspaces-loading">Loading…</p>
+      <p v-else-if="!tree.length" class="px-1.5 py-2 text-xs text-text-3" data-testid="agents-sidebar-workspaces-empty">
         No workspaces yet. Create one with +.
       </p>
       <template v-else>
         <!-- The chat read can fail on its own, which leaves every workspace row
              correct and every count wrong; say so rather than draw an empty
              tree. -->
-        <p v-if="recentsError" class="px-3 py-1.5 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
-        <div ref="treeContent" class="relative flex flex-col">
-          <template v-for="node in tree" :key="node.dir">
-            <div
-              class="group flex items-center hover:bg-chip"
-              data-testid="agents-sidebar-workspace-row"
-              :data-dir="node.dir"
-              :data-focused="node.dir === selectedWorkspace"
-              :data-expanded="expanded(node)"
-              @contextmenu.prevent="editWorkspace(node)"
-            >
-              <button
-                type="button"
-                class="flex size-5 shrink-0 cursor-pointer items-center justify-center self-start rounded-[5px] text-text-4 hover:bg-app hover:text-text ml-1.5 mt-1.5"
-                :title="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
-                :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
-                :aria-expanded="expanded(node)"
-                data-testid="agents-sidebar-workspace-toggle"
-                @click="toggleExpanded(node)"
-              ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3" /></button>
-              <button
-                type="button"
-                class="flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 py-1.5 pr-1 text-left"
-                data-testid="agents-sidebar-workspace-select"
-                @click="focusWorkspace(node)"
-              >
-                <span
-                  class="w-full truncate text-[13px]"
-                  :class="node.dir === selectedWorkspace ? 'font-medium text-accent' : 'text-text'"
-                >{{ node.name }}</span>
-                <span v-if="node.workspace" class="w-full truncate font-mono text-[10.5px] text-text-4">{{ node.workspace.agent }} · {{ node.workspace.autonomy || '—' }}</span>
-                <span v-else class="w-full truncate text-[11px] text-severity-error" data-testid="agents-sidebar-workspace-missing">Directory is no longer in the workspace root.</span>
-                <span v-if="node.workspace?.problem" class="w-full truncate text-[11px] text-severity-error" data-testid="agents-sidebar-workspace-problem">{{ node.workspace.problem }}</span>
-                <span v-else-if="node.workspace?.notice" class="w-full text-[11px] leading-snug text-severity-warning" data-testid="agents-sidebar-workspace-notice">{{ node.workspace.notice }}</span>
-              </button>
-              <!-- The rollup a collapsed row summarises with: how many chats,
-                   and whether any of them is live or is waiting on the user. -->
-              <div class="flex shrink-0 items-center gap-1.5 pr-3" @click.stop>
-                <span
-                  v-if="node.sessions.length"
-                  class="font-mono text-[11.5px]"
-                  :class="node.dir === selectedWorkspace ? 'text-accent' : 'text-text-4'"
-                >{{ node.sessions.length }}</span>
-                <span class="flex size-5 items-center justify-center" :class="{ 'group-hover:hidden': node.workspace }">
-                  <span
-                    v-if="node.live || node.waiting"
-                    class="size-2.5 rounded-full"
-                    :class="node.waiting ? 'bg-severity-warning' : 'bg-severity-success'"
-                    :title="node.waiting ? 'Needs approval' : 'Live chats'"
-                  />
-                </span>
-                <button
-                  v-if="node.workspace"
-                  type="button"
-                  class="hidden size-5 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-app hover:text-text group-hover:flex"
-                  title="Edit workspace"
-                  aria-label="Edit workspace"
-                  data-testid="agents-sidebar-workspace-edit"
-                  @click="emit('edit-workspace', node.workspace)"
-                ><IconPencil class="size-3" /></button>
-              </div>
-            </div>
+        <p v-if="recentsError" class="px-1.5 pb-1 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
 
-            <template v-if="expanded(node)">
-              <p
-                v-if="!node.sessions.length"
-                class="chat-row-indent py-1.5 text-[11.5px] text-text-4"
-                data-testid="agents-sidebar-workspace-no-chats"
-              >No chats yet.</p>
-              <template v-else>
+        <template v-for="node in tree" :key="node.dir">
+          <!-- Not a <button>: the fold chip and the edit button are real
+               buttons, which are invalid nested inside one. The div keeps the
+               row focusable and Enter/Space focus the workspace like a button
+               would (`.self`, so the chip's own keystrokes do not also focus). -->
+          <div
+            class="sidebar-entry"
+            :class="{ 'sidebar-entry-focused': node.dir === selectedWorkspace }"
+            role="button"
+            tabindex="0"
+            data-testid="agents-sidebar-workspace-row"
+            :data-dir="node.dir"
+            :data-focused="node.dir === selectedWorkspace"
+            :data-expanded="expanded(node)"
+            :title="workspaceTooltip(node)"
+            @click="focusWorkspace(node)"
+            @keydown.enter.self.prevent="focusWorkspace(node)"
+            @keydown.space.self.prevent="focusWorkspace(node)"
+            @contextmenu.prevent="editWorkspace(node)"
+          >
+            <!-- SideBar's folder header, verbatim: the chip carries identity at
+                 rest and becomes the fold handle under the pointer, so the row
+                 needs no permanent chevron column and stays aligned with the
+                 chats under it. -->
+            <button
+              type="button"
+              class="nav-icon nav-icon-button"
+              :class="{
+                'nav-icon-problem': !node.workspace || !!node.workspace.problem,
+                'nav-icon-notice': !!node.workspace?.notice && !node.workspace?.problem,
+              }"
+              :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
+              :aria-expanded="expanded(node)"
+              data-testid="agents-sidebar-workspace-toggle"
+              @click.stop="toggleExpanded(node)"
+            >
+              <AgentIcon
+                v-if="node.workspace && agentHasIcon(node.workspace.agent)"
+                :id="node.workspace.agent"
+                class="ws-glyph size-3"
+              />
+              <component :is="workspaceGlyph(node)" v-else class="ws-glyph size-3" />
+              <component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="ws-chevron size-3" />
+            </button>
+            <span class="min-w-0 flex-1 truncate font-medium">{{ node.name }}</span>
+            <button
+              v-if="node.workspace"
+              type="button"
+              class="row-action"
+              title="Edit workspace"
+              aria-label="Edit workspace"
+              data-testid="agents-sidebar-workspace-edit"
+              @click.stop="editWorkspace(node)"
+            ><IconPencil class="size-3" /></button>
+            <!-- The rollup a folded row summarises with: how many chats, and
+                 whether any of them is live or is waiting on the user. -->
+            <span class="entry-count">{{ node.sessions.length || '' }}</span>
+            <span class="entry-dot">
+              <span
+                v-if="node.live || node.waiting"
+                class="size-2 rounded-full"
+                :class="node.waiting ? 'bg-severity-warning' : 'bg-severity-success'"
+                :title="node.waiting ? 'Needs approval' : 'Live chats'"
+              />
+            </span>
+          </div>
+
+          <template v-if="expanded(node)">
+            <p
+              v-if="!node.sessions.length"
+              class="chat-empty"
+              data-testid="agents-sidebar-workspace-no-chats"
+            >No chats yet.</p>
+            <template v-else>
               <div
-                v-for="(session, index) in node.sessions"
+                v-for="session in node.sessions"
                 :key="session.id"
                 :ref="(el) => trackRowEl(menuAnchors, `s:${session.id}`, el)"
-                class="group chat-row flex items-center hover:bg-chip"
-                :class="{ 'bg-chip': openMenu === `s:${session.id}`, 'chat-row-last': index === node.sessions.length - 1 }"
+                class="sidebar-entry sidebar-entry-nested"
+                :class="{ 'sidebar-entry-selected': session.id === openSessionId, 'menu-open': openMenu === `s:${session.id}` }"
+                role="button"
+                tabindex="0"
                 data-testid="agents-sidebar-session-row"
                 :data-session-id="session.id"
                 :data-workspace="node.dir"
                 :data-open="session.id === openSessionId"
+                :title="chatTooltip(session)"
+                @click="emit('select-session', session)"
+                @keydown.enter.self.prevent="emit('select-session', session)"
+                @keydown.space.self.prevent="emit('select-session', session)"
                 @contextmenu.prevent="toggleMenu(`s:${session.id}`)"
               >
-                <button
-                  type="button"
-                  class="chat-row-indent flex min-w-0 flex-1 cursor-pointer flex-col items-start gap-0.5 py-1.5 pr-1 text-left"
-                  data-testid="agents-sidebar-session-select"
-                  @click="emit('select-session', session)"
-                >
-                  <!-- The pin mark rides the name rather than the trailing slot, which
-                       is a fixed grid the activity indicator and the menu toggle
-                       already share. -->
-                  <span class="flex w-full min-w-0 items-center gap-1">
-                    <span
-                      class="min-w-0 flex-1 truncate text-[13px]"
-                      :class="session.id === openSessionId ? 'font-medium text-accent' : 'text-text'"
-                    >{{ session.name }}</span>
-                    <IconPin
-                      v-if="isPinned(session.id)"
-                      class="size-2.5 shrink-0 text-text-4"
-                      title="Pinned to Code"
-                      data-testid="agents-sidebar-session-pinned"
-                    />
-                  </span>
-                  <span class="w-full truncate font-mono text-[10.5px] text-text-4">{{ sessionMeta(session) }}</span>
-                  <span v-if="session.notice" class="w-full truncate text-[11px] text-severity-warning" :title="session.notice" data-testid="agents-sidebar-session-notice">{{ session.notice }}</span>
-                </button>
-                <div class="flex shrink-0 items-center justify-end pr-3" @click.stop>
-                  <span
-                    v-if="openMenu !== `s:${session.id}`"
-                    class="flex size-5 items-center justify-center group-hover:hidden"
-                  >
+                <span
+                  class="nav-icon"
+                  :class="{ 'nav-icon-notice': !!session.notice }"
+                  :data-testid="session.notice ? 'agents-sidebar-session-notice' : undefined"
+                ><IconMessageSquare class="size-3" /></span>
+                <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
+                <!-- The pin mark rides the name's line rather than the trailing
+                     slot, which the status mark and the menu toggle already
+                     share. -->
+                <IconPin
+                  v-if="isPinned(session.id)"
+                  class="size-2.5 shrink-0 text-text-4"
+                  title="Pinned to Code"
+                  data-testid="agents-sidebar-session-pinned"
+                />
+                <span v-if="chatAge(session)" class="entry-age">{{ chatAge(session) }}</span>
+                <!-- One cell, two occupants: the status is what the row says at
+                     rest, the menu what it offers under the pointer. Neither
+                     ever moves the name. -->
+                <div class="entry-slot" @click.stop>
+                  <span class="entry-status">
                     <component
                       :is="sessionIndicators[session.id].icon"
                       v-if="sessionIndicators[session.id]"
@@ -524,13 +506,13 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                     />
                     <span
                       v-else-if="session.terminalId"
-                      class="size-2.5 rounded-full bg-severity-success"
+                      class="size-2 rounded-full bg-severity-success"
                       title="Agent running"
                       data-testid="agents-sidebar-session-liveness"
                     />
                     <span
                       v-else
-                      class="size-2.5 rounded-full border border-text-4"
+                      class="size-2 rounded-full border border-text-4"
                       title="Not running"
                       data-testid="agents-sidebar-session-idle"
                     />
@@ -538,38 +520,28 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   <button
                     :ref="(el) => trackRowEl(menuToggles, `s:${session.id}`, el)"
                     type="button"
-                    class="size-5 cursor-pointer items-center justify-center rounded-[5px] text-text-3 hover:bg-app hover:text-text"
-                    :class="openMenu === `s:${session.id}` ? 'flex bg-app text-text' : 'hidden group-hover:flex'"
+                    class="entry-menu"
                     title="Chat actions"
                     aria-label="Chat actions"
                     aria-haspopup="menu"
                     :aria-expanded="openMenu === `s:${session.id}`"
                     data-testid="agents-sidebar-session-menu"
                     @click="toggleMenu(`s:${session.id}`)"
-                  ><IconEllipsisVertical class="size-3.5" /></button>
+                  ><IconEllipsis class="size-3" /></button>
+                  <AppMenu
+                    v-if="openMenu === `s:${session.id}`"
+                    :entries="sessionMenuEntries(session)"
+                    :anchor="menuAnchors.get(`s:${session.id}`) ?? null"
+                    :ignore="[menuToggles.get(`s:${session.id}`) ?? null]"
+                    testid="agents-sidebar-session-menu-panel"
+                    @select="onSessionMenuSelect(session, $event)"
+                    @close="openMenu = ''"
+                  />
                 </div>
-                <AppMenu
-                  v-if="openMenu === `s:${session.id}`"
-                  :entries="sessionMenuEntries(session)"
-                  :anchor="menuAnchors.get(`s:${session.id}`) ?? null"
-                  :ignore="[menuToggles.get(`s:${session.id}`) ?? null]"
-                  testid="agents-sidebar-session-menu-panel"
-                  @select="onSessionMenuSelect(session, $event)"
-                  @close="openMenu = ''"
-                />
               </div>
-              </template>
             </template>
           </template>
-          <span
-            class="agents-rail"
-            :class="{ 'agents-rail-shown': rail.shown }"
-            :style="{ transform: `translateY(${rail.y}px)`, height: `${rail.height}px` }"
-            data-testid="agents-sidebar-session-rail"
-            :data-shown="rail.shown"
-            aria-hidden="true"
-          />
-        </div>
+        </template>
       </template>
     </div>
     <PanelResizeHandle edge="right" name="agents-sidebar" :start="startSidebarResize" :step="stepSidebar" />
@@ -587,31 +559,63 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 </template>
 
 <style scoped>
-/* The Code view's tree-rail, verbatim: square ends, and motion fast enough to
-   read as the same mark relocating rather than a second one appearing. */
-.agents-rail {
-  position: absolute; left: 0; top: 0; z-index: 1; width: 3px;
-  background: var(--color-accent);
-  opacity: 0;
-  pointer-events: none;
-  transition: transform .2s cubic-bezier(.2, 0, 0, 1), height .2s cubic-bezier(.2, 0, 0, 1), opacity .12s ease;
-}
-.agents-rail-shown { opacity: 1; }
+/* The hub sidebar's row box (SideBar.vue's .folder-header, SidebarFeedRow's
+   .sidebar-entry), shared here by both levels: a workspace and a chat are the
+   same row wearing different chips. */
+.sidebar-entry { position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
+.sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
+.sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+/* Nesting is an inset, not a drawn connector: the chats sit inside their
+   workspace's column and the fold chevron above them says what they hang from. */
+.sidebar-entry-nested { margin-left: 12px; }
+/* Two strengths of mark, so they cannot be confused: the open chat fills its
+   row, the focused workspace only goes accent. Focus scopes what the strips
+   above the pane describe; the fill is what says "this one is in the pane". */
+.sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
+.sidebar-entry-focused { color: var(--color-accent); }
+.sidebar-entry-selected .nav-icon, .sidebar-entry-focused .nav-icon { border-color: var(--color-accent-tint); color: var(--color-accent); }
 
-/* A chat's name lines up past its workspace's, which starts at 26px — the 6px
-   inset plus the 20px chevron. */
-.chat-row-indent { padding-left: 34px; }
+.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--color-strong); border-radius: 5px; background: var(--color-app); color: var(--color-text-2); }
+.nav-icon-button { cursor: pointer; }
+.nav-icon-button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+/* A problem or a notice used to be its own line of text under the name. It is
+   the chip's colour now, with the message on the row's tooltip — a warning is
+   worth a glance, and its wording is worth a hover. */
+.nav-icon-notice { border-color: var(--color-severity-warning); color: var(--color-severity-warning); }
+.nav-icon-problem { border-color: var(--color-severity-error); color: var(--color-severity-error); }
+/* The chip shows what the workspace is at rest and what the chip does under the
+   pointer. Swapped on row hover rather than chip hover, so folding is
+   discoverable without hunting for the target. */
+.ws-glyph { display: inline-flex; }
+.ws-chevron { display: none; }
+.sidebar-entry:hover .ws-glyph { display: none; }
+.sidebar-entry:hover .ws-chevron { display: inline-flex; }
 
-/* The tree connector is drawn, not typed (TerminalMode.vue's .window-row):
-   a box-drawing glyph is only as tall as its font size, so stacked rows would
-   show a gap where the TUI's cell grid shows an unbroken line. ::before is the
-   vertical, stopped at the elbow on the last chat; ::after is the tick into the
-   name. Both hang off the chevron's own centre line so the fold handle and the
-   subtree it opens share an axis, and the tick is pinned to the name's line
-   rather than the row's middle — a chat row is two or three lines tall, so its
-   middle is under the meta text. */
-.chat-row { position: relative; }
-.chat-row::before { content: ''; position: absolute; left: 16px; top: 0; bottom: 0; border-left: 1px solid var(--color-strong); }
-.chat-row::after { content: ''; position: absolute; left: 16px; top: 16px; width: 10px; border-top: 1px solid var(--color-strong); }
-.chat-row-last::before { bottom: auto; height: 16px; }
+/* Revealed by opacity, not display, so every trailing column stays reserved:
+   hovering a row never reflows the name or hides the count. */
+.row-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+.row-action:hover { background: var(--color-app); color: var(--color-text); }
+.sidebar-entry:hover .row-action, .row-action:focus-visible { opacity: 1; }
+
+.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-4); }
+.sidebar-entry-focused .entry-count { color: var(--color-accent); }
+.entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
+.entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
+
+/* One 18px cell holding the status mark and the menu toggle, overlapped on the
+   grid so swapping between them costs no layout anywhere on the row. */
+.entry-slot { display: grid; flex: none; width: 18px; height: 18px; }
+.entry-status, .entry-menu { grid-area: 1 / 1; }
+.entry-status { display: inline-flex; align-items: center; justify-content: center; }
+.entry-menu { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+.entry-menu:hover, .entry-menu[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
+.sidebar-entry:hover .entry-status, .sidebar-entry.menu-open .entry-status { opacity: 0; }
+.sidebar-entry:hover .entry-menu, .entry-menu:focus-visible, .sidebar-entry.menu-open .entry-menu { opacity: 1; }
+
+.section-label { display: flex; align-items: center; gap: 7px; padding: 0 6px 8px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
+.section-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--color-text-3); cursor: pointer; }
+.section-action:hover { background: var(--color-chip); color: var(--color-text); }
+.section-action:disabled { cursor: default; opacity: .4; }
+
+.chat-empty { margin-left: 12px; padding: 6px 8px 6px 20px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>

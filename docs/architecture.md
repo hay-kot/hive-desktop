@@ -1537,15 +1537,29 @@ chat is on it.
 **Folding scopes the tree; focusing a workspace does not.** Fold state is
 `localStorage` (`hive.agents.sidebar.workspaces`) per workspace, defaulting open
 only where a chat is live or the pane's chat sits, and an explicit fold outranks
-both — the Code view's group-collapse rule (`hive.terminal.sidebar.groups`)
-applied to this tree, which is what keeps the two trees consistent rather than
-merely similar. Focus is a separate axis carried by the route's `:workspace`
-param: it regenerates that workspace's files and fills the missing-capability
-strips above the pane, and the sidebar only ever *moves* it, never clears it,
-because clearing it no longer changes what is on screen. The two views diverge
-on one detail deliberately — the fold chevron leads an Agents row and trails a
-Code one, because a workspace row is multi-line and a trailing chevron on a tall
-row does not read as the handle for what is under it.
+both — the same rule the hub sidebar's folder collapse (`hive.sidebar.collapsed`)
+and the Code view's group collapse (`hive.terminal.sidebar.groups`) already
+make. Focus is a separate axis carried by the route's `:workspace` param: it
+regenerates that workspace's files and fills the missing-capability strips above
+the pane, and the sidebar only ever *moves* it, never clears it, because
+clearing it no longer changes what is on screen.
+
+**Its rows are the hub sidebar's, not the Code view's.** `SideBar.vue`'s
+`.folder-header` and `SidebarFeedRow.vue`'s `.sidebar-entry` are what a
+workspace row and a chat row wear: one line, an 18px bordered chip leading it,
+and every trailing control revealed by opacity in a column the row already
+reserves, so hovering never reflows a name. Nesting is a 12px inset — no drawn
+connector, and no rail. Selection has two strengths, and they must stay
+distinguishable: the open chat fills its row, the focused workspace only goes
+accent, because focus scopes the strips above the pane while the fill is what
+says which chat is *in* it. A workspace's chip carries its agent's brand mark
+(`AgentIcon`) and swaps to the fold chevron on hover, which is why the row needs
+no permanent chevron column; a chat's carries a message mark. Secondary text a
+row used to stack under its name — `agent · autonomy`, a problem, a notice — is
+the row's tooltip, with the chip going amber or red so a warning stays a glance
+rather than a hover. What the Code view still lends is the activity vocabulary
+alone: the spinner, the approval alert and the liveness dot mean here exactly
+what they mean there.
 
 ## Execution model
 

@@ -105,26 +105,30 @@ describe('AgentsSidebar', () => {
     expect(chatRows[0].text()).toContain('a-session')
   })
 
-  it('marks the focused workspace in accent, with no rail of its own to compete with the chat rail', async () => {
+  // Two strengths of mark, borrowed from the hub sidebar: the open chat fills
+  // its row, the focused workspace only goes accent.
+  it('marks the focused workspace in accent, without filling its row', async () => {
     const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows[1].attributes('data-focused')).toBe('true')
+    expect(rows[1].classes()).toContain('sidebar-entry-focused')
     expect(rows[0].attributes('data-focused')).toBe('false')
-    expect(rows[1].find('.text-accent').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
+    expect(rows[1].classes()).not.toContain('sidebar-entry-selected')
   })
 
-  it('the rail lands on the open chat row', async () => {
+  it("fills the open chat's row, and nothing else's", async () => {
     const wrapper = await mountSidebar({ openSessionId: 2 })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
     expect(rows[1].attributes('data-open')).toBe('true')
+    expect(rows[1].classes()).toContain('sidebar-entry-selected')
     expect(rows[0].attributes('data-open')).toBe('false')
-    expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('true')
+    expect(rows[0].classes()).not.toContain('sidebar-entry-selected')
   })
 
-  it('the rail fades out rather than sit on a stale row when no chat is open', async () => {
-    const wrapper = await mountSidebar()
-    expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('false')
+  it("draws no rail: the Code view's traveling mark is not this sidebar's language", async () => {
+    const wrapper = await mountSidebar({ openSessionId: 2 })
+    expect(wrapper.find('[data-testid="agents-sidebar-session-rail"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
   })
 
   // ── Folding ─────────────────────────────────────────────────────────────
@@ -160,14 +164,14 @@ describe('AgentsSidebar', () => {
 
   it('clicking a workspace row body focuses it and opens it', async () => {
     const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[0].trigger('click')
+    await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-a']])
     expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].attributes('data-expanded')).toBe('true')
   })
 
   it('clicking the focused workspace row keeps the focus rather than clearing it', async () => {
     const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[1].trigger('click')
+    await wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1].trigger('click')
     expect(wrapper.emitted('select-workspace')).toEqual([['demo-b']])
   })
 
@@ -183,7 +187,8 @@ describe('AgentsSidebar', () => {
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
     expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
-    expect(rows[1].find('[data-testid="agents-sidebar-workspace-missing"]').exists()).toBe(true)
+    expect(rows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes()).toContain('nav-icon-problem')
+    expect(rows[1].attributes('title')).toContain('no longer in the workspace root')
     // Nothing to open and nothing to edit, but its chats are still reachable.
     expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)
     expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(2)
@@ -204,18 +209,30 @@ describe('AgentsSidebar', () => {
     expect(rows[1].find('[data-testid="agents-sidebar-session-idle"]').exists()).toBe(false)
   })
 
-  it("the meta line reads live-vs-age, not the agent's name", async () => {
+  it('a dormant chat says how long ago on the row; a live one lets its mark say it', async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows[0].text()).toContain('1m ago')
+    expect(rows[0].get('.entry-age').text()).toBe('1m ago')
+    expect(rows[1].find('.entry-age').exists()).toBe(false)
+  })
+
+  it('a chat working or waiting on approval drops the age for its activity mark', async () => {
+    const wrapper = await mountSidebar({ sessionActivity: { 1: 'active' } })
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(rows[0].find('.entry-age').exists()).toBe(false)
+    expect(rows[0].find('.animate-spin').exists()).toBe(true)
+  })
+
+  it("a workspace's agent and autonomy move to its row tooltip", async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows[0].attributes('title')).toContain('claude · ask')
     expect(rows[0].text()).not.toContain('claude')
-    expect(rows[1].text()).toContain('live')
-    expect(rows[1].text()).not.toContain('codex')
   })
 
   it('clicking a session row emits select-session with that session', async () => {
     const wrapper = await mountSidebar()
-    await wrapper.findAll('[data-testid="agents-sidebar-session-select"]')[0].trigger('click')
+    await wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0].trigger('click')
     expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
   })
 
