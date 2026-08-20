@@ -239,7 +239,9 @@ describe('TerminalMode', () => {
     mocks.Available.mockResolvedValue({ available: true, reason: '' })
     mocks.Scratch.mockResolvedValue({ slug: 'Scratch', name: 'Terminals' })
     mocks.getTerminalEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 't' })
-    mocks.createTerminalClient.mockReturnValue({})
+    // Every close asks what the tab is running first; idle is the answer that
+    // keeps the rest of these tests closing on the click.
+    mocks.createTerminalClient.mockReturnValue({ windowForeground: vi.fn().mockResolvedValue({ running: false, command: '' }) })
     mocks.ListSessions.mockResolvedValue([
       { id: '1', name: 'fix the parser', slug: 'hive-fix-parser', repo: 'hay-kot/hive', state: 'active' },
       { id: '2', name: 'bump deps', slug: 'hive-bump-deps', repo: 'hay-kot/hive', state: 'active' },
@@ -1037,6 +1039,79 @@ describe('TerminalMode', () => {
     await input.setValue('build')
     await input.trigger('keydown.enter')
     expect(session.rename).toHaveBeenCalledWith('@2', 'build')
+  })
+
+  // Closing a tab kills its tmux window and everything in it, so a tab running
+  // something is confirmed first — and the dialog names the process, because
+  // "are you sure" is not a question the user can answer without it.
+  it('confirms before closing a tab that is running something', async () => {
+    const windowForeground = vi.fn().mockResolvedValue({ running: true, command: 'claude' })
+    mocks.createTerminalClient.mockReturnValue({ windowForeground })
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+    await flushPromises()
+
+    // Read at the moment of the close, for the window the close would kill.
+    expect(windowForeground).toHaveBeenCalledWith('hive-bump-deps', '@1')
+    expect(session.closeWindow).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('claude is still running in agent')
+
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')?.click()
+    await flushPromises()
+    expect(session.closeWindow).toHaveBeenCalledWith('@1')
+  })
+
+  it('leaves the tab and its process alone when the confirmation is cancelled', async () => {
+    mocks.createTerminalClient.mockReturnValue({ windowForeground: vi.fn().mockResolvedValue({ running: true, command: 'claude' }) })
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
+    await flushPromises()
+
+    expect(session.closeWindow).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="session-confirmation"]')).toBeNull()
+  })
+
+  // The chord and the button are the same close, so they take the same guard —
+  // the chord acts on the active window, which is the one it names.
+  it('confirms before the close chord kills a running tab', async () => {
+    const windowForeground = vi.fn().mockResolvedValue({ running: true, command: 'nvim' })
+    mocks.createTerminalClient.mockReturnValue({ windowForeground })
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    closeTerminalWindow()
+    await flushPromises()
+
+    expect(windowForeground).toHaveBeenCalledWith('hive-bump-deps', '@1')
+    expect(session.closeWindow).not.toHaveBeenCalled()
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-confirm"]')?.click()
+    await flushPromises()
+    expect(session.closeWindow).toHaveBeenCalledWith('@1')
+  })
+
+  // A check that failed is not evidence the tab is idle, and killing a process
+  // to find out is what the confirmation exists to prevent.
+  it('confirms when what the tab is running could not be read', async () => {
+    mocks.createTerminalClient.mockReturnValue({ windowForeground: vi.fn().mockRejectedValue(new Error('tmux went away')) })
+    const { wrapper, session } = await mountAvailable()
+    await sessionRows(wrapper)[0].trigger('click')
+    await flushPromises()
+
+    await wrapper.findAll('[data-testid="terminal-close-window"]')[0].trigger('click')
+    await flushPromises()
+
+    expect(session.closeWindow).not.toHaveBeenCalled()
+    expect(document.querySelector('[data-testid="session-confirmation"]')?.textContent).toContain('Something is still running in agent')
+    document.querySelector<HTMLButtonElement>('[data-testid="session-confirmation-cancel"]')?.click()
   })
 
   // Adding a window is a property of the session, not of what is on screen, so

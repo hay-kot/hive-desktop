@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/assert"
@@ -343,4 +344,108 @@ func TestTerminalsStartReportsWhyItCouldNot(t *testing.T) {
 	// knows the slug must not read as a tmux fault.
 	assert.Equal(t, KindNotFound, KindOf(err))
 	assert.Contains(t, err.Error(), "hive-gone")
+}
+
+// Whether a tab closes silently is a question about processes: a shell waiting
+// at its prompt is idle, and anything running in front of it is not — including
+// the two cases either half of the check would get wrong on its own.
+func TestTerminalsWindowForegroundTellsAPromptFromWork(t *testing.T) {
+	tmux := privateTmux(t)
+	terminals := newTestTerminals(t, &spawningStarter{tmux: tmux})
+	require.NoError(t, tmux("new-session", "-d", "-s", "hive-fg", "-n", "shell", "-x", "120", "-y", "40"))
+	// tmux runs a window's command through sh -c, which execs it in place: the
+	// pane's own process becomes the work, so nothing it started is running and
+	// the process check alone would read this as a prompt.
+	require.NoError(t, tmux("new-window", "-t", "hive-fg", "-n", "agent", "sleep 300"))
+
+	windows, err := terminals.Attach(t.Context(), "hive-fg", 120, 40)
+	require.NoError(t, err)
+	byName := map[string]string{}
+	for _, window := range windows {
+		byName[window.Name] = window.ID
+	}
+	require.Len(t, byName, 2)
+
+	awaitForeground(t, terminals, "hive-fg", byName["agent"], WindowForeground{Running: true, Command: "sleep"})
+	awaitForeground(t, terminals, "hive-fg", byName["shell"], WindowForeground{})
+
+	// The other half: a shell script runs under its interpreter's own name, so
+	// the name alone reads as a prompt. The pane's process is what says
+	// otherwise — the shell is waiting on something rather than on the user.
+	require.NoError(t, tmux("send-keys", "-t", "hive-fg:shell", "sh -c 'sleep 300; true'", "Enter"))
+	awaitForeground(t, terminals, "hive-fg", byName["shell"], WindowForeground{Running: true, Command: "sh"})
+}
+
+// awaitForeground polls until the window answers want, because the answer is
+// whatever the pane's process tree is doing at the moment it is read: the shell
+// tmux started has to reach its prompt, and a command it was sent has to be
+// forked *and* exec'd — between those two the pane is already running something
+// under the name of the shell that started it.
+func awaitForeground(t *testing.T, terminals *TerminalsService, slug, windowID string, want WindowForeground) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last WindowForeground
+	for time.Now().Before(deadline) {
+		foreground, err := terminals.WindowForeground(t.Context(), slug, windowID)
+		require.NoError(t, err)
+		last = foreground
+		if foreground == want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("window %s never answered %+v; its last answer was %+v", windowID, want, last)
+}
+
+// What a window answers with is the whole window's, because closing one kills
+// every pane in it — and an answer it could not establish is work, not a prompt.
+func TestTerminalsForegroundOfReadsTheWholeWindow(t *testing.T) {
+	t.Parallel()
+
+	atPrompt := map[int]bool{100: true, 200: true}
+	terminals := &TerminalsService{foreground: func(_ context.Context, pid int) (bool, error) {
+		if pid == 0 {
+			return false, errors.New("no such process")
+		}
+		return atPrompt[pid], nil
+	}}
+
+	cases := map[string]struct {
+		panes []tmuxcc.Pane
+		want  WindowForeground
+	}{
+		"every pane at a prompt": {
+			panes: []tmuxcc.Pane{
+				{ID: "%1", PID: 100, Active: true, Command: "zsh"},
+				{ID: "%2", PID: 200, Command: "-bash"},
+			},
+		},
+		"the active pane's process is the one named": {
+			panes: []tmuxcc.Pane{
+				{ID: "%1", PID: 300, Command: "npm"},
+				{ID: "%2", PID: 400, Active: true, Command: "claude"},
+			},
+			want: WindowForeground{Running: true, Command: "claude"},
+		},
+		"a background pane alone is enough": {
+			panes: []tmuxcc.Pane{
+				{ID: "%1", PID: 100, Active: true, Command: "zsh"},
+				{ID: "%2", PID: 300, Command: "nvim"},
+			},
+			want: WindowForeground{Running: true, Command: "nvim"},
+		},
+		"a dead pane is not running anything": {
+			panes: []tmuxcc.Pane{{ID: "%1", Active: true, Dead: true, Command: "claude"}},
+		},
+		"a process that cannot be read is work": {
+			panes: []tmuxcc.Pane{{ID: "%1", PID: 0, Active: true, Command: "zsh"}},
+			want:  WindowForeground{Running: true, Command: "zsh"},
+		},
+	}
+
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, terminals.foregroundOf(t.Context(), tc.panes))
+		})
+	}
 }

@@ -217,6 +217,26 @@ describe('createTerminalClient', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:58006/api/terminal/kill')
   })
 
+  it('reports what a window is running before it is closed', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, { running: true, command: 'claude' }))
+
+    const result = await createTerminalClient(endpoint).windowForeground('hive-abc', '@1')
+
+    expect(result).toEqual({ running: true, command: 'claude' })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:58006/api/terminal/windows/foreground')
+    expect(JSON.parse(init.body)).toEqual({ slug: 'hive-abc', windowId: '@1' })
+  })
+
+  // An answer carrying no verdict is an unknown, and the caller kills the window
+  // on the strength of this one — so an unknown is something running.
+  it('reads a window with no verdict as running rather than idle', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, {}))
+
+    await expect(createTerminalClient(endpoint).windowForeground('hive-abc', '@1'))
+      .resolves.toEqual({ running: true, command: '' })
+  })
+
   it('surfaces the core error message and its kind from a failed control action', async () => {
     fetchMock.mockResolvedValue(jsonResponse(404, { kind: 'not_found', message: 'no terminal is attached for that slug' }))
 

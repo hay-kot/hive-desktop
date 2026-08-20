@@ -219,6 +219,55 @@ func TestTmuxAttachReturnsWindowsAndStreamsEvents(t *testing.T) {
 	readUntil(t, conn, "a closed window event", func(f []byte) bool { return isWindowEvent(f, "closed", created.WindowID) })
 }
 
+// The close button asks this before it kills a window, so what it answers has
+// to be about the window's processes: a shell waiting at its prompt closes
+// silently, and a window running something names it so the user can be told
+// what is about to stop.
+func TestTmuxWindowForegroundNamesWhatACloseWouldKill(t *testing.T) {
+	tmux := startTmux(t, "hive-foreground")
+	// tmux runs a window's command through sh -c, which execs it: the pane's own
+	// process becomes the work rather than parenting it.
+	tmux.tmux("new-window", "-t", tmux.slug, "-n", "agent", "sleep 300")
+	h := newTerminalHarness(t)
+
+	attached := h.attach(t, tmux.slug)
+	byName := map[string]string{}
+	for _, window := range attached.Windows {
+		byName[window.Name] = window.WindowID
+	}
+	require.Len(t, byName, 2)
+
+	h.awaitForeground(t, tmux.slug, byName["agent"], foregroundResult{Running: true, Command: "sleep"})
+	// The other window is a shell at its prompt, which closes without asking.
+	h.awaitForeground(t, tmux.slug, byName["claude"], foregroundResult{})
+}
+
+type foregroundResult struct {
+	Running bool   `json:"running"`
+	Command string `json:"command"`
+}
+
+// awaitForeground polls the route until the window answers want, because the
+// answer is whatever the pane's process tree is doing at the moment it is read:
+// the shell tmux started has to reach its prompt, and the other window's command
+// has to be forked and exec'd before it is what is running.
+func (h *terminalHarness) awaitForeground(t *testing.T, slug, windowID string, want foregroundResult) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	var last foregroundResult
+	for time.Now().Before(deadline) {
+		resp := h.post(t, "/api/terminal/windows/foreground", testToken, map[string]any{"slug": slug, "windowId": windowID})
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&last))
+		_ = resp.Body.Close()
+		if last == want {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("window %s never answered %+v; its last answer was %+v", windowID, want, last)
+}
+
 // A session tmux is not running answers 404 rather than tmux's own complaint
 // dressed as an internal fault: that is the answer the terminal view turns into
 // its "start this session" panel, so it has to be classified, not narrated.

@@ -258,6 +258,16 @@ Only a session you are attached to can be reordered: moving a window is
 something the attach does, so the windows listed under sessions you have not
 opened are there to click, not to drag.
 
+## Closing a window
+
+The `×` on a window row closes it, and `⌘W` closes the one you are in. Closing a
+window kills whatever is running in it, so Hive asks first when there is
+something to lose: a window running an agent, a build or an editor names what
+that is and waits for you to confirm, while a shell sitting at its prompt closes
+on the click. What it reads is the pane's own processes rather than anything the
+pane printed, so a script you started counts the same as an agent — and a pane
+it cannot read, it asks about.
+
 ## Changing the text size
 
 Settings ▸ Terminal steps the terminal's text through five presets,

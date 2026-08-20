@@ -284,6 +284,7 @@ function fakeClient(): MockedClient {
     resize: vi.fn().mockResolvedValue(undefined),
     newWindow: vi.fn().mockResolvedValue({ windowId: '@3' }),
     closeWindow: vi.fn().mockResolvedValue(undefined),
+    windowForeground: vi.fn().mockResolvedValue({ running: false, command: '' }),
     renameWindow: vi.fn().mockResolvedValue(undefined),
     moveWindow: vi.fn().mockResolvedValue({ windows: [] }),
     selectWindow: vi.fn().mockResolvedValue(undefined),

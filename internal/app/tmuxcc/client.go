@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -35,6 +36,11 @@ const (
 	// that lists the whole server. The name goes first because window_name is
 	// last and may contain spaces, so only the first field can be split off.
 	sessionWindowsFormat = "#{session_name} " + listWindowsFormat
+
+	// A pane row for a caller asking what a window is running. The command goes
+	// last: it is a process name, which is the only field here that can contain
+	// spaces.
+	listPanesFormat = "#{pane_id} #{pane_pid} #{pane_active} #{pane_dead} #{pane_current_command}"
 
 	// The pane's cursor as an emulator addresses it: 0-based row, then column.
 	cursorFormat = "#{cursor_y} #{cursor_x}"
@@ -356,6 +362,41 @@ func (c *Client) CloseWindow(ctx context.Context, windowID string) error {
 	}
 	_, err := c.gw.Send(ctx, "kill-window -t "+windowID)
 	return err
+}
+
+// Pane is one pane of a window. Command is its foreground process — the name
+// tmux's own status line shows — while PID is the process tmux started the pane
+// with, so the two name the same process only while nothing that process
+// started is running. PID is 0 when tmux reported one this cannot read.
+type Pane struct {
+	ID      string
+	PID     int
+	Active  bool
+	Dead    bool
+	Command string
+}
+
+// ListPanes reports the panes of one window. It is a live query rather than
+// controller state: only a window's active pane id is modelled there, and what
+// a pane is running changes without tmux announcing anything.
+func (c *Client) ListPanes(ctx context.Context, windowID string) ([]Pane, error) {
+	if err := c.requireWindow(windowID); err != nil {
+		return nil, err
+	}
+	lines, err := c.gw.Send(ctx, `list-panes -t `+windowID+` -F "`+listPanesFormat+`"`)
+	if err != nil {
+		return nil, err
+	}
+	panes := make([]Pane, 0, len(lines))
+	for _, line := range lines {
+		p, ok := parsePaneLine(line)
+		if !ok {
+			c.log.Warn().Str("line", line).Msg("unparseable list-panes row")
+			continue
+		}
+		panes = append(panes, p)
+	}
+	return panes, nil
 }
 
 func (c *Client) RenameWindow(ctx context.Context, windowID, name string) error {
@@ -1082,6 +1123,30 @@ func parseWindowLine(line string) (Window, bool) {
 		w.Name = fields[5]
 	}
 	return w, true
+}
+
+// parsePaneLine reads one listPanesFormat row. The pid goes through strconv
+// rather than this package's own atoi, whose six-digit cap is a guard for
+// notification fields and would read a Linux pid past 999999 as 0.
+func parsePaneLine(line string) (Pane, bool) {
+	fields := strings.SplitN(line, " ", 5)
+	if len(fields) < 4 || !isPaneID([]byte(fields[0])) {
+		return Pane{}, false
+	}
+	pid, err := strconv.Atoi(fields[1])
+	if err != nil || pid < 0 {
+		pid = 0
+	}
+	p := Pane{
+		ID:     fields[0],
+		PID:    pid,
+		Active: fields[2] == "1",
+		Dead:   fields[3] == "1",
+	}
+	if len(fields) == 5 {
+		p.Command = fields[4]
+	}
+	return p, true
 }
 
 // snapshotBytes joins a captured pane into one replay: history rows, then

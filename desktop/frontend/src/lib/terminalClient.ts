@@ -69,6 +69,13 @@ export class TerminalRequestError extends Error {
   }
 }
 
+/** What a window has in front of it — see TerminalClient.windowForeground. */
+export interface WindowForeground {
+  running: boolean
+  /** The foreground process's name; empty when nothing is running, or when the name could not be read. */
+  command: string
+}
+
 export interface TerminalClient {
   /**
    * cols/rows are the opening size vote; 0x0 attaches without setting one.
@@ -94,6 +101,13 @@ export interface TerminalClient {
   resize(slug: string, cols: number, rows: number): Promise<void>
   newWindow(slug: string): Promise<{ windowId: string }>
   closeWindow(slug: string, windowId: string): Promise<void>
+  /**
+   * Reports whether a window is running anything a close would kill. `running`
+   * is false only when every live pane in it is a shell waiting at its prompt;
+   * a pane whose state could not be read answers true, so an unknown is never
+   * mistaken for an idle one.
+   */
+  windowForeground(slug: string, windowId: string): Promise<WindowForeground>
   renameWindow(slug: string, windowId: string, name: string): Promise<void>
   /**
    * Moves a window to `position` in the session's window order — a 0-based
@@ -156,6 +170,12 @@ export function createTerminalClient(endpoint: TerminalEndpoint): TerminalClient
       return { windowId: body?.windowId ?? '' }
     },
     async closeWindow(slug, windowId) { await post('/api/terminal/windows/close', { slug, windowId }) },
+    async windowForeground(slug, windowId) {
+      const body = await post<Partial<WindowForeground>>('/api/terminal/windows/foreground', { slug, windowId })
+      // An answer that carries no verdict is an unknown, and an unknown is
+      // something running: the caller kills the window on the strength of it.
+      return { running: body?.running ?? true, command: body?.command ?? '' }
+    },
     async renameWindow(slug, windowId, name) { await post('/api/terminal/windows/rename', { slug, windowId, name }) },
     async moveWindow(slug, windowId, position) {
       const body = await post<{ windows: Partial<WindowState>[] | null }>('/api/terminal/windows/move', { slug, windowId, position })

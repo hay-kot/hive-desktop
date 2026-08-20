@@ -285,6 +285,11 @@ func (ctrl *Controller) terminalOperations() []Op {
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
 		},
 		{
+			Method: "POST", Path: "/api/terminal/windows/foreground", Summary: "Report whether a window is running anything a close would kill. running is false only when every live pane in it is a shell waiting at its prompt; anything else answers true and names the foreground process, so a caller can say what it is about to stop. A pane whose state cannot be read answers true rather than being reported idle.",
+			Request: terminalWindowRequest{}, Response: terminalForegroundResponse{}, Handler: ctrl.TerminalWindowForeground,
+			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
+		},
+		{
 			Method: "POST", Path: "/api/terminal/windows/rename", Summary: "Rename one window of the attached session.",
 			Request: terminalRenameRequest{}, Status: http.StatusNoContent, Handler: ctrl.TerminalRenameWindow,
 			Errors: terminalErrors("no terminal is attached for that slug, or no such window"),
