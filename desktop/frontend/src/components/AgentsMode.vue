@@ -181,6 +181,14 @@ function handleNewSessionRequest(): void {
   newSessionOpen.value = true
 }
 
+// The sidebar's per-workspace +. It names the workspace, which is the only
+// thing the dialog asks that has no sensible default, so there is nothing left
+// to ask: the chat takes the default name and launches straight into the pane.
+// Renaming it is one entry away on its own row menu.
+function handleStartSessionIn(workspace: string): void {
+  void startNewSession(workspace, DEFAULT_CHAT_NAME)
+}
+
 async function submitNewSession(input: { workspace: string; name: string }): Promise<void> {
   newSessionOpen.value = false
   await startNewSession(input.workspace, input.name || DEFAULT_CHAT_NAME)
@@ -662,6 +670,7 @@ onBeforeUnmount(() => {
         :session-activity="sessionActivity"
         @select-session="handleSidebarSelectSession"
         @request-new-session="handleNewSessionRequest"
+        @start-session="handleStartSessionIn"
         @select-workspace="selectWorkspace"
         @create-workspace="openCreateWorkspace"
         @edit-workspace="openEditWorkspace"

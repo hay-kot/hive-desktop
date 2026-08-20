@@ -68,6 +68,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'select-session': [session: AgentSession]
   'request-new-session': []
+  /** Start a chat in this workspace immediately, with no dialog. */
+  'start-session': [dir: string]
   'select-workspace': [dir: string]
   'create-workspace': []
   'edit-workspace': [workspace: AgentWorkspace]
@@ -162,6 +164,15 @@ function toggleExpanded(node: WorkspaceNode): void {
 
 function editWorkspace(node: WorkspaceNode): void {
   if (node.workspace) emit('edit-workspace', node.workspace)
+}
+
+// Unfolded here rather than left to the focus watcher: starting a chat moves
+// the focus too, but not when the workspace already holds it, and the row it
+// lands on has to be visible either way.
+function startSessionIn(node: WorkspaceNode): void {
+  if (!node.workspace) return
+  unfold(node.dir)
+  emit('start-session', node.dir)
 }
 
 // The chip folds; the rest of the row focuses. Focus is what regenerates the
@@ -468,8 +479,23 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               @click.stop="editWorkspace(node)"
             ><IconPencil class="size-3" /></button>
             <!-- The rollup a folded row summarises with: how many chats, and
-                 whether any of them is live or is waiting on the user. -->
-            <span class="entry-count">{{ node.sessions.length || '' }}</span>
+                 whether any of them is live or is waiting on the user. The count
+                 shares its cell with the add button, the Code view's repo header
+                 exactly: starting a chat in the workspace you are pointing at is
+                 worth more than its count is while you are pointing at it. -->
+            <div class="ws-trailing" :class="{ 'ws-trailing-add': !!node.workspace }" @click.stop>
+              <span class="entry-count">{{ node.sessions.length || '' }}</span>
+              <button
+                v-if="node.workspace"
+                type="button"
+                class="ws-add"
+                :title="`New chat in ${node.name}`"
+                :aria-label="`New chat in ${node.name}`"
+                :disabled="startingSession"
+                data-testid="agents-sidebar-workspace-new-session"
+                @click="startSessionIn(node)"
+              ><IconPlus class="size-3" /></button>
+            </div>
             <span class="entry-dot">
               <span
                 v-if="node.live || node.waiting"
@@ -671,7 +697,19 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .row-action:hover { background: var(--color-app); color: var(--color-text); }
 .ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
-.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--color-text-4); }
+/* One cell, two occupants, overlapped on the grid so the swap costs no layout
+   anywhere on the row. */
+.ws-trailing { display: grid; flex: none; width: 18px; height: 18px; align-items: center; }
+.entry-count, .ws-add { grid-area: 1 / 1; }
+.entry-count { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--color-text-4); pointer-events: none; }
+.ws-add { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+.ws-add:hover { background: var(--color-chip); color: var(--color-text); }
+/* Only a workspace that can actually take a chat trades its count away; an
+   orphaned directory has no add button to put in the gap. */
+.ws-row:hover .ws-trailing-add .entry-count { opacity: 0; }
+.ws-row:hover .ws-add, .ws-add:focus-visible { opacity: 1; }
+.ws-row:hover .ws-add:disabled { opacity: .4; cursor: default; }
+.ws-add:disabled:hover { background: none; color: var(--color-text-4); }
 .entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 

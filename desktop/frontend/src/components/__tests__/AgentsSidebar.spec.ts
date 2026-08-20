@@ -322,6 +322,32 @@ describe('AgentsSidebar', () => {
     expect(wrapper.emitted('rename-session')).toEqual([[recentFixtures[0]]])
   })
 
+  it("a workspace's + starts a chat in it with no dialog, and opens the row it lands in", async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    await rows[0].get('[data-testid="agents-sidebar-workspace-new-session"]').trigger('click')
+    expect(wrapper.emitted('start-session')).toEqual([['demo-a']])
+    // Nothing else fires: the + is not the row's own click, and it is not the
+    // header + that opens the dialog.
+    expect(wrapper.emitted('select-workspace')).toBeUndefined()
+    expect(wrapper.emitted('request-new-session')).toBeUndefined()
+    expect(rows[0].attributes('data-expanded')).toBe('true')
+  })
+
+  it('a workspace the listing lost offers no + — there is no directory to start in', async () => {
+    mocks.workspaces.mockResolvedValue({ root: '/root', rootProblem: '', available: true, error: '', workspaces: [workspaceFixtures[0]] })
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows[0].find('[data-testid="agents-sidebar-workspace-new-session"]').exists()).toBe(true)
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-new-session"]').exists()).toBe(false)
+  })
+
+  it("a workspace's + is disabled while a chat is already launching", async () => {
+    const wrapper = await mountSidebar({ startingSession: true })
+    const add = wrapper.findAll('[data-testid="agents-sidebar-workspace-new-session"]')[0]
+    expect(add.attributes('disabled')).toBeDefined()
+  })
+
   it('the header\'s + buttons emit create-workspace and request-new-session', async () => {
     const wrapper = await mountSidebar()
     await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
