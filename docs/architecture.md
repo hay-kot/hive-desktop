@@ -1553,21 +1553,25 @@ component's bordered tile — two levels puts twice as many tiles down the colum
 as a flat feed list has, and they read as a stack of boxes before they read as a
 list.
 
-**A workspace row is a section header, and that is the only thing separating
-the two levels.** It is smaller, heavier and tracked where a chat row is not, it
-carries a permanent disclosure triangle, and it opens real space above its
-group. The chats are then *not* indented under it: they share its columns, glyph
-under the triangle and name under the label. An indent as well would be the same
-statement made twice, and it costs a name its width in a sidebar this narrow.
+**One workspace is one block, banded the way the Code view bands a
+repository.** The header keeps the sidebar's own surface, its chats sit in a
+recessed `--color-app` well beneath it, and a rule closes each block off from
+the next — `TerminalMode.vue`'s tree, for its reason: a long run of chats must
+not bleed into the next workspace's. That banding is the *only* thing separating
+the two levels, so the chats are deliberately **not** indented under their
+header. The well already says what they belong to; an indent would be the same
+statement made twice at the cost of a name's width in a sidebar this narrow.
 There is no drawn connector and no rail. Selection has two strengths, and they
 must stay distinguishable: the open chat fills its row, the focused workspace
 only goes accent, because focus scopes the strips above the pane while the fill
-is what says which chat is *in* it. Secondary text a row used to stack under its
-name — `agent · autonomy`, a problem, a notice — is the row's tooltip, with the
-triangle going amber or red so a warning stays a glance rather than a hover. A
-brand mark stood in for the agent on the header for a while and earned nothing:
-the workspaces under one root normally run the same agent, so the column was one
-glyph repeated. What the Code view still lends is the activity vocabulary
+is what says which chat is *in* it. The fold chevron trails the header where the
+Code view's does, but is the fold *control* rather than an indicator of one,
+because clicking the header focuses the workspace instead of folding it.
+Secondary text a row used to stack under its name — `agent · autonomy`, a
+problem, a notice — is the row's tooltip, with the chevron going amber or red so
+a warning stays a glance rather than a hover. A brand mark stood in for the
+agent on the header for a while and earned nothing: the workspaces under one
+root normally run the same agent, so the column was one glyph repeated. What the Code view still lends is the activity vocabulary
 alone: the spinner, the approval alert and the liveness dot mean here exactly
 what they mean there.
 

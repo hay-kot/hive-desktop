@@ -131,16 +131,26 @@ describe('AgentsSidebar', () => {
     expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
   })
 
-  it('draws a workspace as the section header for its chats, not as a peer of them', async () => {
+  it("draws a workspace as one block: a header on the sidebar's surface over a well of its chats", async () => {
     const wrapper = await mountSidebar()
-    const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(workspaceRows[0].classes()).toContain('ws-row')
-    expect(workspaceRows[0].classes()).not.toContain('sidebar-entry')
-    expect(chatRows[0].classes()).toContain('sidebar-entry')
-    // Only the first header sits flush; the rest open a gap above their group.
-    expect(workspaceRows[0].classes()).toContain('ws-row-first')
-    expect(workspaceRows[1].classes()).not.toContain('ws-row-first')
+    const blocks = wrapper.findAll('[data-testid="agents-sidebar-workspace-block"]')
+    expect(blocks.map((block) => block.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
+    // Only the first block sits flush; the rest are closed off by a rule above.
+    expect(blocks[0].classes()).toContain('ws-block-first')
+    expect(blocks[1].classes()).not.toContain('ws-block-first')
+
+    // A header is not one of the rows it heads, and every chat is inside the
+    // well rather than a sibling of it.
+    const header = blocks[0].get('[data-testid="agents-sidebar-workspace-row"]')
+    expect(header.classes()).toContain('ws-row')
+    expect(header.classes()).not.toContain('sidebar-entry')
+    const well = blocks[0].get('[data-testid="agents-sidebar-workspace-well"]')
+    expect(well.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(1)
+  })
+
+  it('a folded workspace draws no well at all', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-well"]')).toHaveLength(0)
   })
 
   it('gives every workspace a permanent disclosure triangle stating its fold state', async () => {

@@ -327,7 +327,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
     data-testid="agents-workspace-sidebar"
     tabindex="-1"
   >
-    <div class="hive-scroll min-h-9 flex-1 overflow-y-auto px-2.5 pt-3 pb-4" data-testid="agents-sidebar-tree">
+    <div class="hive-scroll min-h-9 flex-1 overflow-y-auto pt-3 pb-4" data-testid="agents-sidebar-tree">
       <!-- One header for one region. Both + actions live here because a
            workspace and a chat are created at different depths of the same
            tree, and the tree has one top. -->
@@ -356,34 +356,46 @@ defineExpose({ focus: () => rootEl.value?.focus() })
         </button>
       </div>
 
-      <p v-if="workspacesError" class="px-1.5 py-2 text-xs text-severity-error" data-testid="agents-sidebar-workspaces-error">{{ workspacesError }}</p>
+      <p v-if="workspacesError" class="px-3 py-2 text-xs text-severity-error" data-testid="agents-sidebar-workspaces-error">{{ workspacesError }}</p>
       <div
         v-else-if="rootProblem"
-        class="flex flex-col gap-2 px-1.5 py-2 text-xs text-text-3"
+        class="flex flex-col gap-2 px-3 py-2 text-xs text-text-3"
         data-testid="agents-sidebar-root-missing"
       >
         <p class="leading-relaxed">The configured workspace root is unavailable:</p>
         <p class="font-mono text-[11px] text-severity-error">{{ rootProblem }}</p>
         <p class="leading-relaxed">Point <code>agent_workspaces.dir</code> in settings.yaml at a reachable folder; Settings ▸ Agents shows where it resolves.</p>
       </div>
-      <p v-else-if="!workspacesLoaded" class="px-1.5 py-2 font-mono text-xs text-text-4" data-testid="agents-sidebar-workspaces-loading">Loading…</p>
-      <p v-else-if="!tree.length" class="px-1.5 py-2 text-xs text-text-3" data-testid="agents-sidebar-workspaces-empty">
+      <p v-else-if="!workspacesLoaded" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="agents-sidebar-workspaces-loading">Loading…</p>
+      <p v-else-if="!tree.length" class="px-3 py-2 text-xs text-text-3" data-testid="agents-sidebar-workspaces-empty">
         No workspaces yet. Create one with +.
       </p>
       <template v-else>
         <!-- The chat read can fail on its own, which leaves every workspace row
              correct and every count wrong; say so rather than draw an empty
              tree. -->
-        <p v-if="recentsError" class="px-1.5 pb-1 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
+        <p v-if="recentsError" class="px-3 pb-1 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
 
-        <template v-for="(node, index) in tree" :key="node.dir">
-          <!-- Not a <button>: the fold chip and the edit button are real
+        <!-- One workspace reads as one block, exactly as one repository does in
+             the Code view's tree: the header keeps the sidebar's own surface and
+             its chats sit in a recessed panel under it, so a long run of chats
+             cannot bleed into the next workspace's. -->
+        <div
+          v-for="(node, index) in tree"
+          :key="node.dir"
+          class="ws-block"
+          :class="{ 'ws-block-first': index === 0 }"
+          data-testid="agents-sidebar-workspace-block"
+          :data-dir="node.dir"
+        >
+          <!-- Not a <button>: the fold chevron and the edit button are real
                buttons, which are invalid nested inside one. The div keeps the
                row focusable and Enter/Space focus the workspace like a button
-               would (`.self`, so the chip's own keystrokes do not also focus). -->
+               would (`.self`, so the chevron's own keystrokes do not also
+               focus). -->
           <div
             class="ws-row"
-            :class="{ 'ws-row-focused': node.dir === selectedWorkspace, 'ws-row-first': index === 0 }"
+            :class="{ 'ws-row-focused': node.dir === selectedWorkspace }"
             role="button"
             tabindex="0"
             data-testid="agents-sidebar-workspace-row"
@@ -396,21 +408,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @keydown.space.self.prevent="focusWorkspace(node)"
             @contextmenu.prevent="editWorkspace(node)"
           >
-            <!-- A permanent disclosure triangle, not a glyph that becomes one
-                 on hover: it is the one mark that separates a header from the
-                 chats under it at rest, which is the whole job here. -->
-            <button
-              type="button"
-              class="ws-toggle"
-              :class="{
-                'ws-toggle-problem': !node.workspace || !!node.workspace.problem,
-                'ws-toggle-notice': !!node.workspace?.notice && !node.workspace?.problem,
-              }"
-              :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
-              :aria-expanded="expanded(node)"
-              data-testid="agents-sidebar-workspace-toggle"
-              @click.stop="toggleExpanded(node)"
-            ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3.5" /></button>
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
             <button
               v-if="node.workspace"
@@ -432,9 +429,25 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 :title="node.waiting ? 'Needs approval' : 'Live chats'"
               />
             </span>
+            <!-- The chevron trails the row, where the Code view's group chevron
+                 sits. Unlike that one it is the fold control rather than an
+                 indicator of it, because clicking this row focuses the
+                 workspace instead of folding it. -->
+            <button
+              type="button"
+              class="ws-toggle"
+              :class="{
+                'ws-toggle-problem': !node.workspace || !!node.workspace.problem,
+                'ws-toggle-notice': !!node.workspace?.notice && !node.workspace?.problem,
+              }"
+              :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
+              :aria-expanded="expanded(node)"
+              data-testid="agents-sidebar-workspace-toggle"
+              @click.stop="toggleExpanded(node)"
+            ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3.5" /></button>
           </div>
 
-          <template v-if="expanded(node)">
+          <div v-if="expanded(node)" class="ws-well" data-testid="agents-sidebar-workspace-well">
             <p
               v-if="!node.sessions.length"
               class="chat-empty"
@@ -523,9 +536,9 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   />
                 </div>
               </div>
-            </template>
-          </template>
-        </template>
+              </template>
+          </div>
+        </div>
       </template>
     </div>
     <PanelResizeHandle edge="right" name="agents-sidebar" :start="startSidebarResize" :step="stepSidebar" />
@@ -543,30 +556,18 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 </template>
 
 <style scoped>
-/* SidebarFeedRow's .sidebar-entry, worn by the chat rows: one line, a leading
-   glyph, and trailing controls in reserved columns. The glyph is bare here
-   rather than framed in that component's bordered tile — two levels of nesting
-   means twice as many tiles down the column as the flat feed list has, and they
-   read as a stack of boxes before they read as a list. */
-.sidebar-entry { position: relative; display: flex; align-items: center; gap: 7px; padding: 6px 8px 6px 2px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
-.sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
-.sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-/* Two strengths of mark, so they cannot be confused: the open chat fills its
-   row, the focused workspace only goes accent. Focus scopes what the strips
-   above the pane describe; the fill is what says "this one is in the pane". */
-.sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
-.sidebar-entry-selected .nav-icon { color: var(--color-accent); }
+/* One workspace is one block, borrowed from the Code view's tree
+   (TerminalMode.vue): the header keeps the sidebar's own surface, its chats sit
+   in a recessed panel under it, and a rule closes each block off from the next.
+   That banding is what separates the levels here, which is why the chats are
+   not also indented under their header — the well already says what they belong
+   to, and an indent would be the same statement made twice at the cost of a
+   name's width in a sidebar this narrow. */
+.ws-block { border-top: 1px solid var(--color-border); }
+.ws-block-first { border-top: 0; }
 
-/* A workspace row is the section header for the chats under it, not a peer of
-   them: a smaller, heavier, tracked label, a permanent disclosure triangle, and
-   real space above each group. That carries the grouping on its own, which is
-   why the chats are not indented under it — they share the header's columns
-   instead, glyph under the triangle and name under the label. An indent as well
-   would be the same statement made twice, and it costs the name its width in a
-   sidebar this narrow. */
-.ws-row { position: relative; display: flex; align-items: center; gap: 7px; margin-top: 12px; padding: 3px 8px 3px 2px; border-radius: 6px; color: var(--color-text-3); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; cursor: pointer; }
-.ws-row-first { margin-top: 0; }
-.ws-row:hover { color: var(--color-text); }
+.ws-row { display: flex; height: 34px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text); font-size: 13px; font-weight: 500; cursor: pointer; }
+.ws-row:hover { background: var(--color-chip); }
 .ws-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .ws-row-focused { color: var(--color-accent); }
 
@@ -574,10 +575,25 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-toggle:hover { color: var(--color-accent); }
 .ws-row-focused .ws-toggle { color: var(--color-accent); }
 /* A problem or a notice used to be its own line of text under the name. It is
-   the triangle's colour now, with the message on the row's tooltip — a warning
+   the chevron's colour now, with the message on the row's tooltip — a warning
    is worth a glance, and its wording is worth a hover. */
 .ws-toggle-notice, .ws-row-focused .ws-toggle-notice { color: var(--color-severity-warning); }
 .ws-toggle-problem, .ws-row-focused .ws-toggle-problem { color: var(--color-severity-error); }
+
+.ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 4px 0; }
+
+/* A chat row: SidebarFeedRow's .sidebar-entry stripped of its inset and its
+   radius, because inside the well a row is full-bleed. Its leading glyph stays
+   bare rather than framed in that component's bordered tile — a column of tiles
+   reads as a stack of boxes before it reads as a list. */
+.sidebar-entry { position: relative; display: flex; height: 30px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
+.sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
+.sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+/* Two strengths of mark, so they cannot be confused: the open chat fills its
+   row, the focused workspace only goes accent. Focus scopes what the strips
+   above the pane describe; the fill is what says "this one is in the pane". */
+.sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
+.sidebar-entry-selected .nav-icon { color: var(--color-accent); }
 
 /* A fixed cell rather than a shrink-wrapped glyph, so the chat names line up
    down the column whatever mark a row is showing. */
@@ -588,27 +604,29 @@ defineExpose({ focus: () => rootEl.value?.focus() })
    hovering a row never reflows the name or hides the count. */
 .row-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover { background: var(--color-app); color: var(--color-text); }
-.sidebar-entry:hover .row-action, .ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+.ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
-.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; letter-spacing: 0; color: var(--color-text-4); }
+.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--color-text-4); }
 .ws-row-focused .entry-count { color: var(--color-accent); }
 .entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 
 /* One 18px cell holding the status mark and the menu toggle, overlapped on the
    grid so swapping between them costs no layout anywhere on the row. */
-.entry-slot { display: grid; flex: none; width: 18px; height: 18px; }
+.entry-slot { display: grid; flex: none; width: 18px; height: 18px; align-items: center; }
 .entry-status, .entry-menu { grid-area: 1 / 1; }
 .entry-status { display: inline-flex; align-items: center; justify-content: center; }
 .entry-menu { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
-.entry-menu:hover, .entry-menu[aria-expanded="true"] { background: var(--color-app); color: var(--color-text); }
+.entry-menu:hover, .entry-menu[aria-expanded="true"] { background: var(--color-raised); color: var(--color-text); }
 .sidebar-entry:hover .entry-status, .sidebar-entry.menu-open .entry-status { opacity: 0; }
 .sidebar-entry:hover .entry-menu, .entry-menu:focus-visible, .sidebar-entry.menu-open .entry-menu { opacity: 1; }
 
-.section-label { display: flex; align-items: center; gap: 7px; padding: 0 6px 8px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
+.section-label { display: flex; align-items: center; gap: 7px; padding: 0 12px 8px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
 .section-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--color-text-3); cursor: pointer; }
 .section-action:hover { background: var(--color-chip); color: var(--color-text); }
 .section-action:disabled { cursor: default; opacity: .4; }
 
-.chat-empty { padding: 6px 8px 6px 25px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
+/* Lined up with a chat name: the row's 12px inset, its 16px glyph cell, and the
+   8px between them. */
+.chat-empty { padding: 5px 12px 5px 36px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>
