@@ -67,6 +67,11 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   inbox — and ranks a strong title match above an early group.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
+- **The Agents sidebar is a tree.** Every chat is on screen at once, nested
+  under the workspace it belongs to, instead of a workspace list filtering a
+  flat list of chats below it. Workspaces fold and unfold, and stay that way;
+  ones with a running agent open on their own. The divider between the two
+  lists is gone.
 - The app icon is the four-node hive mark.
 - The theme is persisted in `settings.yaml` instead of webview localStorage.
 

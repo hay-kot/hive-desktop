@@ -1525,6 +1525,28 @@ per workspace directory (which sees its `agent-workspace.yaml`). Nothing
 watches deeper: an agent writing into `docs/`, or the generator rewriting its
 own output on open, is invisible to it by design, not omission.
 
+**The Agents sidebar is one tree, and position is what states a chat's
+workspace.** Workspaces are the parent rows and their chats nest beneath, in a
+single scroll region: no divider splits two lists competing for height, and no
+chat row repeats its workspace's name. Chats keep `AllSessions`' order
+(`id DESC`, stable under a resume) inside their workspace, so grouping costs no
+ordering. A chat whose directory has left the root keeps a row under that
+directory rather than disappearing from a tree whose whole claim is that every
+chat is on it.
+
+**Folding scopes the tree; focusing a workspace does not.** Fold state is
+`localStorage` (`hive.agents.sidebar.workspaces`) per workspace, defaulting open
+only where a chat is live or the pane's chat sits, and an explicit fold outranks
+both — the Code view's group-collapse rule (`hive.terminal.sidebar.groups`)
+applied to this tree, which is what keeps the two trees consistent rather than
+merely similar. Focus is a separate axis carried by the route's `:workspace`
+param: it regenerates that workspace's files and fills the missing-capability
+strips above the pane, and the sidebar only ever *moves* it, never clears it,
+because clearing it no longer changes what is on screen. The two views diverge
+on one detail deliberately — the fold chevron leads an Agents row and trails a
+Code one, because a workspace row is multi-line and a trailing chevron on a tall
+row does not read as the handle for what is under it.
+
 ## Execution model
 
 The flow engine runs **in Go**, in-process. Source polling, graph routing,

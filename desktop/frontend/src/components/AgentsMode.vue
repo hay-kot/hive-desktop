@@ -1,9 +1,10 @@
 <script setup lang="ts">
-// The Agents area: AgentsSidebar's two flat lists (workspaces, then sessions
-// filtered by the focused workspace) beside a pane the terminal owns under a
-// slim status bar naming the open session's workspace. Focusing a workspace
-// is a filter, not a container — changing it never
-// tears down a live pane. The one pane the shell itself draws is the zero
+// The Agents area: AgentsSidebar's tree (workspaces, each holding its own
+// chats) beside a pane the terminal owns under a slim status bar naming the
+// open session's workspace. Focusing a workspace is neither a filter nor a
+// container — it scopes what the strips below describe and what a new chat
+// defaults to, and changing it never tears down a live pane nor hides another
+// workspace's chats. The one pane the shell itself draws is the zero
 // state: no PTY exists yet, so it says what a chat is and offers to start one,
 // which NewChatDialog then asks for. What is borrowed from
 // TerminalMode.vue is narrower — the aside/main split, plus (since ADR agent-workspace-sessions-are-tmux-sessions)
@@ -95,7 +96,7 @@ const selectedWorkspace = computed(() =>
 
 function selectWorkspace(dir: string): void {
   if (dir === selectedWorkspace.value) return
-  // The query rides along: the focus filter and the open chat (?chat) are
+  // The query rides along: the focused workspace and the open chat (?chat) are
   // independent axes, and moving one must not drop the other.
   if (!dir) {
     void router.push({ name: 'agents', query: route.query })
@@ -114,9 +115,11 @@ async function loadWorkspaces(): Promise<void> {
   if (available.value) void reloadWorkspaces()
 }
 
-// Focus is a filter: switching it regenerates the workspace's artifacts and
-// swaps its missing-MCP state in, but a live pane keeps running — the open
-// session need not belong to the focused workspace.
+// Focus is what regenerates a workspace's artifacts and swaps its missing-MCP
+// state in. A live pane keeps running across a change — the open session need
+// not belong to the focused workspace. The sidebar only ever moves the focus,
+// so the empty case here comes from the route or from deleting the workspace
+// that held it.
 watch(selectedWorkspace, async (dir, previous) => {
   if (dir === previous) return
   resetOpenWorkspace()
@@ -183,8 +186,8 @@ async function submitNewSession(input: { workspace: string; name: string }): Pro
   await startNewSession(input.workspace, input.name || DEFAULT_CHAT_NAME)
 }
 
-// The focus filter follows a new session so its row is visible in the list
-// it lands in.
+// Focus follows a new session, which also unfolds the workspace its row lands
+// in (AgentsSidebar watches the prop).
 async function startNewSession(workspace: string, name: string): Promise<void> {
   if (startingSession.value) return
   startingSession.value = true
@@ -248,10 +251,10 @@ async function resumeChatFromRoute(id: number): Promise<void> {
 }
 
 // ── Sidebar event wiring (AgentsSidebar.vue) ─────────────────────────────────
-// The chat list spans every workspace, so resuming from it can reach a chat
-// outside whatever is currently focused; every mutation reloads the
-// cross-workspace list afterward so its rows and dots stay live. The list
-// keeps stable creation order — a resume touches last_opened_at without
+// The tree spans every workspace, so resuming from it can reach a chat outside
+// whatever is currently focused; every mutation reloads the cross-workspace
+// list afterward so its rows and dots stay live. Chats keep stable creation
+// order inside their workspace — a resume touches last_opened_at without
 // moving anything.
 async function handleSidebarSelectSession(session: AgentSession): Promise<void> {
   await resumeRow(session)
@@ -367,7 +370,7 @@ async function removeRow(session: AgentSession): Promise<void> {
 }
 
 // ── Pane status bar ──────────────────────────────────────────────────────────
-// Names the workspace the pane's session belongs to — which the focus filter
+// Names the workspace the pane's session belongs to — which the focused one
 // need not match — and opens its directory outside the app, reusing the
 // workspace editor's control-plane calls.
 async function openPaneWorkspaceInEditor(): Promise<void> {
@@ -669,7 +672,7 @@ onBeforeUnmount(() => {
 
       <!-- The pane's chrome is conditional strips: the missing-capability
            warnings, and — while a session is opening or open — a status bar
-           naming the session's own workspace, which the focus filter need not
+           naming the session's own workspace, which the focused one need not
            match. -->
       <div class="flex min-h-0 min-w-0 flex-1 flex-col">
         <div

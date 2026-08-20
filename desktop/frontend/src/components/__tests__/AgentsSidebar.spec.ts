@@ -5,8 +5,9 @@ import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspac
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import type { AgentSession, AgentWorkspace } from '../../lib/agentWorkspacesClient'
 
-// Two workspaces and two sessions belonging to each, standing in for the
-// wire responses AgentWorkspacesClient normally decodes.
+// Two workspaces and one session belonging to each, standing in for the
+// wire responses AgentWorkspacesClient normally decodes. Demo B's chat is
+// live and Demo A's is not, which is also what the fold default keys on.
 const workspaceFixtures: AgentWorkspace[] = [
   { dir: 'demo-a', name: 'Demo A', agent: 'claude', autonomy: 'ask', mcps: [], skills: [], problem: '', notice: '' },
   { dir: 'demo-b', name: 'Demo B', agent: 'codex', autonomy: 'auto', mcps: [], skills: [], problem: '', notice: '' },
@@ -47,7 +48,15 @@ vi.mock('../../lib/agentWorkspacesClient', async (importOriginal) => {
   }
 })
 
-async function mountSidebar(props: Record<string, unknown> = {}) {
+const FOLD_KEY = 'hive.agents.sidebar.workspaces'
+const BOTH_OPEN = { 'demo-a': true, 'demo-b': true }
+
+// The fold state is read out of localStorage when the component is created, so
+// seeding it is how a spec picks the tree it wants to assert against. Most
+// specs are about a row rather than about folding, and want every chat on
+// screen; the fold specs pass {} and take the defaults instead.
+async function mountSidebar(props: Record<string, unknown> = {}, folds: Record<string, boolean> = BOTH_OPEN) {
+  localStorage.setItem(FOLD_KEY, JSON.stringify(folds))
   const wrapper = mount(AgentsSidebar, { props: { active: true, ...props } })
   await flushPromises()
   return wrapper
@@ -76,74 +85,137 @@ describe('AgentsSidebar', () => {
     expect(wrapper.find('[data-testid="agents-workspace-sidebar"]').exists()).toBe(true)
   })
 
-  it('lists every session across every workspace, naming each row\'s workspace, when nothing is focused', async () => {
+  it('nests each chat under its own workspace, so no row repeats a workspace name', async () => {
     const wrapper = await mountSidebar()
-    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows).toHaveLength(2)
-    expect(rows[0].text()).toContain('b-session')
-    expect(rows[0].text()).toContain('Demo B')
-    expect(rows[1].text()).toContain('a-session')
-    expect(rows[1].text()).toContain('Demo A')
+    const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(workspaceRows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
+
+    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chatRows.map((row) => row.attributes('data-workspace'))).toEqual(['demo-a', 'demo-b'])
+    expect(chatRows[0].text()).toContain('a-session')
+    expect(chatRows[0].text()).not.toContain('Demo A')
+    expect(chatRows[1].text()).toContain('b-session')
+    expect(chatRows[1].text()).not.toContain('Demo B')
   })
 
-  it('focusing a workspace filters the session list to it and drops the workspace name from rows', async () => {
+  it('focusing a workspace leaves every other workspace\'s chats on screen', async () => {
     const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows).toHaveLength(1)
-    expect(rows[0].text()).toContain('b-session')
-    expect(rows[0].text()).not.toContain('Demo B')
+    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chatRows).toHaveLength(2)
+    expect(chatRows[0].text()).toContain('a-session')
   })
 
-  it('marks the focused workspace: the traveling rail lands on its row, the name goes accent', async () => {
+  it('marks the focused workspace in accent, with no rail of its own to compete with the chat rail', async () => {
     const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows[1].attributes('data-focused')).toBe('true')
     expect(rows[0].attributes('data-focused')).toBe('false')
     expect(rows[1].find('.text-accent').exists()).toBe(true)
-    expect(wrapper.get('[data-testid="agents-sidebar-workspace-rail"]').attributes('data-shown')).toBe('true')
+    expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
   })
 
-  it('the session rail lands on the open chat row', async () => {
+  it('the rail lands on the open chat row', async () => {
     const wrapper = await mountSidebar({ openSessionId: 2 })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows[0].attributes('data-open')).toBe('true')
-    expect(rows[1].attributes('data-open')).toBe('false')
+    expect(rows[1].attributes('data-open')).toBe('true')
+    expect(rows[0].attributes('data-open')).toBe('false')
     expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('true')
   })
 
-  it('the rails fade out rather than sit on a stale row when nothing is selected', async () => {
+  it('the rail fades out rather than sit on a stale row when no chat is open', async () => {
     const wrapper = await mountSidebar()
-    expect(wrapper.get('[data-testid="agents-sidebar-workspace-rail"]').attributes('data-shown')).toBe('false')
     expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('false')
   })
 
-  it('exposes resize handles for the sidebar width and the workspaces/chats divider', async () => {
+  // ── Folding ─────────────────────────────────────────────────────────────
+  it('opens a workspace with a live chat and folds a dormant one, with nothing stored', async () => {
+    const wrapper = await mountSidebar({}, {})
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows[0].attributes('data-expanded')).toBe('false') // demo-a: nothing running
+    expect(rows[1].attributes('data-expanded')).toBe('true') // demo-b: a live chat
+
+    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chatRows).toHaveLength(1)
+    expect(chatRows[0].text()).toContain('b-session')
+  })
+
+  it('opens a workspace holding the chat the pane has attached', async () => {
+    const wrapper = await mountSidebar({ openSessionId: 1 }, {})
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows[0].attributes('data-expanded')).toBe('true')
+  })
+
+  it('the chevron folds a workspace, and the fold outlives the default and is persisted', async () => {
+    const wrapper = await mountSidebar({ openSessionId: 2 }, {})
+    const toggles = wrapper.findAll('[data-testid="agents-sidebar-workspace-toggle"]')
+    await toggles[1].trigger('click')
+
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows[1].attributes('data-expanded')).toBe('false')
+    // Folded even though it is live and holds the open chat: a deliberate fold
+    // outranks every default.
+    expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(0)
+    expect(JSON.parse(localStorage.getItem(FOLD_KEY) ?? '{}')['demo-b']).toBe(false)
+  })
+
+  it('clicking a workspace row body focuses it and opens it', async () => {
+    const wrapper = await mountSidebar({}, { 'demo-a': false, 'demo-b': false })
+    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[0].trigger('click')
+    expect(wrapper.emitted('select-workspace')).toEqual([['demo-a']])
+    expect(wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[0].attributes('data-expanded')).toBe('true')
+  })
+
+  it('clicking the focused workspace row keeps the focus rather than clearing it', async () => {
+    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
+    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[1].trigger('click')
+    expect(wrapper.emitted('select-workspace')).toEqual([['demo-b']])
+  })
+
+  it('an expanded workspace with no chats says so instead of drawing nothing', async () => {
+    mocks.allSessions.mockResolvedValue([recentFixtures[0]])
+    const wrapper = await mountSidebar()
+    expect(wrapper.get('[data-testid="agents-sidebar-workspace-no-chats"]').text()).toBe('No chats yet.')
+  })
+
+  it('keeps chats whose workspace directory is gone, on a row of their own', async () => {
+    mocks.workspaces.mockResolvedValue({ root: '/root', rootProblem: '', available: true, error: '', workspaces: [workspaceFixtures[0]] })
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
+    expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-missing"]').exists()).toBe(true)
+    // Nothing to open and nothing to edit, but its chats are still reachable.
+    expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid="agents-sidebar-session-row"]')).toHaveLength(2)
+  })
+
+  it('has one scroll region: the sidebar keeps its width handle and the workspaces/chats divider is gone', async () => {
     const wrapper = await mountSidebar()
     expect(wrapper.find('[data-testid="resize-handle-agents-sidebar"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="resize-handle-agents-workspaces"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="resize-handle-agents-workspaces"]').exists()).toBe(false)
   })
 
   it('states liveness explicitly: a green dot for a live terminal, a hollow idle dot otherwise', async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows[0].find('[data-testid="agents-sidebar-session-liveness"]').exists()).toBe(true) // b-session has a terminalId
-    expect(rows[0].find('[data-testid="agents-sidebar-session-idle"]').exists()).toBe(false)
-    expect(rows[1].find('[data-testid="agents-sidebar-session-liveness"]').exists()).toBe(false) // a-session has none
-    expect(rows[1].find('[data-testid="agents-sidebar-session-idle"]').exists()).toBe(true)
+    expect(rows[0].find('[data-testid="agents-sidebar-session-liveness"]').exists()).toBe(false) // a-session has no terminalId
+    expect(rows[0].find('[data-testid="agents-sidebar-session-idle"]').exists()).toBe(true)
+    expect(rows[1].find('[data-testid="agents-sidebar-session-liveness"]').exists()).toBe(true) // b-session has one
+    expect(rows[1].find('[data-testid="agents-sidebar-session-idle"]').exists()).toBe(false)
   })
 
   it("the meta line reads live-vs-age, not the agent's name", async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows[0].text()).toContain('live')
-    expect(rows[0].text()).not.toContain('codex')
-    expect(rows[1].text()).toContain('1m ago')
-    expect(rows[1].text()).not.toContain('claude')
+    expect(rows[0].text()).toContain('1m ago')
+    expect(rows[0].text()).not.toContain('claude')
+    expect(rows[1].text()).toContain('live')
+    expect(rows[1].text()).not.toContain('codex')
   })
 
   it('clicking a session row emits select-session with that session', async () => {
     const wrapper = await mountSidebar()
-    await wrapper.findAll('[data-testid="agents-sidebar-session-select"]')[1].trigger('click')
+    await wrapper.findAll('[data-testid="agents-sidebar-session-select"]')[0].trigger('click')
     expect(wrapper.emitted('select-session')).toEqual([[recentFixtures[1]]])
   })
 
@@ -157,20 +229,20 @@ describe('AgentsSidebar', () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
 
-    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
     expect(menuEntry('agents-sidebar-session-close')).not.toBeNull()
     menuEntry('agents-sidebar-session-close')!.click()
     await flushPromises()
     expect(wrapper.emitted('close-session')).toEqual([[recentFixtures[0]]])
 
-    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
     expect(menuEntry('agents-sidebar-session-close')).toBeNull()
   })
 
   it('deleting a chat opens a confirmation and emits delete-session only on confirm', async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
     menuEntry('agents-sidebar-session-delete')!.click()
     await flushPromises()
 
@@ -186,54 +258,36 @@ describe('AgentsSidebar', () => {
   it("a chat row's menu offers rename, which emits rename-session", async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    await rows[0].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    await rows[1].get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
     menuEntry('agents-sidebar-session-rename')!.click()
     await flushPromises()
     expect(wrapper.emitted('rename-session')).toEqual([[recentFixtures[0]]])
   })
 
-  it('selecting a workspace row emits select-workspace with its dir', async () => {
-    const wrapper = await mountSidebar()
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[1].trigger('click')
-    expect(wrapper.emitted('select-workspace')).toEqual([['demo-b']])
-  })
-
-  it('clicking the focused workspace row clears the focus instead of re-selecting it', async () => {
-    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    await wrapper.findAll('[data-testid="agents-sidebar-workspace-select"]')[1].trigger('click')
-    expect(wrapper.emitted('select-workspace')).toEqual([['']])
-  })
-
-  it('the + in the Workspaces title row emits create-workspace, and the row\'s edit button emits edit-workspace', async () => {
+  it('the header\'s + buttons emit create-workspace and request-new-session', async () => {
     const wrapper = await mountSidebar()
     await wrapper.get('[data-testid="agents-sidebar-new-workspace"]').trigger('click')
     expect(wrapper.emitted('create-workspace')).toHaveLength(1)
 
-    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    await rows[1].get('[data-testid="agents-sidebar-workspace-edit"]').trigger('click')
-    expect(wrapper.emitted('edit-workspace')).toEqual([[workspaceFixtures[1]]])
-  })
-
-  it('right-clicking a workspace row opens the editor too — the row has no menu of its own', async () => {
-    const wrapper = await mountSidebar()
-    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    await rows[0].trigger('contextmenu')
-    expect(wrapper.emitted('edit-workspace')).toEqual([[workspaceFixtures[0]]])
-  })
-
-  it('the + in the Chats title row emits request-new-session', async () => {
-    const wrapper = await mountSidebar()
     await wrapper.get('[data-testid="agents-sidebar-new-session"]').trigger('click')
     expect(wrapper.emitted('request-new-session')).toHaveLength(1)
   })
 
-  it('renders the Code view\'s activity icons from sessionActivity, mirrored onto the workspace row', async () => {
+  it('a workspace row\'s edit button and its context menu both emit edit-workspace', async () => {
+    const wrapper = await mountSidebar()
+    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    await rows[1].get('[data-testid="agents-sidebar-workspace-edit"]').trigger('click')
+    await rows[0].trigger('contextmenu')
+    expect(wrapper.emitted('edit-workspace')).toEqual([[workspaceFixtures[1]], [workspaceFixtures[0]]])
+  })
+
+  it('renders the Code view\'s activity icons from sessionActivity, rolled up onto the workspace row', async () => {
     const wrapper = await mountSidebar({ sessionActivity: { 2: 'approval', 1: 'active' } })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
-    expect(rows[0].find('.text-severity-warning').exists()).toBe(true) // b-session needs approval
-    expect(rows[1].find('.animate-spin').exists()).toBe(true) // a-session is working
+    expect(rows[0].find('.animate-spin').exists()).toBe(true) // a-session is working
+    expect(rows[1].find('.text-severity-warning').exists()).toBe(true) // b-session needs approval
     const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    expect(workspaceRows[1].find('.bg-severity-warning').exists()).toBe(true) // demo-b mirrors the approval
+    expect(workspaceRows[1].find('.bg-severity-warning').exists()).toBe(true) // demo-b rolls the approval up
   })
 
   it('exposes focus() for the global keymap handle', async () => {
