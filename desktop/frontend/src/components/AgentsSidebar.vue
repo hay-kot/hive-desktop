@@ -17,12 +17,12 @@
 // starting a chat) or the manifest (create/edit workspace — delete lives in
 // the editor) is an emitted event; only tree state, the chat row menus, and
 // the chat delete confirmation live here.
-import { computed, nextTick, ref, watch, type Component } from 'vue'
+import { computed, nextTick, ref, shallowRef, watch, type Component } from 'vue'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircleAlert from '~icons/lucide/circle-alert'
-import IconEllipsis from '~icons/lucide/ellipsis'
+import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconFolderPlus from '~icons/lucide/folder-plus'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconMessageSquare from '~icons/lucide/message-square'
@@ -267,20 +267,39 @@ function chatTooltip(session: AgentSession): string {
 // with the status mark, so neither hovering a row nor opening its menu moves
 // the name. The menu anchors to the row element and teleports (AppMenu's
 // anchored mode): the tree scrolls, and an absolute panel inside a scroll
-// region would extend it instead of floating over the sidebar. Workspace rows
-// carry no menu — the editor is a workspace's whole management surface, delete
-// included, so their reserved action is a single edit button.
+// region would extend it instead of floating over the sidebar — which is also
+// why the panel is a child of the row rather than of the 18px trailing cell,
+// so the un-teleported fallback has a sane box to position against. Workspace
+// rows carry no menu — the editor is a workspace's whole management surface,
+// delete included, so their reserved action is a single edit button.
 const openMenu = ref('')
-const menuToggles = new Map<string, HTMLElement>()
-const menuAnchors = new Map<string, HTMLElement>()
+// Resolved from the event that opened the menu rather than from template refs
+// held in a Map. The Map was keyed per row and written by inline `:ref`
+// arrows, which Vue re-invokes on every re-render — so it could hand AppMenu a
+// row that had since been unmounted by a fold, and a detached element measures
+// as a zero rect: the panel then took `left: 0; width: 0` and drew nothing.
+// One menu is ever open, so one anchor is all there is to track, and taking it
+// from `currentTarget` at open time means it is attached by construction.
+const menuAnchor = shallowRef<HTMLElement | null>(null)
+const menuToggle = shallowRef<HTMLElement | null>(null)
 
-function trackRowEl(map: Map<string, HTMLElement>, key: string, el: unknown): void {
-  if (el instanceof HTMLElement) map.set(key, el)
-  else map.delete(key)
+function openSessionMenu(session: AgentSession, event: Event): void {
+  const key = `s:${session.id}`
+  if (openMenu.value === key) {
+    closeSessionMenu()
+    return
+  }
+  const target = event.currentTarget instanceof HTMLElement ? event.currentTarget : null
+  // The kebab opens it from the button; a right-click opens it from the row.
+  menuToggle.value = target instanceof HTMLButtonElement ? target : null
+  menuAnchor.value = target?.closest<HTMLElement>('[data-testid="agents-sidebar-session-row"]') ?? null
+  openMenu.value = key
 }
 
-function toggleMenu(key: string): void {
-  openMenu.value = openMenu.value === key ? '' : key
+function closeSessionMenu(): void {
+  openMenu.value = ''
+  menuAnchor.value = null
+  menuToggle.value = null
 }
 
 function sessionMenuEntries(session: AgentSession): MenuEntry[] {
@@ -301,7 +320,7 @@ function sessionMenuEntries(session: AgentSession): MenuEntry[] {
 }
 
 function onSessionMenuSelect(session: AgentSession, id: string): void {
-  openMenu.value = ''
+  closeSessionMenu()
   if (id === 'rename') emit('rename-session', session)
   else if (id === 'pin') togglePin(session.id)
   else if (id === 'stop') emit('close-session', session)
@@ -517,7 +536,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               <div
                 v-for="session in node.sessions"
                 :key="session.id"
-                :ref="(el) => trackRowEl(menuAnchors, `s:${session.id}`, el)"
                 class="sidebar-entry"
                 :class="{ 'sidebar-entry-selected': session.id === openSessionId, 'menu-open': openMenu === `s:${session.id}` }"
                 role="button"
@@ -530,7 +548,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 @click="emit('select-session', session)"
                 @keydown.enter.self.prevent="emit('select-session', session)"
                 @keydown.space.self.prevent="emit('select-session', session)"
-                @contextmenu.prevent="toggleMenu(`s:${session.id}`)"
+                @contextmenu.prevent="openSessionMenu(session, $event)"
               >
                 <span
                   class="nav-icon"
@@ -552,7 +570,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                      rest, the menu what it offers under the pointer. Neither
                      ever moves the name. -->
                 <div class="entry-slot" @click.stop>
-                  <span class="entry-status">
+                  <span class="entry-status" aria-hidden="true">
                     <component
                       :is="sessionIndicators[session.id].icon"
                       v-if="sessionIndicators[session.id]"
@@ -575,7 +593,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                     />
                   </span>
                   <button
-                    :ref="(el) => trackRowEl(menuToggles, `s:${session.id}`, el)"
                     type="button"
                     class="entry-menu"
                     title="Chat actions"
@@ -583,18 +600,18 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                     aria-haspopup="menu"
                     :aria-expanded="openMenu === `s:${session.id}`"
                     data-testid="agents-sidebar-session-menu"
-                    @click="toggleMenu(`s:${session.id}`)"
-                  ><IconEllipsis class="size-3" /></button>
-                  <AppMenu
-                    v-if="openMenu === `s:${session.id}`"
-                    :entries="sessionMenuEntries(session)"
-                    :anchor="menuAnchors.get(`s:${session.id}`) ?? null"
-                    :ignore="[menuToggles.get(`s:${session.id}`) ?? null]"
-                    testid="agents-sidebar-session-menu-panel"
-                    @select="onSessionMenuSelect(session, $event)"
-                    @close="openMenu = ''"
-                  />
+                    @click="openSessionMenu(session, $event)"
+                  ><IconEllipsisVertical class="size-3" /></button>
                 </div>
+                <AppMenu
+                  v-if="openMenu === `s:${session.id}`"
+                  :entries="sessionMenuEntries(session)"
+                  :anchor="menuAnchor"
+                  :ignore="[menuToggle]"
+                  testid="agents-sidebar-session-menu-panel"
+                  @select="onSessionMenuSelect(session, $event)"
+                  @close="closeSessionMenu"
+                />
               </div>
               </template>
           </div>
@@ -689,11 +706,26 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 
 /* One 18px cell holding the status mark and the menu toggle, overlapped on the
-   grid so swapping between them costs no layout anywhere on the row. */
-.entry-slot { display: grid; flex: none; width: 18px; height: 18px; align-items: center; }
-.entry-status, .entry-menu { grid-area: 1 / 1; }
-.entry-status { display: inline-flex; align-items: center; justify-content: center; }
-.entry-menu { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+   grid so swapping between them costs no layout anywhere on the row. Both
+   stretch to fill the cell rather than shrink to their glyph, so the toggle is
+   the size it looks in a 34px row.
+
+   `pointer-events` and `z-index` below are load-bearing and easy to "clean up"
+   into a bug. These two fade in and out with opacity, and **an element with
+   opacity < 1 forms a stacking context**, which paints after in-flow
+   block-level content. So the faded-out status mark paints ON TOP of the
+   visible toggle and eats every click aimed at it — the click then dies on this
+   cell's own @click.stop and nothing happens at all, while right-click still
+   opens the menu because contextmenu is not stopped and reaches the row. The
+   status mark is decoration (the row's own title already states liveness), so
+   it opts out of hit-testing entirely, and the toggle is positioned so it wins
+   the stack whichever of the two is currently transparent. Fading with
+   `display` would also fix it, but reserving the column is why this uses
+   opacity. */
+.entry-slot { display: grid; flex: none; width: 18px; height: 18px; }
+.entry-status, .entry-menu { grid-area: 1 / 1; width: 100%; height: 100%; }
+.entry-status { display: inline-flex; align-items: center; justify-content: center; pointer-events: none; }
+.entry-menu { position: relative; z-index: 1; display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .entry-menu:hover, .entry-menu[aria-expanded="true"] { background: var(--color-raised); color: var(--color-text); }
 .sidebar-entry:hover .entry-status, .sidebar-entry.menu-open .entry-status { opacity: 0; }
 .sidebar-entry:hover .entry-menu, .entry-menu:focus-visible, .sidebar-entry.menu-open .entry-menu { opacity: 1; }

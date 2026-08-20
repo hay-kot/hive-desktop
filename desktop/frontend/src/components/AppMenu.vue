@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { onClickOutside } from '@vueuse/core'
 import IconCheck from '~icons/lucide/check'
 import AppIcon from './AppIcon.vue'
@@ -55,6 +55,13 @@ function measure(): void {
     bottom: flip ? `${window.innerHeight - rect.top + ANCHOR_GAP}px` : 'auto',
   }
 }
+
+// A host that resolves its anchor after this mounts — a template ref settling,
+// a row re-keyed under the panel — would otherwise keep the placement measured
+// from whatever was there at mount, and an anchor that was null or detached
+// then measures as a zero rect: the panel takes `left: 0; width: 0` and draws
+// nothing.
+watch(() => props.anchor, () => measure())
 
 onMounted(() => {
   if (!props.anchor) return

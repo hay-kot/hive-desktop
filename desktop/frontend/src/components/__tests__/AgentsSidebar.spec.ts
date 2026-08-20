@@ -283,6 +283,37 @@ describe('AgentsSidebar', () => {
     return document.querySelector<HTMLButtonElement>(`[data-testid="${testid}"]`)
   }
 
+  // The panel only escapes the sidebar's scroll clipping when AppMenu gets an
+  // attached anchor; without one it renders inline and is clipped, which is how
+  // the menu looked broken while the anchor came from a ref map a fold could
+  // stale out.
+  it('anchors the chat menu to its row, so the panel teleports out of the scroll region', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    const panel = document.querySelector('[data-testid="agents-sidebar-session-menu-panel"]')
+    expect(panel?.parentElement).toBe(document.body)
+    expect((panel as HTMLElement).style.position).toBe('fixed')
+  })
+
+  it('opening a chat menu never also opens the chat', async () => {
+    const wrapper = await mountSidebar()
+    const row = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+    await row.get('[data-testid="agents-sidebar-session-menu"]').trigger('click')
+    expect(wrapper.emitted('select-session')).toBeUndefined()
+  })
+
+  it('a second click on the toggle closes the menu it opened', async () => {
+    const wrapper = await mountSidebar()
+    const toggle = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')[0]
+      .get('[data-testid="agents-sidebar-session-menu"]')
+    await toggle.trigger('click')
+    expect(menuEntry('agents-sidebar-session-rename')).not.toBeNull()
+    await toggle.trigger('click')
+    await flushPromises()
+    expect(menuEntry('agents-sidebar-session-rename')).toBeNull()
+  })
+
   it("a chat row's menu offers stop only while live, and stop emits with the session", async () => {
     const wrapper = await mountSidebar()
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
