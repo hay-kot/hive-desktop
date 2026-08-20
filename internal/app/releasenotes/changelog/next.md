@@ -70,7 +70,7 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
 - **The Agents sidebar lists every chat under its workspace**, instead of a
   workspace list filtering a flat list of chats below it. Workspaces fold and
   unfold, and stay that way; ones with a running agent open on their own. It
-  reads like the feed sidebar now — one line and one icon per row — and the
+  reads like the feed sidebar now — one line, one icon per row — and the
   divider between the two old lists is gone.
 - The app icon is the four-node hive mark.
 - The theme is persisted in `settings.yaml` instead of webview localStorage.

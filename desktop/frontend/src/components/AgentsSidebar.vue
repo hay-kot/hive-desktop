@@ -422,10 +422,10 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               <AgentIcon
                 v-if="node.workspace && agentHasIcon(node.workspace.agent)"
                 :id="node.workspace.agent"
-                class="ws-glyph size-3"
+                class="ws-glyph size-3.5"
               />
-              <component :is="workspaceGlyph(node)" v-else class="ws-glyph size-3" />
-              <component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="ws-chevron size-3" />
+              <component :is="workspaceGlyph(node)" v-else class="ws-glyph size-3.5" />
+              <component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="ws-chevron size-3.5" />
             </button>
             <span class="min-w-0 flex-1 truncate font-medium">{{ node.name }}</span>
             <button
@@ -479,7 +479,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                   class="nav-icon"
                   :class="{ 'nav-icon-notice': !!session.notice }"
                   :data-testid="session.notice ? 'agents-sidebar-session-notice' : undefined"
-                ><IconMessageSquare class="size-3" /></span>
+                ><IconMessageSquare class="size-3.5" /></span>
                 <span class="min-w-0 flex-1 truncate">{{ session.name }}</span>
                 <!-- The pin mark rides the name's line rather than the trailing
                      slot, which the status mark and the menu toggle already
@@ -561,7 +561,10 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 <style scoped>
 /* The hub sidebar's row box (SideBar.vue's .folder-header, SidebarFeedRow's
    .sidebar-entry), shared here by both levels: a workspace and a chat are the
-   same row wearing different chips. */
+   same row wearing different glyphs. The one divergence from it is the leading
+   glyph, which is bare here rather than framed in a bordered tile — two levels
+   of nesting means twice as many tiles down the column as the flat feed list
+   has, and they read as a stack of boxes before they read as a list. */
 .sidebar-entry { position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
 .sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
 .sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
@@ -573,18 +576,21 @@ defineExpose({ focus: () => rootEl.value?.focus() })
    above the pane describe; the fill is what says "this one is in the pane". */
 .sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
 .sidebar-entry-focused { color: var(--color-accent); }
-.sidebar-entry-selected .nav-icon, .sidebar-entry-focused .nav-icon { border-color: var(--color-accent-tint); color: var(--color-accent); }
+.sidebar-entry-selected .nav-icon, .sidebar-entry-focused .nav-icon { color: var(--color-accent); }
 
-.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border: 1px solid var(--color-strong); border-radius: 5px; background: var(--color-app); color: var(--color-text-2); }
+/* A fixed 16px cell rather than a shrink-wrapped glyph: the names down the
+   column have to line up whether a row's mark is a folder, a brand mark, a
+   chevron or an alert, and those do not share a width. */
+.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--color-text-3); }
 .nav-icon-button { cursor: pointer; }
-.nav-icon-button:hover { border-color: var(--color-accent); color: var(--color-accent); }
+.nav-icon-button:hover { color: var(--color-accent); }
 /* A problem or a notice used to be its own line of text under the name. It is
-   the chip's colour now, with the message on the row's tooltip — a warning is
+   the glyph's colour now, with the message on the row's tooltip — a warning is
    worth a glance, and its wording is worth a hover. */
-.nav-icon-notice { border-color: var(--color-severity-warning); color: var(--color-severity-warning); }
-.nav-icon-problem { border-color: var(--color-severity-error); color: var(--color-severity-error); }
-/* The chip shows what the workspace is at rest and what the chip does under the
-   pointer. Swapped on row hover rather than chip hover, so folding is
+.nav-icon-notice { color: var(--color-severity-warning); }
+.nav-icon-problem { color: var(--color-severity-error); }
+/* The glyph shows what the workspace is at rest and what clicking it does under
+   the pointer. Swapped on row hover rather than glyph hover, so folding is
    discoverable without hunting for the target. */
 .ws-glyph { display: inline-flex; }
 .ws-chevron { display: none; }
@@ -617,5 +623,5 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .section-action:hover { background: var(--color-chip); color: var(--color-text); }
 .section-action:disabled { cursor: default; opacity: .4; }
 
-.chat-empty { margin-left: 12px; padding: 6px 8px 6px 20px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
+.chat-empty { margin-left: 12px; padding: 6px 8px 6px 33px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>
