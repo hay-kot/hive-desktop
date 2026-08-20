@@ -2,8 +2,8 @@ Configure Hive Desktop's application settings.
 {{template "app" .}}
 Edit {{.Env.SettingsPath}}. Every key is optional; omitted values use safe
 compiled defaults. The app reloads user-facing settings on save. The HTTP
-listener and the development listeners are startup configuration: they are
-read once and take effect on the next launch.
+listener, the development listeners, and the profile rail order are startup
+configuration: they are read once and take effect on the next launch.
 
 ## Schema
 
@@ -31,6 +31,11 @@ appearance:
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
   terminal_show_status_bar: false # git and pull-request state above the attached session
   terminal_pool_size: 3   # sessions kept attached for instant switching (1-6)
+
+profiles:                 # the profile rail; read at startup
+  order:                  # flow ids, top of the rail first. Ids left out sort
+    - personal            # alphabetically after every id named here, and an id
+    - hive                # naming no flow is ignored.
 
 http:                     # the local loopback server; webhook ingress and the
                           # terminal transport both ride it
@@ -83,5 +88,6 @@ development:
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
+- `profiles.order` never has to be exhaustive: name only the profiles whose position matters.
 - `keybindings` has its own command-id vocabulary and combo syntax. Use the "Keyboard shortcuts" prompt for that section rather than guessing ids.
 {{template "task" .}}

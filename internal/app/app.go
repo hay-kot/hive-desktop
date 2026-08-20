@@ -738,8 +738,13 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 // that reloads it on any flows/*.yaml change, including the app's own
 // SaveFlow/SaveLayout writes. It must run before the producer and retention:
 // both resolve enabled flow ids live from the store.
+//
+// The rail order comes from settings.yaml, which the flow package does not
+// read; it is process state the watcher's reloads leave alone, so a change to
+// profiles.order takes effect on the next launch.
 func (a *App) openFlows(dir string, logger zerolog.Logger) {
 	a.flowStore = flow.NewFlowStore(dir, actions.NewRefs(a.actionStore))
+	a.flowStore.SetOrder(a.settings.Profiles.Order)
 
 	watcher, err := flow.NewFlowsWatcher(dir, func() {
 		if err := a.flowStore.Reload(); err != nil {

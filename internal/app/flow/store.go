@@ -3,6 +3,7 @@ package flow
 import (
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -53,6 +54,7 @@ type FlowStore struct {
 	flows  map[string]Flow
 	errs   map[string]error // filename -> load error, for broken files
 	warns  map[string][]string
+	order  map[string]int // flow id -> rail position, from SetOrder
 }
 
 // NewFlowStore returns a store over dir (typically desktop.FlowsDir()),
@@ -62,9 +64,9 @@ func NewFlowStore(dir string, refs Refs) *FlowStore {
 	return &FlowStore{dir: dir, refs: refs}
 }
 
-// List returns every successfully loaded flow, sorted by id. Flows whose
-// file failed to load are omitted — see Statuses for the full picture,
-// including broken files.
+// List returns every successfully loaded flow in rail order — see SetOrder.
+// Flows whose file failed to load are omitted — see Statuses for the full
+// picture, including broken files.
 func (s *FlowStore) List() []Flow {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -74,8 +76,48 @@ func (s *FlowStore) List() []Flow {
 	for _, f := range s.flows {
 		out = append(out, f)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool { return s.lessLocked(out[i].ID, out[j].ID) })
 	return out
+}
+
+// SetOrder sets the rail order: the ids given sort first, in the order given,
+// and every other flow sorts alphabetically after them. An id naming no flow
+// is ignored rather than rejected, so deleting a profile never invalidates the
+// setting that named it, and an id the caller repeats keeps its first
+// position.
+//
+// Order is process state, not flow state: it comes from settings.yaml, which
+// this package does not read, and a reload of the flows directory leaves it
+// alone.
+func (s *FlowStore) SetOrder(ids []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	order := make(map[string]int, len(ids))
+	for _, id := range ids {
+		if _, dup := order[id]; !dup {
+			order[id] = len(order)
+		}
+	}
+	s.order = order
+}
+
+// lessLocked is the one comparator every listing sorts by. Caller holds s.mu.
+func (s *FlowStore) lessLocked(a, b string) bool {
+	ra, rb := s.rankLocked(a), s.rankLocked(b)
+	if ra != rb {
+		return ra < rb
+	}
+	return a < b
+}
+
+// rankLocked is id's configured rail position; an id the order omits ranks
+// behind every id it names. Caller holds s.mu.
+func (s *FlowStore) rankLocked(id string) int {
+	if rank, ok := s.order[id]; ok {
+		return rank
+	}
+	return math.MaxInt
 }
 
 // Get returns one loaded flow by id.
@@ -116,8 +158,10 @@ func (s *FlowStore) ParseDocument(id string, data []byte) (Flow, []string, error
 }
 
 // Statuses returns one FlowStatus per flow file in the directory — valid
-// and invalid alike — sorted by id, for a listing UI that must surface
-// broken flows too, not just the ones that loaded.
+// and invalid alike — in rail order, for a listing UI that must surface
+// broken flows too, not just the ones that loaded. A broken file sorts by the
+// same rule a working one does: ordering the rail by one comparator and its
+// error entries by another would interleave them unpredictably.
 func (s *FlowStore) Statuses() []FlowStatus {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -130,7 +174,7 @@ func (s *FlowStore) Statuses() []FlowStatus {
 	for filename, err := range s.errs {
 		out = append(out, FlowStatus{ID: flowIDFromFilename(filepath.Base(filename)), Err: err})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	sort.Slice(out, func(i, j int) bool { return s.lessLocked(out[i].ID, out[j].ID) })
 	return out
 }
 
