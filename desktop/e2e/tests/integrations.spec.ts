@@ -22,7 +22,8 @@ test('lists one card per registered connector, with the mock account connected',
   await expect(page.getByTestId('integration-grafana')).toBeVisible()
   await expect(page.getByTestId('integration-exec')).toBeVisible()
   await expect(page.getByTestId('integration-posthog')).toBeVisible()
-  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(5)
+  await expect(page.getByTestId('integration-gitea')).toBeVisible()
+  await expect(page.locator('[data-testid^="integration-"][data-testid$="-status"]')).toHaveCount(6)
 
   // The mock connection stores github/octocat, so the card reports the account
   // rather than a bare "Connected".

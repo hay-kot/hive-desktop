@@ -16,6 +16,10 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   responsive.
 - **`sources.exec` connector** — run a command on the poll tick and ingest its
   stdout as a snapshot.
+- **Gitea connector** for issues, pull requests, and notifications from a Gitea
+  or Forgejo instance, configured with typed filters rather than a query
+  string. Items land in the feed alongside GitHub's and route through the same
+  filters and actions.
 - **Generic webhook source**, with an uploaded image usable as its feed mark.
 - **A signed, notarized macOS `.dmg` installer** beside the update zip, and
   Linux releases for amd64 and arm64.

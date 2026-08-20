@@ -299,10 +299,19 @@ internal/
                                   #   name it without importing the registry back
       sourcehttp/                 #   the HTTP toolkit every source client is
                                   #   built over — a lighter leaf (ADR source-http-toolkit)
+      itemtext/                   #   branch names and launch prompts derived from
+                                  #   an item — a leaf, so every forge connector
+                                  #   shares one convention without importing
+                                  #   another connector
+      bindingstore/               #   the ref-keyed JSON file a self-hosted
+                                  #   connector binds its non-secret host/project
+                                  #   half into at connect time — a leaf
       github/                     #   Descriptor + Config + Factory
         feed/                     #   fetch layer: per-account response cache,
                                   #   conditional requests, rate-limit cooldown
         ghclient/                 #   the owned GitHub HTTP client (ADR owned-github-client)
+      gitea/                      #   Descriptor + Config + Factory; Gitea and Forgejo
+        giteaclient/              #   the owned Gitea HTTP client
       webhook/                    #   Descriptor + Config + Factory; local ingress
     ingest/                       # producer loop, classification, absence, snapshots
       resolver.go                 #   the flow set -> live connector instances
@@ -481,6 +490,13 @@ specified rather than left to grow. ADR source-connector-registry records why.
 - **Config references credentials, never embeds them.** See below.
 - **Never mirror the upstream API's shape in connector config.** Provider
   vocabulary leaking into the flow schema is permanent.
+- **A provider with no query language gets typed filter fields, validated
+  here.** Do not invent a query string to parse. Enumerated values are checked
+  in `Validate` rather than passed through, because a permissive API — Gitea
+  answers an unknown `state` with an unfiltered page — turns a typo into a
+  successful-looking wrong result rather than an error. Where the API
+  intersects filters a user reads as a union, the connector composes the union
+  from several requests and says what that costs (ADR the-gitea-connector-takes-typed-search-filters-not-a-query-string).
 - **A payload the user shapes uses the canonical item contract, once.**
   `sources/canonical` holds the `state` vocabulary and the classifier that maps
   it to lifecycle. A connector whose payload is user-authored JSON (a webhook
@@ -590,7 +606,11 @@ serves one purpose — a headless run (CI, the server build, the e2e harness)
 with one identity and no keychain to read — and is the wrong tool on a machine
 actually juggling several accounts. Acquisition belongs to the connector:
 GitHub's device flow lives in `app/sources/github`, while Grafana is a
-secret-marked config field with no state machine. `Connection` is declared by
+secret-marked config field with no state machine. A self-hosted provider binds
+its host to the account at connect time and stores it beside the credential
+(`grafana-stacks.json`, `posthog-projects.json`, `gitea-instances.json`), so
+the account half of the ref names the host — `gitea/<host>-<login>` — and a
+node cannot point one account's token at another server. `Connection` is declared by
 the connector that implements it, not by `app` — a connector needing no state
 machine declares none.
 

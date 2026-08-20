@@ -7,10 +7,12 @@
 // actions-footer context line) lives in the sourceKind-keyed registry below.
 import type { Component } from 'vue'
 import GithubMark from '../components/marks/GithubMark.vue'
+import GiteaMark from '../components/marks/GiteaMark.vue'
 import PostHogMark from '../components/marks/PostHogMark.vue'
 import grafanaLogo from '../assets/integrations/grafana.svg'
 import { defaultExecSourceIcon, defaultWebhookSourceIcon, feedIconComponent } from './feedIcons'
 import * as execSourceNode from '../pipeline/nodes/sources.exec/config'
+import * as giteaSourceNode from '../pipeline/nodes/sources.gitea/config'
 import * as githubSourceNode from '../pipeline/nodes/sources.github/config'
 import * as grafanaMetricsSourceNode from '../pipeline/nodes/sources.grafana_metrics/config'
 import * as grafanaAlertsSourceNode from '../pipeline/nodes/sources.grafana_alerts/config'
@@ -201,6 +203,13 @@ const githubPresentation: ItemPresentation = {
   mark: () => GithubMark,
 }
 
+// Gitea's logomark is a fixed two-colour drawing with no currentColor part,
+// so GiteaMark wraps the bundled asset and this needs no markImage of its own.
+const giteaPresentation: ItemPresentation = {
+  sourceLabel: 'Gitea',
+  mark: () => GiteaMark,
+}
+
 const grafanaPresentation: ItemPresentation = {
   sourceLabel: 'Grafana',
   // The logo is a gradient, so it renders as an image, not a currentColor glyph;
@@ -235,6 +244,7 @@ const webhookPresentation: ItemPresentation = {
  *  exist yet (e.g. `generic` test observations in Trash). */
 export function presentationFor(sourceKind: string | undefined): ItemPresentation {
   if (sourceKind === 'github') return githubPresentation
+  if (sourceKind === 'gitea') return giteaPresentation
   if (sourceKind === 'grafana') return grafanaPresentation
   if (sourceKind === 'posthog') return posthogPresentation
   if (sourceKind === 'webhook') return webhookPresentation
@@ -246,11 +256,11 @@ export function presentationFor(sourceKind: string | undefined): ItemPresentatio
 // Each backend source node's config module exports its sourceKind next to
 // its node `type` — the only place a flow node type maps to a sourceKind, so
 // provider N+1 adds a node module and never touches a hand-maintained list
-// here (engine/runGraph.ts's BACKEND_SOURCE_TYPES derives its own set from
-// the same node modules' `type` exports).
+// here.
 
 const SOURCE_KIND_BY_NODE_TYPE: Record<string, string> = {
   [githubSourceNode.type]: githubSourceNode.sourceKind,
+  [giteaSourceNode.type]: giteaSourceNode.sourceKind,
   [grafanaMetricsSourceNode.type]: grafanaMetricsSourceNode.sourceKind,
   [grafanaAlertsSourceNode.type]: grafanaAlertsSourceNode.sourceKind,
   [grafanaIRMAlertsSourceNode.type]: grafanaIRMAlertsSourceNode.sourceKind,

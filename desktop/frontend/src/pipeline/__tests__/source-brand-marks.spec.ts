@@ -7,12 +7,14 @@ import { describe, expect, it } from 'vitest'
 import { byType } from '../registry'
 import { sourceKindForNodeType } from '../../lib/itemPresentation'
 import GithubMark from '../../components/marks/GithubMark.vue'
+import GiteaMark from '../../components/marks/GiteaMark.vue'
 import GrafanaMark from '../../components/marks/GrafanaMark.vue'
 import PostHogMark from '../../components/marks/PostHogMark.vue'
 
 /** sourceKind -> the brand mark and accent every node of that kind renders. */
 const BRANDS = {
   github: { mark: GithubMark, accent: 'var(--color-brand-github)', tint: 'var(--color-brand-github-tint)' },
+  gitea: { mark: GiteaMark, accent: 'var(--color-brand-gitea)', tint: 'var(--color-brand-gitea-tint)' },
   grafana: { mark: GrafanaMark, accent: 'var(--color-brand-grafana)', tint: 'var(--color-brand-grafana-tint)' },
   posthog: { mark: PostHogMark, accent: 'var(--color-brand-posthog)', tint: 'var(--color-brand-posthog-tint)' },
 } as const

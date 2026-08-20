@@ -15,6 +15,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/activity"
 	"github.com/hay-kot/hive-desktop/internal/app/credentials"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/github/ghclient"
+	"github.com/hay-kot/hive-desktop/internal/app/sources/itemtext"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/sourcehttp"
 )
 
@@ -483,7 +484,7 @@ func (p *LiveProvider) searchItems(items []ghclient.SearchItem) []Item {
 			Labels:    labels,
 			Branch:    suggestedBranch(kind, si.Number, si.Title),
 			Body:      si.Body,
-			Prompt:    suggestedPrompt(kind, si.Title, si.URL, si.Body),
+			Prompt:    itemtext.Prompt(kind, si.Title, si.URL, si.Body),
 			URL:       si.URL,
 		})
 	}
@@ -516,7 +517,7 @@ func (p *LiveProvider) notificationItems(notifications []ghclient.Notification) 
 			Reason:    n.Reason,
 			Branch:    suggestedBranch(kind, num, n.Subject.Title),
 			Body:      fmt.Sprintf("GitHub notification for %s in %s.", strings.ToLower(kind), repo),
-			Prompt:    suggestedPrompt(kind, n.Subject.Title, htmlURLForSubject(repo, kind, num), ""),
+			Prompt:    itemtext.Prompt(kind, n.Subject.Title, htmlURLForSubject(repo, kind, num), ""),
 			URL:       htmlURLForSubject(repo, kind, num),
 		})
 	}
@@ -551,49 +552,10 @@ func htmlURLForSubject(repo, kind string, num int) string {
 	return fmt.Sprintf("https://github.com/%s/%s/%d", repo, segment, num)
 }
 
-// suggestedBranch proposes a session branch name for acting on the item. The
-// naming mirrors the hive TUI's source session-name convention
-// (gh-pr-<n>-<slug> for PRs, gh-<n>-<slug> for issues; see SourceTemplateConfig
-// defaults in internal/core/config), slugified so it is a valid git branch.
+// branchPrefix identifies GitHub in a suggested branch name: gh-pr-<n>-<slug>
+// for pull requests, gh-<n>-<slug> for issues.
+const branchPrefix = "gh"
+
 func suggestedBranch(kind string, num int, title string) string {
-	prefix := "gh"
-	if kind == "PR" {
-		prefix = "gh-pr"
-	}
-	return fmt.Sprintf("%s-%d-%s", prefix, num, slugify(title))
-}
-
-// suggestedPrompt proposes the launch dialog's default prompt for an item. The
-// wording mirrors the hive TUI's source prompt templates (SourceTemplateConfig
-// defaults): PRs get "Review pull request", issues get "Work on", each followed
-// by the item URL and (for issues) its body. The result is trimmed so an empty
-// body leaves no dangling blank lines, matching the TUI.
-func suggestedPrompt(kind, title, url, body string) string {
-	if kind == "PR" {
-		return strings.TrimSpace(fmt.Sprintf("Review pull request %s\n\n%s", title, url))
-	}
-	return strings.TrimSpace(fmt.Sprintf("Work on %s\n\n%s\n\n%s", title, url, body))
-}
-
-const slugMaxLen = 40
-
-func slugify(s string) string {
-	var b strings.Builder
-	lastDash := true // suppress leading dash
-	for _, r := range strings.ToLower(s) {
-		switch {
-		case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
-			b.WriteRune(r)
-			lastDash = false
-		default:
-			if !lastDash {
-				b.WriteByte('-')
-				lastDash = true
-			}
-		}
-		if b.Len() >= slugMaxLen {
-			break
-		}
-	}
-	return strings.Trim(b.String(), "-")
+	return itemtext.Branch(branchPrefix, kind, num, title)
 }
