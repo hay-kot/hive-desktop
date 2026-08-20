@@ -100,10 +100,11 @@ watch(() => props.active, (active) => {
 }, { immediate: true })
 
 // ── The tree ─────────────────────────────────────────────────────────────
-// One node per workspace, carrying its own chats and the rollup its folded row
-// summarises. Chats keep the order the cross-workspace read hands over (newest
-// record first, stable under a resume — internal/app/store/queries:
-// ListAllAgentWorkspaceSessions), so grouping costs no ordering.
+// One node per workspace, carrying its own chats. They keep the order the
+// cross-workspace read hands over (newest record first, stable under a resume —
+// internal/app/store/queries: ListAllAgentWorkspaceSessions), so grouping costs
+// no ordering. `live` is here for the fold default, which opens a workspace with
+// something running in it.
 interface WorkspaceNode {
   dir: string
   name: string
@@ -111,7 +112,6 @@ interface WorkspaceNode {
   workspace: AgentWorkspace | null
   sessions: AgentSession[]
   live: boolean
-  waiting: boolean
 }
 
 const tree = computed<WorkspaceNode[]>(() => {
@@ -132,7 +132,6 @@ const tree = computed<WorkspaceNode[]>(() => {
       workspace,
       sessions,
       live: sessions.some((session) => !!session.terminalId),
-      waiting: sessions.some((session) => props.sessionActivity[session.id] === 'approval'),
     })
   }
 
@@ -469,6 +468,18 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @contextmenu.prevent="editWorkspace(node)"
           >
             <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
+            <!-- Three controls on one pitch, revealed together: the header
+                 says nothing at rest but its own name and whether it is open. -->
+            <button
+              v-if="node.workspace"
+              type="button"
+              class="row-action"
+              :title="`New chat in ${node.name}`"
+              :aria-label="`New chat in ${node.name}`"
+              :disabled="startingSession"
+              data-testid="agents-sidebar-workspace-new-session"
+              @click.stop="startSessionIn(node)"
+            ><IconPlus class="size-3" /></button>
             <button
               v-if="node.workspace"
               type="button"
@@ -478,32 +489,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               data-testid="agents-sidebar-workspace-edit"
               @click.stop="editWorkspace(node)"
             ><IconPencil class="size-3" /></button>
-            <!-- The rollup a folded row summarises with: how many chats, and
-                 whether any of them is live or is waiting on the user. The count
-                 shares its cell with the add button, the Code view's repo header
-                 exactly: starting a chat in the workspace you are pointing at is
-                 worth more than its count is while you are pointing at it. -->
-            <div class="ws-trailing" :class="{ 'ws-trailing-add': !!node.workspace }" @click.stop>
-              <span class="entry-count">{{ node.sessions.length || '' }}</span>
-              <button
-                v-if="node.workspace"
-                type="button"
-                class="ws-add"
-                :title="`New chat in ${node.name}`"
-                :aria-label="`New chat in ${node.name}`"
-                :disabled="startingSession"
-                data-testid="agents-sidebar-workspace-new-session"
-                @click="startSessionIn(node)"
-              ><IconPlus class="size-3" /></button>
-            </div>
-            <span class="entry-dot">
-              <span
-                v-if="node.live || node.waiting"
-                class="size-2 rounded-full"
-                :class="node.waiting ? 'bg-severity-warning' : 'bg-severity-success'"
-                :title="node.waiting ? 'Needs approval' : 'Live chats'"
-              />
-            </span>
             <!-- The chevron trails the row, where the Code view's group chevron
                  sits. Unlike that one it is the fold control rather than an
                  indicator of it, because clicking this row focuses the
@@ -519,7 +504,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               :aria-expanded="expanded(node)"
               data-testid="agents-sidebar-workspace-toggle"
               @click.stop="toggleExpanded(node)"
-            ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3.5" /></button>
+            ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3" /></button>
           </div>
 
           <div v-if="expanded(node)" class="ws-well" data-testid="agents-sidebar-workspace-well">
@@ -578,13 +563,13 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                     />
                     <span
                       v-else-if="session.terminalId"
-                      class="size-2 rounded-full bg-severity-success"
+                      class="size-2.5 rounded-full bg-severity-success"
                       title="Agent running"
                       data-testid="agents-sidebar-session-liveness"
                     />
                     <span
                       v-else
-                      class="size-2 rounded-full border border-text-4"
+                      class="size-2.5 rounded-full border border-text-4"
                       title="Not running"
                       data-testid="agents-sidebar-session-idle"
                     />
@@ -654,8 +639,8 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-row:hover { background: var(--color-chip); }
 .ws-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 
-.ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; color: var(--color-text-4); cursor: pointer; }
-.ws-toggle:hover { color: var(--color-accent); }
+.ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; }
+.ws-toggle:hover { background: var(--color-app); color: var(--color-text); }
 /* A problem or a notice used to be its own line of text under the name. It is
    the chevron's colour now, with the message on the row's tooltip — a warning
    is worth a glance, and its wording is worth a hover. */
@@ -688,29 +673,19 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 
 /* A fixed cell rather than a shrink-wrapped glyph, so the chat names line up
    down the column whatever mark a row is showing. */
-.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--color-text-4); }
+.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; color: var(--color-text-4); }
 .nav-icon-notice { color: var(--color-severity-warning); }
 
 /* Revealed by opacity, not display, so every trailing column stays reserved:
    hovering a row never reflows the name or hides the count. */
 .row-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
+/* Darkening, not lightening: the row itself hovers to --color-chip, so a
+   chip-coloured button would vanish into it. */
 .row-action:hover { background: var(--color-app); color: var(--color-text); }
 .ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
+.ws-row:hover .row-action:disabled { opacity: .4; cursor: default; }
+.row-action:disabled:hover { background: none; color: var(--color-text-4); }
 
-/* One cell, two occupants, overlapped on the grid so the swap costs no layout
-   anywhere on the row. */
-.ws-trailing { display: grid; flex: none; width: 18px; height: 18px; align-items: center; }
-.entry-count, .ws-add { grid-area: 1 / 1; }
-.entry-count { display: flex; align-items: center; justify-content: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--color-text-4); pointer-events: none; }
-.ws-add { display: inline-flex; align-items: center; justify-content: center; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
-.ws-add:hover { background: var(--color-chip); color: var(--color-text); }
-/* Only a workspace that can actually take a chat trades its count away; an
-   orphaned directory has no add button to put in the gap. */
-.ws-row:hover .ws-trailing-add .entry-count { opacity: 0; }
-.ws-row:hover .ws-add, .ws-add:focus-visible { opacity: 1; }
-.ws-row:hover .ws-add:disabled { opacity: .4; cursor: default; }
-.ws-add:disabled:hover { background: none; color: var(--color-text-4); }
-.entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 
 /* One 18px cell holding the status mark and the menu toggle, overlapped on the
@@ -744,7 +719,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
   .tree-rail { transition: none; }
 }
 
-/* Lined up with a chat name: the row's 12px inset, its 16px glyph cell, and the
+/* Lined up with a chat name: the row's 12px inset, its 18px glyph cell, and the
    8px between them. */
-.chat-empty { padding: 7px 12px 7px 36px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
+.chat-empty { padding: 7px 12px 7px 38px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>

@@ -1578,11 +1578,18 @@ Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
 Secondary text a row used to stack under its name — `agent · autonomy`, a
 problem, a notice — is the row's tooltip, with the chevron going amber or red so
-a warning stays a glance rather than a hover. A header's chat count shares its
-cell with a `+` revealed on hover, the Code view's repo header exactly; it
-starts a chat in that workspace under the default name with **no dialog**,
-because naming the workspace is the only thing `NewChatDialog` asks that has no
-sensible default and the header has already answered it. A brand mark stood in for the
+a warning stays a glance rather than a hover. Its trailing edge is three
+controls on one 18px pitch — `+`, edit, fold chevron — with the first two
+revealed on hover, so at rest a header states its name and whether it is open
+and nothing else. The `+` starts a chat in that workspace under the default name
+with **no dialog**, because naming the workspace is the only thing
+`NewChatDialog` asks that has no sensible default and the header has already
+answered it. A header carries **no rollup**: no chat count, and no live-or-
+waiting dot. The activity marks live on the chat rows, which is the only place
+they identify which chat they are about; a header repeating them summarised
+something the row beneath already said and cost the trailing edge its rhythm.
+Every cell in both row kinds is that same 18px, which is what lines the columns
+up between a header and the chats under it. A brand mark stood in for the
 agent on the header for a while and earned nothing: the workspaces under one
 root normally run the same agent, so the column was one glyph repeated. What the Code view still lends is the activity vocabulary
 alone: the spinner, the approval alert and the liveness dot mean here exactly

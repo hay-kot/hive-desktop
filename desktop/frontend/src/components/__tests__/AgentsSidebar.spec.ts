@@ -365,13 +365,24 @@ describe('AgentsSidebar', () => {
     expect(wrapper.emitted('edit-workspace')).toEqual([[workspaceFixtures[1]], [workspaceFixtures[0]]])
   })
 
-  it('renders the Code view\'s activity icons from sessionActivity, rolled up onto the workspace row', async () => {
+  it("renders the Code view's activity icons from sessionActivity, on the chat rows alone", async () => {
     const wrapper = await mountSidebar({ sessionActivity: { 2: 'approval', 1: 'active' } })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
     expect(rows[0].find('.animate-spin').exists()).toBe(true) // a-session is working
     expect(rows[1].find('.text-severity-warning').exists()).toBe(true) // b-session needs approval
-    const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    expect(workspaceRows[1].find('.bg-severity-warning').exists()).toBe(true) // demo-b rolls the approval up
+  })
+
+  it('a workspace header carries its name and three controls, and no rollup of its own', async () => {
+    const wrapper = await mountSidebar({ sessionActivity: { 2: 'approval' } })
+    const header = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')[1]
+    expect(header.text()).toBe('Demo B') // no count beside the name
+    expect(header.find('.bg-severity-warning').exists()).toBe(false)
+    // +, edit, chevron — in that order, all on one pitch.
+    expect(header.findAll('button').map((button) => button.attributes('data-testid'))).toEqual([
+      'agents-sidebar-workspace-new-session',
+      'agents-sidebar-workspace-edit',
+      'agents-sidebar-workspace-toggle',
+    ])
   })
 
   it('exposes focus() for the global keymap handle', async () => {
