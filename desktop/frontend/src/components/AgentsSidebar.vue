@@ -45,7 +45,11 @@ import type { MenuEntry } from '../types/menu'
 
 const props = withDefaults(defineProps<{
   active?: boolean
-  /** The workspace the route currently has focused, '' when none. */
+  /**
+   * The workspace the route currently has focused, '' when none. It scopes what
+   * AgentsMode regenerates and reports above the pane, and unfolds its row here;
+   * the sidebar draws no mark for it — see .sidebar-entry-selected below.
+   */
   selectedWorkspace?: string
   /** The chat currently attached to the pane, for highlighting its row. */
   openSessionId?: number | null
@@ -441,7 +445,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                focus). -->
           <div
             class="ws-row"
-            :class="{ 'ws-row-focused': node.dir === selectedWorkspace }"
             role="button"
             tabindex="0"
             data-testid="agents-sidebar-workspace-row"
@@ -624,16 +627,14 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-row { display: flex; height: 40px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text); font-size: 13px; font-weight: 500; cursor: pointer; }
 .ws-row:hover { background: var(--color-chip); }
 .ws-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-.ws-row-focused { color: var(--color-accent); }
 
 .ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; color: var(--color-text-4); cursor: pointer; }
 .ws-toggle:hover { color: var(--color-accent); }
-.ws-row-focused .ws-toggle { color: var(--color-accent); }
 /* A problem or a notice used to be its own line of text under the name. It is
    the chevron's colour now, with the message on the row's tooltip — a warning
    is worth a glance, and its wording is worth a hover. */
-.ws-toggle-notice, .ws-row-focused .ws-toggle-notice { color: var(--color-severity-warning); }
-.ws-toggle-problem, .ws-row-focused .ws-toggle-problem { color: var(--color-severity-error); }
+.ws-toggle-notice { color: var(--color-severity-warning); }
+.ws-toggle-problem { color: var(--color-severity-error); }
 
 .ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 6px 0; }
 
@@ -650,10 +651,12 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 /* The Code view's attached-row mark, unchanged: accent text and medium weight,
    and no fill at all. The rail below is what finds the row, and leaving the
-   surface alone is also what lets a selected row keep its hover feedback. The
-   focused workspace's header takes the same accent without the rail, which is
-   the Code view's own split between an attached group and the attached row
-   inside it. */
+   surface alone is also what lets a selected row keep its hover feedback.
+   This is the sidebar's ONLY selection mark. A focused workspace deliberately
+   draws nothing: focus is sticky — it lives on the route's :workspace param and
+   the sidebar only ever moves it — so a header that showed it read as one row
+   stuck lit from some earlier visit rather than as anything the user had just
+   done. What focus actually changes is above the pane, not in here. */
 .sidebar-entry-selected { color: var(--color-accent); font-weight: 500; }
 .sidebar-entry-selected .nav-icon { color: var(--color-accent); }
 
@@ -669,7 +672,6 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
 .entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 11.5px; font-weight: 400; color: var(--color-text-4); }
-.ws-row-focused .entry-count { color: var(--color-accent); }
 .entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 

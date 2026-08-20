@@ -1564,9 +1564,13 @@ statement made twice at the cost of a name's width in a sidebar this narrow.
 There is no drawn connector. Selection is the Code view's attached-row mark
 outright: accent text, medium weight, **no fill**, and its traveling rail —
 which is what finds the row, and what leaving the surface alone lets a selected
-row keep its hover feedback for. The focused workspace's header takes the same
-accent without the rail, the Code view's own split between an attached group and
-the attached row inside it. One place the two deliberately part is the keyboard
+row keep its hover feedback for. **The open chat is the only thing the sidebar
+marks.** A focused workspace deliberately draws nothing, even though focus is
+real and does work: focus is *sticky* — it lives on the route's `:workspace`
+param and the sidebar only ever moves it, never clears it — so a header drawing
+it reads as a row stuck lit from some earlier visit rather than as anything the
+user just did. What focus changes is above the pane, not in the list. One place
+this sidebar and the Code view deliberately part is the keyboard
 focus ring: the Code view sets `outline: none` because its walk activates the
 row it lands on, and nothing walks this tree — Tab moves through rows without
 selecting them, so the ring stays. The fold chevron trails the header where the

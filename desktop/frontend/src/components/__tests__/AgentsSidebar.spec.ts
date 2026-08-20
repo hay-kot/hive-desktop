@@ -105,15 +105,19 @@ describe('AgentsSidebar', () => {
     expect(chatRows[0].text()).toContain('a-session')
   })
 
-  // Two strengths of mark, borrowed from the hub sidebar: the open chat fills
-  // its row, the focused workspace only goes accent.
-  it('marks the focused workspace in accent, without filling its row', async () => {
-    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
-    const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
-    expect(rows[1].attributes('data-focused')).toBe('true')
-    expect(rows[1].classes()).toContain('ws-row-focused')
-    expect(rows[0].attributes('data-focused')).toBe('false')
-    expect(rows[1].classes()).not.toContain('sidebar-entry-selected')
+  // The open chat is the sidebar's only selection mark. Focus is sticky — it
+  // lives on the route and the sidebar only ever moves it — so a header that
+  // drew it would read as a row stuck lit from an earlier visit.
+  it('draws no mark for the focused workspace; only the open chat is marked', async () => {
+    const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b', openSessionId: 2 })
+    const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    expect(workspaceRows[1].attributes('data-focused')).toBe('true')
+    expect(workspaceRows[1].classes()).toEqual(workspaceRows[0].classes())
+    expect(workspaceRows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes())
+      .toEqual(workspaceRows[0].get('[data-testid="agents-sidebar-workspace-toggle"]').classes())
+
+    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(chatRows[1].classes()).toContain('sidebar-entry-selected')
   })
 
   it("accents the open chat's row, and nothing else's", async () => {
