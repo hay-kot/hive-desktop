@@ -8,6 +8,7 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/flow"
 	"github.com/hay-kot/hive-desktop/internal/app/profileimg"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
+	"github.com/hay-kot/hive-desktop/internal/app/settings"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	ghsource "github.com/hay-kot/hive-desktop/internal/app/sources/github"
 	"github.com/hay-kot/hive-desktop/internal/app/store"
@@ -23,11 +24,12 @@ type FlowsService struct {
 	images    *profileimg.Store
 	marks     *sourcemark.Store
 	scripts   *runtime.ScriptRegistry
+	settings  *settings.Store
 	onUpdated func()
 }
 
-func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, onUpdated func()) *FlowsService {
-	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, scripts: scripts, onUpdated: onUpdated}
+func newFlowsService(flows *flow.FlowStore, db *store.DB, creds credentials.Store, images *profileimg.Store, marks *sourcemark.Store, scripts *runtime.ScriptRegistry, settingsStore *settings.Store, onUpdated func()) *FlowsService {
+	return &FlowsService{flows: flows, db: db, creds: creds, images: images, marks: marks, scripts: scripts, settings: settingsStore, onUpdated: onUpdated}
 }
 
 // seedCredential is the account a starter graph fetches as, or "" when there
@@ -193,6 +195,29 @@ func (s *FlowsService) SetEnabled(_ context.Context, id string, enabled bool) (f
 	}
 	s.notifyUpdated()
 	return f, nil
+}
+
+// SetOrder persists the rail order as profiles.order and applies it to the
+// live listing, so a reorder shows up without a restart. ids is the whole
+// rail, top first — an id it leaves out falls back to sorting alphabetically
+// behind the ones it names, which is also what a profile created later gets.
+//
+// Ids are not checked against the loaded flows. An id naming nothing is
+// already ignored when the order is read, and refusing the write would make
+// deleting a profile able to fail an unrelated reorder.
+func (s *FlowsService) SetOrder(_ context.Context, ids []string) error {
+	if s.settings == nil {
+		return Errorf(KindUnavailable, "settings are unavailable")
+	}
+	if _, err := s.settings.Update(func(current *settings.Settings) error {
+		current.Profiles.Order = ids
+		return nil
+	}); err != nil {
+		return Wrap(err, KindInternal, "saving the profile order")
+	}
+	s.flows.SetOrder(ids)
+	s.notifyUpdated()
+	return nil
 }
 
 // Delete removes a profile's files before purging its durable state, in that

@@ -393,7 +393,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	profileImages := profileimg.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "profiles"))
 	sourceMarks := sourcemark.NewStore(filepath.Join(cfg.Paths.StateDir, "assets", "webhookmarks"))
-	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, func() { a.PublishFlowsUpdated("save") })
+	a.Flows = newFlowsService(a.flowStore, db, a.credentials, profileImages, sourceMarks, a.scripts, a.settingsStore, func() { a.PublishFlowsUpdated("save") })
 	a.Actions = newActionsService(a.actionStore, func() {
 		a.Events.Publish(a.ctx, events.ActionsUpdated{Count: len(a.actionStore.List())})
 	})
@@ -740,8 +740,9 @@ func (a *App) openActions(path string, logger zerolog.Logger) {
 // both resolve enabled flow ids live from the store.
 //
 // The rail order comes from settings.yaml, which the flow package does not
-// read; it is process state the watcher's reloads leave alone, so a change to
-// profiles.order takes effect on the next launch.
+// read; it is process state the watcher's reloads leave alone. Reordering the
+// rail pushes it back through FlowsService.SetOrder, so only a hand edit of
+// settings.yaml waits for the next launch.
 func (a *App) openFlows(dir string, logger zerolog.Logger) {
 	a.flowStore = flow.NewFlowStore(dir, actions.NewRefs(a.actionStore))
 	a.flowStore.SetOrder(a.settings.Profiles.Order)
