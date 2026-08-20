@@ -1561,10 +1561,15 @@ not bleed into the next workspace's. That banding is the *only* thing separating
 the two levels, so the chats are deliberately **not** indented under their
 header. The well already says what they belong to; an indent would be the same
 statement made twice at the cost of a name's width in a sidebar this narrow.
-There is no drawn connector and no rail. Selection has two strengths, and they
-must stay distinguishable: the open chat fills its row, the focused workspace
-only goes accent, because focus scopes the strips above the pane while the fill
-is what says which chat is *in* it. The fold chevron trails the header where the
+There is no drawn connector. Selection is the Code view's attached-row mark
+outright: accent text, medium weight, **no fill**, and its traveling rail —
+which is what finds the row, and what leaving the surface alone lets a selected
+row keep its hover feedback for. The focused workspace's header takes the same
+accent without the rail, the Code view's own split between an attached group and
+the attached row inside it. One place the two deliberately part is the keyboard
+focus ring: the Code view sets `outline: none` because its walk activates the
+row it lands on, and nothing walks this tree — Tab moves through rows without
+selecting them, so the ring stays. The fold chevron trails the header where the
 Code view's does, but is the fold *control* rather than an indicator of one,
 because clicking the header focuses the workspace instead of folding it.
 Secondary text a row used to stack under its name — `agent · autonomy`, a

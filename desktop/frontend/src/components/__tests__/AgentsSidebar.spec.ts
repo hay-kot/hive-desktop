@@ -116,7 +116,7 @@ describe('AgentsSidebar', () => {
     expect(rows[1].classes()).not.toContain('sidebar-entry-selected')
   })
 
-  it("fills the open chat's row, and nothing else's", async () => {
+  it("accents the open chat's row, and nothing else's", async () => {
     const wrapper = await mountSidebar({ openSessionId: 2 })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
     expect(rows[1].attributes('data-open')).toBe('true')
@@ -125,10 +125,17 @@ describe('AgentsSidebar', () => {
     expect(rows[0].classes()).not.toContain('sidebar-entry-selected')
   })
 
-  it("draws no rail: the Code view's traveling mark is not this sidebar's language", async () => {
+  it("lands the Code view's traveling rail on the open chat, and only there", async () => {
     const wrapper = await mountSidebar({ openSessionId: 2 })
-    expect(wrapper.find('[data-testid="agents-sidebar-session-rail"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('true')
+    // One rail for the tree: a second on the focused workspace would read as
+    // two competing selections in one column.
     expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
+  })
+
+  it('the rail fades out rather than sit on a stale row when no chat is open', async () => {
+    const wrapper = await mountSidebar()
+    expect(wrapper.get('[data-testid="agents-sidebar-session-rail"]').attributes('data-shown')).toBe('false')
   })
 
   it("draws a workspace as one block: a header on the sidebar's surface over a well of its chats", async () => {

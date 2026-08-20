@@ -17,7 +17,7 @@
 // starting a chat) or the manifest (create/edit workspace — delete lives in
 // the editor) is an emitted event; only tree state, the chat row menus, and
 // the chat delete confirmation live here.
-import { computed, ref, watch, type Component } from 'vue'
+import { computed, nextTick, ref, watch, type Component } from 'vue'
 import { useStorage } from '@vueuse/core'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -314,6 +314,49 @@ const { size: sidebarWidth, startResize: startSidebarResize, step: stepSidebar }
   storageKey: 'hive.panel.agents.sidebar', defaultSize: 260, min: 180, max: 400, edge: 'right',
 })
 
+// ── The selection rail (the Code view's traveling mark, TerminalMode.vue) ─
+// Measured off the open chat's row rather than drawn by it, so changing the
+// selection reads as the same mark relocating rather than a second one
+// appearing where the first went out.
+interface SelectionRail { y: number; height: number; shown: boolean }
+const treeContent = ref<HTMLElement | null>(null)
+const rail = ref<SelectionRail>({ y: 0, height: 0, shown: false })
+
+// A rail with no row to sit on fades out where it stands rather than resetting,
+// so it does not travel from a stale origin when one reappears.
+function measureRail(): void {
+  const content = treeContent.value
+  const row = content?.querySelector<HTMLElement>('[data-testid="agents-sidebar-session-row"][data-open="true"]')
+  if (!content || !row) {
+    rail.value = { ...rail.value, shown: false }
+    return
+  }
+  rail.value = {
+    y: row.getBoundingClientRect().top - content.getBoundingClientRect().top,
+    height: row.offsetHeight,
+    shown: true,
+  }
+}
+
+// The stored fold map mutates in place, so the fold state reaches this watch as
+// a key rather than by identity.
+const foldKey = computed(() => tree.value.map((node) => `${node.dir}:${expanded(node) ? 1 : 0}`).join('|'))
+
+watch(
+  () => [props.openSessionId, tree.value, foldKey.value] as const,
+  () => void nextTick(measureRail),
+  { immediate: true },
+)
+
+// Rows also move without a selection change — a workspace refilling after a
+// reload, an error line appearing — and a content resize is every one of those.
+watch(treeContent, (el, _previous, onCleanup) => {
+  if (!el || typeof ResizeObserver === 'undefined') return
+  const observer = new ResizeObserver(() => measureRail())
+  observer.observe(el)
+  onCleanup(() => observer.disconnect())
+})
+
 // ── Focus handle for the global keymap (agents.focus-sidebar) ────────────
 const rootEl = ref<HTMLElement | null>(null)
 defineExpose({ focus: () => rootEl.value?.focus() })
@@ -376,6 +419,9 @@ defineExpose({ focus: () => rootEl.value?.focus() })
              tree. -->
         <p v-if="recentsError" class="px-3 pb-1 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
 
+        <!-- The rails' positioning context, and the box whose resize tells them
+             a row has moved. -->
+        <div ref="treeContent" class="relative">
         <!-- One workspace reads as one block, exactly as one repository does in
              the Code view's tree: the header keeps the sidebar's own surface and
              its chats sit in a recessed panel under it, so a long run of chats
@@ -539,6 +585,15 @@ defineExpose({ focus: () => rootEl.value?.focus() })
               </template>
           </div>
         </div>
+        <span
+          class="tree-rail"
+          :class="{ 'tree-rail-shown': rail.shown }"
+          :style="{ transform: `translateY(${rail.y}px)`, height: `${rail.height}px` }"
+          data-testid="agents-sidebar-session-rail"
+          :data-shown="rail.shown"
+          aria-hidden="true"
+        />
+        </div>
       </template>
     </div>
     <PanelResizeHandle edge="right" name="agents-sidebar" :start="startSidebarResize" :step="stepSidebar" />
@@ -566,7 +621,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-block { border-top: 1px solid var(--color-border); }
 .ws-block-first { border-top: 0; }
 
-.ws-row { display: flex; height: 34px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text); font-size: 13px; font-weight: 500; cursor: pointer; }
+.ws-row { display: flex; height: 40px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text); font-size: 13px; font-weight: 500; cursor: pointer; }
 .ws-row:hover { background: var(--color-chip); }
 .ws-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
 .ws-row-focused { color: var(--color-accent); }
@@ -580,19 +635,26 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .ws-toggle-notice, .ws-row-focused .ws-toggle-notice { color: var(--color-severity-warning); }
 .ws-toggle-problem, .ws-row-focused .ws-toggle-problem { color: var(--color-severity-error); }
 
-.ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 4px 0; }
+.ws-well { border-top: 1px solid var(--color-border); background: var(--color-app); padding: 6px 0; }
 
 /* A chat row: SidebarFeedRow's .sidebar-entry stripped of its inset and its
    radius, because inside the well a row is full-bleed. Its leading glyph stays
    bare rather than framed in that component's bordered tile — a column of tiles
    reads as a stack of boxes before it reads as a list. */
-.sidebar-entry { position: relative; display: flex; height: 30px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
+.sidebar-entry { position: relative; display: flex; height: 34px; align-items: center; gap: 8px; padding: 0 12px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
 .sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
+/* Kept where the Code view sets `outline: none`: that tree has a keyboard walk
+   which activates the row it lands on, so its rail is already the mark
+   following the cursor. Nothing walks this one — Tab moves through rows without
+   selecting them, and dropping the ring would make that invisible. */
 .sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-/* Two strengths of mark, so they cannot be confused: the open chat fills its
-   row, the focused workspace only goes accent. Focus scopes what the strips
-   above the pane describe; the fill is what says "this one is in the pane". */
-.sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
+/* The Code view's attached-row mark, unchanged: accent text and medium weight,
+   and no fill at all. The rail below is what finds the row, and leaving the
+   surface alone is also what lets a selected row keep its hover feedback. The
+   focused workspace's header takes the same accent without the rail, which is
+   the Code view's own split between an attached group and the attached row
+   inside it. */
+.sidebar-entry-selected { color: var(--color-accent); font-weight: 500; }
 .sidebar-entry-selected .nav-icon { color: var(--color-accent); }
 
 /* A fixed cell rather than a shrink-wrapped glyph, so the chat names line up
@@ -621,12 +683,28 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .sidebar-entry:hover .entry-status, .sidebar-entry.menu-open .entry-status { opacity: 0; }
 .sidebar-entry:hover .entry-menu, .entry-menu:focus-visible, .sidebar-entry.menu-open .entry-menu { opacity: 1; }
 
-.section-label { display: flex; align-items: center; gap: 7px; padding: 0 12px 8px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
+.section-label { display: flex; align-items: center; gap: 7px; padding: 0 12px 10px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; letter-spacing: .12em; }
 .section-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; color: var(--color-text-3); cursor: pointer; }
 .section-action:hover { background: var(--color-chip); color: var(--color-text); }
 .section-action:disabled { cursor: default; opacity: .4; }
 
+/* TerminalMode.vue's tree-rail, verbatim. Square ends, and motion fast enough
+   to read as the same mark relocating rather than a second one appearing. The
+   z-index is load-bearing: the rows and the wells are painted boxes too, so
+   without it the rail goes under them. */
+.tree-rail {
+  position: absolute; left: 0; top: 0; z-index: 1; width: 3px;
+  background: var(--color-accent);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform .2s cubic-bezier(.2, 0, 0, 1), height .2s cubic-bezier(.2, 0, 0, 1), opacity .12s ease;
+}
+.tree-rail-shown { opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .tree-rail { transition: none; }
+}
+
 /* Lined up with a chat name: the row's 12px inset, its 16px glyph cell, and the
    8px between them. */
-.chat-empty { padding: 5px 12px 5px 36px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
+.chat-empty { padding: 7px 12px 7px 36px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>
