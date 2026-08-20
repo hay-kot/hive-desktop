@@ -111,7 +111,7 @@ describe('AgentsSidebar', () => {
     const wrapper = await mountSidebar({ selectedWorkspace: 'demo-b' })
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows[1].attributes('data-focused')).toBe('true')
-    expect(rows[1].classes()).toContain('sidebar-entry-focused')
+    expect(rows[1].classes()).toContain('ws-row-focused')
     expect(rows[0].attributes('data-focused')).toBe('false')
     expect(rows[1].classes()).not.toContain('sidebar-entry-selected')
   })
@@ -129,6 +129,26 @@ describe('AgentsSidebar', () => {
     const wrapper = await mountSidebar({ openSessionId: 2 })
     expect(wrapper.find('[data-testid="agents-sidebar-session-rail"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="agents-sidebar-workspace-rail"]').exists()).toBe(false)
+  })
+
+  it('draws a workspace as the section header for its chats, not as a peer of them', async () => {
+    const wrapper = await mountSidebar()
+    const workspaceRows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
+    const chatRows = wrapper.findAll('[data-testid="agents-sidebar-session-row"]')
+    expect(workspaceRows[0].classes()).toContain('ws-row')
+    expect(workspaceRows[0].classes()).not.toContain('sidebar-entry')
+    expect(chatRows[0].classes()).toContain('sidebar-entry')
+    // Only the first header sits flush; the rest open a gap above their group.
+    expect(workspaceRows[0].classes()).toContain('ws-row-first')
+    expect(workspaceRows[1].classes()).not.toContain('ws-row-first')
+  })
+
+  it('gives every workspace a permanent disclosure triangle stating its fold state', async () => {
+    const wrapper = await mountSidebar({}, {})
+    const toggles = wrapper.findAll('[data-testid="agents-sidebar-workspace-toggle"]')
+    expect(toggles).toHaveLength(2)
+    expect(toggles[0].attributes('aria-expanded')).toBe('false')
+    expect(toggles[1].attributes('aria-expanded')).toBe('true')
   })
 
   // ── Folding ─────────────────────────────────────────────────────────────
@@ -187,7 +207,7 @@ describe('AgentsSidebar', () => {
     const rows = wrapper.findAll('[data-testid="agents-sidebar-workspace-row"]')
     expect(rows.map((row) => row.attributes('data-dir'))).toEqual(['demo-a', 'demo-b'])
     expect(rows[1].text()).toContain('demo-b') // the directory, since there is no name to read
-    expect(rows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes()).toContain('nav-icon-problem')
+    expect(rows[1].get('[data-testid="agents-sidebar-workspace-toggle"]').classes()).toContain('ws-toggle-problem')
     expect(rows[1].attributes('title')).toContain('no longer in the workspace root')
     // Nothing to open and nothing to edit, but its chats are still reachable.
     expect(rows[1].find('[data-testid="agents-sidebar-workspace-edit"]').exists()).toBe(false)

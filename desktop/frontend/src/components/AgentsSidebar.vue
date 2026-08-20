@@ -23,9 +23,7 @@ import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCircleAlert from '~icons/lucide/circle-alert'
 import IconEllipsis from '~icons/lucide/ellipsis'
-import IconFolder from '~icons/lucide/folder'
 import IconFolderPlus from '~icons/lucide/folder-plus'
-import IconFolderX from '~icons/lucide/folder-x'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconMessageSquare from '~icons/lucide/message-square'
 import IconPencil from '~icons/lucide/pencil'
@@ -34,7 +32,6 @@ import IconPinOff from '~icons/lucide/pin-off'
 import IconPlus from '~icons/lucide/plus'
 import IconPower from '~icons/lucide/power'
 import IconTrash2 from '~icons/lucide/trash-2'
-import AgentIcon, { agentHasIcon } from './AgentIcon.vue'
 import AppMenu from './AppMenu.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
@@ -193,15 +190,11 @@ watch(() => props.selectedWorkspace, (dir) => {
   if (dir) unfold(dir)
 }, { immediate: true })
 
-// ── What a row's chip and its tooltip say ────────────────────────────────
-// A workspace's chip carries its agent's brand mark where there is one, which
-// is the half of the old `agent · autonomy` line worth a glance; the whole line
-// is the row's tooltip. A directory the listing lost says so in the chip
-// instead, since it has no agent to name.
-function workspaceGlyph(node: WorkspaceNode): Component {
-  return node.workspace ? IconFolder : IconFolderX
-}
-
+// ── What a row's tooltip says ────────────────────────────────────────────
+// Everything a workspace row used to stack under its name. A brand mark stood
+// in for the agent here for a while and earned nothing: the workspaces under
+// one root normally run the same agent, so the column was one glyph repeated
+// down the sidebar.
 function workspaceTooltip(node: WorkspaceNode): string {
   if (!node.workspace) return `${node.dir}\nThis directory is no longer in the workspace root.`
   const parts = [node.name, `${node.workspace.agent} · ${node.workspace.autonomy || '—'}`]
@@ -383,14 +376,14 @@ defineExpose({ focus: () => rootEl.value?.focus() })
              tree. -->
         <p v-if="recentsError" class="px-1.5 pb-1 text-[11px] text-severity-error" data-testid="agents-sidebar-sessions-error">{{ recentsError }}</p>
 
-        <template v-for="node in tree" :key="node.dir">
+        <template v-for="(node, index) in tree" :key="node.dir">
           <!-- Not a <button>: the fold chip and the edit button are real
                buttons, which are invalid nested inside one. The div keeps the
                row focusable and Enter/Space focus the workspace like a button
                would (`.self`, so the chip's own keystrokes do not also focus). -->
           <div
-            class="sidebar-entry"
-            :class="{ 'sidebar-entry-focused': node.dir === selectedWorkspace }"
+            class="ws-row"
+            :class="{ 'ws-row-focused': node.dir === selectedWorkspace, 'ws-row-first': index === 0 }"
             role="button"
             tabindex="0"
             data-testid="agents-sidebar-workspace-row"
@@ -403,31 +396,22 @@ defineExpose({ focus: () => rootEl.value?.focus() })
             @keydown.space.self.prevent="focusWorkspace(node)"
             @contextmenu.prevent="editWorkspace(node)"
           >
-            <!-- SideBar's folder header, verbatim: the chip carries identity at
-                 rest and becomes the fold handle under the pointer, so the row
-                 needs no permanent chevron column and stays aligned with the
-                 chats under it. -->
+            <!-- A permanent disclosure triangle, not a glyph that becomes one
+                 on hover: it is the one mark that separates a header from the
+                 chats under it at rest, which is the whole job here. -->
             <button
               type="button"
-              class="nav-icon nav-icon-button"
+              class="ws-toggle"
               :class="{
-                'nav-icon-problem': !node.workspace || !!node.workspace.problem,
-                'nav-icon-notice': !!node.workspace?.notice && !node.workspace?.problem,
+                'ws-toggle-problem': !node.workspace || !!node.workspace.problem,
+                'ws-toggle-notice': !!node.workspace?.notice && !node.workspace?.problem,
               }"
               :aria-label="expanded(node) ? `Collapse ${node.name}` : `Expand ${node.name}`"
               :aria-expanded="expanded(node)"
               data-testid="agents-sidebar-workspace-toggle"
               @click.stop="toggleExpanded(node)"
-            >
-              <AgentIcon
-                v-if="node.workspace && agentHasIcon(node.workspace.agent)"
-                :id="node.workspace.agent"
-                class="ws-glyph size-3.5"
-              />
-              <component :is="workspaceGlyph(node)" v-else class="ws-glyph size-3.5" />
-              <component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="ws-chevron size-3.5" />
-            </button>
-            <span class="min-w-0 flex-1 truncate font-medium">{{ node.name }}</span>
+            ><component :is="expanded(node) ? IconChevronDown : IconChevronRight" class="size-3.5" /></button>
+            <span class="min-w-0 flex-1 truncate">{{ node.name }}</span>
             <button
               v-if="node.workspace"
               type="button"
@@ -461,7 +445,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
                 v-for="session in node.sessions"
                 :key="session.id"
                 :ref="(el) => trackRowEl(menuAnchors, `s:${session.id}`, el)"
-                class="sidebar-entry sidebar-entry-nested"
+                class="sidebar-entry"
                 :class="{ 'sidebar-entry-selected': session.id === openSessionId, 'menu-open': openMenu === `s:${session.id}` }"
                 role="button"
                 tabindex="0"
@@ -559,52 +543,55 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 </template>
 
 <style scoped>
-/* The hub sidebar's row box (SideBar.vue's .folder-header, SidebarFeedRow's
-   .sidebar-entry), shared here by both levels: a workspace and a chat are the
-   same row wearing different glyphs. The one divergence from it is the leading
-   glyph, which is bare here rather than framed in a bordered tile — two levels
-   of nesting means twice as many tiles down the column as the flat feed list
-   has, and they read as a stack of boxes before they read as a list. */
-.sidebar-entry { position: relative; display: flex; align-items: center; gap: 9px; padding: 7px 8px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
+/* SidebarFeedRow's .sidebar-entry, worn by the chat rows: one line, a leading
+   glyph, and trailing controls in reserved columns. The glyph is bare here
+   rather than framed in that component's bordered tile — two levels of nesting
+   means twice as many tiles down the column as the flat feed list has, and they
+   read as a stack of boxes before they read as a list. */
+.sidebar-entry { position: relative; display: flex; align-items: center; gap: 7px; padding: 6px 8px 6px 2px; border-radius: 7px; color: var(--color-text-2); font-size: 13px; cursor: pointer; }
 .sidebar-entry:hover, .sidebar-entry.menu-open { background: var(--color-chip); color: var(--color-text); }
 .sidebar-entry:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
-/* Nesting is an inset, not a drawn connector: the chats sit inside their
-   workspace's column and the fold chevron above them says what they hang from. */
-.sidebar-entry-nested { margin-left: 12px; }
 /* Two strengths of mark, so they cannot be confused: the open chat fills its
    row, the focused workspace only goes accent. Focus scopes what the strips
    above the pane describe; the fill is what says "this one is in the pane". */
 .sidebar-entry-selected { background: var(--color-hover); color: var(--color-accent); font-weight: 500; }
-.sidebar-entry-focused { color: var(--color-accent); }
-.sidebar-entry-selected .nav-icon, .sidebar-entry-focused .nav-icon { color: var(--color-accent); }
+.sidebar-entry-selected .nav-icon { color: var(--color-accent); }
 
-/* A fixed 16px cell rather than a shrink-wrapped glyph: the names down the
-   column have to line up whether a row's mark is a folder, a brand mark, a
-   chevron or an alert, and those do not share a width. */
-.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--color-text-3); }
-.nav-icon-button { cursor: pointer; }
-.nav-icon-button:hover { color: var(--color-accent); }
+/* A workspace row is the section header for the chats under it, not a peer of
+   them: a smaller, heavier, tracked label, a permanent disclosure triangle, and
+   real space above each group. That carries the grouping on its own, which is
+   why the chats are not indented under it — they share the header's columns
+   instead, glyph under the triangle and name under the label. An indent as well
+   would be the same statement made twice, and it costs the name its width in a
+   sidebar this narrow. */
+.ws-row { position: relative; display: flex; align-items: center; gap: 7px; margin-top: 12px; padding: 3px 8px 3px 2px; border-radius: 6px; color: var(--color-text-3); font-size: 11.5px; font-weight: 600; letter-spacing: .03em; cursor: pointer; }
+.ws-row-first { margin-top: 0; }
+.ws-row:hover { color: var(--color-text); }
+.ws-row:focus-visible { outline: 2px solid var(--color-accent); outline-offset: -2px; }
+.ws-row-focused { color: var(--color-accent); }
+
+.ws-toggle { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 4px; color: var(--color-text-4); cursor: pointer; }
+.ws-toggle:hover { color: var(--color-accent); }
+.ws-row-focused .ws-toggle { color: var(--color-accent); }
 /* A problem or a notice used to be its own line of text under the name. It is
-   the glyph's colour now, with the message on the row's tooltip — a warning is
-   worth a glance, and its wording is worth a hover. */
+   the triangle's colour now, with the message on the row's tooltip — a warning
+   is worth a glance, and its wording is worth a hover. */
+.ws-toggle-notice, .ws-row-focused .ws-toggle-notice { color: var(--color-severity-warning); }
+.ws-toggle-problem, .ws-row-focused .ws-toggle-problem { color: var(--color-severity-error); }
+
+/* A fixed cell rather than a shrink-wrapped glyph, so the chat names line up
+   down the column whatever mark a row is showing. */
+.nav-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--color-text-4); }
 .nav-icon-notice { color: var(--color-severity-warning); }
-.nav-icon-problem { color: var(--color-severity-error); }
-/* The glyph shows what the workspace is at rest and what clicking it does under
-   the pointer. Swapped on row hover rather than glyph hover, so folding is
-   discoverable without hunting for the target. */
-.ws-glyph { display: inline-flex; }
-.ws-chevron { display: none; }
-.sidebar-entry:hover .ws-glyph { display: none; }
-.sidebar-entry:hover .ws-chevron { display: inline-flex; }
 
 /* Revealed by opacity, not display, so every trailing column stays reserved:
    hovering a row never reflows the name or hides the count. */
 .row-action { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 5px; color: var(--color-text-4); cursor: pointer; opacity: 0; }
 .row-action:hover { background: var(--color-app); color: var(--color-text); }
-.sidebar-entry:hover .row-action, .row-action:focus-visible { opacity: 1; }
+.sidebar-entry:hover .row-action, .ws-row:hover .row-action, .row-action:focus-visible { opacity: 1; }
 
-.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 11px; color: var(--color-text-4); }
-.sidebar-entry-focused .entry-count { color: var(--color-accent); }
+.entry-count { flex: none; min-width: 10px; text-align: right; font-family: var(--font-mono); font-size: 10.5px; font-weight: 400; letter-spacing: 0; color: var(--color-text-4); }
+.ws-row-focused .entry-count { color: var(--color-accent); }
 .entry-dot { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 10px; }
 .entry-age { flex: none; font-family: var(--font-mono); font-size: 10.5px; color: var(--color-text-4); }
 
@@ -623,5 +610,5 @@ defineExpose({ focus: () => rootEl.value?.focus() })
 .section-action:hover { background: var(--color-chip); color: var(--color-text); }
 .section-action:disabled { cursor: default; opacity: .4; }
 
-.chat-empty { margin-left: 12px; padding: 6px 8px 6px 33px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
+.chat-empty { padding: 6px 8px 6px 25px; font-size: 11.5px; font-style: italic; color: var(--color-text-4); }
 </style>

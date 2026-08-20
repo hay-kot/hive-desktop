@@ -1546,22 +1546,28 @@ clearing it no longer changes what is on screen.
 
 **Its rows are the hub sidebar's, not the Code view's.** `SideBar.vue`'s
 `.folder-header` and `SidebarFeedRow.vue`'s `.sidebar-entry` are what a
-workspace row and a chat row wear: one line, a leading glyph in a fixed 16px
-cell, and every trailing control revealed by opacity in a column the row already
-reserves, so hovering never reflows a name. The glyph is **bare**, not framed in
-the hub sidebar's bordered tile — two levels of nesting puts twice as many tiles
-down the column as a flat feed list has, and they read as a stack of boxes
-before they read as a list. The cell is fixed because a folder, a brand mark, a
-chevron and an alert do not share a width and the names have to line up
-regardless. Nesting is a 12px inset — no drawn connector, and no rail. Selection
-has two strengths, and they must stay distinguishable: the open chat fills its
-row, the focused workspace only goes accent, because focus scopes the strips
-above the pane while the fill is what says which chat is *in* it. A workspace's
-glyph is its agent's brand mark (`AgentIcon`) and swaps to the fold chevron on
-hover, which is why the row needs no permanent chevron column; a chat's is a
-message mark. Secondary text a row used to stack under its name —
-`agent · autonomy`, a problem, a notice — is the row's tooltip, with the glyph
-going amber or red so a warning stays a glance rather than a hover. What the Code view still lends is the activity vocabulary
+chat row wears: one line, a leading glyph in a fixed 16px cell, and every
+trailing control revealed by opacity in a column the row already reserves, so
+hovering never reflows a name. The glyph is **bare**, not framed in that
+component's bordered tile — two levels puts twice as many tiles down the column
+as a flat feed list has, and they read as a stack of boxes before they read as a
+list.
+
+**A workspace row is a section header, and that is the only thing separating
+the two levels.** It is smaller, heavier and tracked where a chat row is not, it
+carries a permanent disclosure triangle, and it opens real space above its
+group. The chats are then *not* indented under it: they share its columns, glyph
+under the triangle and name under the label. An indent as well would be the same
+statement made twice, and it costs a name its width in a sidebar this narrow.
+There is no drawn connector and no rail. Selection has two strengths, and they
+must stay distinguishable: the open chat fills its row, the focused workspace
+only goes accent, because focus scopes the strips above the pane while the fill
+is what says which chat is *in* it. Secondary text a row used to stack under its
+name — `agent · autonomy`, a problem, a notice — is the row's tooltip, with the
+triangle going amber or red so a warning stays a glance rather than a hover. A
+brand mark stood in for the agent on the header for a while and earned nothing:
+the workspaces under one root normally run the same agent, so the column was one
+glyph repeated. What the Code view still lends is the activity vocabulary
 alone: the spinner, the approval alert and the liveness dot mean here exactly
 what they mean there.
 
