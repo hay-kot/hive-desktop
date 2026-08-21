@@ -29,7 +29,6 @@ import (
 	"github.com/hay-kot/hive-desktop/internal/app/runtime"
 	"github.com/hay-kot/hive-desktop/internal/app/runtime/js"
 	"github.com/hay-kot/hive-desktop/internal/app/settings"
-	"github.com/hay-kot/hive-desktop/internal/app/skills"
 	"github.com/hay-kot/hive-desktop/internal/app/sourcemark"
 	"github.com/hay-kot/hive-desktop/internal/app/sources/connector"
 	execsource "github.com/hay-kot/hive-desktop/internal/app/sources/exec"
@@ -408,11 +407,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Activity = newActivityService(a.activityStore)
 	a.Jobs = newJobService(a.jobStore)
 	a.Prompts = newPromptsService(cfg.Paths, cfg.SettingsStore, a.Webhooks)
-	installer, err := skills.NewInstaller(filepath.Join(cfg.Paths.StateDir, "skills.json"))
-	if err != nil {
-		return nil, fmt.Errorf("load skills index: %w", err)
-	}
-	a.Skills = newSkillsService(a.Prompts, installer, cfg.SettingsStore)
+	a.Skills = newSkillsService(a.Prompts)
+	// The retired global installer left an index beside the state dir. Nothing
+	// reads it, so drop it once; the SKILL.md files it tracked stay where they
+	// are, valid but frozen (ADR skills-are-declared-by-a-workspace).
+	_ = os.Remove(filepath.Join(cfg.Paths.StateDir, "skills.json"))
 	a.Report = newReportService(cfg.Paths, cfg.SettingsStore, cfg.Build, cfg.ReportUploader, cfg.Logger)
 	a.Perf = newPerfService(openPerfRecorder(cfg.Settings.Development.Perf.Enabled, cfg.Paths.StateDir, cfg.Logger), cfg.Logger)
 	a.DevTools = newDevToolsService(cfg.Settings.Development.DevTools.Enabled)
@@ -532,29 +531,7 @@ func (a *App) Start(ctx context.Context) error {
 	if a.mock == "" {
 		go func() { _ = a.execEnv.Path(a.ctx) }()
 	}
-	// Re-sync already-installed agent skills so a moved config path or a new node
-	// type re-renders itself without the user re-installing. It only touches files
-	// already tracked in the index, so an empty index is a no-op; it is skipped in
-	// mock/e2e runs so a fixture launch never writes into the real ~ skill dirs.
-	if a.mock == "" && a.settings.Skills.AutoUpdate {
-		go a.syncInstalledSkills()
-	}
 	return nil
-}
-
-func (a *App) syncInstalledSkills() {
-	res, err := a.Skills.SyncInstalled(a.ctx)
-	if err != nil {
-		a.logger.Warn().Err(err).Msg("sync installed skills")
-		return
-	}
-	if res.Updated+res.Restored > 0 {
-		a.logger.Info().
-			Int("updated", res.Updated).
-			Int("restored", res.Restored).
-			Int("modified", res.Modified).
-			Msg("synced installed agent skills")
-	}
 }
 
 // RuntimePaths returns the immutable location snapshot used by this process.

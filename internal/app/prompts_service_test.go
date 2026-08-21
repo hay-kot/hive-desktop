@@ -29,19 +29,13 @@ func newTestPromptsService(t *testing.T, port int) *PromptsService {
 	return newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", port))
 }
 
-func testCatalogInput() prompts.Input {
-	return prompts.Input{Commands: []prompts.Command{
-		{ID: "feed.next", Title: "Next item", Group: "Feeds", Context: "feed", DefaultCombos: []string{"j"}},
-	}}
-}
-
 // TestCatalogRendersAgainstThisInstall is the reason prompts render in Go: a
 // copied prompt has to name the paths on this machine.
 func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 	dir := isolateConfig(t)
 	svc := newTestPromptsService(t, 24917)
 
-	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
+	catalog, err := svc.Catalog(t.Context(), prompts.Input{})
 	require.NoError(t, err)
 	require.NotEmpty(t, catalog)
 
@@ -62,7 +56,7 @@ func TestCatalogRendersAgainstThisInstall(t *testing.T) {
 // fresh install, before any config file exists.
 func TestCatalogSurvivesAnEmptyConfigRoot(t *testing.T) {
 	isolateConfig(t)
-	catalog, err := newTestPromptsService(t, 0).Catalog(t.Context(), testCatalogInput())
+	catalog, err := newTestPromptsService(t, 0).Catalog(t.Context(), prompts.Input{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, catalog)
 }
@@ -73,7 +67,7 @@ func TestCatalogUsesConfiguredWebhookHost(t *testing.T) {
 	store := settings.NewStore(paths.SettingsPath)
 	svc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "::1", 24917))
 
-	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
+	catalog, err := svc.Catalog(t.Context(), prompts.Input{})
 	require.NoError(t, err)
 	for _, prompt := range catalog {
 		if prompt.ID == "webhook-sources" {

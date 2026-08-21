@@ -1,8 +1,6 @@
 package app
 
 import (
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -20,244 +18,50 @@ func newTestSkillsService(t *testing.T) *SkillsService {
 	paths := settings.ResolvePaths(b, settings.ResolveOptions{})
 	store := settings.NewStore(paths.SettingsPath)
 	promptsSvc := newPromptsService(paths, store, newWebhookService(store, nil, nil, "127.0.0.1", 24917))
-	installer, err := skills.NewInstaller(filepath.Join(t.TempDir(), "skills.json"))
-	require.NoError(t, err)
-	return newSkillsService(promptsSvc, installer, store)
+	return newSkillsService(promptsSvc)
 }
 
-func targetInfo(t *testing.T, catalog SkillsCatalog, id string) SkillTarget {
-	t.Helper()
-	return findTarget(t, catalog, id)
-}
-
-func TestSkillsCatalogListsPromptsAsSkills(t *testing.T) {
+func TestShippedSkillsNamesEveryListedPrompt(t *testing.T) {
 	isolateConfig(t)
 	svc := newTestSkillsService(t)
 
-	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
+	shipped, err := svc.ShippedSkills(t.Context())
 	require.NoError(t, err)
-	require.NotEmpty(t, catalog.Skills)
-	assert.Len(t, catalog.Targets, len(skills.Targets()))
-	assert.True(t, catalog.AutoUpdate, "auto-update defaults on")
+	require.NotEmpty(t, shipped)
 
-	var flowsFound bool
-	for _, sk := range catalog.Skills {
-		if sk.ID == "flows" {
-			flowsFound = true
-			assert.Equal(t, "hive-flows", sk.Name)
-			assert.NotEmpty(t, sk.Text)
-		}
+	slugs := make(map[string]bool, len(shipped))
+	for _, s := range shipped {
+		assert.NotEmptyf(t, s.Title, "skill %q has no title", s.Slug)
+		slugs[s.Slug] = true
 	}
-	assert.True(t, flowsFound)
-	// Nothing is installed on a fresh config, so every agent reads as off.
-	for _, target := range catalog.Targets {
-		assert.Zero(t, target.Installed, "target %q", target.ID)
+	assert.True(t, slugs["hive-flows"])
+	// Touchpoint 12: a new prompt yields a shipped skill with no edit here.
+	assert.True(t, slugs["hive-agent-workspaces"])
+}
+
+// Every shipped skill must render, because the workspace generator writes what
+// ShippedSkills advertises — a slug the catalogue offers but RenderSkill
+// refuses would fail the open of any workspace whose package selects it.
+func TestEveryShippedSkillRenders(t *testing.T) {
+	isolateConfig(t)
+	svc := newTestSkillsService(t)
+
+	shipped, err := svc.ShippedSkills(t.Context())
+	require.NoError(t, err)
+	for _, s := range shipped {
+		id := strings.TrimPrefix(s.Slug, "hive-")
+		name, body, err := svc.RenderSkill(t.Context(), id)
+		require.NoErrorf(t, err, "skill %q", s.Slug)
+		assert.Equal(t, s.Slug, name)
+		assert.Truef(t, strings.HasPrefix(body, "---\nname: "+s.Slug+"\n"), "skill %q frontmatter:\n%s", s.Slug, body)
+		require.NoError(t, skills.ValidateSkill(skills.Skill{ID: id, Name: name, Description: s.Description, Body: body}))
 	}
 }
 
-// TestSkillsCatalogIncludesAgentWorkspaces is touchpoint 12's acceptance
-// criterion: the agent-workspaces prompt needs no internal/app/skills edit to
-// yield a shipped skill, and the slug the prefix mints passes ValidateSkill's
-// name rules (skills/skills.go) before anything is ever written to disk.
-func TestSkillsCatalogIncludesAgentWorkspaces(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-
-	catalog, err := svc.Catalog(t.Context(), testCatalogInput())
-	require.NoError(t, err)
-
-	var found bool
-	for _, sk := range catalog.Skills {
-		if sk.ID != "agent-workspaces" {
-			continue
-		}
-		found = true
-		assert.Equal(t, "hive-agent-workspaces", sk.Name)
-		assert.NotEmpty(t, sk.Text)
-		require.NoError(t, skills.ValidateSkill(skills.Skill{
-			ID:          sk.ID,
-			Name:        sk.Name,
-			Description: sk.Description,
-			Body:        sk.Text,
-		}))
-	}
-	assert.True(t, found, "agent-workspaces prompt is not in the skills catalog")
-}
-
-func TestSkillsInstallAndUninstallTarget(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-	dir := t.TempDir()
-
-	// Point the target at a temp dir so the test never writes into the real ~.
-	_, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "claude", dir)
-	require.NoError(t, err)
-
-	// Turning an agent on installs every skill.
-	res, err := svc.InstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-	assert.Equal(t, len(res.Catalog.Skills), res.Count)
-	assert.Positive(t, res.Count)
-	assert.FileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
-	assert.FileExists(t, filepath.Join(dir, "hive-actions", "SKILL.md"))
-	assert.Equal(t, res.Count, targetInfo(t, res.Catalog, "claude").Installed)
-	assert.False(t, targetInfo(t, res.Catalog, "claude").NeedsSync)
-
-	// Turning it off removes them all.
-	rm, err := svc.UninstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-	assert.Equal(t, res.Count, rm.Count)
-	assert.Zero(t, rm.Kept)
-	assert.NoFileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
-	assert.Zero(t, targetInfo(t, rm.Catalog, "claude").Installed)
-}
-
-func TestSkillsUninstallKeepsUserEditedFile(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-	dir := t.TempDir()
-
-	_, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "claude", dir)
-	require.NoError(t, err)
-	_, err = svc.InstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-
-	// The user edits one installed file.
-	edited := filepath.Join(dir, "hive-flows", "SKILL.md")
-	require.NoError(t, os.WriteFile(edited, []byte("mine now\n"), 0o644))
-
-	rm, err := svc.UninstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-	assert.Equal(t, 1, rm.Kept, "the edited file is kept")
-	data, err := os.ReadFile(edited)
-	require.NoError(t, err)
-	assert.Equal(t, "mine now\n", string(data), "an edited file survives uninstall")
-	assert.Zero(t, targetInfo(t, rm.Catalog, "claude").Installed, "the index is still cleared")
-}
-
-func TestSkillsSetAutoUpdatePersists(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-
-	catalog, err := svc.SetAutoUpdate(t.Context(), testCatalogInput(), false)
-	require.NoError(t, err)
-	assert.False(t, catalog.AutoUpdate)
-
-	catalog, err = svc.Catalog(t.Context(), testCatalogInput())
-	require.NoError(t, err)
-	assert.False(t, catalog.AutoUpdate, "toggle must survive a reload")
-}
-
-func TestSkillsSetTargetDirClearsToDefault(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-	dir := t.TempDir()
-
-	catalog, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "codex", dir)
-	require.NoError(t, err)
-	target := findTarget(t, catalog, "codex")
-	assert.Equal(t, dir, target.Dir)
-	assert.False(t, target.Default)
-
-	catalog, err = svc.SetTargetDir(t.Context(), testCatalogInput(), "codex", "")
-	require.NoError(t, err)
-	target = findTarget(t, catalog, "codex")
-	assert.True(t, target.Default)
-	assert.Equal(t, "~/.codex/skills", target.Dir)
-}
-
-func TestSkillsSetTargetDirSyncsInstalledTarget(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-	oldDir := t.TempDir()
-	newDir := t.TempDir()
-
-	_, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "claude", oldDir)
-	require.NoError(t, err)
-	_, err = svc.InstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-
-	catalog, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "claude", newDir)
-	require.NoError(t, err)
-
-	assert.FileExists(t, filepath.Join(newDir, "hive-flows", "SKILL.md"))
-	assert.NoFileExists(t, filepath.Join(oldDir, "hive-flows", "SKILL.md"), "clean old install is removed after resync")
-	assert.False(t, targetInfo(t, catalog, "claude").NeedsSync)
-}
-
-func TestSkillsSyncMaintainsInstalledAgentsOnly(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-	dir := t.TempDir()
-
-	_, err := svc.SetTargetDir(t.Context(), testCatalogInput(), "claude", dir)
-	require.NoError(t, err)
-
-	// A sync with nothing installed anywhere is a no-op — no surprise installs.
-	empty, err := svc.Sync(t.Context(), testCatalogInput())
-	require.NoError(t, err)
-	assert.Zero(t, empty.Installed)
-	for _, target := range empty.Catalog.Targets {
-		assert.Zero(t, target.Installed, "target %q", target.ID)
-	}
-
-	// Install claude, then delete one of its files behind the app's back.
-	_, err = svc.InstallTarget(t.Context(), testCatalogInput(), "claude")
-	require.NoError(t, err)
-	require.NoError(t, os.Remove(filepath.Join(dir, "hive-flows", "SKILL.md")))
-
-	// Sync restores the missing file for the installed agent.
-	res, err := svc.Sync(t.Context(), testCatalogInput())
-	require.NoError(t, err)
-	assert.Equal(t, 1, res.Restored)
-	assert.FileExists(t, filepath.Join(dir, "hive-flows", "SKILL.md"))
-	assert.False(t, targetInfo(t, res.Catalog, "claude").NeedsSync)
-}
-
-func TestSkillsRenderSkillRendersAgainstTheClaudeTarget(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-
-	name, body, err := svc.RenderSkill(t.Context(), "mcp")
-	require.NoError(t, err)
-	assert.Equal(t, "hive-mcp", name)
-	assert.Contains(t, body, "name: hive-mcp", "renders the claude target's SKILL.md frontmatter")
-	assert.True(t, strings.HasPrefix(body, "---\n"), "SKILL.md frontmatter must open the file")
-}
-
-func TestSkillsRenderSkillRejectsAnUnknownID(t *testing.T) {
+func TestRenderSkillRejectsAnUnknownID(t *testing.T) {
 	isolateConfig(t)
 	svc := newTestSkillsService(t)
 
 	_, _, err := svc.RenderSkill(t.Context(), "nope")
 	require.Error(t, err)
-}
-
-func TestSkillsUnknownTargetRejected(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-
-	_, err := svc.InstallTarget(t.Context(), testCatalogInput(), "nope")
-	require.Error(t, err)
-	assert.Equal(t, KindNotFound, KindOf(err))
-}
-
-func TestSkillsSyncInstalledIsNoopWhenEmpty(t *testing.T) {
-	isolateConfig(t)
-	svc := newTestSkillsService(t)
-
-	res, err := svc.SyncInstalled(t.Context())
-	require.NoError(t, err)
-	assert.Equal(t, skills.SyncResult{}, res)
-}
-
-func findTarget(t *testing.T, catalog SkillsCatalog, id string) SkillTarget {
-	t.Helper()
-	for _, target := range catalog.Targets {
-		if target.ID == id {
-			return target
-		}
-	}
-	t.Fatalf("target %q not found", id)
-	return SkillTarget{}
 }

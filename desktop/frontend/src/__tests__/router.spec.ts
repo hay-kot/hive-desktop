@@ -61,10 +61,10 @@ describe('createAppRouter', () => {
   })
 
   it('rejects values outside the section lists', () => {
-    expect(isApplicationSettingsSection('skills')).toBe(true)
+    expect(isApplicationSettingsSection('agents')).toBe(true)
     expect(isApplicationSettingsSection('nope')).toBe(false)
     expect(isApplicationSettingsSection(undefined)).toBe(false)
-    expect(isApplicationSettingsSection(['skills'])).toBe(false)
+    expect(isApplicationSettingsSection(['agents'])).toBe(false)
     expect(isProfileSettingsSection('danger')).toBe(true)
     expect(isProfileSettingsSection('nope')).toBe(false)
   })

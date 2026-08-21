@@ -11,9 +11,12 @@ package configmigrate
 // t.Cleanup).
 var (
 	// SettingsSet covers settings.yaml. Version 2 drops the `experimental`
-	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 2, AllowMissingVersion: true, Migrations: []Migration{
+	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental);
+	// version 3 drops `skills`, the retired global installer's configuration
+	// (ADR skills-are-declared-by-a-workspace).
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 3, AllowMissingVersion: true, Migrations: []Migration{
 		{To: 2, Migrate: dropExperimentalSection},
+		{To: 3, Migrate: dropSkillsSection},
 	}}
 	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
@@ -77,5 +80,16 @@ func renameHTTPAPISkill(doc map[string]any) error {
 		out = append(out, slug)
 	}
 	doc["skills"] = out
+	return nil
+}
+
+// dropSkillsSection deletes the `skills` key.
+//
+// It configured the global skill installer — per-agent install directories
+// and an auto-update toggle -- which no longer exists (ADR skills-are-declared-by-a-workspace).
+// The settings decoder is strict, so every user who ever opened Settings ▸
+// Skills would fail startup outright once the struct is gone.
+func dropSkillsSection(doc map[string]any) error {
+	delete(doc, "skills")
 	return nil
 }

@@ -4,10 +4,5 @@
 export type {
     Integration,
     PopupLauncher,
-    ScratchTerminal,
-    SkillEntry,
-    SkillTarget,
-    SkillsCatalog,
-    SkillsSyncResult,
-    SkillsTargetResult
+    ScratchTerminal
 } from "./models.js";

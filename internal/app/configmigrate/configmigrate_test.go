@@ -40,7 +40,7 @@ func decodeDoc(t *testing.T, raw []byte) map[string]any {
 func TestValidate_RegisteredSets(t *testing.T) {
 	t.Parallel()
 
-	sets := []Set{SettingsSet, FlowSet, ActionsSet, MCPLibrarySet, AgentWorkspaceSet}
+	sets := []Set{SettingsSet, FlowSet, ActionsSet, MCPLibrarySet, SkillLibrarySet, AgentWorkspaceSet}
 	for _, s := range sets {
 		t.Run(s.Name, func(t *testing.T) {
 			t.Parallel()
@@ -288,4 +288,22 @@ func TestApply_IsIdempotent(t *testing.T) {
 	_, changedAgain, err := s.Apply(migrated)
 	require.NoError(t, err)
 	assert.False(t, changedAgain, "re-applying to an already-migrated document must be a no-op")
+}
+
+// The settings decoder is strict, so the retired installer's `skills` section
+// (ADR skills-are-declared-by-a-workspace) has to be dropped before decode or
+// every user who ever opened Settings ▸ Skills fails startup on upgrade.
+func TestSettings_DropsTheRetiredSkillsSection(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 2\npolling:\n  interval: 5m\nskills:\n  auto_update: true\n  targets:\n    claude: {dir: ~/.claude/skills}\n")
+
+	migrated, changed, err := SettingsSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	doc := decodeDoc(t, migrated)
+	assert.Equal(t, SettingsSet.Current, doc["version"])
+	assert.NotContains(t, doc, "skills")
+	assert.Contains(t, doc, "polling", "an unrelated section is untouched")
 }
