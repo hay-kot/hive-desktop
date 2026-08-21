@@ -88,3 +88,6 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
 - GitHub absence confirmation is batched, fixing the rate-limit N+1.
 - Empty-scope inbox rows no longer wedge the flow consumer.
 - The Linux build no longer depends on the BSD-only `syscall.Getsid`.
+- A node editor in the flows canvas keeps what you typed when the flow
+  reloads underneath it, instead of reverting and letting Save write the
+  pre-edit values back.
