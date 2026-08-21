@@ -8,6 +8,7 @@ import { resetAgentWorkspacesForTests } from '../../composables/useAgentWorkspac
 import { resetAgentSessionsAllForTests } from '../../composables/useAgentSessionsAll'
 import { createAppRouter } from '../../router'
 import { tooltipFor } from '../../test-utils/tooltip'
+import type { MissingSkillPackage } from '../../lib/agentWorkspacesClient'
 
 // App.vue mounts AgentsMode once and hides it with v-show on a trip to the
 // hub (ADR terminal-mode-is-hidden-not-unmounted): the component itself must never re-key or v-if anything
@@ -117,7 +118,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     }),
     openWorkspace: vi.fn((dir: string) => Promise.resolve({
       workspace: workspaceRows.find((ws) => ws.dir === dir) ?? workspaceRows[0],
-      sessions: [], missingMcps: [], missingPackages: [],
+      sessions: [], missingMcps: [], missingPackages: [] as MissingSkillPackage[],
     })),
     allSessions: vi.fn().mockResolvedValue([]),
     activity: vi.fn().mockResolvedValue([]),
@@ -132,7 +133,7 @@ function fakeClient(editor = { command: 'zed', title: 'Zed' }) {
     openWorkspaceInEditor: vi.fn().mockResolvedValue(undefined),
     revealWorkspace: vi.fn().mockResolvedValue(undefined),
     mcpCatalogue: vi.fn().mockResolvedValue([]),
-    skillPackages: vi.fn().mockResolvedValue({ packages: [], problem: '' }),
+    skillPackages: vi.fn().mockResolvedValue({ packages: [], skills: [], problem: '' }),
     revealSkillPackages: vi.fn().mockResolvedValue(undefined),
     revealSharedSkills: vi.fn().mockResolvedValue(undefined),
   }
@@ -176,6 +177,35 @@ describe('AgentsMode', () => {
     mocks.getAgentsEndpoint.mockResolvedValue({ httpBaseURL: 'http://127.0.0.1:1', wsURL: 'ws://127.0.0.1:1/s', token: 'test' })
     mocks.createAgentWorkspacesClient.mockReturnValue(fakeClient())
     mocks.loadTerminalFaces.mockResolvedValue(undefined)
+  })
+
+  // #307: a manifest written before packages enumerates skill slugs, and
+  // "Missing skill packages: hive-flows" reads as a failed install of the
+  // skills that were in fact installed — by the package sitting in the same
+  // list. The banner has to name what the entry is and which package carries
+  // it, and keep a genuine typo as its own separate report.
+  it('separates an enabled name that is a skill from one that matches nothing', async () => {
+    const client = fakeClient()
+    client.openWorkspace = vi.fn((_dir: string) => Promise.resolve({
+      workspace: workspaceRows[0],
+      sessions: [],
+      missingMcps: [],
+      missingPackages: [
+        { name: 'hive-flows', skill: true, selectedBy: ['hive'] },
+        { name: 'ghost', skill: false, selectedBy: [] },
+      ] as MissingSkillPackage[],
+    }))
+    mocks.createAgentWorkspacesClient.mockReturnValue(client)
+    const { wrapper } = await mountAgentsMode('/workspaces/web-app')
+
+    const skills = wrapper.find('[data-testid="agents-missing-skills"]')
+    expect(skills.exists()).toBe(true)
+    expect(skills.text()).toContain('hive-flows is a skill, not a package')
+    expect(skills.text()).toContain('the hive package selects it')
+
+    const packages = wrapper.find('[data-testid="agents-missing-packages"]')
+    expect(packages.exists()).toBe(true)
+    expect(packages.text()).toBe('Missing skill packages: ghost')
   })
 
   it('keeps the same root and sidebar elements across an active toggle', async () => {

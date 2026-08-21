@@ -318,6 +318,7 @@ func agentWorkspacesData(Env, Input) (map[string]any, error) {
 		"Types":            docs,
 		"WorkspaceExample": strings.TrimSpace(agentws.ExampleWorkspaceYAML()),
 		"MCPsExample":      strings.TrimSpace(agentws.ExampleMCPsYAML()),
+		"SkillsExample":    strings.TrimSpace(agentws.ExampleSkillsYAML()),
 	}, nil
 }
 

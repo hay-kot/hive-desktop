@@ -307,3 +307,50 @@ func TestSettings_DropsTheRetiredSkillsSection(t *testing.T) {
 	assert.NotContains(t, doc, "skills")
 	assert.Contains(t, doc, "polling", "an unrelated section is untouched")
 }
+
+// The identity case #309 is about: a manifest listing exactly the shipped set
+// resolves to the same skills through the hive package, so rewriting it is
+// not inference. It is also the case that actually bites — the seeded hive
+// workspace every install carries.
+func TestAgentWorkspace_CollapsesTheExactShippedSetOntoTheHivePackage(t *testing.T) {
+	t.Parallel()
+
+	raw := []byte("version: 2\nname: Hive\nagent: claude\nautonomy: ask\nskills:\n" +
+		"  - hive-actions\n  - hive-agent-workspaces\n  - hive-flows\n  - hive-mcp\n  - hive-settings\n  - hive-webhook-sources\n")
+
+	migrated, changed, err := AgentWorkspaceSet.Apply(raw)
+	require.NoError(t, err)
+	require.True(t, changed)
+
+	assert.Equal(t, []any{"hive"}, decodeDoc(t, migrated)["skills"])
+}
+
+// A partial list cannot be migrated: mapping [hive-mcp] to [hive] would grant
+// five skills the workspace never carried. It is left for a human, which is
+// what the editor's warning now points at (#307).
+func TestAgentWorkspace_LeavesAPartialSkillListAlone(t *testing.T) {
+	t.Parallel()
+
+	for name, skills := range map[string][]string{
+		"subset":         {"hive-mcp"},
+		"missing one":    {"hive-actions", "hive-agent-workspaces", "hive-flows", "hive-mcp", "hive-settings"},
+		"one unexpected": {"hive-actions", "hive-agent-workspaces", "hive-flows", "hive-mcp", "hive-settings", "terraform-plan"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			raw := []byte("version: 2\nname: Hive\nagent: claude\nautonomy: ask\nskills:\n")
+			for _, slug := range skills {
+				raw = append(raw, ("  - " + slug + "\n")...)
+			}
+
+			migrated, _, err := AgentWorkspaceSet.Apply(raw)
+			require.NoError(t, err)
+
+			want := make([]any, 0, len(skills))
+			for _, slug := range skills {
+				want = append(want, slug)
+			}
+			assert.Equal(t, want, decodeDoc(t, migrated)["skills"])
+		})
+	}
+}

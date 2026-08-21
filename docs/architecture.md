@@ -1499,7 +1499,11 @@ package pattern already matches it, with no manifest edited. Resolution happens
 before `Generate`, which expands no pattern and reads no directory of its own.
 An enabled package `skills.yml` does not define is reported in
 `MissingPackages` rather than failing the open; a package that matches nothing
-lists with no members, because an empty package is a pattern to fix.
+lists with no members, because an empty package is a pattern to fix. That
+report is classified rather than a bare list of names: a name that is really a
+skill — what a manifest written before packages carries — is reported as one,
+with the packages that already select it, because that toggle is the fix and a
+name matching nothing at all is a different problem with a different one.
 
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the

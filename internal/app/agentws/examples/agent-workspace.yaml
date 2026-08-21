@@ -1,4 +1,4 @@
-version: 2
+version: 3
 name: Home Assistant
 agent: claude
 autonomy: ask
@@ -7,4 +7,4 @@ mcps:
   - playwright
   - home-assistant
 skills:
-  - hive-mcp
+  - hive

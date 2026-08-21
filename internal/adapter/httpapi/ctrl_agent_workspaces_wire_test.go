@@ -42,7 +42,7 @@ func TestAgentWireArraysAreNeverNull(t *testing.T) {
 
 	resp3 := h.post(t, AgentWorkspacesPathPrefix+"skills", testToken, struct{}{})
 	defer func() { _ = resp3.Body.Close() }()
-	assertNoNullArrays(t, resp3, "packages")
+	assertNoNullArrays(t, resp3, "packages", "skills")
 }
 
 // The package catalogue is the workspace editor's read. A fresh install has
@@ -71,5 +71,12 @@ func TestAgentSkillPackagesServeTheSeededHivePackage(t *testing.T) {
 	for _, member := range hive.Members {
 		assert.True(t, member.Shipped)
 		assert.True(t, strings.HasPrefix(member.Slug, "hive-"), "member %q does not match the package pattern", member.Slug)
+	}
+
+	// The name-space rides along so the editor can say what an enabled name
+	// that is not a package actually is (#307).
+	require.NotEmpty(t, body.Skills)
+	for _, name := range body.Skills {
+		assert.Equal(t, []string{"hive"}, name.SelectedBy, "the seeded package selects every shipped skill")
 	}
 }

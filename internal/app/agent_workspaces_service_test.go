@@ -566,7 +566,7 @@ func TestSkillPackagesResolveMembers(t *testing.T) {
 
 	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
 
-	items, problem := svc.SkillPackages(t.Context())
+	items, names, problem := svc.SkillPackages(t.Context())
 	assert.Empty(t, problem)
 	byName := map[string]SkillPackageItem{}
 	for _, item := range items {
@@ -590,6 +590,16 @@ func TestSkillPackagesResolveMembers(t *testing.T) {
 		assert.True(t, m.Shipped)
 		assert.NotEqual(t, "hive-settings", m.Slug, "exclude carves a member out")
 	}
+
+	// The name-space rides along so the editor can say what an enabled name
+	// that is not a package actually is.
+	bySlug := map[string]SkillNameItem{}
+	for _, name := range names {
+		bySlug[name.Slug] = name
+	}
+	assert.Equal(t, []string{"infra"}, bySlug["runbook"].SelectedBy)
+	assert.Equal(t, []string{"hive"}, bySlug["hive-flows"].SelectedBy)
+	assert.Empty(t, bySlug["hive-settings"].SelectedBy, "an excluded skill is selected by nothing")
 }
 
 // TestOpenInstallsWhatThePackagesSelect is the scoping packages exist for: a
@@ -609,7 +619,8 @@ func TestOpenInstallsWhatThePackagesSelect(t *testing.T) {
 
 	result, err := svc.Open(t.Context(), "with")
 	require.NoError(t, err, "a package with no definition does not fail the open")
-	assert.Equal(t, []string{"ghost"}, result.MissingPackages)
+	assert.Equal(t, []MissingPackageItem{{Name: "ghost"}}, result.MissingPackages,
+		"a name matching no skill either is reported as the typo it is")
 
 	body, err := os.ReadFile(filepath.Join(root, "with", ".claude", "skills", "terraform-plan", "SKILL.md"))
 	require.NoError(t, err)
@@ -818,4 +829,26 @@ func TestResizeSessionResizesTheLiveTerminal(t *testing.T) {
 
 	err = svc.ResizeSession(t.Context(), started.ID+999, 80, 24)
 	require.Error(t, err)
+}
+
+// TestOpenNamesTheFixWhenAnEnabledNameIsASkill is #307: a manifest written
+// before packages were the enablement unit enumerates skill slugs, and the
+// bare "not defined in skills.yml" that produces is accurate and useless.
+// The report has to say the name is a skill and which package already
+// carries it, because that toggle is the whole fix.
+func TestOpenNamesTheFixWhenAnEnabledNameIsASkill(t *testing.T) {
+	isolateConfig(t)
+	root := t.TempDir()
+	writeSkillPackages(t, root, "version: 1\npackages:\n  hive:\n    include: [\"hive-*\"]\n")
+	writeAgentWorkspaceManifest(t, root, "legacy", "version: 3\nname: Legacy\nagent: claude\nautonomy: ask\n"+
+		"skills:\n  - hive-flows\n  - nonsense\n")
+
+	svc := newTestAgentWorkspacesService(t, root, map[string]string{"claude": "true"})
+
+	result, err := svc.Open(t.Context(), "legacy")
+	require.NoError(t, err)
+	assert.Equal(t, []MissingPackageItem{
+		{Name: "hive-flows", Skill: true, SelectedBy: []string{"hive"}},
+		{Name: "nonsense"},
+	}, result.MissingPackages)
 }

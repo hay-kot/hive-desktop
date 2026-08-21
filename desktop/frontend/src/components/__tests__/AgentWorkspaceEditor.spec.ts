@@ -198,6 +198,34 @@ describe('AgentWorkspaceEditor', () => {
     wrapper.unmount()
   })
 
+  it('names the fix when an enabled name is a skill rather than a package', async () => {
+    const { skillPackages, skillNames } = useAgentWorkspaces()
+    skillPackages.value = [hivePackage]
+    skillNames.value = [
+      { slug: 'hive-mcp', shipped: true, selectedBy: ['hive'] },
+      { slug: 'hive-flows', shipped: true, selectedBy: ['hive'] },
+    ]
+    const wrapper = mountEditor({ ...demo, skills: ['hive-mcp'] })
+    await wrapper.vm.$nextTick()
+
+    const text = el<HTMLElement>('agent-workspace-editor-skills')!.textContent!
+    expect(text).toContain('a skill, not a package')
+    expect(text).toContain('"hive" package selects it')
+    expect(text).not.toContain('not defined in skills.yml')
+    wrapper.unmount()
+  })
+
+  it('a skill no package selects says to define one rather than pointing nowhere', async () => {
+    const { skillPackages, skillNames } = useAgentWorkspaces()
+    skillPackages.value = [hivePackage]
+    skillNames.value = [{ slug: 'orphan', shipped: false, selectedBy: [] }]
+    const wrapper = mountEditor({ ...demo, skills: ['orphan'] })
+    await wrapper.vm.$nextTick()
+
+    expect(el<HTMLElement>('agent-workspace-editor-skills')!.textContent).toContain('no package selects it yet')
+    wrapper.unmount()
+  })
+
   it('a package whose patterns match nothing says so', async () => {
     const { skillPackages } = useAgentWorkspaces()
     skillPackages.value = [{ name: 'typoed', title: 'typoed', description: '', members: [] }]

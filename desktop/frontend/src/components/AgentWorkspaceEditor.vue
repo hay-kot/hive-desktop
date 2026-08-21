@@ -37,7 +37,7 @@ const props = defineProps<{
 const emit = defineEmits<{ close: []; save: [request: WorkspaceEditRequest]; delete: [dir: string] }>()
 
 const {
-  editor, mcpCatalogue, skillPackages, skillPackagesProblem, autonomyFlags,
+  editor, mcpCatalogue, skillPackages, skillNames, skillPackagesProblem, autonomyFlags,
   reloadMCPCatalogue, importMCPServers, removeMCPServer,
   reloadSkillPackages, revealSkillPackages, revealSharedSkills,
   openWorkspaceInEditor, revealWorkspace,
@@ -172,19 +172,34 @@ interface SkillPackageRow {
   description: string
   members: SkillPackageMember[]
   missing: boolean
+  /** Why the name does not resolve, when it does not. */
+  warning: string
 }
 
 const skillRows = computed<SkillPackageRow[]>(() => {
   const rows: SkillPackageRow[] = skillPackages.value.map((pkg) => ({
     name: pkg.name, title: pkg.title || pkg.name, description: pkg.description,
-    members: pkg.members, missing: false,
+    members: pkg.members, missing: false, warning: '',
   }))
   const known = new Set(rows.map((r) => r.name))
+  const bySlug = new Map(skillNames.value.map((skill) => [skill.slug, skill]))
   for (const name of selectedSkills.value) {
-    if (!known.has(name)) rows.push({ name, title: name, description: '', members: [], missing: true })
+    if (known.has(name)) continue
+    rows.push({ name, title: name, description: '', members: [], missing: true, warning: missingSkillWarning(name, bySlug.get(name)?.selectedBy) })
   }
   return rows
 })
+
+// A name skills.yml does not define is a package that never existed *or* a
+// skill slug from a manifest written before packages were the enablement unit
+// (#307). Only the second has a fix on screen, and saying "not defined in
+// skills.yml" for both hides it.
+function missingSkillWarning(name: string, selectedBy: string[] | undefined): string {
+  if (!selectedBy) return 'not defined in skills.yml — an enabled package without a definition brings nothing'
+  if (!selectedBy.length) return 'a skill, not a package — no package selects it yet, so define one in skills.yml'
+  const packages = selectedBy.map((pkg) => `"${pkg}"`).join(' or ')
+  return `a skill, not a package — the ${packages} package selects it, so enable that and switch this off`
+}
 
 function skillEnabled(name: string): boolean {
   return selectedSkills.value.includes(name)
@@ -548,7 +563,7 @@ onMounted(async () => {
                 </div>
                 <div v-if="row.description" class="text-[11.5px] leading-relaxed text-text-3">{{ row.description }}</div>
                 <div v-if="!row.missing && !row.members.length" class="text-[11px] text-severity-warning">matches no skill — check its patterns in skills.yml</div>
-                <div v-if="row.missing" class="text-[11px] text-severity-warning">not defined in skills.yml — an enabled package without a definition brings nothing</div>
+                <div v-if="row.warning" class="text-[11px] text-severity-warning">{{ row.warning }}</div>
               </div>
             </div>
             <ul v-if="skillPackageExpanded(row.name) && row.members.length" class="flex flex-col gap-1 border-t border-row px-3 py-2 pl-9">

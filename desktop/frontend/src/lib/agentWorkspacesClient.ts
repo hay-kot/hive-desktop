@@ -105,9 +105,24 @@ export interface SkillPackage {
   members: SkillPackageMember[]
 }
 
-/** The package catalogue plus why skills.yml could not be read, if it could not. */
+/**
+ * One name in the skills name-space, with the packages that select it. The
+ * editor needs the whole name-space to tell an enabled name that is really a
+ * skill from one that matches nothing at all.
+ */
+export interface SkillName {
+  slug: string
+  shipped: boolean
+  selectedBy: string[]
+}
+
+/**
+ * The package catalogue, the name-space it selects over, and why skills.yml
+ * could not be read, if it could not.
+ */
 export interface SkillPackagesPayload {
   packages: SkillPackage[]
+  skills: SkillName[]
   problem: string
 }
 
@@ -150,12 +165,24 @@ export interface AgentSessionActivity {
   status: 'ready' | 'active' | 'approval' | string
 }
 
+/**
+ * One enabled name skills.yml does not define. `skill` marks the name as a
+ * skill rather than a package — what a manifest written before packages
+ * carries — and `selectedBy` names the packages that already select it, which
+ * is the fix. Neither is set for a name that matches nothing: that is a typo.
+ */
+export interface MissingSkillPackage {
+  name: string
+  skill: boolean
+  selectedBy: string[]
+}
+
 export interface AgentWorkspaceOpenResult {
   workspace: AgentWorkspace
   sessions: AgentSession[]
   missingMcps: string[]
-  /** Enabled package names skills.yml does not define. */
-  missingPackages: string[]
+  /** Enabled names skills.yml does not define, each saying why. */
+  missingPackages: MissingSkillPackage[]
 }
 
 export interface StartSessionRequest {
@@ -293,8 +320,8 @@ export function createAgentWorkspacesClient(endpoint: AgentsEndpoint): AgentWork
       return body?.servers ?? []
     },
     async skillPackages() {
-      const body = await post<{ packages: SkillPackage[] | null, problem: string }>('/skills', {})
-      return { packages: body?.packages ?? [], problem: body?.problem ?? '' }
+      const body = await post<{ packages: SkillPackage[] | null, skills: SkillName[] | null, problem: string }>('/skills', {})
+      return { packages: body?.packages ?? [], skills: body?.skills ?? [], problem: body?.problem ?? '' }
     },
     async revealSkillPackages() {
       await post('/skills/reveal', {})

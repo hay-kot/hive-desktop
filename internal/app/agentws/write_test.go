@@ -19,7 +19,7 @@ func TestWriteManifestPreservesCommentsAndUntouchedKeys(t *testing.T) {
 	// loads a manifest: WriteManifest only stamps a version onto a file it
 	// creates, so an editable file is always already at Current.
 	original := `# hand-authored: do not lose me
-version: 2
+version: 3
 name: Demo
 # the agent that runs here
 agent: claude
@@ -60,7 +60,7 @@ func TestWriteManifestOwnsTheCapabilityKeys(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "demo")
 	require.NoError(t, os.Mkdir(dir, 0o700))
-	original := "version: 2\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\nskills:\n  - hive-mcp\n"
+	original := "version: 3\nname: Demo\nagent: claude\nautonomy: ask\nmcps:\n  - playwright\nskills:\n  - hive\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, manifestFileName), []byte(original), 0o600))
 
 	require.NoError(t, WriteManifest(root, "demo", ManifestEdit{
