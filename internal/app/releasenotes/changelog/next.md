@@ -91,6 +91,9 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   label map as `alertLabels` — a `function` node reading `labels` as a map
   wants `alertLabels` instead. Alerts already in the inbox keep the old payload
   until they next change.
+- A source badge showing an image — Grafana, or a webhook or command source
+  with an uploaded mark — filled the badge edge to edge instead of sitting
+  inset like the glyph marks beside it.
 - Pasting into a terminal pane is sent as a paste instead of one Enter per
   line, which no longer fires half a script on the way in.
 - A terminal recovers from broker overflow in place; the view is no longer
