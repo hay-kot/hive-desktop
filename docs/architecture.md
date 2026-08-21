@@ -1525,6 +1525,76 @@ per workspace directory (which sees its `agent-workspace.yaml`). Nothing
 watches deeper: an agent writing into `docs/`, or the generator rewriting its
 own output on open, is invisible to it by design, not omission.
 
+**The Agents sidebar is one tree, and position is what states a chat's
+workspace.** Workspaces are the parent rows and their chats nest beneath, in a
+single scroll region: no divider splits two lists competing for height, and no
+chat row repeats its workspace's name. Chats keep `AllSessions`' order
+(`id DESC`, stable under a resume) inside their workspace, so grouping costs no
+ordering. A chat whose directory has left the root keeps a row under that
+directory rather than disappearing from a tree whose whole claim is that every
+chat is on it.
+
+**Folding scopes the tree; focusing a workspace does not.** Fold state is
+`localStorage` (`hive.agents.sidebar.workspaces`) per workspace, defaulting open
+only where a chat is live or the pane's chat sits, and an explicit fold outranks
+both — the same rule the hub sidebar's folder collapse (`hive.sidebar.collapsed`)
+and the Code view's group collapse (`hive.terminal.sidebar.groups`) already
+make. Focus is a separate axis carried by the route's `:workspace` param: it
+regenerates that workspace's files and fills the missing-capability strips above
+the pane, and the sidebar only ever *moves* it, never clears it, because
+clearing it no longer changes what is on screen.
+
+**Its rows are the hub sidebar's, not the Code view's.** `SideBar.vue`'s
+`.folder-header` and `SidebarFeedRow.vue`'s `.sidebar-entry` are what a
+chat row wears: one line, a leading glyph in a fixed 16px cell, and every
+trailing control revealed by opacity in a column the row already reserves, so
+hovering never reflows a name. The glyph is **bare**, not framed in that
+component's bordered tile — two levels puts twice as many tiles down the column
+as a flat feed list has, and they read as a stack of boxes before they read as a
+list.
+
+**One workspace is one block, banded the way the Code view bands a
+repository.** The header keeps the sidebar's own surface, its chats sit in a
+recessed `--color-app` well beneath it, and a rule closes each block off from
+the next — `TerminalMode.vue`'s tree, for its reason: a long run of chats must
+not bleed into the next workspace's. That banding is the *only* thing separating
+the two levels, so the chats are deliberately **not** indented under their
+header. The well already says what they belong to; an indent would be the same
+statement made twice at the cost of a name's width in a sidebar this narrow.
+There is no drawn connector. Selection is the Code view's attached-row mark
+outright: accent text, medium weight, **no fill**, and its traveling rail —
+which is what finds the row, and what leaving the surface alone lets a selected
+row keep its hover feedback for. **The open chat is the only thing the sidebar
+marks.** A focused workspace deliberately draws nothing, even though focus is
+real and does work: focus is *sticky* — it lives on the route's `:workspace`
+param and the sidebar only ever moves it, never clears it — so a header drawing
+it reads as a row stuck lit from some earlier visit rather than as anything the
+user just did. What focus changes is above the pane, not in the list. One place
+this sidebar and the Code view deliberately part is the keyboard
+focus ring: the Code view sets `outline: none` because its walk activates the
+row it lands on, and nothing walks this tree — Tab moves through rows without
+selecting them, so the ring stays. The fold chevron trails the header where the
+Code view's does, but is the fold *control* rather than an indicator of one,
+because clicking the header focuses the workspace instead of folding it.
+Secondary text a row used to stack under its name — `agent · autonomy`, a
+problem, a notice — is the row's tooltip, with the chevron going amber or red so
+a warning stays a glance rather than a hover. Its trailing edge is three
+controls on one 18px pitch — `+`, edit, fold chevron — with the first two
+revealed on hover, so at rest a header states its name and whether it is open
+and nothing else. The `+` starts a chat in that workspace under the default name
+with **no dialog**, because naming the workspace is the only thing
+`NewChatDialog` asks that has no sensible default and the header has already
+answered it. A header carries **no rollup**: no chat count, and no live-or-
+waiting dot. The activity marks live on the chat rows, which is the only place
+they identify which chat they are about; a header repeating them summarised
+something the row beneath already said and cost the trailing edge its rhythm.
+Every cell in both row kinds is that same 18px, which is what lines the columns
+up between a header and the chats under it. A brand mark stood in for the
+agent on the header for a while and earned nothing: the workspaces under one
+root normally run the same agent, so the column was one glyph repeated. What the Code view still lends is the activity vocabulary
+alone: the spinner, the approval alert and the liveness dot mean here exactly
+what they mean there.
+
 ## Execution model
 
 The flow engine runs **in Go**, in-process. Source polling, graph routing,

@@ -279,6 +279,36 @@ describe('NodeEditorDrawer', () => {
     wrapper.unmount()
   })
 
+  it('keeps an in-progress edit when the same node arrives as a fresh object', async () => {
+    // What a background flows reload does: replaceDraft rebuilds every node,
+    // so the canvas hands the drawer an equal-but-new object for the node it
+    // is already editing.
+    const node: FlowNode = { id: 'a', type: 'stub', name: 'A', config: { label: 'a-value' } }
+    const wrapper = mountDrawer(node)
+
+    const nameInput = el<HTMLInputElement>('node-editor-name')!
+    nameInput.value = 'Renamed'
+    nameInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await nextTick()
+
+    await wrapper.setProps({ node: { id: 'a', type: 'stub', name: 'A', config: { label: 'a-value' } } })
+
+    expect(el<HTMLInputElement>('node-editor-name')?.value).toBe('Renamed')
+
+    el<HTMLButtonElement>('node-editor-save')!.click()
+    await nextTick()
+
+    expect(wrapper.emitted('save')).toEqual([[{
+      id: 'a',
+      type: 'stub',
+      name: 'Renamed',
+      disabled: false,
+      config: { label: 'a-value' },
+    }]])
+
+    wrapper.unmount()
+  })
+
   it('reloads the draft when the node prop changes (switching selection)', async () => {
     const nodeA: FlowNode = { id: 'a', type: 'stub', name: 'A', config: { label: 'a-value' } }
     const nodeB: FlowNode = { id: 'b', type: 'stub', name: 'B', config: { label: 'b-value' } }

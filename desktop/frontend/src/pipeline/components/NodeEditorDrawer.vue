@@ -47,7 +47,11 @@ function loadFrom(node: FlowNode) {
   draftConfig.value = structuredClone(raw.config)
 }
 
-watch(() => props.node, (node) => loadFrom(node), { immediate: true })
+// Keyed on the id, not the object: a background flows reload
+// (flows:updated -> replaceDraft) hands down a fresh object for the node
+// already being edited, and reloading from it would drop what is half-typed
+// here -- Save would then write the pre-edit values back.
+watch(() => props.node.id, () => loadFrom(props.node), { immediate: true })
 
 function updateConfig(next: Record<string, any>) {
   draftConfig.value = next
