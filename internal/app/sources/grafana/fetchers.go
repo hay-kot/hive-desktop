@@ -105,17 +105,21 @@ func (fx *fetcher) Query(ctx context.Context, dsUID, promql string) (client.Quer
 	return result, nil
 }
 
-func (fx *fetcher) Alerts(ctx context.Context, matchers []string) ([]client.Alert, error) {
-	c, err := fx.prepare()
+// Alerts lists the stack's firing alerts and the stack URL they came from —
+// an alert item links back to the rule that raised it, and the base is resolved
+// per poll, so returning it here is what keeps the link pointing at the stack
+// the alert was actually read from.
+func (fx *fetcher) Alerts(ctx context.Context, matchers []string) ([]client.Alert, string, error) {
+	base, token, err := fx.stack()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	alerts, err := c.Alerts(ctx, matchers)
+	alerts, err := fx.newClient(base, token).Alerts(ctx, matchers)
 	if err != nil {
 		fx.noteError(err)
-		return nil, err
+		return nil, "", err
 	}
-	return alerts, nil
+	return alerts, base, nil
 }
 
 // AlertGroups lists IRM alert groups, resolving the stack's OnCall host on the

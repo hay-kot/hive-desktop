@@ -154,3 +154,31 @@ func TestQueryRateLimited(t *testing.T) {
 	_, err := NewClient(server.URL, "t").Query(t.Context(), "ds-uid", "up")
 	assert.ErrorIs(t, err, sourcehttp.ErrRateLimited)
 }
+
+func TestAlertRuleURL(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		base    string
+		ruleUID string
+		want    string
+	}{
+		{name: "rule view", base: "https://stack.grafana.net", ruleUID: "abc123", want: "https://stack.grafana.net/alerting/grafana/abc123/view"},
+		{name: "trailing slash", base: "https://stack.grafana.net/", ruleUID: "abc123", want: "https://stack.grafana.net/alerting/grafana/abc123/view"},
+		{
+			// An alert that carries no rule uid still links somewhere useful
+			// rather than at a rule page that resolves to nothing.
+			name: "no rule uid", base: "https://stack.grafana.net", ruleUID: " ", want: "https://stack.grafana.net/alerting/list",
+		},
+		{name: "no stack", base: "", ruleUID: "abc123", want: ""},
+		{name: "uid needing escaping", base: "https://stack.grafana.net", ruleUID: "a/b", want: "https://stack.grafana.net/alerting/grafana/a%2Fb/view"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tc.want, AlertRuleURL(tc.base, tc.ruleUID))
+		})
+	}
+}

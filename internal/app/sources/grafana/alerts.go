@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -124,24 +125,33 @@ type alertsSource struct {
 
 var _ connector.PullSource = (*alertsSource)(nil)
 
-// alertPayload is what a firing alert emits. title and state are canonical
-// fields the ingest boundary and classifier read; labels and annotations ride
-// along for a function node to route on.
+// alertPayload is what a firing alert emits: the canonical item contract
+// (docs/decisions/2026-07-24-canonical-item-contract.md) filled from the alert,
+// with the raw maps riding along as provider enrichment for a function node to
+// route on.
+//
+// alertLabels, not labels, carries the map: canonical `labels` is string tags,
+// so a map there is a shape no consumer of the contract can read.
 type alertPayload struct {
 	Title       string            `json:"title"`
+	Kind        string            `json:"kind"`
 	State       string            `json:"state"`
-	Labels      map[string]string `json:"labels,omitempty"`
+	Body        string            `json:"body,omitempty"`
+	URL         string            `json:"url,omitempty"`
+	Repo        string            `json:"repo,omitempty"`
+	Labels      []string          `json:"labels,omitempty"`
+	AlertLabels map[string]string `json:"alertLabels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
 	StartsAt    string            `json:"startsAt,omitempty"`
 }
 
 func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) error {
-	alerts, err := s.fetcher.Alerts(ctx, s.matchers)
+	alerts, stackURL, err := s.fetcher.Alerts(ctx, s.matchers)
 	if err != nil {
 		return fmt.Errorf("grafana alerts: %w", err)
 	}
 	for _, alert := range alerts {
-		body, err := json.Marshal(firingPayload(alert))
+		body, err := json.Marshal(firingPayload(alert, stackURL))
 		if err != nil {
 			return fmt.Errorf("grafana alerts: encoding %q: %w", alert.Fingerprint, err)
 		}
@@ -152,10 +162,42 @@ func (s *alertsSource) Produce(ctx context.Context, emit func(store.Msg) error) 
 	return nil
 }
 
+// ItemKind is the canonical `kind` every Grafana alert item carries, both from
+// the Alertmanager node and the IRM one, so `applies_to: [Alert]` targets an
+// alert whichever of them produced it.
+const ItemKind = "Alert"
+
+// Grafana's own plumbing rides in the same maps as the user's labels and
+// annotations, wrapped in double underscores. The connector reads the two it
+// needs by name and keeps every one of them out of the tags it emits.
+const (
+	labelRuleUID    = "__alert_rule_uid__"
+	annotationValue = "__value_string__"
+)
+
 // firingPayload builds the payload for a currently firing alert. State is
 // always "firing" here — the resolved state is minted by the absence confirmer
 // when the alert leaves the firing set.
-func firingPayload(alert client.Alert) alertPayload {
+func firingPayload(alert client.Alert, stackURL string) alertPayload {
+	return alertPayload{
+		Title:       alertTitle(alert),
+		Kind:        ItemKind,
+		State:       stateFiring,
+		Body:        alertBody(alert),
+		URL:         client.AlertRuleURL(stackURL, alert.Labels[labelRuleUID]),
+		Repo:        strings.TrimSpace(alert.Labels["grafana_folder"]),
+		Labels:      labelTags(alert.Labels),
+		AlertLabels: alert.Labels,
+		Annotations: alert.Annotations,
+		StartsAt:    alert.StartsAt,
+	}
+}
+
+// alertTitle is the summary annotation, else the rule name. One rule firing on
+// several instances gives every instance the same summary, so the instance
+// qualifies the title where the alert names one — otherwise a feed shows N
+// identical rows. Presentation only: identity is the fingerprint either way.
+func alertTitle(alert client.Alert) string {
 	title := strings.TrimSpace(alert.Annotations["summary"])
 	if title == "" {
 		title = strings.TrimSpace(alert.Labels["alertname"])
@@ -163,13 +205,57 @@ func firingPayload(alert client.Alert) alertPayload {
 	if title == "" {
 		title = "Grafana alert"
 	}
-	return alertPayload{
-		Title:       title,
-		State:       stateFiring,
-		Labels:      alert.Labels,
-		Annotations: alert.Annotations,
-		StartsAt:    alert.StartsAt,
+	if instance := strings.TrimSpace(alert.Labels["instance"]); instance != "" {
+		return title + " (" + instance + ")"
 	}
+	return title
+}
+
+// alertBody is the detail pane's markdown: the rule's description, then the
+// evaluation that tripped it. Absent fields are omitted rather than rendered
+// empty, so an alert carrying only a summary gets no body at all.
+func alertBody(alert client.Alert) string {
+	sections := make([]string, 0, 2)
+	if description := strings.TrimSpace(alert.Annotations["description"]); description != "" {
+		sections = append(sections, description)
+	}
+	facts := make([]string, 0, 3)
+	add := func(label, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			facts = append(facts, "- **"+label+"** "+value)
+		}
+	}
+	add("Firing since", alert.StartsAt)
+	add("Value", alert.Annotations[annotationValue])
+	add("Runbook", alert.Annotations["runbook_url"])
+	if len(facts) > 0 {
+		sections = append(sections, strings.Join(facts, "\n"))
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+// labelTags flattens a label map to the canonical contract's string tags,
+// sorted so an unchanged alert encodes byte-for-byte the same on every poll and
+// the source-head comparison keeps skipping it.
+func labelTags(labels map[string]string) []string {
+	tags := make([]string, 0, len(labels))
+	for key, value := range labels {
+		if reservedLabel(key) {
+			continue
+		}
+		tags = append(tags, key+"="+value)
+	}
+	if len(tags) == 0 {
+		return nil
+	}
+	slices.Sort(tags)
+	return tags
+}
+
+// reservedLabel reports whether a key is Grafana's own plumbing rather than a
+// label someone attached — every reserved name is double-underscore-wrapped.
+func reservedLabel(key string) bool {
+	return len(key) > 4 && strings.HasPrefix(key, "__") && strings.HasSuffix(key, "__")
 }
 
 const (

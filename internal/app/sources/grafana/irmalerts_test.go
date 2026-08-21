@@ -96,11 +96,18 @@ func TestIRMAlertsProduceEmitsOnePerAlertGroup(t *testing.T) {
 	assert.Equal(t, "TSQ", first.Team)
 	assert.Equal(t, 6, first.AlertsCount)
 	assert.Equal(t, "2026-08-01T12:04:00Z", first.AcknowledgedAt)
+	assert.Equal(t, ItemKind, first.Kind, "an IRM group is an Alert, like its Alertmanager sibling")
+	assert.Equal(t, []string{"severity=critical"}, first.Labels, "canonical labels are string tags")
+	assert.Equal(t, "critical", first.AlertLabels["severity"], "the raw map survives as provider enrichment")
+	assert.Contains(t, first.Body, "**Alerts** 6")
+	assert.Contains(t, first.Body, "**Firing since** 2026-08-01T12:00:00Z")
+	assert.Contains(t, first.Body, "**Acknowledged** 2026-08-01T12:04:00Z")
 
 	var second irmAlertPayload
 	require.NoError(t, json.Unmarshal(msgs[1].Payload, &second))
 	assert.Equal(t, stateFiring, second.State, "upstream's 'new' is emitted as 'firing', matching the sibling node")
 	assert.Empty(t, second.URL, "a group with no permalinks carries no url")
+	assert.Empty(t, second.Body, "a group with nothing to say gets no body, not an empty bullet list")
 }
 
 // A group with no title would otherwise reach the feed as a blank row.
@@ -201,7 +208,7 @@ func TestIRMAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	previous := []store.Observation{{
 		ExternalID: "I1",
 		Title:      "Memory",
-		Payload:    []byte(`{"title":"Memory","state":"acknowledged","labels":{"severity":"critical"}}`),
+		Payload:    []byte(`{"title":"Memory","kind":"Alert","state":"acknowledged","labels":["severity=critical"]}`),
 	}}
 
 	verdicts, err := irmAlertsAbsence{}.ConfirmAbsence(t.Context(), previous)
@@ -216,7 +223,7 @@ func TestIRMAlertsAbsenceMarksResolvedAndTerminal(t *testing.T) {
 	var payload irmAlertPayload
 	require.NoError(t, json.Unmarshal(verdict.Current.Payload, &payload))
 	assert.Equal(t, "Memory", payload.Title, "the archived item keeps its identity")
-	assert.Equal(t, "critical", payload.Labels["severity"])
+	assert.Equal(t, []string{"severity=critical"}, payload.Labels)
 }
 
 // The factory is where a node's scope becomes the query, so an unscoped node
