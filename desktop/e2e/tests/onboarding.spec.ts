@@ -24,7 +24,11 @@ const onboardingPorts: Record<string, number> = {
 // The steps share a page and run serially because the device-flow grant is a
 // one-way server state change: the group therefore opts out of retries (a
 // retry would meet an already-connected server and could not replay the
-// pre-connect cards). That is still true even though the app no longer gates
+// pre-connect cards). The opt-out has to cover the whole group, not just the
+// connect step — Playwright retries a serial block as a unit, so re-running
+// any later step replays the pre-connect ones too. Giving the post-connect
+// steps retries of their own means first giving them a server that starts
+// connected, which is a fixture this suite does not have. That is still true even though the app no longer gates
 // on GitHub — /_e2e/reset restores durable rows, not an in-process mock
 // connection. Reliability comes from the app instead: the fine-grained
 // reload/bind ordering this flow exercises is covered deterministically by
@@ -137,7 +141,7 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
   })
 
-  test('renames a feed node in the flows canvas, deploys, and the sidebar reflects it', async () => {
+  test('renames a feed node in the flows canvas and deploys it', async () => {
     // Editing a feed is done through its node in the flows canvas now (there is
     // no separate feed editor sheet).
     await page.getByTestId('sidebar-edit-flow').click()
@@ -155,6 +159,10 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await expect(page.getByTestId('node-editor-name')).toHaveValue('My open PRs')
 
     await page.getByTestId('node-editor-name').fill('Team PRs')
+    // Pin the edit before Save reads it. A fill that has not landed would save
+    // the old name and surface two steps later as a stale sidebar label, which
+    // points at the wrong subsystem entirely.
+    await expect(page.getByTestId('node-editor-name')).toHaveValue('Team PRs')
     await page.getByTestId('node-editor-save').click()
     await expect(editor).toBeHidden()
     await expect(page.getByTestId('flow-dirty-indicator')).toBeVisible()
@@ -162,22 +170,34 @@ test.describe.serial('first-run onboarding, then workspace and flow management',
     await page.getByTestId('deploy-button').click()
     await expect(page.getByTestId('flow-saved-indicator')).toHaveText('flows/backend-triage.yaml')
     await expect(page.getByTestId('flow-dirty-indicator')).toHaveCount(0)
+  })
 
+  test('the sidebar reflects the deployed rename', async () => {
     // Back to the feed view via the spaces rail (the title-bar breadcrumb is
-    // gone): the sidebar reflects the rename (Deploy's flows:updated re-reads
-    // the just-saved flow).
+    // gone). Deploy publishes flows:updated, and returning to the already-active
+    // profile re-reads its feeds (App.vue's requestSelectProfile), so the new
+    // label is expected without a second trip through the canvas.
     await page.locator('[data-testid="profile-tile"][data-id="backend-triage"]').click()
-    await expect(flowsView).toBeHidden()
+    await expect(page.getByTestId('flows-view')).toBeHidden()
+    // A shape check, not a synchronisation point — there were already four
+    // feeds before the rename, so this cannot wait for the new label to land.
+    // The assertion below is the one that has to converge on its own, and it is
+    // deliberately not helped along: a step between it and the deploy would
+    // give the sidebar a second read and hide whether one was enough.
     await expect(page.getByTestId('sidebar-feed')).toHaveCount(4)
     const teamRow = page.locator('[data-testid="sidebar-feed"][data-id="backend-triage/my-open-prs"]')
     await expect(teamRow).toContainText('Team PRs')
+  })
 
-    // The "Edit flow" footer jumps back into the canvas, where the renamed node
-    // lives. (There is no per-feed reveal-in-flow icon anymore — a feed is
-    // edited by opening its node in the canvas.)
+  test('the Edit flow footer returns to the canvas holding the renamed node', async () => {
+    // (There is no per-feed reveal-in-flow icon anymore — a feed is edited by
+    // opening its node in the canvas.) A rename does not change the node id, so
+    // it is still addressed as flow-node-my-open-prs; assert the name it now
+    // carries rather than mere presence, which a failed deploy would also pass.
+    const flowsView = page.getByTestId('flows-view')
     await page.getByTestId('sidebar-edit-flow').click()
     await expect(flowsView).toBeVisible()
-    await expect(page.locator('[data-testid="flow-node-my-open-prs"]')).toBeVisible()
+    await expect(page.locator('[data-testid="flow-node-my-open-prs"]')).toContainText('Team PRs')
     await page.locator('[data-testid="profile-tile"][data-id="backend-triage"]').click()
     await expect(flowsView).toBeHidden()
   })
