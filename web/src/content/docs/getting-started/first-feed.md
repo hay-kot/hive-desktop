@@ -51,8 +51,7 @@ Webhook sources, Keyboard shortcuts, App settings) that already includes the
 schema, the rules, a worked example, and *your machine's real file paths*.
 
 **Copy** one into a coding agent, tell it what you want — *"watch `owner/repo`
-for review requests and notify me"* — and it writes the correct file. The flow
-editor's Deploy menu has the same **Copy prompt** shortcut.
+for review requests and notify me"* — and it writes the correct file.
 
 ## Build a feed by hand
 

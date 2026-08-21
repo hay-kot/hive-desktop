@@ -12,28 +12,22 @@
 // (rather than kept as one `session` object) so the template can use them
 // directly without a `.value` on every access — the same convention
 // useFeedState() + App.vue already use.
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Events } from '@wailsio/runtime'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconMaximize2 from '~icons/lucide/maximize-2'
 import IconMinus from '~icons/lucide/minus'
 import IconPlus from '~icons/lucide/plus'
 import IconWorkflow from '~icons/lucide/workflow'
-import { ListInboxItemsByFeed } from '../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { useFlowsSession } from '../composables/useFlowsSession'
 import { useResizablePanel } from '../../composables/useResizablePanel'
-import { useClipboard } from '../../composables/useClipboard'
 import { classify } from '../lib/runStatus'
-import { renderPrompt } from '../../composables/usePrompts'
 import NodePalette from './NodePalette.vue'
 import FlowsCanvas from './FlowsCanvas.vue'
-import FlowDebugPanel from './FlowDebugPanel.vue'
-import FeedItemsPreview, { type FeedItemsClient } from './FeedItemsPreview.vue'
 import PanelResizeHandle from '../../components/PanelResizeHandle.vue'
-import AppSelect from '../../components/AppSelect.vue'
 
 const {
-  flows, activeFlow, layout, dirty, nodeRuns, latestRunByNode, saving, error, flowFocusNodeId,
+  flows, activeFlow, layout, dirty, latestRunByNode, saving, error, flowFocusNodeId,
   refreshFlows, refreshNodeRuns, selectFlow, addNode, updateNode, deleteNode, addWire, removeWire, moveNode, deploy,
   flowLoadError,
 } = useFlowsSession()
@@ -44,15 +38,13 @@ const {
 
 const { size: paletteWidth, startResize: startPaletteResize, step: stepPalette } =
   useResizablePanel({ storageKey: 'hive.panel.palette', defaultSize: 214, min: 170, max: 380, edge: 'right' })
-const { size: debugWidth, startResize: startDebugResize, step: stepDebug } =
-  useResizablePanel({ storageKey: 'hive.panel.debug', defaultSize: 300, min: 230, max: 560, edge: 'left' })
 
 // An external flows/*.yaml edit (another window, git) still needs a nudge
 // while the canvas is open, so the same "flows:updated" refresh this view
 // has always done stays here — this is NOT redundant with useFeedState's
 // own "flows:updated" listener, which refreshes the sidebar's `profiles`
 // list, an entirely different piece of state from the session's `flows`
-// (canvas selector) and `nodeRuns` (canvas/debug-panel status).
+// (canvas selector) and `nodeRuns` (canvas node status).
 let unsubscribe: (() => void) | undefined
 onMounted(() => {
   unsubscribe = Events.On('flows:updated', () => {
@@ -100,60 +92,6 @@ function onAddNodeAt(type: string, x: number, y: number) {
 
 const canvasRef = ref<InstanceType<typeof FlowsCanvas> | null>(null)
 const zoomPercent = computed(() => Math.round((canvasRef.value?.zoom ?? 1) * 100))
-
-// ── Feed preview — a read-only look at one `feed` node's persisted items.
-// Defaults to the flow's first feed node and offers a picker when there's
-// more than one. ─────────────────────────────────────────────────────────
-const feedItemsClient: FeedItemsClient = {
-  async feedItems(feedId) { return await ListInboxItemsByFeed(feedId.split('/')[0], feedId, 100) },
-}
-
-const feedNodes = computed(() => activeFlow.value?.nodes.filter((n) => n.type === 'feed') ?? [])
-const feedNodeOptions = computed(() => feedNodes.value.map((n) => ({ value: n.id, label: n.name || n.id })))
-const selectedFeedNodeId = ref<string | null>(null)
-
-watch(feedNodes, (nodes) => {
-  if (!nodes.some((n) => n.id === selectedFeedNodeId.value)) {
-    selectedFeedNodeId.value = nodes[0]?.id ?? null
-  }
-}, { immediate: true })
-
-const previewFeedId = computed(() => {
-  const flowId = activeFlow.value?.id
-  const node = feedNodes.value.find((n) => n.id === selectedFeedNodeId.value)
-  // A feed node's durable membership-claim key is its flow-qualified node id.
-  return flowId && node ? `${flowId}/${node.id}` : null
-})
-
-// ── Copy prompt — the flows authoring prompt, rendered by the Go prompts
-// service (the same text the Flows skill in Settings ▸ Skills installs; this is
-// the in-place shortcut to it). This view has no reachable toast queue (ToastStack is
-// driven by useFeedState, mounted as App.vue's sibling — see FlowsView's own
-// module docs above on staying out of that path), so success/failure surfaces
-// as a small self-clearing inline label instead of a toast. ───────────────
-const { copy, status: copyStatus, setStatus: setCopyStatus } = useClipboard({ resetDelay: 2500 })
-async function onCopyPrompt(): Promise<void> {
-  const text = await renderPrompt('flows')
-  if (text === null) {
-    setCopyStatus('error')
-    return
-  }
-  await copy(text)
-}
-
-// ── Deploy split-button menu — demotes Copy prompt/Show debug panel behind
-// the "▾" so the main Deploy action reads as one clear amber affordance.
-// There is no Run/Stop and no manual refresh: the Go engine reinstalls itself
-// when a flow is written and drains on every append, so a "run it now" button
-// could only race what is already happening. ──────────────────────────────
-const deployMenuOpen = ref(false)
-
-function runDeployMenuAction(action: () => void) {
-  action()
-  deployMenuOpen.value = false
-}
-
-const showDebug = ref(false)
 </script>
 
 <template>
@@ -212,42 +150,15 @@ const showDebug = ref(false)
 
         <div class="mx-0.5 h-5 w-px bg-row" />
 
-        <div class="relative flex h-[30px] items-center">
-          <button
-            class="flex h-full cursor-pointer items-center rounded-l-lg bg-accent pl-2.5 pr-2 text-[12.5px] font-semibold text-accent-contrast disabled:cursor-default disabled:opacity-40"
-            :disabled="!dirty || saving || !activeFlow"
-            data-testid="deploy-button"
-            @click="deploy"
-          >
-            <span class="mr-1.5 inline-flex items-center gap-1.5">
-              <span v-if="dirty" class="size-[7px] rounded-full bg-accent-contrast/50" data-testid="deploy-dirty-dot" />
-              {{ saving ? 'Deploying…' : 'Deploy' }}
-            </span>
-          </button>
-          <button
-            class="flex h-full cursor-pointer items-center rounded-r-lg bg-accent pl-1 pr-2.5 text-accent-contrast opacity-70 hover:opacity-100"
-            data-testid="deploy-menu-toggle"
-            @click="deployMenuOpen = !deployMenuOpen"
-          ><IconChevronDown class="size-3.5" /></button>
-
-          <div
-            v-if="deployMenuOpen"
-            class="absolute right-0 top-[calc(100%+6px)] z-20 w-[170px] overflow-hidden rounded-lg border border-strong bg-pane py-1 shadow-[0_20px_50px_-14px_rgba(0,0,0,.5)]"
-            data-testid="deploy-menu"
-          >
-            <button
-              class="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-[12.5px] text-text-2 hover:bg-hover hover:text-text"
-              data-testid="deploy-menu-copy-prompt"
-              @click="runDeployMenuAction(onCopyPrompt)"
-            >Copy prompt</button>
-            <button
-              class="flex w-full cursor-pointer items-center px-3 py-1.5 text-left text-[12.5px] text-text-2 hover:bg-hover hover:text-text"
-              :class="showDebug ? 'bg-selection' : ''"
-              data-testid="deploy-menu-debug-toggle"
-              @click="runDeployMenuAction(() => { showDebug = !showDebug })"
-            >{{ showDebug ? 'Hide debug panel' : 'Show debug panel' }}</button>
-          </div>
-        </div>
+        <button
+          class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg bg-accent px-2.5 text-[12.5px] font-semibold text-accent-contrast disabled:cursor-default disabled:opacity-40"
+          :disabled="!dirty || saving || !activeFlow"
+          data-testid="deploy-button"
+          @click="deploy"
+        >
+          <span v-if="dirty" class="size-[7px] rounded-full bg-accent-contrast/50" data-testid="deploy-dirty-dot" />
+          {{ saving ? 'Deploying…' : 'Deploy' }}
+        </button>
       </div>
 
       <div class="flex min-h-0 flex-1">
@@ -268,35 +179,6 @@ const showDebug = ref(false)
         <div v-else class="flex flex-1 items-center justify-center px-8 text-center text-[13px] text-text-4" data-testid="flows-view-empty">
           Select a flow to start editing.
         </div>
-
-        <aside
-          v-if="showDebug && activeFlow"
-          class="relative flex shrink-0 flex-col border-l border-row bg-sidebar"
-          :style="{ width: debugWidth + 'px' }"
-          data-testid="flow-debug-aside"
-        >
-          <PanelResizeHandle edge="left" name="debug" :start="startDebugResize" :step="stepDebug" />
-          <div class="min-h-0 flex-1 overflow-hidden" style="height: 60%">
-            <FlowDebugPanel
-              :flow="activeFlow"
-              :latest-run-by-node="latestRunByNode"
-              :node-runs="nodeRuns"
-            />
-          </div>
-          <div class="flex min-h-0 flex-col border-t border-row" style="height: 40%">
-            <div v-if="feedNodes.length > 1" class="shrink-0 border-b border-row px-3 py-2">
-              <AppSelect
-                size="sm"
-                :model-value="selectedFeedNodeId ?? ''"
-                :options="feedNodeOptions"
-                testid="feed-preview-node-select"
-                aria-label="Feed preview node"
-                @update:model-value="selectedFeedNodeId = $event"
-              />
-            </div>
-            <FeedItemsPreview :feed-id="previewFeedId" :client="feedItemsClient" />
-          </div>
-        </aside>
       </div>
 
       <div class="flex h-[30px] shrink-0 items-center gap-3.5 border-t border-row bg-canvas-toolbar px-3.5 font-mono text-[10.5px] text-text-3" data-testid="canvas-status-strip">
@@ -306,9 +188,6 @@ const showDebug = ref(false)
         <span v-else-if="activeFlow" data-testid="flow-saved-indicator">{{ filePath }}</span>
         <span v-if="error" class="max-w-[240px] truncate text-severity-error" data-testid="flow-editor-error">{{ error }}</span>
         <span v-if="flowLoadError" class="max-w-[200px] truncate text-severity-error" data-testid="flow-load-error">{{ flowLoadError }}</span>
-        <span v-if="copyStatus !== 'idle'" :class="copyStatus === 'success' ? 'text-severity-success' : 'text-severity-error'" data-testid="copy-prompt-status">
-          {{ copyStatus === 'success' ? 'Prompt copied' : 'Could not copy' }}
-        </span>
 
         <div class="flex-1" />
 

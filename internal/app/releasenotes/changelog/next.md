@@ -79,6 +79,9 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   divider between the two old lists is gone.
 - The app icon is the four-node hive mark.
 - The theme is persisted in `settings.yaml` instead of webview localStorage.
+- The flow editor's Deploy button no longer carries a menu. The debug panel
+  and the **Copy prompt** shortcut behind it were development affordances;
+  every prompt is still in Settings ▸ LLM prompts.
 
 ## Fixed
 
