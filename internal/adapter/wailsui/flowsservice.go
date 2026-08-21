@@ -71,6 +71,12 @@ func (s *FlowsService) SetFlowEnabled(ctx context.Context, id string, enabled bo
 	return summarize(s.flows.SetEnabled(ctx, id, enabled))
 }
 
+// SetFlowOrder persists the rail order — ids top first, the whole rail in one
+// write.
+func (s *FlowsService) SetFlowOrder(ctx context.Context, ids []string) error {
+	return s.flows.SetOrder(ctx, ids)
+}
+
 func (s *FlowsService) DeleteFlow(ctx context.Context, id string) error {
 	return s.flows.Delete(ctx, id)
 }

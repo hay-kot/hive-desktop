@@ -48,6 +48,9 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   replacing the session count under the pointer. A workspace in the Agents
   sidebar has the same `+`, and it starts a chat outright rather than opening
   the new-chat form.
+- **Drag a profile tile to reorder the rail** (or move the focused tile with
+  Alt+Up/Down). The order is saved as `profiles.order` in `settings.yaml`;
+  profiles you never move stay alphabetical behind the ones you place.
 - **An optional status bar above a session** (Settings ▸ Terminal), carrying
   its branch, uncommitted and unpushed state, lines changed, and its pull
   request's review and CI status — plus the open-in-editor and show-in-Finder

@@ -90,6 +90,14 @@ export function SetFlowEnabled(id: string, enabled: boolean): $CancellablePromis
 }
 
 /**
+ * SetFlowOrder persists the rail order — ids top first, the whole rail in one
+ * write.
+ */
+export function SetFlowOrder(ids: string[] | null): $CancellablePromise<void> {
+    return $Call.ByID(2768131938, ids);
+}
+
+/**
  * SetMarkImage stores an uploaded feed-mark image (base64, bare or a data: URL)
  * and returns its hash and stored PNG for preview. The hash reaches the flow
  * through the node editor's ordinary graph save.

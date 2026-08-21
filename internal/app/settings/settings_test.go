@@ -48,6 +48,32 @@ func TestRetiredExperimentalSectionIsMigratedAway(t *testing.T) {
 	assert.Equal(t, configmigrate.SettingsSet.Current, cfg.Version)
 }
 
+func TestProfilesOrderRoundTrips(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, os.WriteFile(path, []byte("profiles:\n  order: [personal, hive]\n"), 0o600))
+
+	cfg, err := LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"personal", "hive"}, cfg.Profiles.Order)
+
+	require.NoError(t, SaveSettings(cfg))
+	cfg, err = LoadSettings()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"personal", "hive"}, cfg.Profiles.Order,
+		"a save of unrelated settings must not drop the rail order")
+}
+
+// An unset order writes no section at all, so a settings.yaml that never asked
+// for a rail order does not grow an empty one on the next save.
+func TestUnsetProfilesOrderIsNotSerialized(t *testing.T) {
+	path := isolateSettings(t)
+	require.NoError(t, SaveSettings(DefaultSettings()))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.NotContains(t, string(data), "profiles:")
+}
+
 func TestPathsTmuxYAMLThenEnvironment(t *testing.T) {
 	path := isolateSettings(t)
 	require.NoError(t, os.WriteFile(path, []byte("paths:\n  tmux: /opt/homebrew/bin/tmux\n"), 0o600))

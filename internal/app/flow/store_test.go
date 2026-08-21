@@ -44,6 +44,59 @@ func TestFlowStore_ListGet(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestFlowStore_SetOrder_ConfiguredIdsFirstThenAlphabetical(t *testing.T) {
+	dir := t.TempDir()
+	for _, id := range []string{"hive", "personal", "recipinned", "work"} {
+		writeFlow(t, dir, id+".yaml", minimalValidFlowYAML())
+	}
+
+	store := NewFlowStore(dir, minimalRefs())
+	store.SetOrder([]string{"personal", "hive", "deleted-profile"})
+
+	assert.Equal(t, []string{"personal", "hive", "recipinned", "work"}, listIDs(store),
+		"named ids take their configured position; the rest stay alphabetical behind them")
+}
+
+// The rail and the broken-file entries in it are one list, so a file that
+// failed to load has to obey the configured order too.
+func TestFlowStore_SetOrder_AppliesToBrokenFilesToo(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "personal.yaml", minimalValidFlowYAML())
+	writeFlow(t, dir, "hive.yaml", `version: 1
+nodes:
+  - { id: src, type: not-a-real-type }
+`)
+
+	store := NewFlowStore(dir, minimalRefs())
+	store.SetOrder([]string{"hive", "personal"})
+
+	statuses := store.Statuses()
+	require.Len(t, statuses, 2)
+	assert.Equal(t, "hive", statuses[0].ID)
+	assert.False(t, statuses[0].Valid)
+	assert.Equal(t, "personal", statuses[1].ID)
+}
+
+func TestFlowStore_SetOrder_SurvivesReload(t *testing.T) {
+	dir := t.TempDir()
+	writeFlow(t, dir, "hive.yaml", minimalValidFlowYAML())
+	writeFlow(t, dir, "personal.yaml", minimalValidFlowYAML())
+
+	store := NewFlowStore(dir, minimalRefs())
+	store.SetOrder([]string{"personal"})
+	require.NoError(t, store.Reload())
+
+	assert.Equal(t, []string{"personal", "hive"}, listIDs(store))
+}
+
+func listIDs(store *FlowStore) []string {
+	out := make([]string, 0)
+	for _, f := range store.List() {
+		out = append(out, f.ID)
+	}
+	return out
+}
+
 func TestFlowStore_Statuses_IsolatesBrokenFileFromGoodOnes(t *testing.T) {
 	dir := t.TempDir()
 	writeFlow(t, dir, "good.yaml", minimalValidFlowYAML())

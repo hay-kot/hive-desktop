@@ -120,6 +120,15 @@ type Appearance struct {
 	TerminalPoolSize int `yaml:"terminal_pool_size" env:"HIVE_DESKTOP_APPEARANCE_TERMINAL_POOL_SIZE"`
 }
 
+// ProfileSettings configures the profile rail. Order names flow ids in the
+// order they should appear; an id it omits sorts alphabetically after every id
+// it names, so the list never has to be exhaustive and a newly created profile
+// lands at the end rather than somewhere unspecified. An id naming no flow is
+// ignored, so deleting a profile does not invalidate the setting.
+type ProfileSettings struct {
+	Order []string `yaml:"order,omitempty"`
+}
+
 // AgentWorkspacesSettings locates the agent-workspace root. Empty resolves to
 // <ConfigDir>/workspaces; a leading `~` is expanded at read time. It is
 // configurable because iCloud Drive is an expected destination (spec §4.4).
@@ -246,6 +255,7 @@ type Settings struct {
 	// No omitempty: with terminal_show_windows off and nothing else set the
 	// struct is all-zero, and an omitted section would read back as defaults.
 	Appearance      Appearance              `yaml:"appearance"`
+	Profiles        ProfileSettings         `yaml:"profiles,omitempty"`
 	HTTP            HTTPSettings            `yaml:"http"`
 	Keybindings     map[string][]string     `yaml:"keybindings,omitempty"`
 	Skills          SkillsSettings          `yaml:"skills"`

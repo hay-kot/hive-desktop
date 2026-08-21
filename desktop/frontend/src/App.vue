@@ -107,7 +107,7 @@ const {
   selectedId, selectedItem, actions, pendingAction, actionRuns, sessionLaunchAction, sessionLaunchOptions, sessionLaunchBusy, sessionLaunchError, actionInputsAction, actionInputsBusy, actionInputsError, actionRerunConfirmation, actionRerunBusy, actionRerunError, unreadOnly, feedSort, setFeedSort, title, toasts, showToast, dismissToast, clearToasts,
   creatingProfile, createProfileError, renamingProfile, renameProfileError, togglingProfileId, toggleProfileError, deletingProfile, settingProfileImage, profileImageError, loadProfiles, createProfile, seedStarterFlow, renameProfile, setProfileEnabled, deleteProfile, setProfileImage, clearProfileImage,
   visibleArchivedItems, archivedExpanded, archivedCount, toggleArchivedSection, trashFilter, setTrashFilter,
-  reorderFeeds, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
+  reorderFeeds, reorderProfiles, selectProfile, defaultSelection, selectSidebar, selectItem, openActionRun, selectNext, selectPrev,
   toggleUnread, markItemUnread, markingAllRead, markAllRead, unreadInScope, toggleArchive, toggleIgnored, loadEvents, refresh, invokeAction, cancelActionRerun, confirmActionRerun, cancelSessionLaunch, submitSessionLaunch, cancelActionInputs, submitActionInputs, notWired, openUrl, openItemInBrowser, openSelectedInBrowser, copyItemLink, copyItemContents, runItemAction, hideWindow,
 } = useFeedState()
 
@@ -1328,6 +1328,7 @@ onUnmounted(() => {
           :active-profile-id="activeProfileId"
           @select="requestSelectProfile"
           @add="openNewProfile"
+          @reorder="reorderProfiles"
           @open-settings="requestOpenSettings('application')"
         />
         <DevView v-if="devActive" @close="closeSettings" />

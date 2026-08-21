@@ -32,6 +32,11 @@ appearance:
   terminal_show_status_bar: false # git and pull-request state above the attached session
   terminal_pool_size: 3   # sessions kept attached for instant switching (1-6)
 
+profiles:                 # the profile rail
+  order:                  # flow ids, top of the rail first. Ids left out sort
+    - personal            # alphabetically after every id named here, and an id
+    - hive                # naming no flow is ignored.
+
 http:                     # the local loopback server; webhook ingress and the
                           # terminal transport both ride it
   enabled: true           # on by default; read at startup
@@ -83,5 +88,6 @@ development:
 - `polling.interval` below 60s is rejected.
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
+- `profiles.order` never has to be exhaustive: name only the profiles whose position matters. Dragging a tile in the rail rewrites the whole key; editing it here takes effect on the next launch.
 - `keybindings` has its own command-id vocabulary and combo syntax. Use the "Keyboard shortcuts" prompt for that section rather than guessing ids.
 {{template "task" .}}

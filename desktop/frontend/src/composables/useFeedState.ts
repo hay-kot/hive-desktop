@@ -1,7 +1,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { Browser, Window } from '@wailsio/runtime'
-import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, MarkImages, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
+import { ClearProfileImage, CreateFlow, DeleteFlow, GetFlow, GetSidebar, ListFlows, MarkImages, RenameFlow, SaveSidebar, SeedStarterFlow, SetFlowEnabled, SetFlowOrder, SetProfileImage } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice'
 import { ActionRun, ActionViews, FeedCounts, InboxItemEvents, InvokeAction, ListArchivedInboxItemsByFeed, ListInboxItemsByFeed, ListInboxItemsTrash, MarkInboxItemsRead, MarkInboxItemUnread, RenderClipboardAction, ToggleInboxItemArchived, ToggleInboxItemIgnored } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice'
 import { SessionLaunchOptions } from '../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/sessionservice'
 import type { ActionRunView, SessionLaunchOptions as SessionLaunchOptionsView } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
@@ -368,6 +368,31 @@ export function useFeedState() {
       await notify({
         title: 'Sidebar layout save failed',
         body: profile?.name ? `Could not save the sidebar layout for profile ${profile.name}.` : 'Could not save the sidebar layout.',
+        severity: 'error',
+        category: 'config',
+      })
+    }
+  }
+
+  // reorderProfiles persists the rail order (settings.yaml's profiles.order),
+  // reordering the local list first so the tile stays where it was dropped
+  // instead of snapping back until the write answers. The backend's
+  // flows:updated confirms it; a failed write puts the old order back, since
+  // nothing else will.
+  async function reorderProfiles(ids: string[]) {
+    const previous = profiles.value
+    const byID = new Map(previous.map((p) => [p.id, p]))
+    const reordered = ids.map((id) => byID.get(id)).filter((p): p is Profile => !!p)
+    if (reordered.length !== previous.length) return
+    profiles.value = reordered
+    try {
+      await SetFlowOrder(ids)
+    } catch (error) {
+      profiles.value = previous
+      console.warn('Unable to save the profile order', error)
+      await notify({
+        title: 'Profile order save failed',
+        body: 'Could not save the order of the profile rail.',
         severity: 'error',
         category: 'config',
       })
@@ -1131,6 +1156,7 @@ export function useFeedState() {
     setProfileImage,
     clearProfileImage,
     reorderFeeds,
+    reorderProfiles,
     selectProfile,
     defaultSelection,
     selectSidebar,

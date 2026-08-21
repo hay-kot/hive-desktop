@@ -174,6 +174,9 @@ appearance:
   terminal_show_windows: true # list every active session's windows in the terminal sidebar
   terminal_show_status_bar: false # give the attached session a bar carrying its checkout's git and pull-request state (ADR session-git-and-pull-request-status-is-computed-in-app-not-shelled-out-to-hive-or-gh)
   terminal_pool_size: 3 # sessions kept attached for instant switching (1-6, ADR terminal-attach-pool)
+profiles:
+  order: [] # flow ids, top of the rail first; ids left out sort alphabetically
+            # behind them. Written by dragging a tile in the rail.
 http:
   enabled: true # loopback server: webhook listener + agent API (ADR agent-http-api)
   host: 127.0.0.1
