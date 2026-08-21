@@ -60,7 +60,7 @@ import { useSessionStatus } from '../composables/useSessionStatus'
 import { useSessionStatuses } from '../composables/useSessionStatuses'
 import { useTerminalStatusBar } from '../composables/useTerminalStatusBar'
 import { useWailsEvent } from '../composables/useWailsEvent'
-import { createTerminalClient, getTerminalEndpoint, type WindowState } from '../lib/terminalClient'
+import { createTerminalClient, getTerminalEndpoint, type WindowForeground, type WindowState } from '../lib/terminalClient'
 import { appErrorMessage } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { paneMayAutoFocus, setTerminalTreeHandles, terminalTreeFocused } from '../lib/terminalTree'
@@ -1136,8 +1136,11 @@ onMounted(() => setTerminalTreeHandles({
     void newWindowIn(row)
   },
   closeWindow: (): void => {
-    const windowId = current.value?.activeWindowId.value
-    if (windowId) void current.value?.closeWindow(windowId)
+    const session = current.value
+    const windowId = session?.activeWindowId.value
+    if (!session || !windowId) return
+    const name = session.tabs.value.find((tab) => tab.windowId === windowId)?.name ?? ''
+    void requestCloseWindow(activeSlug.value, windowId, name)
   },
 }))
 onBeforeUnmount(() => setTerminalTreeHandles(null))
@@ -1476,6 +1479,40 @@ function requestKill(row: TerminalSessionRow): void {
     confirmLabel: 'Kill',
     onConfirm: () => killSession(row.slug),
   })
+}
+
+// Closing a tab kills its tmux window and everything running in it, so a window
+// with a foreground process — an agent, an editor, a script — is confirmed
+// first, and a shell at its prompt closes on the click. The state is read at the
+// moment of the close rather than taken from anything the sidebar already has:
+// what a pane is running changes without tmux announcing it, so a cached answer
+// would be a stale one.
+async function requestCloseWindow(slug: string, windowId: string, name: string): Promise<void> {
+  const pooled = pool.get(slug)
+  if (!pooled) return
+  const close = (): Promise<void> => pooled.closeWindow(windowId)
+  const foreground = await windowForeground(slug, windowId)
+  if (!foreground.running) {
+    await close()
+    return
+  }
+  confirmation.request({
+    title: 'Close this tab?',
+    description: `${foreground.command || 'Something'} is still running ${name ? `in ${name}` : 'in this tab'}. Closing the tab stops it.`,
+    confirmLabel: 'Close tab',
+    onConfirm: close,
+  })
+}
+
+// A read that failed is not evidence the tab is idle, and killing a process to
+// find out is the one outcome the confirmation exists to prevent.
+async function windowForeground(slug: string, windowId: string): Promise<WindowForeground> {
+  if (!client.value) return { running: true, command: '' }
+  try {
+    return await client.value.windowForeground(slug, windowId)
+  } catch {
+    return { running: true, command: '' }
+  }
 }
 
 async function killSession(slug: string): Promise<void> {
@@ -2068,7 +2105,7 @@ onBeforeUnmount(() => {
                                     :title="`Close ${win.name}`"
                                     :aria-label="`Close ${win.name}`"
                                     data-testid="terminal-close-window"
-                                    @click="pool.get(row.slug)?.closeWindow(win.windowId)"
+                                    @click="requestCloseWindow(row.slug, win.windowId, win.name)"
                                   ><IconX class="size-3" /></button>
                                   <span
                                     v-if="win.indicator"

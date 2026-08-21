@@ -635,6 +635,51 @@ func TestWindowCommands(t *testing.T) {
 	require.ErrorIs(t, client.CloseWindow(ctx, "@404"), ErrUnknownWindow)
 }
 
+// A window id is the only thing a caller sends, so the panes behind it are read
+// live: the controller models one pane id per window and nothing announces what
+// a pane starts running.
+func TestListPanesReadsAWindowsPanes(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setWindows("@1 1 %1 120 40 claude")
+	f.setPanes("@1",
+		"%1 4812 1 0 claude",
+		"%2 4820 0 0 zsh",
+		"%3 0 0 1 ",
+		"nonsense",
+	)
+	client := attachFake(t, f, Options{})
+
+	panes, err := client.ListPanes(t.Context(), "@1")
+	require.NoError(t, err)
+	require.Equal(t, []Pane{
+		{ID: "%1", PID: 4812, Active: true, Command: "claude"},
+		{ID: "%2", PID: 4820, Command: "zsh"},
+		{ID: "%3", Dead: true},
+	}, panes, "an unparseable row is dropped rather than failing the read")
+
+	// The same gate every other window command passes: an id reaches a tmux
+	// command line only if it is one of ours.
+	_, err = client.ListPanes(t.Context(), "@404")
+	require.ErrorIs(t, err, ErrUnknownWindow)
+}
+
+// A pid past six digits is ordinary on Linux, and reading one as 0 would report
+// a pane whose process cannot be found — which the caller above treats as work
+// it must not kill silently.
+func TestListPanesReadsALongPid(t *testing.T) {
+	t.Parallel()
+
+	f := newFakeTmux(t, "hive-demo")
+	f.setPanes("@1", "%1 4194302 1 0 zsh")
+	client := attachFake(t, f, Options{})
+
+	panes, err := client.ListPanes(t.Context(), "@1")
+	require.NoError(t, err)
+	require.Equal(t, []Pane{{ID: "%1", PID: 4194302, Active: true, Command: "zsh"}}, panes)
+}
+
 // The destination is an index into the resulting order; which tmux insertion
 // expresses it, and whether the moved window keeps the selection, is what this
 // pins down. -d is the flag that decides selection, and it has to follow the

@@ -281,6 +281,27 @@ func (ctrl *Controller) TerminalCloseWindow(w http.ResponseWriter, r *http.Reque
 	return nil
 }
 
+// terminalForegroundResponse says what a window is running. command is the
+// foreground process's name and is empty when nothing is running or the name
+// could not be read, so running is what a caller branches on.
+type terminalForegroundResponse struct {
+	Running bool   `json:"running"`
+	Command string `json:"command"`
+}
+
+// TerminalWindowForeground reports whether closing a window would kill work.
+func (ctrl *Controller) TerminalWindowForeground(w http.ResponseWriter, r *http.Request) error {
+	body, err := terminalBody[terminalWindowRequest](ctrl, w, r)
+	if err != nil {
+		return err
+	}
+	foreground, err := ctrl.core.Terminals.WindowForeground(r.Context(), body.Slug, body.WindowID)
+	if err != nil {
+		return err
+	}
+	return server.JSON(w, http.StatusOK, terminalForegroundResponse{Running: foreground.Running, Command: foreground.Command})
+}
+
 // TerminalRenameWindow renames one window of an attached session.
 func (ctrl *Controller) TerminalRenameWindow(w http.ResponseWriter, r *http.Request) error {
 	body, err := terminalBody[terminalRenameRequest](ctrl, w, r)

@@ -3,7 +3,10 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
+
+	"github.com/shirou/gopsutil/v4/process"
 
 	"github.com/hay-kot/hive-desktop/internal/app/tmuxcc"
 )
@@ -45,10 +48,14 @@ type TerminalsService struct {
 	metrics tmuxcc.MetricsSink
 	starter terminalStarter
 	home    func() (string, error)
+	// foreground answers whether a pid holds its terminal's foreground process
+	// group. It is a field so a test can drive the answer without arranging the
+	// process states it stands for.
+	foreground func(ctx context.Context, pid int) (bool, error)
 }
 
 func newTerminalsService(manager *tmuxcc.Manager, metrics tmuxcc.MetricsSink, starter terminalStarter, home func() (string, error)) *TerminalsService {
-	return &TerminalsService{manager: manager, metrics: metrics, starter: starter, home: home}
+	return &TerminalsService{manager: manager, metrics: metrics, starter: starter, home: home, foreground: processForeground}
 }
 
 // Scratch declares the scratch terminal. It is a constant rather than a probe:
@@ -235,6 +242,89 @@ func (s *TerminalsService) CloseWindow(ctx context.Context, slug, windowID strin
 		return err
 	}
 	return terminalError(client.CloseWindow(ctx, windowID), "closing window %q", windowID)
+}
+
+// WindowForeground is what a window has in front of it: whether it is running
+// anything other than a prompt, and the name of what that is — empty when there
+// is nothing running, or when the name could not be read.
+type WindowForeground struct {
+	Running bool
+	Command string
+}
+
+// WindowForeground reports whether closing a window would kill work. Running is
+// false only when every live pane in it is a shell sitting at its prompt;
+// anything else — an agent, an editor, a script — answers true and names the
+// process, so a caller can say what it is about to stop.
+//
+// Uncertainty answers true. A pane whose state cannot be read is one whose work
+// this cannot account for, and the two ways of being wrong do not cost the
+// same: a confirmation nobody needed against a process killed without one.
+func (s *TerminalsService) WindowForeground(ctx context.Context, slug, windowID string) (WindowForeground, error) {
+	client, err := s.client(slug)
+	if err != nil {
+		return WindowForeground{}, err
+	}
+	panes, err := client.ListPanes(ctx, windowID)
+	if err != nil {
+		return WindowForeground{}, terminalError(err, "reading what window %q is running", windowID)
+	}
+	return s.foregroundOf(ctx, panes), nil
+}
+
+// foregroundOf answers for the whole window, because closing one kills every
+// pane in it. The active pane's process is the one named when several are
+// running: it is the one the user is looking at.
+func (s *TerminalsService) foregroundOf(ctx context.Context, panes []tmuxcc.Pane) WindowForeground {
+	answer := WindowForeground{}
+	for _, pane := range panes {
+		if pane.Dead || s.paneIsAtAPrompt(ctx, pane) {
+			continue
+		}
+		if !answer.Running || pane.Active {
+			answer = WindowForeground{Running: true, Command: pane.Command}
+		}
+	}
+	return answer
+}
+
+// paneIsAtAPrompt reports the one state a pane can be closed from without
+// asking: its foreground process is a shell, and that shell is the pane's own
+// process rather than something it started.
+//
+// Both halves are load-bearing. tmux names the foreground process but not which
+// process it is, so the name alone reads a running `#!/bin/bash` script as a
+// prompt — it runs under the shell's own name. And the process check alone
+// reads an agent as a prompt, because `sh -c claude` execs claude in place and
+// leaves it as the pane's own process.
+func (s *TerminalsService) paneIsAtAPrompt(ctx context.Context, pane tmuxcc.Pane) bool {
+	if pane.PID <= 0 || !isShell(pane.Command) {
+		return false
+	}
+	foreground, err := s.foreground(ctx, pane.PID)
+	return err == nil && foreground
+}
+
+// shells are the interactive shells a pane sits in at a prompt. tmux reports a
+// login shell without the leading dash argv[0] carries, but a pane whose
+// command was spelled that way reaches us with it.
+var shells = map[string]bool{
+	"ash": true, "bash": true, "csh": true, "dash": true, "elvish": true,
+	"fish": true, "ksh": true, "mksh": true, "nu": true, "pwsh": true,
+	"sh": true, "tcsh": true, "xonsh": true, "zsh": true,
+}
+
+func isShell(command string) bool { return shells[strings.TrimPrefix(command, "-")] }
+
+// processForeground reports whether pid holds the foreground process group of
+// its controlling terminal — on a pane's own shell, whether it is waiting at a
+// prompt rather than on something it started.
+func processForeground(ctx context.Context, pid int) (bool, error) {
+	proc, err := process.NewProcessWithContext(ctx, int32(pid))
+	if err != nil {
+		return false, err
+	}
+	return proc.ForegroundWithContext(ctx)
 }
 
 // MoveWindow moves a window to a position in the session's window order and

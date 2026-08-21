@@ -38,6 +38,7 @@ type fakeTmux struct {
 	kills     int
 	commands  []string
 	windows   []string
+	panes     map[string][]string
 	captures  map[string][]string
 	histories map[string][]string
 	cursors   map[string]string
@@ -58,6 +59,7 @@ func newFakeTmux(t *testing.T, slug string) *fakeTmux {
 		stdoutR:   stdoutR,
 		stdoutW:   stdoutW,
 		done:      make(chan struct{}),
+		panes:     map[string][]string{},
 		captures:  map[string][]string{},
 		histories: map[string][]string{},
 		cursors:   map[string]string{},
@@ -149,6 +151,11 @@ func (f *fakeTmux) respond(cmd string) {
 		windows := append([]string(nil), f.windows...)
 		f.mu.Unlock()
 		f.reply(windows, false)
+	case strings.HasPrefix(cmd, "list-panes"):
+		f.mu.Lock()
+		panes := append([]string(nil), f.panes[argAfter(cmd, "-t")]...)
+		f.mu.Unlock()
+		f.reply(panes, false)
 	case strings.HasPrefix(cmd, "capture-pane"):
 		f.mu.Lock()
 		// -E -1 ends the capture on the last history row, which is how a first
@@ -220,6 +227,13 @@ func (f *fakeTmux) setWindows(lines ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.windows = lines
+}
+
+// setPanes sets what list-panes answers for one window target.
+func (f *fakeTmux) setPanes(window string, lines ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.panes[window] = lines
 }
 
 func (f *fakeTmux) setOnCommand(hook func(cmd string)) {

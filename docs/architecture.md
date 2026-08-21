@@ -1128,6 +1128,21 @@ nowhere else for "next" to go from the last one. A window this view created
 takes focus when tmux announces it; one another client opened does not, because
 it must not pull the keyboard out of the pane in front of the user.
 
+**A close asks what the tab is running, and asks the processes rather than the
+screen** (ADR closing-a-terminal-tab-is-guarded-by-process-state-not-by-pane-output). `TerminalsService.WindowForeground` answers `running` false only
+when every live pane of a window is a shell waiting at its prompt, and
+`POST /api/terminal/windows/foreground` is what both close paths — the row's
+button and `terminal.close-window` — ask before they kill anything;
+`requestCloseWindow` in the mode is where they converge, so a third path is one
+line away from the same guard. Two pane facts decide it and neither is enough
+alone: `#{pane_current_command}` names the foreground process, which tells an
+agent from a shell but reads a running `#!/bin/bash` script as a prompt; and
+whether `#{pane_pid}` holds its tty's foreground process group, which catches
+that script but reads an agent as a prompt, since tmux execs a window's command
+in place of the pane's own process. Anything unreadable answers `running`, and
+the question is asked at the moment of the close rather than swept with the
+window listing — what a pane runs changes with nothing announced.
+
 **Window order is tmux's, and a reorder is a move rather than a swap.**
 `POST /api/terminal/windows/move` takes a window id and the index it ends up at,
 because a reorder means a destination and not a neighbour; the core reads the
