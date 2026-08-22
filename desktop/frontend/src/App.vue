@@ -3,7 +3,7 @@ import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, 
 import { Events, Window } from '@wailsio/runtime'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconCode from '~icons/lucide/code'
 import IconGauge from '~icons/lucide/gauge'
 import IconInbox from '~icons/lucide/inbox'
@@ -1000,10 +1000,10 @@ useCommands(computed(() => {
     if (mode.value !== 'agents') {
       cmds.push({
         id: 'mode:agents',
-        title: 'Go to Agents',
+        title: 'Go to Chats',
         group: 'View',
-        keywords: ['agents', 'chat', 'mode'],
-        icon: IconBot,
+        keywords: ['chats', 'agents', 'chat', 'mode'],
+        icon: IconMessagesSquare,
         run: () => setMode('agents'),
       })
     }

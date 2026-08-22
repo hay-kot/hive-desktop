@@ -1,7 +1,7 @@
 import { computed, ref, type Component, type ComputedRef } from 'vue'
 import IconArrowDown from '~icons/lucide/arrow-down'
 import IconArrowUp from '~icons/lucide/arrow-up'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconBug from '~icons/lucide/bug'
 import IconChevronLeft from '~icons/lucide/chevron-left'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -311,7 +311,7 @@ export const commandCatalog: BindableCommand[] = [
   // A position in the window strip, not a tmux window index: the strip is what
   // is on screen, and tmux's indices have gaps as soon as a window is closed.
   ...windowJumpCommands,
-  // The Agents area is a plain two-level list beside a pane, not a tree, so it
+  // The Chats area is a plain two-level list beside a pane, not a tree, so it
   // needs only the pair terminal mode's focus chords have — no filter, no
   // window jumps. Combos are new ones, not terminal.*'s: a combo resolves to
   // exactly one command, so reusing mod+arrowleft/-right here would shadow
@@ -319,18 +319,18 @@ export const commandCatalog: BindableCommand[] = [
   {
     id: 'agents.focus-sidebar',
     title: 'Focus workspace list',
-    group: 'Agents',
-    keywords: ['agents', 'workspace', 'sidebar', 'list', 'focus', 'left'],
-    icon: IconBot,
+    group: 'Chats',
+    keywords: ['chats', 'agents', 'workspace', 'sidebar', 'list', 'focus', 'left'],
+    icon: IconMessagesSquare,
     defaultCombos: ['mod+shift+arrowleft'],
     context: 'agents',
   },
   {
     id: 'agents.focus-pane',
-    title: 'Focus session',
-    group: 'Agents',
-    keywords: ['agents', 'session', 'pane', 'focus', 'right'],
-    icon: IconBot,
+    title: 'Focus chat',
+    group: 'Chats',
+    keywords: ['chats', 'agents', 'session', 'pane', 'focus', 'right'],
+    icon: IconMessagesSquare,
     defaultCombos: ['mod+shift+arrowright'],
     context: 'agents',
   },

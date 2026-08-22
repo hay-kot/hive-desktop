@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Agents settings: where the area's workspaces live. Everything a workspace
+// Chats settings: where the area's workspaces live. Everything a workspace
 // itself declares — agent, autonomy posture, MCP servers — belongs to the
 // workspace manifest, not here.
 import { onMounted } from 'vue'
@@ -23,7 +23,7 @@ onMounted(() => {
     <SettingsSection
       v-if="info"
       title="Workspaces"
-      description="Where the Agents area keeps its workspace directories."
+      description="Where the Chats area keeps its workspace directories."
       boxed
     >
       <SettingsPathRow

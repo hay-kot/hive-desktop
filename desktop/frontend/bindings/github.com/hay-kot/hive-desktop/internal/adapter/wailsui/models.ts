@@ -9,7 +9,7 @@ import * as dispatch$0 from "../../app/dispatch/models.js";
 import * as procstats$0 from "../../app/procstats/models.js";
 
 /**
- * AgentsAvailability gates the Agents area. Like terminal mode, it depends on
+ * AgentsAvailability gates the Chats area. Like terminal mode, it depends on
  * tmux — a session is a tmux session since ADR agent-workspace-sessions-are-tmux-sessions — so Available answers
  * the same question TerminalService's does.
  */

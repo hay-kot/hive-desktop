@@ -3,12 +3,12 @@ import { expect, test } from './fixtures.js'
 // The e2e lane is the `-tags server` build, where ptyterm's buildSupportsTerminal
 // compiles to false (internal/app/ptyterm/supported_server.go). That makes it
 // the one place the graceful-unavailable path is observable end to end for
-// the Agents area too: AgentWorkspacesService.Available -> KindUnavailable ->
+// the Chats area too: AgentWorkspacesService.Available -> KindUnavailable ->
 // AgentsService.Available{available:false, reason} -> the mode.
 //
 // What it guards is the "the toggle is never disabled" rule, proven for a
 // third segment: a build that cannot run a PTY at all must explain itself
-// inside the Agents area rather than leaving a dead button in the title bar.
+// inside the Chats area rather than leaving a dead button in the title bar.
 // This is the only agent path observable in the server build — starting a
 // session needs a live PTY this build does not have — so nothing else
 // exercises the unavailable branch.
@@ -18,9 +18,9 @@ const feedItemCount = 6
 // AgentsMode.vue renders this when the availability payload carries no
 // reason. Naming it here is what lets the reason assertion mean "Go supplied
 // one" rather than "some text is on screen"; the exact Go copy stays unpinned.
-const frontendFallbackReason = 'The Agents area is not available in this build.'
+const frontendFallbackReason = 'The Chats area is not available in this build.'
 
-test('the Agents area explains its own unavailability and hands the frame back', async ({ page }) => {
+test('the Chats area explains its own unavailability and hands the frame back', async ({ page }) => {
   // AgentsMode is an async component, so a failed chunk load or a throwing
   // probe shows up here rather than as a missing element.
   const appConsoleErrors: string[] = []
@@ -60,5 +60,5 @@ test('the Agents area explains its own unavailability and hands the frame back',
   await expect(hubToggle).toHaveAttribute('aria-pressed', 'true')
   await expect(page.getByTestId('feed-item')).toHaveCount(feedItemCount)
 
-  expect(appConsoleErrors, 'an unavailable Agents area is a rendered state, not a failure').toEqual([])
+  expect(appConsoleErrors, 'an unavailable Chats area is a rendered state, not a failure').toEqual([])
 })
