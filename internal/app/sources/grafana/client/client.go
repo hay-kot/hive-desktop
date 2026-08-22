@@ -45,6 +45,21 @@ type Alert struct {
 	} `json:"status"`
 }
 
+// AlertRuleURL is the deep link to the rule an alert instance was evaluated
+// from. An instance has no page of its own — the rule's view is where its
+// history, query and annotations are — so an alert whose labels carry no rule
+// uid links to the alert list rather than to a broken rule page.
+func AlertRuleURL(base, ruleUID string) string {
+	base = strings.TrimRight(base, "/")
+	if base == "" {
+		return ""
+	}
+	if ruleUID = strings.TrimSpace(ruleUID); ruleUID == "" {
+		return base + "/alerting/list"
+	}
+	return base + "/alerting/grafana/" + url.PathEscape(ruleUID) + "/view"
+}
+
 type Client struct {
 	api  *httpclient.Client
 	errs sourcehttp.Errors

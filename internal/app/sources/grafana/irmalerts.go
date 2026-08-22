@@ -115,17 +115,21 @@ type irmAlertsSource struct {
 
 var _ connector.PullSource = (*irmAlertsSource)(nil)
 
-// irmAlertPayload is what an alert group emits. title, state and url are
-// canonical fields the ingest boundary reads; the rest rides along for a
-// function node to route on.
+// irmAlertPayload is what an alert group emits: the canonical item contract
+// filled from the group, with the rest riding along as provider enrichment for
+// a function node to route on. alertLabels carries the raw map for the same
+// reason the Alertmanager node does — canonical `labels` is string tags.
 type irmAlertPayload struct {
 	Title          string            `json:"title"`
+	Kind           string            `json:"kind"`
 	State          string            `json:"state"`
+	Body           string            `json:"body,omitempty"`
 	URL            string            `json:"url,omitempty"`
+	Labels         []string          `json:"labels,omitempty"`
+	AlertLabels    map[string]string `json:"alertLabels,omitempty"`
 	Severity       string            `json:"severity,omitempty"`
 	Integration    string            `json:"integration,omitempty"`
 	Team           string            `json:"team,omitempty"`
-	Labels         map[string]string `json:"labels,omitempty"`
 	AlertsCount    int               `json:"alertsCount"`
 	CreatedAt      string            `json:"createdAt,omitempty"`
 	AcknowledgedAt string            `json:"acknowledgedAt,omitempty"`
@@ -157,17 +161,40 @@ func alertGroupPayload(group client.AlertGroup) irmAlertPayload {
 	}
 	return irmAlertPayload{
 		Title:          title,
+		Kind:           ItemKind,
 		State:          alertGroupState(group.State),
+		Body:           alertGroupBody(group, labels),
 		URL:            group.URL(),
+		Labels:         labelTags(labels),
+		AlertLabels:    labels,
 		Severity:       labels["severity"],
 		Integration:    group.IntegrationID,
 		Team:           group.TeamID,
-		Labels:         labels,
 		AlertsCount:    group.AlertsCount,
 		CreatedAt:      group.CreatedAt,
 		AcknowledgedAt: group.AcknowledgedAt,
 		SilencedAt:     group.SilencedAt,
 	}
+}
+
+// alertGroupBody is the detail pane's markdown. A group has no description of
+// its own — its title is the alert's — so the body is the triage state: how
+// many alerts grouped, how long it has been open, and who picked it up.
+func alertGroupBody(group client.AlertGroup, labels map[string]string) string {
+	facts := make([]string, 0, 6)
+	add := func(label, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			facts = append(facts, "- **"+label+"** "+value)
+		}
+	}
+	add("Severity", labels["severity"])
+	if group.AlertsCount > 0 {
+		add("Alerts", strconv.Itoa(group.AlertsCount))
+	}
+	add("Firing since", group.CreatedAt)
+	add("Acknowledged", group.AcknowledgedAt)
+	add("Silenced", group.SilencedAt)
+	return strings.Join(facts, "\n")
 }
 
 // alertGroupState maps an upstream state onto the emitted vocabulary. An

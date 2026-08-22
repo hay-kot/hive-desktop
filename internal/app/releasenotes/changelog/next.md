@@ -83,6 +83,18 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
 
 ## Fixed
 
+- Grafana alerts render as alerts, not as a bare heading and a timestamp. A
+  firing alert carries the `Alert` kind, a body with its description and the
+  value that tripped it, a link to the rule it was raised from, and its folder
+  as the container; alerts from one rule on several instances are separated by
+  their instance. IRM alert groups get the same kind and a body of their own.
+  Both nodes now put string tags in the canonical `labels` and carry the raw
+  label map as `alertLabels` — a `function` node reading `labels` as a map
+  wants `alertLabels` instead. Alerts already in the inbox keep the old payload
+  until they next change.
+- A source badge showing an image — Grafana, or a webhook or command source
+  with an uploaded mark — filled the badge edge to edge instead of sitting
+  inset like the glyph marks beside it.
 - Pasting into a terminal pane is sent as a paste instead of one Enter per
   line, which no longer fires half a script on the way in.
 - A terminal recovers from broker overflow in place; the view is no longer

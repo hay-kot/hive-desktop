@@ -26,6 +26,19 @@ describe('SourceMark', () => {
     expect(wrapper.find('[data-testid="glyph"]').exists()).toBe(true)
   })
 
+  // Both branches must land at the size the badge asked for. `size-full` on the
+  // image outranked the caller's `size-4` in the utility layer, so a Grafana or
+  // uploaded mark filled the badge edge to edge and a failed image snapped down
+  // to the glyph's size.
+  it('renders the image at the size the caller passes, like the glyph', async () => {
+    const wrapper = mount(SourceMark, { props: { icon: Glyph, image: 'data:image/png;base64,LOGO' }, attrs: { class: 'size-4' } })
+    expect(wrapper.find('img').classes()).toContain('size-4')
+    expect(wrapper.find('img').classes()).not.toContain('size-full')
+
+    await wrapper.find('img').trigger('error')
+    expect(wrapper.find('[data-testid="glyph"]').classes()).toContain('size-4')
+  })
+
   it('retries the image after the source changes to a new one', async () => {
     const wrapper = mount(SourceMark, { props: { icon: Glyph, image: 'data:image/png;base64,BROKEN' } })
     await wrapper.find('img').trigger('error')
