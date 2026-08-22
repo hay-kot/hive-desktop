@@ -15,18 +15,8 @@ const mocks = vi.hoisted(() => ({
   GetLayout: vi.fn(),
   SaveFlow: vi.fn(),
   SaveLayout: vi.fn(),
-  ListInboxItemsByFeed: vi.fn(),
   NodeRuns: vi.fn(),
   On: vi.fn(),
-  SetText: vi.fn(),
-  RenderPrompt: vi.fn(),
-}))
-
-// Prompt text is assembled by the Go prompts service, so "Copy prompt" is a
-// service call followed by a clipboard write.
-vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/promptsservice', () => ({
-  Catalog: vi.fn(),
-  Render: mocks.RenderPrompt,
 }))
 
 vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/flowsservice', () => ({
@@ -38,13 +28,11 @@ vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/w
 }))
 
 vi.mock('../../../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/pipelineservice', () => ({
-  ListInboxItemsByFeed: mocks.ListInboxItemsByFeed,
   NodeRuns: mocks.NodeRuns,
 }))
 
 vi.mock('@wailsio/runtime', () => ({
   Events: { On: mocks.On },
-  Clipboard: { SetText: mocks.SetText },
 }))
 
 const flowSummaries = [
@@ -108,11 +96,8 @@ describe('FlowsView flow selector', () => {
   })
 })
 
-describe('FlowsView deploy menu', () => {
+describe('FlowsView deploy button', () => {
   beforeEach(() => {
-    // useFlowsSession is a module singleton — without a reset, a later
-    // test's mount would silently reuse a prior test's already-torn-down
-    // instance (see useFlowsSession.ts's module docs).
     resetFlowsSessionForTests()
     vi.clearAllMocks()
     mocks.ListFlows.mockResolvedValue(flowSummaries)
@@ -122,60 +107,14 @@ describe('FlowsView deploy menu', () => {
     mocks.On.mockReturnValue(() => {})
   })
 
-  async function mountWithActiveFlow() {
+  it('is a plain button — no split menu carrying Copy prompt or a debug panel', async () => {
     const wrapper = await mountFlowsView()
     useFlowsSession().bindActiveFlow('flow-1')
     await flushPromises()
-    return wrapper
-  }
 
-  it('"Copy prompt" copies the rendered flows prompt', async () => {
-    mocks.SetText.mockResolvedValue(undefined)
-    mocks.RenderPrompt.mockResolvedValue({ id: 'flows', title: 'Flows', description: '', target: '', text: 'FLOWS PROMPT' })
-    const wrapper = await mountWithActiveFlow()
-
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-    await wrapper.get('[data-testid="deploy-menu-copy-prompt"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.RenderPrompt).toHaveBeenCalledWith('flows', expect.anything())
-    expect(mocks.SetText).toHaveBeenCalledWith('FLOWS PROMPT')
-    expect(wrapper.get('[data-testid="copy-prompt-status"]').text()).toBe('Prompt copied')
-
-    wrapper.unmount()
-  })
-
-  // A prompt that cannot be rendered must not put a half-built or stale prompt
-  // on the clipboard.
-  it('"Copy prompt" reports failure when the prompt cannot be rendered', async () => {
-    mocks.SetText.mockResolvedValue(undefined)
-    mocks.RenderPrompt.mockRejectedValue(new Error('unavailable'))
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const wrapper = await mountWithActiveFlow()
-
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-    await wrapper.get('[data-testid="deploy-menu-copy-prompt"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.SetText).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="copy-prompt-status"]').text()).toBe('Could not copy')
-
-    warn.mockRestore()
-    wrapper.unmount()
-  })
-
-  it('debug toggle is labeled "Show debug panel" / "Hide debug panel" and toggles FlowDebugPanel', async () => {
-    const wrapper = await mountWithActiveFlow()
-
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-    expect(wrapper.get('[data-testid="deploy-menu-debug-toggle"]').text()).toBe('Show debug panel')
+    expect(wrapper.get('[data-testid="deploy-button"]').text()).toContain('Deploy')
+    expect(wrapper.find('[data-testid="deploy-menu-toggle"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="flow-debug-aside"]').exists()).toBe(false)
-
-    await wrapper.get('[data-testid="deploy-menu-debug-toggle"]').trigger('click')
-    expect(wrapper.find('[data-testid="flow-debug-aside"]').exists()).toBe(true)
-    // Toggling also closes the menu — reopen it to check the label flipped.
-    await wrapper.get('[data-testid="deploy-menu-toggle"]').trigger('click')
-    expect(wrapper.get('[data-testid="deploy-menu-debug-toggle"]').text()).toBe('Hide debug panel')
 
     wrapper.unmount()
   })
