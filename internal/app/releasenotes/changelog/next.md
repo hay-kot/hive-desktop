@@ -77,6 +77,7 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   unfold, and stay that way; ones with a running agent open on their own. It
   reads like the feed sidebar now — one line, one icon per row — and the
   divider between the two old lists is gone.
+- Every integration card in Settings wears its mark on the same ground, rather than three of them on a white tile and three on the app's own.
 - The app icon is the four-node hive mark.
 - The theme is persisted in `settings.yaml` instead of webview localStorage.
 

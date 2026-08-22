@@ -61,7 +61,7 @@ async function onDisconnect(account: string) {
   <DrawerSheet ariaLabel="Gitea settings" testid="gitea-integration-drawer" backdrop-testid="gitea-integration-backdrop" :default-size="380" :min="320" :max="560" @close="emit('close')">
     <template #header>
       <div class="flex items-center gap-2.5">
-        <span class="flex size-[26px] items-center justify-center rounded-[7px] bg-white p-1"><GiteaMark class="size-full" /></span>
+        <span class="flex size-[26px] items-center justify-center rounded-[7px] bg-chip text-text-2"><GiteaMark class="size-3.5" /></span>
         <div>
           <div class="text-[14px] font-semibold tracking-[-.01em]">Gitea settings</div>
           <div class="font-mono text-[11px] text-text-3">Connected accounts</div>
