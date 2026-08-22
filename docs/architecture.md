@@ -755,7 +755,7 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 | Preferences | General · Appearance · Notifications · Keyboard |
 | Inbox | Integrations · Actions |
 | Code | Terminal · Quick terminals |
-| Agents | Agents · Skills |
+| Chats | Chats · Skills |
 | Advanced | System · About |
 
 A value one surface uses lives on that surface's pane; a value several use lives
@@ -923,8 +923,10 @@ agent hive would run rather than the one a launcher environment resolved
 ### App modes
 
 The desktop shell has a fixed set of top-level modes — today Hub, Terminal,
-and Agents — that `App.vue` owns as a closed type (`'hub' | 'terminal' |
-'agents'`) rather than a boolean per mode. Each mode's `*Active` computed is a
+and Agents, labelled Inbox, Code and Chats in the title bar — that `App.vue`
+owns as a closed type (`'hub' | 'terminal' | 'agents'`) rather than a boolean
+per mode. The labels are UI copy and move on their own; the union, the routes
+and the component names do not follow them. Each mode's `*Active` computed is a
 sibling of the others (`mode.value === '<name>' && shellLoaded.value &&
 !onboardingActive.value`), never an `else` branch of a two-way toggle — a
 third mode written as `!terminalActive` would render underneath whichever

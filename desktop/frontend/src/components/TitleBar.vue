@@ -7,7 +7,7 @@ import IconArrowRight from '~icons/lucide/arrow-right'
 import IconBug from '~icons/lucide/bug'
 import IconInbox from '~icons/lucide/inbox'
 import IconCode from '~icons/lucide/code'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconPanelLeftClose from '~icons/lucide/panel-left-close'
 import IconPanelLeftOpen from '~icons/lucide/panel-left-open'
 import IconPanelRightClose from '~icons/lucide/panel-right-close'
@@ -45,8 +45,8 @@ import type { Job } from '../../bindings/github.com/hay-kot/hive-desktop/interna
 //
 // profileName is empty during onboarding: the bar shows no profile controls —
 // no toggle, no history, no palette — but Report a problem stays reachable.
-// mode is the app-level Inbox|Code|Agents switch. A segment is never disabled,
-// because an unavailable terminal or Agents area explains itself inside the
+// mode is the app-level Inbox|Code|Chats switch. A segment is never disabled,
+// because an unavailable terminal or Chats area explains itself inside the
 // mode.
 // errorCount (8d) is the count of the active flow's nodes whose last run
 // failed. activityActive marks the Activity icon on when the audit-log page is
@@ -186,11 +186,11 @@ function onTitlebarDblclick(event: MouseEvent): void {
           class="flex h-full cursor-pointer items-center gap-1.5 rounded-[5px] px-2.5 text-[11.5px] transition-colors"
           :class="mode === 'agents' ? 'bg-chip font-medium text-text' : 'font-medium text-text-3 hover:text-text'"
           :aria-pressed="mode === 'agents'"
-          aria-label="Agents"
-          title="Agents"
+          aria-label="Chats"
+          title="Chats"
           data-testid="titlebar-mode-agents"
           @click="emit('set-mode', 'agents')"
-        ><IconBot class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Agents</span></button>
+        ><IconMessagesSquare class="size-3.5 shrink-0" /><span class="hidden min-[860px]:inline">Chats</span></button>
       </div>
     </div>
 

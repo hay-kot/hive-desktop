@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, shallowReactive, s
 import { useRoute, useRouter } from 'vue-router'
 import { useStorage } from '@vueuse/core'
 import IconArrowDown from '~icons/lucide/arrow-down'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconChevronDown from '~icons/lucide/chevron-down'
 import IconChevronUp from '~icons/lucide/chevron-up'
 import IconChevronRight from '~icons/lucide/chevron-right'
@@ -500,11 +500,11 @@ function onSidebarMenuSelect(id: string): void {
   else if (id === 'prune' && prunableCount.value) requestPrune(prunableCount.value)
 }
 
-// A chat's own lifecycle — rename, stop, delete — stays in the Agents area, which
+// A chat's own lifecycle — rename, stop, delete — stays in the Chats area, which
 // owns its record; what this menu offers is the two things only the pin created:
 // the way back to that area, and the way to undo it.
 const chatMenuEntries: MenuEntry[] = [
-  { kind: 'action', id: 'open-in-agents', label: 'Open in Agents', icon: IconBot, testid: 'terminal-chat-open-in-agents' },
+  { kind: 'action', id: 'open-in-agents', label: 'Open in Chats', icon: IconMessagesSquare, testid: 'terminal-chat-open-in-agents' },
   { kind: 'separator' },
   { kind: 'action', id: 'unpin', label: 'Unpin from Code', icon: IconPinOff, testid: 'terminal-chat-unpin' },
 ]
@@ -1057,11 +1057,11 @@ useCommands(() => {
     if (isChat(attached)) {
       cmds.push({
         id: 'terminal:chat:open-in-agents',
-        title: 'Open in Agents',
+        title: 'Open in Chats',
         group,
         order: -3,
-        keywords: ['chat', 'agents'],
-        icon: IconBot,
+        keywords: ['chat', 'chats', 'agents'],
+        icon: IconMessagesSquare,
         run: () => openChatInAgents(attached),
       }, {
         id: 'terminal:chat:unpin',

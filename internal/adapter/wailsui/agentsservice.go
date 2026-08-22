@@ -18,7 +18,7 @@ type AgentsTransport struct {
 	StreamPath string
 }
 
-// AgentsAvailability gates the Agents area. Like terminal mode, it depends on
+// AgentsAvailability gates the Chats area. Like terminal mode, it depends on
 // tmux — a session is a tmux session since ADR agent-workspace-sessions-are-tmux-sessions — so Available answers
 // the same question TerminalService's does.
 type AgentsAvailability struct {
@@ -70,7 +70,7 @@ func (s *AgentsService) Endpoint(ctx context.Context) (AgentsEndpoint, error) {
 	}
 	running, port := s.webhooks.Endpoint(ctx)
 	if !running {
-		return AgentsEndpoint{}, app.Errorf(app.KindUnavailable, "The local HTTP server is not running, so the Agents area has nothing to connect to. Check http.enabled in settings.yaml.")
+		return AgentsEndpoint{}, app.Errorf(app.KindUnavailable, "The local HTTP server is not running, so the Chats area has nothing to connect to. Check http.enabled in settings.yaml.")
 	}
 	authority := net.JoinHostPort(s.webhooks.Host(), strconv.Itoa(port))
 	return AgentsEndpoint{

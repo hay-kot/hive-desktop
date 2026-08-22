@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The Agents area's sidebar: workspaces as parent rows with their chats nested
+// The Chats area's sidebar: workspaces as parent rows with their chats nested
 // beneath, in one scroll region. Position is what states which workspace a chat
 // belongs to, so it holds for every workspace at once; focusing a workspace no
 // longer hides the others.
@@ -440,7 +440,7 @@ defineExpose({ focus: () => rootEl.value?.focus() })
       >
         <p class="leading-relaxed">The configured workspace root is unavailable:</p>
         <p class="font-mono text-[11px] text-severity-error">{{ rootProblem }}</p>
-        <p class="leading-relaxed">Point <code>agent_workspaces.dir</code> in settings.yaml at a reachable folder; Settings ▸ Agents shows where it resolves.</p>
+        <p class="leading-relaxed">Point <code>agent_workspaces.dir</code> in settings.yaml at a reachable folder; Settings ▸ Chats shows where it resolves.</p>
       </div>
       <p v-else-if="!workspacesLoaded" class="px-3 py-2 font-mono text-xs text-text-4" data-testid="agents-sidebar-workspaces-loading">Loading…</p>
       <p v-else-if="!tree.length" class="px-3 py-2 text-xs text-text-3" data-testid="agents-sidebar-workspaces-empty">

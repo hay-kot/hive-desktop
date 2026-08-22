@@ -9,7 +9,7 @@ import IconPlug from '~icons/lucide/plug'
 import IconPlay from '~icons/lucide/play'
 import IconTerminal from '~icons/lucide/terminal'
 import IconSquareTerminal from '~icons/lucide/square-terminal'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconHardDrive from '~icons/lucide/hard-drive'
 import IconBell from '~icons/lucide/bell'
 import IconInfo from '~icons/lucide/info'
@@ -64,7 +64,7 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   appearance: { label: 'Appearance', title: 'Appearance', icon: IconPalette },
   keybindings: { label: 'Keyboard', title: 'Keyboard shortcuts', icon: IconKeyboard },
   terminal: { label: 'Terminal', title: 'Terminal', icon: IconSquareTerminal },
-  agents: { label: 'Agents', title: 'Agents', icon: IconBot },
+  agents: { label: 'Chats', title: 'Chats', icon: IconMessagesSquare },
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
   launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
@@ -73,7 +73,7 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   about: { label: 'About', title: 'About', icon: IconInfo },
 }
-// The nav mirrors the app's own mode switch — Inbox, Code, Agents — bookended
+// The nav mirrors the app's own mode switch — Inbox, Code, Chats — bookended
 // by what the whole app answers to and by the install itself, so the rail can
 // be read against the title bar rather than learned. A value one surface uses
 // sits under that surface; one several use sits in General. There is
@@ -86,7 +86,7 @@ const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection
   { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
   { title: 'Inbox', ids: ['integrations', 'actions'] },
   { title: 'Code', ids: ['terminal', 'launchers'] },
-  { title: 'Agents', ids: ['agents', 'skills'] },
+  { title: 'Chats', ids: ['agents', 'skills'] },
   { title: 'Advanced', ids: ['system', 'about'] },
 ]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// The Agents area: AgentsSidebar's tree (workspaces, each holding its own
+// The Chats area: AgentsSidebar's tree (workspaces, each holding its own
 // chats) beside a pane the terminal owns under a slim status bar naming the
 // open session's workspace. Focusing a workspace is neither a filter nor a
 // container — it scopes what the strips below describe and what a new chat
@@ -16,7 +16,7 @@ import { Browser } from '@wailsio/runtime'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Terminal, type IDisposable, type ILinkHandler } from '@xterm/xterm'
-import IconBot from '~icons/lucide/bot'
+import IconMessagesSquare from '~icons/lucide/messages-square'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import AgentsSidebar from './AgentsSidebar.vue'
 import AgentWorkspaceEditor from './AgentWorkspaceEditor.vue'
@@ -647,10 +647,10 @@ onBeforeUnmount(() => {
       class="flex flex-1 flex-col items-center justify-center gap-3 px-10 text-center"
       data-testid="agents-unavailable"
     >
-      <IconBot class="size-6 text-text-4" />
-      <div class="text-[13.5px] font-semibold">Agents area unavailable</div>
+      <IconMessagesSquare class="size-6 text-text-4" />
+      <div class="text-[13.5px] font-semibold">Chats area unavailable</div>
       <p class="max-w-[420px] text-xs leading-relaxed text-text-3" data-testid="agents-unavailable-reason">
-        {{ reason || 'The Agents area is not available in this build.' }}
+        {{ reason || 'The Chats area is not available in this build.' }}
       </p>
       <button
         type="button"
@@ -744,7 +744,7 @@ onBeforeUnmount(() => {
           >
             <div class="flex min-h-full items-center justify-center px-8 py-10">
               <div class="flex w-full max-w-[380px] flex-col items-center gap-3 text-center">
-                <IconBot class="size-6 text-text-4" />
+                <IconMessagesSquare class="size-6 text-text-4" />
                 <h2 class="text-[13.5px] font-semibold text-text">No chat open</h2>
                 <p class="text-xs leading-relaxed text-text-3">
                   A chat is an agent attached to a workspace's directory. It launches with the

@@ -1,5 +1,5 @@
 ---
-summary: "Terminal mode and the Agents area arrive, Grafana and exec join the connectors, and the app ships a signed macOS installer."
+summary: "Terminal mode and the Chats area arrive, Grafana and exec join the connectors, and the app ships a signed macOS installer."
 ---
 
 ## Added
@@ -8,7 +8,7 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   atlas renderer, with searchable scrollback replay on attach, clickable
   links, and pop-up terminals that open straight into a TUI from a chord.
   Typography — family, weight, line height, letter spacing — is configurable.
-- **The Agents area** (experimental): workspaces, tmux-backed chats, and an
+- **The Chats area** (experimental): workspaces, tmux-backed chats, and an
   MCP catalogue. A chat can be pinned into the Code view's session tree to
   stay in reach while you work.
 - **Grafana connector** for metrics, alerts, and IRM alert groups, with
@@ -45,7 +45,7 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   actions are listed under its own reference, and running one opens its input
   form exactly as the detail pane's cards do.
 - **A `+` on a repository in the session tree** starts a session in it,
-  replacing the session count under the pointer. A workspace in the Agents
+  replacing the session count under the pointer. A workspace in the Chats
   sidebar has the same `+`, and it starts a chat outright rather than opening
   the new-chat form.
 - **Drag a profile tile to reorder the rail** (or move the focused tile with
@@ -72,7 +72,7 @@ summary: "Terminal mode and the Agents area arrive, Grafana and exec join the co
   inbox — and ranks a strong title match above an early group.
 - Quick terminal launchers are scoped to the session they run in rather than
   shared across every session.
-- **The Agents sidebar lists every chat under its workspace**, instead of a
+- **The Chats sidebar lists every chat under its workspace**, instead of a
   workspace list filtering a flat list of chats below it. Workspaces fold and
   unfold, and stay that way; ones with a running agent open on their own. It
   reads like the feed sidebar now — one line, one icon per row — and the
