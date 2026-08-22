@@ -54,6 +54,27 @@ const {
 } = useAgentWorkspaces()
 const { recents, reloadRecents } = useAgentSessionsAll()
 
+// An enabled name skills.yml does not define has two causes that produce the
+// same bare warning: a manifest written before packages were the enablement
+// unit enumerates skill slugs, and a typo names nothing at all. Only the
+// first has a fix on screen — a package that already selects that skill — so
+// the two are reported as separate lines (#307).
+const missingSkillNames = computed(() => missingPackages.value.filter((entry) => entry.skill))
+const unknownPackageNames = computed(() => missingPackages.value.filter((entry) => !entry.skill).map((entry) => entry.name))
+
+const missingSkillsNotice = computed(() => {
+  const entries = missingSkillNames.value
+  if (!entries.length) return ''
+  const names = entries.map((entry) => entry.name).join(', ')
+  const subject = entries.length === 1 ? 'is a skill, not a package' : 'are skills, not packages'
+  const packages = [...new Set(entries.flatMap((entry) => entry.selectedBy))].sort()
+  if (!packages.length) {
+    return `${names} ${subject}, and no package selects ${entries.length === 1 ? 'it' : 'them'} — define one in skills.yml, then enable it here.`
+  }
+  const carrier = packages.length === 1 ? `the ${packages[0]} package selects` : `the ${packages.join(' and ')} packages select`
+  return `${names} ${subject} — ${carrier} ${entries.length === 1 ? 'it' : 'them'}. Enable that instead in the workspace editor.`
+})
+
 const {
   px: fontSizePx, family: fontFamily, weight: fontWeight, weightBold: fontWeightBold, lineHeight, letterSpacing,
 } = useTerminalFont()
@@ -691,10 +712,16 @@ onBeforeUnmount(() => {
         >Missing MCP servers: {{ missingMCPs.join(', ') }}</div>
 
         <div
-          v-if="selectedWorkspace && missingPackages.length"
+          v-if="selectedWorkspace && missingSkillsNotice"
           class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
           data-testid="agents-missing-skills"
-        >Missing skill packages: {{ missingPackages.join(', ') }}</div>
+        >{{ missingSkillsNotice }}</div>
+
+        <div
+          v-if="selectedWorkspace && unknownPackageNames.length"
+          class="shrink-0 border-b border-border bg-severity-warning-tint px-3 py-1.5 text-[11px] text-severity-warning"
+          data-testid="agents-missing-packages"
+        >Missing skill packages: {{ unknownPackageNames.join(', ') }}</div>
 
         <PaneStatusBar
           v-if="paneStatus !== 'idle'"

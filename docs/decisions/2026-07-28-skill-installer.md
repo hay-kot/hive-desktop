@@ -1,6 +1,6 @@
 # Skill installer: install the paste-ready prompts as agent skills, kept in sync by content hash
 
-- **Status:** accepted
+- **Status:** superseded by ADR skills-are-declared-by-a-workspace
 - **Date:** 2026-07-28
 
 ## Context

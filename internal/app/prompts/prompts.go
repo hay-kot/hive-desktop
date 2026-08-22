@@ -69,27 +69,9 @@ type Env struct {
 	AgentWorkspacesDir string
 }
 
-// Command is one bindable command from the frontend's keybinding catalog.
-//
-// This is the single fact the frontend owns that a prompt needs: the catalog
-// is UI (it carries icons and palette grouping) and stays in
-// desktop/frontend/src/keybindings/catalog.ts. The keybindings prompt is
-// rendered with whatever the frontend reports, so adding a command extends the
-// prompt with no change here.
-type Command struct {
-	ID            string   `json:"id"`
-	Title         string   `json:"title"`
-	Group         string   `json:"group"`
-	Context       string   `json:"context"`
-	DefaultCombos []string `json:"defaultCombos"`
-}
-
 // Input carries the caller-supplied context a prompt needs beyond Env. Every
 // field is optional; a prompt that needs one documents it on its definition.
 type Input struct {
-	// Commands is the bindable command catalog, required by the keybindings
-	// prompt.
-	Commands []Command `json:"commands"`
 	// WebhookPath and WebhookSample scope the webhook transform prompt to one
 	// sources.webhook node: its configured path and its last captured delivery.
 	WebhookPath   string `json:"webhookPath"`
@@ -110,8 +92,7 @@ type Prompt struct {
 }
 
 // definition is one registry entry. data assembles the template's context;
-// returning an error rejects the render (e.g. the keybindings prompt with no
-// catalog supplied).
+// returning an error rejects the render.
 type definition struct {
 	id          string
 	title       string
@@ -161,14 +142,6 @@ var definitions = []definition{
 		data:        mcpData,
 	},
 	{
-		id:          "keybindings",
-		title:       "Keyboard shortcuts",
-		description: "Rebind Hive's keyboard shortcuts, with the full list of bindable commands and the combo syntax.",
-		target:      func(env Env) string { return env.SettingsPath },
-		listed:      true,
-		data:        keybindingsData,
-	},
-	{
 		id:          "settings",
 		title:       "App settings",
 		description: "Tune polling, updates, notifications, appearance, and the webhook listener in settings.yaml.",
@@ -212,9 +185,8 @@ func New(env Env) (*Service, error) {
 }
 
 // Catalog renders every prompt that belongs in the settings listing, in
-// registry order. A prompt that cannot render (the keybindings prompt with no
-// catalog supplied) is omitted rather than failing the whole listing — one
-// broken entry must not empty the page.
+// registry order. A prompt that cannot render is omitted rather than failing
+// the whole listing — one broken entry must not empty the page.
 func (s *Service) Catalog(in Input) []Prompt {
 	out := make([]Prompt, 0, len(definitions))
 	for _, def := range definitions {
@@ -346,6 +318,7 @@ func agentWorkspacesData(Env, Input) (map[string]any, error) {
 		"Types":            docs,
 		"WorkspaceExample": strings.TrimSpace(agentws.ExampleWorkspaceYAML()),
 		"MCPsExample":      strings.TrimSpace(agentws.ExampleMCPsYAML()),
+		"SkillsExample":    strings.TrimSpace(agentws.ExampleSkillsYAML()),
 	}, nil
 }
 
@@ -358,16 +331,6 @@ func webhookSourcesData(Env, Input) (map[string]any, error) {
 		return nil, err
 	}
 	return map[string]any{"Doc": strings.TrimSpace(doc)}, nil
-}
-
-// keybindingsData requires the frontend's command catalog — a prompt listing
-// no commands would be actively misleading, so an empty catalog is an error
-// rather than an empty section.
-func keybindingsData(_ Env, in Input) (map[string]any, error) {
-	if len(in.Commands) == 0 {
-		return nil, fmt.Errorf("prompts: the keybindings prompt requires the bindable command catalog")
-	}
-	return map[string]any{"Commands": in.Commands}, nil
 }
 
 func settingsData(Env, Input) (map[string]any, error) {
@@ -396,8 +359,6 @@ func webhookTransformData(_ Env, in Input) (map[string]any, error) {
 
 func funcs() template.FuncMap {
 	return template.FuncMap{
-		// join renders a combo list as the prompt writes them: `j`, `arrowdown`.
-		"join": func(sep string, items []string) string { return strings.Join(items, sep) },
 		// section splices a type's own documentation into the prompt's outline
 		// at the given heading level.
 		"section": section,

@@ -105,7 +105,7 @@ func TestLoadWorkspaceSetsDirFromPath(t *testing.T) {
 func TestAutonomyDefaultsToAsk(t *testing.T) {
 	t.Parallel()
 
-	w, err := parseWorkspace([]byte("version: 2\nname: X\nagent: claude\n"))
+	w, err := parseWorkspace([]byte("version: 3\nname: X\nagent: claude\n"))
 	require.NoError(t, err)
 	assert.Equal(t, AutonomyAsk, w.Autonomy)
 }

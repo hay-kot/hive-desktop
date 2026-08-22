@@ -46,11 +46,6 @@ http:                     # the local loopback server; webhook ingress and the
 keybindings:               # sparse overrides keyed by command id
   feed.next: [j, arrowdown]
 
-skills:                    # the agent-skill installer (Settings ▸ Skills)
-  auto_update: true        # keep installed skills current on startup
-  targets:                 # per-agent directory override; omit for the default
-    claude: {dir: ~/.claude/skills}
-
 paths:
   tmux: ""                 # absolute path to a tmux binary; empty discovers one
 
@@ -89,5 +84,5 @@ development:
 - Durations are strings like `5m`; a bare number is not seconds.
 - `http` is on by default. `development.pprof` defaults off. Configured listener hosts must be loopback.
 - `profiles.order` never has to be exhaustive: name only the profiles whose position matters. Dragging a tile in the rail rewrites the whole key; editing it here takes effect on the next launch.
-- `keybindings` has its own command-id vocabulary and combo syntax. Use the "Keyboard shortcuts" prompt for that section rather than guessing ids.
+- `keybindings` has its own command-id vocabulary. Read the ids off Settings ▸ Keyboard rather than guessing them.
 {{template "task" .}}

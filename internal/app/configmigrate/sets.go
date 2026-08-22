@@ -11,9 +11,12 @@ package configmigrate
 // t.Cleanup).
 var (
 	// SettingsSet covers settings.yaml. Version 2 drops the `experimental`
-	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental).
-	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 2, AllowMissingVersion: true, Migrations: []Migration{
+	// section, whose two flags graduated (ADR terminal-agents-grafana-and-commands-graduate-out-of-experimental);
+	// version 3 drops `skills`, the retired global installer's configuration
+	// (ADR skills-are-declared-by-a-workspace).
+	SettingsSet = Set{Name: "settings", Baseline: 1, Current: 3, AllowMissingVersion: true, Migrations: []Migration{
 		{To: 2, Migrate: dropExperimentalSection},
+		{To: 3, Migrate: dropSkillsSection},
 	}}
 	FlowSet    = Set{Name: "flow", Baseline: 1, Current: 1}
 	ActionsSet = Set{Name: "actions", Baseline: 1, Current: 1}
@@ -25,9 +28,12 @@ var (
 	// packages a workspace enables.
 	SkillLibrarySet = Set{Name: "skills", Baseline: 1, Current: 1}
 	// AgentWorkspaceSet covers agent-workspace.yaml. Version 2 renames the
-	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api).
-	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 2, Migrations: []Migration{
+	// skill slug the MCP cut-over retired (ADR mcp-replaces-the-agent-facing-http-api);
+	// version 3 collapses a skills: list that is exactly the shipped set onto
+	// the hive package (ADR skill-packages-are-the-unit-a-workspace-enables).
+	AgentWorkspaceSet = Set{Name: "agent-workspace", Baseline: 1, Current: 3, Migrations: []Migration{
 		{To: 2, Migrate: renameHTTPAPISkill},
+		{To: 3, Migrate: collapseShippedSkillsToHivePackage},
 	}}
 )
 
@@ -77,5 +83,63 @@ func renameHTTPAPISkill(doc map[string]any) error {
 		out = append(out, slug)
 	}
 	doc["skills"] = out
+	return nil
+}
+
+// dropSkillsSection deletes the `skills` key.
+//
+// It configured the global skill installer — per-agent install directories
+// and an auto-update toggle -- which no longer exists (ADR skills-are-declared-by-a-workspace).
+// The settings decoder is strict, so every user who ever opened Settings ▸
+// Skills would fail startup outright once the struct is gone.
+func dropSkillsSection(doc map[string]any) error {
+	delete(doc, "skills")
+	return nil
+}
+
+// v2ShippedSkillSlugs is the full set of skills this build shipped when a
+// workspace's skills: list still enumerated slugs, hardcoded rather than read
+// from internal/app/prompts.
+//
+// A migration has to be deterministic against old data and the shipped set
+// moves across releases, so consulting the live registry would make the
+// rewrite depend on which build happened to run it.
+var v2ShippedSkillSlugs = []string{
+	"hive-actions",
+	"hive-agent-workspaces",
+	"hive-flows",
+	"hive-mcp",
+	"hive-settings",
+	"hive-webhook-sources",
+}
+
+// collapseShippedSkillsToHivePackage rewrites a skills: list that is exactly
+// the v2 shipped set to the single seeded package that selects the same set.
+//
+// Skills stopped being the enablement unit (ADR skill-packages-are-the-unit-a-workspace-enables),
+// so an enumerated slug now reads as a package name skills.yml does not
+// define. Only the identity case is safe: `hive-*` resolves to exactly these
+// six either way, whereas a partial list like [hive-mcp] would be granted five
+// skills it never carried. A partial list is left alone for a human to fix,
+// which is what the editor's warning points at.
+func collapseShippedSkillsToHivePackage(doc map[string]any) error {
+	entries, ok := doc["skills"].([]any)
+	if !ok || len(entries) != len(v2ShippedSkillSlugs) {
+		return nil
+	}
+	present := make(map[string]bool, len(entries))
+	for _, entry := range entries {
+		slug, ok := entry.(string)
+		if !ok {
+			return nil
+		}
+		present[slug] = true
+	}
+	for _, slug := range v2ShippedSkillSlugs {
+		if !present[slug] {
+			return nil
+		}
+	}
+	doc["skills"] = []any{"hive"}
 	return nil
 }

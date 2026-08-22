@@ -4,8 +4,9 @@ no repository.
 {{template "app" .}}
 Every workspace lives under {{.Env.AgentWorkspacesDir}}:
 
-    {{.Env.AgentWorkspacesDir}}/mcps.yaml                     — your own MCP server library
-    {{.Env.AgentWorkspacesDir}}/.shared/skills/<slug>/SKILL.md — merged into every workspace
+    {{.Env.AgentWorkspacesDir}}/mcps.yaml                      — your own MCP server library
+    {{.Env.AgentWorkspacesDir}}/skills.yml                     — your skill package library
+    {{.Env.AgentWorkspacesDir}}/.shared/skills/<slug>/SKILL.md — skills you author
     {{.Env.AgentWorkspacesDir}}/<dir>/agent-workspace.yaml     — one workspace's manifest
     {{.Env.AgentWorkspacesDir}}/<dir>/AGENTS.md                — the workspace's own instructions, hand-edited
 
@@ -20,12 +21,23 @@ prose in `AGENTS.md`, not in the manifest: `agent-workspace.yaml` carries no
 {{template "yaml-strict" .}}
 ## agent-workspace.yaml schema
 
-- `version` — must be `2`.
+- `version` — must be `3`.
 - `name` — display name shown on the workspace's card.
 - `agent` — which CLI agent runs sessions here. Hive currently knows `claude` and `codex`.
 - `autonomy` — one of `ask`, `auto`, or `full`; omitted defaults to `ask`. `ask` leaves every prompt to the agent CLI's own defaults, and is what the area's approval indicator shows you waiting on; `auto` accepts edits but still asks about anything riskier; `full` skips prompting entirely — reserve it for a workspace you already trust completely.
 - `mcps` — optional list of MCP server ids this workspace enables. Each id is either one of the shipped catalogue entries below or a key from your own mcps.yaml `servers:` map; an mcps.yaml entry can also replace a shipped entry of the same id.
-- `skills` — optional list of installed skill slugs to render into this workspace's `.claude/skills/` and `.agents/skills/`, on top of whatever `.shared/skills/` already merges in. Slugs carry the installed `hive-` prefix (`hive-mcp`, not `mcp`) — the same names `.shared/skills/<slug>/` directories use. A slug declared here wins over a `.shared/` skill of the same name.
+- `skills` — optional list of **skill package** names this workspace enables, each a key from skills.yml's `packages:` map. Packages are the unit, never individual skills: `skills: [hive]` carries every `hive-*` skill this build ships, because that is what the seeded package's pattern selects. Naming a skill slug here (`hive-mcp`) enables nothing — it is read as a package that does not exist and reported when the workspace opens. Opening renders the selected skills into `.claude/skills/` and `.agents/skills/`.
+
+## skills.yml schema
+
+The skill package library — which skills a workspace can enable as a unit.
+
+- `version` — must be `1`.
+- `packages` — a map of package name to definition. Each entry has an optional `title` and `description`, an `include` list (required, at least one pattern), and an optional `exclude` list.
+
+  Patterns are globs over skill *names*, not file paths: `include: ["hive-*"]` selects every shipped skill, `exclude` then carves out. A pattern with no wildcard is an exact name, so selecting one skill needs no separate syntax. A package holds no copy of a skill, so one skill can belong to several packages and a newly authored skill joins every workspace whose enabled package already matches its name.
+
+  Names come from two sources in one flat name-space: the skills this build ships (`hive-*`, rendered per install) and the ones authored at `.shared/skills/<name>/SKILL.md`. An authored file of the same name as a shipped skill wins.
 
 ## mcps.yaml schema
 
@@ -45,9 +57,10 @@ Your own MCP server library — the escape hatch beyond the shipped catalogue.
 ## Worked example
 
 A complete, valid `agent-workspace.yaml` naming shipped catalogue entries
-(`hive-desktop`, `playwright`) and an `mcps.yaml` entry (`home-assistant`).
-`hive-desktop` is this install itself — declaring it is what lets a session
-read the inbox and dry-run a flow rather than guessing at the app's state:
+(`hive-desktop`, `playwright`), an `mcps.yaml` entry (`home-assistant`), and
+the seeded `hive` skill package. `hive-desktop` is this install itself —
+declaring it is what lets a session read the inbox and dry-run a flow rather
+than guessing at the app's state:
 
 ```yaml
 {{.WorkspaceExample}}
@@ -57,5 +70,11 @@ The `mcps.yaml` it references:
 
 ```yaml
 {{.MCPsExample}}
+```
+
+And the `skills.yml` defining the `hive` package it enables:
+
+```yaml
+{{.SkillsExample}}
 ```
 {{template "task" .}}

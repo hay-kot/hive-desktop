@@ -24,7 +24,6 @@ export const applicationSettingsSections = [
   'terminal',
   'launchers',
   'agents',
-  'skills',
   'system',
   'about',
 ] as const

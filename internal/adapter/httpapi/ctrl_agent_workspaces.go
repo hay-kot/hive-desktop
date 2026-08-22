@@ -247,9 +247,19 @@ type agentWorkspaceOpenResponse struct {
 	// MissingMCPs names ids the workspace declares that the catalogue does
 	// not resolve; they are simply omitted from what was generated.
 	MissingMCPs []string `json:"missingMcps"`
-	// MissingPackages names skill packages the workspace enables that
-	// skills.yml does not define.
-	MissingPackages []string `json:"missingPackages"`
+	// MissingPackages reports every name the workspace enables that
+	// skills.yml does not define, each saying why it did not resolve.
+	MissingPackages []agentMissingPackageView `json:"missingPackages"`
+}
+
+// agentMissingPackageView is one enabled name skills.yml does not define.
+// Skill separates a name that is really a skill — what a manifest written
+// before packages carries — from one that matches nothing; selectedBy names
+// the packages that already select the skill, which is the fix.
+type agentMissingPackageView struct {
+	Name       string   `json:"name"`
+	Skill      bool     `json:"skill"`
+	SelectedBy []string `json:"selectedBy"`
 }
 
 // AgentWorkspaceOpen regenerates a workspace's disposable artifacts and
@@ -267,8 +277,18 @@ func (ctrl *Controller) AgentWorkspaceOpen(w http.ResponseWriter, r *http.Reques
 		Workspace:       toAgentWorkspaceView(result.Workspace),
 		Sessions:        toAgentSessionViews(result.Sessions),
 		MissingMCPs:     nonNilStrings(result.MissingMCPs),
-		MissingPackages: nonNilStrings(result.MissingPackages),
+		MissingPackages: toAgentMissingPackageViews(result.MissingPackages),
 	})
+}
+
+func toAgentMissingPackageViews(in []app.MissingPackageItem) []agentMissingPackageView {
+	out := make([]agentMissingPackageView, 0, len(in))
+	for _, item := range in {
+		out = append(out, agentMissingPackageView{
+			Name: item.Name, Skill: item.Skill, SelectedBy: nonNilStrings(item.SelectedBy),
+		})
+	}
+	return out
 }
 
 // AgentWorkspaceDelete ends every live terminal a workspace's sessions hold
@@ -428,8 +448,20 @@ type agentSkillMemberView struct {
 	Shipped bool   `json:"shipped"`
 }
 
+// agentSkillNameView is one name in the skills name-space with the packages
+// selecting it. The editor needs it to tell an enabled name that is really a
+// skill from one that matches nothing.
+type agentSkillNameView struct {
+	Slug       string   `json:"slug"`
+	Shipped    bool     `json:"shipped"`
+	SelectedBy []string `json:"selectedBy"`
+}
+
 type agentSkillPackagesResponse struct {
 	Packages []agentSkillPackageView `json:"packages"`
+	// Skills is the name-space the packages select over: every shipped skill
+	// plus every one authored in the shared skills directory.
+	Skills []agentSkillNameView `json:"skills"`
 	// Problem is why skills.yml could not be read, empty when it is fine. The
 	// packages listed are then the last-good set.
 	Problem string `json:"problem"`
@@ -441,7 +473,7 @@ func (ctrl *Controller) AgentSkillPackages(w http.ResponseWriter, r *http.Reques
 	if _, err := terminalBody[struct{}](ctrl, w, r); err != nil {
 		return err
 	}
-	items, problem := ctrl.core.AgentWorkspaces.SkillPackages(r.Context())
+	items, names, problem := ctrl.core.AgentWorkspaces.SkillPackages(r.Context())
 	out := make([]agentSkillPackageView, 0, len(items))
 	for _, item := range items {
 		members := make([]agentSkillMemberView, 0, len(item.Members))
@@ -452,7 +484,13 @@ func (ctrl *Controller) AgentSkillPackages(w http.ResponseWriter, r *http.Reques
 			Name: item.Name, Title: item.Title, Description: item.Description, Members: members,
 		})
 	}
-	return server.JSON(w, http.StatusOK, agentSkillPackagesResponse{Packages: out, Problem: problem})
+	skills := make([]agentSkillNameView, 0, len(names))
+	for _, name := range names {
+		skills = append(skills, agentSkillNameView{
+			Slug: name.Slug, Shipped: name.Shipped, SelectedBy: nonNilStrings(name.SelectedBy),
+		})
+	}
+	return server.JSON(w, http.StatusOK, agentSkillPackagesResponse{Packages: out, Skills: skills, Problem: problem})
 }
 
 // AgentSkillPackagesReveal opens skills.yml, where packages are defined.

@@ -158,3 +158,43 @@ func TestLoadSkillLibrary(t *testing.T) {
 		require.Error(t, err, "a typo'd key must fail the load rather than silently selecting nothing")
 	})
 }
+
+// TestSkillNameCatalogueNamesWhatSelectsEachSkill is the lookup the
+// unresolved-name report and the workspace editor both read: a name and the
+// packages that would carry it.
+func TestSkillNameCatalogueNamesWhatSelectsEachSkill(t *testing.T) {
+	t.Parallel()
+
+	lib := SkillLibrary{Version: 1, Packages: map[string]SkillPackage{
+		"hive":      {Include: []string{"hive-*"}, Exclude: []string{"hive-settings"}},
+		"infra":     {Include: []string{"terraform-*", "runbook"}},
+		"terraform": {Include: []string{"terraform-*"}},
+	}}
+
+	bySlug := make(map[string]SkillNameEntry)
+	for _, entry := range SkillNameCatalogue(lib, testNames()) {
+		bySlug[entry.Slug] = entry
+	}
+
+	assert.Equal(t, []string{"hive"}, bySlug["hive-mcp"].SelectedBy)
+	assert.True(t, bySlug["hive-mcp"].Shipped)
+	assert.Equal(t, []string{"infra", "terraform"}, bySlug["terraform-plan"].SelectedBy, "sorted, and a skill can belong to several")
+	assert.Empty(t, bySlug["hive-settings"].SelectedBy, "an excluded skill is selected by nothing")
+}
+
+// TestExplainUnresolvedSeparatesASkillFromATypo is #307: both cases reach
+// SelectSkills as an undefined package name, and only one of them has a fix
+// the user can act on.
+func TestExplainUnresolvedSeparatesASkillFromATypo(t *testing.T) {
+	t.Parallel()
+
+	lib := SkillLibrary{Version: 1, Packages: map[string]SkillPackage{"hive": {Include: []string{"hive-*"}}}}
+	catalogue := SkillNameCatalogue(lib, testNames())
+
+	assert.Equal(t, []UnresolvedName{
+		{Name: "hive-mcp", Skill: true, SelectedBy: []string{"hive"}},
+		{Name: "runbook", Skill: true},
+		{Name: "ghost"},
+	}, ExplainUnresolved(catalogue, []string{"hive-mcp", "runbook", "ghost"}),
+		"a skill a package carries, a skill nothing carries, and a name that is no skill at all")
+}

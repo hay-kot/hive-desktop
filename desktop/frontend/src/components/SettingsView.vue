@@ -15,7 +15,6 @@ import IconBell from '~icons/lucide/bell'
 import IconInfo from '~icons/lucide/info'
 import IconSettings from '~icons/lucide/settings'
 import IconSliders from '~icons/lucide/sliders-horizontal'
-import IconSparkles from '~icons/lucide/sparkles'
 import IconZap from '~icons/lucide/zap'
 import BaseBadge from './BaseBadge.vue'
 import BaseCard from './BaseCard.vue'
@@ -27,7 +26,6 @@ import AgentsSettingsView from './AgentsSettingsView.vue'
 import GeneralSettingsView from './GeneralSettingsView.vue'
 import LauncherSettingsView from './LauncherSettingsView.vue'
 import KeybindingSettingsView from './KeybindingSettingsView.vue'
-import SkillsSettingsView from './SkillsSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import TerminalSettingsView from './TerminalSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
@@ -68,7 +66,6 @@ const categoryMeta: Record<ApplicationSettingsSection, { label: string; title: s
   integrations: { label: 'Integrations', title: 'Integrations', icon: IconPlug },
   actions: { label: 'Actions', title: 'Actions', icon: IconPlay },
   launchers: { label: 'Quick terminals', title: 'Quick terminals', icon: IconZap },
-  skills: { label: 'Skills', title: 'Skills', icon: IconSparkles },
   notifications: { label: 'Notifications', title: 'Notifications', icon: IconBell },
   system: { label: 'System', title: 'System', icon: IconHardDrive },
   about: { label: 'About', title: 'About', icon: IconInfo },
@@ -86,7 +83,7 @@ const navGroups: Array<{ title: string; ids: readonly ApplicationSettingsSection
   { title: 'Preferences', ids: ['general', 'appearance', 'notifications', 'keybindings'] },
   { title: 'Inbox', ids: ['integrations', 'actions'] },
   { title: 'Code', ids: ['terminal', 'launchers'] },
-  { title: 'Chats', ids: ['agents', 'skills'] },
+  { title: 'Chats', ids: ['agents'] },
   { title: 'Advanced', ids: ['system', 'about'] },
 ]
 const sectionTitle = computed(() => categoryMeta[props.activeCategory].title)
@@ -220,8 +217,6 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
 
     <ActionSettingsView v-else-if="props.activeCategory === 'actions'" :known-types="props.knownFeedTypes" />
     <LauncherSettingsView v-else-if="props.activeCategory === 'launchers'" />
-
-    <SkillsSettingsView v-else-if="props.activeCategory === 'skills'" />
 
     <SystemSettingsView v-else-if="props.activeCategory === 'system'" />
     <AboutSettingsView v-else-if="props.activeCategory === 'about'" />

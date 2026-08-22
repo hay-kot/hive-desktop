@@ -208,9 +208,20 @@ type OpenResult struct {
 	Workspace   WorkspaceView
 	Sessions    []SessionView
 	MissingMCPs []string
-	// MissingPackages names skill packages the workspace enables that
-	// skills.yml does not define.
-	MissingPackages []string
+	// MissingPackages reports every name the workspace enables that
+	// skills.yml does not define, each carrying why it did not resolve.
+	MissingPackages []MissingPackageItem
+}
+
+// MissingPackageItem is one enabled name skills.yml does not define. Skill
+// separates the two causes that produce an identical report: a name that is
+// actually a skill (a manifest predating packages) from one that matches
+// nothing at all (a typo, or a package since deleted). SelectedBy names the
+// packages that already select the skill — the fix, when there is one.
+type MissingPackageItem struct {
+	Name       string   `json:"name"`
+	Skill      bool     `json:"skill"`
+	SelectedBy []string `json:"selectedBy"`
 }
 
 // Available reports tmux availability -- the same axis terminal mode reports
@@ -721,11 +732,23 @@ type SkillPackageMember struct {
 	Shipped bool   `json:"shipped"`
 }
 
+// SkillNameItem is one name in the skills name-space with the packages that
+// select it. The editor needs the whole name-space, not just the packages:
+// an enabled name it cannot find among the packages is either a skill (fix:
+// enable a package in SelectedBy) or nothing at all (fix: a typo), and only
+// the name-space tells those apart.
+type SkillNameItem struct {
+	Slug       string   `json:"slug"`
+	Shipped    bool     `json:"shipped"`
+	SelectedBy []string `json:"selectedBy"`
+}
+
 // SkillPackages lists the packages a workspace editor offers for its skills:
-// list, plus the problem skills.yml itself has, if any. A source that cannot
-// be read contributes no names rather than failing the listing: an open is
-// where that is reported, because that is the call whose result changes.
-func (s *AgentWorkspacesService) SkillPackages(ctx context.Context) ([]SkillPackageItem, string) {
+// list, the name-space they select over, and the problem skills.yml itself
+// has, if any. A source that cannot be read contributes no names rather than
+// failing the listing: an open is where that is reported, because that is the
+// call whose result changes.
+func (s *AgentWorkspacesService) SkillPackages(ctx context.Context) ([]SkillPackageItem, []SkillNameItem, string) {
 	shipped, _ := s.shippedSkills(ctx)
 	shared, _ := s.sharedSkills()
 
@@ -735,7 +758,8 @@ func (s *AgentWorkspacesService) SkillPackages(ctx context.Context) ([]SkillPack
 		problem = library.Err.Error()
 	}
 
-	entries := agentws.SkillPackageCatalogue(library.Library, agentws.SkillNames(shipped, shared))
+	names := agentws.SkillNames(shipped, shared)
+	entries := agentws.SkillPackageCatalogue(library.Library, names)
 	items := make([]SkillPackageItem, 0, len(entries))
 	for _, e := range entries {
 		members := make([]SkillPackageMember, 0, len(e.Members))
@@ -746,7 +770,13 @@ func (s *AgentWorkspacesService) SkillPackages(ctx context.Context) ([]SkillPack
 			Name: e.Name, Title: e.Title, Description: e.Description, Members: members,
 		})
 	}
-	return items, problem
+
+	catalogue := agentws.SkillNameCatalogue(library.Library, names)
+	skillNames := make([]SkillNameItem, 0, len(catalogue))
+	for _, e := range catalogue {
+		skillNames = append(skillNames, SkillNameItem{Slug: e.Slug, Shipped: e.Shipped, SelectedBy: e.SelectedBy})
+	}
+	return items, skillNames, problem
 }
 
 // RevealSkillPackages opens skills.yml in the OS file manager's default
@@ -1064,9 +1094,10 @@ func (s *AgentWorkspacesService) resolveServers(ctx context.Context, ws agentws.
 // verbatim, a shipped one is rendered per install through
 // SkillsService.RenderSkill, which takes the underlying prompt id ("mcp")
 // rather than the installed slug ("hive-mcp") skillSlug mints. It also
-// reports the packages skills.yml does not define — a workspace naming one
-// still opens, the same way a missing MCP id does not stop a launch.
-func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.Workspace) (rendered []agentws.RenderedSkill, missingPackages []string, err error) {
+// reports every enabled name skills.yml does not define, classified — a
+// workspace naming one still opens, the same way a missing MCP id does not
+// stop a launch.
+func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.Workspace) (rendered []agentws.RenderedSkill, missingPackages []MissingPackageItem, err error) {
 	if len(ws.Skills) == 0 {
 		return nil, nil, nil
 	}
@@ -1090,7 +1121,11 @@ func (s *AgentWorkspacesService) resolveSkills(ctx context.Context, ws agentws.W
 	}
 
 	library := s.store.SkillLibrary()
-	selected, missingPackages := agentws.SelectSkills(library.Library, ws.Skills, agentws.SkillNames(shipped, shared))
+	names := agentws.SkillNames(shipped, shared)
+	selected, unresolved := agentws.SelectSkills(library.Library, ws.Skills, names)
+	for _, u := range agentws.ExplainUnresolved(agentws.SkillNameCatalogue(library.Library, names), unresolved) {
+		missingPackages = append(missingPackages, MissingPackageItem{Name: u.Name, Skill: u.Skill, SelectedBy: u.SelectedBy})
+	}
 
 	rendered = make([]agentws.RenderedSkill, 0, len(selected))
 	for _, name := range selected {

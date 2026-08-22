@@ -8,7 +8,9 @@ import {
   type AgentWorkspaceOpenResult,
   type AgentWorkspacesClient,
   type MCPCatalogueEntry,
+  type MissingSkillPackage,
   type ResumeSessionRequest,
+  type SkillName,
   type SkillPackage,
   type StartSessionRequest,
   type WorkspaceEditRequest,
@@ -38,6 +40,7 @@ const editor = ref<AgentEditor>({ command: '', title: '' })
 const autonomyFlags = ref<Record<string, Record<string, string[]>>>({})
 const mcpCatalogue = ref<MCPCatalogueEntry[]>([])
 const skillPackages = ref<SkillPackage[]>([])
+const skillNames = ref<SkillName[]>([])
 const skillPackagesProblem = ref('')
 // rootProblem is the one signal from the workspaces payload this composable
 // tracks separately from the top-level available/reason: it is the
@@ -47,7 +50,7 @@ const skillPackagesProblem = ref('')
 const rootProblem = ref('')
 
 const missingMCPs = ref<string[]>([])
-const missingPackages = ref<string[]>([])
+const missingPackages = ref<MissingSkillPackage[]>([])
 
 // The availability answer and the transport are resolved once per run: like
 // the pop-up terminal's probe, there is no program to install and nothing
@@ -186,6 +189,7 @@ async function reloadSkillPackages(): Promise<void> {
   try {
     const payload = await client.value.skillPackages()
     skillPackages.value = payload.packages
+    skillNames.value = payload.skills
     skillPackagesProblem.value = payload.problem
   } catch {
     // Keep the last-good rows, matching the reload functions above.
@@ -260,9 +264,10 @@ export function useAgentWorkspaces(): {
   autonomyFlags: Ref<Record<string, Record<string, string[]>>>
   mcpCatalogue: Ref<MCPCatalogueEntry[]>
   skillPackages: Ref<SkillPackage[]>
+  skillNames: Ref<SkillName[]>
   skillPackagesProblem: Ref<string>
   missingMCPs: Ref<string[]>
-  missingPackages: Ref<string[]>
+  missingPackages: Ref<MissingSkillPackage[]>
   ready: () => Promise<void>
   reloadWorkspaces: () => Promise<void>
   openWorkspace: (dir: string) => Promise<void>
@@ -289,7 +294,7 @@ export function useAgentWorkspaces(): {
     checking, available, reason, client,
     workspaces, workspacesLoading, workspacesLoaded, workspacesError,
     root, rootProblem, agents, editor, autonomyFlags, mcpCatalogue,
-    skillPackages, skillPackagesProblem, missingMCPs, missingPackages,
+    skillPackages, skillNames, skillPackagesProblem, missingMCPs, missingPackages,
     ready: ensureProbed,
     reloadWorkspaces, openWorkspace, regenerateWorkspace,
     createWorkspace, updateWorkspace, deleteWorkspace,
@@ -317,6 +322,7 @@ export function resetAgentWorkspacesForTests(): void {
   autonomyFlags.value = {}
   mcpCatalogue.value = []
   skillPackages.value = []
+  skillNames.value = []
   skillPackagesProblem.value = ''
   missingMCPs.value = []
   missingPackages.value = []

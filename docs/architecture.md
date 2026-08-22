@@ -333,10 +333,10 @@ internal/
                                   #   parse+validate, the generator, the launch table
                                   #   (autonomy flags, MCP wiring), the two-level
                                   #   watcher (ADR a-workspace-declares-its-own-authority, ADR workspace-directories-are-generated-and-disposable)
-    skills/                       # install prompts as agent SKILL.md files; a
-                                  #   per-target registry (Go path+body templates),
-                                  #   a state-dir install index, hash-based drift
-                                  #   sync that never clobbers a user edit (ADR skill-installer)
+    skills/                       # the Agent Skills format: the SKILL.md
+                                  #   frontmatter template and the naming rules
+                                  #   a target agent enforces. Writing one is the
+                                  #   workspace generator's (ADR skills-are-declared-by-a-workspace)
     credentials/                  # Ref{Provider, Account}, Store, keychain, index
     tmuxcc/                       # tmux control-mode client: line framer, command
                                   #   FIFO, %output decode, one client per session
@@ -424,7 +424,6 @@ has per-type config.
 | **Action type** | `app/actions` | config struct + `Validate`, one registry line, `actions/docs/<type>.md`, an `Executor`, one dispatcher line, the editable-catalog branch, and the YAML writer branch (`actionNode` in `store.go`) — the writer and the editable catalog both fail closed on a registered type with no branch, enforced by a registry-ranging roundtrip test. **Envelope fields are not part of that checklist**: `targets`, `applies_to`, `show_in_detail` and the declared `inputs` a new type inherits for free, because every type renders over the same `OutputData` (ADR action-declared-inputs, ADR actions-target-terminal-sessions-and-windows). A type that cannot serve a terminal target says so in `TerminalCapable`, beside `HeadlessCapable`, and `validateActions` refuses the declaration. A thing that does not dispatch at all is not an action type: the pop-up launchers are their own list in the same file, with their own struct and no envelope (ADR launchers-are-their-own-list-in-actions-yml) |
 | **Source connector** | `app/sources` | a `Descriptor`, a config struct with `Validate`, and a `Factory` — plus one line in `sources/registry.go` and one in `app`'s factory map. `flow`'s and `runtime`'s registries derive their entries, so neither is touched, and a test pins the Go registry against the frontend's `nodes/<type>/` directories. Still needs `flow/docs/<type>.md` and a `nodes/<type>/` editor entry until forms are schema-driven — but not a Settings ▸ Integrations entry: its presentation/drawer maps are an optional frontend nicety keyed by connector type, and a type they don't know still renders a generic card rather than being dropped (a spec pins that fallback), so a connector is functional in Settings before its presentation lands |
 | **Script runtime** | `app/runtime` | a `ScriptRuntime` implementation and one registry line |
-| **Skill target** | `app/skills` | one registry entry in `targets.go`: id, label, default directory, and path/body templates. The installer owns drift detection and sync semantics for every target, so adding an agent is data plus tests that the target renders |
 | **MCP server type** | `app/mcpcatalog` | a `Descriptor` carrying a fixed `Server` (transport, command/args/env or url/headers) and one registry line, plus `mcpcatalog/docs/<type>.md` — a registry↔docs bijection test fails an entry with no doc. This is the connector precedent (`app/sources`) extended minus its config factory: a shipped entry carries no per-workspace configuration in M1, so there is nothing for a factory to construct |
 
 ### Documentation is part of the declaration
@@ -683,7 +682,7 @@ picker (`pipeline/fields/MarkImageField.vue`) over one pair of RPCs on
 `FlowsService`.
 
 `settings.yaml` is a nested typed document with `polling`, `updates`,
-`notifications`, `appearance`, `http`, `keybindings`, `skills`, and
+`notifications`, `appearance`, `http`, `keybindings`, and
 `development` sections. Resolution is deterministic: safe compiled defaults, one strictly
 decoded and validated YAML document, then typed
 `HIVE_DESKTOP_<NAMESPACE>_<FIELD>` process overrides followed by effective-value
@@ -755,7 +754,7 @@ kind, and the nav groups are the app's own modes (ADR settings-sections-name-the
 | Preferences | General · Appearance · Notifications · Keyboard |
 | Inbox | Integrations · Actions |
 | Code | Terminal · Quick terminals |
-| Chats | Chats · Skills |
+| Chats | Chats |
 | Advanced | System · About |
 
 A value one surface uses lives on that surface's pane; a value several use lives
@@ -1459,9 +1458,9 @@ directory splits **authored** files a user (or an agent, via the
 `CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.claude/skills/`,
 `.agents/skills/`, an empty `docs/` seed. ADR workspace-directories-are-generated-and-disposable is the contract behind that
 split: generated output is disposable, never drift-tracked, and a hand edit to
-it is silently replaced on the next open — deliberately cheaper than the
-skill installer's hash-tracked model (ADR skill-installer), because Hive owns this whole
-subtree. `Generate` **reconciles** each of its owned trees to exactly what it
+it is silently replaced on the next open, because Hive owns this whole
+subtree. This is the only installer: nothing writes a skill into an agent's
+home directory (ADR skills-are-declared-by-a-workspace). `Generate` **reconciles** each of its owned trees to exactly what it
 computes rather than clearing and rewriting: a file no longer in the target
 set is removed, an emptied directory is pruned, and a file already present is
 written only when its bytes differ — the write-only-if-different rule is what
@@ -1500,7 +1499,11 @@ package pattern already matches it, with no manifest edited. Resolution happens
 before `Generate`, which expands no pattern and reads no directory of its own.
 An enabled package `skills.yml` does not define is reported in
 `MissingPackages` rather than failing the open; a package that matches nothing
-lists with no members, because an empty package is a pattern to fix.
+lists with no members, because an empty package is a pattern to fix. That
+report is classified rather than a bare list of names: a name that is really a
+skill — what a manifest written before packages carries — is reported as one,
+with the packages that already select it, because that toggle is the fix and a
+name matching nothing at all is a different problem with a different one.
 
 Two directory actions ride the same token-guarded agents prefix, because
 launching a program is command execution (ADR terminal-transport): open-in-editor runs the

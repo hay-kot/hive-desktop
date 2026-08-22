@@ -27,15 +27,8 @@ func testEnv() Env {
 	}
 }
 
-func testCommands() []Command {
-	return []Command{
-		{ID: "feed.next", Title: "Next item", Group: "Feeds", Context: "feed", DefaultCombos: []string{"j", "arrowdown"}},
-		{ID: "window.hide", Title: "Hide window", Group: "Window", Context: "global", DefaultCombos: nil},
-	}
-}
-
 func testInput() Input {
-	return Input{Commands: testCommands(), WebhookPath: "ci-alerts", WebhookSample: `{"event":"deploy"}`}
+	return Input{WebhookPath: "ci-alerts", WebhookSample: `{"event":"deploy"}`}
 }
 
 func newTestService(t *testing.T) *Service {
@@ -141,7 +134,6 @@ func TestPromptsCarryInstallPaths(t *testing.T) {
 	for id, want := range map[string]string{
 		"flows":            env.FlowsDir,
 		"actions":          env.ActionsPath,
-		"keybindings":      env.SettingsPath,
 		"settings":         env.SettingsPath,
 		"webhook-sources":  env.WebhookBaseURL,
 		"mcp":              env.MCPEndpoint,
@@ -152,26 +144,6 @@ func TestPromptsCarryInstallPaths(t *testing.T) {
 		assert.Containsf(t, prompt.Text, want, "prompt %q does not name %q", id, want)
 		assert.NotEmptyf(t, prompt.Target, "prompt %q has no target", id)
 	}
-}
-
-func TestKeybindingsPromptListsSuppliedCommands(t *testing.T) {
-	prompt, err := newTestService(t).Render("keybindings", testInput())
-	require.NoError(t, err)
-
-	for _, command := range testCommands() {
-		assert.Contains(t, prompt.Text, command.ID)
-		assert.Contains(t, prompt.Text, command.Title)
-	}
-	assert.Contains(t, prompt.Text, "`j`, `arrowdown`")
-	// A command with no default combos must read as unbound, not as an empty cell.
-	assert.Contains(t, prompt.Text, "(unbound)")
-}
-
-// TestKeybindingsPromptRequiresCatalog — a keybindings prompt with no commands
-// would be confidently wrong, so it fails instead of rendering an empty table.
-func TestKeybindingsPromptRequiresCatalog(t *testing.T) {
-	_, err := newTestService(t).Render("keybindings", Input{})
-	require.Error(t, err)
 }
 
 func TestWebhookSourcesPromptFlagsDisabledListener(t *testing.T) {
@@ -228,7 +200,7 @@ func TestMCPPromptPointsAtLiveServer(t *testing.T) {
 // TestCatalogListsOnlyContextFreePrompts — the settings page renders whatever
 // Catalog reports, so a prompt needing instance data must not appear there.
 func TestCatalogListsOnlyContextFreePrompts(t *testing.T) {
-	catalog := newTestService(t).Catalog(Input{Commands: testCommands()})
+	catalog := newTestService(t).Catalog(Input{})
 	require.NotEmpty(t, catalog)
 
 	ids := make([]string, len(catalog))
@@ -239,16 +211,6 @@ func TestCatalogListsOnlyContextFreePrompts(t *testing.T) {
 	assert.Contains(t, ids, "flows")
 	assert.Contains(t, ids, "actions")
 	assert.NotContains(t, ids, "webhook-transform")
-}
-
-// TestCatalogSkipsPromptsItCannotRender — one entry failing must not empty the
-// page.
-func TestCatalogSkipsPromptsItCannotRender(t *testing.T) {
-	catalog := newTestService(t).Catalog(Input{})
-	require.NotEmpty(t, catalog)
-	for _, prompt := range catalog {
-		assert.NotEqual(t, "keybindings", prompt.ID)
-	}
 }
 
 func TestRenderIsDeterministic(t *testing.T) {

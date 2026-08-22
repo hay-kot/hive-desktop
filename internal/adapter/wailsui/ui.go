@@ -163,7 +163,6 @@ func (u *UI) options(core *app.App, opts MountOptions) application.Options {
 		application.NewService(NewSettingsService(core.Settings)),
 		application.NewService(NewWebhookService(core.Webhooks)),
 		application.NewService(NewPromptsService(core.Prompts)),
-		application.NewService(NewSkillsService(core.Skills)),
 		application.NewService(NewReportService(core.Report)),
 		application.NewService(NewReleaseNotesService(core.ReleaseNotes, opts.Build.Version)),
 		application.NewService(NewPerfService(core.Perf)),
