@@ -31,8 +31,6 @@ import SkillsSettingsView from './SkillsSettingsView.vue'
 import SystemSettingsView from './SystemSettingsView.vue'
 import TerminalSettingsView from './TerminalSettingsView.vue'
 import NotificationSettingsView from './NotificationSettingsView.vue'
-import githubIcon from '../assets/integrations/github.svg'
-import grafanaIcon from '../assets/integrations/grafana.svg'
 import GithubIntegrationDrawer from './settings/GithubIntegrationDrawer.vue'
 import GrafanaIntegrationDrawer from './settings/GrafanaIntegrationDrawer.vue'
 import PostHogIntegrationDrawer from './settings/PostHogIntegrationDrawer.vue'
@@ -44,6 +42,8 @@ import SettingsHeading from './settings/SettingsHeading.vue'
 import SettingsPage from './settings/SettingsPage.vue'
 import SettingsSection from './settings/SettingsSection.vue'
 import IconWebhook from '~icons/lucide/webhook'
+import GithubMark from './marks/GithubMark.vue'
+import GrafanaMark from './marks/GrafanaMark.vue'
 import PostHogMark from './marks/PostHogMark.vue'
 import GiteaMark from './marks/GiteaMark.vue'
 import { useWebhookSettings } from '../composables/useWebhookSettings'
@@ -242,9 +242,14 @@ function statusFor(integration: Integration): { label: string; tone: 'success' |
             :data-testid="`integration-${cardId(integration.key)}`"
           >
             <template #icon>
-              <BaseIconBadge :size="40" rounded="rounded-lg" :class="integration.key === 'github' || integration.key === 'grafana' || integration.key === 'gitea' ? 'bg-white p-2' : 'bg-chip p-2 text-text-2'">
-                <img v-if="integration.key === 'github'" :src="githubIcon" alt="" class="size-full" />
-                <img v-else-if="integration.key === 'grafana'" :src="grafanaIcon" alt="" class="size-full object-contain" />
+              <!-- One ground for every card, the same one the inbox source
+                   badge puts these marks on. A mark carrying its own colour
+                   sits on it unchanged; a currentColor one takes the badge's
+                   text colour, which is what keeps GitHub's octocat legible
+                   on a dark chip. -->
+              <BaseIconBadge :size="40" rounded="rounded-lg" class="bg-chip p-2 text-text-2">
+                <GithubMark v-if="integration.key === 'github'" class="size-full" />
+                <GrafanaMark v-else-if="integration.key === 'grafana'" class="size-full" />
                 <PostHogMark v-else-if="integration.key === 'posthog'" class="size-full" />
                 <GiteaMark v-else-if="integration.key === 'gitea'" class="size-full" />
                 <IconWebhook v-else-if="integration.key === 'sources.webhook'" class="size-full" />
