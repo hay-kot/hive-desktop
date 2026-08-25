@@ -11,6 +11,7 @@ import { useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
+import { resetTasksForTests } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
 import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
 
@@ -64,9 +65,19 @@ const mocks = vi.hoisted(() => ({
   PermissionStatus: vi.fn(),
   RequestNotificationPermission: vi.fn(),
   Notify: vi.fn(),
-  Focused: vi.fn(),
+  // useTasks() calls useWindowFocus() at module scope, so Focused() runs the
+  // instant App.vue's import of TasksView pulls that module in — before any
+  // beforeEach can set it up. Resolve it here rather than there.
+  Focused: vi.fn().mockResolvedValue(true),
   ActivityList: vi.fn(),
   RecordActivity: vi.fn(),
+  // tasksservice
+  DeleteTask: vi.fn(),
+  ListTasks: vi.fn(),
+  PruneTasks: vi.fn(),
+  SetTaskStatus: vi.fn(),
+  TaskDetail: vi.fn(),
+  TaskRepoKeys: vi.fn(),
   // terminalservice
   TerminalAvailable: vi.fn(),
   TerminalEndpoint: vi.fn(),
@@ -175,6 +186,14 @@ vi.mock('../composables/useFrameStats', async () => {
 vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/activityservice', () => ({
   List: mocks.ActivityList,
   Record: mocks.RecordActivity,
+}))
+vi.mock('../../bindings/github.com/hay-kot/hive-desktop/internal/adapter/wailsui/tasksservice', () => ({
+  DeleteTask: mocks.DeleteTask,
+  ListTasks: mocks.ListTasks,
+  PruneTasks: mocks.PruneTasks,
+  SetTaskStatus: mocks.SetTaskStatus,
+  TaskDetail: mocks.TaskDetail,
+  TaskRepoKeys: mocks.TaskRepoKeys,
 }))
 
 vi.mock('@wailsio/runtime', () => ({
@@ -287,6 +306,7 @@ describe('App', () => {
     resetTerminalAvailabilityForTests()
     resetTerminalSessionsForTests()
     resetAgentWorkspacesForTests()
+    resetTasksForTests()
     vi.clearAllMocks()
     // Panel collapse / width state persists via useStorage; clear it so one
     // test's collapsed sidebar can't leak into the next.
@@ -322,6 +342,8 @@ describe('App', () => {
     mocks.Focused.mockResolvedValue(true)
     mocks.ActivityList.mockResolvedValue([])
     mocks.RecordActivity.mockResolvedValue(undefined)
+    mocks.ListTasks.mockResolvedValue([])
+    mocks.TaskRepoKeys.mockResolvedValue([])
     mocks.PopupAvailable.mockResolvedValue({ available: true, reason: '' })
     mocks.PopupEndpoint.mockResolvedValue({ httpBaseURL: '', wsURL: '', token: '' })
     mocks.PopupLaunchers.mockResolvedValue([])
@@ -1521,6 +1543,22 @@ describe('App', () => {
     router.back()
     await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('terminal'))
     await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+
+    wrapper.unmount()
+  })
+
+  it('routes to the tasks hub view from the titlebar icon and back on Escape', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('tasks')
+    expect(wrapper.find('[data-testid="tasks-view"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="titlebar-tasks"]').classes()).toContain('text-accent')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('feed')
 
     wrapper.unmount()
   })

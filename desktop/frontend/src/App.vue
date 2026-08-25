@@ -9,6 +9,7 @@ import IconGauge from '~icons/lucide/gauge'
 import IconInbox from '~icons/lucide/inbox'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import IconList from '~icons/lucide/list'
+import IconListTodo from '~icons/lucide/list-todo'
 import IconPalette from '~icons/lucide/palette'
 import IconRss from '~icons/lucide/rss'
 import IconShare2 from '~icons/lucide/share-2'
@@ -30,6 +31,7 @@ import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
 import ActivityView from './components/ActivityView.vue'
+import TasksView from './components/TasksView.vue'
 import DeleteProfileModal from './components/DeleteProfileModal.vue'
 import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
@@ -162,6 +164,7 @@ const router = useRouter()
 const route = useRoute()
 const flowsActive = computed(() => route.name === 'flows')
 const activityActive = computed(() => route.name === 'activity')
+const tasksActive = computed(() => route.name === 'tasks')
 const devActive = computed(() => devToolsEnabled.value && route.name === 'dev')
 const applicationSettingsActive = computed(() => route.name === 'application-settings')
 const profileSettingsActive = computed(() => route.name === 'profile-settings')
@@ -361,6 +364,10 @@ const { activeJobs, hasActive: jobsActive } = useJobs()
 
 function openActivity(): void {
   void router.push({ name: 'activity' })
+}
+
+function openTasks(): void {
+  void router.push({ name: 'tasks' })
 }
 
 async function openJobRun(commandID: number): Promise<void> {
@@ -758,7 +765,7 @@ const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
   !onboardingActive.value && !terminalActive.value && !agentsActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
-  !flowsActive.value && !activityActive.value && !devActive.value &&
+  !flowsActive.value && !activityActive.value && !tasksActive.value && !devActive.value &&
   !!activeProfile.value,
 )
 const sidebarCollapsed = computed(() =>
@@ -1007,6 +1014,17 @@ useCommands(computed(() => {
         run: () => setMode('agents'),
       })
     }
+    // Tasks is reachable from any mode too, same as Activity's titlebar icon.
+    if (!tasksActive.value) {
+      cmds.push({
+        id: 'view:tasks',
+        title: 'Go to Tasks',
+        group: 'View',
+        keywords: ['tasks', 'honeycomb', 'hc', 'epics'],
+        icon: IconListTodo,
+        run: openTasks,
+      })
+    }
   }
 
   if (hubActive.value) {
@@ -1253,6 +1271,7 @@ onUnmounted(() => {
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
         :activity-active="activityActive"
+        :tasks-active="tasksActive"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
         :jobs-active="jobsActive"
@@ -1271,6 +1290,7 @@ onUnmounted(() => {
         @forward="router.forward()"
         @open-error-node="openErrorNode"
         @open-activity="openActivity"
+        @open-tasks="openTasks"
         @open-job-run="openJobRun"
         @open-update="openUpdate"
         @toggle-sidebar="toggleSidebar"
@@ -1359,6 +1379,7 @@ onUnmounted(() => {
         />
         <FlowsView v-else-if="flowsActive" />
         <ActivityView v-else-if="activityActive" @close="closeSettings" />
+        <TasksView v-else-if="tasksActive" @close="closeSettings" />
         <template v-else>
           <SideBar
             v-if="activeProfile && !feedSidebarCollapsed"
