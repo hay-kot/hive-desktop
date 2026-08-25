@@ -80,7 +80,8 @@ linters:
         # launch_session_executor_test.go (its fake
         # SessionCreator returns *session.Session to satisfy
         # hive_adapters.go's SessionCreator interface) all do; dbext_test.go
-        # exercises the vendored migration runner directly. Every other test
+        # exercises the vendored migration runner directly. hive_hc_adapters.go
+        # and its test are the same seam for hc (Honeycomb). Every other test
         # file under internal/app — including app_test.go, sources_test.go,
         # settings_service_test.go — is expected to stay clean of hivecore
         # imports, same as its production counterpart, and is not exempted.
@@ -94,6 +95,8 @@ linters:
             - "!**/internal/app/app.go"
             - "!**/internal/app/dispatch/hive_adapters.go"
             - "!**/internal/app/dispatch/hive_adapters_test.go"
+            - "!**/internal/app/dispatch/hive_hc_adapters.go"
+            - "!**/internal/app/dispatch/hive_hc_adapters_test.go"
             - "!**/internal/app/dispatch/session_git_status_test.go"
             - "!**/internal/app/dispatch/launch_session_executor_test.go"
             - "!**/internal/app/store/dbext.go"
