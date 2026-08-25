@@ -278,6 +278,69 @@ export interface SessionWindowStatus {
 }
 
 /**
+ * TaskBlocker is one explicit blocker as shown on a task's detail view. A
+ * blocker whose item has since been deleted keeps its ID with an empty Title
+ * rather than being dropped from the list.
+ */
+export interface TaskBlocker {
+    "id": string;
+    "title": string;
+    "status": string;
+}
+
+/**
+ * TaskComment is one comment on a task, in the order hc stored it.
+ */
+export interface TaskComment {
+    "id": string;
+    "message": string;
+    "createdAt": string;
+}
+
+/**
+ * TaskDetail is one hc item read in full, for a detail view. Blockers are
+ * resolved by TaskDetail's own per-blocker GetItem reads: ListItems never
+ * fills BlockerIDs, so there is no cheaper way to a blocker's title.
+ */
+export interface TaskDetail {
+    "id": string;
+    "repoKey": string;
+    "epicId": string;
+    "parentId": string;
+    "sessionId": string;
+    "title": string;
+    "type": string;
+    "status": string;
+    "blocked": boolean;
+    "depth": number;
+    "createdAt": string;
+    "updatedAt": string;
+    "desc": string;
+    "blockers": TaskBlocker[] | null;
+    "comments": TaskComment[] | null;
+}
+
+/**
+ * TaskItem is one hc item as the desktop's tasks list sees it. Desc is
+ * deliberately absent: the list view never needs it, and TaskDetail re-reads
+ * it on demand.
+ */
+export interface TaskItem {
+    "id": string;
+    "repoKey": string;
+    "epicId": string;
+    "parentId": string;
+    "sessionId": string;
+    "title": string;
+    "type": string;
+    "status": string;
+    "blocked": boolean;
+    "depth": number;
+    "createdAt": string;
+    "updatedAt": string;
+}
+
+/**
  * TerminalTarget identifies the terminal session — and optionally the window
  * inside it — an action was invoked from. It carries identity only: every
  * value a template can read is resolved from the session record at invocation

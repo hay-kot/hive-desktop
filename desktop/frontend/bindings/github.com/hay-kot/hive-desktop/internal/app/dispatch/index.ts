@@ -26,5 +26,9 @@ export type {
     SessionStatus,
     SessionSummary,
     SessionWindowStatus,
+    TaskBlocker,
+    TaskComment,
+    TaskDetail,
+    TaskItem,
     TerminalTarget
 } from "./models.js";
