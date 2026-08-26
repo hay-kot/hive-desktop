@@ -141,6 +141,19 @@ func TestHiveHoneycombTaskDetailTitlesAVanishedBlockerEmpty(t *testing.T) {
 	assert.Equal(t, TaskBlocker{ID: blocker.ID, Title: "", Status: ""}, detail.Blockers[0])
 }
 
+// The frontend's clear-selection-on-vanish behavior rides on TaskDetail (and
+// SetTaskStatus) specifically translating hc.ErrNotFound, not only DeleteTask.
+func TestHiveHoneycombTaskDetailAndSetStatusReportMissingIDs(t *testing.T) {
+	adapter, _ := newHiveHoneycombTasks(t)
+	ctx := t.Context()
+
+	_, err := adapter.TaskDetail(ctx, "does-not-exist")
+	require.ErrorIs(t, err, ErrTaskNotFound)
+
+	err = adapter.SetTaskStatus(ctx, "does-not-exist", TaskStatusDone)
+	require.ErrorIs(t, err, ErrTaskNotFound)
+}
+
 func TestHiveHoneycombSetTaskStatusCascadesToChildrenVisibleOnRelist(t *testing.T) {
 	adapter, svc := newHiveHoneycombTasks(t)
 	ctx := t.Context()

@@ -168,7 +168,8 @@ func (h *HiveHoneycomb) TaskDetail(ctx context.Context, id string) (TaskDetail, 
 }
 
 // SetTaskStatus sets id's status. Setting a terminal status on an epic
-// cascades to every non-terminal descendant — hive.HoneycombService.UpdateItem's
+// cascades to every non-terminal descendant, but only when the update
+// actually changes the epic's status — hive.HoneycombService.UpdateItem's
 // own behavior, not reimplemented here.
 func (h *HiveHoneycomb) SetTaskStatus(ctx context.Context, id, status string) error {
 	s := hc.Status(status)

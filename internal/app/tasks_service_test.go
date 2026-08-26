@@ -116,6 +116,17 @@ func TestTasksService_PruneTasks_NegativeDaysIsInvalid(t *testing.T) {
 	assert.Empty(t, fake.pruneOpts, "a rejected request must never reach the source")
 }
 
+func TestTasksService_PruneTasks_OverlargeDaysIsInvalid(t *testing.T) {
+	t.Parallel()
+
+	fake := &fakeTaskSource{}
+	svc := newTasksService(fake)
+
+	_, err := svc.PruneTasks(t.Context(), maxPruneOlderThanDays+1, "repo", false)
+	assert.Equal(t, KindInvalid, KindOf(err))
+	assert.Empty(t, fake.pruneOpts, "a rejected request must never reach the source")
+}
+
 func TestTasksService_PruneTasks_ConvertsDaysToDuration(t *testing.T) {
 	t.Parallel()
 

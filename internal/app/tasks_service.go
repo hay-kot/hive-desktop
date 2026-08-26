@@ -78,6 +78,8 @@ func (s *TasksService) DeleteTask(ctx context.Context, id string) error {
 	return nil
 }
 
+const maxPruneOlderThanDays = 36500 // 100 years
+
 // PruneTasks takes olderThanDays rather than a time.Duration: it is the unit
 // the tasks view's prune dialog collects, and converting here keeps the
 // dispatch DTO's duration out of the frontend binding.
@@ -85,8 +87,11 @@ func (s *TasksService) PruneTasks(ctx context.Context, olderThanDays int, repoKe
 	if s.source == nil {
 		return 0, Errorf(KindUnavailable, "tasks are unavailable")
 	}
-	if olderThanDays < 0 {
-		return 0, Errorf(KindInvalid, "olderThanDays must not be negative")
+	// The upper bound keeps the day→duration conversion below from overflowing
+	// int64 nanoseconds (~106751 days), which would turn the cutoff negative
+	// and prune every terminal item regardless of age.
+	if olderThanDays < 0 || olderThanDays > maxPruneOlderThanDays {
+		return 0, Errorf(KindInvalid, "olderThanDays must be between 0 and %d", maxPruneOlderThanDays)
 	}
 	count, err := s.source.PruneTasks(ctx, dispatch.TaskPruneOptions{
 		OlderThan: time.Duration(olderThanDays) * 24 * time.Hour,
