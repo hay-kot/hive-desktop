@@ -46,6 +46,7 @@ interface TaskOverrides {
   blocked: boolean
   sessionId: string
   repoKey: string
+  title: string
 }
 
 function task(id: string, overrides: Partial<TaskOverrides> = {}) {
@@ -55,7 +56,7 @@ function task(id: string, overrides: Partial<TaskOverrides> = {}) {
     epicId: '',
     parentId: overrides.parentId ?? '',
     sessionId: overrides.sessionId ?? '',
-    title: `Task ${id}`,
+    title: overrides.title ?? `Task ${id}`,
     type: overrides.type ?? 'task',
     status: overrides.status ?? 'open',
     blocked: overrides.blocked ?? false,
@@ -240,12 +241,12 @@ describe('TasksView', () => {
     expect(wrapper.get('[data-testid="tasks-prune-error"]').text()).toContain('hc store is locked')
   })
 
-  it('shows an explanatory empty state (not the error dialog) when tasks are unavailable', async () => {
+  it('surfaces a load failure in the error banner, never the error dialog', async () => {
     mocks.ListTasks.mockRejectedValue(Object.assign(new Error('boom'), { cause: { kind: 'unavailable', message: 'hc store is not running' } }))
     const wrapper = mount(TasksView)
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="tasks-unavailable"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="tasks-error"]').text()).toContain('hc store is not running')
     expect(wrapper.find('[data-testid="error-dialog"]').exists()).toBe(false)
   })
 
@@ -413,6 +414,143 @@ describe('TasksView', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
     await flushPromises()
     expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    wrapper.unmount()
+  })
+
+  it('shows a failed direct status change inline, and clears it when the selection changes', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    mocks.SetTaskStatus.mockRejectedValueOnce(Object.assign(new Error('boom'), { cause: { kind: 'internal', message: 'write failed' } }))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    await selectRow(wrapper, 't1')
+
+    await chooseOption(wrapper, 'task-status-select', 'in_progress')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-status-error"]').text()).toContain('write failed')
+
+    // A failure belongs to the selection that produced it, not the next one.
+    await selectRow(wrapper, 't2')
+    expect(wrapper.find('[data-testid="task-status-error"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('keeps the confirm dialog open carrying the failure when a confirmed status change fails', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
+    mocks.SetTaskStatus.mockRejectedValueOnce(Object.assign(new Error('boom'), { cause: { kind: 'internal', message: 'write failed' } }))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    await selectRow(wrapper, 't1')
+
+    await chooseOption(wrapper, 'task-status-select', 'cancelled')
+    await flushPromises()
+    document.querySelector<HTMLButtonElement>('[data-testid="task-cancel-confirm-confirm"]')!.click()
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="task-cancel-confirm"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="task-cancel-confirm-error"]')?.textContent).toContain('write failed')
+
+    wrapper.unmount()
+  })
+
+  it('jumps to a blocker when its chip is clicked, naming its status and the blocked cause', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1', { blocked: true }), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(
+      id === 't1'
+        ? detailFrom(task('t1', { blocked: true }), { blockers: [{ id: 't2', title: 'Task t2', status: 'in_progress' }] })
+        : detailFrom(task(id)),
+    ))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    await selectRow(wrapper, 't1')
+
+    expect(wrapper.get('[data-testid="task-detail-blocked"]').text()).toBe('Blocked by 1 blocking task')
+    expect(wrapper.get('[data-testid="task-blocker-status"]').text()).toBe('In Progress')
+
+    await wrapper.get('[data-testid="task-blocker-chip"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t2')
+
+    wrapper.unmount()
+  })
+
+  it('explains a blocked parent with no explicit blockers by its open subtasks', async () => {
+    const parent = task('t1', { blocked: true })
+    mocks.ListTasks.mockResolvedValue([parent, task('c1', { parentId: 't1' }), task('c2', { parentId: 't1', status: 'done' })])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(parent))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    await selectRow(wrapper, 't1')
+
+    expect(wrapper.get('[data-testid="task-detail-blocked"]').text()).toBe('Blocked by 1 open subtask')
+
+    wrapper.unmount()
+  })
+
+  it('filters the tree by title, keeping ancestors of a match, with its own empty-state copy', async () => {
+    mocks.ListTasks.mockResolvedValue([
+      task('e1', { type: 'epic', title: 'Epic Alpha' }),
+      task('c1', { parentId: 'e1', title: 'Fix parser' }),
+      task('t2', { title: 'Write docs' }),
+    ])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(3)
+
+    await wrapper.get('[data-testid="tasks-search"]').setValue('parser')
+    const rows = wrapper.findAll('[data-testid="task-tree-row"]')
+    expect(rows.map((row) => row.attributes('data-id'))).toEqual(['e1', 'c1'])
+
+    await wrapper.get('[data-testid="tasks-search"]').setValue('zzz')
+    expect(wrapper.get('[data-testid="tasks-empty-filter"]').text()).toBe('No tasks match this search.')
+
+    wrapper.unmount()
+  })
+
+  it('folds and unfolds the selected node with ArrowLeft/ArrowRight and h/l, walking between parent and child', async () => {
+    mocks.ListTasks.mockResolvedValue([task('e1', { type: 'epic' }), task('c1', { parentId: 'e1' })])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    // The first row (e1) is auto-selected; both rows render while expanded.
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(2)
+
+    async function press(key: string): Promise<void> {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+      await flushPromises()
+    }
+
+    await press('ArrowLeft')
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(1)
+    await press('l')
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(2)
+    await press('ArrowRight') // expanded: step into the first child
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task c1')
+    await press('h') // leaf: walk back up to the parent
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task e1')
+
+    wrapper.unmount()
+  })
+
+  it('names the scoped repo in the empty state, keeps it selectable, and offers show-all', async () => {
+    mocks.TaskRepoKeys.mockResolvedValue(['acme/site'])
+    useTasks().repoKey.value = 'acme/empty'
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="tasks-empty"]').text()).toContain('No tasks in acme/empty')
+    expect(wrapper.get('[data-testid="tasks-repo-select"]').text()).toContain('acme/empty')
+
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    await wrapper.get('[data-testid="tasks-empty-show-all"]').trigger('click')
+    await flushPromises()
+    expect(useTasks().repoKey.value).toBe('')
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(1)
 
     wrapper.unmount()
   })

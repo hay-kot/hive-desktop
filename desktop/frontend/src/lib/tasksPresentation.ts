@@ -79,11 +79,18 @@ function byCreatedAtAsc(a: TaskItem, b: TaskItem): number {
   return Date.parse(a.createdAt) - Date.parse(b.createdAt)
 }
 
+function matchesQuery(item: TaskItem, query: string): boolean {
+  return query === '' || item.title.toLowerCase().includes(query) || item.id.toLowerCase().includes(query)
+}
+
 // buildTaskTree ignores the input array's order entirely: roots are re-sorted
 // newest-first, children oldest-first, regardless of how items arrived. This
 // guards against the store returning created_at DESC for one filter branch
-// and ASC for another (see module doc).
-export function buildTaskTree(items: TaskItem[], filter: TaskFilterId): TaskTreeNode[] {
+// and ASC for another (see module doc). search narrows visibility further to
+// title/id substring matches, riding the same ancestor-of-a-match propagation
+// the status filter uses.
+export function buildTaskTree(items: TaskItem[], filter: TaskFilterId, search = ''): TaskTreeNode[] {
+  const query = search.trim().toLowerCase()
   const ids = new Set(items.map((item) => item.id))
   const childrenByParent = new Map<string, TaskItem[]>()
   for (const item of items) {
@@ -106,7 +113,7 @@ export function buildTaskTree(items: TaskItem[], filter: TaskFilterId): TaskTree
       { total: 0, done: 0 },
     )
 
-    const visible = matchesTaskFilter(item, filter) || children.some((child) => child.visible)
+    const visible = (matchesTaskFilter(item, filter) && matchesQuery(item, query)) || children.some((child) => child.visible)
 
     return { item, children, visible, counts }
   }

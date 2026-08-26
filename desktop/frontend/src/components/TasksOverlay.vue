@@ -4,6 +4,12 @@
 // trap, return focus) rather than BaseModal itself: its fixed pixel width and
 // title-only header don't fit a toolbar'd hub view. TasksView already calls
 // useEscapeToClose, so Escape is handled there and not duplicated here.
+//
+// This overlay must never register with useOpenModalCount (so also never
+// become BaseModal-backed, which registers on mount): TasksView's Escape
+// handler and App.vue's tasks.toggle exception both read a non-zero count as
+// "a dialog is stacked above the overlay" and would permanently refuse to
+// close it.
 import { ref } from 'vue'
 import TasksView from './TasksView.vue'
 import { useFocusTrap } from '../composables/useFocusTrap'

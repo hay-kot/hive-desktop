@@ -36,11 +36,6 @@ const detail = ref<TaskDetail | null>(null)
 const loading = ref(false)
 const loaded = ref(false)
 const error = ref<string | null>(null)
-// Set when the backend reports the hc store itself as unreachable. Distinct
-// from `error`: that is a normal fetch failure a retry can shake off, this is
-// the runtime not being there at all, so polling stops until a manual
-// refresh proves it is back.
-const unavailable = ref(false)
 
 let requestSequence = 0
 let detailSequence = 0
@@ -48,9 +43,8 @@ let repoKeysSequence = 0
 let pollGeneration = 0
 let pollTimer: ReturnType<typeof setTimeout> | undefined
 // True whenever the view wants live updates (between startPolling and
-// stopPolling calls). Kept apart from whether the timer chain is actually
-// running so an `unavailable` halt can be resumed by refresh() without the
-// view having to call startPolling() again.
+// stopPolling calls), so the window-focus refresh below only fires while a
+// Tasks view is actually open.
 let pollingRequested = false
 
 function haltPollLoop(): void {
@@ -79,17 +73,16 @@ async function reloadList(): Promise<void> {
     if (sequence !== requestSequence) return
     items.value = result ?? []
     error.value = null
-    unavailable.value = false
+    // A selection outside the freshly-loaded list (a repo-scope change moved
+    // the list out from under it) must not linger: the detail pane would keep
+    // operating on an item every list-derived computation — the cascade
+    // confirm's count above all — can no longer see.
+    if (selectedId.value !== null && !items.value.some((item) => item.id === selectedId.value)) select(null)
   } catch (err) {
     if (sequence !== requestSequence) return
-    if (appErrorKind(err) === 'unavailable') {
-      unavailable.value = true
-      haltPollLoop()
-    } else {
-      // Keep the last-seen items: a transient failure must not blank a list
-      // the user was already looking at.
-      error.value = errorText(err, 'Could not load tasks.')
-    }
+    // Keep the last-seen items: a transient failure must not blank a list
+    // the user was already looking at.
+    error.value = errorText(err, 'Could not load tasks.')
   } finally {
     if (sequence === requestSequence) {
       loading.value = false
@@ -134,9 +127,6 @@ async function poll(generation: number): Promise<void> {
 
 function startPolling(): void {
   pollingRequested = true
-  // The hc store is not coming back mid-process, so don't spend a doomed
-  // request every time the view mounts — refresh() is what proves it is back.
-  if (unavailable.value) return
   clearTimeout(pollTimer)
   const generation = ++pollGeneration
   void loadRepoKeys()
@@ -150,14 +140,6 @@ function stopPolling(): void {
 
 async function refresh(): Promise<void> {
   await Promise.all([reloadList(), reloadDetailIfSelected(), loadRepoKeys()])
-  // A successful refresh can prove the runtime is back; resume the chain a
-  // prior `unavailable` halt cut off, if the view still wants it running.
-  // Scheduled rather than fetched immediately — refresh() just read fresh
-  // data, so the next read is due a full interval from now, not right away.
-  if (pollingRequested && pollTimer === undefined && !unavailable.value) {
-    const generation = ++pollGeneration
-    pollTimer = setTimeout(() => { void poll(generation) }, POLL_INTERVAL_MS)
-  }
 }
 
 // A repo scope change is a server-side filter, not a client-side one (unlike
@@ -167,10 +149,7 @@ watch(repoKey, () => { void refresh() })
 
 const { focused } = useWindowFocus()
 watch(focused, (isFocused) => {
-  // Regaining focus is passive, not the user asking again — while known
-  // unavailable, only an explicit refresh() (startPolling's own guard,
-  // mirrored here) is allowed to retry.
-  if (isFocused && pollingRequested && !unavailable.value) void refresh()
+  if (isFocused && pollingRequested) void refresh()
 })
 
 function select(id: string | null): void {
@@ -224,7 +203,6 @@ export function useTasks(): {
   loading: Ref<boolean>
   loaded: Ref<boolean>
   error: Ref<string | null>
-  unavailable: Ref<boolean>
   startPolling: () => void
   stopPolling: () => void
   refresh: () => Promise<void>
@@ -247,7 +225,6 @@ export function useTasks(): {
     loading,
     loaded,
     error,
-    unavailable,
     startPolling,
     stopPolling,
     refresh,
@@ -276,5 +253,4 @@ export function resetTasksForTests(): void {
   loading.value = false
   loaded.value = false
   error.value = null
-  unavailable.value = false
 }

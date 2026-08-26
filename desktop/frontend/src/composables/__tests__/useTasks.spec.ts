@@ -111,26 +111,7 @@ describe('useTasks', () => {
     expect(mocks.ListTasks).toHaveBeenCalledTimes(2)
   })
 
-  it('stops polling when the backend reports unavailable', async () => {
-    vi.useFakeTimers()
-    mocks.ListTasks.mockRejectedValue(appError('unavailable', 'hc store is not running'))
-    const tasks = await loadComposable()
-
-    tasks.startPolling()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(tasks.unavailable.value).toBe(true)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
-
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
-
-    // Mounting again (view remount) must not spend another doomed request.
-    tasks.startPolling()
-    await vi.advanceTimersByTimeAsync(10_000)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
-  })
-
-  it('keeps last-seen items and sets error on a non-unavailable poll failure', async () => {
+  it('keeps last-seen items, sets error, and keeps polling on a poll failure', async () => {
     vi.useFakeTimers()
     mocks.ListTasks
       .mockResolvedValueOnce([task('t1')])
@@ -145,7 +126,33 @@ describe('useTasks', () => {
     expect(mocks.ListTasks).toHaveBeenCalledTimes(2)
     expect(tasks.items.value.map((i) => i.id)).toEqual(['t1'])
     expect(tasks.error.value).toBe('temporary failure')
-    expect(tasks.unavailable.value).toBe(false)
+
+    // The chain keeps running: the next tick's success clears the error.
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(tasks.error.value).toBeNull()
+    expect(tasks.items.value.map((i) => i.id)).toEqual(['t1', 't2'])
+  })
+
+  it('clears a selection the freshly loaded list no longer contains', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detail('t1'))
+    const tasks = await loadComposable()
+
+    await tasks.refresh()
+    tasks.select('t1')
+    await flushPromises()
+    expect(tasks.selectedId.value).toBe('t1')
+
+    // A repo-scope change swaps the list out from under the selection; the
+    // cross-scope detail read itself still succeeds, so only the list
+    // membership check can catch this.
+    mocks.ListTasks.mockResolvedValue([task('t2', { repoKey: 'acme/other' })])
+    tasks.repoKey.value = 'acme/other'
+    await flushPromises()
+
+    expect(tasks.selectedId.value).toBeNull()
+    expect(tasks.detail.value).toBeNull()
   })
 
   it('loads detail on select and clears the selection when it is not found', async () => {
@@ -225,35 +232,17 @@ describe('useTasks', () => {
     tasks.stopPolling()
   })
 
-  it('reloads on window focus while polling is requested, and resumes after unavailable clears via refresh', async () => {
+  it('reloads on window focus only while polling is requested', async () => {
     vi.useFakeTimers()
-    mocks.ListTasks.mockRejectedValue(appError('unavailable'))
+    mocks.ListTasks.mockResolvedValue([task('t1')])
     const tasks = await loadComposable()
 
     tasks.startPolling()
     await vi.advanceTimersByTimeAsync(0)
-    expect(tasks.unavailable.value).toBe(true)
+    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
 
-    // Focus alone must not spend a doomed request while still unavailable.
     // blur and focus are awaited separately so Vue's batched watcher sees
     // each transition rather than collapsing them into a same-tick no-op.
-    blurHandler()()
-    await nextTick()
-    focusHandler()()
-    await vi.advanceTimersByTimeAsync(0)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
-
-    // A manual refresh that succeeds clears unavailable and resumes the loop.
-    mocks.ListTasks.mockResolvedValue([task('t1')])
-    await tasks.refresh()
-    expect(tasks.unavailable.value).toBe(false)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(2)
-
-    mocks.ListTasks.mockClear()
-    await vi.advanceTimersByTimeAsync(2000)
-    expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
-
-    // Now that we're available again, refocusing reloads.
     mocks.ListTasks.mockClear()
     blurHandler()()
     await nextTick()
@@ -261,6 +250,13 @@ describe('useTasks', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(mocks.ListTasks).toHaveBeenCalledTimes(1)
 
+    // With no view open (stopPolling), refocusing must not fetch.
     tasks.stopPolling()
+    mocks.ListTasks.mockClear()
+    blurHandler()()
+    await nextTick()
+    focusHandler()()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(mocks.ListTasks).not.toHaveBeenCalled()
   })
 })

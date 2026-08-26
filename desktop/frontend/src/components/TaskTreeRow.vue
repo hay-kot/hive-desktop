@@ -19,6 +19,8 @@ const props = defineProps<{
   selected: boolean
   /** Whether this node's children are hidden — meaningless when it has none. */
   collapsed: boolean
+  /** Display name for the linked session; absent when it isn't loaded (e.g. ended). */
+  sessionName?: string
 }>()
 const emit = defineEmits<{ select: [id: string]; toggle: [id: string] }>()
 
@@ -63,12 +65,12 @@ const indent = computed(() => props.depth * 18 + 10)
     <span
       v-if="node.item.sessionId"
       class="flex shrink-0 items-center justify-center rounded-[5px] bg-chip px-1 py-0.5 text-text-3"
-      :title="`Linked to session ${node.item.sessionId}`"
+      :title="`Linked to session ${sessionName || node.item.sessionId}`"
       data-testid="task-tree-session"
     ><IconTerminal class="size-2.5" aria-hidden="true" /></span>
 
     <span class="shrink-0 rounded-[5px] px-1.5 py-0.5 text-[10px] font-medium" :class="status.classes" data-testid="task-tree-status">{{ status.label }}</span>
 
-    <span class="w-9 shrink-0 text-right font-mono text-[10.5px] text-text-4" data-testid="task-tree-age">{{ relativeAge(Date.parse(node.item.updatedAt)) }}</span>
+    <span class="w-9 shrink-0 text-right font-mono text-[10.5px] text-text-4" :title="new Date(node.item.updatedAt).toLocaleString()" data-testid="task-tree-age">{{ relativeAge(Date.parse(node.item.updatedAt)) }}</span>
   </div>
 </template>

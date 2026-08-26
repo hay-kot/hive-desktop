@@ -4,8 +4,9 @@
 // everything about the selection: identity, the status control and its
 // confirms (cancel; epic → done/cancelled cascade), rendered description and
 // comments, blockers, and delete. TasksView owns the list/tree only.
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { Browser } from '@wailsio/runtime'
+import IconBan from '~icons/lucide/ban'
 import IconBookmarkCheck from '~icons/lucide/bookmark-check'
 import IconCheck from '~icons/lucide/check'
 import IconCopy from '~icons/lucide/copy'
@@ -18,13 +19,15 @@ import PanelResizeHandle from './PanelResizeHandle.vue'
 import { useClipboard } from '../composables/useClipboard'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useTasks } from '../composables/useTasks'
+import { useTerminalSessions } from '../composables/useTerminalSessions'
 import { errorText } from '../lib/appError'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
-import { cascadeCount, checkpointBody, isCheckpoint, statusMeta } from '../lib/tasksPresentation'
+import { externalMarkdownHref } from '../lib/markdownLinks'
+import { cascadeCount, checkpointBody, isCheckpoint, matchesTaskFilter, statusMeta } from '../lib/tasksPresentation'
 import type { TaskComment } from '../../bindings/github.com/hay-kot/hive-desktop/internal/app/dispatch/models'
 
-const { detail, items, setStatus, remove } = useTasks()
+const { detail, items, selectedId, setStatus, remove, select } = useTasks()
 
 const STATUS_OPTIONS: AppSelectOption[] = [
   { value: 'open', label: 'Open' },
@@ -41,20 +44,44 @@ function agoLabel(timestamp: number): string {
   return label === 'now' ? 'now' : `${label} ago`
 }
 
+function absoluteTime(iso: string): string {
+  return new Date(iso).toLocaleString()
+}
+
 function commentHtml(comment: TaskComment): string {
   return renderGithubMarkdown(checkpointBody(comment))
 }
 
 // Rendered bodies are untrusted markdown; links must open in the user's real
-// browser rather than navigate the webview away from the app (matches
-// DetailPane.vue's onBodyClick).
+// browser rather than navigate the webview away from the app.
 function onBodyClick(event: MouseEvent): void {
-  const anchor = (event.target as HTMLElement).closest('a')
-  if (!anchor) return
-  event.preventDefault()
-  const href = anchor.getAttribute('href') ?? ''
-  if (/^(https?:|mailto:)/i.test(href)) void Browser.OpenURL(href)
+  const href = externalMarkdownHref(event)
+  if (href) void Browser.OpenURL(href)
 }
+
+// The name of the linked session, from the same singleton the terminal
+// sidebar renders; an ended session has no loaded row, so the raw id stands
+// in rather than hiding the linkage.
+const { sessions } = useTerminalSessions()
+const sessionLabel = computed(() => {
+  const id = detail.value?.sessionId
+  if (!id) return ''
+  return sessions.value.find((row) => row.id === id)?.name ?? id
+})
+
+// hc marks an item blocked for open/in_progress direct children OR explicit
+// open blockers (hc.Store's fetchHCItem); the explicit ones arrive in
+// detail.blockers, so whatever they don't account for is open subtasks.
+const blockedReason = computed(() => {
+  const current = detail.value
+  if (!current?.blocked) return ''
+  const parts: string[] = []
+  const explicit = (current.blockers ?? []).length
+  if (explicit > 0) parts.push(`${explicit} blocking task${explicit === 1 ? '' : 's'}`)
+  const openChildren = items.value.filter((item) => item.parentId === current.id && matchesTaskFilter(item, 'open')).length
+  if (openChildren > 0) parts.push(`${openChildren} open subtask${openChildren === 1 ? '' : 's'}`)
+  return parts.length ? `Blocked by ${parts.join(' and ')}` : 'Blocked'
+})
 
 // ── Copy ID ──────────────────────────────────────────────────────────────
 const { copy: copyText, copied: idCopied } = useClipboard()
@@ -132,6 +159,23 @@ const deleteConfirmOpen = ref(false)
 const deleteBusy = ref(false)
 const deleteError = ref<string | null>(null)
 
+function openDeleteConfirm(): void {
+  deleteError.value = null
+  deleteConfirmOpen.value = true
+}
+
+// A new selection must not inherit the previous one's failures or half-open
+// confirms — a poll can clear a vanished selection while a dialog is up, and
+// a lingering error would blame the wrong task.
+watch(selectedId, () => {
+  statusError.value = null
+  deleteError.value = null
+  pendingStatus.value = null
+  cascadeConfirmOpen.value = false
+  cancelConfirmOpen.value = false
+  deleteConfirmOpen.value = false
+})
+
 async function confirmDelete(): Promise<void> {
   const id = detail.value?.id
   if (!id) return
@@ -181,10 +225,18 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
           <span>{{ detail.repoKey }}</span>
           <span>·</span>
           <span>{{ typeLabel }}</span>
+          <template v-if="detail.sessionId">
+            <span>·</span>
+            <span data-testid="task-detail-session">Session {{ sessionLabel }}</span>
+          </template>
           <span>·</span>
-          <span>Created {{ agoLabel(Date.parse(detail.createdAt)) }}</span>
+          <span :title="absoluteTime(detail.createdAt)">Created {{ agoLabel(Date.parse(detail.createdAt)) }}</span>
           <span>·</span>
-          <span>Updated {{ agoLabel(Date.parse(detail.updatedAt)) }}</span>
+          <span :title="absoluteTime(detail.updatedAt)">Updated {{ agoLabel(Date.parse(detail.updatedAt)) }}</span>
+        </div>
+
+        <div v-if="detail.blocked" class="mt-2 flex items-center gap-1.5 text-[11.5px] font-medium text-severity-error" data-testid="task-detail-blocked">
+          <IconBan class="size-3 shrink-0" aria-hidden="true" />{{ blockedReason }}
         </div>
 
         <div class="mt-3.5 max-w-[220px]">
@@ -206,13 +258,27 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
         <section v-if="(detail.blockers ?? []).length" data-testid="task-blockers">
           <h2 class="mb-2 font-mono text-[10.5px] tracking-[.12em] text-text-3">BLOCKERS</h2>
           <div class="flex flex-wrap gap-1.5">
-            <span
-              v-for="blocker in detail.blockers ?? []"
-              :key="blocker.id"
-              class="inline-flex items-center gap-1.5 rounded-[5px] border border-card px-2 py-1 text-[11.5px]"
-              :class="blocker.title ? 'text-text-2' : 'italic text-text-4'"
-              data-testid="task-blocker-chip"
-            ><IconLink2 class="size-3 shrink-0 text-text-4" />{{ blocker.title || blocker.id }}</span>
+            <!-- A chip with a title is a live task the user will want to
+                 inspect, so it selects it in place; one without (the blocker
+                 item was deleted, only the edge's id remains) has nothing to
+                 open and stays inert. -->
+            <template v-for="blocker in detail.blockers ?? []" :key="blocker.id">
+              <button
+                v-if="blocker.title"
+                type="button"
+                class="inline-flex cursor-pointer items-center gap-1.5 rounded-[5px] border border-card px-2 py-1 text-[11.5px] text-text-2 hover:border-strong hover:text-text"
+                data-testid="task-blocker-chip"
+                @click="select(blocker.id)"
+              >
+                <IconLink2 class="size-3 shrink-0 text-text-4" />{{ blocker.title }}
+                <span class="rounded-[4px] px-1 py-px text-[9.5px] font-medium" :class="statusMeta(blocker.status).classes" data-testid="task-blocker-status">{{ statusMeta(blocker.status).label }}</span>
+              </button>
+              <span
+                v-else
+                class="inline-flex items-center gap-1.5 rounded-[5px] border border-card px-2 py-1 text-[11.5px] italic text-text-4"
+                data-testid="task-blocker-chip"
+              ><IconLink2 class="size-3 shrink-0 text-text-4" />{{ blocker.id }}</span>
+            </template>
           </div>
         </section>
 
@@ -224,7 +290,7 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
                 <BaseBadge v-if="isCheckpoint(comment)" tone="accent" class="px-2 py-0.5 text-[10px] font-semibold" data-testid="task-comment-checkpoint">
                   <IconBookmarkCheck class="size-3" />CHECKPOINT
                 </BaseBadge>
-                <span class="font-mono text-[10.5px] text-text-4">{{ agoLabel(Date.parse(comment.createdAt)) }}</span>
+                <span class="font-mono text-[10.5px] text-text-4" :title="absoluteTime(comment.createdAt)">{{ agoLabel(Date.parse(comment.createdAt)) }}</span>
               </div>
               <div class="markdown-body text-[13px] leading-[1.6] text-text-2" @click="onBodyClick" v-html="commentHtml(comment)" />
             </div>
@@ -236,7 +302,7 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
             type="button"
             class="flex items-center gap-1.5 rounded-lg border border-severity-error/40 px-3 py-1.5 text-[12px] font-medium text-severity-error hover:bg-severity-error-tint"
             data-testid="task-delete"
-            @click="deleteConfirmOpen = true"
+            @click="openDeleteConfirm"
           ><IconTrash2 class="size-3.5" />Delete</button>
         </div>
       </div>
@@ -278,78 +344,3 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
     />
   </aside>
 </template>
-
-<style scoped>
-/* Rendered task description / comment bodies (GitHub-flavored markdown).
-   Matches DetailPane.vue's precedent so the two markdown surfaces read the
-   same. */
-.markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3),
-.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) {
-  margin: 20px 0 8px; color: var(--color-text); font-weight: 650; line-height: 1.3;
-}
-.markdown-body :deep(h1) { font-size: 19px; }
-.markdown-body :deep(h2) { font-size: 16.5px; }
-.markdown-body :deep(h3) { font-size: 15px; }
-.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) { font-size: 14px; }
-.markdown-body :deep(*:first-child) { margin-top: 0; }
-.markdown-body :deep(*:last-child) { margin-bottom: 0; }
-.markdown-body :deep(p) { margin: 10px 0; }
-.markdown-body :deep(a) { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.markdown-body :deep(a:hover) { text-decoration-thickness: 2px; }
-.markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 10px 0; padding-left: 22px; }
-.markdown-body :deep(ul) { list-style: disc; }
-.markdown-body :deep(ol) { list-style: decimal; }
-.markdown-body :deep(li) { margin: 4px 0; }
-.markdown-body :deep(li)::marker { color: var(--color-text-4); }
-.markdown-body :deep(ul.contains-task-list) { padding-left: 4px; }
-.markdown-body :deep(li.task-list-item) { list-style: none; }
-.markdown-body :deep(li.task-list-item input) {
-  appearance: none; -webkit-appearance: none;
-  position: relative; box-sizing: border-box;
-  width: 14px; height: 14px; margin: 0 8px 0 0; vertical-align: -2px;
-  border: 1.5px solid var(--color-strong); border-radius: 4px;
-  background: var(--color-app);
-}
-.markdown-body :deep(li.task-list-item input:checked) { background: var(--color-accent); border-color: var(--color-accent); }
-.markdown-body :deep(li.task-list-item input:checked)::after {
-  content: ''; position: absolute; left: 4px; top: 1px;
-  width: 3.5px; height: 7px; border: solid var(--color-accent-contrast);
-  border-width: 0 2px 2px 0; transform: rotate(45deg);
-}
-.markdown-body :deep(strong) { color: var(--color-text); font-weight: 650; }
-.markdown-body :deep(s) { color: var(--color-text-3); }
-.markdown-body :deep(blockquote) {
-  margin: 10px 0; padding: 2px 14px; border-left: 3px solid var(--color-border);
-  color: var(--color-text-3);
-}
-.markdown-body :deep(details) {
-  margin: 10px 0; padding: 8px 12px; border: 1px solid var(--color-border);
-  border-radius: 7px; background: var(--color-card);
-}
-.markdown-body :deep(summary) { cursor: pointer; color: var(--color-text); font-weight: 650; }
-.markdown-body :deep(details[open] summary) { margin-bottom: 8px; }
-.markdown-body :deep(.markdown-alert) {
-  --alert-color: var(--color-accent);
-  margin: 10px 0; padding: 2px 14px; border-left: 3px solid var(--alert-color);
-  color: var(--color-text-2); background: color-mix(in srgb, var(--alert-color) 7%, transparent);
-}
-.markdown-body :deep(.markdown-alert-title) { color: var(--alert-color); font-weight: 650; }
-.markdown-body :deep(.markdown-alert-tip) { --alert-color: var(--color-kind-issue); }
-.markdown-body :deep(.markdown-alert-important) { --alert-color: var(--color-kind-pr); }
-.markdown-body :deep(.markdown-alert-warning),
-.markdown-body :deep(.markdown-alert-caution) { --alert-color: var(--color-severity-warning); }
-.markdown-body :deep(hr) { margin: 16px 0; border: 0; border-top: 1px solid var(--color-border); }
-.markdown-body :deep(code) {
-  padding: 1.5px 6px; border-radius: 5px; background: var(--color-card);
-  font-family: var(--font-mono); font-size: 0.86em;
-}
-.markdown-body :deep(pre) {
-  margin: 10px 0; padding: 12px 14px; overflow-x: auto; border-radius: 7px;
-  background: var(--color-card); line-height: 1.5;
-}
-.markdown-body :deep(pre code) { padding: 0; background: transparent; font-size: 0.86em; }
-.markdown-body :deep(table) { margin: 10px 0; border-collapse: collapse; display: block; overflow-x: auto; font-size: 0.95em; }
-.markdown-body :deep(th), .markdown-body :deep(td) { padding: 5px 11px; border: 1px solid var(--color-border); text-align: left; }
-.markdown-body :deep(th) { background: var(--color-card); font-weight: 650; }
-.markdown-body :deep(img) { max-width: 100%; }
-</style>

@@ -1667,6 +1667,28 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  it('keeps a user-picked scope when the keybinding closes tasks from terminal context', async () => {
+    const { wrapper } = await mountAppWithRouter()
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    await wrapper.findComponent(TerminalMode).vm.$emit('session-repo-key', 'acme/site')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/site')
+
+    // The user re-scopes while the overlay is open; only an *opening* toggle
+    // may re-resolve the scope, so closing must not clobber the choice.
+    useTasks().repoKey.value = 'acme/other'
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/other')
+
+    wrapper.unmount()
+  })
+
   it('leaves the persisted scope alone when the keybinding opens tasks from the hub', async () => {
     const { wrapper } = await mountAppWithRouter()
     useTasks().repoKey.value = 'acme/existing'

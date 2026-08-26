@@ -9,7 +9,12 @@ import { onScopeDispose, ref, type Ref } from 'vue'
 const openIds = new Set<symbol>()
 const count = ref(0)
 
-/** Registers a BaseModal as open for as long as its component stays mounted. */
+/**
+ * Registers a BaseModal as open for as long as its component stays mounted.
+ * Only BaseModal-backed dialogs may register: an overlay that gates its own
+ * dismissal on useOpenModalCount() === 0 (TasksOverlay) relies on the count
+ * staying zero while it is the topmost surface.
+ */
 export function useRegisterOpenModal(): void {
   const id = Symbol()
   openIds.add(id)

@@ -134,6 +134,33 @@ describe('buildTaskTree counts', () => {
   })
 })
 
+describe('buildTaskTree search', () => {
+  const items = [
+    task({ id: 'e1', type: 'epic', title: 'Epic Alpha', createdAt: day(1) }),
+    task({ id: 'c1', parentId: 'e1', title: 'Fix parser', createdAt: day(2) }),
+    task({ id: 't2', title: 'Write docs', createdAt: day(3) }),
+  ]
+
+  it('narrows visibility to matches while keeping ancestors of a match', () => {
+    const tree = buildTaskTree(items, 'all', 'parser')
+    const epic = tree.find((n) => n.item.id === 'e1')!
+    expect(epic.visible).toBe(true) // ancestor of the match
+    expect(epic.children[0].visible).toBe(true) // the match itself
+    expect(tree.find((n) => n.item.id === 't2')!.visible).toBe(false)
+  })
+
+  it('matches case-insensitively, on ids too, and ignores surrounding whitespace', () => {
+    expect(buildTaskTree(items, 'all', '  FIX  ').find((n) => n.item.id === 'e1')!.visible).toBe(true)
+    expect(buildTaskTree(items, 'all', 't2').find((n) => n.item.id === 't2')!.visible).toBe(true)
+  })
+
+  it('requires filter and search to agree on the same item', () => {
+    // t2 matches the query but not a 'done' filter — nothing should be visible.
+    const tree = buildTaskTree(items, 'done', 'docs')
+    expect(tree.every((n) => !n.visible)).toBe(true)
+  })
+})
+
 describe('matchesTaskFilter and filterCounts', () => {
   const items = [
     task({ id: '1', status: 'open' }),

@@ -8,6 +8,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { onKeyStroke } from '@vueuse/core'
 import IconEraser from '~icons/lucide/eraser'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconSearch from '~icons/lucide/search'
 import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
@@ -18,6 +19,7 @@ import { useClipboard } from '../composables/useClipboard'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import { useOpenModalCount } from '../composables/useOpenModalCount'
 import { useTasks } from '../composables/useTasks'
+import { useTerminalSessions } from '../composables/useTerminalSessions'
 import { errorText } from '../lib/appError'
 import { isEditableTarget } from '../lib/isEditableTarget'
 import { buildTaskTree, filterCounts, TASK_FILTERS, type TaskTreeNode } from '../lib/tasksPresentation'
@@ -25,12 +27,19 @@ import { buildTaskTree, filterCounts, TASK_FILTERS, type TaskTreeNode } from '..
 const emit = defineEmits<{ close: [] }>()
 
 const {
-  repoKey, filter, items, repoKeys, selectedId, loading, loaded, error, unavailable,
+  repoKey, filter, items, repoKeys, selectedId, loading, loaded, error,
   startPolling, stopPolling, refresh, select, isCollapsed, toggleCollapsed,
   pruneDryRun, prune,
 } = useTasks()
 
 const counts = computed(() => filterCounts(items.value))
+const search = ref('')
+
+// TerminalMode keeps the session list loaded (it mounts once at app start),
+// so this reads the singleton rather than fetching. An id with no loaded row
+// — an ended session — falls back to the raw id in the row's tooltip.
+const { sessions } = useTerminalSessions()
+const sessionNameById = computed(() => new Map(sessions.value.map((row) => [row.id, row.name])))
 
 interface FlatRow { node: TaskTreeNode; depth: number }
 
@@ -47,7 +56,7 @@ function flatten(nodes: TaskTreeNode[], depth: number, out: FlatRow[]): void {
 
 const rows = computed(() => {
   const out: FlatRow[] = []
-  flatten(buildTaskTree(items.value, filter.value), 0, out)
+  flatten(buildTaskTree(items.value, filter.value, search.value), 0, out)
   return out
 })
 
@@ -59,14 +68,29 @@ watch([loaded, rows], ([isLoaded, currentRows]) => {
   if (isLoaded && selectedId.value === null && currentRows.length) select(currentRows[0].node.item.id)
 }, { immediate: true })
 
-const repoOptions = computed<AppSelectOption[]>(() => [
-  { value: '', label: 'All repositories' },
-  ...repoKeys.value.map((key) => ({ value: key, label: key })),
-])
+const repoOptions = computed<AppSelectOption[]>(() => {
+  const options: AppSelectOption[] = [
+    { value: '', label: 'All repositories' },
+    ...repoKeys.value.map((key) => ({ value: key, label: key })),
+  ]
+  // A scope pointing at a repo with no items — opened from a session whose
+  // repo has none yet, or persisted and since pruned empty — must stay a
+  // visible, re-selectable choice: TaskRepoKeys() only lists repos that still
+  // hold items, and AppSelect renders an unmatched model value as blank.
+  if (repoKey.value && !repoKeys.value.includes(repoKey.value)) {
+    options.push({ value: repoKey.value, label: repoKey.value })
+  }
+  return options
+})
 
 // ── Tree keyboard navigation ────────────────────────────────────────────────
 const treeEl = ref<HTMLElement | null>(null)
 const openModalCount = useOpenModalCount()
+
+function selectAndReveal(id: string): void {
+  select(id)
+  treeEl.value?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.scrollIntoView?.({ block: 'nearest' })
+}
 
 function moveSelection(delta: 1 | -1): void {
   const flat = rows.value
@@ -74,9 +98,7 @@ function moveSelection(delta: 1 | -1): void {
   const currentIndex = flat.findIndex((row) => row.node.item.id === selectedId.value)
   const nextIndex = currentIndex === -1 ? 0 : currentIndex + delta
   if (nextIndex < 0 || nextIndex >= flat.length) return
-  const id = flat[nextIndex].node.item.id
-  select(id)
-  treeEl.value?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.scrollIntoView?.({ block: 'nearest' })
+  selectAndReveal(flat[nextIndex].node.item.id)
 }
 
 onKeyStroke(['ArrowDown', 'ArrowUp', 'j', 'k'], (event) => {
@@ -87,6 +109,37 @@ onKeyStroke(['ArrowDown', 'ArrowUp', 'j', 'k'], (event) => {
   if (openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
   event.preventDefault()
   moveSelection(event.key === 'ArrowDown' || event.key === 'j' ? 1 : -1)
+})
+
+// Left folds, right unfolds — the vim h/l pairing j/k established. Left on a
+// leaf (or an already-collapsed node) walks up to its parent instead, and
+// right on an expanded node steps into its first child — the next visible
+// row, since children render directly beneath — the common tree idiom.
+onKeyStroke(['ArrowLeft', 'ArrowRight', 'h', 'l'], (event) => {
+  if (openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
+  const flat = rows.value
+  const index = flat.findIndex((row) => row.node.item.id === selectedId.value)
+  if (index === -1) return
+  event.preventDefault()
+  const { node, depth } = flat[index]
+  const expandable = node.children.length > 0
+  const collapsed = expandable && isCollapsed(node.item.id)
+  if (event.key === 'ArrowLeft' || event.key === 'h') {
+    if (expandable && !collapsed) {
+      toggleCollapsed(node.item.id)
+      return
+    }
+    for (let i = index - 1; i >= 0; i--) {
+      if (flat[i].depth < depth) {
+        selectAndReveal(flat[i].node.item.id)
+        return
+      }
+    }
+  } else if (collapsed) {
+    toggleCollapsed(node.item.id)
+  } else if (expandable) {
+    moveSelection(1)
+  }
 })
 
 // Vim yank: copies the focused row's id, the same string TaskDetailPane's own
@@ -193,6 +246,17 @@ onUnmounted(() => { stopPolling() })
         />
       </div>
 
+      <label class="flex w-[230px] items-center gap-2 rounded-lg border border-strong bg-app px-2.5 py-1.5 focus-within:border-text-3">
+        <IconSearch class="size-3.5 shrink-0 text-text-4" />
+        <input
+          v-model="search"
+          type="text"
+          placeholder="Filter tasks…"
+          class="min-w-0 flex-1 bg-transparent text-[12.5px] text-text placeholder:text-text-4 focus:outline-none"
+          data-testid="tasks-search"
+        />
+      </label>
+
       <div class="flex-1" />
 
       <button
@@ -227,20 +291,19 @@ onUnmounted(() => { stopPolling() })
     <!-- tree + detail split -->
     <div class="flex min-h-0 flex-1">
       <div ref="treeEl" class="hive-scroll min-h-0 flex-1 overflow-y-auto bg-app" data-testid="tasks-tree">
-        <div v-if="unavailable" class="flex h-full flex-col items-center justify-center gap-3 px-10 text-center" data-testid="tasks-unavailable">
-          <div class="text-[13.5px] font-semibold text-text">Tasks are unavailable</div>
-          <!-- useTasks() only tracks unavailability as a boolean (the hc store
-               is not reachable at all), never a message for this specific
-               state — error.value stays unset here, so the copy is fixed. -->
-          <p class="max-w-[380px] text-xs leading-relaxed text-text-3" data-testid="tasks-unavailable-reason">The hc task store is not reachable right now.</p>
-          <button type="button" class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text" data-testid="tasks-retry" @click="refresh">Try again</button>
+        <div v-if="!loaded" class="flex h-full items-center justify-center font-mono text-xs text-text-4">Loading tasks…</div>
+        <!-- A scoped-but-empty repo must say it is scoped: the generic copy
+             would read as "there are no tasks anywhere" while another repo
+             may hold plenty. -->
+        <div v-else-if="!items.length && repoKey" class="flex h-full flex-col items-center justify-center gap-3 px-10 text-center" data-testid="tasks-empty">
+          <div class="text-[13px] text-text-3">No tasks in {{ repoKey }}.</div>
+          <button type="button" class="cursor-pointer rounded border border-strong px-3 py-1.5 text-xs text-text-2 hover:text-text" data-testid="tasks-empty-show-all" @click="repoKey = ''">Show all repositories</button>
         </div>
-        <div v-else-if="!loaded" class="flex h-full items-center justify-center font-mono text-xs text-text-4">Loading tasks…</div>
         <div v-else-if="!items.length" class="flex h-full flex-col items-center justify-center gap-2 px-10 text-center" data-testid="tasks-empty">
           <div class="text-[13px] text-text-3">No tasks yet.</div>
           <p class="text-xs text-text-4">Agents create tasks with <code class="rounded bg-chip px-1 py-0.5 font-mono text-[11px] text-text-3">hive hc create</code>.</p>
         </div>
-        <div v-else-if="!rows.length" class="flex h-full items-center justify-center font-mono text-xs text-text-4" data-testid="tasks-empty-filter">No tasks match this filter.</div>
+        <div v-else-if="!rows.length" class="flex h-full items-center justify-center font-mono text-xs text-text-4" data-testid="tasks-empty-filter">{{ search.trim() ? 'No tasks match this search.' : 'No tasks match this filter.' }}</div>
         <template v-else>
           <TaskTreeRow
             v-for="row in rows"
@@ -249,6 +312,7 @@ onUnmounted(() => { stopPolling() })
             :depth="row.depth"
             :selected="row.node.item.id === selectedId"
             :collapsed="isCollapsed(row.node.item.id)"
+            :session-name="sessionNameById.get(row.node.item.sessionId)"
             @select="select"
             @toggle="toggleCollapsed"
           />
