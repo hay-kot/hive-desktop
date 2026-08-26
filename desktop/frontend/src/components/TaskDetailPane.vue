@@ -151,9 +151,9 @@ async function confirmDelete(): Promise<void> {
 // persisted separately from the tree pane it sits beside.
 const { size: paneWidth, startResize, step } = useResizablePanel({
   storageKey: 'hive.panel.taskdetail',
-  defaultSize: 420,
+  defaultSize: 560,
   min: 320,
-  max: 860,
+  max: 1000,
   edge: 'left',
 })
 </script>

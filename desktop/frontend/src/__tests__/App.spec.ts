@@ -3,11 +3,12 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createMemoryHistory } from 'vue-router'
 import App from '../App.vue'
 import { useCommandPalette } from '../composables/useCommands'
+import { useReportDialog } from '../composables/useReportDialog'
 import { resetFlowsSessionForTests, useFlowsSession } from '../pipeline/composables/useFlowsSession'
 import { resetNotificationSettingsForTests } from '../composables/useNotificationSettings'
 import { resetPopupTerminalForTests, usePopupTerminal } from '../composables/usePopupTerminal'
 import { resetLaunchersForTests } from '../composables/useLaunchers'
-import { useKeybindings } from '../composables/useKeybindings'
+import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
@@ -1547,18 +1548,101 @@ describe('App', () => {
     wrapper.unmount()
   })
 
-  it('routes to the tasks hub view from the titlebar icon and back on Escape', async () => {
+  it('opens the tasks overlay from the titlebar icon over the current route, and closes it on Escape', async () => {
     const { wrapper, router } = await mountAppWithRouter()
 
     await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
     await flushPromises()
-    expect(router.currentRoute.value.name).toBe('tasks')
-    expect(wrapper.find('[data-testid="tasks-view"]').exists()).toBe(true)
+    expect(router.currentRoute.value.name).toBe('feed')
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="tasks-view"]')).not.toBeNull()
     expect(wrapper.find('[data-testid="titlebar-tasks"]').classes()).toContain('text-accent')
 
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
     await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
     expect(router.currentRoute.value.name).toBe('feed')
+
+    wrapper.unmount()
+  })
+
+  it('toggles the tasks overlay closed by clicking the titlebar icon again', async () => {
+    const { wrapper } = await mountAppWithRouter()
+
+    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+
+    await wrapper.get('[data-testid="titlebar-tasks"]').trigger('click')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('replaces the hand-written tasks palette row with the bindable command, carrying its live shortcut', async () => {
+    const wrapper = await mountApp()
+    const { results, query } = useCommandPalette()
+    query.value = ''
+
+    const matches = results.value.filter((cmd) => cmd.id === 'tasks.toggle' || cmd.id === 'view:tasks')
+    expect(matches).toHaveLength(1)
+    expect(matches[0].id).toBe('tasks.toggle')
+    expect(matches[0].title).toBe('Toggle Tasks')
+    expect(matches[0].hint).toBe(formatCombo('mod+shift+t'))
+
+    wrapper.unmount()
+  })
+
+  it('toggles the tasks overlay open and closed with mod+shift+T', async () => {
+    const { wrapper } = await mountAppWithRouter()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
+
+    wrapper.unmount()
+  })
+
+  it('suppresses the tasks toggle while a different overlay is open, and while a confirm dialog is stacked inside it', async () => {
+    const taskItem = {
+      id: 't1', repoKey: 'acme/site', epicId: '', parentId: '', sessionId: '',
+      title: 'Task t1', type: 'task', status: 'open', blocked: false, depth: 0,
+      createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
+    }
+    mocks.ListTasks.mockResolvedValue([taskItem])
+    mocks.TaskDetail.mockResolvedValue({ ...taskItem, desc: '', blockers: [], comments: [] })
+    const { wrapper } = await mountAppWithRouter()
+    const { openDialog: openReport, close: closeReport } = useReportDialog()
+
+    // A different modal swallows the toggle like any other command.
+    openReport()
+    await flushPromises()
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).toBeNull()
+    closeReport()
+    await flushPromises()
+
+    // Opens normally once nothing else is up.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+
+    // A confirm dialog stacked inside the overlay (its own BaseModal) keeps
+    // the toggle from also closing the overlay underneath it.
+    document.querySelector<HTMLButtonElement>('[data-testid="task-delete"]')!.click()
+    await flushPromises()
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
 
     wrapper.unmount()
   })

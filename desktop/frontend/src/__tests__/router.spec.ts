@@ -31,12 +31,6 @@ describe('createAppRouter', () => {
     expect(resolved.params.workspace).toBe('hive')
   })
 
-  it('resolves the tasks route', () => {
-    const router = createAppRouter(createMemoryHistory())
-
-    expect(router.resolve('/tasks').name).toBe('tasks')
-  })
-
   it('routes every application settings section to itself', () => {
     const router = createAppRouter(createMemoryHistory())
 

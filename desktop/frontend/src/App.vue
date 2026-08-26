@@ -9,7 +9,6 @@ import IconGauge from '~icons/lucide/gauge'
 import IconInbox from '~icons/lucide/inbox'
 import IconLayoutGrid from '~icons/lucide/layout-grid'
 import IconList from '~icons/lucide/list'
-import IconListTodo from '~icons/lucide/list-todo'
 import IconPalette from '~icons/lucide/palette'
 import IconRss from '~icons/lucide/rss'
 import IconShare2 from '~icons/lucide/share-2'
@@ -31,7 +30,7 @@ import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
 import ActivityView from './components/ActivityView.vue'
-import TasksView from './components/TasksView.vue'
+import TasksOverlay from './components/TasksOverlay.vue'
 import DeleteProfileModal from './components/DeleteProfileModal.vue'
 import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
@@ -42,6 +41,7 @@ import { useNotificationSettings } from './composables/useNotificationSettings'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
+import { useOpenModalCount } from './composables/useOpenModalCount'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
@@ -164,7 +164,6 @@ const router = useRouter()
 const route = useRoute()
 const flowsActive = computed(() => route.name === 'flows')
 const activityActive = computed(() => route.name === 'activity')
-const tasksActive = computed(() => route.name === 'tasks')
 const devActive = computed(() => devToolsEnabled.value && route.name === 'dev')
 const applicationSettingsActive = computed(() => route.name === 'application-settings')
 const profileSettingsActive = computed(() => route.name === 'profile-settings')
@@ -366,8 +365,12 @@ function openActivity(): void {
   void router.push({ name: 'activity' })
 }
 
+// Tasks is an overlay, not a route, so the titlebar icon toggles it — clicking
+// it while open closes it, matching the icon's tint communicating open state.
+const tasksOpen = ref(false)
+
 function openTasks(): void {
-  void router.push({ name: 'tasks' })
+  tasksOpen.value = !tasksOpen.value
 }
 
 async function openJobRun(commandID: number): Promise<void> {
@@ -765,7 +768,7 @@ const previewCollapsed = useStorage('hive.panel.detailpane.collapsed', false)
 const feedViewActive = computed(() =>
   !onboardingActive.value && !terminalActive.value && !agentsActive.value &&
   !applicationSettingsActive.value && !profileSettingsActive.value &&
-  !flowsActive.value && !activityActive.value && !tasksActive.value && !devActive.value &&
+  !flowsActive.value && !activityActive.value && !devActive.value &&
   !!activeProfile.value,
 )
 const sidebarCollapsed = computed(() =>
@@ -890,6 +893,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
+  'tasks.toggle': openTasks,
   'terminal.popup.toggle': togglePopupTerminal,
   // Reaching for the tree is also how you get a collapsed sidebar back: the
   // chord means "work in the session list", and a hidden panel is not an
@@ -952,10 +956,19 @@ function contextActive(context: CommandContext): boolean {
   }
 }
 
-// While an overlay owns the screen, only the palette toggle stays live.
-const anyOverlayOpen = computed(() =>
+// Every overlay except the tasks one — split out so onGlobalKeydown can let
+// tasks.toggle close the tasks overlay specifically, while it still stays
+// suppressed under any of these (report, new-profile, a confirm, ...), same
+// as every other command.
+const otherOverlayOpen = computed(() =>
   paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
 )
+// While an overlay owns the screen, only the palette toggle stays live —
+// tasks.toggle gets its own narrower exception below.
+const anyOverlayOpen = computed(() => otherOverlayOpen.value || tasksOpen.value)
+// A BaseModal-backed confirm stacked inside the tasks overlay (delete, prune,
+// ...) must keep tasks.toggle from also closing the overlay underneath it.
+const openModalCount = useOpenModalCount()
 
 // Seed commands — reactive getter so they update when profiles/flows load.
 // Filtered by where the user is standing: a row whose command cannot fire
@@ -1012,17 +1025,6 @@ useCommands(computed(() => {
         keywords: ['chats', 'agents', 'chat', 'mode'],
         icon: IconMessagesSquare,
         run: () => setMode('agents'),
-      })
-    }
-    // Tasks is reachable from any mode too, same as Activity's titlebar icon.
-    if (!tasksActive.value) {
-      cmds.push({
-        id: 'view:tasks',
-        title: 'Go to Tasks',
-        group: 'View',
-        keywords: ['tasks', 'honeycomb', 'hc', 'epics'],
-        icon: IconListTodo,
-        run: openTasks,
       })
     }
   }
@@ -1224,7 +1226,14 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   const hasModifier = mods.includes('mod') || mods.includes('ctrl') || mods.includes('alt')
   if (isEditableTarget(e.target) && !hasModifier) return
 
-  if (anyOverlayOpen.value && id !== 'palette.toggle') return
+  if (anyOverlayOpen.value && id !== 'palette.toggle') {
+    // tasks.toggle has to reach the dispatcher while its own overlay owns the
+    // screen — that is what lets it close again — but only that overlay: a
+    // different modal (report, new-profile, a confirm stacked inside Tasks
+    // itself) still swallows it like any other command.
+    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
+    if (!closesTasksOverlay) return
+  }
   if (!contextActive(command.context)) return
 
   e.preventDefault()
@@ -1271,7 +1280,7 @@ onUnmounted(() => {
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
         :activity-active="activityActive"
-        :tasks-active="tasksActive"
+        :tasks-active="tasksOpen"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
         :jobs-active="jobsActive"
@@ -1379,7 +1388,6 @@ onUnmounted(() => {
         />
         <FlowsView v-else-if="flowsActive" />
         <ActivityView v-else-if="activityActive" @close="closeSettings" />
-        <TasksView v-else-if="tasksActive" @close="closeSettings" />
         <template v-else>
           <SideBar
             v-if="activeProfile && !feedSidebarCollapsed"
@@ -1559,6 +1567,7 @@ onUnmounted(() => {
       @close="deleteProfileOpen = false"
       @confirm="confirmDeleteProfile"
     />
+    <TasksOverlay v-if="tasksOpen" @close="tasksOpen = false" />
     <!-- Deploying from this modal can raise the error dialog. Only one is
          rendered at a time: BaseModal closes on any Escape, so stacked
          overlays would both take a single keypress and drop the guard along

@@ -4,17 +4,21 @@
 // and prune; TaskDetailPane is self-contained via the same useTasks()
 // singleton and owns everything about the selection (see its own header
 // comment). Reached from the titlebar, like ActivityView.
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { onKeyStroke } from '@vueuse/core'
 import IconEraser from '~icons/lucide/eraser'
 import IconRefreshCw from '~icons/lucide/refresh-cw'
+import IconX from '~icons/lucide/x'
 import AppSelect, { type AppSelectOption } from './AppSelect.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import TaskDetailPane from './TaskDetailPane.vue'
 import TaskTreeRow from './TaskTreeRow.vue'
 import ViewHeader from './settings/ViewHeader.vue'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
+import { useOpenModalCount } from '../composables/useOpenModalCount'
 import { useTasks } from '../composables/useTasks'
 import { errorText } from '../lib/appError'
+import { isEditableTarget } from '../lib/isEditableTarget'
 import { buildTaskTree, filterCounts, TASK_FILTERS, type TaskTreeNode } from '../lib/tasksPresentation'
 
 const emit = defineEmits<{ close: [] }>()
@@ -46,10 +50,43 @@ const rows = computed(() => {
   return out
 })
 
+// Nothing selected after the tree first loads would leave the detail pane
+// permanently empty on open. Re-fires whenever selection drops back to none
+// (a delete, a filter change) with rows still available — it never runs while
+// something is already selected, so it can't steal an existing choice.
+watch([loaded, rows], ([isLoaded, currentRows]) => {
+  if (isLoaded && selectedId.value === null && currentRows.length) select(currentRows[0].node.item.id)
+}, { immediate: true })
+
 const repoOptions = computed<AppSelectOption[]>(() => [
   { value: '', label: 'All repositories' },
   ...repoKeys.value.map((key) => ({ value: key, label: key })),
 ])
+
+// ── Tree keyboard navigation ────────────────────────────────────────────────
+const treeEl = ref<HTMLElement | null>(null)
+const openModalCount = useOpenModalCount()
+
+function moveSelection(delta: 1 | -1): void {
+  const flat = rows.value
+  if (!flat.length) return
+  const currentIndex = flat.findIndex((row) => row.node.item.id === selectedId.value)
+  const nextIndex = currentIndex === -1 ? 0 : currentIndex + delta
+  if (nextIndex < 0 || nextIndex >= flat.length) return
+  const id = flat[nextIndex].node.item.id
+  select(id)
+  treeEl.value?.querySelector<HTMLElement>(`[data-id="${id}"]`)?.scrollIntoView?.({ block: 'nearest' })
+}
+
+onKeyStroke(['ArrowDown', 'ArrowUp', 'j', 'k'], (event) => {
+  // A stacked confirm dialog owns the keyboard; a focused input/select/select
+  // popover owns its own arrow keys — AppSelect's own handler already calls
+  // preventDefault() for the ones it takes, so deferring to that flag (rather
+  // than special-casing the component) covers any listbox the same way.
+  if (openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
+  event.preventDefault()
+  moveSelection(event.key === 'ArrowDown' || event.key === 'j' ? 1 : -1)
+})
 
 // ── Prune ────────────────────────────────────────────────────────────────
 // 30 days is a guess absent a documented convention: old enough that a fresh
@@ -91,7 +128,10 @@ const pruneDescription = computed(() => {
   return `This removes ${count} task${count === 1 ? '' : 's'} older than ${PRUNE_OLDER_THAN_DAYS} days${scope}. Pruning removes everything nested under a pruned root, regardless of its own status.`
 })
 
-useEscapeToClose(() => emit('close'))
+// A stacked ConfirmationDialog (its own BaseModal) must take Escape first —
+// otherwise one keypress would close both the dialog and the overlay behind
+// it, since useEscapeToClose has no layering of its own.
+useEscapeToClose(() => emit('close'), { enabled: () => openModalCount.value === 0 })
 
 onMounted(() => { startPolling() })
 onUnmounted(() => { stopPolling() })
@@ -103,6 +143,14 @@ onUnmounted(() => { stopPolling() })
       <template #title>
         <span class="text-[13px] font-semibold text-text">Tasks</span>
         <span class="font-mono text-[11px] text-text-4">{{ items.length }} {{ items.length === 1 ? 'item' : 'items' }}</span>
+        <div class="flex-1" />
+        <button
+          type="button"
+          class="cursor-pointer text-text-3 hover:text-text"
+          aria-label="Close"
+          data-testid="tasks-close"
+          @click="emit('close')"
+        ><IconX class="size-4" /></button>
       </template>
     </ViewHeader>
 
@@ -168,7 +216,7 @@ onUnmounted(() => { stopPolling() })
 
     <!-- tree + detail split -->
     <div class="flex min-h-0 flex-1">
-      <div class="hive-scroll min-h-0 flex-1 overflow-y-auto bg-app" data-testid="tasks-tree">
+      <div ref="treeEl" class="hive-scroll min-h-0 flex-1 overflow-y-auto bg-app" data-testid="tasks-tree">
         <div v-if="unavailable" class="flex h-full flex-col items-center justify-center gap-3 px-10 text-center" data-testid="tasks-unavailable">
           <div class="text-[13.5px] font-semibold text-text">Tasks are unavailable</div>
           <!-- useTasks() only tracks unavailability as a boolean (the hc store

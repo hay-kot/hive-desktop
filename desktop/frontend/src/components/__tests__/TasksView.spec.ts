@@ -37,7 +37,7 @@ vi.mock('@wailsio/runtime', () => ({
 }))
 
 import TasksView from '../TasksView.vue'
-import { resetTasksForTests } from '../../composables/useTasks'
+import { resetTasksForTests, useTasks } from '../../composables/useTasks'
 
 interface TaskOverrides {
   status: string
@@ -279,5 +279,118 @@ describe('TasksView', () => {
     const comment = wrapper.get('[data-testid="task-comment"]')
     expect(comment.text()).toContain('landed the migration')
     expect(comment.text()).not.toContain('CHECKPOINT:')
+  })
+
+  it('emits close from the header close button', async () => {
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="tasks-close"]').trigger('click')
+
+    expect(wrapper.emitted('close')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
+  it('auto-selects the first visible row once the list first loads, but never steals an existing selection on a later reload', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    await selectRow(wrapper, 't2')
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t2')
+
+    await wrapper.get('[data-testid="tasks-refresh"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t2')
+
+    wrapper.unmount()
+  })
+
+  it('moves the tree selection with j/k and the arrow keys, without wrapping past either end', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2'), task('t3')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    async function press(key: string): Promise<void> {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key }))
+      await flushPromises()
+    }
+
+    await press('j')
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t2')
+    await press('ArrowDown')
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t3')
+    await press('j') // no wrap past the last row
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t3')
+
+    await press('k')
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t2')
+    await press('ArrowUp')
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+    await press('k') // no wrap past the first row
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    wrapper.unmount()
+  })
+
+  it('selects the first row on the first keypress when nothing is selected', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    // Clear the auto-selected row directly through the singleton, isolating
+    // this from the auto-select behaviour covered above.
+    useTasks().select(null)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="task-detail-title"]').exists()).toBe(false)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' }))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    wrapper.unmount()
+  })
+
+  it('ignores tree navigation keys while a confirm dialog is stacked on top', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    await wrapper.get('[data-testid="task-delete"]').trigger('click')
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'j' }))
+    await flushPromises()
+    expect(wrapper.get('[data-testid="task-detail-title"]').text()).toBe('Task t1')
+
+    wrapper.unmount()
+  })
+
+  it('lets a stacked confirm dialog take Escape first, then closes the overlay on the next Escape', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="task-delete"]').trigger('click')
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).toBeNull()
+    expect(wrapper.emitted('close')).toBeUndefined()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))
+    await flushPromises()
+    expect(wrapper.emitted('close')).toHaveLength(1)
+
+    wrapper.unmount()
   })
 })
