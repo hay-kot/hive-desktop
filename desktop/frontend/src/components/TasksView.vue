@@ -14,6 +14,7 @@ import ConfirmationDialog from './ConfirmationDialog.vue'
 import TaskDetailPane from './TaskDetailPane.vue'
 import TaskTreeRow from './TaskTreeRow.vue'
 import ViewHeader from './settings/ViewHeader.vue'
+import { useClipboard } from '../composables/useClipboard'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import { useOpenModalCount } from '../composables/useOpenModalCount'
 import { useTasks } from '../composables/useTasks'
@@ -86,6 +87,15 @@ onKeyStroke(['ArrowDown', 'ArrowUp', 'j', 'k'], (event) => {
   if (openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
   event.preventDefault()
   moveSelection(event.key === 'ArrowDown' || event.key === 'j' ? 1 : -1)
+})
+
+// Vim yank: copies the focused row's id, the same string TaskDetailPane's own
+// copy button puts on the clipboard. 'y' has no default browser behaviour to
+// suppress, so unlike the arrows above this never calls preventDefault().
+const { copy: copySelectedId } = useClipboard()
+onKeyStroke('y', (event) => {
+  if (!selectedId.value || openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
+  void copySelectedId(selectedId.value)
 })
 
 // ── Prune ────────────────────────────────────────────────────────────────

@@ -57,8 +57,9 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   buttons a chat already had.
 - **A Tasks overlay over hive's `hc` issue tracker** — a tree and detail split
   with filters, status changes, and delete/prune, reached from a titlebar
-  icon and the command palette. A poll picks up changes made outside the app,
-  such as from the `hive hc` CLI.
+  icon and the command palette, and, from a terminal session's status bar,
+  scoped to that session's repository. A poll picks up changes made outside
+  the app, such as from the `hive hc` CLI.
 
 ## Changed
 

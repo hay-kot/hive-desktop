@@ -16,6 +16,7 @@ import IconEllipsis from '~icons/lucide/ellipsis'
 import IconEllipsisVertical from '~icons/lucide/ellipsis-vertical'
 import IconInfo from '~icons/lucide/info'
 import IconListFilter from '~icons/lucide/list-filter'
+import IconListTodo from '~icons/lucide/list-todo'
 import IconLoaderCircle from '~icons/lucide/loader-circle'
 import IconPencil from '~icons/lucide/pencil'
 import IconPinOff from '~icons/lucide/pin-off'
@@ -31,6 +32,7 @@ import IconTrash from '~icons/lucide/trash-2'
 import IconX from '~icons/lucide/x'
 import ActionInputsDialog from './ActionInputsDialog.vue'
 import AppMenu from './AppMenu.vue'
+import AppTooltip from './AppTooltip.vue'
 import BaseButton from './BaseButton.vue'
 import ConfirmationDialog from './ConfirmationDialog.vue'
 import PaneStatusBar from './PaneStatusBar.vue'
@@ -78,6 +80,8 @@ const props = withDefaults(defineProps<{
   sidebarCollapsed?: boolean
   active?: boolean
 }>(), { active: true })
+
+const emit = defineEmits<{ 'open-tasks': []; 'session-repo-key': [repoKey: string] }>()
 
 const { checking, available, reason, client } = useTerminalAvailability()
 
@@ -622,6 +626,17 @@ async function runStatusBarAction(action: (id: string) => Promise<void>): Promis
     statusBarError.value = error instanceof Error ? error.message : String(error)
   }
 }
+
+// owner/repo is exactly the hc repoKey format; a git read that has not
+// resolved, or resolved onto a non-GitHub remote, has neither. Reported
+// continuously rather than only on click, so App.vue can scope Tasks to the
+// attached session's repo from any entry point (titlebar, keybinding,
+// palette) and not only a click on this bar's own button.
+const sessionRepoKey = computed(() => {
+  const git = sessionGit.value
+  return git?.resolved && git.owner && git.repo ? `${git.owner}/${git.repo}` : ''
+})
+watch(sessionRepoKey, (key) => emit('session-repo-key', key), { immediate: true })
 
 // A session dying moves nothing the sweep above watches — not the session set,
 // not the pool, not the setting — while its last window closing empties the
@@ -2241,6 +2256,17 @@ onBeforeUnmount(() => {
             :pull-request-error="sessionPullRequestError"
             @refresh-pull-request="refreshSessionStatus({ refreshPullRequest: true })"
           />
+          <template #actions>
+            <AppTooltip text="Tasks">
+              <button
+                type="button"
+                class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
+                aria-label="Tasks"
+                data-testid="terminal-statusbar-tasks"
+                @click="emit('open-tasks')"
+              ><IconListTodo class="size-3.5" /></button>
+            </AppTooltip>
+          </template>
         </PaneStatusBar>
 
         <template v-if="visible && !notStarted">

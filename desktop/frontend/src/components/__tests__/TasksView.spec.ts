@@ -338,6 +338,50 @@ describe('TasksView', () => {
     wrapper.unmount()
   })
 
+  it('copies the selected row id to the clipboard with y', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
+    await flushPromises()
+    expect(mocks.SetText).toHaveBeenCalledWith('t1')
+
+    wrapper.unmount()
+  })
+
+  it('does nothing for y when nothing is selected', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+    useTasks().select(null)
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
+    await flushPromises()
+    expect(mocks.SetText).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
+  it('ignores y while a confirm dialog is stacked on top', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="task-delete"]').trigger('click')
+    expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
+    await flushPromises()
+    expect(mocks.SetText).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('selects the first row on the first keypress when nothing is selected', async () => {
     mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
     mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))

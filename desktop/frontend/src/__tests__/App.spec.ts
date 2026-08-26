@@ -12,8 +12,9 @@ import { formatCombo, useKeybindings } from '../composables/useKeybindings'
 import { resetTerminalAvailabilityForTests } from '../composables/useTerminalAvailability'
 import { resetTerminalSessionsForTests } from '../composables/useTerminalSessions'
 import { resetAgentWorkspacesForTests } from '../composables/useAgentWorkspaces'
-import { resetTasksForTests } from '../composables/useTasks'
+import { resetTasksForTests, useTasks } from '../composables/useTasks'
 import { applicationSettingsSections, createAppRouter } from '../router'
+import TerminalMode from '../components/TerminalMode.vue'
 import { setTerminalTreeHandles, type TerminalTreeHandles } from '../lib/terminalTree'
 
 const mocks = vi.hoisted(() => ({
@@ -1643,6 +1644,71 @@ describe('App', () => {
     await flushPromises()
     expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
     expect(document.querySelector('[data-testid="task-delete-confirm"]')).not.toBeNull()
+
+    wrapper.unmount()
+  })
+
+  // TerminalMode reports the attached session's resolved owner/repo
+  // continuously (not only on a click of its own status-bar button), so
+  // App.vue can scope Tasks to it from any entry point — the keybinding and
+  // the palette included, both of which funnel through the same openTasks().
+  it('scopes tasks to the terminal session repo when the keybinding opens it in terminal context', async () => {
+    const { wrapper } = await mountAppWithRouter()
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    await wrapper.findComponent(TerminalMode).vm.$emit('session-repo-key', 'acme/site')
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/site')
+
+    wrapper.unmount()
+  })
+
+  it('leaves the persisted scope alone when the keybinding opens tasks from the hub', async () => {
+    const { wrapper } = await mountAppWithRouter()
+    useTasks().repoKey.value = 'acme/existing'
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', metaKey: true, shiftKey: true }))
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/existing')
+
+    wrapper.unmount()
+  })
+
+  it('scopes tasks to the repo carried by the terminal status bar’s own open-tasks click', async () => {
+    const { wrapper } = await mountAppWithRouter()
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    const terminal = wrapper.findComponent(TerminalMode)
+    await terminal.vm.$emit('session-repo-key', 'acme/site')
+
+    await terminal.vm.$emit('open-tasks')
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/site')
+
+    wrapper.unmount()
+  })
+
+  it('opens tasks at the persisted scope when the terminal session has no resolved repo', async () => {
+    const { wrapper } = await mountAppWithRouter()
+    await wrapper.get('[data-testid="titlebar-mode-terminal"]').trigger('click')
+    await vi.waitFor(() => expect(terminalOnScreen(wrapper)).toBe(true))
+    useTasks().repoKey.value = 'acme/existing'
+    const terminal = wrapper.findComponent(TerminalMode)
+    await terminal.vm.$emit('session-repo-key', '')
+
+    await terminal.vm.$emit('open-tasks')
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    expect(useTasks().repoKey.value).toBe('acme/existing')
 
     wrapper.unmount()
   })

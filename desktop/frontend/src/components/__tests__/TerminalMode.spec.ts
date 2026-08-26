@@ -2707,6 +2707,37 @@ describe('TerminalMode', () => {
       wrapper.unmount()
     })
 
+    // Reported continuously, not only read on a click, so App.vue can scope
+    // Tasks to the attached session's repo from any entry point.
+    it('reports the attached session’s resolved owner/repo as it settles', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'feat/parser', dirty: false, unpushed: false,
+        additions: 0, deletions: 0, owner: 'hay-kot', repo: 'hive', resolved: true, error: '',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      expect(wrapper.emitted('session-repo-key')).toContainEqual(['hay-kot/hive'])
+
+      wrapper.unmount()
+    })
+
+    // A remote that is not a GitHub one resolves owner/repo empty, and a
+    // failed or pending read never carries a stale guess forward.
+    it('reports an empty repo key for a resolved non-GitHub remote', async () => {
+      mocks.SessionGitStatus.mockResolvedValue({
+        path: '/tmp/fix-parser', branch: 'main', dirty: false, unpushed: false,
+        additions: 0, deletions: 0, owner: '', repo: '', resolved: true, error: '',
+      })
+
+      const { wrapper } = await mountWithStatusBar()
+
+      const emissions = wrapper.emitted('session-repo-key') ?? []
+      expect(emissions.at(-1)).toEqual([''])
+
+      wrapper.unmount()
+    })
+
     it('opens the pull request in a browser when its chip is clicked', async () => {
       mocks.SessionPullRequest.mockResolvedValue({
         status: 'found', number: 311, title: 'Fix the parser', state: 'OPEN', isDraft: false,
@@ -2811,6 +2842,18 @@ describe('TerminalMode', () => {
       await flushPromises()
       expect(mocks.OpenSessionInEditor).toHaveBeenCalledWith('1')
       expect(mocks.RevealSession).toHaveBeenCalledWith('1')
+
+      wrapper.unmount()
+    })
+
+    // The button only signals the click; App.vue reads the repo to scope to
+    // off the session-repo-key it has already been keeping current.
+    it('emits open-tasks, carrying no payload of its own, when the tasks button is clicked', async () => {
+      const { wrapper } = await mountWithStatusBar()
+
+      await wrapper.get('[data-testid="terminal-statusbar-tasks"]').trigger('click')
+
+      expect(wrapper.emitted('open-tasks')).toEqual([[]])
 
       wrapper.unmount()
     })

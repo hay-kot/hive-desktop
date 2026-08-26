@@ -50,6 +50,7 @@ import { startFrameStats } from './composables/useFrameStats'
 import { useReleaseNotes } from './composables/useReleaseNotes'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
+import { useTasks } from './composables/useTasks'
 import { sessionRepository } from './composables/useTerminalSessions'
 import { closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalTree, newTerminalWindow, selectTerminalWindow, stepTerminalWindow } from './lib/terminalTree'
 import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
@@ -368,8 +369,23 @@ function openActivity(): void {
 // Tasks is an overlay, not a route, so the titlebar icon toggles it — clicking
 // it while open closes it, matching the icon's tint communicating open state.
 const tasksOpen = ref(false)
+const { repoKey: tasksRepoKey } = useTasks()
+// The attached terminal session's resolved owner/repo, kept live by
+// TerminalMode's continuous report rather than read only on click, so every
+// way of opening Tasks — titlebar, keybinding, palette, the status-bar
+// button itself — scopes to it the same way.
+const terminalSessionRepoKey = ref('')
 
+// Every entry point funnels through this one toggle (see runMap's
+// 'tasks.toggle' and TitleBar/TerminalMode's open-tasks emit). Only an
+// *opening* click re-resolves the scope: closing must never move it, and a
+// session with no resolved repo (or the hub, with none at all) leaves the
+// persisted last-picked scope alone.
 function openTasks(): void {
+  const opening = !tasksOpen.value
+  if (opening && terminalActive.value && terminalSessionRepoKey.value) {
+    tasksRepoKey.value = terminalSessionRepoKey.value
+  }
   tasksOpen.value = !tasksOpen.value
 }
 
@@ -1339,6 +1355,8 @@ onUnmounted(() => {
         v-show="terminalActive"
         :active="terminalActive"
         :sidebar-collapsed="terminalSidebarCollapsed"
+        @open-tasks="openTasks"
+        @session-repo-key="terminalSessionRepoKey = $event"
       />
       <!-- Same treatment as terminal mode, for the same reason (ADR terminal-mode-is-hidden-not-unmounted):
            mount-once, hidden with v-show rather than unmounted. -->

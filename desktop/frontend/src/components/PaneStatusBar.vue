@@ -59,5 +59,8 @@ defineEmits<{ 'open-editor': []; reveal: [] }>()
         @click="$emit('reveal')"
       ><IconFolderOpen class="size-3.5" /></button>
     </AppTooltip>
+    <!-- Optional: an area with nothing to add here renders the row exactly as
+         before, which is what keeps this shared bar drop-in for Agents too. -->
+    <slot name="actions" />
   </div>
 </template>
