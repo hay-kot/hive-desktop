@@ -74,6 +74,14 @@ export interface BindableCommand {
    * where `mod` is Ctrl.
    */
   escapesPane?: boolean
+  /**
+   * Fires over a focused terminal pane on the binding alone, whatever
+   * modifiers it carries — the narrower opt-in for a chord `escapesPane`
+   * cannot express, since terminalEscapeCombo only qualifies Command and
+   * Ctrl+Shift. Prefer `escapesPane`: this one takes the chord away from the
+   * shell outright, so `alt+t` stops being readline's transpose-words.
+   */
+  piercesPane?: boolean
 }
 
 // How far the digit row reaches. A session with more windows than this is
@@ -109,6 +117,7 @@ const windowJumpCommands: BindableCommand[] = Array.from({ length: DIRECT_WINDOW
     defaultCombos: [`mod+${position}`],
     context: 'terminal',
     paletteHidden: true,
+    piercesPane: true,
   }
 })
 
@@ -222,6 +231,7 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconTerminal,
     defaultCombos: ['mod+`'],
     context: 'global',
+    piercesPane: true,
   },
   // Directional rather than one toggle: which pane you land on should be
   // readable off the chord, not off where focus happened to be.
@@ -239,6 +249,7 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconPanelLeft,
     defaultCombos: ['mod+arrowleft'],
     context: 'terminal',
+    piercesPane: true,
   },
   {
     id: 'terminal.focus-pane',
@@ -325,6 +336,7 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconMessagesSquare,
     defaultCombos: ['mod+shift+arrowleft'],
     context: 'agents',
+    piercesPane: true,
   },
   {
     id: 'agents.focus-pane',
@@ -355,6 +367,10 @@ export const commandCatalog: BindableCommand[] = [
     icon: IconListTodo,
     defaultCombos: ['mod+shift+t'],
     context: 'global',
+    // Pierces rather than escapes: Tasks is the overlay most often wanted from
+    // inside a session, and a user who rebinds it to an alt chord gets nothing
+    // through terminalEscapeCombo.
+    piercesPane: true,
   },
   {
     id: 'window.hide',
@@ -371,10 +387,16 @@ export const commandCatalog: BindableCommand[] = [
 // focused pane through its own path, and nothing loaded from actions.yml gets
 // to claim the escape chord.
 const paneEscapes = new Set(commandCatalog.filter((command) => command.escapesPane).map((command) => command.id))
+const panePierces = new Set(commandCatalog.filter((command) => command.piercesPane).map((command) => command.id))
 
-/** Whether the command is one of those that fire over a focused terminal pane. */
+/** Whether the command fires over a focused terminal pane on the escape chord. */
 export function commandEscapesPane(commandID: string): boolean {
   return paneEscapes.has(commandID)
+}
+
+/** Whether the command fires over a focused terminal pane on the binding alone. */
+export function commandPiercesPane(commandID: string): boolean {
+  return panePierces.has(commandID)
 }
 
 // The namespace a launcher's bindable command id lives in — `launcher.lazygit`

@@ -1976,6 +1976,59 @@ describe('App', () => {
     wrapper.unmount()
   })
 
+  // The regression this exists for: the chord used to be bound to a launcher,
+  // which pierces a pane unconditionally, and rebinding it to the built-in
+  // command silently lost that — an alt combo can never qualify as a terminal
+  // escape chord, so Tasks was unreachable from inside a session.
+  it('opens tasks over a focused terminal on a user-bound alt chord', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    useKeybindings().addBinding('tasks.toggle', 'alt+t')
+    const pane = focusedPane()
+
+    const event = new KeyboardEvent('keydown', { key: 't', altKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(event)
+    await flushPromises()
+
+    expect(document.querySelector('[data-testid="tasks-overlay"]')).not.toBeNull()
+    // Swallowed here so the pane does not also write the meta escape to tmux.
+    expect(event.defaultPrevented).toBe(true)
+
+    pane.remove()
+    wrapper.unmount()
+  })
+
+  // The opt-in is per command, which is the whole reason it is a catalog flag
+  // rather than a wider escape chord: alt+t stays readline's transpose-words
+  // for anything that did not ask for it.
+  it('leaves an alt chord with the pane for a command that does not pierce it', async () => {
+    const { wrapper, router } = await mountAppWithRouter()
+    await router.push('/terminal/hive-fix-parser')
+    await flushPromises()
+
+    useKeybindings().addBinding('report.open', 'alt+t')
+    const pane = focusedPane()
+
+    const event = new KeyboardEvent('keydown', { key: 't', altKey: true, bubbles: true, cancelable: true })
+    pane.dispatchEvent(event)
+    await flushPromises()
+
+    expect(useReportDialog().open.value).toBe(false)
+    expect(event.defaultPrevented).toBe(false)
+
+    // Same chord, same command, from outside a pane: the pane is the only thing
+    // withholding it.
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 't', altKey: true }))
+    await flushPromises()
+    expect(useReportDialog().open.value).toBe(true)
+
+    useReportDialog().close()
+    pane.remove()
+    wrapper.unmount()
+  })
+
   // The reason the tab chords escape rather than pierce: where `mod` is Ctrl,
   // Ctrl+T is readline's transpose-chars and Ctrl+W its unix-word-rubout.
   it('leaves a focused terminal the bare Ctrl form of the window chords', async () => {
