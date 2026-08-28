@@ -232,7 +232,7 @@ func TestCanvasToolErrors(t *testing.T) {
 	text = callErr(t, session, "delete_canvas", map[string]any{"session": id, "canvas": "ghost"})
 	assert.Contains(t, text, "not_found")
 
-	var got canvasView
+	var got canvasWriteView
 	call(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x"}, &got)
 	text = callErr(t, session, "remove_block", map[string]any{"session": id, "canvas": "plan", "id": "ghost"})
 	assert.Contains(t, text, "not_found")
@@ -298,7 +298,7 @@ func TestCanvasMountedBesideTheDesktopServer(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = canvasSession.Close() })
 
-	var got canvasView
+	var got canvasWriteView
 	call(t, canvasSession, "put_block", map[string]any{
 		"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x",
 	}, &got)

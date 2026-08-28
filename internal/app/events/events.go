@@ -45,23 +45,20 @@ type ActionsUpdated struct{ Count int }
 // AgentWorkspacesUpdated reports that the workspace set was reloaded.
 type AgentWorkspacesUpdated struct{ Count int }
 
-// CanvasUpdated reports that one chat session's canvas changed — a block was
-// put or removed, or the canvas cleared. The content itself is stored state a
-// reader re-reads; the payload names which canvas.
-type CanvasUpdated struct {
-	Workspace string
-	Session   int64
-}
+// CanvasUpdated reports that a canvas in the authoring session's workspace
+// changed — a block was put or removed, a canvas deleted or cleared. The
+// content is stored state a reader re-reads; the payload names no canvas,
+// only the session, and the pane re-reads its workspace's canvases.
+type CanvasUpdated struct{ Session int64 }
 
 // CanvasToggleRequested reports an agent asked to open or close the canvas
 // pane beside its chat. Unlike the wake-up events the payload is the whole
 // message — pane visibility is UI intent, not stored state to re-read. Name
 // pins one canvas when opening; empty leaves the pane's own pick.
 type CanvasToggleRequested struct {
-	Workspace string
-	Session   int64
-	Name      string
-	Open      bool
+	Session int64
+	Name    string
+	Open    bool
 }
 
 // ConnectionUpdated reports that one provider's stored credentials changed —

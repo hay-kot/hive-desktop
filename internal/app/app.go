@@ -422,11 +422,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 	a.Canvas = newCanvasService(canvas.NewStore(cfg.Paths.AgentWorkspacesDir), a.Store,
-		func(workspace string, session int64) {
-			a.Events.Publish(a.ctx, events.CanvasUpdated{Workspace: workspace, Session: session})
+		func(session int64) {
+			a.Events.Publish(a.ctx, events.CanvasUpdated{Session: session})
 		},
-		func(workspace string, session int64, name string, open bool) {
-			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Workspace: workspace, Session: session, Name: name, Open: open})
+		func(session int64, name string, open bool) {
+			a.Events.Publish(a.ctx, events.CanvasToggleRequested{Session: session, Name: name, Open: open})
 		})
 	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpBaseURL)
 	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a

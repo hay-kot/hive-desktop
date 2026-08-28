@@ -82,5 +82,5 @@ export function useAgentCanvas(client: Ref<AgentWorkspacesClient | null>) {
 
   watch(client, () => wake())
 
-  return { canvas, metas, shown, workspace, loading, error, show, wake }
+  return { canvas, metas, shown, loading, error, show, wake }
 }

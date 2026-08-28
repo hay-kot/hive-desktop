@@ -369,7 +369,7 @@ func (s *Store) path(workspace, name string) (string, error) {
 	if !validWorkspace(workspace) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidWorkspace, workspace)
 	}
-	if !ValidName(name) {
+	if !validName(name) {
 		return "", fmt.Errorf("%w: %q", ErrInvalidName, name)
 	}
 	return filepath.Join(s.root, workspace, canvasesDirName, name+".json"), nil
@@ -384,15 +384,14 @@ func validWorkspace(dir string) bool {
 	return filepath.Base(dir) == dir && filepath.IsLocal(dir)
 }
 
-// ValidName reports whether name is a canvas name the store will accept.
-// Exported so the service can phrase the rule in its own error message.
-func ValidName(name string) bool {
+// validName reports whether name is a canvas name the store will accept.
+func validName(name string) bool {
 	return len(name) <= maxNameLength && namePattern.MatchString(name)
 }
 
 func nameFromFilename(filename string) (string, bool) {
 	base, ok := strings.CutSuffix(filename, ".json")
-	if !ok || !ValidName(base) {
+	if !ok || !validName(base) {
 		return "", false
 	}
 	return base, true

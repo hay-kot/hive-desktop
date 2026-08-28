@@ -35,11 +35,11 @@ type canvasSessionResolver interface {
 type CanvasService struct {
 	store     *canvas.Store
 	sessions  canvasSessionResolver
-	onUpdated func(workspace string, session int64)
-	onToggled func(workspace string, session int64, name string, open bool)
+	onUpdated func(session int64)
+	onToggled func(session int64, name string, open bool)
 }
 
-func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(string, int64), onToggled func(string, int64, string, bool)) *CanvasService {
+func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(int64), onToggled func(int64, string, bool)) *CanvasService {
 	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated, onToggled: onToggled}
 }
 
@@ -114,7 +114,7 @@ func (s *CanvasService) putBlocks(ctx context.Context, session int64, name, titl
 		}
 		return canvas.Canvas{}, s.storeError(err, name)
 	}
-	s.notify(rec.Workspace, session)
+	s.notify(session)
 	return c, nil
 }
 
@@ -131,7 +131,7 @@ func (s *CanvasService) RemoveBlock(ctx context.Context, session int64, name, bl
 	if !removed {
 		return canvas.Canvas{}, Errorf(KindNotFound, "no block %q on canvas %q", blockID, name)
 	}
-	s.notify(rec.Workspace, session)
+	s.notify(session)
 	return c, nil
 }
 
@@ -146,7 +146,7 @@ func (s *CanvasService) Clear(ctx context.Context, session int64, name string) (
 	if err != nil {
 		return canvas.Canvas{}, s.storeError(err, name)
 	}
-	s.notify(rec.Workspace, session)
+	s.notify(session)
 	return c, nil
 }
 
@@ -156,8 +156,7 @@ func (s *CanvasService) Clear(ctx context.Context, session int64, name string) (
 // away from something else. Opening with a name requires that canvas to
 // exist; empty leaves the pane's own pick.
 func (s *CanvasService) SetPaneOpen(ctx context.Context, session int64, name string, open bool) error {
-	rec, err := s.resolve(ctx, session)
-	if err != nil {
+	if _, err := s.resolve(ctx, session); err != nil {
 		return err
 	}
 	if open && name != "" {
@@ -166,7 +165,7 @@ func (s *CanvasService) SetPaneOpen(ctx context.Context, session int64, name str
 		}
 	}
 	if s.onToggled != nil {
-		s.onToggled(rec.Workspace, session, name, open)
+		s.onToggled(session, name, open)
 	}
 	return nil
 }
@@ -184,7 +183,7 @@ func (s *CanvasService) Delete(ctx context.Context, session int64, name string) 
 	if !existed {
 		return Errorf(KindNotFound, "no canvas named %q in this workspace", name)
 	}
-	s.notify(rec.Workspace, session)
+	s.notify(session)
 	return nil
 }
 
@@ -287,9 +286,9 @@ func (s *CanvasService) storeError(err error, name string) error {
 	}
 }
 
-func (s *CanvasService) notify(workspace string, session int64) {
+func (s *CanvasService) notify(session int64) {
 	if s.onUpdated != nil {
-		s.onUpdated(workspace, session)
+		s.onUpdated(session)
 	}
 }
 

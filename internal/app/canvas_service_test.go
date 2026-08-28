@@ -21,20 +21,14 @@ func (f fakeCanvasSessions) GetAgentWorkspaceSession(_ context.Context, id int64
 	return rec, ok, nil
 }
 
-type canvasUpdate struct {
-	workspace string
-	session   int64
-}
-
 type canvasToggle struct {
-	workspace string
-	session   int64
-	name      string
-	open      bool
+	session int64
+	name    string
+	open    bool
 }
 
 type canvasSignals struct {
-	updates []canvasUpdate
+	updates []int64
 	toggles []canvasToggle
 }
 
@@ -45,11 +39,11 @@ func testCanvasService(t *testing.T) (*CanvasService, *canvasSignals) {
 		1: {ID: 1, Workspace: "ws", Name: "chat", Agent: "claude"},
 	}
 	svc := newCanvasService(canvas.NewStore(t.TempDir()), sessions,
-		func(workspace string, session int64) {
-			signals.updates = append(signals.updates, canvasUpdate{workspace, session})
+		func(session int64) {
+			signals.updates = append(signals.updates, session)
 		},
-		func(workspace string, session int64, name string, open bool) {
-			signals.toggles = append(signals.toggles, canvasToggle{workspace, session, name, open})
+		func(session int64, name string, open bool) {
+			signals.toggles = append(signals.toggles, canvasToggle{session, name, open})
 		})
 	return svc, signals
 }
@@ -196,7 +190,7 @@ func TestCanvasMutationsNotify(t *testing.T) {
 
 	require.Len(t, signals.updates, 5)
 	for _, update := range signals.updates {
-		assert.Equal(t, canvasUpdate{"ws", 1}, update)
+		assert.Equal(t, int64(1), update)
 	}
 }
 
@@ -229,9 +223,9 @@ func TestCanvasSetPaneOpen(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 
 	assert.Equal(t, []canvasToggle{
-		{"ws", 1, "", true},
-		{"ws", 1, "plan", true},
-		{"ws", 1, "", false},
+		{1, "", true},
+		{1, "plan", true},
+		{1, "", false},
 	}, signals.toggles)
 	assert.Len(t, signals.updates, 1, "a pane toggle is not a content update")
 }
