@@ -18,6 +18,7 @@ import {
 import { SYMBOL_FONT, TERMINAL_FONT, terminalFontStack } from '../../lib/terminalFaces'
 import { TerminalRequestError, type TerminalClient } from '../../lib/terminalClient'
 import { paneMayAutoFocus } from '../../lib/terminalTree'
+import { useKeybindings } from '../useKeybindings'
 
 const xterm = vi.hoisted(() => {
   interface FakeLine {
@@ -371,6 +372,9 @@ describe('useTerminalWindows', () => {
     sockets = []
     loadedFaces = []
     paneMayAutoFocus.value = true
+    // The keymap is a module singleton, so a rebind in one test would still be
+    // in force in the next.
+    useKeybindings().clearAll()
     resetTerminalFacesForTests()
     xterm.FakeTerminal.instances = []
     xterm.FakeFitAddon.instances = []
@@ -1473,6 +1477,27 @@ describe('useTerminalWindows', () => {
 
     expect(term.press({ key: 't', ctrlKey: true })).toBe(true)
     expect(term.press({ key: 'w', ctrlKey: true })).toBe(true)
+    expect(socket.sent).toHaveLength(0)
+  })
+
+  // Alt+T is readline's transpose-words, and nothing here may take it from the
+  // shell until a command that pierces the pane is actually bound to it — the
+  // decision the pane and App.vue both read off the catalog flag.
+  it('declines an alt chord only once a pane-piercing command claims it', async () => {
+    const { socket } = await attached()
+    const term = xterm.FakeTerminal.instances[0]
+    const keys = useKeybindings()
+
+    expect(term.press({ key: 't', altKey: true })).toBe(true)
+
+    // report.open reaches the pane by neither route, so binding it changes
+    // nothing for the shell.
+    keys.addBinding('report.open', 'alt+t')
+    expect(term.press({ key: 't', altKey: true })).toBe(true)
+
+    keys.removeBinding('report.open', 'alt+t')
+    keys.addBinding('tasks.toggle', 'alt+t')
+    expect(term.press({ key: 't', altKey: true })).toBe(false)
     expect(socket.sent).toHaveLength(0)
   })
 

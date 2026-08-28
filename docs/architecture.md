@@ -1397,15 +1397,19 @@ Three rules govern it, and each is a consequence of that:
 - **A focused pane keeps every key it can use, and a short list gets one back**
   — in two ways, which is the distinction to get right before adding to it.
 
-  A command **pierces** when it is claimed on the binding alone: the pop-up
-  toggle and any launcher chord, because the combo that opens one has to close
-  it — a launcher only where its own context is active, so a session-scoped one
-  leaves the key to the pane outside a session (ADR quick-terminal-launchers-are-session-scoped);
-  `terminal.focus-sidebar`, because it is the way back to the session tree;
-  and `terminal.select-window-1` … `-9`, because a jump between windows is only
-  ever wanted from inside the one being left. Where `mod` is Ctrl these take a
-  readline chord away from the pane, which is the price of a chord that has to
-  work from inside one.
+  A command **pierces** when the catalog marks it `piercesPane`: it is claimed
+  on the binding alone, whatever modifiers it carries. The pop-up toggle and
+  `tasks.toggle`, because the combo that opens an overlay has to close it;
+  `terminal.focus-sidebar` and `agents.focus-sidebar`, because reaching the list
+  is the way back out — only that half of the focus pair, since the chord moving
+  focus *into* a pane is unreachable from inside one; and
+  `terminal.select-window-1` … `-9`, because a jump between windows is only
+  ever wanted from inside the one being left. A launcher chord pierces for the
+  pop-up's reason without being in the static catalog, and only where its own
+  context is active, so a session-scoped one leaves the key to the pane outside
+  a session (ADR quick-terminal-launchers-are-session-scoped). Where `mod` is
+  Ctrl these take a readline chord away from the pane, which is the price of a
+  chord that has to work from inside one.
 
   A command **escapes** when the catalog marks it `escapesPane`: it is claimed
   through `terminalEscapeCombo`, which takes Command chords and Ctrl+Shift where
@@ -1415,7 +1419,13 @@ Three rules govern it, and each is a consequence of that:
   `-prev-window`. That is what leaves a bare Ctrl+K as readline's
   kill-to-end-of-line and Ctrl+T as its transpose-chars while ⌘K and ⌘T are the
   app's. Prefer escaping: piercing is for a chord the escape form cannot carry.
-  Anything added either way has to answer why a pane may not have the key.
+  An alt chord is the case that forces it — `terminalEscapeCombo` qualifies only
+  Command and Ctrl+Shift, so a user who binds `alt+t` to a command that merely
+  escapes gets nothing. Widening the escape chord to accept alt was rejected:
+  it would hand every alt binding to the app and take readline's meta chords and
+  tmux's alt bindings away from the shell for anyone who has one, where the flag
+  keeps the blast radius to the command that asked. Anything added either way
+  has to answer why a pane may not have the key.
 
   Both are two-sided: the dispatcher must act on the chord *and* xterm's
   `attachCustomKeyEventHandler` must decline it, or the pane writes it to tmux

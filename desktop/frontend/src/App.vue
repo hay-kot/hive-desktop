@@ -58,7 +58,7 @@ import { useLaunchers } from './composables/useLaunchers'
 import { useItemSessions } from './composables/useItemSessions'
 import { useWailsEvent } from './composables/useWailsEvent'
 import { comboFromEvent, formatCombo, terminalEscapeCombo, useKeybindings } from './composables/useKeybindings'
-import { commands as bindableCommands, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
+import { commands as bindableCommands, commandPiercesPane, launcherActionID, launcherCommandID, terminalWindowPosition, type CommandContext } from './keybindings/catalog'
 import { setTheme, themeLabels, themes } from './composables/useTheme'
 import { useFlowsSession } from './pipeline/composables/useFlowsSession'
 import { isEditableTarget, isTerminalTarget } from './lib/isEditableTarget'
@@ -1169,38 +1169,25 @@ useCommands(computed(() => {
 
 function onGlobalKeydown(e: KeyboardEvent): void {
   // The exceptions to the rule below, which hands a focused terminal every key.
-  // The combo that opens a pop-up has to be able to close it, and by then a
-  // terminal has focus; a launcher's chord is one of those for the same reason.
-  // The palette is the third, because it is how you get back out of a pane. An
-  // overlay still suppresses all of them, as it does every global command.
-  //
-  // A launcher still answers to its own context: one that opens in a session's
-  // checkout is not dispatched outside a session, so its chord falls through to
-  // whatever else would have taken it rather than opening a terminal the
-  // program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
-  if (!kb.recording.value && !anyOverlayOpen.value) {
-    const id = kb.resolve(comboFromEvent(e) ?? '')
-    const pierces = id === 'terminal.popup.toggle' || (id && launcherActionID(id) !== null)
-    if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
-      e.preventDefault()
-      runCommand(id)
-      return
-    }
-    // Reaching the session tree is the pane's other way out, so it fires over a
-    // focused terminal too. Only this half of the pair does: the chord that
-    // moves focus *into* a pane is unreachable from inside one, so it stays an
-    // ordinary command and tmux keeps it. The Agents area's session pane
-    // carries the same data-terminal-input-scope, so its own focus-sidebar
-    // chord needs the identical exception.
+  // Both kinds still answer to their own context, and an overlay suppresses
+  // them as it does every global command.
+  if (isTerminalTarget(e.target) && !kb.recording.value && !anyOverlayOpen.value) {
+    // The commands the catalog marks `piercesPane` are claimed on the binding
+    // alone: the pop-up toggle and Tasks, because the combo that opens an
+    // overlay has to close it; `terminal.focus-sidebar` and its Chats twin,
+    // because reaching the list is the pane's way out — only that half of the
+    // focus pair, since the chord moving focus *into* a pane is unreachable
+    // from inside one; and the numbered window jumps, only ever wanted from
+    // inside the window being left.
     //
-    // A numbered window jump is the same case — it is only ever wanted from
-    // inside the window you are leaving.
-    if (id && terminalActive.value && (id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null)) {
-      e.preventDefault()
-      runCommand(id)
-      return
-    }
-    if (id && agentsActive.value && id === 'agents.focus-sidebar') {
+    // A launcher pierces for the pop-up's reason without being in the static
+    // catalog, and answers to the context it carries there: one that opens in a
+    // session's checkout is not dispatched outside a session, so its chord
+    // falls through to whatever else would have taken it rather than opening a
+    // terminal the program inside cannot use (ADR quick-terminal-launchers-are-session-scoped).
+    const id = kb.resolve(comboFromEvent(e) ?? '')
+    const pierces = !!id && (commandPiercesPane(id) || launcherActionID(id) !== null)
+    if (id && pierces && contextActive(catalogById.value.get(id)?.context ?? 'global')) {
       e.preventDefault()
       runCommand(id)
       return
@@ -1210,14 +1197,12 @@ function onGlobalKeydown(e: KeyboardEvent): void {
     // only on modifiers a terminal cannot use, which is what terminalEscapeCombo
     // answers. A bare Ctrl+K stays with the pane; it is readline's
     // kill-to-end-of-line, and Ctrl+T is its transpose.
-    if (isTerminalTarget(e.target)) {
-      const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')
-      const command = escaped ? catalogById.value.get(escaped) : undefined
-      if (escaped && command?.escapesPane && contextActive(command.context)) {
-        e.preventDefault()
-        runCommand(escaped)
-        return
-      }
+    const escaped = kb.resolve(terminalEscapeCombo(e) ?? '')
+    const command = escaped ? catalogById.value.get(escaped) : undefined
+    if (escaped && command?.escapesPane && contextActive(command.context)) {
+      e.preventDefault()
+      runCommand(escaped)
+      return
     }
   }
 

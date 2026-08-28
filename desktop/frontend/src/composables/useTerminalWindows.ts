@@ -21,7 +21,7 @@ import { TerminalOutputWriter } from '../lib/terminalOutput'
 import { interceptPaste } from '../lib/terminalPaste'
 import { silenceDeviceReports } from '../lib/terminalReports'
 import { paneMayAutoFocus } from '../lib/terminalTree'
-import { commandEscapesPane, terminalWindowPosition } from '../keybindings/catalog'
+import { commandEscapesPane, commandPiercesPane } from '../keybindings/catalog'
 import { comboFromEvent, terminalEscapeCombo, useKeybindings } from './useKeybindings'
 import { searchHighlightColors, xtermTheme } from '../lib/terminalTheme'
 import { resizeTerminalPreservingViewport } from '../lib/terminalViewport'
@@ -922,15 +922,15 @@ function escapesPane(event: KeyboardEvent): boolean {
   return !!id && commandEscapesPane(id)
 }
 
-// The chords App.vue runs over a focused pane: back to the session tree, and
-// the jumps to a numbered window. Declining them here is only about keeping
-// xterm from *also* writing them to tmux — Ctrl+2 through Ctrl+7 are control
-// characters on a platform without Command. Resolved against the live keymap
-// rather than matched literally, so a rebind moves both sides together.
+// The commands App.vue runs over a focused pane on the binding alone. Declining
+// them here is only about keeping xterm from *also* writing them to tmux —
+// Ctrl+2 through Ctrl+7 are control characters on a platform without Command,
+// and an alt chord is a meta escape the shell would read as a readline command.
+// Resolved against the live keymap rather than matched literally, so a rebind
+// moves both sides together.
 function piercesPane(event: KeyboardEvent): boolean {
   const id = keymap.resolve(comboFromEvent(event) ?? '')
-  if (!id) return false
-  return id === 'terminal.focus-sidebar' || terminalWindowPosition(id) !== null
+  return !!id && commandPiercesPane(id)
 }
 
 // Cmd+F on macOS, Ctrl+Shift+F everywhere else — the convention every terminal
