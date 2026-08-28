@@ -121,6 +121,9 @@ func (p *publisher) verifyDiskImage(ctx context.Context, path string) error {
 		return err
 	}
 	err := inspectMountedInstaller(ctx, mount, !p.options.skipNotarize)
+	if err == nil {
+		err = verifyCommitStamp(filepath.Join(mount, "Hive.app", "Contents", "MacOS", "hive-desktop"), p.commit, "installer macOS app")
+	}
 	if detachErr := detachVolume(ctx, mount); err == nil {
 		err = detachErr
 	}

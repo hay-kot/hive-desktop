@@ -29,7 +29,7 @@ desktop/
 └── channels/{stable,beta,dev}/latest.json   # mutable channel pointers
 ```
 
-One `SHA256SUMS` lists every artifact in the release. A single publish writes the whole prefix once, so nothing under it is ever rewritten — which matters because those objects carry a one-year immutable `Cache-Control`.
+One `SHA256SUMS` lists every artifact in the release. A logical publish writes each object under the prefix once. Recovery may fill objects a failed attempt did not reach, but reuses an existing object only after proving its bytes match, so nothing under the prefix is rewritten. That matters because those objects carry a one-year immutable `Cache-Control`.
 
 ## Artifact formats
 
@@ -177,7 +177,7 @@ The interactive command refreshes release tags, checks the source and GitHub aut
 
 `--dry-run` is a prompt preview that also works from a dirty feature worktree. It reads live manifests and tags and validates the selected version, but skips the clean-main and GitHub-authentication requirements and stops after confirmation without running gates, building artifacts, uploading, tagging, or creating a GitHub release.
 
-`mise run release:publish -- <version>` is the low-level publisher used for local build diagnostics and recovery (`--skip-upload`, `--skip-notarize` with `--skip-upload`, `--skip-web`, `--force`); do not use it to bypass the interactive confirmation for a normal public release. `publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.
+`mise run release:publish -- <version>` is the low-level publisher used for local build diagnostics and recovery (`--skip-upload`, `--skip-notarize` with `--skip-upload`, `--skip-web`, `--force`, `--resume`); do not use it to bypass the interactive confirmation for a normal public release. `publish` verifies every affected live manifest and downloads the public artifact to verify its size and SHA-256, then pushes the `desktop-v1.4.0-dev.1` tag and creates its GitHub Release — do not tag by hand. A local build (`--skip-upload`) records nothing on GitHub. `verify` remains available for later diagnostics without rebuilding, and `release github <version>` re-records the GitHub side alone.
 
 Rules enforced by the publisher:
 1. Release preparation requires a clean, current `main`. Publishing requires the same state. Source state is checked again immediately before upload.
@@ -185,8 +185,20 @@ Rules enforced by the publisher:
 3. SQLite migrations must be contiguous, and every migration present in the latest reachable `desktop-v*` tag must remain at the same path with the same contents. Both `prepare` and `publish` run `scripts/check-migration-order.sh` before release work begins.
 4. The first prerelease identifier routes the channel (`-dev.N` → dev, `-beta.N` → beta, none → stable; any other identifier is rejected).
 5. `latest.json` is written for the target channel **and cascades to less-stable channels** (stable → stable+beta+dev; beta → beta+dev; dev → dev only).
-6. `releases/<semver>/` is immutable — re-publishing an existing version requires `--force`.
+6. `releases/<semver>/` is immutable. A normal re-publish rejects any existing object. Resume reuses one only after downloading it and proving it is byte-identical to the verified local artifact; `--force` remains a separate manual override and cannot be combined with `--resume`.
 7. After the artifacts are live and verified, the `desktop-v<semver>` tag is pushed and its GitHub Release created; an existing tag or release pointing at another commit is a conflict, and one already at the release commit is left untouched.
+
+### Recovering an interrupted publish
+
+R2 HEAD, GET, and PUT calls retry bounded transient curl failures, including connection, TLS, and partial-transfer errors. If those retries are exhausted after the build finished, keep `desktop/bin` intact and resume the same version:
+
+```bash
+mise run release:publish -- <version> --resume
+```
+
+Resume does not deploy the web worker, rebuild, sign, or submit anything to Apple. It loads the four versioned artifacts already in `desktop/bin`, verifies both macOS signatures and stapled tickets, checks both Linux archive shapes, confirms every binary carries the current release commit, and reconstructs `SHA256SUMS`. It downloads every object already present under the release prefix and reuses it only when its bytes match the local artifact, uploads missing objects, and completes any channel manifests not already written. A manifest already on the version must have identical notes and artifact metadata; a conflicting or newer manifest stops recovery.
+
+Do not cut a replacement version for a partial upload, and do not use `--force`: both discard the verified build that resume exists to preserve. If `desktop/bin` was deleted or any local artifact differs from an already-uploaded object, the interrupted version cannot be resumed safely. If R2 and the manifests are already live and only the final GitHub step failed, use `go run ./cmd/release github <version>` instead.
 
 ## Installing on macOS
 

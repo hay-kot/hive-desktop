@@ -137,6 +137,35 @@ func TestVerifyBinaryTarballRejectsBadShapes(t *testing.T) {
 	}
 }
 
+func TestTarballContainsDetectsCommitStamp(t *testing.T) {
+	t.Parallel()
+
+	const commit = "3807c2bb3cad64e9230ec70a9e01aee64cc1593b"
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "hive-desktop")
+	if err := os.WriteFile(binary, []byte("binary "+commit), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tarball := filepath.Join(dir, "hive.tar.gz")
+	if err := writeBinaryTarball(tarball, binary, linuxBinaryName, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	found, err := tarballContains(tarball, linuxBinaryName, commit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Fatal("stamped commit not found in packaged binary")
+	}
+	found, err = tarballContains(tarball, linuxBinaryName, strings.Repeat("0", 40))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Fatal("unstamped commit reported as present")
+	}
+}
+
 // A build that lost its ldflags reports "dev", which releaseChannel rejects, so
 // the app would ship with its updater permanently disabled. buildLinux greps
 // the binary for the release commit to catch that.
