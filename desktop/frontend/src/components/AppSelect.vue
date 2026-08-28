@@ -116,6 +116,12 @@ function openList(): void {
     measure() // now that the list has rendered and its natural width is known
     if (props.searchable) searchInput.value?.focus()
     else if (props.editable) { editableInput.value?.focus(); editableInput.value?.select() }
+    // A mouse click does not focus a button in WebKit, so without this an
+    // open plain listbox can have no focused element inside `root` and
+    // onKeydown never fires — arrows and Escape then land in window-level
+    // handlers (the tasks tree's navigation, escape-to-close) instead of
+    // the list.
+    else trigger.value?.focus()
   })
 }
 
@@ -202,6 +208,19 @@ function onKeydown(event: KeyboardEvent): void {
   // Not prevented: close() puts focus back on the trigger first, so the default
   // Tab carries on from there into the next field.
   else if (event.key === 'Tab') close()
+  // An open plain listbox owns the keyboard the way a native select does:
+  // the keys it ignores (horizontal arrows, bare letters) are marked handled
+  // so a window-level hotkey layer — the tasks tree walks on exactly these —
+  // cannot act underneath it. Search/editable mode keeps them: there they
+  // move the caret or type into an input, and the focused input is what
+  // shields them from hotkey layers instead.
+  else if (
+    !props.searchable && !props.editable
+    && (event.key === 'ArrowLeft' || event.key === 'ArrowRight'
+      || (event.key.length === 1 && !event.metaKey && !event.ctrlKey && !event.altKey))
+  ) {
+    event.preventDefault()
+  }
 }
 
 const { style: popoverStyle, measure } = useAnchoredPopover(root, popover, open)

@@ -1,6 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { chooseOption } from '../../test-utils/select'
+import { chooseOption, openSelect } from '../../test-utils/select'
 
 const mocks = vi.hoisted(() => ({
   ListTasks: vi.fn(),
@@ -579,6 +579,48 @@ describe('TasksView', () => {
     await flushPromises()
     expect(useTasks().repoKey.value).toBe('')
     expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(1)
+
+    wrapper.unmount()
+  })
+
+  // The real app's keydowns bubble from the focused element, so this test
+  // dispatches on the select's trigger (focused on open) rather than window —
+  // that is the path where AppSelect's own preventDefault/stopPropagation can
+  // shield the tree hotkeys and the overlay's escape-to-close.
+  it('routes keys to an open select popover instead of the tree underneath it', async () => {
+    mocks.ListTasks.mockResolvedValue([task('e1', { type: 'epic' }), task('c1', { parentId: 'e1' })])
+    mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
+    // Attached, unlike the other mounts: focus() only works on elements in the
+    // document, and the focused trigger is the mechanism under test.
+    const wrapper = mount(TasksView, { attachTo: document.body })
+    await flushPromises()
+    expect(useTasks().selectedId.value).toBe('e1')
+
+    await openSelect(wrapper, 'task-status-select')
+    await flushPromises()
+    const trigger = document.activeElement as HTMLElement
+    expect(trigger?.getAttribute('data-testid')).toBe('task-status-select')
+
+    function press(key: string): void {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+
+    press('ArrowDown')
+    await flushPromises()
+    expect(useTasks().selectedId.value).toBe('e1') // the tree did not move
+
+    press('ArrowLeft')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="task-tree-row"]')).toHaveLength(2) // the epic did not fold
+
+    press('j')
+    await flushPromises()
+    expect(useTasks().selectedId.value).toBe('e1')
+
+    press('Escape')
+    await flushPromises()
+    expect(document.querySelector('[data-testid="task-status-select-popover"]')).toBeNull() // Escape closed the popover…
+    expect(wrapper.emitted('close')).toBeUndefined() // …not the overlay
 
     wrapper.unmount()
   })
