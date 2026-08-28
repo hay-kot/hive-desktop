@@ -1,7 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import AgentCanvasPane from '../AgentCanvasPane.vue'
-import { chooseOption, openSelect } from '../../test-utils/select'
 import type { AgentWorkspacesClient, CanvasBlock, ChatCanvasMeta } from '../../lib/agentWorkspacesClient'
 
 const wailsEvents = vi.hoisted(() => ({
@@ -100,7 +99,7 @@ describe('AgentCanvasPane', () => {
     expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('web-app', 'plan')
   })
 
-  it('pins the route-named canvas and labels the picker by title', async () => {
+  it('pins the route-named canvas and lists canvases by title in the browse view', async () => {
     const client = fakeCanvasClient([], [
       meta({ name: 'plan', title: 'The Plan', session: 7 }),
       meta({ name: 'perf-report', title: '', session: 9 }),
@@ -109,23 +108,25 @@ describe('AgentCanvasPane', () => {
 
     expect(vi.mocked(client.canvas)).toHaveBeenCalledWith('web-app', 'perf-report')
 
-    const popover = await openSelect(wrapper, 'agent-canvas-picker')
-    const labels = Array.from(popover.querySelectorAll('[role="option"]')).map((option) => option.textContent?.trim())
-    expect(labels).toContain('The Plan')
-    expect(labels).toContain('perf-report')
+    await wrapper.get('[data-testid="agent-canvas-title"]').trigger('click')
+    const browse = wrapper.get('[data-testid="agent-canvas-browse"]')
+    expect(browse.text()).toContain('The Plan')
+    expect(browse.text()).toContain('perf-report')
+    expect(wrapper.get('[data-testid="agent-canvas-browse-perf-report"]').attributes('aria-current')).toBe('true')
   })
 
-  it('emits pick instead of switching locally', async () => {
+  it('emits pick from the browse view instead of switching locally', async () => {
     const client = fakeCanvasClient([], [
       meta({ name: 'plan', title: 'The Plan', session: 7 }),
       meta({ name: 'perf-report', session: 9 }),
     ])
     const wrapper = await mountPane(client)
 
-    await chooseOption(wrapper, 'agent-canvas-picker', 'perf-report')
-    await flushPromises()
+    await wrapper.get('[data-testid="agent-canvas-title"]').trigger('click')
+    await wrapper.get('[data-testid="agent-canvas-browse-perf-report"]').trigger('click')
 
     expect(wrapper.emitted('pick')).toEqual([['perf-report']])
+    expect(wrapper.find('[data-testid="agent-canvas-browse"]').exists()).toBe(false)
   })
 
   it('re-reads the canvas on canvas:updated', async () => {

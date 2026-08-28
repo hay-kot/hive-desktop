@@ -3,14 +3,14 @@
 // in the webview — writes arrive only through the hive-canvas MCP tools, so
 // this pane re-reads on canvas:updated rather than ever mutating
 // (ADR canvases-are-named-files-in-the-workspace-folder-served-over-their-own-mcp-entry).
-import { computed, toRef, watch } from 'vue'
+import { computed, ref, toRef, watch } from 'vue'
+import IconChevronDown from '~icons/lucide/chevron-down'
 import IconX from '~icons/lucide/x'
-import AppSelect from './AppSelect.vue'
 import PanelResizeHandle from './PanelResizeHandle.vue'
-import type { AppSelectOption } from './AppSelect.vue'
 import { useAgentCanvas } from '../composables/useAgentCanvas'
 import { useResizablePanel } from '../composables/useResizablePanel'
 import { useWailsEvent } from '../composables/useWailsEvent'
+import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
 import type { AgentWorkspacesClient, CanvasBlock } from '../lib/agentWorkspacesClient'
 
@@ -32,26 +32,22 @@ watch(() => [props.workspace, props.name, props.session] as const, ([dir, name, 
   show(dir, name, session)
 }, { immediate: true })
 
+// The header title opens an in-pane browse list over the content (the
+// Grafana-assistant pattern) rather than a dropdown: rows are the
+// workspace's canvases, the current one marked, each aged on the right.
+const browsing = ref(false)
+
+const headerTitle = computed(() => canvas.value?.title || shown.value || 'Canvas')
+
 // A pick pins the name in the route; the prop watcher above brings it back.
-function pick(value: string): void {
-  emit('pick', value)
+function pick(name: string): void {
+  browsing.value = false
+  emit('pick', name)
 }
 
-// Every write re-reads both the shown canvas and the picker's listing: the
+// Every write re-reads both the shown canvas and the browse listing: the
 // signal's payload can be coalesced away, and both reads are cheap.
 useWailsEvent('canvas:updated', () => wake())
-
-const pickerOptions = computed<AppSelectOption[]>(() => {
-  const options = metas.value.map((meta) => ({
-    value: meta.name,
-    label: meta.title || meta.name,
-  }))
-  const current = shown.value
-  if (current && !options.some((option) => option.value === current)) {
-    options.unshift({ value: current, label: current })
-  }
-  return options
-})
 
 // GFM from an agent is untrusted by default: renderGithubMarkdown escapes raw
 // HTML and drops unsafe link schemes, so the result is safe for v-html.
@@ -90,16 +86,23 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
   >
     <PanelResizeHandle edge="left" name="agents-canvas" :start="startPaneResize" :step="stepPane" />
 
-    <div class="flex shrink-0 items-center gap-1.5 border-b border-border px-3 py-1">
-      <AppSelect
-        class="min-w-0 flex-1"
-        size="sm"
-        aria-label="Canvas"
-        testid="agent-canvas-picker"
-        :model-value="shown ?? ''"
-        :options="pickerOptions"
-        @update:model-value="pick"
-      />
+    <div class="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1">
+      <button
+        type="button"
+        class="flex h-6 min-w-0 cursor-pointer items-center gap-1 rounded-[7px] px-1.5 hover:bg-chip"
+        :aria-expanded="browsing"
+        aria-label="Browse canvases"
+        data-testid="agent-canvas-title"
+        @click="browsing = !browsing"
+      >
+        <span class="min-w-0 truncate text-[12px] font-semibold text-text">{{ headerTitle }}</span>
+        <IconChevronDown
+          class="size-3.5 shrink-0 text-text-3 transition-transform"
+          :class="browsing ? 'rotate-180' : ''"
+          aria-hidden="true"
+        />
+      </button>
+      <div class="min-w-0 flex-1" />
       <button
         type="button"
         class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-[7px] text-text-3 hover:bg-chip hover:text-text"
@@ -110,7 +113,28 @@ const { size: paneWidth, startResize: startPaneResize, step: stepPane } = useRes
       ><IconX class="size-3.5" /></button>
     </div>
 
-    <div class="hive-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
+    <div
+      v-if="browsing"
+      class="hive-scroll min-h-0 flex-1 overflow-y-auto p-2"
+      data-testid="agent-canvas-browse"
+    >
+      <button
+        v-for="meta in metas"
+        :key="meta.name"
+        type="button"
+        class="flex w-full cursor-pointer items-center gap-2 rounded-[7px] px-2 py-1.5 text-left hover:bg-chip"
+        :class="meta.name === shown ? 'bg-chip' : ''"
+        :aria-current="meta.name === shown ? 'true' : undefined"
+        :data-testid="'agent-canvas-browse-' + meta.name"
+        @click="pick(meta.name)"
+      >
+        <span class="min-w-0 flex-1 truncate text-[12.5px]" :class="meta.name === shown ? 'text-text' : 'text-text-2'">{{ meta.title || meta.name }}</span>
+        <span class="shrink-0 font-mono text-[10.5px] text-text-4">{{ relativeAge(meta.updatedAt) }}</span>
+      </button>
+      <p v-if="!metas.length" class="px-2 py-1.5 text-xs leading-relaxed text-text-4">No canvases yet.</p>
+    </div>
+
+    <div v-else class="hive-scroll min-h-0 flex-1 overflow-y-auto px-4 py-3">
       <template v-if="canvas && canvas.blocks.length">
         <article
           v-for="block in canvas.blocks"
