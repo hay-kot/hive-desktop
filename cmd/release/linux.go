@@ -57,12 +57,8 @@ func (p *publisher) buildLinux(ctx context.Context, arch string) (releaseArtifac
 	// -buildvcs=false it can only enter the binary through the same -X block,
 	// while a bare stable version like "0.2.0" false-matches the dependency
 	// versions Go embeds in build info.
-	stamped, err := fileContains(binary, p.commit)
-	if err != nil {
-		return releaseArtifact{}, err
-	}
-	if !stamped {
-		return releaseArtifact{}, fmt.Errorf("linux/%s binary does not carry commit %s; the build's VERSION_LDFLAGS did not apply", arch, p.commit)
+	if err := verifyCommitStamp(binary, p.commit, "linux/"+arch+" binary"); err != nil {
+		return releaseArtifact{}, fmt.Errorf("%w; the build's VERSION_LDFLAGS did not apply", err)
 	}
 
 	name := fmt.Sprintf("Hive-%s-linux-%s.tar.gz", p.options.version, arch)
@@ -179,6 +175,32 @@ func verifyBinaryTarball(path, entryName string) error {
 		return fmt.Errorf("%s is empty", path)
 	}
 	return nil
+}
+
+func tarballContains(path, entryName, needle string) (bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = file.Close() }()
+	zip, err := gzip.NewReader(file)
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	defer func() { _ = zip.Close() }()
+	archive := tar.NewReader(zip)
+	header, err := archive.Next()
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+	if header.Name != entryName {
+		return false, fmt.Errorf("%s contains %q, want %q", path, header.Name, entryName)
+	}
+	contents, err := io.ReadAll(archive)
+	if err != nil {
+		return false, fmt.Errorf("read %s entry %q: %w", path, entryName, err)
+	}
+	return bytes.Contains(contents, []byte(needle)), nil
 }
 
 // fileContains reports whether the file holds needle. Used to confirm a build

@@ -121,8 +121,21 @@ Reject missing or unknown channels instead of guessing.
    Do not read `.env`, print credential environment variables, or call
    `go run ./cmd/release publish` directly. The publisher verifies every affected
    live manifest and downloads the public artifact to check its size and SHA-256
-   before it succeeds. Stop on failure. Do not rerun with `--force`, overwrite
-   artifacts, or invent a replacement version without explicit user approval.
+   before it succeeds.
+
+   R2 operations have bounded retries. If they are exhausted after packaging has
+   completed, keep `desktop/bin` intact and resume the same version:
+
+   ```bash
+   mise run release:publish -- <version> --resume
+   ```
+
+   Resume skips the web deploy, builds, signing, and Apple submissions. It
+   re-verifies the local artifacts, reuses only byte-identical R2 objects,
+   uploads missing objects, and finishes partial manifest writes before the
+   normal live verification and GitHub step. Stop if resume reports a local or
+   remote mismatch. Never use `--force` for recovery and never invent a
+   replacement version for a partial upload.
 9. Publishing finishes by recording the release on GitHub itself — pushing the
    `desktop-v<version>` tag and creating its GitHub Release. Do not tag or push
    by hand. If only that final step fails (e.g. a `gh` outage), the R2 release is

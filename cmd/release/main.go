@@ -97,13 +97,14 @@ func newReleaseCommand() *cli.Command {
 					&cli.BoolFlag{Name: "skip-upload", Usage: "build and package without publishing"},
 					&cli.BoolFlag{Name: "skip-web", Usage: "skip deploying and verifying the web landing page and worker"},
 					&cli.BoolFlag{Name: "force", Usage: "permit overwriting an existing immutable release"},
+					&cli.BoolFlag{Name: "resume", Usage: "reuse verified desktop/bin artifacts and finish an interrupted upload without rebuilding"},
 				},
 				Action: withRepoRoot(func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.NArg() != 1 {
 						return cli.Exit("expected exactly one version", 2)
 					}
 					args := []string{cmd.Args().First()}
-					for _, flag := range []string{"skip-notarize", "skip-upload", "skip-web", "force"} {
+					for _, flag := range []string{"skip-notarize", "skip-upload", "skip-web", "force", "resume"} {
 						if cmd.Bool(flag) {
 							args = append(args, "--"+flag)
 						}

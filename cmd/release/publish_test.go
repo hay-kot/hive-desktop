@@ -4,6 +4,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -14,6 +15,89 @@ func TestParsePublishOptionsRequiresUploadSkipWithNotarySkip(t *testing.T) {
 	_, err := parsePublishOptions([]string{"1.2.3-dev.1", "--skip-notarize"})
 	if err == nil || !strings.Contains(err.Error(), "requires --skip-upload") {
 		t.Fatalf("parsePublishOptions() error = %v", err)
+	}
+}
+
+func TestParsePublishOptionsResumeNeedsNoSigningSecrets(t *testing.T) {
+	for _, name := range []string{"MACOS_CERTIFICATE", "MACOS_CERTIFICATE_PWD", "MACOS_SIGN_IDENTITY", "AC_API_KEY", "AC_API_KEY_ID", "AC_API_ISSUER_ID"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("R2_ACCESS_KEY_ID", "test")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "test")
+
+	options, err := parsePublishOptions([]string{"1.2.3-dev.1", "--resume"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !options.resume {
+		t.Fatalf("unexpected options: %#v", options)
+	}
+}
+
+func TestParsePublishOptionsRejectsUnsafeResumeCombinations(t *testing.T) {
+	for _, flag := range []string{"--force", "--skip-upload", "--skip-notarize"} {
+		t.Run(flag, func(t *testing.T) {
+			_, err := parsePublishOptions([]string{"1.2.3-dev.1", "--resume", flag})
+			if err == nil || !strings.Contains(err.Error(), "--resume cannot be combined") {
+				t.Fatalf("parsePublishOptions() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestParsePublishOptionsResumeStillRequiresR2Credentials(t *testing.T) {
+	t.Setenv("R2_ACCESS_KEY_ID", "")
+	t.Setenv("R2_SECRET_ACCESS_KEY", "")
+
+	_, err := parsePublishOptions([]string{"1.2.3-dev.1", "--resume"})
+	if err == nil || !strings.Contains(err.Error(), "R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY") {
+		t.Fatalf("parsePublishOptions() error = %v", err)
+	}
+}
+
+func TestR2CurlRetriesAreBounded(t *testing.T) {
+	t.Parallel()
+
+	args := r2CurlRetryArgs()
+	for _, value := range []string{"--retry", "5", "--retry-all-errors", "--connect-timeout", "30"} {
+		if !slices.Contains(args, value) {
+			t.Fatalf("r2CurlRetryArgs() = %q, missing %q", args, value)
+		}
+	}
+	// curl starts the --retry-max-time timer before the first attempt, so a cap
+	// silently disables retries for the artifact uploads that most need them.
+	if slices.Contains(args, "--retry-max-time") {
+		t.Fatalf("r2CurlRetryArgs() = %q, must not cap retry wall-clock", args)
+	}
+}
+
+func TestChooseR2UploadAction(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name            string
+		exists, matches bool
+		resume, force   bool
+		want            r2UploadAction
+		wantErr         bool
+	}{
+		{name: "missing normal object", want: r2UploadObject},
+		{name: "existing normal object conflicts", exists: true, wantErr: true},
+		{name: "matching resume object is reused", exists: true, matches: true, resume: true, want: r2ReuseObject},
+		{name: "different resume object conflicts", exists: true, resume: true, wantErr: true},
+		{name: "force overwrites existing object", exists: true, force: true, want: r2UploadObject},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := chooseR2UploadAction(testCase.exists, testCase.matches, testCase.resume, testCase.force)
+			if (err != nil) != testCase.wantErr {
+				t.Fatalf("chooseR2UploadAction() error = %v, wantErr %t", err, testCase.wantErr)
+			}
+			if err == nil && got != testCase.want {
+				t.Fatalf("chooseR2UploadAction() = %v, want %v", got, testCase.want)
+			}
+		})
 	}
 }
 
@@ -92,6 +176,64 @@ func TestPlatformManifestsPairUpdateAndInstaller(t *testing.T) {
 	}
 	if !maps.Equal(platforms, want) {
 		t.Fatalf("platformManifests() = %#v, want %#v", platforms, want)
+	}
+}
+
+func TestValidateResumeManifestsAllowsPartialCascade(t *testing.T) {
+	t.Parallel()
+
+	version := mustVersion(t, "1.2.3-beta.2")
+	platforms := map[string]platformManifest{
+		"darwin-universal": {URL: "https://example.com/app.zip", SHA256: strings.Repeat("a", 64), Size: 10},
+	}
+	manifests := map[string]channelManifest{
+		"beta": {
+			Channel: "beta", Version: version.String(), Summary: "Summary", Notes: "Notes", Platforms: maps.Clone(platforms),
+		},
+		"dev": {
+			Channel: "dev", Version: "1.2.3-dev.8", Platforms: maps.Clone(platforms),
+		},
+	}
+	if err := validateResumeManifests(version, manifests, "Summary", "Notes", platforms); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateResumeManifestsRejectsConflicts(t *testing.T) {
+	t.Parallel()
+
+	version := mustVersion(t, "1.2.3-dev.7")
+	platforms := map[string]platformManifest{
+		"darwin-universal": {URL: "https://example.com/app.zip", SHA256: strings.Repeat("a", 64), Size: 10},
+	}
+	cases := []struct {
+		name     string
+		manifest channelManifest
+		want     string
+	}{
+		{
+			name: "same version different metadata",
+			manifest: channelManifest{
+				Channel: "dev", Version: version.String(), Summary: "Different", Notes: "Notes", Platforms: maps.Clone(platforms),
+			},
+			want: "conflicting release metadata",
+		},
+		{
+			name: "newer manifest",
+			manifest: channelManifest{
+				Channel: "dev", Version: "1.2.3-dev.8", Platforms: maps.Clone(platforms),
+			},
+			want: "older than",
+		},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			err := validateResumeManifests(version, map[string]channelManifest{"dev": testCase.manifest}, "Summary", "Notes", platforms)
+			if err == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("validateResumeManifests() error = %v, want %q", err, testCase.want)
+			}
+		})
 	}
 }
 

@@ -30,6 +30,7 @@ type publishOptions struct {
 	skipUpload      bool
 	skipWeb         bool
 	force           bool
+	resume          bool
 	r2Bucket        string
 	r2AccountID     string
 	r2AccessKey     string
@@ -76,6 +77,20 @@ type releaseArtifact struct {
 	size        int64
 }
 
+type releaseObject struct {
+	key          string
+	path         string
+	contentType  string
+	cacheControl string
+}
+
+type r2UploadAction int
+
+const (
+	r2UploadObject r2UploadAction = iota
+	r2ReuseObject
+)
+
 func publish(ctx context.Context, args []string) error {
 	options, err := parsePublishOptions(args)
 	if err != nil {
@@ -91,12 +106,14 @@ func publish(ctx context.Context, args []string) error {
 		if err := validatePublishSource(ctx, options.version); err != nil {
 			return err
 		}
-		manifests, err := readManifests(ctx)
-		if err != nil {
-			return err
-		}
-		if err := validateManifestAdvancement(options.version, manifests); err != nil {
-			return err
+		if !options.resume {
+			manifests, err := readManifests(ctx)
+			if err != nil {
+				return err
+			}
+			if err := validateManifestAdvancement(options.version, manifests); err != nil {
+				return err
+			}
 		}
 	}
 	p := &publisher{options: options}
@@ -132,18 +149,23 @@ func parsePublishOptions(args []string) (publishOptions, error) {
 			options.skipWeb = true
 		case "--force":
 			options.force = true
+		case "--resume":
+			options.resume = true
 		default:
 			if strings.HasPrefix(arg, "-") {
 				return publishOptions{}, fmt.Errorf("unknown flag %s", arg)
 			}
 			if versionText != "" {
-				return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force]")
+				return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force] [--resume]")
 			}
 			versionText = arg
 		}
 	}
 	if versionText == "" {
-		return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force]")
+		return publishOptions{}, errors.New("usage: release publish <version> [--skip-notarize] [--skip-upload] [--skip-web] [--force] [--resume]")
+	}
+	if options.resume && (options.skipNotarize || options.skipUpload || options.force) {
+		return publishOptions{}, errors.New("--resume cannot be combined with --skip-notarize, --skip-upload, or --force")
 	}
 	if options.skipNotarize && !options.skipUpload {
 		return publishOptions{}, errors.New("--skip-notarize requires --skip-upload; public releases must be notarized")
@@ -162,12 +184,15 @@ func parsePublishOptions(args []string) (publishOptions, error) {
 	options.r2AccessKey = os.Getenv("R2_ACCESS_KEY_ID")
 	options.r2SecretKey = os.Getenv("R2_SECRET_ACCESS_KEY")
 
-	missing := missingValues(map[string]string{
-		"MACOS_CERTIFICATE":     options.signCertificate,
-		"MACOS_CERTIFICATE_PWD": options.signPassword,
-		"MACOS_SIGN_IDENTITY":   options.signIdentity,
-	})
-	if !options.skipNotarize {
+	var missing []string
+	if !options.resume {
+		missing = missingValues(map[string]string{
+			"MACOS_CERTIFICATE":     options.signCertificate,
+			"MACOS_CERTIFICATE_PWD": options.signPassword,
+			"MACOS_SIGN_IDENTITY":   options.signIdentity,
+		})
+	}
+	if !options.skipNotarize && !options.resume {
 		missing = append(missing, missingValues(map[string]string{
 			"AC_API_KEY":       options.notaryKey,
 			"AC_API_KEY_ID":    options.notaryKeyID,
@@ -225,6 +250,10 @@ func (p *publisher) run(ctx context.Context) error {
 	}
 	p.commit = commit
 	p.buildDate = time.Now().UTC().Format(time.RFC3339)
+
+	if p.options.resume {
+		return p.resumePublish(ctx)
+	}
 
 	fmt.Printf("==> releasing %s (channel: %s -> manifests: %s)\n", p.options.version, p.options.version.channel(), strings.Join(p.options.version.affectedChannels(), " "))
 	// Deploy and verify the web landing page and worker before the app build, so a
@@ -294,7 +323,7 @@ func (p *publisher) run(ctx context.Context) error {
 	if err := validateManifestAdvancement(p.options.version, manifests); err != nil {
 		return err
 	}
-	return p.upload(ctx, artifacts)
+	return p.upload(ctx, artifacts, nil)
 }
 
 // writeChecksums writes one SHA256SUMS covering every artifact in the release.
@@ -313,12 +342,16 @@ func (p *publisher) preflight(ctx context.Context) error {
 		return err
 	}
 
-	// docker is required unconditionally: every release publishes Linux too, and
-	// the Linux binary is built in a container (the macOS host has no GTK4
-	// headers for CGO to link against).
-	tools := []string{"/usr/libexec/PlistBuddy", "SetFile", "codesign", "ditto", "docker", "hdiutil", "mise", "openssl", "security", "/usr/bin/unzip"}
-	if !p.options.skipNotarize {
-		tools = append(tools, "xcrun")
+	var tools []string
+	if p.options.resume {
+		tools = []string{"codesign", "hdiutil", "/usr/bin/unzip", "xcrun"}
+	} else {
+		// Every normal release builds Linux in a container because the macOS host
+		// has no GTK4 headers for CGO to link against.
+		tools = []string{"/usr/libexec/PlistBuddy", "SetFile", "codesign", "ditto", "docker", "hdiutil", "mise", "openssl", "security", "/usr/bin/unzip"}
+		if !p.options.skipNotarize {
+			tools = append(tools, "xcrun")
+		}
 	}
 	if !p.options.skipUpload {
 		// gh records the release on GitHub after upload; check it here so a missing
@@ -364,7 +397,7 @@ func (p *publisher) cleanup() error {
 }
 
 func (p *publisher) webEnabled() bool {
-	return !p.options.skipUpload && !p.options.skipWeb
+	return !p.options.skipUpload && !p.options.skipWeb && !p.options.resume
 }
 
 func (p *publisher) deployWeb(ctx context.Context) error {
@@ -664,34 +697,8 @@ func (p *publisher) packageApp(ctx context.Context) (releaseArtifact, error) {
 	}
 	fmt.Printf("%s  %s\n", checksum, zipName)
 
-	fmt.Println("==> verifying packaged app after plain ZIP extraction")
-	extracted := filepath.Join(p.workDir, "extracted")
-	if err := os.MkdirAll(extracted, 0o755); err != nil {
+	if err := p.verifyPackagedApp(ctx, zipPath); err != nil {
 		return releaseArtifact{}, err
-	}
-	if err := runCommand(ctx, "/usr/bin/unzip", "-q", zipPath, "-d", extracted); err != nil {
-		return releaseArtifact{}, err
-	}
-	extractedApp := filepath.Join(extracted, "Hive.app")
-	err = filepath.WalkDir(extractedApp, func(path string, entry os.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if strings.HasPrefix(entry.Name(), "._") {
-			return fmt.Errorf("packaged app contains signature-breaking AppleDouble file: %s", path)
-		}
-		return nil
-	})
-	if err != nil {
-		return releaseArtifact{}, err
-	}
-	if err := runCommand(ctx, "codesign", "--verify", "--deep", "--strict", "--verbose=2", extractedApp); err != nil {
-		return releaseArtifact{}, err
-	}
-	if !p.options.skipNotarize {
-		if err := runCommand(ctx, "xcrun", "stapler", "validate", extractedApp); err != nil {
-			return releaseArtifact{}, err
-		}
 	}
 	return releaseArtifact{
 		platformKey: "darwin-universal",
@@ -701,6 +708,53 @@ func (p *publisher) packageApp(ctx context.Context) (releaseArtifact, error) {
 		checksum:    checksum,
 		size:        size,
 	}, nil
+}
+
+func (p *publisher) verifyPackagedApp(ctx context.Context, zipPath string) error {
+	fmt.Println("==> verifying packaged app after plain ZIP extraction")
+	extracted := filepath.Join(p.workDir, "extracted")
+	if err := os.RemoveAll(extracted); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(extracted, 0o755); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "/usr/bin/unzip", "-q", zipPath, "-d", extracted); err != nil {
+		return err
+	}
+	extractedApp := filepath.Join(extracted, "Hive.app")
+	if err := filepath.WalkDir(extractedApp, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasPrefix(entry.Name(), "._") {
+			return fmt.Errorf("packaged app contains signature-breaking AppleDouble file: %s", path)
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := verifyCommitStamp(filepath.Join(extractedApp, "Contents", "MacOS", "hive-desktop"), p.commit, "packaged macOS app"); err != nil {
+		return err
+	}
+	if err := runCommand(ctx, "codesign", "--verify", "--deep", "--strict", "--verbose=2", extractedApp); err != nil {
+		return err
+	}
+	if p.options.skipNotarize {
+		return nil
+	}
+	return runCommand(ctx, "xcrun", "stapler", "validate", extractedApp)
+}
+
+func verifyCommitStamp(path, commit, label string) error {
+	stamped, err := fileContains(path, commit)
+	if err != nil {
+		return err
+	}
+	if !stamped {
+		return fmt.Errorf("%s does not carry commit %s", label, commit)
+	}
+	return nil
 }
 
 func fileChecksum(path string) (string, int64, error) {
@@ -717,26 +771,55 @@ func fileChecksum(path string) (string, int64, error) {
 	return hex.EncodeToString(hash.Sum(nil)), size, nil
 }
 
-func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) error {
+func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact, currentManifests map[string]channelManifest) error {
 	releasePrefix := "desktop/releases/" + p.options.version.String()
+	objects := make([]releaseObject, 0, len(artifacts)+1)
 	for _, artifact := range artifacts {
-		exists, err := p.r2Exists(ctx, releasePrefix+"/"+artifact.name)
+		objects = append(objects, releaseObject{
+			key:          releasePrefix + "/" + artifact.name,
+			path:         artifact.path,
+			contentType:  artifactContentType(artifact.name),
+			cacheControl: "public, max-age=31536000, immutable",
+		})
+	}
+	objects = append(objects, releaseObject{
+		key:          releasePrefix + "/SHA256SUMS",
+		path:         filepath.Join("desktop", "bin", "SHA256SUMS"),
+		contentType:  "text/plain",
+		cacheControl: "public, max-age=31536000, immutable",
+	})
+
+	pending := make([]releaseObject, 0, len(objects))
+	for _, object := range objects {
+		exists, err := p.r2Exists(ctx, object.key)
 		if err != nil {
 			return err
 		}
-		if exists && !p.options.force {
-			return fmt.Errorf("release %s already has %s in the bucket (immutable); use --force to overwrite", p.options.version, artifact.name)
+		matches := false
+		if exists && p.options.resume {
+			matches, err = p.r2ObjectMatches(ctx, object.key, object.path)
+			if err != nil {
+				return err
+			}
 		}
+		action, err := chooseR2UploadAction(exists, matches, p.options.resume, p.options.force)
+		if err != nil {
+			return fmt.Errorf("release %s already has %s in the bucket (immutable): %w", p.options.version, filepath.Base(object.key), err)
+		}
+		if action == r2ReuseObject {
+			fmt.Printf("==> reusing byte-identical R2 object: %s\n", object.key)
+			continue
+		}
+		pending = append(pending, object)
 	}
 
-	fmt.Printf("==> uploading artifacts to r2://%s/%s/\n", p.options.r2Bucket, releasePrefix)
-	for _, artifact := range artifacts {
-		if err := p.r2Put(ctx, releasePrefix+"/"+artifact.name, artifact.path, artifactContentType(artifact.name), "public, max-age=31536000, immutable"); err != nil {
+	if len(pending) > 0 {
+		fmt.Printf("==> uploading artifacts to r2://%s/%s/\n", p.options.r2Bucket, releasePrefix)
+	}
+	for _, object := range pending {
+		if err := p.r2Put(ctx, object.key, object.path, object.contentType, object.cacheControl); err != nil {
 			return err
 		}
-	}
-	if err := p.r2Put(ctx, releasePrefix+"/SHA256SUMS", filepath.Join("desktop", "bin", "SHA256SUMS"), "text/plain", "public, max-age=31536000, immutable"); err != nil {
-		return err
 	}
 
 	platforms, err := platformManifests(p.options.downloadBase, releasePrefix, artifacts)
@@ -751,6 +834,10 @@ func (p *publisher) upload(ctx context.Context, artifacts []releaseArtifact) err
 
 	pubDate := time.Now().UTC().Format(time.RFC3339)
 	for _, channel := range p.options.version.affectedChannels() {
+		if p.options.resume && manifestAlreadyPublished(p.options.version, channel, currentManifests) {
+			fmt.Printf("==> channel manifest already published: %s\n", channel)
+			continue
+		}
 		fmt.Printf("==> writing channel manifest: %s\n", channel)
 		manifest := channelManifest{
 			Channel:   channel,
@@ -817,6 +904,19 @@ func artifactContentType(name string) string {
 	}
 }
 
+func chooseR2UploadAction(exists, matches, resume, force bool) (r2UploadAction, error) {
+	if !exists || force {
+		return r2UploadObject, nil
+	}
+	if resume && matches {
+		return r2ReuseObject, nil
+	}
+	if resume {
+		return r2UploadObject, errors.New("remote object differs from the local resume artifact")
+	}
+	return r2UploadObject, errors.New("use --force to overwrite")
+}
+
 func (p *publisher) r2Endpoint(key string) string {
 	return fmt.Sprintf("https://%s.r2.cloudflarestorage.com/%s/%s", p.options.r2AccountID, p.options.r2Bucket, key)
 }
@@ -825,8 +925,21 @@ func (p *publisher) r2AuthArgs() []string {
 	return []string{"--aws-sigv4", "aws:amz:auto:s3", "--user", p.options.r2AccessKey + ":" + p.options.r2SecretKey}
 }
 
+func r2CurlRetryArgs() []string {
+	// Every R2 call is idempotent: HEAD/GET have no side effects and PUT writes
+	// the same bytes to the same key. That makes curl's broad transient retry
+	// safe here, including the TLS read failure that motivated resume support.
+	//
+	// Deliberately no --retry-max-time. curl starts that timer before the first
+	// attempt, so any cap short enough to bound a fast HEAD would strip retries
+	// from the 30MB+ artifact PUTs that need them most -- a transfer dying past
+	// the cap gets zero. The attempt count is the bound.
+	return []string{"--retry", "5", "--retry-all-errors", "--retry-delay", "2", "--connect-timeout", "30"}
+}
+
 func (p *publisher) r2Exists(ctx context.Context, key string) (bool, error) {
 	args := []string{"--silent", "--show-error", "--output", "/dev/null", "--write-out", "%{http_code}", "--head"}
+	args = append(args, r2CurlRetryArgs()...)
 	args = append(args, p.r2AuthArgs()...)
 	args = append(args, p.r2Endpoint(key))
 	output, err := commandOutput(ctx, "curl", args...)
@@ -845,9 +958,33 @@ func (p *publisher) r2Exists(ctx context.Context, key string) (bool, error) {
 
 func (p *publisher) r2Put(ctx context.Context, key, path, contentType, cacheControl string) error {
 	args := []string{"--fail", "--silent", "--show-error", "--request", "PUT", "--upload-file", path, "--header", "Content-Type: " + contentType, "--header", "Cache-Control: " + cacheControl}
+	args = append(args, r2CurlRetryArgs()...)
 	args = append(args, p.r2AuthArgs()...)
 	args = append(args, p.r2Endpoint(key))
 	return runCommand(ctx, "curl", args...)
+}
+
+func (p *publisher) r2ObjectMatches(ctx context.Context, key, localPath string) (bool, error) {
+	remotePath := filepath.Join(p.workDir, "remote-"+filepath.Base(key))
+	if err := os.Remove(remotePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	args := []string{"--fail", "--silent", "--show-error", "--output", remotePath}
+	args = append(args, r2CurlRetryArgs()...)
+	args = append(args, p.r2AuthArgs()...)
+	args = append(args, p.r2Endpoint(key))
+	if err := runCommand(ctx, "curl", args...); err != nil {
+		return false, fmt.Errorf("download existing R2 object %s: %w", key, err)
+	}
+	remoteChecksum, remoteSize, err := fileChecksum(remotePath)
+	if err != nil {
+		return false, err
+	}
+	localChecksum, localSize, err := fileChecksum(localPath)
+	if err != nil {
+		return false, err
+	}
+	return remoteChecksum == localChecksum && remoteSize == localSize, nil
 }
 
 func runCommand(ctx context.Context, name string, args ...string) error {
