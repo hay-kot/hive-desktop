@@ -38,6 +38,7 @@ vi.mock('@wailsio/runtime', () => ({
 
 import TasksView from '../TasksView.vue'
 import { resetTasksForTests, useTasks } from '../../composables/useTasks'
+import { resetToastsForTests, useToasts } from '../../composables/useToasts'
 
 interface TaskOverrides {
   status: string
@@ -79,6 +80,7 @@ describe('TasksView', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     resetTasksForTests()
+    resetToastsForTests()
     mocks.On.mockReturnValue(() => {})
     mocks.Focused.mockResolvedValue(true)
     mocks.ListTasks.mockResolvedValue([])
@@ -250,16 +252,19 @@ describe('TasksView', () => {
     expect(wrapper.find('[data-testid="error-dialog"]').exists()).toBe(false)
   })
 
-  it('copies the task id via the native clipboard', async () => {
+  it('copies the task id via the native clipboard, flipping the button to Copied', async () => {
     mocks.ListTasks.mockResolvedValue([task('t1')])
     mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
     const wrapper = mount(TasksView)
     await flushPromises()
     await selectRow(wrapper, 't1')
+    expect(wrapper.get('[data-testid="task-detail-copy-id"]').text()).toBe('t1')
 
     await wrapper.get('[data-testid="task-detail-copy-id"]').trigger('click')
+    await flushPromises()
 
     expect(mocks.SetText).toHaveBeenCalledWith('t1')
+    expect(wrapper.get('[data-testid="task-detail-copy-id"]').text()).toBe('Copied')
   })
 
   it('renders a vanished blocker by its bare id, and a checkpoint comment with its badge and stripped prefix', async () => {
@@ -339,7 +344,7 @@ describe('TasksView', () => {
     wrapper.unmount()
   })
 
-  it('copies the selected row id to the clipboard with y', async () => {
+  it('copies the selected row id to the clipboard with y and confirms it with a toast', async () => {
     mocks.ListTasks.mockResolvedValue([task('t1'), task('t2')])
     mocks.ReadTaskDetail.mockImplementation((id: string) => Promise.resolve(detailFrom(task(id))))
     const wrapper = mount(TasksView)
@@ -348,6 +353,29 @@ describe('TasksView', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
     await flushPromises()
     expect(mocks.SetText).toHaveBeenCalledWith('t1')
+
+    const { toasts } = useToasts()
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].message).toBe('Copied t1')
+    expect(toasts.value[0].severity).toBe('success')
+
+    wrapper.unmount()
+  })
+
+  it('reports a failed yank with an error toast instead of claiming success', async () => {
+    mocks.ListTasks.mockResolvedValue([task('t1')])
+    mocks.ReadTaskDetail.mockResolvedValue(detailFrom(task('t1')))
+    mocks.SetText.mockRejectedValueOnce(new Error('no clipboard'))
+    const wrapper = mount(TasksView)
+    await flushPromises()
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }))
+    await flushPromises()
+
+    const { toasts } = useToasts()
+    expect(toasts.value).toHaveLength(1)
+    expect(toasts.value[0].message).toBe('Could not copy to the clipboard')
+    expect(toasts.value[0].severity).toBe('error')
 
     wrapper.unmount()
   })

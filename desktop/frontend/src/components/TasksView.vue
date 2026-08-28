@@ -17,6 +17,7 @@ import TaskTreeRow from './TaskTreeRow.vue'
 import ViewHeader from './settings/ViewHeader.vue'
 import { useClipboard } from '../composables/useClipboard'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
+import { useToasts } from '../composables/useToasts'
 import { useOpenModalCount } from '../composables/useOpenModalCount'
 import { useTasks } from '../composables/useTasks'
 import { useTerminalSessions } from '../composables/useTerminalSessions'
@@ -144,11 +145,18 @@ onKeyStroke(['ArrowLeft', 'ArrowRight', 'h', 'l'], (event) => {
 
 // Vim yank: copies the focused row's id, the same string TaskDetailPane's own
 // copy button puts on the clipboard. 'y' has no default browser behaviour to
-// suppress, so unlike the arrows above this never calls preventDefault().
-const { copy: copySelectedId } = useClipboard()
+// suppress, so unlike the arrows above this never calls preventDefault(). A
+// yank has no button to flip to a check, so a toast is the feedback — the
+// feed's copy-link convention for anchor-less copies.
+const { copy: copySelectedId, status: yankStatus } = useClipboard()
+const { showToast } = useToasts()
 onKeyStroke('y', (event) => {
-  if (!selectedId.value || openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
-  void copySelectedId(selectedId.value)
+  const id = selectedId.value
+  if (!id || openModalCount.value > 0 || isEditableTarget(event.target) || event.defaultPrevented) return
+  void copySelectedId(id).then(() => {
+    if (yankStatus.value === 'error') showToast('Could not copy to the clipboard', { severity: 'error' })
+    else showToast(`Copied ${id}`, { severity: 'success' })
+  })
 })
 
 // ── Prune ────────────────────────────────────────────────────────────────

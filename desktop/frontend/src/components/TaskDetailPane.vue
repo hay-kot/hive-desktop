@@ -216,7 +216,7 @@ const { size: paneWidth, startResize, step } = useResizablePanel({
             data-testid="task-detail-copy-id"
             @click="copyId"
           >
-            <span class="max-w-[110px] truncate">{{ detail.id }}</span>
+            <span class="max-w-[110px] truncate">{{ idCopied ? 'Copied' : detail.id }}</span>
             <component :is="idCopied ? IconCheck : IconCopy" class="size-3 shrink-0" />
           </button>
         </div>
