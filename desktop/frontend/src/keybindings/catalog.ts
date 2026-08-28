@@ -8,6 +8,7 @@ import IconChevronRight from '~icons/lucide/chevron-right'
 import IconCommand from '~icons/lucide/command'
 import IconExternalLink from '~icons/lucide/external-link'
 import IconEye from '~icons/lucide/eye'
+import IconListTodo from '~icons/lucide/list-todo'
 import IconMailCheck from '~icons/lucide/mail-check'
 import IconMinus from '~icons/lucide/minus'
 import IconPanelLeft from '~icons/lucide/panel-left'
@@ -341,6 +342,18 @@ export const commandCatalog: BindableCommand[] = [
     keywords: ['bug', 'issue', 'feedback', 'diagnostics', 'crash', 'report'],
     icon: IconBug,
     defaultCombos: ['mod+shift+b'],
+    context: 'global',
+  },
+  // Grouped with the mode rows (Go to Inbox/Code/Chats) rather than General:
+  // it toggles a view on screen the same way those switch one, and that is
+  // where a user opening the palette to find it would look first.
+  {
+    id: 'tasks.toggle',
+    title: 'Toggle Tasks',
+    group: 'View',
+    keywords: ['tasks', 'honeycomb', 'hc', 'epics'],
+    icon: IconListTodo,
+    defaultCombos: ['mod+shift+t'],
     context: 'global',
   },
   {

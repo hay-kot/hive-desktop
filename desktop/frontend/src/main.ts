@@ -4,6 +4,7 @@
 import '@fontsource-variable/inter'
 import '@fontsource-variable/inter/wght-italic.css'
 import './styles/main.css'
+import './styles/markdown.css'
 
 import { createApp } from 'vue'
 import App from './App.vue'

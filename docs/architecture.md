@@ -19,8 +19,9 @@ individual choices; this document describes the shape everything fits into.
 > Several of those are enforced rather than reviewed: `depguard` fails a core
 > package that imports Wails or an adapter, and a second `depguard` rule fails
 > one that imports `internal/hivecore` outside a narrow, commented seam
-> allowlist (`app.go`, `dispatch/hive_adapters.go`, `store/dbext.go`, and the
-> tests that exercise them); `forbidigo` fails `application.Get`,
+> allowlist (`app.go`, `dispatch/hive_adapters.go`,
+> `dispatch/hive_hc_adapters.go`, `store/dbext.go`, and the tests that
+> exercise them); `forbidigo` fails `application.Get`,
 > `context.Background` or an `emit*` helper outside the adapter, `containedctx`
 > fails a stored request context, and `mise run check:bindings` fails a
 > service that moved without regenerating its bindings.

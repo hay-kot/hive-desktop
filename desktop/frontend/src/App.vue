@@ -30,6 +30,7 @@ import ProfileSettingsView from './components/ProfileSettingsView.vue'
 import SettingsView from './components/SettingsView.vue'
 import FlowsView from './pipeline/components/FlowsView.vue'
 import ActivityView from './components/ActivityView.vue'
+import TasksOverlay from './components/TasksOverlay.vue'
 import DeleteProfileModal from './components/DeleteProfileModal.vue'
 import NewProfileModal from './components/NewProfileModal.vue'
 import UnsavedFlowChangesModal from './components/UnsavedFlowChangesModal.vue'
@@ -40,6 +41,7 @@ import { useNotificationSettings } from './composables/useNotificationSettings'
 import { useActivity } from './composables/useActivity'
 import { useJobs } from './composables/useJobs'
 import { useFeedState } from './composables/useFeedState'
+import { useOpenModalCount } from './composables/useOpenModalCount'
 import { useCommands, useCommandPalette, type Command } from './composables/useCommands'
 import { useErrorDialog } from './composables/useErrorDialog'
 import { useReportDialog } from './composables/useReportDialog'
@@ -48,6 +50,7 @@ import { startFrameStats } from './composables/useFrameStats'
 import { useReleaseNotes } from './composables/useReleaseNotes'
 import { useNewSession } from './composables/useNewSession'
 import { usePopupTerminal } from './composables/usePopupTerminal'
+import { useTasks } from './composables/useTasks'
 import { sessionRepository } from './composables/useTerminalSessions'
 import { closeTerminalWindow, focusTerminalFilter, focusTerminalPane, focusTerminalTree, newTerminalWindow, selectTerminalWindow, stepTerminalWindow } from './lib/terminalTree'
 import { focusAgentsList, focusAgentsPane } from './lib/agentsTree'
@@ -361,6 +364,29 @@ const { activeJobs, hasActive: jobsActive } = useJobs()
 
 function openActivity(): void {
   void router.push({ name: 'activity' })
+}
+
+// Tasks is an overlay, not a route, so the titlebar icon toggles it — clicking
+// it while open closes it, matching the icon's tint communicating open state.
+const tasksOpen = ref(false)
+const { repoKey: tasksRepoKey } = useTasks()
+// The attached terminal session's resolved owner/repo, kept live by
+// TerminalMode's continuous report rather than read only on click, so every
+// way of opening Tasks — titlebar, keybinding, palette, the status-bar
+// button itself — scopes to it the same way.
+const terminalSessionRepoKey = ref('')
+
+// Every entry point funnels through this one toggle (see runMap's
+// 'tasks.toggle' and TitleBar/TerminalMode's open-tasks emit). Only an
+// *opening* click re-resolves the scope: closing must never move it, and a
+// session with no resolved repo (or the hub, with none at all) leaves the
+// persisted last-picked scope alone.
+function openTasks(): void {
+  const opening = !tasksOpen.value
+  if (opening && terminalActive.value && terminalSessionRepoKey.value) {
+    tasksRepoKey.value = terminalSessionRepoKey.value
+  }
+  tasksOpen.value = !tasksOpen.value
 }
 
 async function openJobRun(commandID: number): Promise<void> {
@@ -883,6 +909,7 @@ const runMap: Record<string, () => void | Promise<void>> = {
   'feed.mark-workspace-read': requestMarkWorkspaceRead,
   'palette.toggle': togglePalette,
   'report.open': openReportDialog,
+  'tasks.toggle': openTasks,
   'terminal.popup.toggle': togglePopupTerminal,
   // Reaching for the tree is also how you get a collapsed sidebar back: the
   // chord means "work in the session list", and a hidden panel is not an
@@ -945,10 +972,19 @@ function contextActive(context: CommandContext): boolean {
   }
 }
 
-// While an overlay owns the screen, only the palette toggle stays live.
-const anyOverlayOpen = computed(() =>
+// Every overlay except the tasks one — split out so onGlobalKeydown can let
+// tasks.toggle close the tasks overlay specifically, while it still stays
+// suppressed under any of these (report, new-profile, a confirm, ...), same
+// as every other command.
+const otherOverlayOpen = computed(() =>
   paletteOpen.value || reportDialogOpen.value || newProfileOpen.value || deleteProfileOpen.value || markWorkspaceReadOpen.value || newSessionOpen.value || !!sessionLaunchAction.value || !!actionInputsAction.value || !!pendingNavigation.value,
 )
+// While an overlay owns the screen, only the palette toggle stays live —
+// tasks.toggle gets its own narrower exception below.
+const anyOverlayOpen = computed(() => otherOverlayOpen.value || tasksOpen.value)
+// A BaseModal-backed confirm stacked inside the tasks overlay (delete, prune,
+// ...) must keep tasks.toggle from also closing the overlay underneath it.
+const openModalCount = useOpenModalCount()
 
 // Seed commands — reactive getter so they update when profiles/flows load.
 // Filtered by where the user is standing: a row whose command cannot fire
@@ -1206,7 +1242,14 @@ function onGlobalKeydown(e: KeyboardEvent): void {
   const hasModifier = mods.includes('mod') || mods.includes('ctrl') || mods.includes('alt')
   if (isEditableTarget(e.target) && !hasModifier) return
 
-  if (anyOverlayOpen.value && id !== 'palette.toggle') return
+  if (anyOverlayOpen.value && id !== 'palette.toggle') {
+    // tasks.toggle has to reach the dispatcher while its own overlay owns the
+    // screen — that is what lets it close again — but only that overlay: a
+    // different modal (report, new-profile, a confirm stacked inside Tasks
+    // itself) still swallows it like any other command.
+    const closesTasksOverlay = id === 'tasks.toggle' && tasksOpen.value && !otherOverlayOpen.value && openModalCount.value === 0
+    if (!closesTasksOverlay) return
+  }
   if (!contextActive(command.context)) return
 
   e.preventDefault()
@@ -1253,6 +1296,7 @@ onUnmounted(() => {
         :profile-name="onboardingActive ? undefined : activeProfile?.name ?? 'Loading'"
         :mode="mode"
         :activity-active="activityActive"
+        :tasks-active="tasksOpen"
         :error-count="errorCount"
         :unseen-activity="unseenActivity"
         :jobs-active="jobsActive"
@@ -1271,6 +1315,7 @@ onUnmounted(() => {
         @forward="router.forward()"
         @open-error-node="openErrorNode"
         @open-activity="openActivity"
+        @open-tasks="openTasks"
         @open-job-run="openJobRun"
         @open-update="openUpdate"
         @toggle-sidebar="toggleSidebar"
@@ -1310,6 +1355,8 @@ onUnmounted(() => {
         v-show="terminalActive"
         :active="terminalActive"
         :sidebar-collapsed="terminalSidebarCollapsed"
+        @open-tasks="openTasks"
+        @session-repo-key="terminalSessionRepoKey = $event"
       />
       <!-- Same treatment as terminal mode, for the same reason (ADR terminal-mode-is-hidden-not-unmounted):
            mount-once, hidden with v-show rather than unmounted. -->
@@ -1538,6 +1585,7 @@ onUnmounted(() => {
       @close="deleteProfileOpen = false"
       @confirm="confirmDeleteProfile"
     />
+    <TasksOverlay v-if="tasksOpen" @close="tasksOpen = false" />
     <!-- Deploying from this modal can raise the error dialog. Only one is
          rendered at a time: BaseModal closes on any Escape, so stacked
          overlays would both take a single keypress and drop the guard along

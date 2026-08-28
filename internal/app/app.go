@@ -111,6 +111,7 @@ type App struct {
 
 	PopupTerminals  *PopupTerminalsService
 	AgentWorkspaces *AgentWorkspacesService
+	Tasks           *TasksService
 
 	// Events is the typed pub/sub bus wailsui.Subscribe degrades into
 	// wake-up events for the frontend. Store is the one raw handle every
@@ -190,9 +191,10 @@ type App struct {
 
 	// Hive integration: sessions and internal events use Hive's own shared
 	// state and event bus, while this app keeps its own database.
-	launcher *dispatch.HiveSessionLauncher
-	sessions *dispatch.HiveSessionManager
-	hiveDB   *coredb.DB
+	launcher  *dispatch.HiveSessionLauncher
+	sessions  *dispatch.HiveSessionManager
+	hiveDB    *coredb.DB
+	honeycomb *dispatch.HiveHoneycomb
 
 	// agentCommands is agentCommands(hiveCfg)'s result: hive's agent profiles
 	// projected onto their bare command, with Flags dropped (ADR a-workspace-declares-its-own-authority). Set
@@ -418,6 +420,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	a.Terminals = newTerminalsService(a.terminals, tmuxcc.NopMetrics, a.Sessions, os.UserHomeDir)
 	a.PopupTerminals = newPopupTerminalsService(a.popupTerminals, a.Sessions, a.actionStore)
 	a.AgentWorkspaces = newAgentWorkspacesService(a.agentWorkspaceStore, a.terminals, a.Store, a.Skills, a.agentCommands, a.agentWorkspaceRootProblem, a.execEnv, a.Settings.Editor, a.mcpEndpoint)
+	// a.honeycomb holding a nil *dispatch.HiveHoneycomb would otherwise pass a
+	// non-nil taskSource whose nil-guard never fires — the explicit check keeps
+	// Tasks answering KindUnavailable instead.
+	var tasks taskSource
+	if a.honeycomb != nil {
+		tasks = a.honeycomb
+	}
+	a.Tasks = newTasksService(tasks)
 
 	return a, nil
 }
@@ -1031,6 +1041,7 @@ func (a *App) openHiveRuntime(ctx context.Context, cfg Config) error {
 		return fmt.Errorf("migrate hive action data: %w", err)
 	}
 	a.hiveDB = database
+	a.honeycomb = dispatch.NewHiveHoneycomb(hive.NewHoneycombService(stores.NewHCStore(database), cfg.Logger.With().Str("component", "hive-hc").Logger()))
 
 	bus := eventbus.New(64)
 	busCtx, cancel := context.WithCancel(ctx)

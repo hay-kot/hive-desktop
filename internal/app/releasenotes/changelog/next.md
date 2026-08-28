@@ -55,6 +55,12 @@ summary: "Terminal mode and the Chats area arrive, Grafana and exec join the con
   its branch, uncommitted and unpushed state, lines changed, and its pull
   request's review and CI status — plus the open-in-editor and show-in-Finder
   buttons a chat already had.
+- **A Tasks overlay over hive's `hc` issue tracker** — a tree and detail split
+  with filters, text search, keyboard navigation, status changes, and
+  delete/prune, reached from a titlebar icon and the command palette, and,
+  from a terminal session's status bar, scoped to that session's repository.
+  A poll picks up changes made outside the app, such as from the `hive hc`
+  CLI.
 
 ## Changed
 

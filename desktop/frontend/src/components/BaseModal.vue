@@ -3,6 +3,7 @@ import { computed, ref, type Component } from 'vue'
 import IconX from '~icons/lucide/x'
 import { useEscapeToClose } from '../composables/useEscapeToClose'
 import { useFocusTrap } from '../composables/useFocusTrap'
+import { useRegisterOpenModal } from '../composables/useOpenModalCount'
 import { useReturnFocus } from '../composables/useReturnFocus'
 
 const props = withDefaults(defineProps<{
@@ -43,6 +44,7 @@ function onBackdropClick(): void {
 useEscapeToClose(close, { enabled: () => props.closeOnEscape && !props.busy })
 const { onKeydown: trapFocus } = useFocusTrap(dialog)
 useReturnFocus()
+useRegisterOpenModal()
 </script>
 
 <template>

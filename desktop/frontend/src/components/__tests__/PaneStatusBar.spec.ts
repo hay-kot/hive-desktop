@@ -56,4 +56,21 @@ describe('PaneStatusBar', () => {
     const wrapper = mountBar({}, { default: '<span data-testid="chips">feat/parser</span>' })
     expect(wrapper.get('[data-testid="chips"]').text()).toBe('feat/parser')
   })
+
+  // Optional: an area with nothing to add there (Agents) renders the row
+  // exactly as before, so this slot cannot be a breaking change for it.
+  it('renders nothing extra in the right-hand cluster when no actions slot is given', () => {
+    const wrapper = mountBar({ editorTitle: 'Zed' })
+    const bar = wrapper.get('[data-testid="pane-statusbar"]')
+    expect(bar.findAll('button')).toHaveLength(2)
+  })
+
+  it('renders an area-specific action after open-editor and reveal', () => {
+    const wrapper = mountBar(
+      { editorTitle: 'Zed' },
+      { actions: '<button type="button" data-testid="extra-action">Extra</button>' },
+    )
+    const buttons = wrapper.get('[data-testid="pane-statusbar"]').findAll('button')
+    expect(buttons.at(-1)?.attributes('data-testid')).toBe('extra-action')
+  })
 })

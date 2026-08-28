@@ -7,6 +7,7 @@ describe('TitleBar', () => {
     const wrapper = mount(TitleBar, { props: {} })
     expect(wrapper.find('[data-testid="titlebar-toggle-sidebar"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="titlebar-activity"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="titlebar-tasks"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="titlebar-command-palette"]').exists()).toBe(false)
   })
 
@@ -21,6 +22,27 @@ describe('TitleBar', () => {
 
     await link.trigger('click')
     expect(wrapper.emitted('open-activity')).toHaveLength(1)
+  })
+
+  it('shows the Tasks icon once a profile is loaded and emits open-tasks on click', async () => {
+    const onboarding = mount(TitleBar, { props: {} })
+    expect(onboarding.find('[data-testid="titlebar-tasks"]').exists()).toBe(false)
+
+    const wrapper = mount(TitleBar, { props: { profileName: 'Triage' } })
+    const link = wrapper.find('[data-testid="titlebar-tasks"]')
+    expect(link.exists()).toBe(true)
+    expect(link.attributes('aria-label')).toBe('Open tasks')
+
+    await link.trigger('click')
+    expect(wrapper.emitted('open-tasks')).toHaveLength(1)
+  })
+
+  it('tints the Tasks icon when tasksActive', () => {
+    const inactive = mount(TitleBar, { props: { profileName: 'Triage' } })
+    expect(inactive.find('[data-testid="titlebar-tasks"]').classes()).not.toContain('text-accent')
+
+    const active = mount(TitleBar, { props: { profileName: 'Triage', tasksActive: true } })
+    expect(active.find('[data-testid="titlebar-tasks"]').classes()).toContain('text-accent')
   })
 
   it('exposes the report-a-problem icon and emits open-report on click', async () => {

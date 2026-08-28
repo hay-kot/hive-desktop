@@ -8,6 +8,7 @@ import { useResizablePanel } from '../composables/useResizablePanel'
 import { body, byline, container, containerLine, kind, kindIcon, kindLabel, kindStyle, presentationFor } from '../lib/itemPresentation'
 import { relativeAge } from '../lib/age'
 import { renderGithubMarkdown } from '../lib/githubMarkdown'
+import { externalMarkdownHref } from '../lib/markdownLinks'
 import IconEllipsis from '~icons/lucide/ellipsis'
 import IconSettings from '~icons/lucide/settings'
 import type { InboxEvent, InboxItem } from '../types/feed'
@@ -69,11 +70,8 @@ const bodyHtml = computed(() => (props.item ? renderGithubMarkdown(body(props.it
 // than navigate the webview away from the app. Intercept anchor clicks and
 // hand the href up to the parent, which routes it through Wails.
 function onBodyClick(event: MouseEvent) {
-  const anchor = (event.target as HTMLElement).closest('a')
-  if (!anchor) return
-  event.preventDefault()
-  const href = anchor.getAttribute('href') ?? ''
-  if (/^(https?:|mailto:)/i.test(href)) emit('open-url', href)
+  const href = externalMarkdownHref(event)
+  if (href) emit('open-url', href)
 }
 
 // DetailPane is docked on the right, so its handle sits on its left border —
@@ -216,80 +214,4 @@ const { size: bodyHeight, startResize: startBodyResize, step: stepBody } = useRe
 .session-dot-idle { background: var(--color-strong); }
 .session-meta { display: flex; gap: 5px; padding-left: 15px; color: var(--color-text-4); font-family: var(--font-mono); font-size: 10.5px; }
 
-/* Rendered issue/PR body (GitHub-flavored markdown). Its height is set inline
-   from the user-adjustable bodyHeight, so a long description scrolls internally
-   instead of burying the ACTIONS section. */
-.markdown-body :deep(h1), .markdown-body :deep(h2), .markdown-body :deep(h3),
-.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) {
-  margin: 20px 0 8px; color: var(--color-text); font-weight: 650; line-height: 1.3;
-}
-.markdown-body :deep(h1) { font-size: 19px; }
-.markdown-body :deep(h2) { font-size: 16.5px; }
-.markdown-body :deep(h3) { font-size: 15px; }
-.markdown-body :deep(h4), .markdown-body :deep(h5), .markdown-body :deep(h6) { font-size: 14px; }
-.markdown-body :deep(*:first-child) { margin-top: 0; }
-.markdown-body :deep(*:last-child) { margin-bottom: 0; }
-.markdown-body :deep(p) { margin: 10px 0; }
-.markdown-body :deep(a) { color: var(--color-accent); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
-.markdown-body :deep(a:hover) { text-decoration-thickness: 2px; }
-.markdown-body :deep(ul), .markdown-body :deep(ol) { margin: 10px 0; padding-left: 22px; }
-.markdown-body :deep(ul) { list-style: disc; }
-.markdown-body :deep(ol) { list-style: decimal; }
-.markdown-body :deep(li) { margin: 4px 0; }
-.markdown-body :deep(li)::marker { color: var(--color-text-4); }
-/* Task-list checkboxes: a small custom control instead of the bright, oversized
-   native checkbox. Rendered read-only (the plugin emits `disabled`). */
-.markdown-body :deep(ul.contains-task-list) { padding-left: 4px; }
-.markdown-body :deep(li.task-list-item) { list-style: none; }
-.markdown-body :deep(li.task-list-item input) {
-  appearance: none; -webkit-appearance: none;
-  position: relative; box-sizing: border-box;
-  width: 14px; height: 14px; margin: 0 8px 0 0; vertical-align: -2px;
-  border: 1.5px solid var(--color-strong); border-radius: 4px;
-  background: var(--color-app);
-}
-.markdown-body :deep(li.task-list-item input:checked) { background: var(--color-accent); border-color: var(--color-accent); }
-.markdown-body :deep(li.task-list-item input:checked)::after {
-  content: ''; position: absolute; left: 4px; top: 1px;
-  width: 3.5px; height: 7px; border: solid var(--color-accent-contrast);
-  border-width: 0 2px 2px 0; transform: rotate(45deg);
-}
-.markdown-body :deep(strong) { color: var(--color-text); font-weight: 650; }
-.markdown-body :deep(s) { color: var(--color-text-3); }
-.markdown-body :deep(blockquote) {
-  margin: 10px 0; padding: 2px 14px; border-left: 3px solid var(--color-border);
-  color: var(--color-text-3);
-}
-.markdown-body :deep(details) {
-  margin: 10px 0; padding: 8px 12px; border: 1px solid var(--color-border);
-  border-radius: 7px; background: var(--color-card);
-}
-.markdown-body :deep(summary) {
-  cursor: pointer; color: var(--color-text); font-weight: 650;
-}
-.markdown-body :deep(details[open] summary) { margin-bottom: 8px; }
-.markdown-body :deep(.markdown-alert) {
-  --alert-color: var(--color-accent);
-  margin: 10px 0; padding: 2px 14px; border-left: 3px solid var(--alert-color);
-  color: var(--color-text-2); background: color-mix(in srgb, var(--alert-color) 7%, transparent);
-}
-.markdown-body :deep(.markdown-alert-title) { color: var(--alert-color); font-weight: 650; }
-.markdown-body :deep(.markdown-alert-tip) { --alert-color: var(--color-kind-issue); }
-.markdown-body :deep(.markdown-alert-important) { --alert-color: var(--color-kind-pr); }
-.markdown-body :deep(.markdown-alert-warning),
-.markdown-body :deep(.markdown-alert-caution) { --alert-color: var(--color-severity-warning); }
-.markdown-body :deep(hr) { margin: 16px 0; border: 0; border-top: 1px solid var(--color-border); }
-.markdown-body :deep(code) {
-  padding: 1.5px 6px; border-radius: 5px; background: var(--color-card);
-  font-family: var(--font-mono); font-size: 0.86em;
-}
-.markdown-body :deep(pre) {
-  margin: 10px 0; padding: 12px 14px; overflow-x: auto; border-radius: 7px;
-  background: var(--color-card); line-height: 1.5;
-}
-.markdown-body :deep(pre code) { padding: 0; background: transparent; font-size: 0.86em; }
-.markdown-body :deep(table) { margin: 10px 0; border-collapse: collapse; display: block; overflow-x: auto; font-size: 0.95em; }
-.markdown-body :deep(th), .markdown-body :deep(td) { padding: 5px 11px; border: 1px solid var(--color-border); text-align: left; }
-.markdown-body :deep(th) { background: var(--color-card); font-weight: 650; }
-.markdown-body :deep(img) { max-width: 100%; }
 </style>
