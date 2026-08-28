@@ -34,10 +34,11 @@ type CanvasService struct {
 	store     *canvas.Store
 	sessions  canvasSessionResolver
 	onUpdated func(workspace string, session int64)
+	onToggled func(workspace string, session int64, name string, open bool)
 }
 
-func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(string, int64)) *CanvasService {
-	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated}
+func newCanvasService(store *canvas.Store, sessions canvasSessionResolver, onUpdated func(string, int64), onToggled func(string, int64, string, bool)) *CanvasService {
+	return &CanvasService{store: store, sessions: sessions, onUpdated: onUpdated, onToggled: onToggled}
 }
 
 // Get returns one canvas in the calling session's workspace. A name nothing
@@ -110,6 +111,27 @@ func (s *CanvasService) Clear(ctx context.Context, session int64, name string) (
 	}
 	s.notify(rec.Workspace, session)
 	return c, nil
+}
+
+// SetPaneOpen asks the UI to open or close the canvas pane beside the
+// calling chat — UI intent, applied only while the user is viewing that
+// chat, so an agent can surface what it made without ever dragging the user
+// away from something else. Opening with a name requires that canvas to
+// exist; empty leaves the pane's own pick.
+func (s *CanvasService) SetPaneOpen(ctx context.Context, session int64, name string, open bool) error {
+	rec, err := s.resolve(ctx, session)
+	if err != nil {
+		return err
+	}
+	if open && name != "" {
+		if _, err := s.Get(ctx, session, name); err != nil {
+			return err
+		}
+	}
+	if s.onToggled != nil {
+		s.onToggled(rec.Workspace, session, name, open)
+	}
+	return nil
 }
 
 // Delete removes one canvas file entirely.

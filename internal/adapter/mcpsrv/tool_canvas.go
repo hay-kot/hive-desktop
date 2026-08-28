@@ -58,6 +58,23 @@ func (ctrl *CanvasController) register(srv *mcp.Server) {
 	}, ctrl.ReadCanvas)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name:  "open_canvas",
+		Title: "Open the canvas pane",
+		Description: "Ask Hive to open the canvas pane beside this chat, optionally pinned to one canvas by name (the " +
+			"name must exist — put_block first). It applies only while the user is viewing this chat; it never pulls " +
+			"them away from something else, and a write while the pane is closed already shows an unseen dot. Open when " +
+			"you finish something worth looking at, not on every write.",
+	}, ctrl.OpenCanvas)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:  "close_canvas",
+		Title: "Close the canvas pane",
+		Description: "Ask Hive to close the canvas pane beside this chat, returning the full width to the " +
+			"conversation. Like open_canvas it applies only while the user is viewing this chat. The canvases " +
+			"themselves are untouched — this is the pane, not the content.",
+	}, ctrl.CloseCanvas)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name:  "list_canvases",
 		Title: "List the workspace's canvases",
 		Description: "List every canvas in this chat's workspace, most recently updated first: name, title, block count " +
@@ -129,6 +146,15 @@ type deleteCanvasResult struct {
 	Deleted string `json:"deleted" jsonschema:"The name of the canvas that was deleted."`
 }
 
+type openCanvasInput struct {
+	Session int64  `json:"session"          jsonschema:"The chat session calling the tool. Read it from this process's HIVE_AGENT_SESSION environment variable — Hive set it when it launched this chat. Never guess or reuse another value. If the variable is unset, say so instead of calling."`
+	Canvas  string `json:"canvas,omitempty" jsonschema:"Canvas to pin the pane to, by name; must exist. Omit to open on the pane's own pick."`
+}
+
+type paneResult struct {
+	Open bool `json:"open" jsonschema:"The pane state that was requested."`
+}
+
 func (ctrl *CanvasController) PutBlock(ctx context.Context, _ *mcp.CallToolRequest, in putBlockInput) (*mcp.CallToolResult, canvasResult, error) {
 	c, err := ctrl.core.Canvas.PutBlock(ctx, in.Session, in.Canvas, in.CanvasTitle, canvas.Block{
 		ID: in.ID, Kind: in.Kind, Title: in.Title, Body: in.Body, URL: in.URL,
@@ -168,6 +194,20 @@ func (ctrl *CanvasController) ReadCanvas(ctx context.Context, _ *mcp.CallToolReq
 		return nil, canvasResult{}, ctrl.toolError(err)
 	}
 	return nil, canvasResultFrom(c), nil
+}
+
+func (ctrl *CanvasController) OpenCanvas(ctx context.Context, _ *mcp.CallToolRequest, in openCanvasInput) (*mcp.CallToolResult, paneResult, error) {
+	if err := ctrl.core.Canvas.SetPaneOpen(ctx, in.Session, in.Canvas, true); err != nil {
+		return nil, paneResult{}, ctrl.toolError(err)
+	}
+	return nil, paneResult{Open: true}, nil
+}
+
+func (ctrl *CanvasController) CloseCanvas(ctx context.Context, _ *mcp.CallToolRequest, in canvasSessionInput) (*mcp.CallToolResult, paneResult, error) {
+	if err := ctrl.core.Canvas.SetPaneOpen(ctx, in.Session, "", false); err != nil {
+		return nil, paneResult{}, ctrl.toolError(err)
+	}
+	return nil, paneResult{Open: false}, nil
 }
 
 func (ctrl *CanvasController) ListCanvases(ctx context.Context, _ *mcp.CallToolRequest, in canvasSessionInput) (*mcp.CallToolResult, canvasListResult, error) {

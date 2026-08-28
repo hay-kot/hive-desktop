@@ -49,6 +49,11 @@ func registerEvents() struct{} {
 	// Canvas content is stored state, so the pane re-reads the canvas it is
 	// showing on receipt; coalescing can drop an id but never content.
 	application.RegisterEvent[int64]("canvas:updated")
+	// canvas:toggle carries an agent's ask to open or close the canvas pane
+	// beside its chat. Pane visibility is UI intent, not state to re-read, so
+	// the payload is the whole message; coalescing keeps only the latest ask,
+	// which is the final intent anyway.
+	application.RegisterEvent[CanvasToggle]("canvas:toggle")
 	// update:available carries the latest UpdateInfo when a self-update check
 	// finds a newer desktop release; the title bar reacts to it.
 	application.RegisterEvent[UpdateInfo]("update:available")
@@ -99,6 +104,9 @@ func Subscribe(ctx context.Context, bus *events.Bus, onFlowsUpdated func()) (can
 		}),
 		events.Subscribe(ctx, bus, "wailsui.canvas", events.Coalesce(), func(_ context.Context, e events.CanvasUpdated) {
 			emitCanvasUpdated(e.Session)
+		}),
+		events.Subscribe(ctx, bus, "wailsui.canvas-toggle", events.Coalesce(), func(_ context.Context, e events.CanvasToggleRequested) {
+			emitCanvasToggle(CanvasToggle{Session: e.Session, Name: e.Name, Open: e.Open})
 		}),
 		events.Subscribe(ctx, bus, "wailsui.connection", events.Coalesce(), func(_ context.Context, e events.ConnectionUpdated) {
 			emitConnectionUpdated(e.Provider)
@@ -164,6 +172,20 @@ func emitActivityAppended(id int64) {
 func emitCanvasUpdated(session int64) {
 	if app := application.Get(); app != nil {
 		app.Event.Emit("canvas:updated", session)
+	}
+}
+
+// CanvasToggle is the canvas:toggle payload: which chat's pane to open or
+// close, and the canvas to pin when opening (empty leaves the pane's pick).
+type CanvasToggle struct {
+	Session int64  `json:"session"`
+	Name    string `json:"name"`
+	Open    bool   `json:"open"`
+}
+
+func emitCanvasToggle(toggle CanvasToggle) {
+	if app := application.Get(); app != nil {
+		app.Event.Emit("canvas:toggle", toggle)
 	}
 }
 

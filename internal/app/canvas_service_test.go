@@ -24,16 +24,32 @@ type canvasUpdate struct {
 	session   int64
 }
 
-func testCanvasService(t *testing.T) (*CanvasService, *[]canvasUpdate) {
+type canvasToggle struct {
+	workspace string
+	session   int64
+	name      string
+	open      bool
+}
+
+type canvasSignals struct {
+	updates []canvasUpdate
+	toggles []canvasToggle
+}
+
+func testCanvasService(t *testing.T) (*CanvasService, *canvasSignals) {
 	t.Helper()
-	updates := &[]canvasUpdate{}
+	signals := &canvasSignals{}
 	sessions := fakeCanvasSessions{
 		1: {ID: 1, Workspace: "ws", Name: "chat", Agent: "claude"},
 	}
-	svc := newCanvasService(canvas.NewStore(t.TempDir()), sessions, func(workspace string, session int64) {
-		*updates = append(*updates, canvasUpdate{workspace, session})
-	})
-	return svc, updates
+	svc := newCanvasService(canvas.NewStore(t.TempDir()), sessions,
+		func(workspace string, session int64) {
+			signals.updates = append(signals.updates, canvasUpdate{workspace, session})
+		},
+		func(workspace string, session int64, name string, open bool) {
+			signals.toggles = append(signals.toggles, canvasToggle{workspace, session, name, open})
+		})
+	return svc, signals
 }
 
 func TestCanvasUnknownSessionIsNotFound(t *testing.T) {
@@ -55,15 +71,15 @@ func TestCanvasUnknownSessionIsNotFound(t *testing.T) {
 }
 
 func TestCanvasGetUnknownNameIsNotFound(t *testing.T) {
-	svc, updates := testCanvasService(t)
+	svc, signals := testCanvasService(t)
 
 	_, err := svc.Get(t.Context(), 1, "plan")
 	assert.Equal(t, KindNotFound, KindOf(err), "an agent asking by name should learn the name is wrong")
-	assert.Empty(t, *updates, "a read never notifies")
+	assert.Empty(t, signals.updates, "a read never notifies")
 }
 
 func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
-	svc, updates := testCanvasService(t)
+	svc, signals := testCanvasService(t)
 
 	c, err := svc.GetForWorkspace(t.Context(), "ws", "plan")
 	require.NoError(t, err)
@@ -71,11 +87,11 @@ func TestCanvasGetForWorkspaceUnwrittenAnswersEmpty(t *testing.T) {
 	assert.Equal(t, "plan", c.Name)
 	assert.NotNil(t, c.Blocks)
 	assert.Empty(t, c.Blocks)
-	assert.Empty(t, *updates, "a read never notifies")
+	assert.Empty(t, signals.updates, "a read never notifies")
 }
 
 func TestCanvasPutBlockValidation(t *testing.T) {
-	svc, updates := testCanvasService(t)
+	svc, signals := testCanvasService(t)
 	ctx := t.Context()
 
 	cases := map[string]canvas.Block{
@@ -100,11 +116,11 @@ func TestCanvasPutBlockValidation(t *testing.T) {
 	_, err = svc.PutBlock(ctx, 1, "plan", strings.Repeat("t", maxCanvasTitleLength+1), canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
 	assert.Equal(t, KindInvalid, KindOf(err), "an oversized canvas title is refused")
 
-	assert.Empty(t, *updates, "a refused write never notifies")
+	assert.Empty(t, signals.updates, "a refused write never notifies")
 }
 
 func TestCanvasMutationsNotify(t *testing.T) {
-	svc, updates := testCanvasService(t)
+	svc, signals := testCanvasService(t)
 	ctx := t.Context()
 
 	_, err := svc.PutBlock(ctx, 1, "plan", "The Plan", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
@@ -120,14 +136,14 @@ func TestCanvasMutationsNotify(t *testing.T) {
 	err = svc.Delete(ctx, 1, "plan")
 	require.NoError(t, err)
 
-	require.Len(t, *updates, 5)
-	for _, update := range *updates {
+	require.Len(t, signals.updates, 5)
+	for _, update := range signals.updates {
 		assert.Equal(t, canvasUpdate{"ws", 1}, update)
 	}
 }
 
 func TestCanvasMutationsOnUnknownCanvasAreNotFound(t *testing.T) {
-	svc, updates := testCanvasService(t)
+	svc, signals := testCanvasService(t)
 	ctx := t.Context()
 
 	_, err := svc.RemoveBlock(ctx, 1, "ghost", "a")
@@ -136,7 +152,30 @@ func TestCanvasMutationsOnUnknownCanvasAreNotFound(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindOf(err))
 	err = svc.Delete(ctx, 1, "ghost")
 	assert.Equal(t, KindNotFound, KindOf(err))
-	assert.Empty(t, *updates)
+	assert.Empty(t, signals.updates)
+}
+
+func TestCanvasSetPaneOpen(t *testing.T) {
+	svc, signals := testCanvasService(t)
+	ctx := t.Context()
+
+	require.NoError(t, svc.SetPaneOpen(ctx, 1, "", true), "opening without a name leaves the pane's own pick")
+	err := svc.SetPaneOpen(ctx, 1, "ghost", true)
+	assert.Equal(t, KindNotFound, KindOf(err), "opening pinned to a canvas requires it to exist")
+
+	_, err = svc.PutBlock(ctx, 1, "plan", "", canvas.Block{ID: "a", Kind: canvas.KindMarkdown, Body: "x"})
+	require.NoError(t, err)
+	require.NoError(t, svc.SetPaneOpen(ctx, 1, "plan", true))
+	require.NoError(t, svc.SetPaneOpen(ctx, 1, "", false))
+	err = svc.SetPaneOpen(ctx, 99, "", true)
+	assert.Equal(t, KindNotFound, KindOf(err))
+
+	assert.Equal(t, []canvasToggle{
+		{"ws", 1, "", true},
+		{"ws", 1, "plan", true},
+		{"ws", 1, "", false},
+	}, signals.toggles)
+	assert.Len(t, signals.updates, 1, "a pane toggle is not a content update")
 }
 
 func TestCanvasRemoveAbsentBlockIsNotFound(t *testing.T) {

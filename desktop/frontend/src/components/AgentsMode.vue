@@ -301,6 +301,16 @@ useWailsEvent('canvas:updated', (event) => {
 })
 watch(canvasVisible, (visible) => { if (visible) canvasUnseen.value = false })
 
+// An agent can ask to open or close the pane (open_canvas / close_canvas).
+// Honored only for the chat in view: an agent must never drag the user away
+// from a different chat — its write already lights the unseen dot there.
+useWailsEvent('canvas:toggle', (event) => {
+  const payload = (Array.isArray(event.data) ? event.data[0] : event.data) as
+    { session: number; name: string; open: boolean } | undefined
+  if (!payload || Number(payload.session) !== routeChatId.value) return
+  syncCanvasQuery(payload.open, payload.name || undefined)
+})
+
 async function resumeChatFromRoute(id: number): Promise<void> {
   await ready()
   if (!available.value) return

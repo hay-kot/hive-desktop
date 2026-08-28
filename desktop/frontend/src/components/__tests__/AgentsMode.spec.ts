@@ -453,6 +453,26 @@ describe('AgentsMode', () => {
     expect(wrapper.find('[data-testid="agents-canvas-unseen"]').exists()).toBe(false)
   })
 
+  // open_canvas / close_canvas arrive as canvas:toggle. Only the open chat's
+  // ask is honored — an agent must never drag the user away from another chat.
+  it('opens and closes the pane on canvas:toggle for the open chat only', async () => {
+    const { wrapper, router } = await mountWithOpenChat()
+
+    wailsEvents.fire('canvas:toggle', { session: 99, name: '', open: true })
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+
+    wailsEvents.fire('canvas:toggle', { session: 7, name: 'plan', open: true })
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBe('plan')
+    expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(true)
+
+    wailsEvents.fire('canvas:toggle', { session: 7, name: '', open: false })
+    await flushPromises()
+    expect(router.currentRoute.value.query.canvas).toBeUndefined()
+    expect(wrapper.find('[data-testid="agent-canvas-pane"]').exists()).toBe(false)
+  })
+
   // An unnamed chat is still a named chat — the default is applied at launch,
   // not left to the backend.
   it('defaults an unnamed chat to New Chat', async () => {

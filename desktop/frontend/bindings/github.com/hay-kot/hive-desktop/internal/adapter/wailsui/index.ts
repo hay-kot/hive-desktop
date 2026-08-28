@@ -61,6 +61,7 @@ export type {
     AgentsEndpoint,
     AppearanceSettings,
     BuildInfo,
+    CanvasToggle,
     DevToolsInfo,
     EditorChoice,
     EditorSettings,

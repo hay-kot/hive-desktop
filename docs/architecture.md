@@ -1554,9 +1554,13 @@ through the session record — the record is the authority, the agent never
 names the workspace. Writes exist only as the `hive-canvas` MCP tools (a
 second app-hosted server in `mcpsrv`, mounted at `/mcp/canvas`); the
 frontend reads over the agents HTTP client, addressed by (workspace, name),
-and re-reads on the coalesced `canvas:updated` wake-up. The agent learns its
-own session id from `HIVE_AGENT_SESSION`, injected at launch via
-`tmux new-session -e`. An app-hosted catalogue entry declares its mount as
+and re-reads on the coalesced `canvas:updated` wake-up. The agent can also
+ask to open or close the pane (`open_canvas`/`close_canvas`): pane
+visibility is UI intent, not stored state, so `canvas:toggle` carries the
+whole message — like `notification:activated` — and the frontend honors it
+only for the chat in view, never pulling the user away from another. The
+agent learns its own session id from `HIVE_AGENT_SESSION`, injected at
+launch via `tmux new-session -e`. An app-hosted catalogue entry declares its mount as
 `Descriptor.RuntimePath`, joined with the live loopback base when the
 catalogue is rendered; a pinning test in `mcpsrv` keeps those paths agreeing
 with the adapter's constants.

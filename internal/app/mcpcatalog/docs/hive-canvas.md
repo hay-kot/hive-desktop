@@ -36,6 +36,10 @@ which is how a status line is revised instead of duplicated.
 - `read_canvas` — read one canvas exactly as the user sees it.
 - `list_canvases` — every canvas in the workspace, including ones earlier
   chats made.
+- `open_canvas` / `close_canvas` — show or hide the pane beside this chat,
+  optionally pinned to one canvas. Applies only while the user is viewing
+  this chat; open when something is finished and worth looking at, not on
+  every write.
 
 Every tool takes a `session` id naming the calling chat. Hive sets it in the
 launched process's environment as `HIVE_AGENT_SESSION`; a chat launched

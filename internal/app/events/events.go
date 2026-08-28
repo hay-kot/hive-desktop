@@ -53,6 +53,17 @@ type CanvasUpdated struct {
 	Session   int64
 }
 
+// CanvasToggleRequested reports an agent asked to open or close the canvas
+// pane beside its chat. Unlike the wake-up events the payload is the whole
+// message — pane visibility is UI intent, not stored state to re-read. Name
+// pins one canvas when opening; empty leaves the pane's own pick.
+type CanvasToggleRequested struct {
+	Workspace string
+	Session   int64
+	Name      string
+	Open      bool
+}
+
 // ConnectionUpdated reports that one provider's stored credentials changed —
 // connected, rotated, or disconnected. Provider names which ("github"), so a
 // consumer can ignore a provider it does not use; the new state is not in the
@@ -83,5 +94,6 @@ func (FlowsUpdated) eventName() string           { return "flows.updated" }
 func (ActionsUpdated) eventName() string         { return "actions.updated" }
 func (AgentWorkspacesUpdated) eventName() string { return "agent-workspaces.updated" }
 func (CanvasUpdated) eventName() string          { return "canvas.updated" }
+func (CanvasToggleRequested) eventName() string  { return "canvas.toggle-requested" }
 func (ConnectionUpdated) eventName() string      { return "connection.updated" }
 func (NotificationRaised) eventName() string     { return "notification.raised" }

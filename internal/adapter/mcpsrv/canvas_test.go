@@ -98,7 +98,7 @@ func TestCanvasToolsListDeclaresEveryToolWithAnObjectInputSchema(t *testing.T) {
 		assert.Equal(t, "object", schema["type"], "tool %s input schema is not type object", tool.Name)
 	}
 
-	assert.ElementsMatch(t, []string{"put_block", "remove_block", "clear_canvas", "delete_canvas", "read_canvas", "list_canvases"}, names)
+	assert.ElementsMatch(t, []string{"put_block", "remove_block", "clear_canvas", "delete_canvas", "read_canvas", "list_canvases", "open_canvas", "close_canvas"}, names)
 }
 
 func TestCanvasRoundTrip(t *testing.T) {
@@ -159,6 +159,28 @@ func TestCanvasRoundTrip(t *testing.T) {
 	call(t, session, "list_canvases", map[string]any{"session": id}, &listed)
 	require.Len(t, listed.Canvases, 1)
 	assert.Equal(t, "plan", listed.Canvases[0].Name)
+}
+
+func TestCanvasPaneToggle(t *testing.T) {
+	core, session := testCanvasSession(t)
+	id := seedAgentSession(t, core, "demo", "chat")
+
+	var pane struct {
+		Open bool `json:"open"`
+	}
+	call(t, session, "open_canvas", map[string]any{"session": id}, &pane)
+	assert.True(t, pane.Open)
+
+	text := callErr(t, session, "open_canvas", map[string]any{"session": id, "canvas": "ghost"})
+	assert.Contains(t, text, "not_found", "pinning the pane to a canvas requires it to exist")
+
+	var got canvasView
+	call(t, session, "put_block", map[string]any{"session": id, "canvas": "plan", "id": "a", "kind": "markdown", "body": "x"}, &got)
+	call(t, session, "open_canvas", map[string]any{"session": id, "canvas": "plan"}, &pane)
+	assert.True(t, pane.Open)
+
+	call(t, session, "close_canvas", map[string]any{"session": id}, &pane)
+	assert.False(t, pane.Open)
 }
 
 func TestCanvasToolErrors(t *testing.T) {
